@@ -8,7 +8,16 @@ import { getPiSpawnCommand } from "./pi-spawn.ts";
 const POST_EXIT_STDIO_GUARD_MS = 3000;
 const FINAL_DRAIN_MS = 5000;
 const HARD_KILL_MS = 3000;
+const MAX_CAPTURE_BYTES = 256 * 1024;
 const activeChildProcesses = new Map<number, ChildProcess>();
+
+function appendBoundedTail(current: string, chunk: string, maxBytes = MAX_CAPTURE_BYTES): string {
+	const combined = current + chunk;
+	if (Buffer.byteLength(combined, "utf-8") <= maxBytes) return combined;
+	let tail = combined.slice(Math.max(0, combined.length - maxBytes));
+	while (Buffer.byteLength(tail, "utf-8") > maxBytes) tail = tail.slice(1024);
+	return `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]\n${tail}`;
+}
 
 function killProcessTree(pid: number | undefined): void {
 	if (!pid || !Number.isInteger(pid) || pid <= 0) return;
@@ -59,6 +68,63 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 	fs.appendFileSync(input.transcriptPath, `${line}\n`, "utf-8");
 }
 
+function compactContentPart(part: unknown): unknown | undefined {
+	const record = asRecord(part);
+	if (!record) return undefined;
+	if (record.type === "text") return { type: "text", text: typeof record.text === "string" ? record.text : "" };
+	if (record.type === "toolCall") return { type: "toolCall", name: record.name, input: record.input };
+	if (record.type === "toolResult") return { type: "toolResult", name: record.name, content: record.content };
+	return undefined;
+}
+
+function compactChildPiEvent(event: unknown): unknown | undefined {
+	const record = asRecord(event);
+	if (!record) return undefined;
+	if (record.type === "message_update") return undefined;
+	if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
+		return { type: record.type, toolName: record.toolName, args: record.args };
+	}
+	if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
+		const message = asRecord(record.message);
+		const content = Array.isArray(message?.content) ? message.content.map(compactContentPart).filter((part) => part !== undefined) : undefined;
+		return {
+			type: record.type,
+			...(typeof record.text === "string" ? { text: record.text } : {}),
+			...(message ? { message: { role: message.role, ...(content ? { content } : {}), usage: message.usage, model: message.model, errorMessage: message.errorMessage, stopReason: message.stopReason } } : {}),
+			usage: record.usage,
+			model: record.model,
+			provider: record.provider,
+			stopReason: record.stopReason,
+		};
+	}
+	return record.type ? { type: record.type } : undefined;
+}
+
+function displayTextFromCompactEvent(event: unknown): string | undefined {
+	const record = asRecord(event);
+	if (!record) return undefined;
+	if (record.type === "tool_execution_start") {
+		return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
+	}
+	const message = asRecord(record.message);
+	const content = Array.isArray(message?.content) ? message.content : [];
+	const text = content.flatMap((part) => {
+		const item = asRecord(part);
+		return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
+	}).join("\n").trim();
+	return text || (typeof record.text === "string" ? record.text : undefined);
+}
+
+function compactChildPiLine(line: string): { persistedLine: string; event?: unknown; displayLine?: string; json: boolean } {
+	try {
+		const parsed = JSON.parse(line);
+		const compact = compactChildPiEvent(parsed);
+		return { json: true, event: compact, persistedLine: compact ? JSON.stringify(compact) : "", displayLine: displayTextFromCompactEvent(compact) };
+	} catch {
+		return { json: false, persistedLine: line, displayLine: line };
+	}
+}
+
 export class ChildPiLineObserver {
 	private buffer = "";
 	private readonly input: ChildPiRunInput;
@@ -83,13 +149,10 @@ export class ChildPiLineObserver {
 
 	private emitLine(line: string): void {
 		if (!line.trim()) return;
-		appendTranscript(this.input, line);
-		this.input.onStdoutLine?.(line);
-		try {
-			this.input.onJsonEvent?.(JSON.parse(line));
-		} catch {
-			// Raw stdout is allowed.
-		}
+		const compact = compactChildPiLine(line);
+		if (compact.event !== undefined) this.input.onJsonEvent?.(compact.event);
+		if (compact.persistedLine) appendTranscript(this.input, compact.persistedLine);
+		if (compact.displayLine?.trim()) this.input.onStdoutLine?.(compact.displayLine);
 	}
 }
 
@@ -156,6 +219,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let forcedFinalDrain = false;
 			const lineObserver = new ChildPiLineObserver({
 				...input,
+				onStdoutLine: (line) => {
+					stdout = appendBoundedTail(stdout, `${line}\n`);
+					input.onStdoutLine?.(line);
+				},
 				onJsonEvent: (event) => {
 					input.onJsonEvent?.(event);
 					if (!isFinalAssistantEvent(event) || childExited || settled || finalDrainTimer) return;
@@ -202,12 +269,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 
 			input.signal?.addEventListener("abort", abort, { once: true });
 			child.stdout?.on("data", (chunk: Buffer) => {
-				const text = chunk.toString("utf-8");
-				stdout += text;
-				lineObserver.observe(text);
+				lineObserver.observe(chunk.toString("utf-8"));
 			});
 			child.stderr?.on("data", (chunk: Buffer) => {
-				stderr += chunk.toString("utf-8");
+				stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
 			});
 			child.on("error", (error) => {
 				settle({ exitCode: null, stdout, stderr, error: error.message });

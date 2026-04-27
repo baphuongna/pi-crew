@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { TeamRunManifest } from "../state/types.ts";
+import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
@@ -11,6 +11,12 @@ interface DashboardComponent {
 }
 
 type DashboardTheme = { fg?: (color: string, text: string) => string; bold?: (text: string) => string };
+
+export interface RunDashboardOptions {
+	showModel?: boolean;
+	showTokens?: boolean;
+	showTools?: boolean;
+}
 
 export type RunDashboardAction = "status" | "summary" | "artifacts" | "api" | "events" | "agents" | "agent-events" | "agent-output" | "agent-transcript" | "reload";
 export interface RunDashboardSelection {
@@ -89,12 +95,44 @@ function formatAge(iso: string | undefined): string | undefined {
 	return `${Math.floor(ms / 3_600_000)}h`;
 }
 
-function agentPreviewLine(agent: CrewAgentRecord): string {
+function readRunTasks(run: TeamRunManifest): TeamTaskState[] {
+	try {
+		if (!fs.existsSync(run.tasksPath)) return [];
+		const parsed = JSON.parse(fs.readFileSync(run.tasksPath, "utf-8"));
+		return Array.isArray(parsed) ? parsed as TeamTaskState[] : [];
+	} catch { return []; }
+}
+
+function formatTokens(usage: UsageState | undefined): string | undefined {
+	if (!usage) return undefined;
+	const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+	if (!total) return undefined;
+	const compact = total >= 1000 ? `${(total / 1000).toFixed(total >= 10_000 ? 0 : 1)}k` : `${total}`;
+	const parts = [`tok=${compact}`];
+	if (usage.input) parts.push(`in=${usage.input}`);
+	if (usage.output) parts.push(`out=${usage.output}`);
+	if (usage.cacheRead) parts.push(`cache=${usage.cacheRead}`);
+	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
+	return parts.join("/");
+}
+
+function taskForAgent(tasks: TeamTaskState[], agent: CrewAgentRecord): TeamTaskState | undefined {
+	return tasks.find((task) => task.id === agent.taskId);
+}
+
+function modelForTask(task: TeamTaskState | undefined): string | undefined {
+	const attempts = task?.modelAttempts;
+	if (!attempts?.length) return undefined;
+	return attempts.find((attempt) => attempt.success)?.model ?? attempts.at(-1)?.model;
+}
+
+function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefined, options: RunDashboardOptions): string {
 	const stats = [
 		agent.progress?.activityState,
-		agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : undefined,
-		agent.toolUses !== undefined ? `${agent.toolUses} tools` : undefined,
-		agent.progress?.tokens !== undefined ? `${agent.progress.tokens} tok` : undefined,
+		options.showModel !== false && modelForTask(task) ? `model=${modelForTask(task)}` : undefined,
+		options.showTokens !== false ? formatTokens(task?.usage) ?? (agent.progress?.tokens !== undefined ? `tok=${agent.progress.tokens}` : undefined) : undefined,
+		options.showTools !== false && agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : undefined,
+		options.showTools !== false && agent.toolUses !== undefined ? `${agent.toolUses} tools` : undefined,
 		agent.progress?.turns !== undefined ? `${agent.progress.turns} turns` : undefined,
 		agent.progress?.failedTool ? `failedTool=${agent.progress.failedTool}` : undefined,
 		agent.startedAt ? `age=${formatAge(agent.completedAt ?? agent.startedAt)}` : undefined,
@@ -103,11 +141,21 @@ function agentPreviewLine(agent: CrewAgentRecord): string {
 	return `Agent: ${statusIcon(agent.status)} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` · ${stats.join(" · ")}` : ""}${recent ? ` ⎿ ${recent}` : ""}`;
 }
 
-function readAgentPreview(run: TeamRunManifest, maxLines = 5): string[] {
+function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashboardOptions = {}): string[] {
 	try {
 		const agents = readCrewAgents(run);
+		const tasks = readRunTasks(run);
 		if (!agents.length) return ["Agents: (none)"];
-		return ["Agents:", ...agents.slice(0, maxLines).map(agentPreviewLine), ...(agents.length > maxLines ? [`Agents: +${agents.length - maxLines} more`] : [])];
+		const totals = tasks.reduce((acc, task) => {
+			acc.input += task.usage?.input ?? 0;
+			acc.output += task.usage?.output ?? 0;
+			acc.cacheRead += task.usage?.cacheRead ?? 0;
+			acc.cacheWrite += task.usage?.cacheWrite ?? 0;
+			acc.cost += task.usage?.cost ?? 0;
+			return acc;
+		}, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 });
+		const header = formatTokens(totals) ? `Agents: ${formatTokens(totals)}` : "Agents:";
+		return [header, ...agents.slice(0, maxLines).map((agent) => agentPreviewLine(agent, taskForAgent(tasks, agent), options)), ...(agents.length > maxLines ? [`Agents: +${agents.length - maxLines} more`] : [])];
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return [`Agents: failed to read (${message})`];
@@ -154,11 +202,13 @@ export class RunDashboard implements DashboardComponent {
 	private readonly runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
 	private readonly theme: DashboardTheme;
+	private readonly options: RunDashboardOptions;
 
-	constructor(runs: TeamRunManifest[], done: (selection: RunDashboardSelection | undefined) => void, theme: unknown = {}) {
+	constructor(runs: TeamRunManifest[], done: (selection: RunDashboardSelection | undefined) => void, theme: unknown = {}, options: RunDashboardOptions = {}) {
 		this.runs = runs;
 		this.done = done;
 		this.theme = theme as DashboardTheme;
+		this.options = options;
 	}
 
 	invalidate(): void {}
@@ -203,7 +253,7 @@ export class RunDashboard implements DashboardComponent {
 					selectedRun.async ? `Async: pid=${selectedRun.async.pid ?? "unknown"} log=${selectedRun.async.logPath}` : "Async: no",
 					`Goal: ${selectedRun.goal}`,
 				];
-				for (const detail of [...details, ...readAgentPreview(selectedRun), ...readProgressPreview(selectedRun, this.showFullProgress ? 20 : 5)]) {
+				for (const detail of [...details, ...readAgentPreview(selectedRun, this.showFullProgress ? 20 : 8, this.options), ...readProgressPreview(selectedRun, this.showFullProgress ? 20 : 5)]) {
 					lines.push(`│ ${padVisible(truncate(detail, innerWidth - 1), innerWidth - 1)}│`);
 				}
 			}

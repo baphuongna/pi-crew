@@ -86,7 +86,12 @@
       "properties": {
         "widgetPlacement": { "type": "string", "enum": ["aboveEditor", "belowEditor"] },
         "widgetMaxLines": { "type": "integer", "minimum": 1, "maximum": 50 },
-        "powerbar": { "type": "boolean" }
+        "powerbar": { "type": "boolean" },
+        "dashboardPlacement": { "type": "string", "enum": ["center", "right"], "description": "Place /team-dashboard as a centered overlay or right-side panel." },
+        "dashboardWidth": { "type": "integer", "minimum": 32, "maximum": 120 },
+        "showModel": { "type": "boolean", "description": "Show worker model attempts in dashboard agent rows." },
+        "showTokens": { "type": "boolean", "description": "Show token usage in dashboard agent rows." },
+        "showTools": { "type": "boolean", "description": "Show tool activity in dashboard agent rows." }
       }
     }
   }

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CrewUiConfig } from "../config/config.ts";
-import { listRuns } from "../extension/run-index.ts";
+import { listRecentRuns } from "../extension/run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
@@ -106,8 +106,7 @@ function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
 }
 
 function activeWidgetRuns(cwd: string): WidgetRun[] {
-	const runs = listRuns(cwd).slice(0, 20);
-	return runs.map((run) => ({ run, agents: agentsFor(run) })).filter((item) => isDisplayActiveRun(item.run, item.agents));
+	return listRecentRuns(cwd, 20).map((run) => ({ run, agents: agentsFor(run) })).filter((item) => isDisplayActiveRun(item.run, item.agents));
 }
 
 function statusSummary(runs: WidgetRun[]): string {
@@ -136,8 +135,8 @@ function shortRunLabel(run: TeamRunManifest): string {
 	return `${run.team}/${run.workflow ?? "none"}`;
 }
 
-export function buildCrewWidgetLines(cwd: string, frame = 0, maxLines = 8): string[] {
-	const runs = activeWidgetRuns(cwd);
+export function buildCrewWidgetLines(cwd: string, frame = 0, maxLines = 8, providedRuns?: WidgetRun[]): string[] {
+	const runs = providedRuns ?? activeWidgetRuns(cwd);
 	if (!runs.length) return [];
 	const runningGlyph = SPINNER[frame % SPINNER.length] ?? "⠋";
 	const lines: string[] = [widgetHeader(runs, runningGlyph)];
@@ -193,9 +192,10 @@ export function updateCrewWidget(ctx: Pick<ExtensionContext, "cwd" | "hasUI" | "
 	if (!ctx.hasUI) return;
 	state.frame += 1;
 	const maxLines = config?.widgetMaxLines ?? 10;
-	const lines = buildCrewWidgetLines(ctx.cwd, state.frame, maxLines);
+	const runs = activeWidgetRuns(ctx.cwd);
+	const lines = buildCrewWidgetLines(ctx.cwd, state.frame, maxLines, runs);
 	const placement = config?.widgetPlacement ?? "aboveEditor";
-	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(activeWidgetRuns(ctx.cwd)) : undefined);
+	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);
 	ctx.ui.setWidget(LEGACY_WIDGET_KEY, undefined, { placement });
 	if (!lines.length) {
 		ctx.ui.setWidget(WIDGET_KEY, undefined, { placement });

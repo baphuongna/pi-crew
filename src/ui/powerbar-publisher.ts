@@ -1,5 +1,5 @@
 import type { CrewUiConfig } from "../config/config.ts";
-import { listRuns } from "../extension/run-index.ts";
+import { listRecentRuns } from "../extension/run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 
@@ -17,7 +17,7 @@ export function registerPiCrewPowerbarSegments(events: EventBus, config?: CrewUi
 
 export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: CrewUiConfig): void {
 	if (config?.powerbar === false) return;
-	const active = listRuns(cwd).slice(0, 20).map((run) => {
+	const active = listRecentRuns(cwd, 20).map((run) => {
 		let agents = [] as ReturnType<typeof readCrewAgents>;
 		try { agents = readCrewAgents(run); } catch {}
 		return { run, agents };

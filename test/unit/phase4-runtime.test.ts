@@ -48,8 +48,35 @@ test("child Pi line observer preserves JSON events split across chunks", () => {
 		observer.observe('lo"}\nraw');
 		observer.flush();
 		assert.equal(events.length, 1);
-		assert.deepEqual(lines, ['{"type":"message","text":"hello"}', "raw"]);
+		assert.deepEqual(lines, ["hello", "raw"]);
 		assert.match(fs.readFileSync(transcriptPath, "utf-8"), /hello/);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("child Pi line observer drops noisy message updates from durable logs", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-line-observer-noise-"));
+	try {
+		const transcriptPath = path.join(dir, "transcript.jsonl");
+		const events: unknown[] = [];
+		const lines: string[] = [];
+		const observer = new ChildPiLineObserver({
+			cwd: dir,
+			task: "task",
+			agent: { name: "mock", description: "mock", source: "builtin", filePath: "mock.md", systemPrompt: "mock" },
+			transcriptPath,
+			onStdoutLine: (line) => lines.push(line),
+			onJsonEvent: (event) => events.push(event),
+		});
+		observer.observe(`${JSON.stringify({ type: "message_update", message: { content: [{ type: "thinking", thinkingSignature: "x".repeat(10_000) }] } })}\n`);
+		observer.observe(`${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } })}\n`);
+		observer.flush();
+		assert.equal(events.length, 1);
+		assert.equal(lines.length, 1);
+		const transcript = fs.readFileSync(transcriptPath, "utf-8");
+		assert.doesNotMatch(transcript, /thinkingSignature/);
+		assert.match(transcript, /done/);
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}

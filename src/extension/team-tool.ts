@@ -35,7 +35,7 @@ import { formatValidationReport, validateResources } from "./validate-resources.
 import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
 import { toolResult, type PiTeamsToolResult } from "./tool-result.ts";
 import { touchWorkerHeartbeat } from "../runtime/worker-heartbeat.ts";
-import { agentEventsPath, agentOutputPath, readCrewAgentEvents, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../runtime/crew-agent-records.ts";
+import { agentEventsPath, agentOutputPath, readCrewAgentEvents, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents, recordFromTask, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { resolveCrewRuntime } from "../runtime/runtime-resolver.ts";
 import { probeLiveSessionRuntime } from "../runtime/live-session-runtime.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../runtime/agent-control.ts";
@@ -57,6 +57,7 @@ type TeamContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<ExtensionContext
 	sessionManager?: { getBranch?: () => unknown[] };
 	events?: { emit?: (event: string, data: unknown) => void };
 	signal?: AbortSignal;
+	startForegroundRun?: (runner: (signal?: AbortSignal) => Promise<void>) => void;
 };
 
 function result(text: string, details: TeamToolDetails, isError = false): PiTeamsToolResult {
@@ -307,6 +308,24 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const runtime = await resolveCrewRuntime(effectiveRunConfig(loadedConfig.config, params.config));
 	const executeWorkers = runtime.kind === "child-process";
 	const executedConfig = effectiveRunConfig(loadedConfig.config, params.config);
+	if (executeWorkers && ctx.startForegroundRun) {
+		ctx.startForegroundRun(async (signal) => {
+			await executeTeamRun({ manifest: updatedManifest, tasks, team, workflow, agents, executeWorkers, limits: executedConfig.limits, runtime, runtimeConfig: executedConfig.runtime, parentContext: buildParentContext(ctx), parentModel: ctx.model, modelRegistry: ctx.modelRegistry, modelOverride: params.model, signal });
+		});
+		const text = [
+			`Started foreground pi-crew run ${updatedManifest.runId}.`,
+			`Team: ${team.name}`,
+			`Workflow: ${workflow.name}`,
+			"Status: running",
+			`Tasks: ${tasks.length}`,
+			`Runtime: ${runtime.kind}`,
+			`State: ${updatedManifest.stateRoot}`,
+			`Artifacts: ${updatedManifest.artifactsRoot}`,
+			"",
+			"The run continues in this Pi session without blocking the chat. It will be interrupted on session shutdown. Use /team-dashboard or /team-status to watch it.",
+		].join("\n");
+		return result(text, { action: "run", status: "ok", runId: updatedManifest.runId, artifactsRoot: updatedManifest.artifactsRoot });
+	}
 	const executed = await executeTeamRun({ manifest: updatedManifest, tasks, team, workflow, agents, executeWorkers, limits: executedConfig.limits, runtime, runtimeConfig: executedConfig.runtime, parentContext: buildParentContext(ctx), parentModel: ctx.model, modelRegistry: ctx.modelRegistry, modelOverride: params.model, signal: ctx.signal });
 	const text = [
 		`Created pi-crew run ${executed.manifest.runId}.`,
@@ -409,6 +428,8 @@ export function handleCancel(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		}
 		const tasks = loaded.tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled" as const, finishedAt: new Date().toISOString(), error: "Run cancelled by user request." } : task);
 		saveRunTasks(loaded.manifest, tasks);
+		try { saveCrewAgents(loaded.manifest, tasks.map((task) => recordFromTask(loaded.manifest, task, "child-process"))); } catch {}
+		try { writeForegroundInterruptRequest(loaded.manifest, "Run cancelled by user request."); } catch {}
 		const updated = updateRunStatus(loaded.manifest, "cancelled", "Run cancelled by user request. Already-finished worker processes are not retroactively changed.");
 		return result(`Cancelled run ${updated.runId}.`, { action: "cancel", status: "ok", runId: updated.runId, artifactsRoot: updated.artifactsRoot });
 	});

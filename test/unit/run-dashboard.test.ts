@@ -83,6 +83,34 @@ test("RunDashboard renders compact agent preview", () => {
 	}
 });
 
+test("RunDashboard renders model and token details from task state", () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dashboard-usage-"));
+	try {
+		const manifest = run("team_usage", "completed");
+		manifest.stateRoot = tmp;
+		manifest.tasksPath = path.join(tmp, "tasks.json");
+		fs.writeFileSync(manifest.tasksPath, JSON.stringify([{ id: "01", status: "completed", usage: { input: 1000, output: 250, cacheRead: 750 }, modelAttempts: [{ model: "configured-provider/configured-model", success: true, exitCode: 0 }] }]));
+		saveCrewAgents(manifest, [{
+			id: "team_usage:01",
+			runId: "team_usage",
+			taskId: "01",
+			agent: "verifier",
+			role: "verifier",
+			runtime: "child-process",
+			status: "completed",
+			startedAt: "2026-04-26T00:00:00.000Z",
+			completedAt: "2026-04-26T00:00:05.000Z",
+			progress: { recentTools: [], recentOutput: [], toolCount: 0 },
+		}]);
+		const dashboard = new RunDashboard([manifest], () => {}, {}, { showModel: true, showTokens: true });
+		const lines = dashboard.render(140);
+		assert.ok(lines.some((line) => line.includes("model=configured-provider/configured-model")));
+		assert.ok(lines.some((line) => line.includes("tok=2.0k")));
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
 test("RunDashboard renders progress preview", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dashboard-progress-"));
 	try {

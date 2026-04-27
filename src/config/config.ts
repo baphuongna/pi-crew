@@ -51,6 +51,11 @@ export interface CrewUiConfig {
 	widgetPlacement?: "aboveEditor" | "belowEditor";
 	widgetMaxLines?: number;
 	powerbar?: boolean;
+	dashboardPlacement?: "center" | "right";
+	dashboardWidth?: number;
+	showModel?: boolean;
+	showTokens?: boolean;
+	showTools?: boolean;
 }
 
 export interface AgentOverrideConfig {
@@ -309,6 +314,11 @@ function parseUiConfig(value: unknown): CrewUiConfig | undefined {
 		widgetPlacement: obj.widgetPlacement === "aboveEditor" || obj.widgetPlacement === "belowEditor" ? obj.widgetPlacement : undefined,
 		widgetMaxLines: parsePositiveInteger(obj.widgetMaxLines, 50),
 		powerbar: typeof obj.powerbar === "boolean" ? obj.powerbar : undefined,
+		dashboardPlacement: obj.dashboardPlacement === "center" || obj.dashboardPlacement === "right" ? obj.dashboardPlacement : undefined,
+		dashboardWidth: parsePositiveInteger(obj.dashboardWidth, 120),
+		showModel: typeof obj.showModel === "boolean" ? obj.showModel : undefined,
+		showTokens: typeof obj.showTokens === "boolean" ? obj.showTokens : undefined,
+		showTools: typeof obj.showTools === "boolean" ? obj.showTools : undefined,
 	};
 	return Object.values(ui).some((entry) => entry !== undefined) ? ui : undefined;
 }

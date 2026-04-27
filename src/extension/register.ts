@@ -112,6 +112,25 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	let cleanedUp = false;
 	const widgetState: CrewWidgetState = { frame: 0 };
 	const foregroundControllers = new Set<AbortController>();
+	const startForegroundRun = (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>): void => {
+		const controller = new AbortController();
+		foregroundControllers.add(controller);
+		setImmediate(() => {
+			void runner(controller.signal)
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					ctx.ui.notify(`pi-crew foreground run failed: ${message}`, "error");
+				})
+				.finally(() => {
+					foregroundControllers.delete(controller);
+					if (currentCtx) {
+						const config = loadConfig(currentCtx.cwd).config.ui;
+						updateCrewWidget(currentCtx, widgetState, config);
+						updatePiCrewPowerbar(pi.events, currentCtx.cwd, config);
+					}
+				});
+		});
+	};
 	registerAutonomousPolicy(pi);
 	rpcHandle = registerPiCrewRpc((pi as unknown as { events?: Parameters<typeof registerPiCrewRpc>[0] }).events, () => currentCtx);
 	const cleanupRuntime = (): void => {
@@ -163,7 +182,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			const abort = (): void => controller.abort();
 			signal?.addEventListener("abort", abort, { once: true });
 			try {
-				const output = await handleTeamTool(params as TeamToolParamsValue, { ...ctx, signal: controller.signal });
+				const output = await handleTeamTool(params as TeamToolParamsValue, { ...ctx, signal: controller.signal, startForegroundRun: (runner) => startForegroundRun(ctx, runner) });
 				const config = loadConfig(ctx.cwd).config.ui;
 				updateCrewWidget(ctx, widgetState, config);
 				updatePiCrewPowerbar(pi.events, ctx.cwd, config);
@@ -188,7 +207,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	pi.registerCommand("team-run", {
 		description: "Manually start a pi-crew run (agent may also use the team tool autonomously)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const result = await handleTeamTool(parseRunArgs(args), ctx);
+			const result = await handleTeamTool(parseRunArgs(args), { ...ctx, startForegroundRun: (runner) => startForegroundRun(ctx as ExtensionContext, runner) });
 			await notifyCommandResult(ctx, commandText(result));
 		},
 	});
@@ -363,9 +382,12 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			for (;;) {
 				const runs = listRuns(ctx.cwd).slice(0, 50);
-				const selection = await ctx.ui.custom<RunDashboardSelection | undefined>((_tui, theme, _keybindings, done) => new RunDashboard(runs, done, theme), {
+				const uiConfig = loadConfig(ctx.cwd).config.ui;
+				const rightPanel = uiConfig?.dashboardPlacement !== "center";
+				const width = rightPanel ? Math.min(120, Math.max(32, uiConfig?.dashboardWidth ?? 52)) : "90%";
+				const selection = await ctx.ui.custom<RunDashboardSelection | undefined>((_tui, theme, _keybindings, done) => new RunDashboard(runs, done, theme, { showModel: uiConfig?.showModel, showTokens: uiConfig?.showTokens, showTools: uiConfig?.showTools }), {
 					overlay: true,
-					overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center" },
+					overlayOptions: { width, minWidth: rightPanel ? 32 : undefined, maxHeight: "90%", anchor: rightPanel ? "right-center" : "center", offsetX: rightPanel ? -1 : 0, margin: rightPanel ? { top: 1, right: 1, bottom: 1, left: 0 } : 2 },
 				});
 				if (!selection) return;
 				if (selection.action === "reload") continue;

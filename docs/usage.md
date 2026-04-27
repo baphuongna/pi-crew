@@ -32,7 +32,12 @@ Supported fields:
   "ui": {
     "widgetPlacement": "aboveEditor",
     "widgetMaxLines": 8,
-    "powerbar": true
+    "powerbar": true,
+    "dashboardPlacement": "right",
+    "dashboardWidth": 52,
+    "showModel": true,
+    "showTokens": true,
+    "showTools": true
   }
 }
 ```

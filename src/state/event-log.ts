@@ -42,8 +42,13 @@ export type AppendTeamEvent = Omit<TeamEvent, "time" | "metadata"> & { metadata?
 
 const TERMINAL_EVENT_TYPES = new Set(["run.blocked", "run.completed", "run.failed", "run.cancelled", "task.completed", "task.failed", "task.cancelled", "task.skipped"]);
 
+const sequenceCache = new Map<string, { size: number; mtimeMs: number; seq: number }>();
+
 function nextSequence(eventsPath: string): number {
 	if (!fs.existsSync(eventsPath)) return 1;
+	const stat = fs.statSync(eventsPath);
+	const cached = sequenceCache.get(eventsPath);
+	if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.seq + 1;
 	let max = 0;
 	for (const line of fs.readFileSync(eventsPath, "utf-8").split("\n")) {
 		if (!line.trim()) continue;
@@ -54,6 +59,7 @@ function nextSequence(eventsPath: string): number {
 			max += 1;
 		}
 	}
+	sequenceCache.set(eventsPath, { size: stat.size, mtimeMs: stat.mtimeMs, seq: max });
 	return max + 1;
 }
 
@@ -82,6 +88,10 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 		fullEvent.metadata = metadata;
 	}
 	fs.appendFileSync(eventsPath, `${JSON.stringify(fullEvent)}\n`, "utf-8");
+	try {
+		const stat = fs.statSync(eventsPath);
+		sequenceCache.set(eventsPath, { size: stat.size, mtimeMs: stat.mtimeMs, seq: fullEvent.metadata?.seq ?? 0 });
+	} catch {}
 	return fullEvent;
 }
 

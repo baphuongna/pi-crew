@@ -169,10 +169,25 @@ Supported config:
   "ui": {
     "widgetPlacement": "aboveEditor",
     "widgetMaxLines": 8,
-    "powerbar": true
+    "powerbar": true,
+    "dashboardPlacement": "right",
+    "dashboardWidth": 52,
+    "showModel": true,
+    "showTokens": true,
+    "showTools": true
   }
 }
 ```
+
+Safety notes:
+
+- Foreground child-process runs continue in the Pi extension process and return control to chat immediately, so large workflows do not block the interactive session. They are interrupted on session shutdown. Use `async: true` only for intentionally detached runs that may survive the current session.
+
+UI notes:
+
+- `widgetPlacement`/`widgetMaxLines` keep the persistent active-run widget compact.
+- `dashboardPlacement: "right"` opens `/team-dashboard` as a right-side overlay panel instead of a centered modal.
+- `showModel`, `showTokens`, and `showTools` show worker model attempts, token usage, and tool activity in dashboard agent rows.
 
 Show config:
 

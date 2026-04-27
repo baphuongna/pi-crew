@@ -185,6 +185,24 @@ function applyUsageToProgress(progress: CrewAgentProgress | undefined, usage: Us
 	};
 }
 
+function shouldFlushProgressEvent(event: unknown): boolean {
+	const type = asRecord(event)?.type;
+	return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_end" || type === "tool_result_end";
+}
+
+function progressEventSummary(task: TeamTaskState, event: unknown): Record<string, unknown> {
+	const type = asRecord(event)?.type;
+	return {
+		eventType: typeof type === "string" ? type : "event",
+		currentTool: task.agentProgress?.currentTool,
+		toolCount: task.agentProgress?.toolCount,
+		tokens: task.agentProgress?.tokens,
+		turns: task.agentProgress?.turns,
+		activityState: task.agentProgress?.activityState,
+		lastActivityAt: task.agentProgress?.lastActivityAt,
+	};
+}
+
 function applyAgentProgressEvent(progress: CrewAgentProgress, event: unknown, startedAt: string | undefined): CrewAgentProgress {
 	const obj = asRecord(event);
 	const now = new Date().toISOString();
@@ -275,6 +293,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		let finalStderr = "";
 		modelAttempts = [];
 		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
+		let lastAgentRecordPersistedAt = 0;
+		let lastRunProgressPersistedAt = 0;
+		const persistChildProgress = (event: unknown, force = false): void => {
+			const now = Date.now();
+			if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
+				upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+				lastAgentRecordPersistedAt = now;
+			}
+			if (force || shouldFlushProgressEvent(event) || now - lastRunProgressPersistedAt >= 1000) {
+				appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: progressEventSummary(task, event) });
+				lastRunProgressPersistedAt = now;
+			}
+		};
 		for (let i = 0; i < attemptModels.length; i++) {
 			const model = attemptModels[i];
 			const attemptStartedAt = new Date();
@@ -291,8 +322,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					appendCrewAgentEvent(manifest, task.id, event);
 					task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 					tasks = updateTask(tasks, task);
-					upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
-					appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: { event } });
+					persistChildProgress(event);
 				},
 			});
 			startupEvidence = createStartupEvidence({ command: "pi", startedAt: attemptStartedAt, finishedAt: new Date(), promptSentAt: attemptStartedAt, promptAccepted: childResult.exitCode === 0 && !childResult.error, stderr: childResult.stderr, error: childResult.error, exitCode: childResult.exitCode });
@@ -301,6 +331,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			finalStderr = childResult.stderr;
 			parsedOutput = parsePiJsonOutput(childResult.stdout);
 			error = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : undefined);
+			persistChildProgress({ type: "attempt_finished" }, true);
 			const attempt: ModelAttemptSummary = { model: model ?? "default", success: !error, exitCode, error };
 			modelAttempts.push(attempt);
 			logs.push(`MODEL ATTEMPT ${i + 1}: ${attempt.model}`, `success=${attempt.success}`, `exitCode=${attempt.exitCode ?? "null"}`, attempt.error ? `error=${attempt.error}` : "", "");
@@ -339,6 +370,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		}
 	} else if (runtimeKind === "live-session") {
 		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
+		let lastAgentRecordPersistedAt = 0;
+		let lastRunProgressPersistedAt = 0;
+		const persistLiveProgress = (event: unknown, force = false): void => {
+			const now = Date.now();
+			if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
+				upsertCrewAgent(manifest, recordFromTask(manifest, task, "live-session"));
+				lastAgentRecordPersistedAt = now;
+			}
+			if (force || shouldFlushProgressEvent(event) || now - lastRunProgressPersistedAt >= 1000) {
+				appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: progressEventSummary(task, event) });
+				lastRunProgressPersistedAt = now;
+			}
+		};
 		const attemptStartedAt = new Date();
 		const liveResult = await runLiveSessionTask({
 			manifest,
@@ -357,8 +401,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				appendCrewAgentEvent(manifest, task.id, event);
 				task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 				tasks = updateTask(tasks, task);
-				upsertCrewAgent(manifest, recordFromTask(manifest, task, "live-session"));
-				appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: { event } });
+				persistLiveProgress(event);
 			},
 		});
 		startupEvidence = createStartupEvidence({ command: "live-session", startedAt: attemptStartedAt, finishedAt: new Date(), promptSentAt: attemptStartedAt, promptAccepted: liveResult.exitCode === 0 && !liveResult.error, stderr: liveResult.stderr, error: liveResult.error, exitCode: liveResult.exitCode });
@@ -366,6 +409,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		error = liveResult.error || (liveResult.exitCode && liveResult.exitCode !== 0 ? liveResult.stderr || `Live session exited with ${liveResult.exitCode}` : undefined);
 		parsedOutput = { finalText: liveResult.stdout, textEvents: liveResult.stdout ? [liveResult.stdout] : [], jsonEvents: liveResult.jsonEvents, usage: liveResult.usage };
 		if (liveResult.usage) task = { ...task, usage: liveResult.usage, agentProgress: applyUsageToProgress(task.agentProgress, liveResult.usage) };
+		persistLiveProgress({ type: "attempt_finished" }, true);
 		resultArtifact = writeArtifact(manifest.artifactsRoot, {
 			kind: "result",
 			relativePath: `results/${task.id}.txt`,

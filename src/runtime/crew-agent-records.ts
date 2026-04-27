@@ -52,8 +52,13 @@ export function readCrewAgentStatus(manifest: TeamRunManifest, taskOrAgentId: st
 	return readJsonFile<CrewAgentRecord>(agentStatusPath(manifest, taskId));
 }
 
+const agentEventSeqCache = new Map<string, { size: number; mtimeMs: number; seq: number }>();
+
 function nextAgentEventSeq(filePath: string): number {
 	if (!fs.existsSync(filePath)) return 1;
+	const stat = fs.statSync(filePath);
+	const cached = agentEventSeqCache.get(filePath);
+	if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.seq + 1;
 	let max = 0;
 	for (const line of fs.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
 		if (!line.trim()) continue;
@@ -65,13 +70,19 @@ function nextAgentEventSeq(filePath: string): number {
 			max += 1;
 		}
 	}
+	agentEventSeqCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, seq: max });
 	return max + 1;
 }
 
 export function appendCrewAgentEvent(manifest: TeamRunManifest, taskId: string, event: unknown): void {
 	fs.mkdirSync(agentStateDir(manifest, taskId), { recursive: true });
 	const filePath = agentEventsPath(manifest, taskId);
-	fs.appendFileSync(filePath, `${JSON.stringify({ seq: nextAgentEventSeq(filePath), time: new Date().toISOString(), event })}\n`, "utf-8");
+	const seq = nextAgentEventSeq(filePath);
+	fs.appendFileSync(filePath, `${JSON.stringify({ seq, time: new Date().toISOString(), event })}\n`, "utf-8");
+	try {
+		const stat = fs.statSync(filePath);
+		agentEventSeqCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, seq });
+	} catch {}
 }
 
 export interface CrewAgentEventCursorOptions {
