@@ -3,7 +3,7 @@
 This package is published as the scoped public npm package:
 
 ```text
-@baphuongna/pi-teams
+@bom0792/pi-teams
 ```
 
 Before publishing to npm:
@@ -47,7 +47,7 @@ npm publish --access public
 Users can install the published package with:
 
 ```bash
-pi install npm:@baphuongna/pi-teams
+pi install npm:@bom0792/pi-teams
 ```
 
 ## Config schema

@@ -54,7 +54,7 @@ Current highlights:
 From npm:
 
 ```bash
-pi install npm:@baphuongna/pi-teams
+pi install npm:@bom0792/pi-teams
 ```
 
 From the workspace root for local development:
