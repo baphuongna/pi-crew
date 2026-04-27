@@ -41,6 +41,21 @@ test("RunDashboard renders and selects runs", () => {
 	assert.deepEqual(selected, { runId: "team_b", action: "status" });
 });
 
+test("RunDashboard supports phase 5 observability hotkeys", () => {
+	let selected: RunDashboardSelection | undefined;
+	const dashboard = new RunDashboard([run("team_obs", "running")], (selection) => {
+		selected = selection;
+	});
+	dashboard.handleInput("d");
+	assert.deepEqual(selected, { runId: "team_obs", action: "agents" });
+	dashboard.handleInput("e");
+	assert.deepEqual(selected, { runId: "team_obs", action: "agent-events" });
+	dashboard.handleInput("o");
+	assert.deepEqual(selected, { runId: "team_obs", action: "agent-output" });
+	dashboard.handleInput("v");
+	assert.deepEqual(selected, { runId: "team_obs", action: "agent-transcript" });
+});
+
 test("RunDashboard renders progress preview", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dashboard-progress-"));
 	try {

@@ -610,8 +610,9 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 	}
 	if (operation === "read-agent-events") {
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
-		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
-		if (!agent) return result("API read-agent-events requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		const agents = readCrewAgents(loaded.manifest);
+		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
+		if (!agent) return result("API read-agent-events requires config.agentId matching an agent id or task id, or at least one agent in the run.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
 		const sinceSeq = typeof cfg.sinceSeq === "number" ? cfg.sinceSeq : undefined;
 		const limit = typeof cfg.limit === "number" ? cfg.limit : undefined;
 		const payload = sinceSeq !== undefined || limit !== undefined
@@ -621,16 +622,18 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 	}
 	if (operation === "read-agent-transcript") {
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
-		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
-		if (!agent) return result("API read-agent-transcript requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		const agents = readCrewAgents(loaded.manifest);
+		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
+		if (!agent) return result("API read-agent-transcript requires config.agentId matching an agent id or task id, or at least one agent in the run.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
 		const transcriptPath = agent.transcriptPath && fs.existsSync(agent.transcriptPath) ? agent.transcriptPath : agentOutputPath(loaded.manifest, agent.taskId);
 		const text = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf-8") : "";
 		return result(text || `(no transcript at ${transcriptPath})`, { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "read-agent-output") {
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
-		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
-		if (!agent) return result("API read-agent-output requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		const agents = readCrewAgents(loaded.manifest);
+		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
+		if (!agent) return result("API read-agent-output requires config.agentId matching an agent id or task id, or at least one agent in the run.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
 		const maxBytes = typeof cfg.maxBytes === "number" ? cfg.maxBytes : undefined;
 		return result(JSON.stringify(readAgentOutput(loaded.manifest, agent.taskId, maxBytes), null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}

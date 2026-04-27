@@ -159,21 +159,33 @@ function parseAutonomousConfig(value: unknown): PiTeamsAutonomousConfig | undefi
 	};
 }
 
-function parsePositiveInteger(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+const LIMIT_CEILINGS = {
+	maxConcurrentWorkers: 1024,
+	maxTaskDepth: 100,
+	maxChildrenPerTask: 1000,
+	maxRunMinutes: 1440,
+	maxRetriesPerTask: 100,
+	maxTasksPerRun: 10_000,
+	heartbeatStaleMs: 24 * 60 * 60 * 1000,
+	runtimeMaxTurns: 10_000,
+	runtimeGraceTurns: 1_000,
+} as const;
+
+function parsePositiveInteger(value: unknown, max = Number.MAX_SAFE_INTEGER): number | undefined {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= max ? value : undefined;
 }
 
 function parseLimitsConfig(value: unknown): CrewLimitsConfig | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
 	const obj = value as Record<string, unknown>;
 	const limits: CrewLimitsConfig = {
-		maxConcurrentWorkers: parsePositiveInteger(obj.maxConcurrentWorkers),
-		maxTaskDepth: parsePositiveInteger(obj.maxTaskDepth),
-		maxChildrenPerTask: parsePositiveInteger(obj.maxChildrenPerTask),
-		maxRunMinutes: parsePositiveInteger(obj.maxRunMinutes),
-		maxRetriesPerTask: parsePositiveInteger(obj.maxRetriesPerTask),
-		maxTasksPerRun: parsePositiveInteger(obj.maxTasksPerRun),
-		heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs),
+		maxConcurrentWorkers: parsePositiveInteger(obj.maxConcurrentWorkers, LIMIT_CEILINGS.maxConcurrentWorkers),
+		maxTaskDepth: parsePositiveInteger(obj.maxTaskDepth, LIMIT_CEILINGS.maxTaskDepth),
+		maxChildrenPerTask: parsePositiveInteger(obj.maxChildrenPerTask, LIMIT_CEILINGS.maxChildrenPerTask),
+		maxRunMinutes: parsePositiveInteger(obj.maxRunMinutes, LIMIT_CEILINGS.maxRunMinutes),
+		maxRetriesPerTask: parsePositiveInteger(obj.maxRetriesPerTask, LIMIT_CEILINGS.maxRetriesPerTask),
+		maxTasksPerRun: parsePositiveInteger(obj.maxTasksPerRun, LIMIT_CEILINGS.maxTasksPerRun),
+		heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs, LIMIT_CEILINGS.heartbeatStaleMs),
 	};
 	return Object.values(limits).some((entry) => entry !== undefined) ? limits : undefined;
 }
@@ -189,8 +201,8 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		mode: parseRuntimeMode(obj.mode),
 		preferLiveSession: typeof obj.preferLiveSession === "boolean" ? obj.preferLiveSession : undefined,
 		allowChildProcessFallback: typeof obj.allowChildProcessFallback === "boolean" ? obj.allowChildProcessFallback : undefined,
-		maxTurns: parsePositiveInteger(obj.maxTurns),
-		graceTurns: parsePositiveInteger(obj.graceTurns),
+		maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
+		graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
 		inheritContext: typeof obj.inheritContext === "boolean" ? obj.inheritContext : undefined,
 		promptMode: obj.promptMode === "replace" || obj.promptMode === "append" ? obj.promptMode : undefined,
 		groupJoin: obj.groupJoin === "off" || obj.groupJoin === "group" || obj.groupJoin === "smart" ? obj.groupJoin : undefined,

@@ -7,7 +7,7 @@ interface DashboardComponent {
 	handleInput(data: string): void;
 }
 
-export type RunDashboardAction = "status" | "summary" | "artifacts" | "api" | "reload";
+export type RunDashboardAction = "status" | "summary" | "artifacts" | "api" | "events" | "agents" | "agent-events" | "agent-output" | "agent-transcript" | "reload";
 export interface RunDashboardSelection {
 	runId: string;
 	action: RunDashboardAction;
@@ -65,7 +65,7 @@ export class RunDashboard implements DashboardComponent {
 		const lines = [
 			`╭${"─".repeat(borderWidth)}╮`,
 			`│ ${truncate("pi-crew dashboard", innerWidth - 1).padEnd(innerWidth - 1)}│`,
-			`│ ${truncate("↑/↓/j/k select • r reload • p progress • s/u/a/i actions • q close", innerWidth - 1).padEnd(innerWidth - 1)}│`,
+			`│ ${truncate("↑/↓/j/k select • r reload • p progress • s/u/a/i actions • d agents • e/v/o viewers • q close", innerWidth - 1).padEnd(innerWidth - 1)}│`,
 			`│ ${truncate(`Runs: ${this.runs.length} • ${countByStatus(this.runs)}`, innerWidth - 1).padEnd(innerWidth - 1)}│`,
 			`├${"─".repeat(borderWidth)}┤`,
 		];
@@ -122,6 +122,26 @@ export class RunDashboard implements DashboardComponent {
 		if (data === "i") {
 			const runId = this.runs[this.selected]?.runId;
 			this.done(runId ? { runId, action: "api" } : undefined);
+			return;
+		}
+		if (data === "d") {
+			const runId = this.runs[this.selected]?.runId;
+			this.done(runId ? { runId, action: "agents" } : undefined);
+			return;
+		}
+		if (data === "e") {
+			const runId = this.runs[this.selected]?.runId;
+			this.done(runId ? { runId, action: "agent-events" } : undefined);
+			return;
+		}
+		if (data === "o") {
+			const runId = this.runs[this.selected]?.runId;
+			this.done(runId ? { runId, action: "agent-output" } : undefined);
+			return;
+		}
+		if (data === "v") {
+			const runId = this.runs[this.selected]?.runId;
+			this.done(runId ? { runId, action: "agent-transcript" } : undefined);
 			return;
 		}
 		if (data === "r") {

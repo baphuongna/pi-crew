@@ -167,7 +167,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			const config: Record<string, unknown> = { operation };
 			for (const token of tokens.filter((item) => item.includes("="))) {
 				const [key, ...rest] = token.split("=");
-				if (key) config[key] = rest.join("=");
+				if (key) config[key] = parseScalar(rest.join("="));
 			}
 			const result = await handleTeamTool({ action: "api", runId, config }, ctx);
 			await notifyCommandResult(ctx, commandText(result));
@@ -255,7 +255,15 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				if (selection.action === "reload") continue;
 				const result = selection.action === "api"
 					? await handleTeamTool({ action: "api", runId: selection.runId, config: { operation: "read-manifest" } }, ctx)
-					: await handleTeamTool({ action: selection.action, runId: selection.runId }, ctx);
+					: selection.action === "agents"
+						? await handleTeamTool({ action: "api", runId: selection.runId, config: { operation: "agent-dashboard" } }, ctx)
+						: selection.action === "agent-events"
+							? await handleTeamTool({ action: "api", runId: selection.runId, config: { operation: "read-agent-events", limit: 50 } }, ctx)
+							: selection.action === "agent-output"
+								? await handleTeamTool({ action: "api", runId: selection.runId, config: { operation: "read-agent-output", maxBytes: 32_000 } }, ctx)
+								: selection.action === "agent-transcript"
+									? await handleTeamTool({ action: "api", runId: selection.runId, config: { operation: "read-agent-transcript" } }, ctx)
+									: await handleTeamTool({ action: selection.action, runId: selection.runId }, ctx);
 				await notifyCommandResult(ctx, commandText(result));
 				return;
 			}
