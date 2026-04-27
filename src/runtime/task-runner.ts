@@ -10,6 +10,8 @@ import { captureWorktreeDiff, prepareTaskWorkspace } from "../worktree/worktree-
 import { buildModelCandidates, formatModelAttemptNote, isRetryableModelFailure, type ModelAttemptSummary } from "./model-fallback.ts";
 import { parsePiJsonOutput, type ParsedPiJsonOutput } from "./pi-json-output.ts";
 import { runChildPi } from "./child-pi.ts";
+import { buildTaskPacket, renderTaskPacket } from "./task-packet.ts";
+import { createVerificationEvidence } from "./green-contract.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -43,7 +45,9 @@ function renderTaskPrompt(manifest: TeamRunManifest, step: WorkflowStep, task: T
 		"- Stay within the task scope unless the prompt explicitly says otherwise.",
 		"- Report blockers and verification evidence in the final result.",
 		"- Do not claim completion without evidence.",
+		"- Follow the Task Packet contract below; escalate if any contract field is impossible to satisfy.",
 		"",
+		task.taskPacket ? renderTaskPacket(task.taskPacket) : "",
 		"Task:",
 		step.task.replaceAll("{goal}", manifest.goal),
 	].join("\n");
@@ -56,10 +60,13 @@ function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): TeamTaskSta
 export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
 	let manifest = input.manifest;
 	const workspace = prepareTaskWorkspace(manifest, input.task);
+	const worktree = workspace.worktreePath && workspace.branch ? { path: workspace.worktreePath, branch: workspace.branch, reused: workspace.reused ?? false } : input.task.worktree;
+	const taskPacket = buildTaskPacket({ manifest, step: input.step, taskId: input.task.id, cwd: workspace.cwd, worktreePath: worktree?.path });
 	let task: TeamTaskState = {
 		...input.task,
 		cwd: workspace.cwd,
-		worktree: workspace.worktreePath && workspace.branch ? { path: workspace.worktreePath, branch: workspace.branch, reused: workspace.reused ?? false } : input.task.worktree,
+		worktree,
+		taskPacket,
 		status: "running",
 		startedAt: new Date().toISOString(),
 		claim: createTaskClaim(`task-runner:${input.task.id}`),
@@ -149,6 +156,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		usage: parsedOutput?.usage,
 		jsonEvents: parsedOutput?.jsonEvents,
 		error,
+		verification: createVerificationEvidence(taskPacket.verification, !error, error ? `Task failed: ${error}` : input.executeWorkers ? "Worker finished without reporting a verification failure." : "Safe scaffold mode; verification commands were not executed."),
 		promptArtifact,
 		resultArtifact,
 		claim: undefined,
@@ -156,7 +164,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		...(logArtifact ? { logArtifact } : {}),
 	};
 	tasks = updateTask(tasks, task);
-	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, ...(logArtifact ? [logArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
+	const packetArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: `metadata/${task.id}.task-packet.json`,
+		content: `${JSON.stringify(task.taskPacket, null, 2)}\n`,
+		producer: task.id,
+	});
+	const verificationArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: `metadata/${task.id}.verification.json`,
+		content: `${JSON.stringify(task.verification, null, 2)}\n`,
+		producer: task.id,
+	});
+	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, packetArtifact, verificationArtifact, ...(logArtifact ? [logArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
 	saveRunManifest(manifest);
 	saveRunTasks(manifest, tasks);
 	appendEvent(manifest.eventsPath, { type: error ? "task.failed" : "task.completed", runId: manifest.runId, taskId: task.id, message: error });

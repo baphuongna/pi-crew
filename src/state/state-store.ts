@@ -39,18 +39,29 @@ export function createRunPaths(cwd: string, runId = createRunId()): RunPaths {
 }
 
 export function createTasksFromWorkflow(runId: string, workflow: WorkflowConfig, team: TeamConfig, cwd: string): TeamTaskState[] {
+	const stepToTaskId = new Map(workflow.steps.map((step, index) => [step.id, createTaskId(step.id, index)]));
 	return workflow.steps.map((step, index) => {
 		const role = team.roles.find((candidate) => candidate.name === step.role);
+		const id = stepToTaskId.get(step.id) ?? createTaskId(step.id, index);
+		const dependencies = step.dependsOn ?? [];
+		const children = workflow.steps.filter((candidate) => candidate.dependsOn?.includes(step.id)).map((candidate) => stepToTaskId.get(candidate.id)).filter((childId): childId is string => childId !== undefined);
 		return {
-			id: createTaskId(step.id, index),
+			id,
 			runId,
 			stepId: step.id,
 			role: step.role,
 			agent: role?.agent ?? step.role,
 			title: step.id,
 			status: "queued",
-			dependsOn: step.dependsOn ?? [],
+			dependsOn: dependencies,
 			cwd,
+			graph: {
+				taskId: id,
+				parentId: dependencies[0] ? stepToTaskId.get(dependencies[0]) : undefined,
+				children,
+				dependencies: dependencies.map((dep) => stepToTaskId.get(dep) ?? dep),
+				queue: dependencies.length ? "blocked" : "ready",
+			},
 		};
 	});
 }

@@ -3,6 +3,7 @@ import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
+import { loadConfig } from "../config/config.ts";
 import { executeTeamRun } from "./team-runner.ts";
 
 function argValue(name: string): string | undefined {
@@ -27,8 +28,9 @@ async function main(): Promise<void> {
 		const workflow = allWorkflows(discoverWorkflows(cwd)).find((candidate) => candidate.name === manifest.workflow);
 		if (!workflow) throw new Error(`Workflow '${manifest.workflow ?? ""}' not found.`);
 		const agents = allAgents(discoverAgents(cwd));
-		const executeWorkers = process.env.PI_TEAMS_EXECUTE_WORKERS === "1";
-		const result = await executeTeamRun({ manifest, tasks, team, workflow, agents, executeWorkers });
+		const loadedConfig = loadConfig(cwd);
+		const executeWorkers = loadedConfig.config.executeWorkers === true || process.env.PI_TEAMS_EXECUTE_WORKERS === "1";
+		const result = await executeTeamRun({ manifest, tasks, team, workflow, agents, executeWorkers, limits: loadedConfig.config.limits });
 		manifest = result.manifest;
 		tasks = result.tasks;
 		appendEvent(manifest.eventsPath, { type: "async.completed", runId: manifest.runId, data: { status: manifest.status, tasks: tasks.length } });

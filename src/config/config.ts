@@ -13,12 +13,23 @@ export interface PiTeamsAutonomousConfig {
 	magicKeywords?: Record<string, string[]>;
 }
 
+export interface CrewLimitsConfig {
+	maxConcurrentWorkers?: number;
+	maxTaskDepth?: number;
+	maxChildrenPerTask?: number;
+	maxRunMinutes?: number;
+	maxRetriesPerTask?: number;
+	maxTasksPerRun?: number;
+	heartbeatStaleMs?: number;
+}
+
 export interface PiTeamsConfig {
 	asyncByDefault?: boolean;
 	executeWorkers?: boolean;
 	notifierIntervalMs?: number;
 	requireCleanWorktreeLeader?: boolean;
 	autonomous?: PiTeamsAutonomousConfig;
+	limits?: CrewLimitsConfig;
 }
 
 export interface LoadedPiTeamsConfig {
@@ -58,6 +69,12 @@ function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfi
 		merged.autonomous = {
 			...(base.autonomous ?? {}),
 			...withoutUndefined((override.autonomous ?? {}) as Record<string, unknown>),
+		};
+	}
+	if (base.limits || override.limits) {
+		merged.limits = {
+			...(base.limits ?? {}),
+			...withoutUndefined((override.limits ?? {}) as Record<string, unknown>),
 		};
 	}
 	return merged;
@@ -110,6 +127,25 @@ function parseAutonomousConfig(value: unknown): PiTeamsAutonomousConfig | undefi
 	};
 }
 
+function parsePositiveInteger(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function parseLimitsConfig(value: unknown): CrewLimitsConfig | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const obj = value as Record<string, unknown>;
+	const limits: CrewLimitsConfig = {
+		maxConcurrentWorkers: parsePositiveInteger(obj.maxConcurrentWorkers),
+		maxTaskDepth: parsePositiveInteger(obj.maxTaskDepth),
+		maxChildrenPerTask: parsePositiveInteger(obj.maxChildrenPerTask),
+		maxRunMinutes: parsePositiveInteger(obj.maxRunMinutes),
+		maxRetriesPerTask: parsePositiveInteger(obj.maxRetriesPerTask),
+		maxTasksPerRun: parsePositiveInteger(obj.maxTasksPerRun),
+		heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs),
+	};
+	return Object.values(limits).some((entry) => entry !== undefined) ? limits : undefined;
+}
+
 function parseConfig(raw: unknown): PiTeamsConfig {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
 	const obj = raw as Record<string, unknown>;
@@ -119,6 +155,7 @@ function parseConfig(raw: unknown): PiTeamsConfig {
 		notifierIntervalMs: typeof obj.notifierIntervalMs === "number" && Number.isFinite(obj.notifierIntervalMs) && obj.notifierIntervalMs >= 1000 ? obj.notifierIntervalMs : undefined,
 		requireCleanWorktreeLeader: typeof obj.requireCleanWorktreeLeader === "boolean" ? obj.requireCleanWorktreeLeader : undefined,
 		autonomous: parseAutonomousConfig(obj.autonomous),
+		limits: parseLimitsConfig(obj.limits),
 	};
 }
 

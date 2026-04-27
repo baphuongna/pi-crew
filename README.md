@@ -37,6 +37,7 @@ Current highlights:
 - retryable model fallback attempts per task
 - aggregate usage totals in status/summary
 - progress, summary, prompt, result, log, diff, patch, export artifacts
+- task packets, verification/green-contract evidence, policy decision artifacts, and task graph metadata
 - opt-in git worktree isolation per task
 - worktree branch mismatch detection
 - dirty worktree preservation unless `force` is explicitly set
@@ -154,6 +155,14 @@ Supported config:
     "magicKeywords": {
       "review": ["review", "audit", "inspect"]
     }
+  },
+  "limits": {
+    "maxConcurrentWorkers": 3,
+    "maxTaskDepth": 2,
+    "maxChildrenPerTask": 5,
+    "maxRunMinutes": 60,
+    "maxRetriesPerTask": 1,
+    "heartbeatStaleMs": 60000
   }
 }
 ```

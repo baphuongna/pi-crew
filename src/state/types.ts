@@ -14,6 +14,66 @@ export interface ArtifactDescriptor {
 	expiresAt?: string;
 }
 
+export type TaskScope = "workspace" | "module" | "single_file" | "custom";
+export type GreenLevel = "none" | "targeted" | "package" | "workspace" | "merge_ready";
+
+export interface VerificationCommandResult {
+	cmd: string;
+	status: "passed" | "failed" | "not_run";
+	exitCode?: number | null;
+	outputArtifact?: ArtifactDescriptor;
+}
+
+export interface VerificationContract {
+	requiredGreenLevel: GreenLevel;
+	commands: string[];
+	allowManualEvidence: boolean;
+}
+
+export interface VerificationEvidence {
+	requiredGreenLevel: GreenLevel;
+	observedGreenLevel: GreenLevel;
+	satisfied: boolean;
+	commands: VerificationCommandResult[];
+	notes?: string;
+}
+
+export interface TaskPacket {
+	objective: string;
+	scope: TaskScope;
+	scopePath?: string;
+	repo: string;
+	worktree?: string;
+	branchPolicy: string;
+	acceptanceTests: string[];
+	commitPolicy: string;
+	reportingContract: string;
+	escalationPolicy: string;
+	constraints: string[];
+	expectedArtifacts: string[];
+	verification: VerificationContract;
+}
+
+export type PolicyDecisionAction = "retry" | "reassign" | "escalate" | "block" | "notify" | "cleanup" | "closeout";
+export type PolicyDecisionReason = "task_failed" | "worker_stale" | "green_unsatisfied" | "limit_exceeded" | "run_complete" | "mailbox_timeout" | "review_rejected" | "branch_stale" | "scope_mismatch";
+
+export interface PolicyDecision {
+	action: PolicyDecisionAction;
+	reason: PolicyDecisionReason;
+	message: string;
+	taskId?: string;
+	createdAt: string;
+}
+
+export interface TaskGraphNode {
+	taskId: string;
+	parentId?: string;
+	children: string[];
+	dependencies: string[];
+	queue: "ready" | "blocked" | "running" | "done";
+	sessionForkFrom?: string;
+}
+
 export interface AsyncRunState {
 	pid?: number;
 	logPath: string;
@@ -38,6 +98,7 @@ export interface TeamRunManifest {
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
 	summary?: string;
+	policyDecisions?: PolicyDecision[];
 }
 
 export interface UsageState {
@@ -85,4 +146,11 @@ export interface TeamTaskState {
 	error?: string;
 	claim?: TaskClaimState;
 	heartbeat?: WorkerHeartbeatState;
+	taskPacket?: TaskPacket;
+	verification?: VerificationEvidence;
+	graph?: TaskGraphNode;
+	policy?: {
+		retryCount?: number;
+		lastDecision?: PolicyDecision;
+	};
 }

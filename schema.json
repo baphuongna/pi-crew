@@ -40,6 +40,20 @@
           }
         }
       }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Runtime safety limits for crew workers and policy decisions.",
+      "properties": {
+        "maxConcurrentWorkers": { "type": "integer", "minimum": 1 },
+        "maxTaskDepth": { "type": "integer", "minimum": 1 },
+        "maxChildrenPerTask": { "type": "integer", "minimum": 1 },
+        "maxRunMinutes": { "type": "integer", "minimum": 1 },
+        "maxRetriesPerTask": { "type": "integer", "minimum": 1 },
+        "maxTasksPerRun": { "type": "integer", "minimum": 1 },
+        "heartbeatStaleMs": { "type": "integer", "minimum": 1 }
+      }
     }
   }
 }

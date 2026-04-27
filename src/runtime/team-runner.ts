@@ -1,10 +1,13 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
+import type { CrewLimitsConfig } from "../config/config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { appendEvent } from "../state/event-log.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { saveRunManifest, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
+import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
 import { runTeamTask } from "./task-runner.ts";
 
 export interface ExecuteTeamRunInput {
@@ -14,6 +17,7 @@ export interface ExecuteTeamRunInput {
 	workflow: WorkflowConfig;
 	agents: AgentConfig[];
 	executeWorkers: boolean;
+	limits?: CrewLimitsConfig;
 	signal?: AbortSignal;
 }
 
@@ -35,7 +39,11 @@ function findAgent(agents: AgentConfig[], task: TeamTaskState): AgentConfig {
 }
 
 function markBlocked(tasks: TeamTaskState[], reason: string): TeamTaskState[] {
-	return tasks.map((task) => task.status === "queued" ? { ...task, status: "skipped", error: reason, finishedAt: new Date().toISOString() } : task);
+	return tasks.map((task) => task.status === "queued" ? { ...task, status: "skipped", error: reason, finishedAt: new Date().toISOString(), graph: task.graph ? { ...task.graph, queue: "blocked" } : undefined } : task);
+}
+
+function formatTaskProgress(task: TeamTaskState): string {
+	return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
 }
 
 function writeProgress(manifest: TeamRunManifest, tasks: TeamTaskState[], producer: string): TeamRunManifest {
@@ -55,11 +63,23 @@ function writeProgress(manifest: TeamRunManifest, tasks: TeamTaskState[], produc
 			`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
 			"",
 			"## Tasks",
-			...tasks.map((task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`),
+			...tasks.map(formatTaskProgress),
 			"",
 		].join("\n"),
 	});
 	return { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts.filter((artifact) => !(artifact.kind === "progress" && artifact.path === progress.path)), progress] };
+}
+
+function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?: CrewLimitsConfig): TeamRunManifest {
+	const decisions = evaluateCrewPolicy({ manifest, tasks, limits });
+	const policyArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: "policy-decisions.json",
+		producer: "policy-engine",
+		content: `${JSON.stringify(decisions, null, 2)}\n`,
+	});
+	for (const item of decisions) appendEvent(manifest.eventsPath, { type: item.action === "escalate" ? "policy.escalated" : "policy.action", runId: manifest.runId, taskId: item.taskId, message: item.message, data: { action: item.action, reason: item.reason } });
+	return { ...manifest, updatedAt: new Date().toISOString(), policyDecisions: decisions, artifacts: [...manifest.artifacts.filter((artifact) => !(artifact.kind === "metadata" && artifact.path.endsWith("policy-decisions.json"))), policyArtifact] };
 }
 
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
@@ -102,8 +122,12 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	}
 
 	const failed = tasks.find((task) => task.status === "failed");
+	manifest = applyPolicy(manifest, tasks, input.limits);
+	const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
 	if (failed) {
 		manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
+	} else if (blockingDecision) {
+		manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
 	} else {
 		manifest = updateRunStatus(manifest, "completed", input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers.");
 	}
@@ -124,7 +148,10 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			`Usage: ${formatUsage(usage)}`,
 			"",
 			"## Tasks",
-			...tasks.map((task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`),
+			...tasks.map(formatTaskProgress),
+			"",
+			"## Policy decisions",
+			...(manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"]),
 			"",
 		].join("\n"),
 	});
