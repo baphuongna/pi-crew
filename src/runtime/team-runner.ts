@@ -63,15 +63,25 @@ function mergeArtifacts(items: ArtifactDescriptor[]): ArtifactDescriptor[] {
 	return [...byPath.values()];
 }
 
-function mergeTaskUpdates(base: TeamTaskState[], results: Array<{ tasks: TeamTaskState[] }>): TeamTaskState[] {
+function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
+	return status === "queued" || status === "running";
+}
+
+function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): boolean {
+	// Parallel workers receive the same input snapshot. A later result may still
+	// contain stale queued/running copies of tasks that another worker already
+	// completed. Never let those stale snapshots regress durable task state.
+	if (!isNonTerminalTaskStatus(current.status) && isNonTerminalTaskStatus(updated.status)) return false;
+	return updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage);
+}
+
+export function __test__mergeTaskUpdates(base: TeamTaskState[], results: Array<{ tasks: TeamTaskState[] }>): TeamTaskState[] {
 	let merged = base;
 	for (const result of results) {
 		for (const updated of result.tasks) {
 			const current = merged.find((task) => task.id === updated.id);
-			if (!current) continue;
-			if (updated.status !== current.status || updated.finishedAt || updated.startedAt || updated.resultArtifact || updated.error) {
-				merged = merged.map((task) => task.id === updated.id ? updated : task);
-			}
+			if (!current || !shouldMergeTaskUpdate(current, updated)) continue;
+			merged = merged.map((task) => task.id === updated.id ? updated : task);
 		}
 	}
 	return refreshTaskGraphQueues(merged);
@@ -341,7 +351,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			return runTeamTask({ manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits });
 		}));
 		manifest = { ...results.at(-1)!.manifest, artifacts: mergeArtifacts([manifest.artifacts, ...results.map((item) => item.manifest.artifacts)].flat()) };
-		tasks = mergeTaskUpdates(tasks, results);
+		tasks = __test__mergeTaskUpdates(tasks, results);
 		const injectedAfterBatch = injectAdaptivePlanIfReady({ manifest, tasks, workflow, team: input.team });
 		if (injectedAfterBatch.missingPlan) {
 			tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
