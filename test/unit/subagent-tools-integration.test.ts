@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerPiTeams } from "../../src/extension/register.ts";
 
-function createFakePi() {
+function createFakePi(options: { throwForTools?: string[] } = {}) {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
 	const handlers = new Map<string, Function[]>();
@@ -28,7 +28,10 @@ function createFakePi() {
 		api: {
 			events,
 			on: events.on,
-			registerTool(tool: any) { tools.set(tool.name, tool); },
+			registerTool(tool: any) {
+				if (options.throwForTools?.includes(tool.name)) throw new Error(`duplicate tool: ${tool.name}`);
+				tools.set(tool.name, tool);
+			},
 			registerCommand(name: string, command: any) { commands.set(name, command); },
 			sendMessage(message: unknown) { sentMessages.push(message); },
 		},
@@ -46,6 +49,16 @@ function fakeCtx(cwd: string) {
 		},
 	};
 }
+
+test("conflict-safe crew_agent aliases still register when generic Agent name is unavailable", () => {
+	const fake = createFakePi({ throwForTools: ["Agent"] });
+	registerPiTeams(fake.api as never);
+	assert.equal(fake.tools.has("Agent"), false);
+	assert.equal(fake.tools.has("crew_agent"), true);
+	assert.equal(fake.tools.has("crew_agent_result"), true);
+	assert.equal(fake.tools.has("crew_agent_steer"), true);
+	fake.api.events.emit("session_shutdown", {});
+});
 
 test("registered Agent tool can run a background subagent and join its result", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-tool-test-"));

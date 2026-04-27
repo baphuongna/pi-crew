@@ -25,11 +25,7 @@ function restoreEnv(name: string, previous: string | undefined): void {
 }
 
 test("buildPiWorkerArgs writes long tasks to private @file and emits canonical depth env", () => {
-	const previousDepth = process.env.PI_CREW_DEPTH;
-	const previousMax = process.env.PI_CREW_MAX_DEPTH;
-	process.env.PI_CREW_DEPTH = "1";
-	delete process.env.PI_CREW_MAX_DEPTH;
-	const result = buildPiWorkerArgs({ task: "x".repeat(9000), agent, sessionEnabled: false, maxDepth: 5 });
+	const result = buildPiWorkerArgs({ task: "x".repeat(9000), agent, sessionEnabled: false, maxDepth: 5, env: { PI_CREW_DEPTH: "1" } as NodeJS.ProcessEnv });
 	try {
 		const taskArg = result.args.find((arg) => arg.startsWith("@"));
 		assert.ok(taskArg);
@@ -42,8 +38,6 @@ test("buildPiWorkerArgs writes long tasks to private @file and emits canonical d
 		assert.equal(result.env.PI_CREW_INHERIT_PROJECT_CONTEXT, "0");
 	} finally {
 		if (result.tempDir) fs.rmSync(result.tempDir, { recursive: true, force: true });
-		restoreEnv("PI_CREW_DEPTH", previousDepth);
-		restoreEnv("PI_CREW_MAX_DEPTH", previousMax);
 	}
 });
 

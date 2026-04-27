@@ -16,7 +16,7 @@ import { registerPiCrewRpc, type PiCrewRpcHandle } from "./cross-extension-rpc.t
 import { stopCrewWidget, updateCrewWidget, type CrewWidgetState } from "../ui/crew-widget.ts";
 import { clearPiCrewPowerbar, registerPiCrewPowerbarSegments, updatePiCrewPowerbar } from "../ui/powerbar-publisher.ts";
 import { DurableTextViewer, DurableTranscriptViewer } from "../ui/transcript-viewer.ts";
-import { loadRunManifestById } from "../state/state-store.ts";
+import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { terminateActiveChildPiProcesses } from "../runtime/child-pi.ts";
 import { SubagentManager, type SubagentRecord, type SubagentSpawnOptions } from "../runtime/subagent-manager.ts";
@@ -215,6 +215,12 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			void runner(controller.signal)
 				.catch((error) => {
 					const message = error instanceof Error ? error.message : String(error);
+					if (runId) {
+						try {
+							const loaded = loadRunManifestById(ctx.cwd, runId);
+							if (loaded && loaded.manifest.status !== "completed" && loaded.manifest.status !== "failed" && loaded.manifest.status !== "cancelled" && loaded.manifest.status !== "blocked") updateRunStatus(loaded.manifest, "failed", message);
+						} catch {}
+					}
 					ctx.ui.notify(`pi-crew foreground run failed: ${message}`, "error");
 				})
 				.finally(() => {
@@ -333,6 +339,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				goal: spawnOptions.prompt,
 				model: spawnOptions.model,
 				async: false,
+				config: spawnOptions.maxTurns ? { runtime: { maxTurns: spawnOptions.maxTurns } } : undefined,
 			}, spawnOptions.background ? { ...ctx, signal: childSignal, startForegroundRun: (run, runId) => startForegroundRun(ctx, run, runId), onRunStarted: (runId) => openLiveSidebar(ctx, runId) } : { ...ctx, signal: childSignal });
 			const record = subagentManager.spawn(options, runner, options.background ? undefined : signal);
 			if (options.background || record.status === "queued") {
@@ -402,8 +409,9 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		label: "Steer Crew Agent",
 		description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name.",
 	};
-	for (const extraTool of [agentTool, getSubagentResultTool, steerSubagentTool, crewAgentTool, crewAgentResultTool, crewAgentSteerTool]) {
-		pi.registerTool(extraTool);
+	for (const extraTool of [crewAgentTool, crewAgentResultTool, crewAgentSteerTool]) pi.registerTool(extraTool);
+	for (const extraTool of [agentTool, getSubagentResultTool, steerSubagentTool]) {
+		try { pi.registerTool(extraTool); } catch {}
 	}
 
 	pi.registerCommand("teams", {

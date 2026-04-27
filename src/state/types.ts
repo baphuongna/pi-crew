@@ -152,6 +152,10 @@ export interface TeamTaskState {
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
 	graph?: TaskGraphNode;
+	adaptive?: {
+		phase: string;
+		task: string;
+	};
 	policy?: {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;

@@ -15,6 +15,7 @@ export interface BuildPiWorkerArgsInput {
 	model?: string;
 	sessionEnabled?: boolean;
 	maxDepth?: number;
+	env?: NodeJS.ProcessEnv;
 }
 
 export interface BuildPiWorkerArgsResult {
@@ -82,8 +83,9 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		args.push(`Task: ${input.task}`);
 	}
 
-	const parentDepth = currentCrewDepth();
-	const maxDepth = resolveCrewMaxDepth(input.maxDepth);
+	const env = input.env ?? process.env;
+	const parentDepth = currentCrewDepth(env);
+	const maxDepth = resolveCrewMaxDepth(input.maxDepth, env);
 	return {
 		args,
 		env: {

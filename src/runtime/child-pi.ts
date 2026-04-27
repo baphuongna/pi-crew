@@ -210,8 +210,11 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			observeStdoutChunk(input, stdout);
 			return { exitCode: 0, stdout, stderr: "" };
 		}
-		if (mock === "json-success") {
-			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: `Mock JSON success for ${input.agent.name}` }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
+		if (mock === "json-success" || mock === "adaptive-plan") {
+			const text = mock === "adaptive-plan" && input.task.includes("ADAPTIVE_PLAN_JSON_START")
+				? `Adaptive mock plan\nADAPTIVE_PLAN_JSON_START\n${JSON.stringify({ phases: [{ name: "research", tasks: [{ role: "explorer", task: "Explore adaptive target" }, { role: "analyst", task: "Analyze adaptive target" }, { role: "planner", task: "Plan adaptive target" }] }, { name: "build", tasks: [{ role: "executor", task: "Implement adaptive target" }] }, { name: "check", tasks: [{ role: "reviewer", task: "Review adaptive target" }, { role: "test-engineer", task: "Test adaptive target" }, { role: "writer", task: "Summarize adaptive target" }] }] })}\nADAPTIVE_PLAN_JSON_END`
+				: `Mock JSON success for ${input.agent.name}`;
+			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
 			observeStdoutChunk(input, stdout);
 			return { exitCode: 0, stdout, stderr: "" };
 		}

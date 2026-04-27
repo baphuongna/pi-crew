@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
 import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
@@ -76,6 +77,129 @@ function mergeTaskUpdates(base: TeamTaskState[], results: Array<{ tasks: TeamTas
 	return refreshTaskGraphQueues(merged);
 }
 
+interface AdaptivePlanTask {
+	role: string;
+	title?: string;
+	task: string;
+}
+
+interface AdaptivePlanPhase {
+	name: string;
+	tasks: AdaptivePlanTask[];
+}
+
+interface AdaptivePlan {
+	phases: AdaptivePlanPhase[];
+}
+
+const MAX_ADAPTIVE_TASKS = 12;
+
+function slug(value: string): string {
+	return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "task";
+}
+
+export function __test__parseAdaptivePlan(text: string, allowedRoles: string[]): AdaptivePlan | undefined {
+	const markerMatch = text.match(/ADAPTIVE_PLAN_JSON_START\s*([\s\S]*?)\s*ADAPTIVE_PLAN_JSON_END/);
+	const fencedMatch = markerMatch ? undefined : text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+	const raw = markerMatch?.[1] ?? fencedMatch?.[1];
+	if (!raw) return undefined;
+	let parsed: unknown;
+	try { parsed = JSON.parse(raw); } catch { return undefined; }
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+	const phasesRaw = Array.isArray((parsed as { phases?: unknown }).phases) ? (parsed as { phases: unknown[] }).phases : Array.isArray((parsed as { tasks?: unknown }).tasks) ? [{ name: "adaptive", tasks: (parsed as { tasks: unknown[] }).tasks }] : undefined;
+	if (!phasesRaw) return undefined;
+	const allowed = new Set(allowedRoles);
+	const phases: AdaptivePlanPhase[] = [];
+	let total = 0;
+	for (const [phaseIndex, phaseRaw] of phasesRaw.entries()) {
+		if (!phaseRaw || typeof phaseRaw !== "object" || Array.isArray(phaseRaw)) return undefined;
+		const phaseObj = phaseRaw as { name?: unknown; tasks?: unknown };
+		if (!Array.isArray(phaseObj.tasks) || phaseObj.tasks.length === 0) return undefined;
+		const tasks: AdaptivePlanTask[] = [];
+		for (const taskRaw of phaseObj.tasks) {
+			if (!taskRaw || typeof taskRaw !== "object" || Array.isArray(taskRaw)) return undefined;
+			const taskObj = taskRaw as { role?: unknown; title?: unknown; task?: unknown };
+			if (typeof taskObj.role !== "string" || !allowed.has(taskObj.role)) return undefined;
+			if (typeof taskObj.task !== "string" || !taskObj.task.trim()) return undefined;
+			if (total >= MAX_ADAPTIVE_TASKS) return undefined;
+			tasks.push({ role: taskObj.role, title: typeof taskObj.title === "string" ? taskObj.title : undefined, task: taskObj.task.trim() });
+			total++;
+		}
+		phases.push({ name: typeof phaseObj.name === "string" && phaseObj.name.trim() ? phaseObj.name.trim() : `phase-${phaseIndex + 1}`, tasks });
+	}
+	return phases.length ? { phases } : undefined;
+}
+
+function reconstructAdaptiveWorkflow(workflow: WorkflowConfig, tasks: TeamTaskState[]): WorkflowConfig {
+	const existing = new Set(workflow.steps.map((step) => step.id));
+	const steps: WorkflowStep[] = [];
+	for (const task of tasks) {
+		if (!task.stepId?.startsWith("adaptive-") || !task.adaptive?.task || existing.has(task.stepId)) continue;
+		steps.push({ id: task.stepId, role: task.role, dependsOn: task.graph?.dependencies ?? task.dependsOn, parallelGroup: `adaptive-${slug(task.adaptive.phase)}`, task: task.adaptive.task });
+	}
+	return steps.length ? { ...workflow, steps: [...workflow.steps, ...steps] } : workflow;
+}
+
+function injectAdaptivePlanIfReady(input: { manifest: TeamRunManifest; tasks: TeamTaskState[]; workflow: WorkflowConfig; team: TeamConfig }): { tasks: TeamTaskState[]; workflow: WorkflowConfig; injected: boolean; missingPlan: boolean } {
+	if (input.workflow.name !== "implementation") return { tasks: input.tasks, workflow: input.workflow, injected: false, missingPlan: false };
+	if (input.tasks.some((task) => task.stepId?.startsWith("adaptive-"))) return { tasks: input.tasks, workflow: reconstructAdaptiveWorkflow(input.workflow, input.tasks), injected: false, missingPlan: false };
+	const completedAssess = input.tasks.find((task) => task.stepId === "assess" && task.status === "completed");
+	if (!completedAssess) return { tasks: input.tasks, workflow: input.workflow, injected: false, missingPlan: false };
+	if (!completedAssess.resultArtifact?.path) {
+		appendEvent(input.manifest.eventsPath, { type: "adaptive.plan_missing", runId: input.manifest.runId, taskId: completedAssess.id, message: "Adaptive planner result artifact is missing." });
+		return { tasks: input.tasks, workflow: input.workflow, injected: false, missingPlan: true };
+	}
+	const assessTask = completedAssess;
+	const resultPath = completedAssess.resultArtifact.path;
+	let text = "";
+	try { text = fs.readFileSync(resultPath, "utf-8"); } catch {
+		appendEvent(input.manifest.eventsPath, { type: "adaptive.plan_missing", runId: input.manifest.runId, taskId: assessTask.id, message: "Adaptive planner result artifact could not be read." });
+		return { tasks: input.tasks, workflow: input.workflow, injected: false, missingPlan: true };
+	}
+	const plan = __test__parseAdaptivePlan(text, input.team.roles.map((role) => role.name));
+	if (!plan) {
+		appendEvent(input.manifest.eventsPath, { type: "adaptive.plan_missing", runId: input.manifest.runId, taskId: assessTask.id, message: "Adaptive planner did not produce a valid plan; no dynamic subagents were spawned." });
+		return { tasks: input.tasks, workflow: input.workflow, injected: false, missingPlan: true };
+	}
+	const steps: WorkflowStep[] = [];
+	const tasks: TeamTaskState[] = [];
+	let previousStepIds = ["assess"];
+	let counter = 0;
+	for (const [phaseIndex, phase] of plan.phases.entries()) {
+		const currentStepIds: string[] = [];
+		for (const [taskIndex, planned] of phase.tasks.entries()) {
+			counter++;
+			const stepId = `adaptive-${phaseIndex + 1}-${taskIndex + 1}-${slug(planned.role)}`;
+			const taskId = `adaptive-${String(counter).padStart(2, "0")}-${slug(planned.role)}`;
+			steps.push({ id: stepId, role: planned.role, dependsOn: previousStepIds, parallelGroup: `adaptive-${slug(phase.name)}`, task: planned.task });
+			tasks.push({
+				id: taskId,
+				runId: input.manifest.runId,
+				stepId,
+				role: planned.role,
+				agent: input.team.roles.find((role) => role.name === planned.role)?.agent ?? planned.role,
+				title: planned.title ?? stepId,
+				status: "queued",
+				dependsOn: previousStepIds,
+				cwd: input.manifest.cwd,
+				adaptive: { phase: phase.name, task: planned.task },
+				graph: { taskId, dependencies: previousStepIds, children: [], queue: "blocked" },
+			});
+			currentStepIds.push(stepId);
+		}
+		previousStepIds = currentStepIds;
+	}
+	const dependencyTaskIdByStep = new Map<string, string>([["assess", assessTask.id], ...tasks.map((task) => [task.stepId ?? task.id, task.id] as const)]);
+	const withGraph = tasks.map((task) => ({
+		...task,
+		dependsOn: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep),
+		graph: task.graph ? { ...task.graph, dependencies: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep), queue: "blocked" as const } : task.graph,
+	}));
+	const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
+	appendEvent(input.manifest.eventsPath, { type: "adaptive.plan_injected", runId: input.manifest.runId, taskId: assessTask.id, message: `Injected ${withGraph.length} adaptive subagent task(s) across ${plan.phases.length} phase(s).`, data: { phases: plan.phases.map((phase) => ({ name: phase.name, count: phase.tasks.length, roles: phase.tasks.map((task) => task.role) })) } });
+	return { tasks: allTasks, workflow: { ...input.workflow, steps: [...input.workflow.steps, ...steps] }, injected: true, missingPlan: false };
+}
+
 function formatTaskProgress(task: TeamTaskState): string {
 	return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
 }
@@ -144,8 +268,22 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 }
 
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	let workflow = input.workflow;
 	let manifest = updateRunStatus(input.manifest, "running", input.executeWorkers ? "Executing team workflow." : "Creating workflow prompts and placeholder results.");
 	let tasks = refreshTaskGraphQueues(input.tasks);
+	const initialAdaptive = injectAdaptivePlanIfReady({ manifest, tasks, workflow, team: input.team });
+	if (initialAdaptive.missingPlan) {
+		tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
+		saveRunTasks(manifest, tasks);
+		manifest = updateRunStatus(manifest, "blocked", "Adaptive planner did not produce a valid subagent plan.");
+		return { manifest, tasks };
+	}
+	if (initialAdaptive.injected) {
+		tasks = initialAdaptive.tasks;
+		workflow = initialAdaptive.workflow;
+	} else {
+		workflow = initialAdaptive.workflow;
+	}
 	manifest = writeProgress(manifest, tasks, "team-runner");
 	saveRunManifest(manifest);
 	const runtimeKind = input.runtime?.kind ?? (input.executeWorkers ? "child-process" : "scaffold");
@@ -168,9 +306,25 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			return { manifest, tasks };
 		}
 
+		const injectedPlan = injectAdaptivePlanIfReady({ manifest, tasks, workflow, team: input.team });
+		if (injectedPlan.missingPlan) {
+			tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
+			saveRunTasks(manifest, tasks);
+			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+			manifest = updateRunStatus(manifest, "blocked", "Adaptive planner did not produce a valid subagent plan.");
+			return { manifest, tasks };
+		}
+		if (injectedPlan.injected) {
+			tasks = injectedPlan.tasks;
+			workflow = injectedPlan.workflow;
+			saveRunTasks(manifest, tasks);
+			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+		} else {
+			workflow = injectedPlan.workflow;
+		}
 		const snapshot = taskGraphSnapshot(tasks);
 		const readyRoles = snapshot.ready.map((taskId) => tasks.find((task) => task.id === taskId)?.role).filter((role): role is string => Boolean(role));
-		const concurrency = resolveBatchConcurrency({ workflowName: input.workflow.name, teamMaxConcurrency: input.team.maxConcurrency, limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers, readyCount: snapshot.ready.length, workspaceMode: manifest.workspaceMode, readyRoles });
+		const concurrency = resolveBatchConcurrency({ workflowName: workflow.name, teamMaxConcurrency: input.team.maxConcurrency, limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers, readyCount: snapshot.ready.length, workspaceMode: manifest.workspaceMode, readyRoles });
 		const readyBatch = getReadyTasks(tasks, concurrency.selectedCount);
 		if (readyBatch.length === 0) {
 			tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
@@ -182,12 +336,26 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 
 		appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, message: `Starting ready batch with ${readyBatch.length} task(s).`, data: { taskIds: readyBatch.map((task) => task.id), readyCount: snapshot.ready.length, blockedCount: snapshot.blocked.length, runningCount: snapshot.running.length, doneCount: snapshot.done.length, selectedCount: readyBatch.length, maxConcurrent: concurrency.maxConcurrent, defaultConcurrency: concurrency.defaultConcurrency, concurrencyReason: concurrency.reason } });
 		const results = await Promise.all(readyBatch.map((task) => {
-			const step = findStep(input.workflow, task);
+			const step = findStep(workflow, task);
 			const agent = findAgent(input.agents, task);
 			return runTeamTask({ manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits });
 		}));
 		manifest = { ...results.at(-1)!.manifest, artifacts: mergeArtifacts([manifest.artifacts, ...results.map((item) => item.manifest.artifacts)].flat()) };
 		tasks = mergeTaskUpdates(tasks, results);
+		const injectedAfterBatch = injectAdaptivePlanIfReady({ manifest, tasks, workflow, team: input.team });
+		if (injectedAfterBatch.missingPlan) {
+			tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
+			saveRunTasks(manifest, tasks);
+			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+			manifest = updateRunStatus(manifest, "blocked", "Adaptive planner did not produce a valid subagent plan.");
+			return { manifest, tasks };
+		}
+		if (injectedAfterBatch.injected) {
+			tasks = injectedAfterBatch.tasks;
+			workflow = injectedAfterBatch.workflow;
+		} else {
+			workflow = injectedAfterBatch.workflow;
+		}
 		saveRunTasks(manifest, tasks);
 		saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
 		const completedBatch = readyBatch.map((task) => tasks.find((item) => item.id === task.id) ?? task);
