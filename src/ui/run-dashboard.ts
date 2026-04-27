@@ -1,6 +1,11 @@
 import * as fs from "node:fs";
-import type { Component } from "@mariozechner/pi-tui";
 import type { TeamRunManifest } from "../state/types.ts";
+
+interface DashboardComponent {
+	invalidate(): void;
+	render(width: number): string[];
+	handleInput(data: string): void;
+}
 
 export type RunDashboardAction = "status" | "summary" | "artifacts" | "api" | "reload";
 export interface RunDashboardSelection {
@@ -41,7 +46,7 @@ function countByStatus(runs: TeamRunManifest[]): string {
 	return [...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none";
 }
 
-export class RunDashboard implements Component {
+export class RunDashboard implements DashboardComponent {
 	private selected = 0;
 	private showFullProgress = false;
 	private readonly runs: TeamRunManifest[];
