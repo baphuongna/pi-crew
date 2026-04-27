@@ -12,6 +12,8 @@ import { parsePiJsonOutput, type ParsedPiJsonOutput } from "./pi-json-output.ts"
 import { runChildPi } from "./child-pi.ts";
 import { buildTaskPacket, renderTaskPacket } from "./task-packet.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
+import { createStartupEvidence } from "./worker-startup.ts";
+import { permissionForRole } from "./role-permission.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -75,6 +77,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	let tasks = updateTask(input.tasks, task);
 	saveRunTasks(manifest, tasks);
 	appendEvent(manifest.eventsPath, { type: "task.started", runId: manifest.runId, taskId: task.id, data: { role: task.role, agent: task.agent, cwd: task.cwd, worktreePath: workspace.worktreePath, worktreeBranch: workspace.branch, worktreeReused: workspace.reused } });
+	const permissionMode = permissionForRole(task.role);
 
 	const prompt = renderTaskPrompt(manifest, input.step, task);
 	const promptArtifact = writeArtifact(manifest.artifactsRoot, {
@@ -91,6 +94,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	let modelAttempts: ModelAttemptSummary[] | undefined;
 	let parsedOutput: ParsedPiJsonOutput | undefined;
 
+	let startupEvidence = createStartupEvidence({ command: input.executeWorkers ? "pi" : "safe-scaffold", startedAt: new Date(task.startedAt ?? new Date().toISOString()), finishedAt: new Date(), promptSentAt: new Date(task.startedAt ?? new Date().toISOString()), promptAccepted: true, exitCode: 0 });
 	if (input.executeWorkers) {
 		const candidates = buildModelCandidates(input.step.model ?? input.agent.model, input.agent.fallbackModels, undefined);
 		const attemptModels = candidates.length > 0 ? candidates : [input.step.model ?? input.agent.model];
@@ -100,7 +104,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		modelAttempts = [];
 		for (let i = 0; i < attemptModels.length; i++) {
 			const model = attemptModels[i];
+			const attemptStartedAt = new Date();
 			const childResult = await runChildPi({ cwd: task.cwd, task: prompt, agent: input.agent, model, signal: input.signal });
+			startupEvidence = createStartupEvidence({ command: "pi", startedAt: attemptStartedAt, finishedAt: new Date(), promptSentAt: attemptStartedAt, promptAccepted: childResult.exitCode === 0 && !childResult.error, stderr: childResult.stderr, error: childResult.error, exitCode: childResult.exitCode });
 			exitCode = childResult.exitCode;
 			finalStdout = childResult.stdout;
 			finalStderr = childResult.stderr;
@@ -176,7 +182,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		content: `${JSON.stringify(task.verification, null, 2)}\n`,
 		producer: task.id,
 	});
-	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, packetArtifact, verificationArtifact, ...(logArtifact ? [logArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
+	const startupArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: `metadata/${task.id}.startup-evidence.json`,
+		content: `${JSON.stringify(startupEvidence, null, 2)}\n`,
+		producer: task.id,
+	});
+	const permissionArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: `metadata/${task.id}.permission.json`,
+		content: `${JSON.stringify({ role: task.role, permissionMode }, null, 2)}\n`,
+		producer: task.id,
+	});
+	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, packetArtifact, verificationArtifact, startupArtifact, permissionArtifact, ...(logArtifact ? [logArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
 	saveRunManifest(manifest);
 	saveRunTasks(manifest, tasks);
 	appendEvent(manifest.eventsPath, { type: error ? "task.failed" : "task.completed", runId: manifest.runId, taskId: task.id, message: error });

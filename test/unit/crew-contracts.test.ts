@@ -73,3 +73,13 @@ test("Policy engine blocks unsatisfied green contracts and closes out clean runs
 	const clean = evaluateCrewPolicy({ manifest: manifest(), tasks: [{ ...blockedTask, verification: { requiredGreenLevel: "targeted", observedGreenLevel: "targeted", satisfied: true, commands: [] } }] });
 	assert.equal(clean[0]?.action, "closeout");
 });
+
+test("Policy engine enforces graph and concurrency limits", () => {
+	const tasks: TeamTaskState[] = [
+		{ id: "a", runId: "team_test", role: "executor", agent: "executor", title: "a", status: "running", dependsOn: [], cwd: process.cwd(), graph: { taskId: "a", children: ["b", "c"], dependencies: [], queue: "running" } },
+		{ id: "b", runId: "team_test", role: "executor", agent: "executor", title: "b", status: "running", dependsOn: [], cwd: process.cwd(), graph: { taskId: "b", parentId: "a", children: [], dependencies: [], queue: "running" } },
+		{ id: "c", runId: "team_test", role: "executor", agent: "executor", title: "c", status: "queued", dependsOn: [], cwd: process.cwd(), graph: { taskId: "c", parentId: "b", children: [], dependencies: [], queue: "ready" } },
+	];
+	const decisions = evaluateCrewPolicy({ manifest: manifest(), tasks, limits: { maxConcurrentWorkers: 1, maxChildrenPerTask: 1, maxTaskDepth: 1 } });
+	assert.equal(decisions.filter((item) => item.reason === "limit_exceeded").length, 3);
+});

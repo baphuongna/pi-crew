@@ -3,12 +3,14 @@ import type { CrewLimitsConfig } from "../config/config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { PolicyDecision, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { saveRunManifest, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
+import { buildRecoveryLedger } from "./recovery-recipes.ts";
 import { getReadyTasks, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
+import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { runTeamTask } from "./task-runner.ts";
 
 export interface ExecuteTeamRunInput {
@@ -73,15 +75,40 @@ function writeProgress(manifest: TeamRunManifest, tasks: TeamTaskState[], produc
 }
 
 function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?: CrewLimitsConfig): TeamRunManifest {
-	const decisions = evaluateCrewPolicy({ manifest, tasks, limits });
+	const branchFreshness = checkBranchFreshness(manifest.cwd);
+	const branchArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: "metadata/branch-freshness.json",
+		producer: "branch-freshness",
+		content: `${JSON.stringify(branchFreshness, null, 2)}\n`,
+	});
+	let decisions: PolicyDecision[] = evaluateCrewPolicy({ manifest, tasks, limits });
+	if (branchFreshness.status === "stale" || branchFreshness.status === "diverged") {
+		const branchDecision: PolicyDecision = {
+			action: "notify",
+			reason: "branch_stale",
+			message: branchFreshness.message,
+			createdAt: new Date().toISOString(),
+		};
+		decisions = [...decisions, branchDecision];
+		appendEvent(manifest.eventsPath, { type: "branch.stale", runId: manifest.runId, message: branchFreshness.message, data: { branchFreshness } });
+	}
 	const policyArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "metadata",
 		relativePath: "policy-decisions.json",
 		producer: "policy-engine",
 		content: `${JSON.stringify(decisions, null, 2)}\n`,
 	});
+	const recoveryLedger = buildRecoveryLedger(decisions);
+	const recoveryArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: "recovery-ledger.json",
+		producer: "recovery-engine",
+		content: `${JSON.stringify(recoveryLedger, null, 2)}\n`,
+	});
 	for (const item of decisions) appendEvent(manifest.eventsPath, { type: item.action === "escalate" ? "policy.escalated" : "policy.action", runId: manifest.runId, taskId: item.taskId, message: item.message, data: { action: item.action, reason: item.reason } });
-	return { ...manifest, updatedAt: new Date().toISOString(), policyDecisions: decisions, artifacts: [...manifest.artifacts.filter((artifact) => !(artifact.kind === "metadata" && artifact.path.endsWith("policy-decisions.json"))), policyArtifact] };
+	for (const item of recoveryLedger.entries) appendEvent(manifest.eventsPath, { type: item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted", runId: manifest.runId, taskId: item.taskId, message: item.message, data: { scenario: item.scenario, steps: item.steps, attempt: item.attempt, state: item.state } });
+	return { ...manifest, updatedAt: new Date().toISOString(), policyDecisions: decisions, artifacts: [...manifest.artifacts.filter((artifact) => !(artifact.kind === "metadata" && (artifact.path.endsWith("policy-decisions.json") || artifact.path.endsWith("recovery-ledger.json") || artifact.path.endsWith("branch-freshness.json")))), branchArtifact, policyArtifact, recoveryArtifact] };
 }
 
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
