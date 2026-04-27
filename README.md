@@ -2,17 +2,21 @@
 
 `pi-crew` is a Pi extension/package for coordinated AI teams: autonomous routing, manual slash-command controls, durable run state, artifacts, async/background execution, optional worktree isolation, resource management, validation, import/export, dashboard helpers, and safe API interop.
 
-It is intentionally located at workspace root:
+NPM package:
 
 ```text
-pi-crew/
+pi-crew
 ```
 
-not under `Source/`.
+GitHub repository:
+
+```text
+https://github.com/baphuongna/pi-crew
+```
 
 ## Status
 
-`pi-crew` is implemented as a local Pi package with safe execution defaults and product-oriented foundations.
+`pi-crew` is published on npm and implemented with safe execution defaults and product-oriented foundations.
 
 Current highlights:
 
@@ -63,7 +67,13 @@ From the workspace root for local development:
 pi install ./pi-crew
 ```
 
-Optional config bootstrap:
+Optional config bootstrap after npm install:
+
+```bash
+pi-crew
+```
+
+Optional config bootstrap from a local clone:
 
 ```bash
 node ./pi-crew/install.mjs
@@ -663,25 +673,11 @@ pi-crew/docs/live-mailbox-runtime.md
 pi-crew/docs/publishing.md
 ```
 
-Workspace-level design/progress docs:
+Historical workspace-level design/progress docs may exist in the original development workspace under `docs/pi-crew-*`, but package-maintained docs live under `pi-crew/docs/`.
 
-```text
-docs/pi-crew-source-review-and-lessons.md
-docs/pi-crew-architecture.md
-docs/pi-crew-mvp-plan.md
-docs/pi-crew-*-progress-2026-04-26.md
-```
+## Local Pi smoke
 
-## Known remaining release metadata
-
-Package metadata still needs real project values before publishing:
-
-- `author`
-- `repository`
-- `homepage`
-- `bugs`
-
-Local Pi smoke still requires an actual Pi environment:
+A local Pi smoke test requires an installed Pi CLI and a real Pi environment:
 
 ```bash
 cd pi-crew
