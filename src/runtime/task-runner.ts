@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
@@ -14,6 +15,7 @@ import { buildTaskPacket, renderTaskPacket } from "./task-packet.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import { createStartupEvidence } from "./worker-startup.ts";
 import { permissionForRole } from "./role-permission.ts";
+import { collectDependencyOutputContext, renderDependencyOutputContext, writeTaskInputsArtifact, writeTaskSharedOutput } from "./task-output-context.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -23,6 +25,7 @@ export interface TaskRunnerInput {
 	agent: AgentConfig;
 	signal?: AbortSignal;
 	executeWorkers: boolean;
+	dependencyContextText?: string;
 }
 
 function renderTaskPrompt(manifest: TeamRunManifest, step: WorkflowStep, task: TeamTaskState): string {
@@ -50,9 +53,15 @@ function renderTaskPrompt(manifest: TeamRunManifest, step: WorkflowStep, task: T
 		"- Follow the Task Packet contract below; escalate if any contract field is impossible to satisfy.",
 		"",
 		task.taskPacket ? renderTaskPacket(task.taskPacket) : "",
+		"",
+		(inputDependencyContext(task) || ""),
 		"Task:",
 		step.task.replaceAll("{goal}", manifest.goal),
 	].join("\n");
+}
+
+function inputDependencyContext(task: TeamTaskState): string {
+	return (task as TeamTaskState & { dependencyContextText?: string }).dependencyContextText ?? "";
 }
 
 function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): TeamTaskState[] {
@@ -64,6 +73,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	const workspace = prepareTaskWorkspace(manifest, input.task);
 	const worktree = workspace.worktreePath && workspace.branch ? { path: workspace.worktreePath, branch: workspace.branch, reused: workspace.reused ?? false } : input.task.worktree;
 	const taskPacket = buildTaskPacket({ manifest, step: input.step, taskId: input.task.id, cwd: workspace.cwd, worktreePath: worktree?.path });
+	const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step);
+	const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
 	let task: TeamTaskState = {
 		...input.task,
 		cwd: workspace.cwd,
@@ -73,7 +84,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		startedAt: new Date().toISOString(),
 		claim: createTaskClaim(`task-runner:${input.task.id}`),
 		heartbeat: createWorkerHeartbeat(input.task.id),
-	};
+		...(dependencyContextText ? { dependencyContextText } : {}),
+	} as TeamTaskState;
 	let tasks = updateTask(input.tasks, task);
 	saveRunTasks(manifest, tasks);
 	appendEvent(manifest.eventsPath, { type: "task.started", runId: manifest.runId, taskId: task.id, data: { role: task.role, agent: task.agent, cwd: task.cwd, worktreePath: workspace.worktreePath, worktreeBranch: workspace.branch, worktreeReused: workspace.reused } });
@@ -89,12 +101,14 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 
 	let resultArtifact: ArtifactDescriptor;
 	let logArtifact: ArtifactDescriptor | undefined;
+	let transcriptArtifact: ArtifactDescriptor | undefined;
 	let exitCode: number | null = 0;
 	let error: string | undefined;
 	let modelAttempts: ModelAttemptSummary[] | undefined;
 	let parsedOutput: ParsedPiJsonOutput | undefined;
 
 	let startupEvidence = createStartupEvidence({ command: input.executeWorkers ? "pi" : "safe-scaffold", startedAt: new Date(task.startedAt ?? new Date().toISOString()), finishedAt: new Date(), promptSentAt: new Date(task.startedAt ?? new Date().toISOString()), promptAccepted: true, exitCode: 0 });
+	const inputsArtifact = writeTaskInputsArtifact(manifest, task, dependencyContext);
 	if (input.executeWorkers) {
 		const candidates = buildModelCandidates(input.step.model ?? input.agent.model, input.agent.fallbackModels, undefined);
 		const attemptModels = candidates.length > 0 ? candidates : [input.step.model ?? input.agent.model];
@@ -102,10 +116,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		let finalStdout = "";
 		let finalStderr = "";
 		modelAttempts = [];
+		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
 		for (let i = 0; i < attemptModels.length; i++) {
 			const model = attemptModels[i];
 			const attemptStartedAt = new Date();
-			const childResult = await runChildPi({ cwd: task.cwd, task: prompt, agent: input.agent, model, signal: input.signal });
+			const childResult = await runChildPi({
+				cwd: task.cwd,
+				task: prompt,
+				agent: input.agent,
+				model,
+				signal: input.signal,
+				transcriptPath,
+				onJsonEvent: (event) => appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: { event } }),
+			});
 			startupEvidence = createStartupEvidence({ command: "pi", startedAt: attemptStartedAt, finishedAt: new Date(), promptSentAt: attemptStartedAt, promptAccepted: childResult.exitCode === 0 && !childResult.error, stderr: childResult.stderr, error: childResult.error, exitCode: childResult.exitCode });
 			exitCode = childResult.exitCode;
 			finalStdout = childResult.stdout;
@@ -132,6 +155,14 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			content: [...logs, `finalExitCode=${exitCode ?? "null"}`, `jsonEvents=${parsedOutput?.jsonEvents ?? 0}`, parsedOutput?.usage ? `usage=${JSON.stringify(parsedOutput.usage)}` : "", "", "STDOUT:", finalStdout, "", "STDERR:", finalStderr].join("\n"),
 			producer: task.id,
 		});
+		if (fs.existsSync(transcriptPath)) {
+			transcriptArtifact = writeArtifact(manifest.artifactsRoot, {
+				kind: "log",
+				relativePath: `transcripts/${task.id}.jsonl`,
+				content: fs.readFileSync(transcriptPath, "utf-8"),
+				producer: task.id,
+			});
+		}
 	} else {
 		resultArtifact = writeArtifact(manifest.artifactsRoot, {
 			kind: "result",
@@ -182,6 +213,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		content: `${JSON.stringify(task.verification, null, 2)}\n`,
 		producer: task.id,
 	});
+	const sharedOutputArtifact = writeTaskSharedOutput(manifest, input.step, task);
 	const startupArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "metadata",
 		relativePath: `metadata/${task.id}.startup-evidence.json`,
@@ -194,7 +226,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		content: `${JSON.stringify({ role: task.role, permissionMode }, null, 2)}\n`,
 		producer: task.id,
 	});
-	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, packetArtifact, verificationArtifact, startupArtifact, permissionArtifact, ...(logArtifact ? [logArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
+	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, inputsArtifact, packetArtifact, verificationArtifact, startupArtifact, permissionArtifact, ...(sharedOutputArtifact ? [sharedOutputArtifact] : []), ...(logArtifact ? [logArtifact] : []), ...(transcriptArtifact ? [transcriptArtifact] : []), ...(diffArtifact ? [diffArtifact] : [])] };
 	saveRunManifest(manifest);
 	saveRunTasks(manifest, tasks);
 	appendEvent(manifest.eventsPath, { type: error ? "task.failed" : "task.completed", runId: manifest.runId, taskId: task.id, message: error });

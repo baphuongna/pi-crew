@@ -3,7 +3,7 @@ import type { CrewLimitsConfig } from "../config/config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
-import type { PolicyDecision, TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { ArtifactDescriptor, PolicyDecision, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { saveRunManifest, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
@@ -11,6 +11,8 @@ import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts
 import { buildRecoveryLedger } from "./recovery-recipes.ts";
 import { getReadyTasks, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
+import { aggregateTaskOutputs } from "./task-output-context.ts";
+import { recordFromTask, saveCrewAgents } from "./crew-agent-records.ts";
 import { runTeamTask } from "./task-runner.ts";
 
 export interface ExecuteTeamRunInput {
@@ -42,6 +44,26 @@ function findAgent(agents: AgentConfig[], task: TeamTaskState): AgentConfig {
 
 function markBlocked(tasks: TeamTaskState[], reason: string): TeamTaskState[] {
 	return tasks.map((task) => task.status === "queued" ? { ...task, status: "skipped", error: reason, finishedAt: new Date().toISOString(), graph: task.graph ? { ...task.graph, queue: "blocked" } : undefined } : task);
+}
+
+function mergeArtifacts(items: ArtifactDescriptor[]): ArtifactDescriptor[] {
+	const byPath = new Map<string, ArtifactDescriptor>();
+	for (const item of items) byPath.set(item.path, item);
+	return [...byPath.values()];
+}
+
+function mergeTaskUpdates(base: TeamTaskState[], results: Array<{ tasks: TeamTaskState[] }>): TeamTaskState[] {
+	let merged = base;
+	for (const result of results) {
+		for (const updated of result.tasks) {
+			const current = merged.find((task) => task.id === updated.id);
+			if (!current) continue;
+			if (updated.status !== current.status || updated.finishedAt || updated.startedAt || updated.resultArtifact || updated.error) {
+				merged = merged.map((task) => task.id === updated.id ? updated : task);
+			}
+		}
+	}
+	return refreshTaskGraphQueues(merged);
 }
 
 function formatTaskProgress(task: TeamTaskState): string {
@@ -116,6 +138,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	let tasks = refreshTaskGraphQueues(input.tasks);
 	manifest = writeProgress(manifest, tasks, "team-runner");
 	saveRunManifest(manifest);
+	saveCrewAgents(manifest, tasks.map((task) => recordFromTask(manifest, task, input.executeWorkers ? "child-process" : "scaffold")));
 
 	while (tasks.some((task) => task.status === "queued")) {
 		if (input.signal?.aborted) {
@@ -133,19 +156,32 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			return { manifest, tasks };
 		}
 
-		const task = findReadyTask(tasks);
-		if (!task) {
+		const maxConcurrent = Math.max(1, input.limits?.maxConcurrentWorkers ?? 1);
+		const readyBatch = getReadyTasks(tasks, maxConcurrent);
+		if (readyBatch.length === 0) {
 			tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
 			saveRunTasks(manifest, tasks);
 			manifest = updateRunStatus(manifest, "blocked", "No ready queued task.");
 			return { manifest, tasks };
 		}
 
-		const step = findStep(input.workflow, task);
-		const agent = findAgent(input.agents, task);
-		const result = await runTeamTask({ manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers });
-		manifest = result.manifest;
-		tasks = result.tasks;
+		appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, message: `Starting ready batch with ${readyBatch.length} task(s).`, data: { taskIds: readyBatch.map((task) => task.id), maxConcurrent } });
+		const results = await Promise.all(readyBatch.map((task) => {
+			const step = findStep(input.workflow, task);
+			const agent = findAgent(input.agents, task);
+			return runTeamTask({ manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers });
+		}));
+		manifest = { ...results.at(-1)!.manifest, artifacts: mergeArtifacts([manifest.artifacts, ...results.map((item) => item.manifest.artifacts)].flat()) };
+		tasks = mergeTaskUpdates(tasks, results);
+		saveRunTasks(manifest, tasks);
+		saveCrewAgents(manifest, tasks.map((task) => recordFromTask(manifest, task, input.executeWorkers ? "child-process" : "scaffold")));
+		const batchArtifact = writeArtifact(manifest.artifactsRoot, {
+			kind: "summary",
+			relativePath: `batches/${readyBatch.map((task) => task.id).join("+")}.md`,
+			producer: "team-runner",
+			content: aggregateTaskOutputs(readyBatch.map((task) => tasks.find((item) => item.id === task.id) ?? task)),
+		});
+		manifest = { ...manifest, artifacts: mergeArtifacts([...manifest.artifacts, batchArtifact]) };
 		manifest = writeProgress(manifest, tasks, "team-runner");
 		saveRunManifest(manifest);
 	}

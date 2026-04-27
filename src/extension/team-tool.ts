@@ -35,6 +35,7 @@ import { formatValidationReport, validateResources } from "./validate-resources.
 import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
 import { toolResult, type PiTeamsToolResult } from "./tool-result.ts";
 import { touchWorkerHeartbeat } from "../runtime/worker-heartbeat.ts";
+import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 
 export interface TeamToolDetails {
 	action: string;
@@ -291,6 +292,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const counts = new Map<string, number>();
 	for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
 	const events = readEvents(manifest.eventsPath).slice(-8);
+	const crewAgents = readCrewAgents(manifest);
 	const artifactLines = manifest.artifacts.slice(-10).map((artifact) => `- ${artifact.kind}: ${artifact.path}${artifact.sizeBytes !== undefined ? ` (${artifact.sizeBytes} bytes)` : ""}`);
 	const totalUsage = aggregateUsage(tasks);
 	const lines = [
@@ -308,6 +310,8 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		"Tasks:",
 		...(tasks.length ? tasks.map((task) => `- ${task.id} [${task.status}] ${task.role} -> ${task.agent}${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.modelAttempts?.length ? ` attempts=${task.modelAttempts.length}` : ""}${task.jsonEvents !== undefined ? ` jsonEvents=${task.jsonEvents}` : ""}${task.usage ? ` usage=${JSON.stringify(task.usage)}` : ""}${task.worktree ? ` worktree=${task.worktree.path}` : ""}${task.error ? ` error=${task.error}` : ""}`) : ["- (none)"]),
 		`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
+		"Agents:",
+		...(crewAgents.length ? crewAgents.map((agent) => `- ${agent.id} [${agent.status}] ${agent.role} -> ${agent.agent} runtime=${agent.runtime}${agent.toolUses ? ` tools=${agent.toolUses}` : ""}${agent.jsonEvents !== undefined ? ` jsonEvents=${agent.jsonEvents}` : ""}${agent.error ? ` error=${agent.error}` : ""}`) : ["- (none)"]),
 		"Policy decisions:",
 		...(manifest.policyDecisions?.length ? manifest.policyDecisions.map((item) => `- ${item.action} (${item.reason})${item.taskId ? ` ${item.taskId}` : ""}: ${item.message}`) : ["- (none)"]),
 		`Total usage: ${formatUsage(totalUsage)}`,
@@ -560,6 +564,17 @@ export function handleApi(params: TeamToolParamsValue, ctx: TeamContext): PiTeam
 	}
 	if (operation === "read-events") {
 		return result(JSON.stringify(readEvents(loaded.manifest.eventsPath), null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+	}
+	if (operation === "list-agents") {
+		return result(JSON.stringify(readCrewAgents(loaded.manifest), null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+	}
+	if (operation === "get-agent-result") {
+		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
+		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
+		if (!agent) return result("API get-agent-result requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		const task = loaded.tasks.find((item) => item.id === agent.taskId);
+		const text = task?.resultArtifact && fs.existsSync(task.resultArtifact.path) ? fs.readFileSync(task.resultArtifact.path, "utf-8") : JSON.stringify(agent, null, 2);
+		return result(text, { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "read-mailbox") {
 		const direction = cfg.direction === "inbox" || cfg.direction === "outbox" ? cfg.direction as MailboxDirection : undefined;
