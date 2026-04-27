@@ -94,6 +94,25 @@ export function readEvents(eventsPath: string): TeamEvent[] {
 		.map((line) => JSON.parse(line) as TeamEvent);
 }
 
+export interface EventCursorOptions {
+	sinceSeq?: number;
+	limit?: number;
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+	return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): { events: TeamEvent[]; nextSeq: number; total: number } {
+	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
+	const limit = positiveInteger(options.limit);
+	const all = readEvents(eventsPath);
+	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
+	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
+	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
+	return { events, nextSeq: returnedMaxSeq, total: filtered.length };
+}
+
 export function dedupeTerminalEvents(events: TeamEvent[]): TeamEvent[] {
 	const seen = new Set<string>();
 	const output: TeamEvent[] = [];

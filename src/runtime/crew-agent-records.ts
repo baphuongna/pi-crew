@@ -52,17 +52,55 @@ export function readCrewAgentStatus(manifest: TeamRunManifest, taskOrAgentId: st
 	return readJsonFile<CrewAgentRecord>(agentStatusPath(manifest, taskId));
 }
 
+function nextAgentEventSeq(filePath: string): number {
+	if (!fs.existsSync(filePath)) return 1;
+	let max = 0;
+	for (const line of fs.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
+		if (!line.trim()) continue;
+		try {
+			const parsed = JSON.parse(line) as { seq?: unknown };
+			if (typeof parsed.seq === "number" && Number.isFinite(parsed.seq)) max = Math.max(max, parsed.seq);
+			else max += 1;
+		} catch {
+			max += 1;
+		}
+	}
+	return max + 1;
+}
+
 export function appendCrewAgentEvent(manifest: TeamRunManifest, taskId: string, event: unknown): void {
 	fs.mkdirSync(agentStateDir(manifest, taskId), { recursive: true });
-	fs.appendFileSync(agentEventsPath(manifest, taskId), `${JSON.stringify({ time: new Date().toISOString(), event })}\n`, "utf-8");
+	const filePath = agentEventsPath(manifest, taskId);
+	fs.appendFileSync(filePath, `${JSON.stringify({ seq: nextAgentEventSeq(filePath), time: new Date().toISOString(), event })}\n`, "utf-8");
+}
+
+export interface CrewAgentEventCursorOptions {
+	sinceSeq?: number;
+	limit?: number;
 }
 
 export function readCrewAgentEvents(manifest: TeamRunManifest, taskId: string): unknown[] {
+	return readCrewAgentEventsCursor(manifest, taskId).events;
+}
+
+export function readCrewAgentEventsCursor(manifest: TeamRunManifest, taskId: string, options: CrewAgentEventCursorOptions = {}): { path: string; events: unknown[]; nextSeq: number; total: number } {
 	const filePath = agentEventsPath(manifest, taskId);
-	if (!fs.existsSync(filePath)) return [];
-	return fs.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
-		try { return JSON.parse(line) as unknown; } catch { return { raw: line }; }
+	if (!fs.existsSync(filePath)) return { path: filePath, events: [], nextSeq: options.sinceSeq ?? 0, total: 0 };
+	const sinceSeq = typeof options.sinceSeq === "number" && Number.isInteger(options.sinceSeq) && options.sinceSeq >= 0 ? options.sinceSeq : 0;
+	const limit = typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : undefined;
+	const parsed = fs.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line, index) => {
+		try {
+			const event = JSON.parse(line) as Record<string, unknown>;
+			if (typeof event.seq !== "number") event.seq = index + 1;
+			return event;
+		} catch {
+			return { seq: index + 1, raw: line };
+		}
 	});
+	const filtered = parsed.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
+	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
+	const returnedMaxSeq = events.reduce((max, event) => typeof event.seq === "number" ? Math.max(max, event.seq) : max, sinceSeq);
+	return { path: filePath, events, nextSeq: returnedMaxSeq, total: filtered.length };
 }
 
 export function appendCrewAgentOutput(manifest: TeamRunManifest, taskId: string, text: string): void {

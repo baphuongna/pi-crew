@@ -21,7 +21,7 @@ import { getPiSpawnCommand } from "../runtime/pi-spawn.ts";
 import { executeTeamRun } from "../runtime/team-runner.ts";
 import { spawnBackgroundTeamRun } from "../runtime/async-runner.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
-import { appendEvent, readEvents } from "../state/event-log.ts";
+import { appendEvent, readEvents, readEventsCursor } from "../state/event-log.ts";
 import { cleanupRunWorktrees } from "../worktree/cleanup.ts";
 import { piTeamsHelp } from "./help.ts";
 import { initializeProject } from "./project-init.ts";
@@ -35,10 +35,11 @@ import { formatValidationReport, validateResources } from "./validate-resources.
 import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
 import { toolResult, type PiTeamsToolResult } from "./tool-result.ts";
 import { touchWorkerHeartbeat } from "../runtime/worker-heartbeat.ts";
-import { agentEventsPath, agentOutputPath, readCrewAgentEvents, readCrewAgentStatus, readCrewAgents } from "../runtime/crew-agent-records.ts";
+import { agentEventsPath, agentOutputPath, readCrewAgentEvents, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { resolveCrewRuntime } from "../runtime/runtime-resolver.ts";
 import { probeLiveSessionRuntime } from "../runtime/live-session-runtime.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../runtime/agent-control.ts";
+import { buildAgentDashboard, readAgentOutput } from "../runtime/agent-observability.ts";
 
 export interface TeamToolDetails {
 	action: string;
@@ -575,7 +576,12 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		return result(JSON.stringify(task, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "read-events") {
-		return result(JSON.stringify(readEvents(loaded.manifest.eventsPath), null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+		const sinceSeq = typeof cfg.sinceSeq === "number" ? cfg.sinceSeq : undefined;
+		const limit = typeof cfg.limit === "number" ? cfg.limit : undefined;
+		const payload = sinceSeq !== undefined || limit !== undefined
+			? readEventsCursor(loaded.manifest.eventsPath, { sinceSeq, limit })
+			: { events: readEvents(loaded.manifest.eventsPath), nextSeq: undefined, total: undefined };
+		return result(JSON.stringify(payload, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "runtime-capabilities") {
 		const loadedConfig = loadConfig(ctx.cwd);
@@ -606,7 +612,12 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
 		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
 		if (!agent) return result("API read-agent-events requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
-		return result(JSON.stringify({ path: agentEventsPath(loaded.manifest, agent.taskId), events: readCrewAgentEvents(loaded.manifest, agent.taskId) }, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+		const sinceSeq = typeof cfg.sinceSeq === "number" ? cfg.sinceSeq : undefined;
+		const limit = typeof cfg.limit === "number" ? cfg.limit : undefined;
+		const payload = sinceSeq !== undefined || limit !== undefined
+			? readCrewAgentEventsCursor(loaded.manifest, agent.taskId, { sinceSeq, limit })
+			: { path: agentEventsPath(loaded.manifest, agent.taskId), events: readCrewAgentEvents(loaded.manifest, agent.taskId) };
+		return result(JSON.stringify(payload, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "read-agent-transcript") {
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
@@ -615,6 +626,16 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const transcriptPath = agent.transcriptPath && fs.existsSync(agent.transcriptPath) ? agent.transcriptPath : agentOutputPath(loaded.manifest, agent.taskId);
 		const text = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf-8") : "";
 		return result(text || `(no transcript at ${transcriptPath})`, { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+	}
+	if (operation === "read-agent-output") {
+		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
+		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
+		if (!agent) return result("API read-agent-output requires config.agentId matching an agent id or task id.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		const maxBytes = typeof cfg.maxBytes === "number" ? cfg.maxBytes : undefined;
+		return result(JSON.stringify(readAgentOutput(loaded.manifest, agent.taskId, maxBytes), null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+	}
+	if (operation === "agent-dashboard") {
+		return result(buildAgentDashboard(loaded.manifest).text, { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "nudge-agent") {
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
