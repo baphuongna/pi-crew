@@ -2,8 +2,16 @@
   "name": "pi-teams",
   "version": "0.1.0",
   "description": "Pi extension for coordinated AI teams, workflows, worktrees, and async task orchestration",
-  "author": "",
+  "author": "baphuongna",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baphuongna/pi-teams.git"
+  },
+  "homepage": "https://github.com/baphuongna/pi-teams#readme",
+  "bugs": {
+    "url": "https://github.com/baphuongna/pi-teams/issues"
+  },
   "type": "module",
   "bin": {
     "pi-teams": "install.mjs"
