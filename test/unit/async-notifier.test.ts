@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { startAsyncRunNotifier, stopAsyncRunNotifier, type AsyncNotifierState } from "../../src/extension/async-notifier.ts";
+import { markDeadAsyncRunIfNeeded, startAsyncRunNotifier, stopAsyncRunNotifier, type AsyncNotifierState } from "../../src/extension/async-notifier.ts";
+import { appendEvent, readEvents } from "../../src/state/event-log.ts";
 import { createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
@@ -42,6 +43,24 @@ test("async notifier suppresses pre-existing active runs that later become faile
 		assert.equal(notifications.length, 0);
 	} finally {
 		stopAsyncRunNotifier(state);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("async notifier marks quiet dead background runner as failed", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-dead-"));
+	fs.mkdirSync(path.join(cwd, ".pi"));
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "dead async" });
+		const oldTime = new Date(Date.now() - 60_000).toISOString();
+		const manifest = { ...created.manifest, status: "running" as const, updatedAt: oldTime, async: { pid: 999_999_999, logPath: path.join(created.manifest.stateRoot, "background.log"), spawnedAt: oldTime } };
+		saveRunManifest(manifest);
+		appendEvent(manifest.eventsPath, { type: "async.started", runId: manifest.runId, data: { pid: manifest.async.pid } });
+		const marked = markDeadAsyncRunIfNeeded(manifest, Date.now() + 60_000, 30_000);
+		assert.ok(marked);
+		assert.equal(marked.status, "failed");
+		assert.equal(readEvents(marked.eventsPath).some((event) => event.type === "async.died"), true);
+	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

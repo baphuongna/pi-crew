@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
-import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
+import type { ArtifactDescriptor, TaskCheckpointState, TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../state/state-store.ts";
@@ -117,6 +117,18 @@ function persistSingleTaskUpdate(manifest: TeamRunManifest, fallbackTasks: TeamT
 	const merged = updateTask(latest, updated);
 	saveRunTasks(manifest, merged);
 	return merged;
+}
+
+function checkpointTask(manifest: TeamRunManifest, tasks: TeamTaskState[], task: TeamTaskState, phase: TaskCheckpointState["phase"], childPid?: number): { task: TeamTaskState; tasks: TeamTaskState[] } {
+	const checkpoint: TaskCheckpointState = { phase, updatedAt: new Date().toISOString(), ...(childPid ? { childPid } : task.checkpoint?.childPid ? { childPid: task.checkpoint.childPid } : {}) };
+	const nextTask = { ...task, checkpoint };
+	const nextTasks = persistSingleTaskUpdate(manifest, updateTask(tasks, nextTask), nextTask);
+	upsertCrewAgent(manifest, recordFromTask(manifest, nextTask, "child-process"));
+	return { task: nextTask, tasks: nextTasks };
+}
+
+function isFinalChildEvent(event: unknown): boolean {
+	return Boolean(event && typeof event === "object" && !Array.isArray(event) && (event as Record<string, unknown>).type === "message_end");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -276,6 +288,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	let tasks = updateTask(input.tasks, task);
 	const runtimeKind = input.runtimeKind ?? (input.executeWorkers ? "child-process" : "scaffold");
 	tasks = persistSingleTaskUpdate(manifest, tasks, task);
+	if (runtimeKind === "child-process") ({ task, tasks } = checkpointTask(manifest, tasks, task, "started"));
 	upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
 	appendEvent(manifest.eventsPath, { type: "task.started", runId: manifest.runId, taskId: task.id, data: { role: task.role, agent: task.agent, runtime: runtimeKind, cwd: task.cwd, worktreePath: workspace.worktreePath, worktreeBranch: workspace.branch, worktreeReused: workspace.reused } });
 	const permissionMode = permissionForRole(task.role);
@@ -313,6 +326,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		let finalStderr = "";
 		modelAttempts = [];
 		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
+		let finalCheckpointWritten = false;
 		let lastAgentRecordPersistedAt = 0;
 		let lastRunProgressPersistedAt = 0;
 		let lastRunProgressSummary: ProgressEventSummary | undefined;
@@ -345,11 +359,18 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				signal: input.signal,
 				transcriptPath,
 				maxDepth: input.limits?.maxTaskDepth,
+				onSpawn: (pid) => {
+					({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+				},
 				onStdoutLine: (line) => appendCrewAgentOutput(manifest, task.id, line),
 				onJsonEvent: (event) => {
 					appendCrewAgentEvent(manifest, task.id, event);
 					task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 					tasks = updateTask(tasks, task);
+					if (!finalCheckpointWritten && isFinalChildEvent(event)) {
+						finalCheckpointWritten = true;
+						({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
+					}
 					persistChildProgress(event);
 				},
 			});
@@ -404,6 +425,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				producer: task.id,
 			});
 		}
+		task = { ...task, resultArtifact, ...(logArtifact ? { logArtifact } : {}), ...(transcriptArtifact ? { transcriptArtifact } : {}) };
+		tasks = updateTask(tasks, task);
+		({ task, tasks } = checkpointTask(manifest, tasks, task, "artifact-written"));
 	} else if (runtimeKind === "live-session") {
 		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
 		let lastAgentRecordPersistedAt = 0;

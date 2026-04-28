@@ -39,8 +39,8 @@ Tổng: **22 task / ~6.25 ngày**, có thể ship theo nhiều mini-release (0.1
 | T61 | ✅ Done | `bfd9bc8` — async early-exit guard |
 | T62 | ✅ Done | `bfd9bc8` — async startup marker |
 | T63 | ✅ Done | `bfd9bc8` — concurrency hard cap + opt-out |
-| T64 | ⏳ Pending | Resume checkpoint cho synthesize/write chưa triển khai |
-| T65 | ⏳ Pending | Async-died notifier sau parent crash chưa triển khai |
+| T64 | 🟡 Partial | checkpoint phases + artifact-written resume recovery implemented; child-stdout transcript recovery still pending |
+| T65 | ✅ Done | async notifier marks quiet dead background runners failed with `async.died` |
 | T66 | ✅ Done | `5e495dc` — replay pending mailbox on resume |
 | T67 | ⏳ Pending | Adaptive planner repair/retry chưa triển khai |
 | T68 | ✅ Done | `1f92b8a` — persisted model routing metadata |

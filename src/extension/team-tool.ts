@@ -4,7 +4,7 @@ import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { loadConfig, updateAutonomousConfig, updateConfig } from "../config/config.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
-import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import { withRunLock, withRunLockSync } from "../state/locks.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { appendEvent, readEvents } from "../state/event-log.ts";
@@ -22,6 +22,7 @@ import { validateWorkflowForTeam } from "../workflows/validate-workflow.ts";
 import { formatValidationReport, validateResources } from "./validate-resources.ts";
 import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
 import type { PiTeamsToolResult } from "./tool-result.ts";
+import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { executeTeamRun } from "../runtime/team-runner.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
 import { saveCrewAgents, readCrewAgents, recordFromTask } from "../runtime/crew-agent-records.ts";
@@ -216,6 +217,31 @@ export function handleCancel(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	});
 }
 
+function artifactKey(artifact: ArtifactDescriptor): string {
+	return `${artifact.kind}:${artifact.path}`;
+}
+
+function recoverCheckpointedTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): { manifest: TeamRunManifest; tasks: TeamTaskState[]; recovered: string[] } {
+	const recovered: string[] = [];
+	let nextManifest = manifest;
+	let nextTasks = tasks.map((task) => {
+		if (task.status !== "running" || task.checkpoint?.phase !== "artifact-written" || !task.resultArtifact) return task;
+		recovered.push(task.id);
+		return { ...task, status: "completed" as const, finishedAt: task.finishedAt ?? task.checkpoint.updatedAt, error: undefined, claim: undefined };
+	});
+	if (recovered.length) {
+		const artifacts = new Map(nextManifest.artifacts.map((artifact) => [artifactKey(artifact), artifact]));
+		for (const task of nextTasks) {
+			if (!recovered.includes(task.id)) continue;
+			for (const artifact of [task.promptArtifact, task.resultArtifact, task.logArtifact, task.transcriptArtifact].filter(Boolean) as ArtifactDescriptor[]) artifacts.set(artifactKey(artifact), artifact);
+		}
+		nextManifest = { ...nextManifest, artifacts: [...artifacts.values()], updatedAt: new Date().toISOString() };
+		saveRunManifest(nextManifest);
+		saveRunTasks(nextManifest, nextTasks);
+	}
+	return { manifest: nextManifest, tasks: nextTasks, recovered };
+}
+
 export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	if (!params.runId) return result("Resume requires runId.", { action: "resume", status: "error" }, true);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId);
@@ -228,15 +254,18 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 	const workflow = direct?.workflow ?? allWorkflows(discoverWorkflows(ctx.cwd)).find((candidate) => candidate.name === loaded.manifest.workflow);
 	if (!workflow) return result(`Workflow '${loaded.manifest.workflow}' not found.`, { action: "resume", status: "error" }, true);
 	return await withRunLock(loaded.manifest, async () => {
-		const resetTasks = loaded.tasks.map((task) => task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "running" ? { ...task, status: "queued" as const, error: undefined, startedAt: undefined, finishedAt: undefined, claim: undefined } : task);
-		saveRunTasks(loaded.manifest, resetTasks);
-		const replay = replayPendingMailboxMessages(loaded.manifest);
-		appendEvent(loaded.manifest.eventsPath, { type: "run.resume_requested", runId: loaded.manifest.runId, data: { replayedMailboxMessages: replay.messages.length } });
-		if (replay.messages.length) appendEvent(loaded.manifest.eventsPath, { type: "mailbox.replayed", runId: loaded.manifest.runId, message: `Replayed ${replay.messages.length} pending inbox message(s).`, data: { messageIds: replay.messages.map((message) => message.id), taskIds: replay.messages.map((message) => message.taskId).filter(Boolean) } });
+		const recovered = recoverCheckpointedTasks(loaded.manifest, loaded.tasks);
+		const resumeManifest = recovered.manifest;
+		const resetTasks = recovered.tasks.map((task) => task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "running" ? { ...task, status: "queued" as const, error: undefined, startedAt: undefined, finishedAt: undefined, claim: undefined } : task);
+		saveRunTasks(resumeManifest, resetTasks);
+		const replay = replayPendingMailboxMessages(resumeManifest);
+		appendEvent(resumeManifest.eventsPath, { type: "run.resume_requested", runId: resumeManifest.runId, data: { replayedMailboxMessages: replay.messages.length, recoveredCheckpointTasks: recovered.recovered } });
+		if (recovered.recovered.length) appendEvent(resumeManifest.eventsPath, { type: "task.checkpoint_recovered", runId: resumeManifest.runId, message: `Recovered ${recovered.recovered.length} task(s) from artifact-written checkpoints.`, data: { taskIds: recovered.recovered } });
+		if (replay.messages.length) appendEvent(resumeManifest.eventsPath, { type: "mailbox.replayed", runId: resumeManifest.runId, message: `Replayed ${replay.messages.length} pending inbox message(s).`, data: { messageIds: replay.messages.map((message) => message.id), taskIds: replay.messages.map((message) => message.taskId).filter(Boolean) } });
 		const loadedConfig = loadConfig(ctx.cwd);
 		const runtime = await resolveCrewRuntime(loadedConfig.config);
 		const executeWorkers = runtime.kind !== "scaffold";
-		const executed = await executeTeamRun({ manifest: loaded.manifest, tasks: resetTasks, team, workflow, agents, executeWorkers, limits: loadedConfig.config.limits, runtime, runtimeConfig: loadedConfig.config.runtime, parentContext: buildParentContext(ctx), parentModel: ctx.model, modelRegistry: ctx.modelRegistry, modelOverride: params.model, signal: ctx.signal });
+		const executed = await executeTeamRun({ manifest: resumeManifest, tasks: resetTasks, team, workflow, agents, executeWorkers, limits: loadedConfig.config.limits, runtime, runtimeConfig: loadedConfig.config.runtime, parentContext: buildParentContext(ctx), parentModel: ctx.model, modelRegistry: ctx.modelRegistry, modelOverride: params.model, signal: ctx.signal });
 		return result([`Resumed run ${executed.manifest.runId}.`, `Status: ${executed.manifest.status}`, `Tasks: ${executed.tasks.length}`, `Artifacts: ${executed.manifest.artifactsRoot}`].join("\n"), { action: "resume", status: executed.manifest.status === "failed" ? "error" : "ok", runId: executed.manifest.runId, artifactsRoot: executed.manifest.artifactsRoot }, executed.manifest.status === "failed");
 	});
 }

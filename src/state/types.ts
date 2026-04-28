@@ -132,6 +132,12 @@ export interface TaskWorktreeState {
 	reused: boolean;
 }
 
+export interface TaskCheckpointState {
+	phase: "started" | "child-spawned" | "child-stdout-final" | "artifact-written";
+	updatedAt: string;
+	childPid?: number;
+}
+
 export interface TeamTaskState {
 	id: string;
 	runId: string;
@@ -159,6 +165,7 @@ export interface TeamTaskState {
 	error?: string;
 	claim?: TaskClaimState;
 	heartbeat?: WorkerHeartbeatState;
+	checkpoint?: TaskCheckpointState;
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
 	graph?: TaskGraphNode;

@@ -91,6 +91,7 @@ export interface ChildPiRunInput {
 	transcriptPath?: string;
 	onStdoutLine?: (line: string) => void;
 	onJsonEvent?: (event: unknown) => void;
+	onSpawn?: (pid: number) => void;
 	maxDepth?: number;
 	finalDrainMs?: number;
 	hardKillMs?: number;
@@ -286,7 +287,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
 			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, { ...process.env, ...built.env }));
-			if (child.pid) activeChildProcesses.set(child.pid, child);
+			if (child.pid) {
+				activeChildProcesses.set(child.pid, child);
+				input.onSpawn?.(child.pid);
+			}
 			let stdout = "";
 			let stderr = "";
 			let settled = false;

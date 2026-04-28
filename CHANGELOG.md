@@ -9,12 +9,15 @@
 - Added persisted model routing metadata on tasks and agent records: requested model, resolved model, fallback chain, reason, and used attempt.
 - Added self-contained architecture/runtime-flow docs and five built-in coding skills.
 - Added mailbox replay on resume for pending inbox messages, including task-scoped messages.
+- Added task resume checkpoints and recovery for crash-after-artifact-write child-process tasks.
+- Added async notifier detection for quiet dead background runners with durable `async.died` events.
 
 ### Changed
 
 - Async background runs now use an explicit jiti loader path and expose startup markers for recovery/health checks.
 - Active batch selection now caps excessive user concurrency by default to protect local machines.
 - Resume now emits mailbox replay metadata before restarting queued work.
+- Child-process tasks now persist checkpoint phases (`started`, `child-spawned`, `child-stdout-final`, `artifact-written`) during execution.
 
 ### Fixed
 
