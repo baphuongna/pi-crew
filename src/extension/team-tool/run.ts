@@ -8,7 +8,7 @@ import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../s
 import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { validateWorkflowForTeam } from "../../workflows/validate-workflow.ts";
 import { executeTeamRun } from "../../runtime/team-runner.ts";
-import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
+import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import { appendEvent, readEvents } from "../../state/event-log.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import { expandParallelResearchWorkflow } from "../../runtime/parallel-research.ts";

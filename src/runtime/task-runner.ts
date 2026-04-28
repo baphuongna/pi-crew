@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
-import type { ArtifactDescriptor, TaskCheckpointState, TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
+import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
-import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../state/state-store.ts";
+import { saveRunManifest } from "../state/state-store.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "./worker-heartbeat.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
@@ -12,7 +12,7 @@ import { captureWorktreeDiff, captureWorktreeDiffStat, prepareTaskWorkspace } fr
 import { buildConfiguredModelRouting, formatModelAttemptNote, isRetryableModelFailure, type ModelAttemptSummary } from "./model-fallback.ts";
 import { parsePiJsonOutput, type ParsedPiJsonOutput } from "./pi-json-output.ts";
 import { runChildPi } from "./child-pi.ts";
-import { buildTaskPacket, renderTaskPacket } from "./task-packet.ts";
+import { buildTaskPacket } from "./task-packet.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import { createStartupEvidence } from "./worker-startup.ts";
 import { permissionForRole } from "./role-permission.ts";
@@ -20,9 +20,11 @@ import { collectDependencyOutputContext, renderDependencyOutputContext, writeTas
 import { appendCrewAgentEvent, appendCrewAgentOutput, emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { parseSessionUsage } from "./session-usage.ts";
 import type { CrewAgentProgress, CrewRuntimeKind } from "./crew-agent-runtime.ts";
-import { buildMemoryBlock } from "./agent-memory.ts";
-import { runLiveSessionTask } from "./live-session-runtime.ts";
 import { shouldAppendProgressEventUpdate, type ProgressEventSummary } from "./progress-event-coalescer.ts";
+import { coordinationBridgeInstructions, renderTaskPrompt } from "./task-runner/prompt-builder.ts";
+import { applyAgentProgressEvent, applyUsageToProgress, progressEventSummary, shouldFlushProgressEvent } from "./task-runner/progress.ts";
+import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./task-runner/state-helpers.ts";
+import { cleanResultText, isFinalChildEvent } from "./task-runner/result-utils.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -40,230 +42,6 @@ export interface TaskRunnerInput {
 	modelOverride?: string;
 	limits?: CrewLimitsConfig;
 	dependencyContextText?: string;
-}
-
-function readOnlyRoleInstructions(role: string): string {
-	if (permissionForRole(role) !== "read_only") return "";
-	return [
-		"# READ-ONLY ROLE CONTRACT",
-		"You are running in READ-ONLY mode for this task.",
-		"- Do not create, modify, delete, move, or copy files.",
-		"- Do not use shell redirects, heredocs, in-place edits, package installs, git commit/merge/rebase/reset/checkout, or other state-mutating commands.",
-		"- If implementation changes are needed, report exact recommendations instead of applying them.",
-		"- Prefer read/grep/find/listing tools and read-only git inspection commands.",
-	].join("\n");
-}
-
-function coordinationBridgeInstructions(task: TeamTaskState): string {
-	return [
-		"# Crew Coordination Channel",
-		`Mailbox target for this task: ${task.id}`,
-		"Use the run mailbox contract for coordination with the leader/orchestrator:",
-		"- If blocked or uncertain, report the blocker in your final result and, when mailbox tools/API are available, send an inbox/outbox message addressed to the leader.",
-		"- If nudged, answer with current status, blocker, or smallest next step.",
-		"- Treat inherited/dependency context as reference-only; do not continue the parent conversation directly.",
-		"- Completion handoff should include: DONE/FAILED, summary, changed/read files, verification evidence, and remaining risks.",
-	].join("\n");
-}
-
-function renderTaskPrompt(manifest: TeamRunManifest, step: WorkflowStep, task: TeamTaskState, agent?: AgentConfig): string {
-	const memoryBlock = agent?.memory ? buildMemoryBlock(agent.name, agent.memory, task.cwd, Boolean(agent.tools?.some((tool) => tool === "write" || tool === "edit"))) : "";
-	return [
-		"# pi-crew Worker Runtime Context",
-		`Run ID: ${manifest.runId}`,
-		`Team: ${manifest.team}`,
-		`Workflow: ${manifest.workflow ?? "(none)"}`,
-		`State root: ${manifest.stateRoot}`,
-		`Artifacts root: ${manifest.artifactsRoot}`,
-		`Events path: ${manifest.eventsPath}`,
-		`Task ID: ${task.id}`,
-		`Task cwd: ${task.cwd}`,
-		`Workspace mode: ${manifest.workspaceMode}`,
-		"",
-		`Goal:\n${manifest.goal}`,
-		"",
-		`Step: ${step.id}`,
-		`Role: ${step.role}`,
-		"",
-		"Protocol:",
-		"- Stay within the task scope unless the prompt explicitly says otherwise.",
-		"- Report blockers and verification evidence in the final result.",
-		"- Do not claim completion without evidence.",
-		"- Follow the Task Packet contract below; escalate if any contract field is impossible to satisfy.",
-		"",
-		readOnlyRoleInstructions(task.role),
-		"",
-		coordinationBridgeInstructions(task),
-		"",
-		task.taskPacket ? renderTaskPacket(task.taskPacket) : "",
-		"",
-		(inputDependencyContext(task) || ""),
-		memoryBlock,
-		"Task:",
-		step.task.replaceAll("{goal}", manifest.goal),
-	].join("\n");
-}
-
-function inputDependencyContext(task: TeamTaskState): string {
-	return (task as TeamTaskState & { dependencyContextText?: string }).dependencyContextText ?? "";
-}
-
-function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): TeamTaskState[] {
-	return tasks.map((task) => task.id === updated.id ? updated : task);
-}
-
-function persistSingleTaskUpdate(manifest: TeamRunManifest, fallbackTasks: TeamTaskState[], updated: TeamTaskState): TeamTaskState[] {
-	const latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
-	const merged = updateTask(latest, updated);
-	saveRunTasks(manifest, merged);
-	return merged;
-}
-
-function checkpointTask(manifest: TeamRunManifest, tasks: TeamTaskState[], task: TeamTaskState, phase: TaskCheckpointState["phase"], childPid?: number): { task: TeamTaskState; tasks: TeamTaskState[] } {
-	const checkpoint: TaskCheckpointState = { phase, updatedAt: new Date().toISOString(), ...(childPid ? { childPid } : task.checkpoint?.childPid ? { childPid: task.checkpoint.childPid } : {}) };
-	const nextTask = { ...task, checkpoint };
-	const nextTasks = persistSingleTaskUpdate(manifest, updateTask(tasks, nextTask), nextTask);
-	upsertCrewAgent(manifest, recordFromTask(manifest, nextTask, "child-process"));
-	return { task: nextTask, tasks: nextTasks };
-}
-
-function isFinalChildEvent(event: unknown): boolean {
-	return Boolean(event && typeof event === "object" && !Array.isArray(event) && (event as Record<string, unknown>).type === "message_end");
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-function textFromContent(content: unknown): string[] {
-	if (typeof content === "string") return [content];
-	if (!Array.isArray(content)) return [];
-	const text: string[] = [];
-	for (const part of content) {
-		const obj = asRecord(part);
-		if (!obj) continue;
-		if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
-		else if (typeof obj.content === "string") text.push(obj.content);
-	}
-	return text;
-}
-
-function eventText(event: unknown): string[] {
-	const obj = asRecord(event);
-	if (!obj) return [];
-	const text: string[] = [];
-	if (typeof obj.text === "string") text.push(obj.text);
-	if (typeof obj.output === "string") text.push(obj.output);
-	text.push(...textFromContent(obj.content));
-	const message = asRecord(obj.message);
-	if (message) text.push(...textFromContent(message.content));
-	return text.filter((entry) => entry.trim());
-}
-
-function numberField(obj: Record<string, unknown>, keys: string[]): number | undefined {
-	for (const key of keys) {
-		const value = obj[key];
-		if (typeof value === "number" && Number.isFinite(value)) return value;
-	}
-	return undefined;
-}
-
-function eventUsage(event: unknown): { input?: number; output?: number; turns?: number } | undefined {
-	const obj = asRecord(event);
-	if (!obj) return undefined;
-	const direct = {
-		input: numberField(obj, ["input", "inputTokens", "input_tokens"]),
-		output: numberField(obj, ["output", "outputTokens", "output_tokens"]),
-		turns: numberField(obj, ["turns", "turnCount", "turn_count"]),
-	};
-	if (Object.values(direct).some((value) => value !== undefined)) return direct;
-	for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
-		const nested = eventUsage(obj[key]);
-		if (nested) return nested;
-	}
-	const message = asRecord(obj.message);
-	return message ? eventUsage(message.usage) : undefined;
-}
-
-function previewArgs(args: unknown): string | undefined {
-	if (!args) return undefined;
-	try {
-		const text = typeof args === "string" ? args : JSON.stringify(args);
-		return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-	} catch {
-		return undefined;
-	}
-}
-
-function applyUsageToProgress(progress: CrewAgentProgress | undefined, usage: UsageState | undefined): CrewAgentProgress | undefined {
-	if (!usage) return progress;
-	const base = progress ?? emptyCrewAgentProgress();
-	return {
-		...base,
-		tokens: (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0),
-		turns: usage.turns ?? base.turns,
-	};
-}
-
-function shouldFlushProgressEvent(event: unknown): boolean {
-	const type = asRecord(event)?.type;
-	return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_end" || type === "tool_result_end";
-}
-
-function cleanResultText(text: string | undefined): string | undefined {
-	const trimmed = text?.trim();
-	if (!trimmed) return undefined;
-	const doneIndex = trimmed.lastIndexOf("\nDONE\n");
-	if (doneIndex >= 0) return trimmed.slice(doneIndex + 1).trim();
-	if (trimmed === "DONE" || trimmed.startsWith("DONE\n")) return trimmed;
-	const fencedPromptIndex = trimmed.lastIndexOf("</file>");
-	if (fencedPromptIndex >= 0 && fencedPromptIndex < trimmed.length - 7) return trimmed.slice(fencedPromptIndex + 7).trim() || trimmed;
-	return trimmed;
-}
-
-function progressEventSummary(task: TeamTaskState, event: unknown): ProgressEventSummary {
-	const type = asRecord(event)?.type;
-	return {
-		eventType: typeof type === "string" ? type : "event",
-		currentTool: task.agentProgress?.currentTool,
-		toolCount: task.agentProgress?.toolCount,
-		tokens: task.agentProgress?.tokens,
-		turns: task.agentProgress?.turns,
-		activityState: task.agentProgress?.activityState,
-		lastActivityAt: task.agentProgress?.lastActivityAt,
-	};
-}
-
-function applyAgentProgressEvent(progress: CrewAgentProgress, event: unknown, startedAt: string | undefined): CrewAgentProgress {
-	const obj = asRecord(event);
-	const now = new Date().toISOString();
-	const next: CrewAgentProgress = { ...progress, recentTools: [...progress.recentTools], recentOutput: [...progress.recentOutput], lastActivityAt: now, activityState: "active" };
-	if (startedAt) next.durationMs = Date.now() - new Date(startedAt).getTime();
-	if (obj?.type === "tool_execution_start") {
-		next.toolCount += 1;
-		next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
-		next.currentToolArgs = previewArgs(obj.args);
-		next.currentToolStartedAt = now;
-	}
-	if (obj?.type === "tool_execution_end") {
-		if (next.currentTool) next.recentTools.push({ tool: next.currentTool, args: next.currentToolArgs, endedAt: now });
-		next.currentTool = undefined;
-		next.currentToolArgs = undefined;
-		next.currentToolStartedAt = undefined;
-	}
-	if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool) {
-		next.failedTool = next.currentTool;
-	}
-	const usage = eventUsage(event);
-	if (usage) {
-		next.tokens = (usage.input ?? 0) + (usage.output ?? 0);
-		next.turns = usage.turns ?? next.turns;
-	}
-	const text = eventText(event);
-	if (text.length > 0) next.recentOutput.push(...text.flatMap((entry) => entry.split(/\r?\n/)).filter(Boolean).slice(-10));
-	if (next.recentTools.length > 25) next.recentTools.splice(0, next.recentTools.length - 25);
-	if (next.recentOutput.length > 50) next.recentOutput.splice(0, next.recentOutput.length - 50);
-	return next;
 }
 
 export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
@@ -429,71 +207,17 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		tasks = updateTask(tasks, task);
 		({ task, tasks } = checkpointTask(manifest, tasks, task, "artifact-written"));
 	} else if (runtimeKind === "live-session") {
-		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
-		let lastAgentRecordPersistedAt = 0;
-		let lastRunProgressPersistedAt = 0;
-		let lastRunProgressSummary: ProgressEventSummary | undefined;
-		const persistLiveProgress = (event: unknown, force = false): void => {
-			const now = Date.now();
-			if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
-				upsertCrewAgent(manifest, recordFromTask(manifest, task, "live-session"));
-				lastAgentRecordPersistedAt = now;
-			}
-			const summary = progressEventSummary(task, event);
-			const decision = shouldAppendProgressEventUpdate({ previous: lastRunProgressSummary, next: summary, nowMs: now, lastAppendMs: lastRunProgressPersistedAt || undefined, minIntervalMs: 1000, force });
-			if (decision.shouldAppend) {
-				appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, taskId: task.id, data: { ...summary, coalesceReason: decision.reason } });
-				lastRunProgressSummary = summary;
-				lastRunProgressPersistedAt = now;
-			}
-		};
-		const attemptStartedAt = new Date();
-		const liveResult = await runLiveSessionTask({
-			manifest,
-			task,
-			step: input.step,
-			agent: input.agent,
-			prompt,
-			signal: input.signal,
-			transcriptPath,
-			runtimeConfig: input.runtimeConfig,
-			parentContext: input.parentContext,
-			parentModel: input.parentModel,
-			modelRegistry: input.modelRegistry,
-			onOutput: (text) => appendCrewAgentOutput(manifest, task.id, text),
-			onEvent: (event) => {
-				appendCrewAgentEvent(manifest, task.id, event);
-				task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
-				tasks = updateTask(tasks, task);
-				persistLiveProgress(event);
-			},
-		});
-		startupEvidence = createStartupEvidence({ command: "live-session", startedAt: attemptStartedAt, finishedAt: new Date(), promptSentAt: attemptStartedAt, promptAccepted: liveResult.exitCode === 0 && !liveResult.error, stderr: liveResult.stderr, error: liveResult.error, exitCode: liveResult.exitCode });
-		exitCode = liveResult.exitCode;
-		error = liveResult.error || (liveResult.exitCode && liveResult.exitCode !== 0 ? liveResult.stderr || `Live session exited with ${liveResult.exitCode}` : undefined);
-		parsedOutput = { finalText: liveResult.stdout, textEvents: liveResult.stdout ? [liveResult.stdout] : [], jsonEvents: liveResult.jsonEvents, usage: liveResult.usage };
-		if (liveResult.usage) task = { ...task, usage: liveResult.usage, agentProgress: applyUsageToProgress(task.agentProgress, liveResult.usage) };
-		persistLiveProgress({ type: "attempt_finished" }, true);
-		resultArtifact = writeArtifact(manifest.artifactsRoot, {
-			kind: "result",
-			relativePath: `results/${task.id}.txt`,
-			content: liveResult.stdout || liveResult.stderr || "(no output)",
-			producer: task.id,
-		});
-		logArtifact = writeArtifact(manifest.artifactsRoot, {
-			kind: "log",
-			relativePath: `logs/${task.id}.log`,
-			content: [`runtime=live-session`, `finalExitCode=${exitCode ?? "null"}`, `jsonEvents=${liveResult.jsonEvents}`, liveResult.usage ? `usage=${JSON.stringify(liveResult.usage)}` : "", "", "STDOUT:", liveResult.stdout, "", "STDERR:", liveResult.stderr].join("\n"),
-			producer: task.id,
-		});
-		if (fs.existsSync(transcriptPath)) {
-			transcriptArtifact = writeArtifact(manifest.artifactsRoot, {
-				kind: "log",
-				relativePath: `transcripts/${task.id}.jsonl`,
-				content: fs.readFileSync(transcriptPath, "utf-8"),
-				producer: task.id,
-			});
-		}
+		const { runLiveTask } = await import("./task-runner/live-executor.ts");
+		const live = await runLiveTask({ manifest, tasks, task, step: input.step, agent: input.agent, prompt, signal: input.signal, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry });
+		task = live.task;
+		tasks = live.tasks;
+		startupEvidence = live.startupEvidence;
+		exitCode = live.exitCode;
+		error = live.error;
+		parsedOutput = live.parsedOutput;
+		resultArtifact = live.resultArtifact;
+		logArtifact = live.logArtifact;
+		transcriptArtifact = live.transcriptArtifact;
 	} else {
 		resultArtifact = writeArtifact(manifest.artifactsRoot, {
 			kind: "result",

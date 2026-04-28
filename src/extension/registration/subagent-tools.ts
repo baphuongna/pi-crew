@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { handleTeamTool } from "../team-tool.ts";
 import { checkSubagentSpawnPermission, currentCrewRole } from "../../runtime/role-permission.ts";
-import { readPersistedSubagentRecord, savePersistedSubagentRecord, type SubagentManager, type SubagentSpawnOptions } from "../../runtime/subagent-manager.ts";
+import { readPersistedSubagentRecord, savePersistedSubagentRecord, type SubagentManager, type SubagentSpawnOptions } from "../../subagents/manager.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { __test__subagentSpawnParams, formatSubagentRecord, readSubagentRunResult, refreshPersistedSubagentRecord, subagentToolResult } from "./subagent-helpers.ts";
 

@@ -8,8 +8,8 @@ import { registerPiCrewRpc, type PiCrewRpcHandle } from "./cross-extension-rpc.t
 import { stopCrewWidget, updateCrewWidget, type CrewWidgetState } from "../ui/crew-widget.ts";
 import { clearPiCrewPowerbar, registerPiCrewPowerbarSegments, updatePiCrewPowerbar } from "../ui/powerbar-publisher.ts";
 import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
-import { terminateActiveChildPiProcesses } from "../runtime/child-pi.ts";
-import { SubagentManager } from "../runtime/subagent-manager.ts";
+import { terminateActiveChildPiProcesses } from "../subagents/spawn.ts";
+import { SubagentManager } from "../subagents/manager.ts";
 import { __test__subagentSpawnParams, sendFollowUp } from "./registration/subagent-helpers.ts";
 import { DEFAULT_UI } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";

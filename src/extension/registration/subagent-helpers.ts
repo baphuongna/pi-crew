@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { loadRunManifestById } from "../../state/state-store.ts";
-import { savePersistedSubagentRecord, type SubagentRecord, type SubagentSpawnOptions } from "../../runtime/subagent-manager.ts";
+import { savePersistedSubagentRecord, type SubagentRecord, type SubagentSpawnOptions } from "../../subagents/manager.ts";
 
 export function sendFollowUp(pi: ExtensionAPI, content: string): void {
 	const sender = (pi as unknown as { sendMessage?: (message: unknown, options?: unknown) => void }).sendMessage;

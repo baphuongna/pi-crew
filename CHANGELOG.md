@@ -16,6 +16,7 @@
 - Added `src/subagents/*` consolidation entrypoints for child spawning, background runner commands, and subagent manager APIs.
 - Split `team-tool.ts` actions into focused status, inspect, lifecycle, cancel, and plan modules while preserving public action names.
 - Split `register.ts` lifecycle wiring into command, team-tool, subagent-tool, and artifact-cleanup registration modules.
+- Added async restart recovery integration smoke coverage for stale background pids.
 
 ### Changed
 
@@ -23,10 +24,18 @@
 - Active batch selection now caps excessive user concurrency by default to protect local machines.
 - Resume now emits mailbox replay metadata before restarting queued work.
 - Child-process tasks now persist checkpoint phases (`started`, `child-spawned`, `child-stdout-final`, `artifact-written`) during execution.
+- Split `task-runner.ts` prompt/progress/state/live helpers into focused modules while keeping `runTeamTask` as the public entrypoint.
+- Moved live-session access behind `src/subagents/live/*` and dynamic task-runner imports so default child-process flow does not eagerly load live runtime code.
 
 ### Fixed
 
 - Background runner startup failures are reported earlier instead of silently leaving queued/running manifests stale.
+
+### Release prep notes
+
+- Suggested next release grouping: `0.1.30` for Phase 6 runtime hardening, resume recovery, model observability, docs/skills, and internal refactors.
+- Gate run locally: `npm run typecheck`, `npm test`, and `npm pack --dry-run`.
+- No breaking public API changes: tool actions, slash commands, config schema, and package name remain stable.
 
 ## 0.1.29
 

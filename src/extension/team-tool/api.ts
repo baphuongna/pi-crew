@@ -8,14 +8,14 @@ import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../
 import { acknowledgeMailboxMessage, appendMailboxMessage, readDeliveryState, readMailbox, validateMailbox, type MailboxDirection } from "../../state/mailbox.ts";
 import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
-import { probeLiveSessionRuntime } from "../../runtime/live-session-runtime.ts";
+import { probeLiveSessionRuntime } from "../../subagents/live/session-runtime.ts";
 import { touchWorkerHeartbeat } from "../../runtime/worker-heartbeat.ts";
 import { agentEventsPath, agentOutputPath, readCrewAgentEvents, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { buildAgentDashboard, readAgentOutput } from "../../runtime/agent-observability.ts";
 import { readForegroundControlStatus, writeForegroundInterruptRequest } from "../../runtime/foreground-control.ts";
-import { listLiveAgents, resumeLiveAgent, steerLiveAgent, stopLiveAgent } from "../../runtime/live-agent-manager.ts";
-import { appendLiveAgentControlRequest } from "../../runtime/live-agent-control.ts";
-import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-control-realtime.ts";
+import { listLiveAgents, resumeLiveAgent, steerLiveAgent, stopLiveAgent } from "../../subagents/live/manager.ts";
+import { appendLiveAgentControlRequest } from "../../subagents/live/control.ts";
+import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../subagents/live/realtime.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { configRecord, result, type TeamContext } from "./context.ts";
 

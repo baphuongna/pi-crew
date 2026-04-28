@@ -47,16 +47,16 @@ Tổng: **22 task / ~6.25 ngày**, có thể ship theo nhiều mini-release (0.1
 | T69 | ✅ Done | `1f92b8a` — agent records carry routing metadata |
 | T70 | ✅ Done | `register.ts` split to ≤200 lines with commands, team tool, subagent tools, artifact cleanup modules |
 | T71 | ✅ Done | `team-tool.ts` split to ≤300 lines with status/inspect/lifecycle/cancel/plan modules |
-| T72 | ⏳ Pending | `task-runner.ts` split chưa triển khai |
-| T73 | 🟡 Partial | `src/subagents/*` consolidation entrypoints added; call-site migration pending |
-| T74 | ⏳ Pending | live-session extraction chưa triển khai |
+| T72 | ✅ Done | `task-runner.ts` split to ≤300 lines with prompt/progress/state/live/result helper modules |
+| T73 | ✅ Done | `src/subagents/*` entrypoints added and runtime call-sites migrated |
+| T74 | ✅ Done | live-session APIs routed through `src/subagents/live/*` with dynamic task-runner import |
 | T75 | 🟡 Partial | `1004589` — recursive subagent role/depth permission hardening |
 | T76 | ✅ Done | `f6ece8e` — built-in coding skills |
 | T77 | ✅ Done | `9e54acd` — self-contained architecture docs |
 | T78 | ✅ Done | `9e54acd` — runtime flow docs |
-| T79 | 🟡 Partial | `8f19596` — multi-shard + spawn smoke; async restart smoke còn pending T65 |
+| T79 | ✅ Done | multi-shard, no-wrapper spawn, and async restart recovery smokes covered |
 | T80 | ✅ Done | package snapshot guards docs/skills/jiti/pi manifest packaging |
-| T81 | 🟡 Partial | `3b00030`, `5e495dc` — changelog updated; final release notes pending |
+| T81 | ✅ Done | changelog release prep notes added; no publish/version bump performed |
 
 ---
 
