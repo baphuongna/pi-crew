@@ -2,7 +2,9 @@ export const DEFAULT_CHILD_PI = {
 	postExitStdioGuardMs: 3000,
 	finalDrainMs: 5000,
 	hardKillMs: 3000,
-	responseTimeoutMs: 15_000,
+	// Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
+	// Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
+	responseTimeoutMs: 5 * 60_000,
 	maxCaptureBytes: 256 * 1024,
 	maxAssistantTextChars: 8192,
 	maxToolResultChars: 1024,

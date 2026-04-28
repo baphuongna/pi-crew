@@ -424,7 +424,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					activeChildProcesses.delete(child.pid);
 					clearHardKillTimer(child.pid);
 				}
-				const timeoutError = responseTimeoutHit && !stderr.trim() ? { error: `Child Pi did not produce output for ${responseTimeoutMs}ms; process was terminated as unresponsive.` } : undefined;
+				const timeoutError = responseTimeoutHit && !stderr.trim() ? { error: `Child Pi produced no new output for ${responseTimeoutMs}ms; process was terminated as unresponsive.` } : undefined;
 				settle({ exitCode, stdout, stderr, ...(forcedFinalDrain && !stderr.trim() ? { error: `Child Pi did not exit within ${finalDrainMs}ms after final assistant message; termination was requested.` } : {}), ...(timeoutError ? { error: timeoutError.error } : {}) });
 			});
 		});

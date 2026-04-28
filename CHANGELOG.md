@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.28
+
+- Fixed child-process workers being terminated after only 15 seconds of quiet provider/tool time by increasing the default response watchdog to five minutes and clarifying the timeout error message.
+
 ## 0.1.20
 
 - Reworked the implementation workflow into an adaptive planner-led orchestration flow that decides the number, roles, and phases of subagents from the task instead of using a fixed fanout template.
