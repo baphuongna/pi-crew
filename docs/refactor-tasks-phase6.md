@@ -48,7 +48,7 @@ Tổng: **22 task / ~6.25 ngày**, có thể ship theo nhiều mini-release (0.1
 | T70 | ⏳ Pending | `register.ts` modularization chưa triển khai |
 | T71 | ⏳ Pending | `team-tool.ts` action split chưa triển khai |
 | T72 | ⏳ Pending | `task-runner.ts` split chưa triển khai |
-| T73 | ⏳ Pending | subagent runtime folder consolidation chưa triển khai |
+| T73 | 🟡 Partial | `src/subagents/*` consolidation entrypoints added; call-site migration pending |
 | T74 | ⏳ Pending | live-session extraction chưa triển khai |
 | T75 | 🟡 Partial | `1004589` — recursive subagent role/depth permission hardening |
 | T76 | ✅ Done | `f6ece8e` — built-in coding skills |
