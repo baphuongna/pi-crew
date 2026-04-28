@@ -31,6 +31,33 @@
 
 Tổng: **22 task / ~6.25 ngày**, có thể ship theo nhiều mini-release (0.1.30, 0.1.31, …).
 
+## Tiến độ triển khai
+
+| Task | Trạng thái | Commit / ghi chú |
+|---|---|---|
+| T60 | ✅ Done | `bfd9bc8` — jiti loader resolution/fail-fast |
+| T61 | ✅ Done | `bfd9bc8` — async early-exit guard |
+| T62 | ✅ Done | `bfd9bc8` — async startup marker |
+| T63 | ✅ Done | `bfd9bc8` — concurrency hard cap + opt-out |
+| T64 | ⏳ Pending | Resume checkpoint cho synthesize/write chưa triển khai |
+| T65 | ⏳ Pending | Async-died notifier sau parent crash chưa triển khai |
+| T66 | ✅ Done | `5e495dc` — replay pending mailbox on resume |
+| T67 | ⏳ Pending | Adaptive planner repair/retry chưa triển khai |
+| T68 | ✅ Done | `1f92b8a` — persisted model routing metadata |
+| T69 | ✅ Done | `1f92b8a` — agent records carry routing metadata |
+| T70 | ⏳ Pending | `register.ts` modularization chưa triển khai |
+| T71 | ⏳ Pending | `team-tool.ts` action split chưa triển khai |
+| T72 | ⏳ Pending | `task-runner.ts` split chưa triển khai |
+| T73 | ⏳ Pending | subagent runtime folder consolidation chưa triển khai |
+| T74 | ⏳ Pending | live-session extraction chưa triển khai |
+| T75 | 🟡 Partial | `1004589` — recursive subagent role/depth permission hardening |
+| T76 | ✅ Done | `f6ece8e` — built-in coding skills |
+| T77 | ✅ Done | `9e54acd` — self-contained architecture docs |
+| T78 | ✅ Done | `9e54acd` — runtime flow docs |
+| T79 | 🟡 Partial | `8f19596` — multi-shard + spawn smoke; async restart smoke còn pending T65 |
+| T80 | ⏳ Pending | package snapshot chi tiết hơn chưa triển khai |
+| T81 | 🟡 Partial | `3b00030`, `5e495dc` — changelog updated; final release notes pending |
+
 ---
 
 ## Tier 1 — Robustness chặn rủi ro silent fail (P0)
