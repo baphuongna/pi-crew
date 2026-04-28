@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added Phase 6 async hardening: jiti loader resolution/fail-fast, async startup marker files, and early background-runner exit detection.
+- Added worker concurrency hard cap with explicit `limits.allowUnboundedConcurrency` opt-out and observability event.
+- Added persisted model routing metadata on tasks and agent records: requested model, resolved model, fallback chain, reason, and used attempt.
+- Added self-contained architecture/runtime-flow docs and five built-in coding skills.
+
+### Changed
+
+- Async background runs now use an explicit jiti loader path and expose startup markers for recovery/health checks.
+- Active batch selection now caps excessive user concurrency by default to protect local machines.
+
+### Fixed
+
+- Background runner startup failures are reported earlier instead of silently leaving queued/running manifests stale.
+
 ## 0.1.29
 
 - Republished the child worker response timeout fix as a fresh npm version.
