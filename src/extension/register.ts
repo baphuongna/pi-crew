@@ -18,6 +18,7 @@ import { DurableTextViewer } from "../ui/transcript-viewer.ts";
 import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { terminateActiveChildPiProcesses } from "../runtime/child-pi.ts";
+import { checkSubagentSpawnPermission, currentCrewRole } from "../runtime/role-permission.ts";
 import { readPersistedSubagentRecord, savePersistedSubagentRecord, SubagentManager, type SubagentSpawnOptions } from "../runtime/subagent-manager.ts";
 import { commandText, notifyCommandResult, parseRunArgs, parseScalar, pushUnset, setNestedConfig } from "./registration/command-utils.ts";
 import { __test__subagentSpawnParams, formatSubagentRecord, readSubagentRunResult, refreshPersistedSubagentRecord, sendFollowUp, subagentToolResult } from "./registration/subagent-helpers.ts";
@@ -263,6 +264,9 @@ const runArtifactCleanup = (cwd: string): void => {
 			run_in_background: Type.Optional(Type.Boolean({ description: "Run in background and return an agent ID immediately." })),
 		}) as never,
 		async execute(_id, params, signal, _onUpdate, ctx) {
+			const currentRole = currentCrewRole();
+			const permission = checkSubagentSpawnPermission(currentRole);
+			if (!permission.allowed) return subagentToolResult(permission.reason ?? "Current role cannot spawn subagents.", { role: currentRole, mode: permission.mode }, true);
 			const options = __test__subagentSpawnParams(params as Record<string, unknown>, ctx);
 			if (!options.prompt.trim()) return subagentToolResult("Agent requires prompt.", {}, true);
 			const runner = async (spawnOptions: SubagentSpawnOptions, childSignal?: AbortSignal) => handleTeamTool({

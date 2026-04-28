@@ -93,10 +93,12 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 			PI_CREW_INHERIT_SKILLS: input.agent.inheritSkills ? "1" : "0",
 			PI_CREW_DEPTH: String(parentDepth + 1),
 			PI_CREW_MAX_DEPTH: String(maxDepth),
+			PI_CREW_ROLE: input.agent.name,
 			PI_TEAMS_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
 			PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills ? "1" : "0",
 			PI_TEAMS_DEPTH: String(parentDepth + 1),
 			PI_TEAMS_MAX_DEPTH: String(maxDepth),
+			PI_TEAMS_ROLE: input.agent.name,
 		},
 		tempDir,
 	};

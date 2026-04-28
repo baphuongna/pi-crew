@@ -10,7 +10,7 @@ import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 const parallelResearchWorkflow: WorkflowConfig = {
 	name: "parallel-research",
 	description: "parallel smoke",
-	source: "test",
+	source: "builtin",
 	filePath: "parallel.workflow.md",
 	steps: [
 		{ id: "discover", role: "explorer", task: "discover" },

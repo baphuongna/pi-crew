@@ -34,7 +34,9 @@ test("buildPiWorkerArgs writes long tasks to private @file and emits canonical d
 		assert.equal(fs.readFileSync(taskPath, "utf-8"), "x".repeat(9000));
 		assert.equal(result.env.PI_CREW_DEPTH, "2");
 		assert.equal(result.env.PI_CREW_MAX_DEPTH, "5");
+		assert.equal(result.env.PI_CREW_ROLE, "phase6");
 		assert.equal(result.env.PI_TEAMS_DEPTH, "2");
+		assert.equal(result.env.PI_TEAMS_ROLE, "phase6");
 		assert.equal(result.env.PI_CREW_INHERIT_PROJECT_CONTEXT, "0");
 	} finally {
 		if (result.tempDir) fs.rmSync(result.tempDir, { recursive: true, force: true });

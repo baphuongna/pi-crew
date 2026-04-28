@@ -26,3 +26,14 @@ export function checkRolePermission(role: string, command: string): PermissionCh
 	if (mode === "read_only" && !isReadOnlyCommand(command)) return { allowed: false, mode, reason: `Role '${role}' is read-only and command may modify state.` };
 	return { allowed: true, mode };
 }
+
+export function currentCrewRole(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	return env.PI_CREW_ROLE?.trim() || env.PI_TEAMS_ROLE?.trim() || undefined;
+}
+
+export function checkSubagentSpawnPermission(role: string | undefined): PermissionCheckResult {
+	if (!role) return { allowed: true, mode: "workspace_write" };
+	const mode = permissionForRole(role);
+	if (mode === "read_only") return { allowed: false, mode, reason: `Role '${role}' is read-only and cannot spawn additional subagents.` };
+	return { allowed: true, mode };
+}
