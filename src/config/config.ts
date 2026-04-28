@@ -62,6 +62,8 @@ export interface CrewUiConfig {
 	showModel?: boolean;
 	showTokens?: boolean;
 	showTools?: boolean;
+	mascotStyle?: "cat" | "armin";
+	mascotEffect?: "random" | "none" | "typewriter" | "scanline" | "rain" | "fade" | "crt" | "glitch" | "dissolve";
 }
 
 export interface AgentOverrideConfig {
@@ -369,6 +371,8 @@ function parseUiConfig(value: unknown): CrewUiConfig | undefined {
 		showModel: parseWithSchema(Type.Boolean(), obj.showModel),
 		showTokens: parseWithSchema(Type.Boolean(), obj.showTokens),
 		showTools: parseWithSchema(Type.Boolean(), obj.showTools),
+		mascotStyle: parseWithSchema(Type.Union([Type.Literal("cat"), Type.Literal("armin")]), obj.mascotStyle),
+		mascotEffect: parseWithSchema(Type.Union([Type.Literal("random"), Type.Literal("none"), Type.Literal("typewriter"), Type.Literal("scanline"), Type.Literal("rain"), Type.Literal("fade"), Type.Literal("crt"), Type.Literal("glitch"), Type.Literal("dissolve")]), obj.mascotEffect),
 	};
 	return Object.values(ui).some((entry) => entry !== undefined) ? ui : undefined;
 }

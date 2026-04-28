@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { atomicWriteJson, readJsonFile } from "../state/atomic-write.ts";
+import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import type { CrewAgentProgress, CrewAgentRecord, CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { taskStatusToAgentStatus } from "./crew-agent-runtime.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -26,8 +27,14 @@ export function agentOutputPath(manifest: TeamRunManifest, taskId: string): stri
 	return path.join(agentStateDir(manifest, taskId), "output.log");
 }
 
+const AGENT_READER_TTL_MS = 200;
+
 export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
-	return readJsonFile<CrewAgentRecord[]>(agentsPath(manifest)) ?? [];
+	try {
+		return readJsonFileCoalesced(agentsPath(manifest), AGENT_READER_TTL_MS, () => readJsonFile<CrewAgentRecord[]>(agentsPath(manifest)) ?? []);
+	} catch {
+		return [];
+	}
 }
 
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {

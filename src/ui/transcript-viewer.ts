@@ -1,82 +1,115 @@
 import * as fs from "node:fs";
-type Component = { invalidate(): void; render(width: number): string[]; handleInput(data: string): void };
-type TranscriptTheme = { fg?: (color: string, text: string) => string; bold?: (text: string) => string };
 import type { TeamRunManifest } from "../state/types.ts";
 import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
+import type { CrewTheme } from "./theme-adapter.ts";
+import { asCrewTheme } from "./theme-adapter.ts";
+import { renderDiff } from "./render-diff.ts";
+import { highlightCode, highlightJson } from "./syntax-highlight.ts";
+import { pad, truncate, truncateToVisualLines } from "../utils/visual.ts";
 
-function visibleWidth(text: string): number {
-	return text.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").length;
-}
+type Component = { invalidate(): void; render(width: number): string[]; handleInput(data: string): void };
 
-function truncate(text: string, width: number): string {
-	if (width <= 0) return "";
-	if (visibleWidth(text) <= width) return text;
-	return width <= 1 ? "…" : `${text.slice(0, Math.max(0, width - 1))}…`;
-}
-
-function wrap(text: string, width: number): string[] {
-	const source = text.split(/\r?\n/);
-	const lines: string[] = [];
-	for (const raw of source) {
-		const line = raw || " ";
-		if (line.length <= width) {
-			lines.push(line);
-			continue;
-		}
-		for (let index = 0; index < line.length; index += width) lines.push(line.slice(index, index + width));
-	}
-	return lines;
-}
+type TranscriptTheme = CrewTheme;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function textFromContent(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return content.map((part) => {
-		const obj = asRecord(part);
-		if (!obj) return "";
-		if (typeof obj.text === "string") return obj.text;
-		if (typeof obj.content === "string") return obj.content;
-		if (typeof obj.name === "string") return `[tool:${obj.name}]`;
-		return "";
-	}).filter(Boolean).join("\n");
+	return content
+		.map((part) => {
+			const obj = asRecord(part);
+			if (!obj) return "";
+			if (typeof obj.text === "string") return obj.text;
+			if (typeof obj.content === "string") return obj.content;
+			if (typeof obj.name === "string") return `[tool:${obj.name}]`;
+			return "";
+		})
+		.filter(Boolean)
+		.join("\n");
 }
 
-function truncateBody(text: string, max = 1000): string {
-	return text.length > max ? `${text.slice(0, max)}… (truncated ${text.length - max} chars)` : text;
+function isLikelyDiff(text: string): boolean {
+	const lines = text.split(/\r?\n/);
+	const matched = lines.filter((line) => /^[-+\s]\d+\s/.test(line)).length;
+	return matched >= 2 && (text.includes("-") || text.includes("+"));
 }
 
-export function formatTranscriptEvent(event: unknown): string[] {
+function highlightCodeBlocks(input: string, theme: TranscriptTheme): string[] {
+	const codeBlockRegex = /```(\S+)?\n([\s\S]*?)```/g;
+	const lines: string[] = [];
+	let index = 0;
+	let match: RegExpExecArray | null;
+	while ((match = codeBlockRegex.exec(input)) !== null) {
+		if (match.index > index) lines.push(...input.slice(index, match.index).split(/\r?\n/));
+		const lang = match[1]?.trim();
+		const block = match[2] ?? "";
+		const highlighted = highlightCode(block, lang, theme);
+		if (highlighted) {
+			lines.push(...highlighted.split(/\r?\n/));
+		}
+		index = match.index + match[0].length;
+	}
+	if (index < input.length) lines.push(...input.slice(index).split(/\r?\n/));
+	return lines.filter((line) => line.length > 0);
+}
+
+export function formatTranscriptEvent(event: unknown, themeLike: unknown = undefined): string[] {
+	const theme = asCrewTheme(themeLike);
 	const obj = asRecord(event);
 	if (!obj) return [String(event)];
 	const type = typeof obj.type === "string" ? obj.type : undefined;
 	const toolName = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : undefined;
+	const content = textFromContent(obj.content);
 	if (type && /tool/i.test(type)) {
-		const text = textFromContent(obj.content) || (typeof obj.text === "string" ? obj.text : typeof obj.result === "string" ? obj.result : "");
-		return [`[Tool${toolName ? `: ${toolName}` : ""}] ${type}`, truncateBody(text.trim() || "(no output)")];
+		const text = (content || (typeof obj.text === "string" ? obj.text : typeof obj.result === "string" ? obj.result : "")).trim();
+		if (!text) return [theme.fg("toolDiffContext", `[Tool${toolName ? `: ${toolName}` : ""}] ${type}`), "(no output)"];
+		if (isLikelyDiff(text)) {
+			return [theme.fg("toolDiffContext", `[Tool${toolName ? `: ${toolName}` : ""}] ${type}`), renderDiff(text, { theme })];
+		}
+		if (text.startsWith("{") && text.endsWith("}")) {
+			return [theme.fg("toolDiffContext", `[Tool${toolName ? `: ${toolName}` : ""}] ${type}`), ...highlightJson(text, theme).split(/\r?\n/).filter(Boolean)];
+		}
+		if (text.includes("```") && text.includes("```")) {
+			return [theme.fg("toolDiffContext", `[Tool${toolName ? `: ${toolName}` : ""}] ${type}`), ...highlightCodeBlocks(text, theme)];
+		}
+		return [theme.fg("toolDiffContext", `[Tool${toolName ? `: ${toolName}` : ""}] ${type}`), ...text.split(/\r?\n/).filter(Boolean).map((line) => theme.fg("muted", line))];
 	}
 	const message = asRecord(obj.message);
 	if (message) {
 		const role = typeof message.role === "string" ? message.role : "message";
 		const text = textFromContent(message.content);
-		const label = role === "assistant" ? "Assistant" : role === "user" ? "User" : role;
-		if (text.trim()) return [`[${label}]:`, text.trim()];
+		if (text.trim()) {
+			const label = role === "assistant" ? "Assistant" : role === "user" ? "User" : role;
+			const header = `[${label}]:`;
+			const lines = text.split(/\r?\n/);
+			if (text.includes("```") && text.includes("```")) {
+				return [theme.fg("accent", header), ...highlightCodeBlocks(text, theme)];
+			}
+			if (lines.length > 1) {
+				const block = lines
+					.map((line) => (role === "assistant" ? theme.bold(line) : line))
+					.join("\n");
+				return [theme.fg("accent", header), ...block.split(/\r?\n/).filter(Boolean)];
+			}
+			return [theme.fg("accent", header), ...lines.filter(Boolean)];
+		}
 	}
 	if (type) {
-		const text = textFromContent(obj.content) || (typeof obj.text === "string" ? obj.text : "");
-		return text.trim() ? [`[${type}]: ${text.trim()}`] : [`[${type}]`];
+		const text = content || (typeof obj.text === "string" ? obj.text : "");
+		return text.trim() ? [theme.fg("muted", `[${type}]: ${text.trim()}`)] : [`[${type}]`];
 	}
 	return [JSON.stringify(event)];
 }
 
-export function formatTranscriptText(text: string): string[] {
+export function formatTranscriptText(text: string, themeLike: unknown = undefined): string[] {
 	const lines: string[] = [];
 	for (const raw of text.split(/\r?\n/).filter(Boolean)) {
 		try {
-			lines.push(...formatTranscriptEvent(JSON.parse(raw)));
+			const parsed = JSON.parse(raw);
+			lines.push(...formatTranscriptEvent(parsed, themeLike));
 		} catch {
 			lines.push(raw);
 		}
@@ -93,21 +126,62 @@ export function readRunTranscript(manifest: TeamRunManifest, taskId?: string): {
 	return { title: `${manifest.runId}:${selectedTaskId}`, path: transcriptPath, lines: formatTranscriptText(text) };
 }
 
+interface ViewerState {
+	theme: TranscriptTheme;
+	autoScroll: boolean;
+	lastHeight: number;
+	scroll: number;
+}
+
+function renderViewerBase(
+	state: ViewerState,
+	width: number,
+	lines: string[],
+	title: string,
+	subtitle: string,
+): string[] {
+	const inner = Math.max(20, width - 4);
+	const bodyText = lines.join("\n");
+	const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state.lastHeight, inner);
+	const maxScroll = Math.max(0, visualLines.length - state.lastHeight);
+	if (state.autoScroll) state.scroll = maxScroll;
+	state.scroll = Math.min(state.scroll, maxScroll);
+	const visible = visualLines.slice(state.scroll, state.scroll + state.lastHeight);
+	const statusLine = `${visualLines.length} lines · ${visualLines.length ? Math.round(((state.scroll + visible.length) / visualLines.length) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
+	const fg = (color: Parameters<TranscriptTheme["fg"]>[0], text: string) => state.theme.fg(color, text);
+	const row = (text: string) => `${fg("border", "│")} ${pad(truncate(text, inner), inner)} ${fg("border", "│")}`;
+	const linesOut: string[] = [
+		fg("border", `╭${"─".repeat(inner + 2)}╮`),
+		row(`${fg("accent", title)} ${fg("dim", subtitle)}`),
+		row(fg("dim", "j/k scroll · PgUp/PgDn · g/G top/bottom · q close")),
+		fg("border", `├${"─".repeat(inner + 2)}┤`),
+		...visible.map(row),
+		fg("border", `├${"─".repeat(inner + 2)}┤`),
+		row(fg("dim", statusLine)),
+		fg("border", `╰${"─".repeat(inner + 2)}╯`),
+	];
+	if (skippedCount > 0) {
+		linesOut.splice(linesOut.length - 1, 0, row(fg("muted", `… (${skippedCount} lines truncated above`)));
+	}
+	return linesOut.map((line) => truncate(line, width));
+}
+
+
 export class DurableTextViewer implements Component {
 	private scroll = 0;
-	private lastHeight = 10;
+	private lastHeight = 16;
 	private autoScroll = true;
 	private title: string;
 	private subtitle: string;
 	private lines: string[];
-	private theme: unknown;
+	private theme: TranscriptTheme;
 	private done: (result: undefined) => void;
 
 	constructor(title: string, subtitle: string, lines: string[], theme: unknown, done: (result: undefined) => void) {
 		this.title = title;
 		this.subtitle = subtitle;
 		this.lines = lines.length ? lines : ["(empty)"];
-		this.theme = theme;
+		this.theme = asCrewTheme(theme);
 		this.done = done;
 	}
 
@@ -119,53 +193,50 @@ export class DurableTextViewer implements Component {
 			return;
 		}
 		const maxScroll = Math.max(0, this.lines.length - this.lastHeight);
-		if (data === "k" || data === "\u001b[A") { this.scroll = Math.max(0, this.scroll - 1); this.autoScroll = false; }
-		else if (data === "j" || data === "\u001b[B") { this.scroll = Math.min(maxScroll, this.scroll + 1); this.autoScroll = this.scroll >= maxScroll; }
-		else if (data === "\u001b[5~") { this.scroll = Math.max(0, this.scroll - this.lastHeight); this.autoScroll = false; }
-		else if (data === "\u001b[6~") { this.scroll = Math.min(maxScroll, this.scroll + this.lastHeight); this.autoScroll = this.scroll >= maxScroll; }
-		else if (data === "g" || data === "\u001b[H") { this.scroll = 0; this.autoScroll = false; }
-		else if (data === "G" || data === "\u001b[F") { this.scroll = maxScroll; this.autoScroll = true; }
+		if (data === "k" || data === "\u001b[A") {
+			this.scroll = Math.max(0, this.scroll - 1);
+			this.autoScroll = false;
+		} else if (data === "j" || data === "\u001b[B") {
+			this.scroll = Math.min(maxScroll, this.scroll + 1);
+			this.autoScroll = this.scroll >= maxScroll;
+		} else if (data === "\u001b[5~") {
+			this.scroll = Math.max(0, this.scroll - this.lastHeight);
+			this.autoScroll = false;
+		} else if (data === "\u001b[6~") {
+			this.scroll = Math.min(maxScroll, this.scroll + this.lastHeight);
+			this.autoScroll = this.scroll >= maxScroll;
+		} else if (data === "g" || data === "\u001b[H") {
+			this.scroll = 0;
+			this.autoScroll = false;
+		} else if (data === "G" || data === "\u001b[F") {
+			this.scroll = maxScroll;
+			this.autoScroll = true;
+		}
 	}
 
 	render(width: number): string[] {
-		const th = this.theme as TranscriptTheme;
-		const fg = th.fg?.bind(th) ?? ((_color: string, text: string) => text);
-		const bold = th.bold?.bind(th) ?? ((text: string) => text);
-		const inner = Math.max(20, width - 4);
-		this.lastHeight = 16;
-		const body = this.lines.flatMap((line) => wrap(line, inner));
-		const maxScroll = Math.max(0, body.length - this.lastHeight);
-		if (this.autoScroll) this.scroll = maxScroll;
-		this.scroll = Math.min(this.scroll, maxScroll);
-		const visible = body.slice(this.scroll, this.scroll + this.lastHeight);
-		const pad = (text: string) => `${text}${" ".repeat(Math.max(0, inner - visibleWidth(text)))}`;
-		const colorLine = (line: string) => line.startsWith("[User]") ? fg("accent", line) : line.startsWith("[Assistant]") ? bold(line) : line.startsWith("[Tool") ? fg("muted", line) : line.startsWith("[Result]") ? fg("dim", line) : line;
-		const row = (text: string) => `${fg("border", "│")} ${truncate(pad(colorLine(text)), inner)} ${fg("border", "│")}`;
-		return [
-			fg("border", `╭${"─".repeat(inner + 2)}╮`),
-			row(`${bold(this.title)} ${fg("dim", this.subtitle)}`),
-			row(fg("dim", "j/k scroll · PgUp/PgDn · g/G top/bottom · q close")),
-			fg("border", `├${"─".repeat(inner + 2)}┤`),
-			...visible.map(row),
-			fg("border", `├${"─".repeat(inner + 2)}┤`),
-			row(fg("dim", `${body.length} lines · ${body.length ? Math.round(((this.scroll + visible.length) / body.length) * 100) : 100}% · auto-scroll ${this.autoScroll ? "on" : "off"}`)),
-			fg("border", `╰${"─".repeat(inner + 2)}╯`),
-		];
+		return renderViewerBase(
+			{ theme: this.theme, autoScroll: this.autoScroll, lastHeight: this.lastHeight, scroll: this.scroll },
+			width,
+			this.lines,
+			this.title,
+			this.subtitle,
+		);
 	}
 }
 
 export class DurableTranscriptViewer implements Component {
 	private scroll = 0;
-	private lastHeight = 10;
+	private lastHeight = 16;
 	private autoScroll = true;
 	private manifest: TeamRunManifest;
-	private theme: unknown;
+	private theme: TranscriptTheme;
 	private done: (result: undefined) => void;
 	private taskId?: string;
 
 	constructor(manifest: TeamRunManifest, theme: unknown, done: (result: undefined) => void, taskId?: string) {
 		this.manifest = manifest;
-		this.theme = theme;
+		this.theme = asCrewTheme(theme);
 		this.done = done;
 		this.taskId = taskId;
 	}
@@ -179,41 +250,35 @@ export class DurableTranscriptViewer implements Component {
 		}
 		const content = readRunTranscript(this.manifest, this.taskId).lines;
 		const maxScroll = Math.max(0, content.length - this.lastHeight);
-		if (data === "k" || data === "\u001b[A") { this.scroll = Math.max(0, this.scroll - 1); this.autoScroll = false; }
-		else if (data === "j" || data === "\u001b[B") { this.scroll = Math.min(maxScroll, this.scroll + 1); this.autoScroll = this.scroll >= maxScroll; }
-		else if (data === "\u001b[5~") { this.scroll = Math.max(0, this.scroll - this.lastHeight); this.autoScroll = false; }
-		else if (data === "\u001b[6~") { this.scroll = Math.min(maxScroll, this.scroll + this.lastHeight); this.autoScroll = this.scroll >= maxScroll; }
-		else if (data === "g" || data === "\u001b[H") { this.scroll = 0; this.autoScroll = false; }
-		else if (data === "G" || data === "\u001b[F") { this.scroll = maxScroll; this.autoScroll = true; }
+		if (data === "k" || data === "\u001b[A") {
+			this.scroll = Math.max(0, this.scroll - 1);
+			this.autoScroll = false;
+		} else if (data === "j" || data === "\u001b[B") {
+			this.scroll = Math.min(maxScroll, this.scroll + 1);
+			this.autoScroll = this.scroll >= maxScroll;
+		} else if (data === "\u001b[5~") {
+			this.scroll = Math.max(0, this.scroll - this.lastHeight);
+			this.autoScroll = false;
+		} else if (data === "\u001b[6~") {
+			this.scroll = Math.min(maxScroll, this.scroll + this.lastHeight);
+			this.autoScroll = this.scroll >= maxScroll;
+		} else if (data === "g" || data === "\u001b[H") {
+			this.scroll = 0;
+			this.autoScroll = false;
+		} else if (data === "G" || data === "\u001b[F") {
+			this.scroll = maxScroll;
+			this.autoScroll = true;
+		}
 	}
 
 	render(width: number): string[] {
-		const th = this.theme as TranscriptTheme;
-		const fg = th.fg?.bind(th) ?? ((_color: string, text: string) => text);
-		const bold = th.bold?.bind(th) ?? ((text: string) => text);
-		const inner = Math.max(20, width - 4);
 		const data = readRunTranscript(this.manifest, this.taskId);
-		const body = data.lines.flatMap((line) => wrap(line, inner));
-		this.lastHeight = 16;
-		const maxScroll = Math.max(0, body.length - this.lastHeight);
-		if (this.autoScroll) this.scroll = maxScroll;
-		this.scroll = Math.min(this.scroll, maxScroll);
-		const visible = body.slice(this.scroll, this.scroll + this.lastHeight);
-		const pad = (text: string) => `${text}${" ".repeat(Math.max(0, inner - visibleWidth(text)))}`;
-		const colorLine = (line: string) => line.startsWith("[User]") ? fg("accent", line) : line.startsWith("[Assistant]") ? bold(line) : line.startsWith("[Tool") ? fg("muted", line) : line.startsWith("[Result]") ? fg("dim", line) : line;
-		const row = (text: string) => `${fg("border", "│")} ${truncate(pad(colorLine(text)), inner)} ${fg("border", "│")}`;
-		const lines = [
-			fg("border", `╭${"─".repeat(inner + 2)}╮`),
-			row(`${bold("pi-crew transcript")} ${fg("dim", data.title)}`),
-			row(fg("dim", data.path)),
-			row(fg("dim", "j/k scroll · PgUp/PgDn · g/G top/bottom · q close")),
-			fg("border", `├${"─".repeat(inner + 2)}┤`),
-			...visible.map(row),
-			fg("border", `├${"─".repeat(inner + 2)}┤`),
-			row(fg("dim", `${body.length} lines · ${body.length ? Math.round(((this.scroll + visible.length) / body.length) * 100) : 100}% · auto-scroll ${this.autoScroll ? "on" : "off"}`)),
-			fg("border", `╰${"─".repeat(inner + 2)}╯`),
-		];
-		return lines;
+		return renderViewerBase(
+			{ theme: this.theme, autoScroll: this.autoScroll, lastHeight: this.lastHeight, scroll: this.scroll },
+			width,
+			data.lines,
+			"pi-crew transcript",
+			data.title,
+		);
 	}
 }
-

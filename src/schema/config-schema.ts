@@ -73,6 +73,8 @@ export const PiTeamsUiConfigSchema = Type.Object({
 	showModel: Type.Optional(Type.Boolean()),
 	showTokens: Type.Optional(Type.Boolean()),
 	showTools: Type.Optional(Type.Boolean()),
+	mascotStyle: Type.Optional(Type.Union([Type.Literal("cat"), Type.Literal("armin")])),
+	mascotEffect: Type.Optional(Type.Union([Type.Literal("random"), Type.Literal("none"), Type.Literal("typewriter"), Type.Literal("scanline"), Type.Literal("rain"), Type.Literal("fade"), Type.Literal("crt"), Type.Literal("glitch"), Type.Literal("dissolve")])),
 });
 
 export const PiTeamsConfigSchema = Type.Object({

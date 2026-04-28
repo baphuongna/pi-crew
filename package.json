@@ -69,6 +69,8 @@
     "@mariozechner/pi-tui": "*"
   },
   "dependencies": {
+    "cli-highlight": "^2.1.11",
+    "diff": "^5.2.0",
     "typebox": "^1.1.24"
   },
   "devDependencies": {

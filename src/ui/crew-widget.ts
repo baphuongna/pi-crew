@@ -5,6 +5,12 @@ import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest } from "../state/types.ts";
+import type { ManifestCache } from "../runtime/manifest-cache.ts";
+import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
+import { pad, truncate } from "../utils/visual.ts";
+import type { CrewTheme } from "./theme-adapter.ts";
+import { asCrewTheme } from "./theme-adapter.ts";
+import { Box, Text } from "./layout-primitives.ts";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const TOOL_LABELS: Record<string, string> = {
@@ -16,12 +22,13 @@ const TOOL_LABELS: Record<string, string> = {
 	find: "finding files",
 	ls: "listing",
 };
-const ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const LEGACY_WIDGET_KEY = "pi-crew";
 const WIDGET_KEY = "pi-crew-active";
 const STATUS_KEY = "pi-crew";
 
-type ThemeLike = { fg?: (color: string, text: string) => string; bold?: (text: string) => string };
+const MAX_LINES_DEFAULT = 10;
+const MAX_AGENTS_DISPLAY = 3;
+
 type WidgetComponent = { render(width: number): string[]; invalidate(): void };
 
 export interface CrewWidgetState {
@@ -34,33 +41,6 @@ interface WidgetRun {
 	agents: CrewAgentRecord[];
 }
 
-function visibleWidth(value: string): number {
-	return value.replace(ANSI_PATTERN, "").length;
-}
-
-function truncate(value: string, width: number): string {
-	if (width <= 0) return "";
-	if (visibleWidth(value) <= width) return value;
-	if (width <= 1) return "…";
-	let output = "";
-	let visible = 0;
-	for (let index = 0; index < value.length;) {
-		const slice = value.slice(index);
-		const ansi = slice.match(/^\u001b\[[0-?]*[ -/]*[@-~]/);
-		if (ansi?.[0]) {
-			output += ansi[0];
-			index += ansi[0].length;
-			continue;
-		}
-		const char = value[index]!;
-		if (visible >= width - 1) break;
-		output += char;
-		visible += 1;
-		index += char.length;
-	}
-	return `${output}\u001b[0m…`;
-}
-
 function elapsed(iso: string | undefined, now = Date.now()): string | undefined {
 	if (!iso) return undefined;
 	const ms = Math.max(0, now - new Date(iso).getTime());
@@ -69,15 +49,6 @@ function elapsed(iso: string | undefined, now = Date.now()): string | undefined 
 	if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
 	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
 	return `${Math.floor(ms / 3_600_000)}h`;
-}
-
-function glyph(status: string, runningGlyph: string): string {
-	if (status === "running") return runningGlyph;
-	if (status === "queued") return "◦";
-	if (status === "completed") return "✓";
-	if (status === "failed") return "✗";
-	if (status === "cancelled" || status === "stopped") return "■";
-	return "·";
 }
 
 function agentActivity(agent: CrewAgentRecord): string {
@@ -102,11 +73,18 @@ function agentStats(agent: CrewAgentRecord): string {
 }
 
 function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
-	try { return readCrewAgents(run); } catch { return []; }
+	try {
+		return readCrewAgents(run);
+	} catch {
+		return [];
+	}
 }
 
-function activeWidgetRuns(cwd: string): WidgetRun[] {
-	return listRecentRuns(cwd, 20).map((run) => ({ run, agents: agentsFor(run) })).filter((item) => isDisplayActiveRun(item.run, item.agents));
+export function activeWidgetRuns(cwd: string, manifestCache?: ManifestCache): WidgetRun[] {
+	const runs = manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20);
+	return runs
+		.map((run) => ({ run, agents: agentsFor(run) }))
+		.filter((item) => isDisplayActiveRun(item.run, item.agents));
 }
 
 function statusSummary(runs: WidgetRun[]): string {
@@ -120,7 +98,7 @@ function statusSummary(runs: WidgetRun[]): string {
 	return `Crew: ${parts.join(", ")}`;
 }
 
-function widgetHeader(runs: WidgetRun[], runningGlyph: string): string {
+export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20): string {
 	const agents = runs.flatMap((item) => item.agents);
 	const runningAgents = agents.filter((agent) => agent.status === "running").length;
 	const queuedAgents = agents.filter((agent) => agent.status === "queued").length;
@@ -138,49 +116,122 @@ function shortRunLabel(run: TeamRunManifest): string {
 export function buildCrewWidgetLines(cwd: string, frame = 0, maxLines = 8, providedRuns?: WidgetRun[]): string[] {
 	const runs = providedRuns ?? activeWidgetRuns(cwd);
 	if (!runs.length) return [];
-	const runningGlyph = SPINNER[frame % SPINNER.length] ?? "⠋";
-	const lines: string[] = [widgetHeader(runs, runningGlyph)];
+	const runningGlyph = SPINNER[frame % SPINNER.length] ?? SPINNER[0];
+	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines)];
 	for (const { run, agents } of runs) {
 		const activeAgents = agents.filter((item) => item.status === "running" || item.status === "queued");
 		const completed = agents.filter((agent) => agent.status === "completed").length;
-		const runGlyph = glyph(run.status, runningGlyph);
+		const runGlyph = iconForStatus(run.status, { runningGlyph });
 		lines.push(`├─ ${runGlyph} ${shortRunLabel(run)} · ${completed}/${agents.length} done · ${run.runId.slice(-8)}`);
-		const visibleAgents = activeAgents.slice(0, 3);
+		const visibleAgents = activeAgents.slice(0, MAX_AGENTS_DISPLAY);
 		for (const [index, agent] of visibleAgents.entries()) {
-			const last = index === visibleAgents.length - 1 && activeAgents.length <= 3;
+			const last = index === visibleAgents.length - 1 && activeAgents.length <= MAX_AGENTS_DISPLAY;
 			const branch = last ? "└─" : "├─";
+			const agentGlyph = iconForStatus(agent.status, { runningGlyph });
 			const stats = agentStats(agent);
-			lines.push(`│  ${branch} ${glyph(agent.status, runningGlyph)} ${agent.agent} · ${agent.role}`);
+			lines.push(`│  ${branch} ${agentGlyph} ${agent.agent} · ${agent.role}`);
 			lines.push(`│     ⎿ ${agentActivity(agent)}${stats ? ` · ${stats}` : ""}`);
 		}
-		if (activeAgents.length > 3) lines.push(`│  └─ … +${activeAgents.length - 3} more agents`);
+		if (activeAgents.length > MAX_AGENTS_DISPLAY) lines.push(`│  └─ … +${activeAgents.length - MAX_AGENTS_DISPLAY} more agents`);
 		if (lines.length >= maxLines) break;
 	}
 	return lines.slice(0, maxLines);
 }
 
-function colorWidgetLine(line: string, index: number, theme: ThemeLike): string {
-	const fg = theme.fg?.bind(theme) ?? ((_color: string, text: string) => text);
-	const bold = theme.bold?.bind(theme) ?? ((text: string) => text);
-	if (index === 0) return line.replace("Crew agents", bold(fg("accent", "Crew agents")));
-	return line.replace(/([⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏▶◦✓✗■·])/, (icon: string) => fg(icon === "✓" ? "success" : icon === "✗" ? "error" : icon === "◦" ? "dim" : "accent", icon));
+function statusGlyphColor(icon: string): Parameters<CrewTheme["fg"]>[0] {
+	const mapping: Record<string, Parameters<CrewTheme["fg"]>[0]> = {
+		"✓": "success",
+		"✗": "error",
+		"■": "warning",
+		"⏸": "warning",
+		"◦": "dim",
+		"·": "dim",
+		"▶": "accent",
+	};
+	return mapping[icon] ?? "accent";
+}
+
+function colorWidgetLine(line: string, index: number, theme: CrewTheme): string {
+	let result = line;
+	if (index === 0) {
+		result = result.replace("Crew agents", theme.bold(theme.fg("accent", "Crew agents")));
+	}
+	result = result.replace(/[✓✗■⏸◦·▶]/g, (icon) => theme.fg(statusGlyphColor(icon), icon));
+	if (index === 0) {
+		result = theme.fg("accent", result);
+	}
+	return result;
+}
+
+function renderLines(lines: string[], width: number): string[] {
+	const box = new Box(0, 0);
+	for (const line of lines) {
+		box.addChild(new Text(line));
+	}
+	return box.render(width);
 }
 
 class CrewWidgetComponent implements WidgetComponent {
 	private cwd: string;
 	private frame: number;
 	private maxLines: number;
-	private theme: ThemeLike;
+	private theme: CrewTheme;
+	private cacheSignature: string;
+	private cachedWidth = 0;
+	private cachedLines: string[] = [];
+	private cachedBaseLines: string[] = [];
+	private cachedTheme: CrewTheme;
+	private manifestCache?: ManifestCache;
 
-	constructor(cwd: string, frame: number, maxLines: number, theme: ThemeLike) {
+	constructor(cwd: string, frame: number, maxLines: number, themeLike: unknown, manifestCache?: ManifestCache) {
 		this.cwd = cwd;
 		this.frame = frame;
 		this.maxLines = maxLines;
-		this.theme = theme;
+		this.theme = asCrewTheme(themeLike);
+		this.cachedTheme = this.theme;
+		this.manifestCache = manifestCache;
+		this.cacheSignature = "";
 	}
-	invalidate(): void {}
+
+	private buildSignature(runs: WidgetRun[]): string {
+		return runs
+			.map((entry) => `${entry.run.runId}:${entry.run.status}:${entry.run.updatedAt}:` + entry.agents.map((agent) => `${agent.status}:${agent.startedAt}:${agent.completedAt ?? ""}`).join(","))
+			.join("|");
+	}
+
+	private colorize(lines: string[], width: number): string[] {
+		return renderLines(lines.map((line, index) => colorWidgetLine(line, index, this.theme)), width);
+	}
+
+	invalidate(): void {
+		this.cacheSignature = "";
+		this.cachedBaseLines = [];
+		this.cachedLines = [];
+	}
+
 	render(width: number): string[] {
-		return buildCrewWidgetLines(this.cwd, this.frame, this.maxLines).map((line, index) => truncate(colorWidgetLine(line, index, this.theme), width));
+		const runs = activeWidgetRuns(this.cwd, this.manifestCache);
+		const signature = this.buildSignature(runs);
+		const runningGlyph = SPINNER[this.frame % SPINNER.length] ?? SPINNER[0];
+		const headerGlyph = runs.length ? SPINNER[0] : " ";
+
+		if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
+			this.cachedBaseLines = buildCrewWidgetLines(this.cwd, 0, this.maxLines, runs).map((line, index) => {
+				if (index === 0 && line.length > 0) return `${headerGlyph}${line.slice(1)}`;
+				return line;
+			});
+			this.cachedLines = this.colorize(this.cachedBaseLines, width);
+			this.cachedWidth = width;
+			this.cachedTheme = this.theme;
+			this.cacheSignature = signature;
+		}
+
+		if (runs.length === 0) return [];
+
+		// Update only spinner and command icon on header line to avoid full re-color for every frame.
+		const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
+		this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+		return this.cachedLines;
 	}
 }
 
@@ -188,11 +239,16 @@ function requestRender(ctx: Pick<ExtensionContext, "ui">): void {
 	(ctx.ui as { requestRender?: () => void }).requestRender?.();
 }
 
-export function updateCrewWidget(ctx: Pick<ExtensionContext, "cwd" | "hasUI" | "ui">, state: CrewWidgetState, config?: CrewUiConfig): void {
+export function updateCrewWidget(
+	ctx: Pick<ExtensionContext, "cwd" | "hasUI" | "ui">,
+	state: CrewWidgetState,
+	config?: CrewUiConfig,
+	manifestCache?: ManifestCache,
+): void {
 	if (!ctx.hasUI) return;
 	state.frame += 1;
-	const maxLines = config?.widgetMaxLines ?? 10;
-	const runs = activeWidgetRuns(ctx.cwd);
+	const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
+	const runs = activeWidgetRuns(ctx.cwd, manifestCache);
 	const lines = buildCrewWidgetLines(ctx.cwd, state.frame, maxLines, runs);
 	const placement = config?.widgetPlacement ?? "aboveEditor";
 	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);
@@ -202,7 +258,11 @@ export function updateCrewWidget(ctx: Pick<ExtensionContext, "cwd" | "hasUI" | "
 		requestRender(ctx);
 		return;
 	}
-	ctx.ui.setWidget(WIDGET_KEY, ((_tui: unknown, theme: unknown) => new CrewWidgetComponent(ctx.cwd, state.frame, maxLines, theme as ThemeLike)) as never, { placement });
+	ctx.ui.setWidget(
+		WIDGET_KEY,
+		((_tui: unknown, theme: unknown) => new CrewWidgetComponent(ctx.cwd, state.frame, maxLines, theme, manifestCache)) as never,
+		{ placement },
+	);
 	requestRender(ctx);
 }
 

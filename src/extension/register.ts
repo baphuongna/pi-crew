@@ -8,8 +8,8 @@ import { notifyActiveRuns } from "./session-summary.ts";
 import { piTeamsHelp } from "./help.ts";
 import { handleTeamManagerCommand } from "./team-manager-command.ts";
 import { handleTeamTool } from "./team-tool.ts";
-import { listRecentRuns } from "./run-index.ts";
 import { RunDashboard, type RunDashboardSelection } from "../ui/run-dashboard.ts";
+import { AnimatedMascot } from "../ui/mascot.ts";
 import { LiveRunSidebar } from "../ui/live-run-sidebar.ts";
 import { registerPiCrewRpc, type PiCrewRpcHandle } from "./cross-extension-rpc.ts";
 import { stopCrewWidget, updateCrewWidget, type CrewWidgetState } from "../ui/crew-widget.ts";
@@ -25,6 +25,7 @@ import { DEFAULT_ARTIFACT_CLEANUP, DEFAULT_UI } from "../config/defaults.ts";
 import { CLEANUP_MARKER_FILE, cleanupOldArtifacts } from "../state/artifact-store.ts";
 import { openTranscriptViewer, selectAgentTask } from "./registration/viewers.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { createManifestCache } from "../runtime/manifest-cache.ts";
 import { printTimings, resetTimings, time } from "../utils/timings.ts";
 import * as path from "node:path";
 import { projectPiRoot, userPiRoot } from "../utils/paths.ts";
@@ -49,6 +50,13 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	let currentCtx: ExtensionContext | undefined;
 	let rpcHandle: PiCrewRpcHandle | undefined;
 	let cleanedUp = false;
+	let manifestCache = createManifestCache(process.cwd());
+	const getManifestCache = (cwd: string): ReturnType<typeof createManifestCache> => {
+		if (manifestCache && currentCtx?.cwd === cwd) return manifestCache;
+		if (manifestCache) manifestCache.dispose();
+		manifestCache = createManifestCache(cwd);
+		return manifestCache;
+	};
 	const widgetState: CrewWidgetState = { frame: 0 };
 	const subagentManager = new SubagentManager(
 		4,
@@ -104,7 +112,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			if (liveSidebarRunId === runId) liveSidebarRunId = undefined;
 			if (liveSidebarTimer) clearInterval(liveSidebarTimer);
 			liveSidebarTimer = undefined;
-			updateCrewWidget(ctx, widgetState, loadConfig(ctx.cwd).config.ui);
+			updateCrewWidget(ctx, widgetState, loadConfig(ctx.cwd).config.ui, getManifestCache(ctx.cwd));
 		});
 	};
 	const startForegroundRun = (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string): void => {
@@ -134,8 +142,8 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 					}
 					if (currentCtx) {
 						const config = loadConfig(currentCtx.cwd).config.ui;
-						updateCrewWidget(currentCtx, widgetState, config);
-						updatePiCrewPowerbar(pi.events, currentCtx.cwd, config);
+						updateCrewWidget(currentCtx, widgetState, config, getManifestCache(currentCtx.cwd));
+						updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, getManifestCache(currentCtx.cwd));
 					}
 				});
 		});
@@ -166,6 +174,7 @@ const runArtifactCleanup = (cwd: string): void => {
 		stopAsyncRunNotifier(notifierState);
 		stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(pi.events);
+		manifestCache.dispose();
 		rpcHandle?.unsubscribe();
 		rpcHandle = undefined;
 		currentCtx = undefined;
@@ -184,18 +193,20 @@ const runArtifactCleanup = (cwd: string): void => {
 		const loadedConfig = loadConfig(ctx.cwd);
 		registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
 		startAsyncRunNotifier(ctx, notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs);
-		updateCrewWidget(ctx, widgetState, loadedConfig.config.ui);
-		updatePiCrewPowerbar(pi.events, ctx.cwd, loadedConfig.config.ui);
+		const cache = getManifestCache(ctx.cwd);
+		updateCrewWidget(ctx, widgetState, loadedConfig.config.ui, cache);
+		updatePiCrewPowerbar(pi.events, ctx.cwd, loadedConfig.config.ui, cache);
 		widgetState.interval = setInterval(() => {
 			if (!currentCtx) return;
 			const config = loadConfig(currentCtx.cwd).config.ui;
+			const cache = getManifestCache(currentCtx.cwd);
 			if (liveSidebarRunId) {
 				currentCtx.ui.setWidget("pi-crew", undefined, { placement: config?.widgetPlacement ?? "aboveEditor" });
 				currentCtx.ui.setWidget("pi-crew-active", undefined, { placement: config?.widgetPlacement ?? "aboveEditor" });
 			} else {
-				updateCrewWidget(currentCtx, widgetState, config);
+				updateCrewWidget(currentCtx, widgetState, config, cache);
 			}
-			updatePiCrewPowerbar(pi.events, currentCtx.cwd, config);
+			updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, cache);
 		}, DEFAULT_UI.widgetDefaultFrameMs);
 		widgetState.interval.unref?.();
 	});
@@ -220,8 +231,9 @@ const runArtifactCleanup = (cwd: string): void => {
 			try {
 				const output = await handleTeamTool(params as TeamToolParamsValue, { ...ctx, signal: controller.signal, startForegroundRun: (runner, runId) => startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => openLiveSidebar(ctx, runId) });
 				const config = loadConfig(ctx.cwd).config.ui;
-				updateCrewWidget(ctx, widgetState, config);
-				updatePiCrewPowerbar(pi.events, ctx.cwd, config);
+				const cache = getManifestCache(ctx.cwd);
+				updateCrewWidget(ctx, widgetState, config, cache);
+				updatePiCrewPowerbar(pi.events, ctx.cwd, config, cache);
 				return output;
 			} finally {
 				signal?.removeEventListener("abort", abort);
@@ -546,7 +558,7 @@ const runArtifactCleanup = (cwd: string): void => {
 		description: "Open a pi-crew run dashboard overlay",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			for (;;) {
-				const runs = listRecentRuns(ctx.cwd, 50);
+				const runs = getManifestCache(ctx.cwd).list(50);
 				const uiConfig = loadConfig(ctx.cwd).config.ui;
 				const rightPanel = uiConfig?.dashboardPlacement !== "center";
 				const width = rightPanel ? Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? 56)) : "90%";
@@ -573,6 +585,33 @@ const runArtifactCleanup = (cwd: string): void => {
 				await notifyCommandResult(ctx, commandText(result));
 				return;
 			}
+		},
+	});
+
+	pi.registerCommand("team-mascot", {
+		description: "Show an animated mascot splash",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			if (!ctx.hasUI) return;
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const uiConfig = loadConfig(ctx.cwd).config.ui;
+			const styleArg = tokens.find((t) => t === "cat" || t === "armin");
+			const effectArg = tokens.find((t) => ["random", "none", "typewriter", "scanline", "rain", "fade", "crt", "glitch", "dissolve"].includes(t));
+			const style = (styleArg as "cat" | "armin" | undefined) ?? uiConfig?.mascotStyle ?? "cat";
+			const effect = (effectArg as "random" | "none" | "typewriter" | "scanline" | "rain" | "fade" | "crt" | "glitch" | "dissolve" | undefined) ?? uiConfig?.mascotEffect ?? "random";
+			const overlayWidth = style === "armin" ? 48 : 62;
+			await ctx.ui.custom<undefined>((tui, theme, _keybindings, done) => {
+				const requestRender = () => (tui as { requestRender?: () => void }).requestRender?.();
+				return new AnimatedMascot(theme, () => done(undefined), {
+					frameIntervalMs: style === "armin" ? 33 : 180,
+					autoCloseMs: 7000,
+					requestRender,
+					style,
+					effect,
+				});
+			}, {
+				overlay: true,
+				overlayOptions: { width: overlayWidth, maxHeight: "85%", anchor: "center" },
+			});
 		},
 	});
 

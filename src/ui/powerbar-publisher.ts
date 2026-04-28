@@ -1,13 +1,17 @@
-import type { CrewUiConfig } from "../config/config.ts";
-import { listRecentRuns } from "../extension/run-index.ts";
 import * as fs from "node:fs";
+import { listRecentRuns } from "../extension/run-index.ts";
+import type { CrewUiConfig } from "../config/config.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
-import type { TeamTaskState } from "../state/types.ts";
+import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
+import type { TeamTaskState, TeamRunManifest } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import type { ManifestCache } from "../runtime/manifest-cache.ts";
 
 type EventBus = { emit?: (event: string, data: unknown) => void } | undefined;
+
+const TASK_READ_TTL_MS = 200;
 
 function safeEmit(events: EventBus, event: string, data: unknown): void {
 	try {
@@ -19,8 +23,11 @@ function safeEmit(events: EventBus, event: string, data: unknown): void {
 
 function readTasks(tasksPath: string): TeamTaskState[] {
 	try {
-		const parsed = JSON.parse(fs.readFileSync(tasksPath, "utf-8"));
-		return Array.isArray(parsed) ? parsed as TeamTaskState[] : [];
+		const parse = () => {
+			const parsed = JSON.parse(fs.readFileSync(tasksPath, "utf-8"));
+			return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
+		};
+		return readJsonFileCoalesced(tasksPath, TASK_READ_TTL_MS, parse);
 	} catch (error) {
 		logInternalError("powerbar.readTasks", error, tasksPath);
 		return [];
@@ -37,10 +44,11 @@ export function registerPiCrewPowerbarSegments(events: EventBus, config?: CrewUi
 	safeEmit(events, "powerbar:register-segment", { id: "pi-crew-progress", label: "pi-crew run progress" });
 }
 
-export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: CrewUiConfig): void {
+export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: CrewUiConfig, manifestCache?: ManifestCache): void {
 	if (config?.powerbar === false) return;
-	const active = listRecentRuns(cwd, 20).map((run) => {
-		let agents = [] as ReturnType<typeof readCrewAgents>;
+	const runs = manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20);
+	const active = runs.map((run) => {
+		let agents: ReturnType<typeof readCrewAgents> = [];
 		try {
 			agents = readCrewAgents(run);
 		} catch (error) {
@@ -72,7 +80,7 @@ export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: Cre
 	});
 	safeEmit(events, "powerbar:update", {
 		id: "pi-crew-progress",
-		text: active[0]?.run.team ?? "crew",
+		text: (active[0]?.run as TeamRunManifest)?.team ?? "crew",
 		bar: Math.round((completed / total) * 100),
 		suffix: `${completed}/${total}${tokenText ? ` · ${tokenText}` : ""}`,
 		color: completed === total ? "success" : "accent",

@@ -3,14 +3,18 @@ import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
+import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
+import type { CrewTheme } from "./theme-adapter.ts";
+import { asCrewTheme } from "./theme-adapter.ts";
+import { applyStatusColor, iconForStatus, type RunStatus } from "./status-colors.ts";
+import { pad, truncate } from "../utils/visual.ts";
+import { Box, Text } from "./layout-primitives.ts";
 
 interface DashboardComponent {
 	invalidate(): void;
 	render(width: number): string[];
 	handleInput(data: string): void;
 }
-
-type DashboardTheme = { fg?: (color: string, text: string) => string; bold?: (text: string) => string };
 
 export interface RunDashboardOptions {
 	placement?: "center" | "right";
@@ -25,54 +29,24 @@ export interface RunDashboardSelection {
 	action: RunDashboardAction;
 }
 
-const ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+const TASK_READ_TTL_MS = 200;
 
-function visibleLength(value: string): number {
-	return value.replace(ANSI_PATTERN, "").length;
+function formatAge(iso: string | undefined): string | undefined {
+	if (!iso) return undefined;
+	const ms = Math.max(0, Date.now() - new Date(iso).getTime());
+	if (!Number.isFinite(ms)) return undefined;
+	if (ms < 1000) return "now";
+	if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
+	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
+	return `${Math.floor(ms / 3_600_000)}h`;
 }
 
-function truncate(value: string, width: number): string {
-	if (width <= 0) return "";
-	if (visibleLength(value) <= width) return value;
-	if (width <= 1) return "…";
-	let output = "";
-	let visible = 0;
-	for (let index = 0; index < value.length;) {
-		const slice = value.slice(index);
-		const ansi = slice.match(/^\u001b\[[0-?]*[ -/]*[@-~]/);
-		if (ansi?.[0]) {
-			output += ansi[0];
-			index += ansi[0].length;
-			continue;
-		}
-		const char = value[index]!;
-		if (visible >= width - 1) break;
-		output += char;
-		visible += 1;
-		index += char.length;
+function renderLines(lines: string[], width: number): string[] {
+	const box = new Box(0, 0);
+	for (const line of lines) {
+		box.addChild(new Text(line));
 	}
-	return `${output}\u001b[0m…`;
-}
-
-function padVisible(value: string, width: number): string {
-	return `${value}${" ".repeat(Math.max(0, width - visibleLength(value)))}`;
-}
-
-function colorForStatus(status: string): string {
-	if (status === "completed") return "success";
-	if (status === "failed" || status === "stale") return "error";
-	if (status === "cancelled" || status === "blocked") return "warning";
-	if (status === "running") return "accent";
-	return "dim";
-}
-
-function statusIcon(status: string): string {
-	if (status === "completed") return "✓";
-	if (status === "failed" || status === "stale") return "✗";
-	if (status === "cancelled") return "!";
-	if (status === "running") return "▶";
-	if (status === "blocked") return "■";
-	return "·";
+	return box.render(width);
 }
 
 function readProgressPreview(run: TeamRunManifest, maxLines = 5): string[] {
@@ -86,24 +60,6 @@ function readProgressPreview(run: TeamRunManifest, maxLines = 5): string[] {
 	}
 }
 
-function formatAge(iso: string | undefined): string | undefined {
-	if (!iso) return undefined;
-	const ms = Math.max(0, Date.now() - new Date(iso).getTime());
-	if (!Number.isFinite(ms)) return undefined;
-	if (ms < 1000) return "now";
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
-	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
-	return `${Math.floor(ms / 3_600_000)}h`;
-}
-
-function readRunTasks(run: TeamRunManifest): TeamTaskState[] {
-	try {
-		if (!fs.existsSync(run.tasksPath)) return [];
-		const parsed = JSON.parse(fs.readFileSync(run.tasksPath, "utf-8"));
-		return Array.isArray(parsed) ? parsed as TeamTaskState[] : [];
-	} catch { return []; }
-}
-
 function formatTokens(usage: UsageState | undefined): string | undefined {
 	if (!usage) return undefined;
 	const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
@@ -115,6 +71,19 @@ function formatTokens(usage: UsageState | undefined): string | undefined {
 	if (usage.cacheRead) parts.push(`cache=${usage.cacheRead}`);
 	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
 	return parts.join("/");
+}
+
+function readRunTasks(run: TeamRunManifest): TeamTaskState[] {
+	const parse = () => {
+		if (!fs.existsSync(run.tasksPath)) return [];
+		const parsed = JSON.parse(fs.readFileSync(run.tasksPath, "utf-8"));
+		return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
+	};
+	try {
+		return readJsonFileCoalesced(run.tasksPath, TASK_READ_TTL_MS, parse);
+	} catch {
+		return [];
+	}
 }
 
 function taskForAgent(tasks: TeamTaskState[], agent: CrewAgentRecord): TeamTaskState | undefined {
@@ -139,7 +108,9 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 	const stats = [
 		agent.progress?.activityState,
 		options.showModel !== false && modelForAgent(agent, task) ? `model=${modelForAgent(agent, task)}` : undefined,
-		options.showTokens !== false ? formatTokens(usageForAgent(agent, task)) ?? (agent.progress?.tokens !== undefined ? `tok=${agent.progress.tokens}` : undefined) : undefined,
+		options.showTokens !== false
+			? formatTokens(usageForAgent(agent, task)) ?? (agent.progress?.tokens !== undefined ? `tok=${agent.progress.tokens}` : undefined)
+			: undefined,
 		options.showTools !== false && agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : undefined,
 		options.showTools !== false && agent.toolUses !== undefined ? `${agent.toolUses} tools` : undefined,
 		agent.progress?.turns !== undefined ? `${agent.progress.turns} turns` : undefined,
@@ -147,7 +118,7 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 		agent.startedAt ? `age=${formatAge(agent.completedAt ?? agent.startedAt)}` : undefined,
 	].filter((part): part is string => Boolean(part));
 	const recent = agent.progress?.recentOutput?.at(-1);
-	return `Agent: ${statusIcon(agent.status)} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` · ${stats.join(" · ")}` : ""}${recent ? ` ⎿ ${recent}` : ""}`;
+	return `Agent: ${iconForStatus(agent.status)} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` · ${stats.join(" · ")}` : ""}${recent ? ` ⎿ ${recent}` : ""}`;
 }
 
 function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashboardOptions = {}): string[] {
@@ -162,9 +133,15 @@ function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashbo
 			acc.cacheWrite += task.usage?.cacheWrite ?? 0;
 			acc.cost += task.usage?.cost ?? 0;
 			return acc;
-		}, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 });
+		}, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 } as { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number });
 		const header = formatTokens(totals) ? `Agents: ${formatTokens(totals)}` : "Agents:";
-		return [header, ...agents.slice(0, maxLines).map((agent) => agentPreviewLine(agent, taskForAgent(tasks, agent), options)), ...(agents.length > maxLines ? [`Agents: +${agents.length - maxLines} more`] : [])];
+		return [
+			header,
+			...agents
+				.slice(0, maxLines)
+				.map((agent) => agentPreviewLine(agent, taskForAgent(tasks, agent), options)),
+			...(agents.length > maxLines ? [`Agents: +${agents.length - maxLines} more`] : []),
+		];
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return [`Agents: failed to read (${message})`];
@@ -172,7 +149,11 @@ function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashbo
 }
 
 function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
-	try { return readCrewAgents(run); } catch { return []; }
+	try {
+		return readCrewAgents(run);
+	} catch {
+		return [];
+	}
 }
 
 function runLabel(run: TeamRunManifest, selected: boolean): string {
@@ -181,9 +162,9 @@ function runLabel(run: TeamRunManifest, selected: boolean): string {
 	const running = agents.find((agent) => agent.status === "running");
 	const queued = agents.find((agent) => agent.status === "queued");
 	const step = stale ? "orphaned queued run" : running ? `step ${running.taskId}` : queued ? `queued ${queued.taskId}` : `agents ${agents.length}`;
-	const status = stale ? "stale" : run.status;
+	const status: RunStatus = stale ? "stale" : (run.status as RunStatus);
 	const marker = selected ? "›" : " ";
-	return `${marker} ${statusIcon(status)} ${run.runId.slice(-8)} ${status} | ${run.team}/${run.workflow ?? "none"} | ${step} | ${run.goal}`;
+	return `${marker} ${iconForStatus(status)} ${run.runId.slice(-8)} ${status} | ${run.team}/${run.workflow ?? "none"} | ${step} | ${run.goal}`;
 }
 
 function groupedRuns(runs: TeamRunManifest[]): Array<{ label: string; run?: TeamRunManifest }> {
@@ -200,8 +181,11 @@ function selectedRunFromGrouped(runs: TeamRunManifest[], selected: number): Team
 }
 
 function countByStatus(runs: TeamRunManifest[]): string {
-	const counts = new Map<string, number>();
-	for (const run of runs) counts.set(run.status, (counts.get(run.status) ?? 0) + 1);
+	const counts = new Map<RunStatus, number>();
+	for (const run of runs) {
+		const status: RunStatus = isLikelyOrphanedActiveRun(run, agentsFor(run)) ? "stale" : (run.status as RunStatus);
+		counts.set(status, (counts.get(status) ?? 0) + 1);
+	}
 	return [...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none";
 }
 
@@ -210,66 +194,95 @@ export class RunDashboard implements DashboardComponent {
 	private showFullProgress = false;
 	private readonly runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
-	private readonly theme: DashboardTheme;
+	private readonly theme: CrewTheme;
 	private readonly options: RunDashboardOptions;
+	private cachedWidth = 0;
+	private cachedVersion = "";
+	private cachedLines: string[] = [];
 
-	constructor(runs: TeamRunManifest[], done: (selection: RunDashboardSelection | undefined) => void, theme: unknown = {}, options: RunDashboardOptions = {}) {
+	constructor(
+		runs: TeamRunManifest[],
+		done: (selection: RunDashboardSelection | undefined) => void,
+		theme: unknown = {},
+		options: RunDashboardOptions = {},
+	) {
 		this.runs = runs;
 		this.done = done;
-		this.theme = theme as DashboardTheme;
+		this.theme = asCrewTheme(theme);
 		this.options = options;
 	}
 
-	invalidate(): void {}
+	private buildSignature(): string {
+		const statuses = this.runs.map((run) => {
+			const stale = isLikelyOrphanedActiveRun(run, agentsFor(run));
+			const status: RunStatus = stale ? "stale" : (run.status as RunStatus);
+			return `${run.runId}:${run.status}:${run.updatedAt}:${status}`;
+		}).join("|");
+		return `${this.selected}:${this.showFullProgress ? 1 : 0}:${statuses}`;
+	}
+
+	invalidate(): void {
+		this.cachedVersion = "";
+		this.cachedLines = [];
+	}
 
 	render(width: number): string[] {
-		const fg = this.theme.fg?.bind(this.theme) ?? ((_color: string, text: string) => text);
-		const bold = this.theme.bold?.bind(this.theme) ?? ((text: string) => text);
-		const innerWidth = Math.max(20, width - 4);
-		const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
-		const border = (text: string) => fg("border", text);
-		const title = this.options.placement === "right" ? "pi-crew right sidebar" : "pi-crew dashboard";
-		const lines = [
-			border(`╭${"─".repeat(borderWidth)}╮`),
-			`│ ${padVisible(truncate(`${fg("accent", "▐")} ${bold(title)} ${this.options.placement === "right" ? fg("dim", "anchored top-right") : ""}`, innerWidth - 1), innerWidth - 1)}│`,
-			`│ ${padVisible(truncate(fg("dim", "↑/↓/j/k select • r reload • p progress • s/u/a/i actions • d agents • e/v/o viewers • q close"), innerWidth - 1), innerWidth - 1)}│`,
-			`│ ${padVisible(truncate(`Runs: ${this.runs.length} • ${countByStatus(this.runs)}`, innerWidth - 1), innerWidth - 1)}│`,
-			border(`├${"─".repeat(borderWidth)}┤`),
-		];
-		if (this.runs.length === 0) {
-			lines.push(`│ ${padVisible(truncate("No runs found.", innerWidth - 1), innerWidth - 1)}│`);
-		} else {
-			const rows = groupedRuns(this.runs).slice(0, 16);
-			const runRows = rows.filter((row) => row.run);
-			for (const row of rows) {
-				if (!row.run) {
-					lines.push(`│ ${padVisible(truncate(fg("accent", row.label), innerWidth - 1), innerWidth - 1)}│`);
-					continue;
+		const signature = this.buildSignature();
+		if (signature !== this.cachedVersion || this.cachedWidth !== width) {
+			const innerWidth = Math.max(20, width - 4);
+			const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
+			const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
+			const border = (text: string) => fg("border", text);
+			
+			const lines = [
+				border(`╭${"─".repeat(borderWidth)}╮`),
+				`│ ${pad(truncate(`${fg("accent", "▐")} ${this.theme.bold(this.options.placement === "right" ? "pi-crew right sidebar (anchored top-right)" : "pi-crew dashboard")}`, innerWidth - 1), innerWidth - 1)}│`,
+				`│ ${pad(truncate(`Runs: ${this.runs.length} • ${countByStatus(this.runs)}`, innerWidth - 1), innerWidth - 1)}│`,
+				`│ ${pad(truncate(`↑/↓/j/k select • r reload • p progress • s/u/a/i actions • d agents • e/v/o viewers • q close`, innerWidth - 1), innerWidth - 1)}│`,
+				border(`├${"─".repeat(borderWidth)}┤`),
+			];
+			if (this.runs.length === 0) {
+				lines.push(`│ ${pad(truncate("No runs found.", innerWidth - 1), innerWidth - 1)}│`);
+			} else {
+				const rows = groupedRuns(this.runs).slice(0, 16);
+				const selectableRuns = rows.filter((row) => row.run);
+				for (const row of rows) {
+					if (!row.run) {
+						lines.push(`│ ${pad(truncate(fg("accent", row.label), innerWidth - 1), innerWidth - 1)}│`);
+						continue;
+					}
+					const index = selectableRuns.findIndex((candidate) => candidate.run?.runId === row.run?.runId);
+					const rowStatus = isLikelyOrphanedActiveRun(row.run, agentsFor(row.run)) ? "stale" : (row.run.status as RunStatus);
+					const label = runLabel(row.run, index === this.selected);
+					lines.push(`│ ${pad(applyStatusColor(this.theme, rowStatus, label), innerWidth - 1)}│`);
 				}
-				const index = runRows.findIndex((candidate) => candidate.run?.runId === row.run?.runId);
-				const label = runLabel(row.run, index === this.selected);
-				const status = isLikelyOrphanedActiveRun(row.run, agentsFor(row.run)) ? "stale" : row.run.status;
-				lines.push(`│ ${padVisible(truncate(fg(colorForStatus(status), label), innerWidth - 1), innerWidth - 1)}│`);
-			}
-			const selectedRun = selectedRunFromGrouped(this.runs, this.selected);
-			if (selectedRun) {
-				lines.push(border(`├${"─".repeat(borderWidth)}┤`));
-				const details = [
-					`Selected: ${selectedRun.runId}`,
-					`Status: ${selectedRun.status} | Team: ${selectedRun.team} | Workflow: ${selectedRun.workflow ?? "none"}`,
-					`Created: ${selectedRun.createdAt}`,
-					`Updated: ${selectedRun.updatedAt}`,
-					`Artifacts: ${selectedRun.artifacts.length} | Workspace: ${selectedRun.workspaceMode}`,
-					selectedRun.async ? `Async: pid=${selectedRun.async.pid ?? "unknown"} log=${selectedRun.async.logPath}` : "Async: no",
-					`Goal: ${selectedRun.goal}`,
-				];
-				for (const detail of [...details, ...readAgentPreview(selectedRun, this.showFullProgress ? 20 : 8, this.options), ...readProgressPreview(selectedRun, this.showFullProgress ? 20 : 5)]) {
-					lines.push(`│ ${padVisible(truncate(detail, innerWidth - 1), innerWidth - 1)}│`);
+				const selectedRun = selectedRunFromGrouped(this.runs, this.selected);
+				if (selectedRun) {
+					lines.push(border(`├${"─".repeat(borderWidth)}┤`));
+					const details = [
+						`Selected: ${selectedRun.runId}`,
+						`Status: ${isLikelyOrphanedActiveRun(selectedRun, agentsFor(selectedRun)) ? "stale" : selectedRun.status} | Team: ${selectedRun.team} | Workflow: ${selectedRun.workflow ?? "none"}`,
+						`Created: ${selectedRun.createdAt}`,
+						`Updated: ${selectedRun.updatedAt}`,
+						`Artifacts: ${selectedRun.artifacts.length} | Workspace: ${selectedRun.workspaceMode}`,
+						selectedRun.async ? `Async: pid=${selectedRun.async.pid ?? "unknown"} log=${selectedRun.async.logPath}` : "Async: no",
+						`Goal: ${selectedRun.goal}`,
+					];
+					for (const detail of [
+						...details,
+						...readAgentPreview(selectedRun, this.showFullProgress ? 20 : 8, this.options),
+						...readProgressPreview(selectedRun, this.showFullProgress ? 20 : 5),
+					]) {
+						lines.push(`│ ${pad(truncate(detail, innerWidth - 1), innerWidth - 1)}│`);
+					}
 				}
 			}
+			lines.push(border(`╰${"─".repeat(borderWidth)}╯`));
+			this.cachedLines = renderLines(lines.map((line) => truncate(line, width)), width);
+			this.cachedVersion = signature;
+			this.cachedWidth = width;
 		}
-		lines.push(border(`╰${"─".repeat(borderWidth)}╯`));
-		return lines.map((line) => truncate(line, width));
+		return this.cachedLines;
 	}
 
 	handleInput(data: string): void {
