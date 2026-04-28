@@ -18,6 +18,7 @@ export const PiTeamsAutonomousConfigSchema = Type.Object({
 
 export const PiTeamsLimitsConfigSchema = Type.Object({
 	maxConcurrentWorkers: Type.Optional(Type.Integer({ minimum: 1 })),
+	allowUnboundedConcurrency: Type.Optional(Type.Boolean()),
 	maxTaskDepth: Type.Optional(Type.Integer({ minimum: 1 })),
 	maxChildrenPerTask: Type.Optional(Type.Integer({ minimum: 1 })),
 	maxRunMinutes: Type.Optional(Type.Integer({ minimum: 1 })),

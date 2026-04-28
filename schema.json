@@ -47,6 +47,7 @@
       "description": "Runtime safety limits for crew workers and policy decisions.",
       "properties": {
         "maxConcurrentWorkers": { "type": "integer", "minimum": 1 },
+        "allowUnboundedConcurrency": { "type": "boolean" },
         "maxTaskDepth": { "type": "integer", "minimum": 1 },
         "maxChildrenPerTask": { "type": "integer", "minimum": 1 },
         "maxRunMinutes": { "type": "integer", "minimum": 1 },

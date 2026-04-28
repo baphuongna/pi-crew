@@ -17,6 +17,7 @@ export const DEFAULT_LOCKS = {
 };
 
 export const DEFAULT_CONCURRENCY = {
+	hardCap: 8,
 	workflow: {
 		parallelResearch: 4,
 		research: 2,

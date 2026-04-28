@@ -18,6 +18,7 @@ export interface PiTeamsAutonomousConfig {
 
 export interface CrewLimitsConfig {
 	maxConcurrentWorkers?: number;
+	allowUnboundedConcurrency?: boolean;
 	maxTaskDepth?: number;
 	maxChildrenPerTask?: number;
 	maxRunMinutes?: number;
@@ -292,6 +293,7 @@ function parseLimitsConfig(value: unknown): CrewLimitsConfig | undefined {
 	if (!obj) return undefined;
 	const limits: CrewLimitsConfig = {
 		maxConcurrentWorkers: parsePositiveInteger(obj.maxConcurrentWorkers, LIMIT_CEILINGS.maxConcurrentWorkers),
+		allowUnboundedConcurrency: parseWithSchema(Type.Boolean(), obj.allowUnboundedConcurrency),
 		maxTaskDepth: parsePositiveInteger(obj.maxTaskDepth, LIMIT_CEILINGS.maxTaskDepth),
 		maxChildrenPerTask: parsePositiveInteger(obj.maxChildrenPerTask, LIMIT_CEILINGS.maxChildrenPerTask),
 		maxRunMinutes: parsePositiveInteger(obj.maxRunMinutes, LIMIT_CEILINGS.maxRunMinutes),

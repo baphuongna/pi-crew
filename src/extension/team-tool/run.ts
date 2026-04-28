@@ -4,17 +4,54 @@ import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workfl
 import { loadConfig } from "../../config/config.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { createRunManifest } from "../../state/state-store.ts";
+import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { validateWorkflowForTeam } from "../../workflows/validate-workflow.ts";
 import { executeTeamRun } from "../../runtime/team-runner.ts";
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent, readEvents } from "../../state/event-log.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import { expandParallelResearchWorkflow } from "../../runtime/parallel-research.ts";
+import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
+import { hasAsyncStartMarker } from "../../runtime/async-marker.ts";
+import * as fs from "node:fs";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
+
+function tailFile(filePath: string, maxBytes = 4096): string | undefined {
+	try {
+		const stat = fs.statSync(filePath);
+		const start = Math.max(0, stat.size - maxBytes);
+		const fd = fs.openSync(filePath, "r");
+		try {
+			const buffer = Buffer.alloc(stat.size - start);
+			fs.readSync(fd, buffer, 0, buffer.length, start);
+			return buffer.toString("utf-8").trim();
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
+}
+
+function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: number | undefined, logPath: string): void {
+	if (process.env.PI_CREW_ASYNC_EARLY_EXIT_GUARD === "0") return;
+	const timer = setTimeout(() => {
+		const loaded = loadRunManifestById(cwd, runId);
+		if (!loaded || !isActiveRunStatus(loaded.manifest.status)) return;
+		if (hasAsyncStartMarker(loaded.manifest)) return;
+		if (readEvents(loaded.manifest.eventsPath).some((event) => event.type === "async.started" || event.type === "async.completed" || event.type === "async.failed")) return;
+		const liveness = checkProcessLiveness(pid);
+		if (liveness.alive) return;
+		const tail = tailFile(logPath);
+		const message = `Background runner exited within 3s; see background.log${tail ? `\n${tail}` : ""}`;
+		const failed = updateRunStatus(loaded.manifest, "failed", "Background runner exited within 3s; see background.log");
+		appendEvent(failed.eventsPath, { type: "async.failed", runId: failed.runId, message, data: { pid, detail: liveness.detail } });
+	}, 3000);
+	timer.unref?.();
+}
 
 export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const goal = params.goal ?? params.task;
@@ -75,6 +112,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		const asyncManifest = { ...updatedManifest, async: { pid: spawned.pid, logPath: spawned.logPath, spawnedAt: new Date().toISOString() } };
 		atomicWriteJson(paths.manifestPath, asyncManifest);
 		appendEvent(updatedManifest.eventsPath, { type: "async.spawned", runId: updatedManifest.runId, data: { pid: spawned.pid, logPath: spawned.logPath } });
+		scheduleBackgroundEarlyExitGuard(ctx.cwd, updatedManifest.runId, spawned.pid, spawned.logPath);
 		const text = [
 			`Started async pi-crew run ${updatedManifest.runId}.`,
 			`Team: ${team.name}`,

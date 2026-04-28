@@ -1,5 +1,6 @@
 import type { CrewAgentRecord } from "./crew-agent-runtime.ts";
 import type { TeamRunManifest } from "../state/types.ts";
+export { hasAsyncStartMarker } from "./async-marker.ts";
 
 export interface ProcessLiveness {
 	pid?: number;

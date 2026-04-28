@@ -8,6 +8,7 @@ import { executeTeamRun } from "./team-runner.ts";
 import { resolveCrewRuntime } from "./runtime-resolver.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { expandParallelResearchWorkflow } from "./parallel-research.ts";
+import { writeAsyncStartMarker } from "./async-marker.ts";
 
 function argValue(name: string): string | undefined {
 	const index = process.argv.indexOf(name);
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
 	if (!loaded) throw new Error(`Run '${runId}' not found.`);
 	let { manifest, tasks } = loaded;
 	appendEvent(manifest.eventsPath, { type: "async.started", runId: manifest.runId, data: { pid: process.pid } });
+	writeAsyncStartMarker(manifest, { pid: process.pid, startedAt: new Date().toISOString() });
 
 	try {
 		const agents = allAgents(discoverAgents(cwd));

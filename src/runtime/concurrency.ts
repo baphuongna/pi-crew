@@ -5,6 +5,8 @@ export interface ResolveBatchConcurrencyInput {
 	workflowMaxConcurrency?: number;
 	teamMaxConcurrency?: number;
 	limitMaxConcurrentWorkers?: number;
+	allowUnboundedConcurrency?: boolean;
+	hardCap?: number;
 	readyCount: number;
 	workspaceMode?: "single" | "worktree";
 	readyRoles?: string[];
@@ -40,11 +42,15 @@ export function resolveBatchConcurrency(input: ResolveBatchConcurrencyInput): Ba
 	if (limitMax !== undefined) source = "limit";
 	else if (teamMax !== undefined) source = "team";
 	else source = "workflow";
+	const hardCap = positiveInteger(input.hardCap) ?? DEFAULT_CONCURRENCY.hardCap;
+	const maxConcurrent = input.allowUnboundedConcurrency ? requested : Math.min(requested, hardCap);
 	const readyCount = Math.max(0, Math.trunc(input.readyCount));
+	const cappedReason = maxConcurrent < requested ? `;capped:${hardCap}` : "";
+	const unboundedReason = input.allowUnboundedConcurrency && requested > hardCap ? `;unbounded:${hardCap}` : "";
 	return {
-		maxConcurrent: requested,
-		selectedCount: readyCount === 0 ? 0 : Math.min(readyCount, requested),
+		maxConcurrent,
+		selectedCount: readyCount === 0 ? 0 : Math.min(readyCount, maxConcurrent),
 		defaultConcurrency,
-		reason: `${source}:${requested};ready:${readyCount}`,
+		reason: `${source}:${requested}${cappedReason}${unboundedReason};ready:${readyCount}`,
 	};
 }

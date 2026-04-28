@@ -12,6 +12,7 @@ test("parseConfig accepts valid values and drops invalid siblings using TypeBox 
 		asyncByDefault: "true",
 		limits: {
 			maxConcurrentWorkers: 4,
+			allowUnboundedConcurrency: true,
 			maxTaskDepth: "bad",
 		},
 		runtime: {
@@ -26,6 +27,7 @@ test("parseConfig accepts valid values and drops invalid siblings using TypeBox 
 	});
 	assert.equal(parsed.asyncByDefault, undefined);
 	assert.equal(parsed.limits?.maxConcurrentWorkers, 4);
+	assert.equal(parsed.limits?.allowUnboundedConcurrency, true);
 	assert.equal(parsed.limits?.maxTaskDepth, undefined);
 	assert.equal(parsed.runtime?.mode, "child-process");
 	assert.equal(parsed.runtime?.maxTurns, undefined);

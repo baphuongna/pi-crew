@@ -327,7 +327,10 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 
 		const snapshot = taskGraphSnapshot(tasks, queueIndex);
 		const readyRoles = snapshot.ready.map((taskId) => tasks.find((task) => task.id === taskId)?.role).filter((role): role is string => Boolean(role));
-		const concurrency = resolveBatchConcurrency({ workflowName: workflow.name, workflowMaxConcurrency: workflow.maxConcurrency, teamMaxConcurrency: input.team.maxConcurrency, limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers, readyCount: snapshot.ready.length, workspaceMode: manifest.workspaceMode, readyRoles });
+		const concurrency = resolveBatchConcurrency({ workflowName: workflow.name, workflowMaxConcurrency: workflow.maxConcurrency, teamMaxConcurrency: input.team.maxConcurrency, limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers, allowUnboundedConcurrency: input.limits?.allowUnboundedConcurrency, readyCount: snapshot.ready.length, workspaceMode: manifest.workspaceMode, readyRoles });
+		if (concurrency.reason.includes(";unbounded:")) {
+			appendEvent(manifest.eventsPath, { type: "limits.unbounded", runId: manifest.runId, message: "Unbounded worker concurrency was explicitly enabled for this run.", data: { concurrencyReason: concurrency.reason, maxConcurrent: concurrency.maxConcurrent } });
+		}
 		const readyBatch = getReadyTasks(tasks, concurrency.selectedCount, queueIndex);
 		if (readyBatch.length === 0) {
 			tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");

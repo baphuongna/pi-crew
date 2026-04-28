@@ -40,3 +40,17 @@ test("zero ready tasks selects zero while positive ready tasks select at least o
 	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", readyCount: 0 }).selectedCount, 0);
 	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", readyCount: 2 }).selectedCount, 1);
 });
+
+test("worker concurrency is capped by default", () => {
+	const decision = resolveBatchConcurrency({ workflowName: "parallel-research", limitMaxConcurrentWorkers: 64, readyCount: 64 });
+	assert.equal(decision.maxConcurrent, 8);
+	assert.equal(decision.selectedCount, 8);
+	assert.match(decision.reason, /capped:8/);
+});
+
+test("worker concurrency can be explicitly unbounded", () => {
+	const decision = resolveBatchConcurrency({ workflowName: "parallel-research", limitMaxConcurrentWorkers: 64, allowUnboundedConcurrency: true, readyCount: 64 });
+	assert.equal(decision.maxConcurrent, 64);
+	assert.equal(decision.selectedCount, 64);
+	assert.match(decision.reason, /unbounded:8/);
+});
