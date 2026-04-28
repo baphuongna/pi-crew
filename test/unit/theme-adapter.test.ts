@@ -15,6 +15,31 @@ test("asCrewTheme preserves provided inverse function", () => {
 	assert.equal(theme.inverse?.("x"), "<inv>x</inv>");
 });
 
+test("asCrewTheme binds Pi theme methods to their source object", () => {
+	const source = {
+		fgColors: new Map([["accent", "36"]]),
+		fg(this: { fgColors: Map<string, string> }, color: string, text: string) {
+			return `<${this.fgColors.get(color)}>${text}</>`;
+		},
+		bold(this: { marker: string }, text: string) {
+			return `${this.marker}${text}`;
+		},
+		marker: "!",
+	};
+	const theme = asCrewTheme(source);
+	assert.equal(theme.fg("accent", "x"), "<36>x</>");
+	assert.equal(theme.bold("x"), "!x");
+});
+
+test("asCrewTheme falls back to plain text when theme methods throw", () => {
+	const theme = asCrewTheme({
+		fg: () => { throw new Error("theme not bound"); },
+		bold: () => { throw new Error("theme not bound"); },
+	});
+	assert.equal(theme.fg("accent", "x"), "x");
+	assert.equal(theme.bold("x"), "x");
+});
+
 test("subscribeThemeChange uses onThemeChange API and stops after dispose", () => {
 	const callbacks = new Set<() => void>();
 	const theme = {

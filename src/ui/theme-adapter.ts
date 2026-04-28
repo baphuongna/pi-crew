@@ -51,26 +51,34 @@ function safeNoopTheme(): CrewTheme {
 	};
 }
 
-function asStringFn(value: unknown): ((color: CrewThemeColor | CrewThemeBg, text: string) => string) | undefined {
+function asStringFn(value: unknown, owner?: object): ((color: CrewThemeColor | CrewThemeBg, text: string) => string) | undefined {
 	if (typeof value !== "function") return undefined;
 	return (color: CrewThemeColor | CrewThemeBg, text: string) => {
-		const fn = value as (color: CrewThemeColor | CrewThemeBg, text: string) => unknown;
-		const result = fn(color, text);
-		return typeof result === "string" ? result : text;
+		try {
+			const fn = value as (this: object | undefined, color: CrewThemeColor | CrewThemeBg, text: string) => unknown;
+			const result = fn.call(owner, color, text);
+			return typeof result === "string" ? result : text;
+		} catch {
+			return text;
+		}
 	};
 }
 
-function asUnaryFn(value: unknown): ((text: string) => string) | undefined {
+function asUnaryFn(value: unknown, owner?: object): ((text: string) => string) | undefined {
 	if (typeof value !== "function") return undefined;
 	return (text: string) => {
-		const fn = value as (text: string) => unknown;
-		const result = fn(text);
-		return typeof result === "string" ? result : text;
+		try {
+			const fn = value as (this: object | undefined, text: string) => unknown;
+			const result = fn.call(owner, text);
+			return typeof result === "string" ? result : text;
+		} catch {
+			return text;
+		}
 	};
 }
 
-function asInverse(value: unknown): (text: string) => string {
-	return asUnaryFn(value) ?? inverseAnsi;
+function asInverse(value: unknown, owner?: object): (text: string) => string {
+	return asUnaryFn(value, owner) ?? inverseAnsi;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -168,15 +176,15 @@ export function asCrewTheme(raw: unknown): CrewTheme {
 	const fallback = safeNoopTheme();
 	if (!raw || typeof raw !== "object") return fallback;
 	const record = raw as Record<string, unknown>;
-	const fg = asStringFn(record.fg);
-	const bold = asUnaryFn(record.bold);
+	const fg = asStringFn(record.fg, raw);
+	const bold = asUnaryFn(record.bold, raw);
 	if (!fg || !bold) return fallback;
 	return {
 		fg,
-		bg: asStringFn(record.bg),
+		bg: asStringFn(record.bg, raw),
 		bold,
-		italic: asUnaryFn(record.italic),
-		underline: asUnaryFn(record.underline),
-		inverse: asInverse(record.inverse),
+		italic: asUnaryFn(record.italic, raw),
+		underline: asUnaryFn(record.underline, raw),
+		inverse: asInverse(record.inverse, raw),
 	};
 }

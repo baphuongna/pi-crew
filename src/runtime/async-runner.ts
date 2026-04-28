@@ -1,13 +1,15 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TeamRunManifest } from "../state/types.ts";
 
-export function getBackgroundRunnerCommand(runnerPath: string, cwd: string, runId: string): { args: string[]; loader: "strip-types" } {
+export function getBackgroundRunnerCommand(runnerPath: string, cwd: string, runId: string): { args: string[]; loader: "jiti" } {
+	const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+	const jitiRegisterPath = path.join(packageRoot, "node_modules", "jiti", "lib", "jiti-register.mjs");
 	return {
-		args: ["--experimental-strip-types", runnerPath, "--cwd", cwd, "--run-id", runId],
-		loader: "strip-types",
+		args: ["--import", pathToFileURL(jitiRegisterPath).href, runnerPath, "--cwd", cwd, "--run-id", runId],
+		loader: "jiti",
 	};
 }
 
