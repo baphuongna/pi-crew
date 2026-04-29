@@ -58,13 +58,22 @@ function parseManifest(filePath: string): TeamRunManifest | undefined {
 	}
 }
 
+function sameFilesystemPath(left: string, right: string): boolean {
+	if (path.resolve(left) === path.resolve(right)) return true;
+	try {
+		return fs.realpathSync.native(left) === fs.realpathSync.native(right);
+	} catch {
+		return false;
+	}
+}
+
 function validateManifestForRoot(root: string, runId: string, manifest: TeamRunManifest): boolean {
 	try {
 		if (!isSafePathId(runId)) return false;
 		const stateRoot = resolveContainedRelativePath(root, runId, "runId");
 		const crewRoot = path.dirname(path.dirname(root));
 		const artifactsRoot = resolveContainedRelativePath(path.join(crewRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
-		if (manifest.runId !== runId || manifest.stateRoot !== stateRoot || manifest.tasksPath !== path.join(stateRoot, DEFAULT_PATHS.state.tasksFile) || manifest.eventsPath !== path.join(stateRoot, DEFAULT_PATHS.state.eventsFile) || manifest.artifactsRoot !== artifactsRoot) return false;
+		if (manifest.runId !== runId || !sameFilesystemPath(manifest.stateRoot, stateRoot) || !sameFilesystemPath(manifest.tasksPath, path.join(stateRoot, DEFAULT_PATHS.state.tasksFile)) || !sameFilesystemPath(manifest.eventsPath, path.join(stateRoot, DEFAULT_PATHS.state.eventsFile)) || !sameFilesystemPath(manifest.artifactsRoot, artifactsRoot)) return false;
 		if (fs.existsSync(artifactsRoot)) {
 			if (fs.lstatSync(artifactsRoot).isSymbolicLink()) return false;
 			resolveRealContainedPath(path.dirname(artifactsRoot), path.basename(artifactsRoot));

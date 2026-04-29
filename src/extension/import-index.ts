@@ -22,7 +22,7 @@ function readEntry(root: string, scope: "project" | "user", runId: string): Impo
 	let summaryPath: string;
 	try {
 		const entryRoot = resolveRealContainedPath(root, runId);
-		bundlePath = resolveRealContainedPath(root, path.join(entryRoot, "run-export.json"));
+		bundlePath = resolveRealContainedPath(root, path.join(runId, "run-export.json"));
 		summaryPath = path.join(entryRoot, "README.md");
 	} catch {
 		return undefined;
