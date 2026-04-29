@@ -12,7 +12,7 @@ function sleep(ms: number): Promise<void> {
 
 test("withRunLock holds exclusivity across concurrent async callers", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lock-race-"));
-	fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	const { manifest } = createRunManifest({
 		cwd,
 		team: { name: "race-team", description: "race", source: "builtin", filePath: "", roles: [{ name: "explorer", agent: "explorer" }] },

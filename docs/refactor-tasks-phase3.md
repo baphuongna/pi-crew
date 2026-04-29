@@ -278,7 +278,7 @@ export const MAX_PARALLEL_CONCURRENCY: number;
 **Source**: `source/pi-subagents/artifacts.ts` (hàm `cleanupOldArtifacts`)
 **Đích**: bổ sung vào `pi-crew/src/state/artifact-store.ts`
 
-**Lý do**: Pi-crew `.pi/teams/state/artifacts/` không có TTL → run cũ tích lũy mãi. Pattern subagents:
+**Lý do**: Pi-crew `<crewRoot>/state/artifacts/` (`<crewRoot>` = `.crew/` mới hoặc `.pi/teams/` legacy) không có TTL → run cũ tích lũy mãi. Pattern subagents:
 - File `.last-cleanup` chứa timestamp.
 - Nếu marker mới hơn 24h → skip (không scan dir lớn mỗi extension load).
 - Nếu cần scan: xoá file mtime > `maxAgeDays * 24h`.

@@ -21,10 +21,10 @@ function manifest(root: string): TeamRunManifest {
 		createdAt: "2026-04-26T00:00:00.000Z",
 		updatedAt: "2026-04-26T00:00:00.000Z",
 		cwd: root,
-		stateRoot: path.join(root, ".pi", "teams", "state", "runs", "team_fg"),
-		artifactsRoot: path.join(root, ".pi", "teams", "artifacts", "team_fg"),
-		tasksPath: path.join(root, ".pi", "teams", "state", "runs", "team_fg", "tasks.json"),
-		eventsPath: path.join(root, ".pi", "teams", "state", "runs", "team_fg", "events.jsonl"),
+		stateRoot: path.join(root, ".crew", "state", "runs", "team_fg"),
+		artifactsRoot: path.join(root, ".crew", "artifacts", "team_fg"),
+		tasksPath: path.join(root, ".crew", "state", "runs", "team_fg", "tasks.json"),
+		eventsPath: path.join(root, ".crew", "state", "runs", "team_fg", "events.jsonl"),
 		artifacts: [],
 	};
 }
@@ -65,7 +65,7 @@ test("foreground control status and interrupt request are durable", () => {
 test("team api exposes foreground status and interrupt request", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fg-api-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const started = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "foreground api" }, { cwd });
 		assert.equal(started.isError, false);
 		const runId = started.details.runId!;

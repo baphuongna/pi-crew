@@ -10,9 +10,9 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 test("parallel-research dynamically fans out Source/pi-* projects into shard tasks", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dynamic-fanout-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		for (const name of ["pi-a", "pi-b", "pi-c", "pi-d", "pi-e", "not-pi"]) fs.mkdirSync(path.join(cwd, "Source", name), { recursive: true });
-		const run = await handleTeamTool({ action: "run", team: "parallel-research", config: { runtime: { mode: "scaffold" } }, goal: "Đọc sâu các source pi-* trong Source/" }, { cwd });
+		const run = await handleTeamTool({ action: "run", team: "parallel-research", config: { runtime: { mode: "scaffold" } }, goal: "Äá»c sÃ¢u cÃ¡c source pi-* trong Source/" }, { cwd });
 		assert.equal(run.isError, false);
 		const loaded = loadRunManifestById(cwd, run.details.runId!);
 		assert.ok(loaded);

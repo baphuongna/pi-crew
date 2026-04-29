@@ -4,7 +4,7 @@ import type { ResourceSource } from "../agents/agent-config.ts";
 import type { TeamConfig, TeamRole } from "./team-config.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
 import { parseGitUrl } from "../utils/git.ts";
-import { packageRoot, projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
 
 export interface TeamDiscoveryResult {
 	builtin: TeamConfig[];
@@ -81,7 +81,7 @@ export function discoverTeams(cwd: string): TeamDiscoveryResult {
 	return {
 		builtin: readTeamDir(path.join(packageRoot(), "teams"), "builtin"),
 		user: readTeamDir(path.join(userPiRoot(), "teams"), "user"),
-		project: readTeamDir(path.join(projectPiRoot(cwd), "teams"), "project"),
+		project: readTeamDir(path.join(projectCrewRoot(cwd), "teams"), "project"),
 	};
 }
 

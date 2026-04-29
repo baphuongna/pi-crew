@@ -28,7 +28,7 @@ test("doctor report includes structured sections", () => {
 
 test("doctor report does not create missing state directories", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-report-"));
-	const projectState = path.join(cwd, ".pi", "teams");
+	const projectState = path.join(cwd, ".crew");
 	const artifactsRoot = path.join(projectState, "artifacts");
 	try {
 		const report = buildTeamDoctorReport({

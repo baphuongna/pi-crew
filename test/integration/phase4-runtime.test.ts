@@ -119,7 +119,7 @@ test("session usage parser sums JSONL token usage and ignores corrupt lines", ()
 test("group join writes metadata artifact, event, and mailbox delivery", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-group-join-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest, tasks } = createRunManifest({ cwd, team, workflow, goal: "phase4" });
 		const completed = tasks.map((task) => ({ ...task, status: "completed" as const, finishedAt: new Date().toISOString() }));
 		assert.equal(resolveGroupJoinMode({ groupJoin: "smart" }), "smart");

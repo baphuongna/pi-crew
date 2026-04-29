@@ -14,7 +14,7 @@ test("child-process runs maintain per-agent status, events, and output files", a
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-files-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "exercise per-agent files" }, { cwd });
 		assert.equal(run.isError, false);
 		const runId = run.details.runId!;

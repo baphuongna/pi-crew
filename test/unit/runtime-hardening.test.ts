@@ -9,7 +9,7 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("team run writes progress artifacts and API exposes state", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runtime-hardening-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Check runtime hardening" }, { cwd });
 		assert.equal(run.isError, false);

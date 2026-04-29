@@ -9,7 +9,7 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("api supports mailbox inbox/outbox and delivery state", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-mailbox-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "mailbox api" }, { cwd });
 		const runId = run.details.runId;
@@ -32,7 +32,7 @@ test("api supports mailbox inbox/outbox and delivery state", async () => {
 
 test("read-mailbox does not create mailbox files on reads", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-mailbox-readonly-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "mailbox readonly read" }, { cwd });
 		const runId = run.details.runId;

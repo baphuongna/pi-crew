@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { assertRunBundle } from "./run-bundle-schema.ts";
-import { projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 
 export interface ImportedRunBundleInfo {
 	runId: string;
@@ -11,9 +12,8 @@ export interface ImportedRunBundleInfo {
 }
 
 function importRoot(cwd: string, scope: "project" | "user"): string {
-	return scope === "project"
-		? path.join(projectPiRoot(cwd), "teams", "imports")
-		: path.join(userPiRoot(), "extensions", "pi-crew", "imports");
+	const base = scope === "project" ? projectCrewRoot(cwd) : userCrewRoot();
+	return path.join(base, DEFAULT_PATHS.state.importsSubdir);
 }
 
 export function importRunBundle(cwd: string, bundlePath: string, scope: "project" | "user" = "project"): ImportedRunBundleInfo {

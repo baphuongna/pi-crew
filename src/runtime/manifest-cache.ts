@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { closeWatcher, watchWithErrorHandler } from "../utils/fs-watch.ts";
-import { projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
 
@@ -74,10 +74,8 @@ function parseManifestIfChanged(filePath: string, previous?: CachedManifest): Ca
 }
 
 function listRunRoots(cwd: string): string[] {
-	return [
-		path.join(userPiRoot(), "extensions", "pi-crew", DEFAULT_PATHS.state.userBase),
-		path.join(projectPiRoot(cwd), DEFAULT_PATHS.state.projectBase),
-	].map((root) => path.join(root, DEFAULT_PATHS.state.runsSubdir));
+	const base = findRepoRoot(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
+	return [path.join(base, DEFAULT_PATHS.state.runsSubdir)];
 }
 
 function collectRoots(root: string): ParsedEntry[] {

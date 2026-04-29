@@ -19,9 +19,9 @@ test("doctor includes platform diagnostics", async () => {
 
 test("doctor includes resource validation result", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi", "teams"), { recursive: true });
+	fs.mkdirSync(path.join(cwd, ".crew", "teams"), { recursive: true });
 	try {
-		fs.writeFileSync(path.join(cwd, ".pi", "teams", "broken.team.md"), "---\nname: broken\ndescription: Broken team\ndefaultWorkflow: missing-flow\n---\n\n- ghost: agent=ghost\n", "utf-8");
+		fs.writeFileSync(path.join(cwd, ".crew", "teams", "broken.team.md"), "---\nname: broken\ndescription: Broken team\ndefaultWorkflow: missing-flow\n---\n\n- ghost: agent=ghost\n", "utf-8");
 		const doctor = await handleTeamTool({ action: "doctor" }, { cwd });
 		assert.equal(doctor.isError, true);
 		assert.match(firstText(doctor), /resource validation/);

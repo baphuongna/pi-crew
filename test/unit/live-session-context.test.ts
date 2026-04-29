@@ -19,7 +19,7 @@ test("live-session runtime can inherit parent conversation context", async () =>
 	process.env.PI_CREW_MOCK_LIVE_SESSION = "success";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-context-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const ctx: TeamContext = {
 			cwd,
 			model: { provider: "test", id: "model" },

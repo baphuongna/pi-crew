@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { loadRunManifestById } from "../state/state-store.ts";
 import type { PiTeamsToolResult } from "../extension/tool-result.ts";
 import { DEFAULT_SUBAGENT } from "../config/defaults.ts";
-import { projectPiRoot } from "../utils/paths.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "error" | "blocked" | "stopped";
@@ -49,7 +50,7 @@ interface QueuedSpawn {
 }
 
 function persistedSubagentPath(cwd: string, id: string): string {
-	return path.join(projectPiRoot(cwd), "teams", "state", "subagents", `${id}.json`);
+	return path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.subagentsSubdir, `${id}.json`);
 }
 
 function serializableRecord(record: SubagentRecord): SubagentRecord {

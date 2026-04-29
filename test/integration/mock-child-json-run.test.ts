@@ -8,7 +8,7 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 test("mocked JSON child Pi output records usage and json event count", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-json-child-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";

@@ -16,7 +16,7 @@ const workflow: WorkflowConfig = { name: "control", description: "control", sour
 test("agent control marks stale running agents as needs_attention", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-control-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest } = createRunManifest({ cwd, team, workflow, goal: "control" });
 		const old = new Date(Date.now() - 120_000).toISOString();
 		const record = {

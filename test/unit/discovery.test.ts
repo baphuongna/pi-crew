@@ -17,7 +17,7 @@ test("builtin resources are discoverable", () => {
 test("workflow frontmatter can set maxConcurrency", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-workflow-concurrency-"));
 	try {
-		const workflowsDir = path.join(cwd, ".pi", "workflows");
+		const workflowsDir = path.join(cwd, ".crew", "workflows");
 		fs.mkdirSync(workflowsDir, { recursive: true });
 		fs.writeFileSync(path.join(workflowsDir, "workflow-max-concurrency.workflow.md"), [
 			"---",
@@ -42,7 +42,7 @@ test("workflow frontmatter can set maxConcurrency", () => {
 test("agent config overrides builtin agents case-insensitively and can disable them", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-override-"));
 	try {
-		const configDir = path.join(cwd, ".pi", "teams");
+		const configDir = path.join(cwd, ".crew");
 		fs.mkdirSync(configDir, { recursive: true });
 		fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
 			agents: {
@@ -66,7 +66,7 @@ test("agent config overrides builtin agents case-insensitively and can disable t
 test("team discovery supports git URL source in frontmatter", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-team-git-source-"));
 	try {
-		const teamsDir = path.join(cwd, ".pi", "teams");
+		const teamsDir = path.join(cwd, ".crew", "teams");
 		fs.mkdirSync(teamsDir, { recursive: true });
 		fs.writeFileSync(path.join(teamsDir, "remote.team.md"), [
 			"---",

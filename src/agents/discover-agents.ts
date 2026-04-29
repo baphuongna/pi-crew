@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { AgentConfig, ResourceSource } from "./agent-config.ts";
 import { loadConfig } from "../config/config.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
-import { packageRoot, projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
 
 export interface AgentDiscoveryResult {
 	builtin: AgentConfig[];
@@ -89,7 +89,7 @@ export function discoverAgents(cwd: string): AgentDiscoveryResult {
 	return {
 		builtin: applyAgentOverrides(readAgentDir(path.join(packageRoot(), "agents"), "builtin"), cwd),
 		user: applyAgentOverrides(readAgentDir(path.join(userPiRoot(), "agents"), "user"), cwd),
-		project: applyAgentOverrides(readAgentDir(path.join(projectPiRoot(cwd), "agents"), "project"), cwd),
+		project: applyAgentOverrides(readAgentDir(path.join(projectCrewRoot(cwd), "agents"), "project"), cwd),
 	};
 }
 

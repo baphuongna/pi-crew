@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamRunManifest } from "../state/types.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 
 export interface WorktreeCleanupResult {
 	removed: string[];
@@ -32,7 +34,7 @@ function captureDiff(worktreePath: string): string {
 }
 
 export function cleanupRunWorktrees(manifest: TeamRunManifest, options: { force?: boolean } = {}): WorktreeCleanupResult {
-	const worktreeRoot = path.join(manifest.cwd, ".pi", "teams", "worktrees", manifest.runId);
+	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, manifest.runId);
 	const result: WorktreeCleanupResult = { removed: [], preserved: [], artifactPaths: [] };
 	if (!fs.existsSync(worktreeRoot)) return result;
 

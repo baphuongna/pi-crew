@@ -27,7 +27,7 @@ const workflow: WorkflowConfig = {
 
 test("status marks active async run failed when recorded pid is stale", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-stale-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "stale async" });
 		const stalePid = 2147483000;

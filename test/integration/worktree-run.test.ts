@@ -38,8 +38,8 @@ test("worktree mode supports setup hook metadata and diff stat artifacts", async
 		git(cwd, ["commit", "-m", "initial"]);
 		const hook = path.join(cwd, "hook.cjs");
 		fs.writeFileSync(hook, "const fs=require('fs'); fs.writeFileSync('generated.txt','x'); console.log(JSON.stringify({syntheticPaths:['generated.txt']}));\n", "utf-8");
-		fs.mkdirSync(path.join(cwd, ".pi", "teams"), { recursive: true });
-		fs.writeFileSync(path.join(cwd, ".pi", "teams", "config.json"), JSON.stringify({ requireCleanWorktreeLeader: false, worktree: { setupHook: hook, linkNodeModules: true } }), "utf-8");
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ requireCleanWorktreeLeader: false, worktree: { setupHook: hook, linkNodeModules: true } }), "utf-8");
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Worktree hook smoke", workspaceMode: "worktree" }, { cwd });
 		assert.equal(run.isError, false);
 		const loaded = loadRunManifestById(cwd, run.details.runId!);
@@ -64,7 +64,7 @@ test("worktree mode creates task worktrees and exposes them", async (t) => {
 		git(cwd, ["config", "user.email", "pi-crew@example.invalid"]);
 		git(cwd, ["config", "user.name", "pi Teams Test"]);
 		fs.writeFileSync(path.join(cwd, "README.md"), "test\n", "utf-8");
-		fs.writeFileSync(path.join(cwd, ".gitignore"), ".pi/\n", "utf-8");
+		fs.writeFileSync(path.join(cwd, ".gitignore"), ".pi/\n.crew/\n", "utf-8");
 		git(cwd, ["add", "README.md", ".gitignore"]);
 		git(cwd, ["commit", "-m", "initial"]);
 

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 
 export interface ImportedRunIndexEntry {
 	runId: string;
@@ -45,8 +46,8 @@ function collect(root: string, scope: "project" | "user"): ImportedRunIndexEntry
 }
 
 export function listImportedRuns(cwd: string): ImportedRunIndexEntry[] {
-	const projectRoot = path.join(projectPiRoot(cwd), "teams", "imports");
-	const userRoot = path.join(userPiRoot(), "extensions", "pi-crew", "imports");
+	const projectRoot = path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.importsSubdir);
+	const userRoot = path.join(userCrewRoot(), DEFAULT_PATHS.state.importsSubdir);
 	return [...collect(userRoot, "user"), ...collect(projectRoot, "project")]
 		.sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
 }

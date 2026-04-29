@@ -118,10 +118,10 @@ Check status:
 }
 ```
 
-The leader repository must be clean. Per-task worktrees are created under:
+The leader repository must be clean. Per-task worktrees are created under the project crew root (`.crew/` for new projects, `.pi/teams/` when the repo already has `.pi/`):
 
 ```text
-.pi/teams/worktrees/{runId}/{taskId}
+<crewRoot>/worktrees/{runId}/{taskId}
 ```
 
 Cleanup:
@@ -152,7 +152,7 @@ Dirty worktrees are preserved unless `force: true` is provided.
 /team-cleanup team_...
 /team-forget team_... --confirm
 /team-export team_...
-/team-import .pi/teams/artifacts/team_.../export/run-export.json
+/team-import .crew/artifacts/team_.../export/run-export.json   # or .pi/teams/artifacts/... on legacy layout
 /team-imports
 /team-prune --keep=20 --confirm
 /team-manager

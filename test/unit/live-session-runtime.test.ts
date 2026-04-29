@@ -18,7 +18,7 @@ test("run can use experimental live-session runtime with durable transcript hook
 	process.env.PI_CREW_MOCK_LIVE_SESSION = "success";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-session-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "live session smoke", config: { runtime: { mode: "live-session" } } }, { cwd });
 		assert.equal(run.isError, false);
 		assert.match(firstText(run), /Experimental live-session worker execution was enabled/);
@@ -33,7 +33,7 @@ test("run can use experimental live-session runtime with durable transcript hook
 		assert.match(firstText(liveAgents), /team_/);
 		const steer = await handleTeamTool({ action: "api", runId, config: { operation: "steer-agent", agentId: agents[0].taskId, message: "wrap up" } }, { cwd });
 		assert.equal(steer.isError, false);
-		const sidechainPath = path.join(cwd, ".pi", "teams", "state", "runs", runId, "agents", agents[0].taskId, "sidechain.output.jsonl");
+		const sidechainPath = path.join(cwd, ".crew", "state", "runs", runId, "agents", agents[0].taskId, "sidechain.output.jsonl");
 		assert.match(fs.readFileSync(sidechainPath, "utf-8"), /"isSidechain":true/);
 	} finally {
 		restoreEnv("PI_CREW_ENABLE_EXPERIMENTAL_LIVE_SESSION", previousEnable);

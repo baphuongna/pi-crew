@@ -8,7 +8,7 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 test("forget deletes run state and artifacts when confirmed", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-forget-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Forget me" }, { cwd });
 		const runId = run.details.runId;

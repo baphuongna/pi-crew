@@ -9,7 +9,7 @@ import { listRuns } from "../../src/extension/run-index.ts";
 
 test("prune removes old finished runs after confirmation", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-prune-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		for (let i = 0; i < 3; i++) {
 			const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: `Prune ${i}` }, { cwd });

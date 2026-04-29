@@ -15,7 +15,7 @@ const workflow: WorkflowConfig = { name: "research", description: "research", so
 test("LiveRunSidebar renders active, waiting, model, and usage sections", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-sidebar-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest, tasks } = createRunManifest({ cwd, team, workflow, goal: "sidebar" });
 		const updated = tasks.map((task) => task.id === "01_explore" ? { ...task, status: "running" as const, startedAt: "2026-01-01T00:00:00.000Z", modelAttempts: [{ model: "openai-codex/gpt-5.5", success: false }], usage: { input: 10, output: 5 }, agentProgress: { recentTools: [], recentOutput: [], toolCount: 2, currentTool: "read" } } : task);
 		saveRunTasks(manifest, updated);

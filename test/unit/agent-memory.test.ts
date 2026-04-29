@@ -25,7 +25,7 @@ test("agent memory rejects unsafe names and reads project memory", () => {
 test("agent discovery parses memory frontmatter", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-memory-agent-"));
 	try {
-		const agentDir = path.join(cwd, ".pi", "agents");
+		const agentDir = path.join(cwd, ".crew", "agents");
 		fs.mkdirSync(agentDir, { recursive: true });
 		fs.writeFileSync(path.join(agentDir, "mem.md"), "---\nname: mem\ndescription: mem\nmemory: project\n---\nPrompt\n", "utf-8");
 		const agent = allAgents(discoverAgents(cwd)).find((item) => item.name === "mem");

@@ -57,7 +57,7 @@ test("adaptive implementation workflow is planner-assessed, not a fixed speciali
 
 test("implementation blocks when planner output has no valid adaptive plan", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-invalid-adaptive-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
@@ -77,7 +77,7 @@ test("implementation blocks when planner output has no valid adaptive plan", asy
 
 test("implementation blocks when completed assess artifact is unreadable", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-missing-adaptive-artifact-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const team = allTeams(discoverTeams(cwd)).find((item) => item.name === "implementation")!;
 		const workflow = allWorkflows(discoverWorkflows(cwd)).find((item) => item.name === "implementation")!;
@@ -93,7 +93,7 @@ test("implementation blocks when completed assess artifact is unreadable", async
 
 test("adaptive workflow steps reconstruct from persisted tasks on resume", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-adaptive-resume-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";

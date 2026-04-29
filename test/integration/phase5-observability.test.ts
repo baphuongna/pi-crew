@@ -37,7 +37,7 @@ test("observability API supports event cursors, agent output tail, and dashboard
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-phase5-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "phase5 observability" }, { cwd });
 		assert.equal(run.isError, false);
 		const runId = run.details.runId!;
@@ -51,7 +51,7 @@ test("observability API supports event cursors, agent output tail, and dashboard
 		const agents = JSON.parse(firstText(agentsResult));
 		const first = agents[0];
 
-		const agentCursor = readCrewAgentEventsCursor(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "teams", "state", "runs", runId, "manifest.json"), "utf-8")), first.taskId, { sinceSeq: 0, limit: 1 });
+		const agentCursor = readCrewAgentEventsCursor(JSON.parse(fs.readFileSync(path.join(cwd, ".crew", "state", "runs", runId, "manifest.json"), "utf-8")), first.taskId, { sinceSeq: 0, limit: 1 });
 		assert.equal(agentCursor.events.length, 1);
 
 		const agentEvents = await handleTeamTool({ action: "api", runId, config: { operation: "read-agent-events", agentId: first.taskId, sinceSeq: 0, limit: 1 } }, { cwd });

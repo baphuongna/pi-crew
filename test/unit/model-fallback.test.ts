@@ -39,7 +39,7 @@ test("buildConfiguredModelCandidates only uses configured Pi models before paren
 	);
 });
 
-// Mỗi model worker phải có fallback từ danh sách model Pi đã cấu hình, không fallback sang builtin không khả dụng.
+// Má»—i model worker pháº£i cÃ³ fallback tá»« danh sÃ¡ch model Pi Ä‘Ã£ cáº¥u hÃ¬nh, khÃ´ng fallback sang builtin khÃ´ng kháº£ dá»¥ng.
 test("buildConfiguredModelCandidates appends remaining configured Pi models as fallbacks", () => {
 	const modelRegistry = {
 		getAvailable: () => [

@@ -50,9 +50,10 @@ Optional routing metadata fields:
 Location:
 
 ```text
-teams/{name}.team.md
-~/.pi/agent/teams/{name}.team.md
-.pi/teams/{name}.team.md
+teams/{name}.team.md                            # builtin (in this package)
+~/.pi/agent/teams/{name}.team.md                # user-global (shared with pi-mono)
+.crew/teams/{name}.team.md                      # project (new layout)
+.pi/teams/teams/{name}.team.md                  # project (legacy layout when .pi/ exists)
 ```
 
 Format:

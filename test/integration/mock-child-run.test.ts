@@ -8,7 +8,7 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 test("executeWorkers can use mocked child Pi and record model attempts", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-mock-child-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
@@ -21,7 +21,7 @@ test("executeWorkers can use mocked child Pi and record model attempts", async (
 		const loaded = loadRunManifestById(cwd, runId!);
 		assert.equal(loaded?.manifest.status, "completed");
 		assert.ok(loaded?.tasks.every((task) => task.modelAttempts && task.modelAttempts.length >= 1));
-		assert.ok(fs.existsSync(path.join(cwd, ".pi", "teams", "artifacts", runId!, "logs", "01_explore.log")));
+		assert.ok(fs.existsSync(path.join(cwd, ".crew", "artifacts", runId!, "logs", "01_explore.log")));
 	} finally {
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
 		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;

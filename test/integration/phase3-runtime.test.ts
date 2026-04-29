@@ -78,7 +78,7 @@ test("child Pi runtime ignores observer callback failures", async () => {
 test("dependency output context injects prior task output and shared reads", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-output-context-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest, tasks } = createRunManifest({ cwd, team, workflow, goal: "phase3" });
 		const resultArtifact = writeArtifact(manifest.artifactsRoot, { kind: "result", relativePath: "results/01_explore.md", producer: "01_explore", content: "Exploration output" });
 		fs.mkdirSync(path.join(manifest.artifactsRoot, "shared"), { recursive: true });
@@ -97,7 +97,7 @@ test("dependency output context injects prior task output and shared reads", () 
 test("crew agent records mirror task agents", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-records-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest } = createRunManifest({ cwd, team, workflow, goal: "phase3" });
 		assert.deepEqual(readCrewAgents(manifest), []);
 	} finally {

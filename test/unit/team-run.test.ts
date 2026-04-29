@@ -8,14 +8,14 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("team run creates durable artifacts and status", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "default", goal: "Test durable run" }, { cwd });
 		assert.equal(run.isError, false);
 		const runId = run.details.runId;
 		assert.ok(runId);
-		const stateRoot = path.join(cwd, ".pi", "teams", "state", "runs", runId!);
-		const artifactsRoot = path.join(cwd, ".pi", "teams", "artifacts", runId!);
+		const stateRoot = path.join(cwd, ".crew", "state", "runs", runId!);
+		const artifactsRoot = path.join(cwd, ".crew", "artifacts", runId!);
 		assert.ok(fs.existsSync(path.join(stateRoot, "manifest.json")));
 		assert.ok(fs.existsSync(path.join(stateRoot, "tasks.json")));
 		assert.ok(fs.existsSync(path.join(stateRoot, "events.jsonl")));

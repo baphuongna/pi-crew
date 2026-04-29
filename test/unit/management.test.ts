@@ -7,7 +7,7 @@ import { handleTeamTool } from "../../src/extension/team-tool.ts";
 
 test("management create/update/delete project team with backups", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-mgmt-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const create = await handleTeamTool({
 			action: "create",
@@ -21,7 +21,7 @@ test("management create/update/delete project team with backups", async () => {
 			},
 		}, { cwd });
 		assert.equal(create.isError, false);
-		const filePath = path.join(cwd, ".pi", "teams", "temp-team.team.md");
+		const filePath = path.join(cwd, ".crew", "teams", "temp-team.team.md");
 		assert.ok(fs.existsSync(filePath));
 
 		const update = await handleTeamTool({

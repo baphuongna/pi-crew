@@ -11,7 +11,7 @@ import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../s
 test("crew widget renders installed-style run and agent summary lines", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-widget-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "widget smoke" }, { cwd });
 		assert.equal(run.isError, false);
 		const loaded = loadRunManifestById(cwd, run.details.runId!)!;
@@ -37,7 +37,7 @@ test("crew widget hides when only orphaned or fixture-only active runs exist", (
 	const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-widget-home-"));
 	process.env.PI_TEAMS_HOME = tempHome;
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const team = { name: "fast-fix", description: "", roles: [{ name: "explorer", agent: "explorer" }], source: "test", filePath: "builtin" } as never;
 		const workflow = { name: "fast-fix", description: "", steps: [{ id: "explore", role: "explorer" }], source: "test", filePath: "builtin" } as never;
 		const created = createRunManifest({ cwd, team, workflow, goal: "orphan" });
@@ -61,7 +61,7 @@ test("crew widget hides when only orphaned or fixture-only active runs exist", (
 test("crew widget hides active async runs whose background process is stale", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-widget-stale-async-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const team = { name: "parallel-research", description: "", roles: [{ name: "explorer", agent: "explorer" }], source: "test", filePath: "builtin" } as never;
 		const workflow = { name: "parallel-research", description: "", steps: [{ id: "discover", role: "explorer" }], source: "test", filePath: "builtin" } as never;
 		const created = createRunManifest({ cwd, team, workflow, goal: "stale async" });

@@ -6,7 +6,7 @@ import { atomicWriteJson, atomicWriteJsonAsync, readJsonFile } from "./atomic-wr
 import { appendEvent } from "./event-log.ts";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
 import { createRunId, createTaskId } from "../utils/ids.ts";
-import { findRepoRoot, projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 
@@ -48,18 +48,17 @@ function invalidateRunCache(stateRoot: string): void {
 	manifestCache.delete(stateRoot);
 }
 
+function scopeBaseRoot(cwd: string): string {
+	return useProjectState(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
+}
+
 function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
-	const projectPath = path.join(projectPiRoot(cwd), DEFAULT_PATHS.state.projectBase, DEFAULT_PATHS.state.runsSubdir, runId);
-	const userPath = path.join(userPiRoot(), "extensions", "pi-crew", DEFAULT_PATHS.state.userBase, DEFAULT_PATHS.state.runsSubdir, runId);
-	if (fs.existsSync(projectPath)) return projectPath;
-	if (fs.existsSync(userPath)) return userPath;
-	return undefined;
+	const scopedPath = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir, runId);
+	return fs.existsSync(scopedPath) ? scopedPath : undefined;
 }
 
 export function createRunPaths(cwd: string, runId = createRunId()): RunPaths {
-	const baseRoot = useProjectState(cwd)
-		? path.join(projectPiRoot(cwd), DEFAULT_PATHS.state.projectBase)
-		: path.join(userPiRoot(), "extensions", "pi-crew", DEFAULT_PATHS.state.userBase);
+	const baseRoot = scopeBaseRoot(cwd);
 	const stateRoot = path.join(baseRoot, DEFAULT_PATHS.state.runsSubdir, runId);
 	const artifactsRoot = path.join(baseRoot, DEFAULT_PATHS.state.artifactsSubdir, runId);
 	return {

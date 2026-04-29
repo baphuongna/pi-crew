@@ -8,7 +8,7 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 test("cancel marks run cancelled and resume can complete it", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-resume-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Resume me" }, { cwd });
 		const runId = run.details.runId;

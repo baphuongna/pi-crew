@@ -11,7 +11,7 @@ import type { TeamTaskState } from "../../src/state/types.ts";
 test("powerbar publisher registers and updates active crew segments", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const events: Array<{ event: string; data: unknown }> = [];
 		const bus = { emit: (event: string, data: unknown) => events.push({ event, data }) };
 		registerPiCrewPowerbarSegments(bus);
@@ -37,7 +37,7 @@ function payloadRecord(value: unknown): Record<string, unknown> {
 test("powerbar progress uses task totals and respects model/token visibility", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-tasks-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const events: Array<{ event: string; data: unknown }> = [];
 		const bus = { emit: (event: string, data: unknown) => events.push({ event, data }) };
 		const team = { name: "powerbar-team", description: "", roles: [{ name: "worker", agent: "worker" }], source: "test", filePath: "builtin" } as never;

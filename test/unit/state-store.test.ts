@@ -26,7 +26,7 @@ const workflow: WorkflowConfig = {
 
 test("createRunManifest writes manifest and tasks", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
 		assert.ok(fs.existsSync(created.paths.manifestPath));
@@ -42,7 +42,7 @@ test("createRunManifest writes manifest and tasks", () => {
 
 test("loadRunManifestById cache invalidates after task save", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-cache-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "cache" });
 		const loaded1 = loadRunManifestById(cwd, created.manifest.runId);
@@ -58,7 +58,7 @@ test("loadRunManifestById cache invalidates after task save", () => {
 
 test("async save helpers persist run manifest and tasks", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-async-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "async" });
 		const loaded = loadRunManifestById(cwd, created.manifest.runId);
@@ -77,12 +77,12 @@ test("async save helpers persist run manifest and tasks", async () => {
 test("createRunManifest resolves project root from parent .git directory", () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-gitroot-"));
 	const subDir = path.join(root, "services", "api");
-	const workspace = path.join(root, ".pi");
+	const workspace = path.join(root, ".crew");
 	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
 	fs.mkdirSync(subDir, { recursive: true });
 	try {
 		const created = createRunManifest({ cwd: subDir, team, workflow, goal: "subfolder run" });
-		assert.equal(created.paths.stateRoot, path.join(workspace, "teams", "state", "runs", created.manifest.runId));
+		assert.equal(created.paths.stateRoot, path.join(workspace, "state", "runs", created.manifest.runId));
 		const loaded = loadRunManifestById(subDir, created.manifest.runId);
 		assert.equal(loaded?.manifest.goal, "subfolder run");
 		const manifestPath = path.join(created.paths.stateRoot, "manifest.json");
@@ -94,7 +94,7 @@ test("createRunManifest resolves project root from parent .git directory", () =>
 
 test("manifest cache is LRU bounded", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-cache-bounds-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousMax = DEFAULT_CACHE.manifestMaxEntries;
 	try {
 		DEFAULT_CACHE.manifestMaxEntries = 2;

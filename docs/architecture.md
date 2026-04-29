@@ -12,12 +12,14 @@ Runtime layer
   team runner, task graph scheduler, child Pi process runner, async runner,
   model fallback, policy engine, worktree manager, live-session experimental path
 
-State layer
-  .pi/teams/state/runs/{runId}/manifest.json
-  .pi/teams/state/runs/{runId}/tasks.json
-  .pi/teams/state/runs/{runId}/events.jsonl
-  .pi/teams/state/runs/{runId}/agents/{taskId}/status.json
-  .pi/teams/artifacts/{runId}/...
+State layer (project root resolves to <crewRoot>:
+  - .crew/             when no .pi/ exists in the repo (default)
+  - .pi/teams/         when the repo already has .pi/ (legacy reuse))
+  <crewRoot>/state/runs/{runId}/manifest.json
+  <crewRoot>/state/runs/{runId}/tasks.json
+  <crewRoot>/state/runs/{runId}/events.jsonl
+  <crewRoot>/state/runs/{runId}/agents/{taskId}/status.json
+  <crewRoot>/artifacts/{runId}/...
 ```
 
 ## Run flow
@@ -104,10 +106,10 @@ Model choice is based on Pi's current configuration/model registry, not hardcode
 
 ## State layer
 
-Run state is under:
+Run state is under `<crewRoot>` (`.crew/` for new projects, or `.pi/teams/` when the repo already has `.pi/`):
 
 ```text
-.pi/teams/state/runs/{runId}/
+<crewRoot>/state/runs/{runId}/
   manifest.json        run metadata/status/artifacts/async pid
   tasks.json           task graph and per-task status
   events.jsonl         append-only run events
@@ -125,7 +127,7 @@ Run state is under:
 Artifacts are under:
 
 ```text
-.pi/teams/artifacts/{runId}/
+<crewRoot>/artifacts/{runId}/
   goal.md
   prompts/{taskId}.md
   results/{taskId}.txt
@@ -135,6 +137,13 @@ Artifacts are under:
   progress.md
   summary.md
 ```
+
+`<crewRoot>` resolution is centralised in `src/utils/paths.ts#projectCrewRoot()`:
+
+- if `<repoRoot>/.pi/` already exists, return `<repoRoot>/.pi/teams/` (legacy reuse, no parallel `.crew/`)
+- otherwise return `<repoRoot>/.crew/` (default for fresh projects)
+
+User-global fallback (when no project root is detected) lives under `~/.pi/agent/extensions/pi-crew/`.
 
 Atomic writes use temp-file replace with retry for transient Windows `EPERM`/`EBUSY`/`EACCES`. JSONL append paths are best-effort where used for observers/progress; write failures must not crash child output parsing.
 

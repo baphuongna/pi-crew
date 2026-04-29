@@ -31,7 +31,7 @@ function wait(ms: number): Promise<void> {
 
 test("async notifier suppresses pre-existing active runs that later become failed", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-existing-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const notifications: Array<{ text: string; level?: string }> = [];
 	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
 	try {
@@ -49,7 +49,7 @@ test("async notifier suppresses pre-existing active runs that later become faile
 
 test("async notifier marks quiet dead background runner as failed", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-dead-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "dead async" });
 		const oldTime = new Date(Date.now() - 60_000).toISOString();
@@ -67,7 +67,7 @@ test("async notifier marks quiet dead background runner as failed", () => {
 
 test("async notifier still reports runs created after notifier start", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-new-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const notifications: Array<{ text: string; level?: string }> = [];
 	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
 	try {

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ResourceSource } from "../agents/agent-config.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
-import { packageRoot, projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
 import type { WorkflowConfig, WorkflowStep } from "./workflow-config.ts";
 
 export interface WorkflowDiscoveryResult {
@@ -96,7 +96,7 @@ export function discoverWorkflows(cwd: string): WorkflowDiscoveryResult {
 	return {
 		builtin: readWorkflowDir(path.join(packageRoot(), "workflows"), "builtin"),
 		user: readWorkflowDir(path.join(userPiRoot(), "workflows"), "user"),
-		project: readWorkflowDir(path.join(projectPiRoot(cwd), "workflows"), "project"),
+		project: readWorkflowDir(path.join(projectCrewRoot(cwd), "workflows"), "project"),
 	};
 }
 

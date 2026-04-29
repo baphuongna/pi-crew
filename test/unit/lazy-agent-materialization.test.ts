@@ -20,7 +20,7 @@ test("queued dependency tasks are shown as waiting tasks, not materialized agent
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lazy-agents-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		let scheduled: ((signal?: AbortSignal) => Promise<void>) | undefined;
 		const run = await handleTeamTool({ action: "run", team: "research", goal: "lazy agent materialization" }, { cwd, startForegroundRun: (runner) => { scheduled = runner; } });
 		assert.equal(run.isError, false);

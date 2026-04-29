@@ -7,14 +7,14 @@ import { handleTeamTool } from "../../src/extension/team-tool.ts";
 
 test("export action writes JSON and markdown run bundles", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-export-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Export me" }, { cwd });
 		const runId = run.details.runId;
 		assert.ok(runId);
 		const exported = await handleTeamTool({ action: "export", runId }, { cwd });
 		assert.equal(exported.isError, false);
-		const exportRoot = path.join(cwd, ".pi", "teams", "artifacts", runId!, "export");
+		const exportRoot = path.join(cwd, ".crew", "artifacts", runId!, "export");
 		const jsonPath = path.join(exportRoot, "run-export.json");
 		const mdPath = path.join(exportRoot, "run-export.md");
 		assert.ok(fs.existsSync(jsonPath));

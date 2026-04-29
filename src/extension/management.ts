@@ -12,7 +12,7 @@ import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { serializeWorkflow } from "../workflows/workflow-serializer.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
-import { projectPiRoot, userPiRoot } from "../utils/paths.ts";
+import { projectCrewRoot, userPiRoot } from "../utils/paths.ts";
 import { hasOwn, parseConfigObject, requireString, sanitizeName } from "../utils/names.ts";
 
 interface ManagementContext {
@@ -28,7 +28,7 @@ function result(text: string, status: TeamToolDetails["status"] = "ok", isError 
 }
 
 function scopeDir(ctx: ManagementContext, resource: "agent" | "team" | "workflow", scope: MutableSource): string {
-	const base = scope === "user" ? userPiRoot() : projectPiRoot(ctx.cwd);
+	const base = scope === "user" ? userPiRoot() : projectCrewRoot(ctx.cwd);
 	if (resource === "agent") return path.join(base, "agents");
 	if (resource === "team") return path.join(base, "teams");
 	return path.join(base, "workflows");

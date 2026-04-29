@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { packageRoot } from "../utils/paths.ts";
+import { packageRoot, projectCrewRoot } from "../utils/paths.ts";
 
 export interface ProjectInitOptions {
 	copyBuiltins?: boolean;
@@ -44,14 +44,16 @@ export function initializeProject(cwd: string, options: ProjectInitOptions = {})
 	const createdDirs: string[] = [];
 	const copiedFiles: string[] = [];
 	const skippedFiles: string[] = [];
-	const piRoot = path.join(cwd, ".pi");
-	const agentsDir = path.join(piRoot, "agents");
-	const teamsDir = path.join(piRoot, "teams");
-	const workflowsDir = path.join(piRoot, "workflows");
+	const crewRoot = projectCrewRoot(cwd);
+	const usingLegacyPi = path.basename(crewRoot) === "teams" && path.basename(path.dirname(crewRoot)) === ".pi";
+	const ignorePrefix = usingLegacyPi ? ".pi/teams" : ".crew";
+	const agentsDir = path.join(crewRoot, "agents");
+	const teamsDir = path.join(crewRoot, "teams");
+	const workflowsDir = path.join(crewRoot, "workflows");
 	ensureDir(agentsDir, createdDirs);
 	ensureDir(teamsDir, createdDirs);
 	ensureDir(workflowsDir, createdDirs);
-	ensureDir(path.join(piRoot, "teams", "imports"), createdDirs);
+	ensureDir(path.join(crewRoot, "imports"), createdDirs);
 
 	if (options.copyBuiltins) {
 		copyBuiltinDir("agents", agentsDir, options.overwrite === true, copiedFiles, skippedFiles);
@@ -60,7 +62,7 @@ export function initializeProject(cwd: string, options: ProjectInitOptions = {})
 	}
 
 	const gitignorePath = path.join(cwd, ".gitignore");
-	const desired = [".pi/teams/state/", ".pi/teams/artifacts/", ".pi/teams/worktrees/", ".pi/teams/imports/"];
+	const desired = [`${ignorePrefix}/state/`, `${ignorePrefix}/artifacts/`, `${ignorePrefix}/worktrees/`, `${ignorePrefix}/imports/`];
 	const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf-8") : "";
 	const missing = desired.filter((entry) => !existing.split(/\r?\n/).includes(entry));
 	let gitignoreUpdated = false;

@@ -64,7 +64,7 @@ test("conflict-safe crew_agent aliases still register when generic Agent name is
 
 test("registered Agent tool can run a background subagent and join its result", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-tool-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
@@ -110,7 +110,7 @@ test("registered Agent tool can run a background subagent and join its result", 
 
 test("get_subagent_result after restart fails fast for unrecoverable running record without run id", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-unrecoverable-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	let fake: ReturnType<typeof createFakePi> | undefined;
 	try {
 		const agentId = "agent_unrecoverable_1";

@@ -38,10 +38,11 @@ export const DEFAULT_ARTIFACT_CLEANUP = {
 
 export const DEFAULT_PATHS = {
 	state: {
-		projectBase: "teams",
-		userBase: "runs",
 		runsSubdir: "state/runs",
 		artifactsSubdir: "artifacts",
+		subagentsSubdir: "state/subagents",
+		importsSubdir: "imports",
+		worktreesSubdir: "worktrees",
 		manifestFile: "manifest.json",
 		tasksFile: "tasks.json",
 		eventsFile: "events.jsonl",

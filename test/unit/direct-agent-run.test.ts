@@ -15,7 +15,7 @@ function restoreEnv(name: string, previous: string | undefined): void {
 
 test("direct agent run creates a single task for requested agent", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-direct-agent-test-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
@@ -40,7 +40,7 @@ test("direct agent run creates a single task for requested agent", async () => {
 
 test("direct agent run persists model override for reconstruction", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-direct-agent-model-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
@@ -60,7 +60,7 @@ test("direct agent run persists model override for reconstruction", async () => 
 
 test("direct reconstruction does not hijack custom direct-prefixed teams", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-direct-prefix-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const reconstructed = directTeamAndWorkflowFromRun({
 			schemaVersion: 1,
@@ -73,8 +73,8 @@ test("direct reconstruction does not hijack custom direct-prefixed teams", () =>
 			createdAt: new Date().toISOString(),
 			updatedAt: new Date().toISOString(),
 			cwd,
-			stateRoot: path.join(cwd, ".pi", "teams", "state", "runs", "team_test"),
-			artifactsRoot: path.join(cwd, ".pi", "teams", "artifacts", "team_test"),
+			stateRoot: path.join(cwd, ".crew", "state", "runs", "team_test"),
+			artifactsRoot: path.join(cwd, ".crew", "artifacts", "team_test"),
 			tasksPath: "tasks.json",
 			eventsPath: "events.jsonl",
 			artifacts: [],
@@ -87,7 +87,7 @@ test("direct reconstruction does not hijack custom direct-prefixed teams", () =>
 
 test("direct agent runs can resume from generated team/workflow metadata", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-direct-agent-resume-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";

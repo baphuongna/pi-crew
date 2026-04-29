@@ -5,7 +5,8 @@ import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import { loadConfig } from "../../config/config.ts";
-import { projectPiRoot, userPiRoot } from "../../utils/paths.ts";
+import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
+import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { getPiSpawnCommand } from "../../runtime/pi-spawn.ts";
 import { validateResources } from "../validate-resources.ts";
@@ -103,13 +104,13 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 			];
 		}),
 		section("Filesystem", () => {
-			const userWritable = checkWritableDir(path.join(userPiRoot(), "extensions", "pi-crew"));
-			const projectWritable = checkWritableDir(path.join(projectPiRoot(input.cwd), "teams"));
+			const userWritable = checkWritableDir(userCrewRoot());
+			const projectWritable = checkWritableDir(projectCrewRoot(input.cwd));
 			return [
 				{ label: "user state", ok: userWritable.ok, detail: userWritable.detail },
 				{ label: "project state", ok: projectWritable.ok, detail: projectWritable.detail },
-				{ label: "project state root", ok: true, detail: path.join(projectPiRoot(input.cwd), "teams") },
-				{ label: "artifacts root", ok: true, detail: path.join(projectPiRoot(input.cwd), "artifacts") },
+				{ label: "project state root", ok: true, detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.runsSubdir) },
+				{ label: "artifacts root", ok: true, detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir) },
 			];
 		}),
 		section("Discovery", () => {

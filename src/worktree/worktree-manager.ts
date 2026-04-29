@@ -2,6 +2,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig } from "../config/config.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 
 export interface PreparedTaskWorkspace {
@@ -85,7 +87,7 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 	const repoRoot = findGitRoot(manifest.cwd);
 	const loadedConfig = loadConfig(manifest.cwd);
 	if (loadedConfig.config.requireCleanWorktreeLeader !== false) assertCleanLeader(repoRoot);
-	const worktreeRoot = path.join(repoRoot, ".pi", "teams", "worktrees", manifest.runId);
+	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, manifest.runId);
 	fs.mkdirSync(worktreeRoot, { recursive: true });
 	const worktreePath = path.join(worktreeRoot, task.id);
 	const branch = `pi-crew/${sanitizeBranchPart(manifest.runId)}/${sanitizeBranchPart(task.id)}`;

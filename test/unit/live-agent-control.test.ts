@@ -11,7 +11,7 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 test("agent control queues durable live-agent request when agent is in another process", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-control-"));
 	try {
-		fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "control bridge smoke" }, { cwd });
 		assert.equal(run.isError, false);
 		const runId = run.details.runId!;

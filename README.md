@@ -132,8 +132,11 @@ User config path:
 Project config path:
 
 ```text
-.pi/teams/config.json
+.crew/config.json            # default (new projects)
+.pi/teams/config.json        # legacy (when the repo already has .pi/)
 ```
+
+The project root is auto-detected by walking up from the current directory and stopping at any of: `.git`, `.pi`, `.crew`, `.hg`, `.svn`, `.factory`, `.omc`, or any common manifest file (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `composer.json`, `build.gradle[.kts]`). If the project already has a `.pi/` directory, pi-crew reuses it under `.pi/teams/` to avoid creating a parallel layout; otherwise it uses `.crew/`.
 
 Config merge priority:
 
@@ -454,12 +457,20 @@ User resources:
 ~/.pi/agent/workflows/*.workflow.md
 ```
 
-Project resources:
+Project resources (new default layout):
 
 ```text
-.pi/agents/*.md
-.pi/teams/*.team.md
-.pi/workflows/*.workflow.md
+.crew/agents/*.md
+.crew/teams/*.team.md
+.crew/workflows/*.workflow.md
+```
+
+Legacy layout (when `.pi/` already exists in the repo):
+
+```text
+.pi/teams/agents/*.md
+.pi/teams/teams/*.team.md
+.pi/teams/workflows/*.workflow.md
 ```
 
 Discovery priority:
@@ -525,33 +536,41 @@ review
 
 ## State layout
 
-Project-local state is preferred when the cwd has `.git` or `.pi`; otherwise user-global state is used.
+Project-local state is preferred when the cwd is inside a recognised project (any of the markers listed in the Config section above). Otherwise pi-crew falls back to user-global state.
 
-Typical project-local state:
+The project state root (`<crewRoot>` below) resolves to:
 
 ```text
-.pi/teams/state/runs/{runId}/manifest.json
-.pi/teams/state/runs/{runId}/tasks.json
-.pi/teams/state/runs/{runId}/events.jsonl
-.pi/teams/artifacts/{runId}/...
-.pi/teams/worktrees/{runId}/{taskId}
-.pi/teams/imports/{runId}/run-export.json
+<repoRoot>/.crew/             # default, used for new projects
+<repoRoot>/.pi/teams/         # legacy reuse when .pi/ already exists
+```
+
+Typical project-local state (`<crewRoot>` is one of the two paths above):
+
+```text
+<crewRoot>/state/runs/{runId}/manifest.json
+<crewRoot>/state/runs/{runId}/tasks.json
+<crewRoot>/state/runs/{runId}/events.jsonl
+<crewRoot>/artifacts/{runId}/...
+<crewRoot>/worktrees/{runId}/{taskId}
+<crewRoot>/imports/{runId}/run-export.json
 ```
 
 Mailbox state:
 
 ```text
-.pi/teams/state/runs/{runId}/mailbox/inbox.jsonl
-.pi/teams/state/runs/{runId}/mailbox/outbox.jsonl
-.pi/teams/state/runs/{runId}/mailbox/delivery.json
-.pi/teams/state/runs/{runId}/mailbox/tasks/{taskId}/inbox.jsonl
-.pi/teams/state/runs/{runId}/mailbox/tasks/{taskId}/outbox.jsonl
+<crewRoot>/state/runs/{runId}/mailbox/inbox.jsonl
+<crewRoot>/state/runs/{runId}/mailbox/outbox.jsonl
+<crewRoot>/state/runs/{runId}/mailbox/delivery.json
+<crewRoot>/state/runs/{runId}/mailbox/tasks/{taskId}/inbox.jsonl
+<crewRoot>/state/runs/{runId}/mailbox/tasks/{taskId}/outbox.jsonl
 ```
 
-User-global fallback:
+User-global fallback (shared with other Pi tools):
 
 ```text
-~/.pi/agent/extensions/pi-crew/runs/...
+~/.pi/agent/extensions/pi-crew/state/runs/...
+~/.pi/agent/extensions/pi-crew/artifacts/...
 ~/.pi/agent/extensions/pi-crew/imports/...
 ```
 
@@ -570,18 +589,34 @@ Optionally copy builtin resources:
 /team-init --copy-builtins --overwrite
 ```
 
-Created directories:
+Created directories (new projects):
 
 ```text
-.pi/agents/
-.pi/teams/
-.pi/workflows/
+.crew/agents/
+.crew/teams/
+.crew/workflows/
+.crew/imports/
+```
+
+If the project already has `.pi/`, the legacy layout is initialised instead:
+
+```text
+.pi/teams/agents/
+.pi/teams/teams/
+.pi/teams/workflows/
 .pi/teams/imports/
 ```
 
-`.gitignore` entries:
+`.gitignore` entries are written for whichever layout is active, e.g.:
 
 ```text
+# new layout
+.crew/state/
+.crew/artifacts/
+.crew/worktrees/
+.crew/imports/
+
+# legacy layout
 .pi/teams/state/
 .pi/teams/artifacts/
 .pi/teams/worktrees/
@@ -597,14 +632,26 @@ Export writes:
 {artifactsRoot}/export/run-export.md
 ```
 
-Import stores bundles under:
+Import stores bundles under (new layout):
+
+```text
+.crew/imports/{runId}/run-export.json
+.crew/imports/{runId}/README.md
+```
+
+or under the legacy layout when `.pi/` already exists:
 
 ```text
 .pi/teams/imports/{runId}/run-export.json
 .pi/teams/imports/{runId}/README.md
 ```
 
-or user-global imports with `--user`.
+or user-global imports with `--user`:
+
+```text
+~/.pi/agent/extensions/pi-crew/imports/{runId}/run-export.json
+~/.pi/agent/extensions/pi-crew/imports/{runId}/README.md
+```
 
 ## Doctor and validation
 

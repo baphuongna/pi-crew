@@ -29,7 +29,7 @@ test("implementation workflow delegates fanout decisions to an adaptive planner"
 
 test("implementation run injects planner-selected multi-agent ready batches", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-implementation-fanout-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";

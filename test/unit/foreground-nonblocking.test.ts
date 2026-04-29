@@ -8,7 +8,7 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("foreground child-process run returns immediately when scheduler is available", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-foreground-nonblocking-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	let scheduled = false;
 	try {
 		const result = await handleTeamTool({ action: "run", team: "implementation", goal: "large foreground run" }, {

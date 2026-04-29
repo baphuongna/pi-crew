@@ -9,7 +9,7 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("api supports claim, transition, and release task claim", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-api-claim-"));
-	fs.mkdirSync(path.join(cwd, ".pi"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "claim api" }, { cwd });
 		const runId = run.details.runId;

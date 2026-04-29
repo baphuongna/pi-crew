@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { PiTeamsAutonomyProfileSchema, PiTeamsConfigSchema } from "../schema/config-schema.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
 
 export type PiTeamsAutonomyProfile = "manual" | "suggested" | "assisted" | "aggressive";
 
@@ -124,7 +125,7 @@ export function configPath(): string {
 }
 
 export function projectConfigPath(cwd: string): string {
-	return path.join(cwd, ".pi", "teams", "config.json");
+	return path.join(projectCrewRoot(cwd), "config.json");
 }
 
 function withoutUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
