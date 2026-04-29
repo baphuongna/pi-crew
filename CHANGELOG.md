@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.31
+
+### Fixed
+
+- Added required Agent Skills frontmatter (`name` and `description`) to built-in coding skills so Pi loads them without conflicts.
+- Tightened built-in skill package coverage to require standards-compliant frontmatter.
+
+## 0.1.30
+
 ### Added
 
 - Added Phase 6 async hardening: jiti loader resolution/fail-fast, async startup marker files, and early background-runner exit detection.
