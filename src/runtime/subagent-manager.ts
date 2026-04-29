@@ -36,6 +36,10 @@ export interface SubagentRecord {
 	stuckNotified?: boolean;
 	blockedAt?: number;
 	promise?: Promise<void>;
+	// Phase 1.6: Telemetry baseline fields
+	turnCount?: number;
+	terminated?: boolean;
+	durationMs?: number;
 }
 
 type SpawnRunner = (options: SubagentSpawnOptions, signal?: AbortSignal) => Promise<PiTeamsToolResult>;
@@ -84,6 +88,22 @@ function resultText(result: PiTeamsToolResult): string {
 function detailsRunId(result: PiTeamsToolResult): string | undefined {
 	const details = result.details as { runId?: unknown } | undefined;
 	return typeof details?.runId === "string" ? details.runId : undefined;
+}
+
+function totalRunTurns(cwd: string, runId: string | undefined): number | undefined {
+	if (!runId) return undefined;
+	const loaded = loadRunManifestById(cwd, runId);
+	if (!loaded) return undefined;
+	let total = 0;
+	let hasTurns = false;
+	for (const task of loaded.tasks) {
+		const turns = task.usage?.turns ?? task.agentProgress?.turns;
+		if (typeof turns === "number" && Number.isFinite(turns)) {
+			total += turns;
+			hasTurns = true;
+		}
+	}
+	return hasTurns ? total : undefined;
 }
 
 export class SubagentManager {
@@ -215,6 +235,10 @@ export class SubagentManager {
 				record.completedAt = record.completedAt ?? Date.now();
 				savePersistedSubagentRecord(options.cwd, record);
 				if (record.status === "completed" || record.status === "failed" || record.status === "cancelled" || record.status === "error" || record.status === "stopped") {
+					// Phase 1.6: Populate telemetry fields
+					record.turnCount = record.turnCount ?? totalRunTurns(options.cwd, record.runId);
+					record.durationMs = record.completedAt ? Math.max(0, record.completedAt - record.startedAt) : undefined;
+					savePersistedSubagentRecord(options.cwd, record);
 					this.onComplete?.(record);
 				}
 				this.drainQueue();
@@ -240,6 +264,7 @@ export class SubagentManager {
 			if (loaded.manifest.status === "completed") {
 				record.status = "completed";
 				record.error = undefined;
+				record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
 				record.completedAt = Date.now();
 				savePersistedSubagentRecord(cwd, record);
 				return;
@@ -247,6 +272,7 @@ export class SubagentManager {
 			if (loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled") {
 				record.status = loaded.manifest.status;
 				record.error = loaded.manifest.summary;
+				record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
 				record.completedAt = Date.now();
 				savePersistedSubagentRecord(cwd, record);
 				return;

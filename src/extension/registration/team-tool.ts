@@ -28,7 +28,24 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			const abort = (): void => controller.abort();
 			signal?.addEventListener("abort", abort, { once: true });
 			try {
-				const output = await handleTeamTool(params as TeamToolParamsValue, { ...ctx, signal: controller.signal, startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId) });
+				const resolved = params as TeamToolParamsValue;
+				// Phase 1.5: Auto-set session name from team run context
+				if (resolved.action === "run" && resolved.goal && !pi.getSessionName()) {
+					const runLabel = resolved.team ?? resolved.agent ?? "direct";
+					pi.setSessionName(`pi-crew: ${runLabel}/${resolved.workflow ?? "default"} — ${resolved.goal.slice(0, 60)}`);
+				}
+				const output = await handleTeamTool(resolved, { ...ctx, signal: controller.signal, startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId) });
+				if (resolved.action === "run") {
+					pi.appendEntry("crew:run-started", {
+						runId: output.details?.runId,
+						team: resolved.team,
+						workflow: resolved.workflow,
+						agent: resolved.agent,
+						goal: resolved.goal,
+						status: output.details?.status,
+						timestamp: Date.now(),
+					});
+				}
 				const config = loadConfig(ctx.cwd).config.ui;
 				const cache = deps.getManifestCache(ctx.cwd);
 				updateCrewWidget(ctx, deps.widgetState, config, cache);

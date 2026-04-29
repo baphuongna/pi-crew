@@ -81,6 +81,16 @@ export interface CrewAgentsConfig {
 	overrides?: Record<string, AgentOverrideConfig>;
 }
 
+export interface CrewToolsConfig {
+	enableClaudeStyleAliases?: boolean;
+	enableSteer?: boolean;
+	terminateOnForeground?: boolean;
+}
+
+export interface CrewTelemetryConfig {
+	enabled?: boolean;
+}
+
 export interface PiTeamsConfig {
 	asyncByDefault?: boolean;
 	executeWorkers?: boolean;
@@ -92,6 +102,8 @@ export interface PiTeamsConfig {
 	control?: CrewControlConfig;
 	worktree?: CrewWorktreeConfig;
 	agents?: CrewAgentsConfig;
+	tools?: CrewToolsConfig;
+	telemetry?: CrewTelemetryConfig;
 	ui?: CrewUiConfig;
 }
 

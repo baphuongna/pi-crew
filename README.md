@@ -182,6 +182,11 @@ Supported config:
     "showModel": true,
     "showTokens": true,
     "showTools": true
+  },
+  "tools": {
+    "enableClaudeStyleAliases": true,
+    "enableSteer": true,
+    "terminateOnForeground": false
   }
 }
 ```
@@ -189,6 +194,7 @@ Supported config:
 Safety notes:
 
 - Foreground child-process runs continue in the Pi extension process and return control to chat immediately, so large workflows do not block the interactive session. They are interrupted on session shutdown. Use `async: true` only for intentionally detached runs that may survive the current session.
+- `tools.terminateOnForeground` is an opt-in power-user setting. When true, foreground `Agent`/`crew_agent` calls return with `terminate: true` after the child result is available, saving one follow-up LLM turn. Default is false so the assistant can still summarize raw worker output.
 
 UI notes:
 

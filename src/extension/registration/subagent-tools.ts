@@ -4,6 +4,7 @@ import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { handleTeamTool } from "../team-tool.ts";
 import { checkSubagentSpawnPermission, currentCrewRole } from "../../runtime/role-permission.ts";
 import { readPersistedSubagentRecord, savePersistedSubagentRecord, type SubagentManager, type SubagentSpawnOptions } from "../../subagents/manager.ts";
+import { loadConfig } from "../../config/config.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { __test__subagentSpawnParams, formatSubagentRecord, readSubagentRunResult, refreshPersistedSubagentRecord, subagentToolResult } from "./subagent-helpers.ts";
 
@@ -34,10 +35,22 @@ export function registerSubagentTools(pi: ExtensionAPI, subagentManager: Subagen
 			if (!options.prompt.trim()) return subagentToolResult("Agent requires prompt.", {}, true);
 			const runner = async (spawnOptions: SubagentSpawnOptions, childSignal?: AbortSignal) => handleTeamTool({ action: "run", agent: spawnOptions.type, goal: spawnOptions.prompt, model: spawnOptions.model, async: spawnOptions.background, config: spawnOptions.maxTurns ? { runtime: { maxTurns: spawnOptions.maxTurns } } : undefined } as TeamToolParamsValue, spawnOptions.background ? { ...ctx, signal: childSignal } : { ...ctx, signal: childSignal });
 			const record = subagentManager.spawn(options, runner, options.background ? undefined : signal);
-			if (options.background || record.status === "queued") return subagentToolResult([`Agent ${record.status === "queued" ? "queued" : "started"}.`, `Agent ID: ${record.id}`, `Type: ${record.type}`, `Description: ${record.description}`, "Use get_subagent_result to retrieve output. Do not duplicate this agent's work."].join("\n"), { agentId: record.id, status: record.status });
+			if (options.background || record.status === "queued") {
+				// Phase 1.1a: Terminate turn for background queued — no LLM follow-up needed.
+				// Phase 1.6: Record was terminated for telemetry.
+				record.terminated = true;
+				savePersistedSubagentRecord(ctx.cwd, record);
+				return { ...subagentToolResult([`Agent ${record.status === "queued" ? "queued" : "started"}.`, `Agent ID: ${record.id}`, `Type: ${record.type}`, `Description: ${record.description}`, "Use get_subagent_result to retrieve output. Do not duplicate this agent's work."].join("\n"), { agentId: record.id, status: record.status }), terminate: true };
+			}
 			await record.promise;
 			const output = readSubagentRunResult(ctx, record) ?? record.result ?? "No output.";
-			return subagentToolResult([`Agent ${record.id} ${record.status}.`, "", output].join("\n"), { agentId: record.id, runId: record.runId, status: record.status }, record.status === "failed" || record.status === "error");
+			const foregroundResult = subagentToolResult([`Agent ${record.id} ${record.status}.`, "", output].join("\n"), { agentId: record.id, runId: record.runId, status: record.status }, record.status === "failed" || record.status === "error");
+			if (loadConfig(ctx.cwd).config.tools?.terminateOnForeground === true) {
+				record.terminated = true;
+				savePersistedSubagentRecord(ctx.cwd, record);
+				return { ...foregroundResult, terminate: true };
+			}
+			return foregroundResult;
 		},
 	};
 
@@ -99,12 +112,18 @@ export function registerSubagentTools(pi: ExtensionAPI, subagentManager: Subagen
 	const crewAgentTool: ToolDefinition = { ...agentTool, name: "crew_agent", label: "Crew Agent", description: "Launch a real pi-crew subagent using a conflict-safe pi-crew-specific tool name.", promptSnippet: "Use crew_agent when you need pi-crew subagents and another extension may own the generic Agent tool." };
 	const crewAgentResultTool: ToolDefinition = { ...getSubagentResultTool, name: "crew_agent_result", label: "Get Crew Agent Result", description: "Check status and retrieve results from a pi-crew subagent using the conflict-safe tool name." };
 	const crewAgentSteerTool: ToolDefinition = { ...steerSubagentTool, name: "crew_agent_steer", label: "Steer Crew Agent", description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name." };
-	for (const extraTool of [crewAgentTool, crewAgentResultTool, crewAgentSteerTool]) pi.registerTool(extraTool);
-	for (const extraTool of [agentTool, getSubagentResultTool, steerSubagentTool]) {
-		try {
-			pi.registerTool(extraTool);
-		} catch (error) {
-			logInternalError("register.duplicate-tool", error, `tool=${extraTool.name}`);
+	const toolConfig = loadConfig(process.cwd()).config.tools;
+	const enableSteer = toolConfig?.enableSteer !== false;
+	const enableClaudeStyleAliases = toolConfig?.enableClaudeStyleAliases !== false;
+
+	for (const extraTool of enableSteer ? [crewAgentTool, crewAgentResultTool, crewAgentSteerTool] : [crewAgentTool, crewAgentResultTool]) pi.registerTool(extraTool);
+	if (enableClaudeStyleAliases) {
+		for (const extraTool of enableSteer ? [agentTool, getSubagentResultTool, steerSubagentTool] : [agentTool, getSubagentResultTool]) {
+			try {
+				pi.registerTool(extraTool);
+			} catch (error) {
+				logInternalError("register.duplicate-tool", error, `tool=${extraTool.name}`);
+			}
 		}
 	}
 }

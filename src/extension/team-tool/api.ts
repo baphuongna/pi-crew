@@ -116,6 +116,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const messageText = typeof cfg.message === "string" && cfg.message.trim() ? cfg.message.trim() : "Please report your current status, blocker, or smallest next step.";
 		const message = appendMailboxMessage(loaded.manifest, { direction: "inbox", from: "leader", to: agent.taskId, taskId: agent.taskId, body: messageText });
 		appendEvent(loaded.manifest.eventsPath, { type: "agent.nudged", runId: loaded.manifest.runId, taskId: agent.taskId, message: messageText, data: { agentId: agent.id, mailboxMessageId: message.id } });
+		ctx.events?.emit?.("crew.mailbox.message", { runId: loaded.manifest.runId, id: message.id, direction: message.direction, from: message.from, to: message.to, taskId: message.taskId, source: "nudge-agent" });
 		return result(JSON.stringify({ agentId: agent.id, mailboxMessage: message }, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "list-live-agents") {
@@ -170,6 +171,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			return withRunLockSync(loaded.manifest, () => {
 				const message = appendMailboxMessage(loaded.manifest, { direction, from, to, body, taskId });
 				appendEvent(loaded.manifest.eventsPath, { type: "mailbox.message", runId: loaded.manifest.runId, data: { id: message.id, direction, from, to } });
+				ctx.events?.emit?.("crew.mailbox.message", { runId: loaded.manifest.runId, id: message.id, direction, from, to, taskId, source: "send-message" });
 				return result(JSON.stringify(message, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 			});
 		} catch (error) {
@@ -184,6 +186,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			return withRunLockSync(loaded.manifest, () => {
 				const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
 				appendEvent(loaded.manifest.eventsPath, { type: "mailbox.acknowledged", runId: loaded.manifest.runId, data: { messageId } });
+				ctx.events?.emit?.("crew.mailbox.acknowledged", { runId: loaded.manifest.runId, messageId, delivery });
 				return result(JSON.stringify(delivery, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 			});
 		} catch (error) {

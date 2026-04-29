@@ -80,6 +80,38 @@
         "needsAttentionAfterMs": { "type": "integer", "minimum": 1 }
       }
     },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Worktree setup hooks and dependency-linking options.",
+      "properties": {
+        "setupHook": { "type": "string", "minLength": 1 },
+        "setupHookTimeoutMs": { "type": "integer", "minimum": 1 },
+        "linkNodeModules": { "type": "boolean" }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Builtin agent override settings.",
+      "properties": {
+        "disableBuiltins": { "type": "boolean" },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "disabled": { "type": "boolean" },
+              "model": { "oneOf": [{ "type": "string", "minLength": 1 }, { "const": false }] },
+              "fallbackModels": { "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "const": false }] },
+              "thinking": { "oneOf": [{ "type": "string", "minLength": 1 }, { "const": false }] },
+              "tools": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            }
+          }
+        }
+      }
+    },
     "ui": {
       "type": "object",
       "additionalProperties": false,
@@ -95,7 +127,27 @@
         "autoOpenDashboardForForegroundRuns": { "type": "boolean", "default": true },
         "showModel": { "type": "boolean", "default": true, "description": "Show worker model attempts in dashboard agent rows." },
         "showTokens": { "type": "boolean", "description": "Show token usage in dashboard agent rows." },
-        "showTools": { "type": "boolean", "description": "Show tool activity in dashboard agent rows." }
+        "showTools": { "type": "boolean", "description": "Show tool activity in dashboard agent rows." },
+        "mascotStyle": { "type": "string", "enum": ["cat", "armin"] },
+        "mascotEffect": { "type": "string", "enum": ["random", "none", "typewriter", "scanline", "rain", "fade", "crt", "glitch", "dissolve"] }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Public tool registration and foreground result behavior.",
+      "properties": {
+        "enableClaudeStyleAliases": { "type": "boolean", "default": true },
+        "enableSteer": { "type": "boolean", "default": true },
+        "terminateOnForeground": { "type": "boolean", "default": false, "description": "Opt in to returning terminate:true from foreground Agent/crew_agent calls after the child result is available." }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pi-crew telemetry event controls.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true }
       }
     }
   }

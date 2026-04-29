@@ -19,6 +19,7 @@ import { registerTeamCommands } from "./registration/commands.ts";
 import { registerSubagentTools } from "./registration/subagent-tools.ts";
 import { runArtifactCleanup } from "./registration/artifact-cleanup.ts";
 import { registerTeamTool } from "./registration/team-tool.ts";
+import { registerCompactionGuard } from "./registration/compaction-guard.ts";
 
 export { __test__subagentSpawnParams };
 
@@ -47,10 +48,24 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		manifestCache = createManifestCache(cwd);
 		return manifestCache;
 	};
+	const telemetryEnabled = (): boolean => loadConfig(currentCtx?.cwd ?? process.cwd()).config.telemetry?.enabled !== false;
 	const widgetState: CrewWidgetState = { frame: 0 };
 	const subagentManager = new SubagentManager(
 		4,
 		(record) => {
+			// Phase 1.3 + 1.6: Emit public crew.subagent.completed event with telemetry.
+			// Users can opt out with config.telemetry.enabled=false.
+			if (telemetryEnabled()) {
+				pi.events?.emit?.("crew.subagent.completed", {
+					id: record.id,
+					runId: record.runId,
+					type: record.type,
+					status: record.status,
+					turnCount: record.turnCount,
+					terminated: record.terminated ?? false,
+					durationMs: record.durationMs,
+				});
+			}
 			if (!record.background || record.resultConsumed) return;
 			if (record.status === "completed" || record.status === "failed" || record.status === "cancelled" || record.status === "blocked" || record.status === "error") {
 				sendFollowUp(pi, [`pi-crew subagent ${record.id} ${record.status}.`, record.runId ? `Run: ${record.runId}` : undefined, `Use get_subagent_result with agent_id=${record.id} for output.`].filter((line): line is string => Boolean(line)).join("\n"));
@@ -108,6 +123,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	const startForegroundRun = (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string): void => {
 		const controller = new AbortController();
 		foregroundControllers.add(controller);
+		if (ctx.hasUI) {
+			(ctx.ui as { setWorkingIndicator?: (options?: { frames?: string[]; intervalMs?: number }) => void }).setWorkingIndicator?.({ frames: ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"], intervalMs: 80 });
+			ctx.ui.setWorkingMessage(runId ? `pi-crew foreground run ${runId}...` : "pi-crew foreground run...");
+		}
 		setImmediate(() => {
 			void runner(controller.signal)
 				.catch((error) => {
@@ -124,11 +143,37 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				})
 				.finally(() => {
 					foregroundControllers.delete(controller);
+					if (ctx.hasUI) {
+						(ctx.ui as { setWorkingIndicator?: (options?: { frames?: string[]; intervalMs?: number }) => void }).setWorkingIndicator?.();
+						ctx.ui.setWorkingMessage();
+					}
 					if (runId) {
 						const loaded = loadRunManifestById(ctx.cwd, runId);
 						const status = loaded?.manifest.status ?? "finished";
 						const level = status === "failed" || status === "blocked" ? "error" : status === "cancelled" ? "warning" : "info";
 						ctx.ui.notify(`pi-crew run ${runId} ${status}. Use /team-summary ${runId} or /team-status ${runId}.`, level as "info" | "warning" | "error");
+						// Phase 2.3: Persist run completion reference into the Pi session.
+						pi.appendEntry("crew:run-completed", {
+							runId,
+							team: loaded?.manifest.team,
+							workflow: loaded?.manifest.workflow,
+							goal: loaded?.manifest.goal,
+							status,
+							taskCount: loaded?.tasks.length,
+							timestamp: Date.now(),
+						});
+						// Phase 1.3: Emit public crew.run.* events
+						const eventType = status === "completed" ? "crew.run.completed" : status === "failed" || status === "blocked" ? "crew.run.failed" : status === "cancelled" ? "crew.run.cancelled" : undefined;
+						if (eventType) {
+							pi.events?.emit?.(eventType, {
+								runId,
+								team: loaded?.manifest.team,
+								workflow: loaded?.manifest.workflow,
+								status,
+								taskCount: loaded?.tasks.length,
+								goal: loaded?.manifest.goal,
+							});
+						}
 					}
 					if (currentCtx) {
 						const config = loadConfig(currentCtx.cwd).config.ui;
@@ -188,6 +233,24 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	});
 	pi.on("session_before_switch", () => stopSessionBoundSubagents());
 	pi.on("session_shutdown", () => cleanupRuntime());
+
+	registerCompactionGuard(pi, { foregroundControllers });
+
+	// Phase 1.4: Permission gate for destructive team actions.
+	// AGENTS.md requires confirm=true for management deletes.
+	pi.on("tool_call", async (event, ctx) => {
+		if (event.toolName !== "team") return;
+		const input = (event as { input?: Record<string, unknown> }).input;
+		if (!input) return;
+		const action = typeof input.action === "string" ? input.action : undefined;
+		const destructiveActions = new Set(["delete", "forget", "prune", "cleanup"]);
+		if (!action || !destructiveActions.has(action)) return;
+		if (input.confirm === true || input.force === true) return;
+		return {
+			block: true,
+			reason: `Destructive action '${action}' requires confirm=true (or force=true to bypass reference checks).`,
+		};
+	});
 
 	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, widgetState });
 	registerSubagentTools(pi, subagentManager);

@@ -62,6 +62,16 @@ export const PiTeamsAgentsConfigSchema = Type.Object({
 	overrides: Type.Optional(Type.Record(Type.String({ minLength: 1 }), AgentOverrideSchema)),
 });
 
+export const PiTeamsToolsConfigSchema = Type.Object({
+	enableClaudeStyleAliases: Type.Optional(Type.Boolean()),
+	enableSteer: Type.Optional(Type.Boolean()),
+	terminateOnForeground: Type.Optional(Type.Boolean()),
+});
+
+export const PiTeamsTelemetryConfigSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean()),
+});
+
 export const PiTeamsUiConfigSchema = Type.Object({
 	widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")])),
 	widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -89,5 +99,7 @@ export const PiTeamsConfigSchema = Type.Object({
 	control: Type.Optional(PiTeamsControlConfigSchema),
 	worktree: Type.Optional(PiTeamsWorktreeConfigSchema),
 	agents: Type.Optional(PiTeamsAgentsConfigSchema),
+	tools: Type.Optional(PiTeamsToolsConfigSchema),
+	telemetry: Type.Optional(PiTeamsTelemetryConfigSchema),
 	ui: Type.Optional(PiTeamsUiConfigSchema),
 });
