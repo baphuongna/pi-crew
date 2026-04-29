@@ -53,6 +53,8 @@ Current highlights:
 - `/team-manager` interactive helper
 - `/team-dashboard` custom TUI overlay with progress preview, action shortcuts, and reload
 - `parallel-research` team/workflow for dynamic `Source/pi-*` fanout and parallel shard exploration
+- observability metrics: per-session Counter/Gauge/Histogram registry, JSONL sink, `/team-metrics`, dashboard metrics pane, Prometheus/OTLP exporters (OTLP opt-in)
+- reliability hardening: heartbeat gradient watcher, opt-in retry executor with attempt trace, crash-recovery detection, deadletter queue
 - package polish: `schema.json`, TypeScript semantic check, strip-types import smoke, cross-platform CI workflow, dry-run package verification
 
 ## Install
@@ -187,6 +189,29 @@ Supported config:
     "enableClaudeStyleAliases": true,
     "enableSteer": true,
     "terminateOnForeground": false
+  },
+  "telemetry": {
+    "enabled": true
+  },
+  "observability": {
+    "enabled": true,
+    "pollIntervalMs": 5000,
+    "metricRetentionDays": 7
+  },
+  "reliability": {
+    "autoRetry": false,
+    "autoRecover": false,
+    "deadletterThreshold": 3,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "backoffMs": 1000,
+      "jitterRatio": 0.3,
+      "exponentialFactor": 2
+    }
+  },
+  "otlp": {
+    "enabled": false,
+    "endpoint": "http://localhost:4318/v1/metrics"
   }
 }
 ```
@@ -195,6 +220,9 @@ Safety notes:
 
 - Foreground child-process runs continue in the Pi extension process and return control to chat immediately, so large workflows do not block the interactive session. They are interrupted on session shutdown. Use `async: true` only for intentionally detached runs that may survive the current session.
 - `tools.terminateOnForeground` is an opt-in power-user setting. When true, foreground `Agent`/`crew_agent` calls return with `terminate: true` after the child result is available, saving one follow-up LLM turn. Default is false so the assistant can still summarize raw worker output.
+- `observability.enabled` defaults to true for in-memory metrics and heartbeat watching. Metric JSONL snapshots are gated by `telemetry.enabled`; set `telemetry.enabled=false` to opt out of local telemetry files.
+- `reliability.autoRetry` and `reliability.autoRecover` default to false. Enabling retry may execute an idempotent task more than once; each attempt is recorded in `task.attempts`, and exhausted retries append a deadletter entry.
+- `otlp.enabled` defaults to false. Configure `otlp.endpoint` only when you want to push metrics to an OTLP HTTP collector.
 
 UI notes:
 
@@ -375,6 +403,7 @@ Manual slash commands are ops/debug controls. Autonomous tool use via policy/rec
 /team-import <path-to-run-export.json> [--user]
 /team-imports
 /team-api <runId> <operation> [key=value]
+/team-metrics [filter]
 /team-manager
 /team-dashboard
 /team-init [--copy-builtins] [--overwrite]
@@ -404,6 +433,13 @@ Manual slash commands are ops/debug controls. Autonomous tool use via policy/rec
 /team-api team_... ack-message messageId=msg_...
 /team-api team_... read-delivery
 /team-api team_... validate-mailbox repair=true
+```
+
+Use `/team-metrics` for a current metrics snapshot. The optional argument is a glob-style metric filter:
+
+```text
+/team-metrics
+/team-metrics crew.task.*
 ```
 
 ## Dashboard

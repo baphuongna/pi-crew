@@ -103,6 +103,34 @@ export interface CrewNotificationsConfig {
 	sinkRetentionDays?: number;
 }
 
+export interface CrewObservabilityConfig {
+	enabled?: boolean;
+	pollIntervalMs?: number;
+	metricRetentionDays?: number;
+}
+
+export interface CrewRetryPolicyConfig {
+	maxAttempts?: number;
+	backoffMs?: number;
+	jitterRatio?: number;
+	exponentialFactor?: number;
+	retryableErrors?: string[];
+}
+
+export interface CrewReliabilityConfig {
+	autoRetry?: boolean;
+	retryPolicy?: CrewRetryPolicyConfig;
+	autoRecover?: boolean;
+	deadletterThreshold?: number;
+}
+
+export interface CrewOtlpConfig {
+	enabled?: boolean;
+	endpoint?: string;
+	headers?: Record<string, string>;
+	intervalMs?: number;
+}
+
 export interface PiTeamsConfig {
 	asyncByDefault?: boolean;
 	executeWorkers?: boolean;
@@ -117,6 +145,9 @@ export interface PiTeamsConfig {
 	tools?: CrewToolsConfig;
 	telemetry?: CrewTelemetryConfig;
 	notifications?: CrewNotificationsConfig;
+	observability?: CrewObservabilityConfig;
+	reliability?: CrewReliabilityConfig;
+	otlp?: CrewOtlpConfig;
 	ui?: CrewUiConfig;
 }
 
@@ -240,6 +271,27 @@ function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfi
 			...(base.notifications ?? {}),
 			...withoutUndefined((override.notifications ?? {}) as Record<string, unknown>),
 		};
+	}
+	if (base.observability || override.observability) {
+		merged.observability = {
+			...(base.observability ?? {}),
+			...withoutUndefined((override.observability ?? {}) as Record<string, unknown>),
+		};
+	}
+	if (base.reliability || override.reliability) {
+		merged.reliability = {
+			...(base.reliability ?? {}),
+			...withoutUndefined((override.reliability ?? {}) as Record<string, unknown>),
+			retryPolicy: base.reliability?.retryPolicy || override.reliability?.retryPolicy ? { ...(base.reliability?.retryPolicy ?? {}), ...withoutUndefined((override.reliability?.retryPolicy ?? {}) as Record<string, unknown>) } : undefined,
+		};
+	}
+	if (base.otlp || override.otlp) {
+		merged.otlp = {
+			...(base.otlp ?? {}),
+			...withoutUndefined((override.otlp ?? {}) as Record<string, unknown>),
+			headers: { ...(base.otlp?.headers ?? {}), ...(override.otlp?.headers ?? {}) },
+		};
+		if (Object.keys(merged.otlp.headers ?? {}).length === 0) delete merged.otlp.headers;
 	}
 	if (merged.agents?.overrides && Object.keys(merged.agents.overrides).length === 0) delete merged.agents.overrides;
 	return merged;
@@ -475,6 +527,52 @@ function parseNotificationsConfig(value: unknown): CrewNotificationsConfig | und
 	return Object.values(notifications).some((entry) => entry !== undefined) ? notifications : undefined;
 }
 
+function parseObservabilityConfig(value: unknown): CrewObservabilityConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const observability: CrewObservabilityConfig = {
+		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
+		pollIntervalMs: parseWithSchema(Type.Integer({ minimum: 1000, maximum: 60_000 }), obj.pollIntervalMs),
+		metricRetentionDays: parsePositiveInteger(obj.metricRetentionDays, 365),
+	};
+	return Object.values(observability).some((entry) => entry !== undefined) ? observability : undefined;
+}
+
+function parseReliabilityConfig(value: unknown): CrewReliabilityConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const retryObj = asRecord(obj.retryPolicy);
+	const retryPolicy: CrewRetryPolicyConfig | undefined = retryObj ? {
+		maxAttempts: parsePositiveInteger(retryObj.maxAttempts, 10),
+		backoffMs: parseWithSchema(Type.Integer({ minimum: 100, maximum: 60_000 }), retryObj.backoffMs),
+		jitterRatio: parseWithSchema(Type.Number({ minimum: 0, maximum: 1 }), retryObj.jitterRatio),
+		exponentialFactor: parseWithSchema(Type.Number({ minimum: 1, maximum: 5 }), retryObj.exponentialFactor),
+		retryableErrors: parseStringList(retryObj.retryableErrors),
+	} : undefined;
+	const reliability: CrewReliabilityConfig = {
+		autoRetry: parseWithSchema(Type.Boolean(), obj.autoRetry),
+		retryPolicy: retryPolicy && Object.values(retryPolicy).some((entry) => entry !== undefined) ? retryPolicy : undefined,
+		autoRecover: parseWithSchema(Type.Boolean(), obj.autoRecover),
+		deadletterThreshold: parsePositiveInteger(obj.deadletterThreshold),
+	};
+	return Object.values(reliability).some((entry) => entry !== undefined) ? reliability : undefined;
+}
+
+function parseOtlpConfig(value: unknown): CrewOtlpConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const headers: Record<string, string> = {};
+	const rawHeaders = asRecord(obj.headers);
+	if (rawHeaders) for (const [key, entry] of Object.entries(rawHeaders)) if (typeof entry === "string") headers[key] = entry;
+	const otlp: CrewOtlpConfig = {
+		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
+		endpoint: parseWithSchema(Type.String({ minLength: 1 }), obj.endpoint),
+		headers: Object.keys(headers).length > 0 ? headers : undefined,
+		intervalMs: parseWithSchema(Type.Integer({ minimum: 5000 }), obj.intervalMs),
+	};
+	return Object.values(otlp).some((entry) => entry !== undefined) ? otlp : undefined;
+}
+
 export function parseConfig(raw: unknown): PiTeamsConfig {
 	const obj = asRecord(raw);
 	if (!obj) return {};
@@ -492,6 +590,9 @@ export function parseConfig(raw: unknown): PiTeamsConfig {
 		tools: parseToolsConfig(obj.tools),
 		telemetry: parseTelemetryConfig(obj.telemetry),
 		notifications: parseNotificationsConfig(obj.notifications),
+		observability: parseObservabilityConfig(obj.observability),
+		reliability: parseReliabilityConfig(obj.reliability),
+		otlp: parseOtlpConfig(obj.otlp),
 		ui: parseUiConfig(obj.ui),
 	};
 }

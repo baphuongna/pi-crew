@@ -152,7 +152,10 @@ Atomic writes use temp-file replace with retry for transient Windows `EPERM`/`EB
 - The persistent widget shows active runs only.
 - Stale async runs with dead background pids are hidden from the active widget.
 - `/team-status` is the canonical detailed state view and can mark stale active async runs failed.
-- `/team-dashboard` provides live history/details from `RunSnapshotCache`, with panes for agents, progress/events, mailbox attention, and recent output.
+- `/team-dashboard` provides live history/details from `RunSnapshotCache`, with panes for agents, progress/events, mailbox attention, recent output, health, and metrics.
+- Phase 9 observability uses a per-session `MetricRegistry` (`Counter`, `Gauge`, `Histogram`) wired to `crew.*` events via unsubscribe-returning `events.on()` handlers. The registry is disposed on session shutdown/reload; no global metric singleton is used.
+- Metrics can be inspected with `/team-metrics` or `team api metrics-snapshot`, exported as redacted daily JSONL under `<crewRoot>/state/metrics/` when telemetry is enabled, formatted for Prometheus, or pushed to an opt-in OTLP HTTP endpoint.
+- Heartbeat observability is split between dashboard summaries and a background `HeartbeatWatcher`: healthy/warn/stale/dead gradient metrics are emitted, first-dead detections notify operators, and consecutive dead ticks can append deadletter entries.
 - Powerbar publishing is optional and event-compatible: pi-crew emits `powerbar:register-segment` for `pi-crew-active` / `pi-crew-progress`, emits `powerbar:update` payloads (`id`, `text`, optional `suffix`, `bar`, `color`), and mirrors status through `ctx.ui.setStatus("pi-crew", ...)` when no powerbar listener is detected.
 - Transcript viewer is file-backed so it works for foreground and async runs; it defaults to bounded tail reads and can load full content on demand.
 
@@ -167,6 +170,10 @@ Key config sections:
 - `runtime`: `auto`, `child-process`, `scaffold`, experimental `live-session`.
 - `limits`: concurrency/task/depth safety controls.
 - `ui`: widget/dashboard/powerbar/model-token display settings.
+- `observability`: in-memory metrics, heartbeat watcher interval, metric file retention.
+- `telemetry`: opt-out switch for local telemetry sinks.
+- `reliability`: opt-in auto-retry/auto-recover defaults and deadletter threshold.
+- `otlp`: opt-in OTLP HTTP metric export.
 - `agents`: builtin overrides for models/fallbacks/tools.
 - `autonomous`: policy injection/profile for proactive team delegation.
 

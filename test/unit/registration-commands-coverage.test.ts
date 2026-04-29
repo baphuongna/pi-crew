@@ -31,6 +31,7 @@ test("registration commands module registers the public slash command set", () =
 		"team-init",
 		"team-manager",
 		"team-mascot",
+		"team-metrics",
 		"team-prune",
 		"team-result",
 		"team-resume",

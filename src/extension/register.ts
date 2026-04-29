@@ -27,6 +27,13 @@ import { NotificationRouter, type NotificationDescriptor } from "./notification-
 import { createJsonlSink, type NotificationSink } from "./notification-sink.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { summarizeHeartbeats } from "../ui/heartbeat-aggregator.ts";
+import { createMetricRegistry, type MetricRegistry } from "../observability/metric-registry.ts";
+import { wireEventToMetrics, type EventToMetricSubscription } from "../observability/event-to-metric.ts";
+import { createMetricFileSink, type MetricSink } from "../observability/metric-sink.ts";
+import { OTLPExporter } from "../observability/exporters/otlp-exporter.ts";
+import { HeartbeatWatcher } from "../runtime/heartbeat-watcher.ts";
+import { appendDeadletter } from "../runtime/deadletter.ts";
+import { detectInterruptedRuns } from "../runtime/crash-recovery.ts";
 
 export { __test__subagentSpawnParams };
 
@@ -68,6 +75,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	const widgetState: CrewWidgetState = { frame: 0 };
 	let notificationSink: NotificationSink | undefined;
 	let notificationRouter: NotificationRouter | undefined;
+	let metricRegistry: MetricRegistry | undefined;
+	let eventMetricSub: EventToMetricSubscription | undefined;
+	let metricSink: MetricSink | undefined;
+	let heartbeatWatcher: HeartbeatWatcher | undefined;
+	let otlpExporter: OTLPExporter | undefined;
 	const configureNotifications = (ctx: ExtensionContext): void => {
 		notificationRouter?.dispose();
 		notificationSink?.dispose();
@@ -91,6 +103,46 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				updatePiCrewPowerbar(pi.events, currentCtx.cwd, uiConfig, getManifestCache(currentCtx.cwd), getRunSnapshotCache(currentCtx.cwd), currentCtx, widgetState.notificationCount ?? 0);
 			}
 		});
+	};
+	const configureObservability = (ctx: ExtensionContext): void => {
+		heartbeatWatcher?.dispose();
+		metricSink?.dispose();
+		eventMetricSub?.dispose();
+		otlpExporter?.dispose();
+		metricRegistry?.dispose();
+		heartbeatWatcher = undefined;
+		metricSink = undefined;
+		eventMetricSub = undefined;
+		otlpExporter = undefined;
+		metricRegistry = undefined;
+		const config = loadConfig(ctx.cwd).config;
+		if (config.observability?.enabled === false) return;
+		metricRegistry = createMetricRegistry();
+		eventMetricSub = wireEventToMetrics(pi.events, metricRegistry);
+		if (config.telemetry?.enabled !== false) metricSink = createMetricFileSink({ crewRoot: projectCrewRoot(ctx.cwd), registry: metricRegistry, retentionDays: config.observability?.metricRetentionDays ?? 7 });
+		if (config.otlp?.enabled === true && config.otlp.endpoint) {
+			otlpExporter = new OTLPExporter({ endpoint: config.otlp.endpoint, headers: config.otlp.headers, intervalMs: config.otlp.intervalMs }, metricRegistry);
+			otlpExporter.start();
+		}
+		heartbeatWatcher = new HeartbeatWatcher({
+			cwd: ctx.cwd,
+			pollIntervalMs: config.observability?.pollIntervalMs ?? 5000,
+			manifestCache: getManifestCache(ctx.cwd),
+			registry: metricRegistry,
+			router: { enqueue: (notification) => { notifyOperator(notification); return true; } },
+			deadletterTickThreshold: config.reliability?.deadletterThreshold ?? 3,
+			onDeadletterTrigger: (manifest, taskId) => {
+				appendDeadletter(manifest, { taskId, runId: manifest.runId, reason: "heartbeat-dead", attempts: 0, timestamp: new Date().toISOString() });
+				metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "heartbeat-dead" });
+				pi.events?.emit?.("crew.task.deadletter", { runId: manifest.runId, taskId, reason: "heartbeat-dead" });
+			},
+		});
+		heartbeatWatcher.start();
+		if (config.reliability?.autoRecover === true) {
+			for (const plan of detectInterruptedRuns(ctx.cwd, getManifestCache(ctx.cwd))) {
+				notifyOperator({ id: `recovery_prompt_${plan.runId}`, severity: "warning", source: "crash-recovery", runId: plan.runId, title: `Run ${plan.runId} was interrupted`, body: `${plan.resumableTasks.length} tasks pending recovery. Open dashboard to inspect before resuming.` });
+			}
+		}
 	};
 	const autoRecoveryLast = new Map<string, number>();
 	const notifyOperator = (notification: NotificationDescriptor): void => {
@@ -245,6 +297,16 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		stopAsyncRunNotifier(notifierState);
 		stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(pi.events, currentCtx);
+		heartbeatWatcher?.dispose();
+		metricSink?.dispose();
+		eventMetricSub?.dispose();
+		otlpExporter?.dispose();
+		metricRegistry?.dispose();
+		heartbeatWatcher = undefined;
+		metricSink = undefined;
+		eventMetricSub = undefined;
+		otlpExporter = undefined;
+		metricRegistry = undefined;
 		manifestCache.dispose();
 		runSnapshotCache.dispose?.();
 		renderScheduler?.dispose();
@@ -272,6 +334,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		const loadedConfig = loadConfig(ctx.cwd);
 		autoRecoveryLast.clear();
 		configureNotifications(ctx);
+		configureObservability(ctx);
 		registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
 		startAsyncRunNotifier(ctx, notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs);
 		const cache = getManifestCache(ctx.cwd);
@@ -343,11 +406,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		};
 	});
 
-	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, widgetState });
+	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, widgetState });
 	registerSubagentTools(pi, subagentManager);
 	time("register.tools");
 
-	registerTeamCommands(pi, { startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, dismissNotifications: () => {
+	registerTeamCommands(pi, { startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, dismissNotifications: () => {
 		widgetState.notificationCount = 0;
 		if (currentCtx) {
 			const uiConfig = loadConfig(currentCtx.cwd).config.ui;

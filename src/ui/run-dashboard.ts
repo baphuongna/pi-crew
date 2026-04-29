@@ -17,9 +17,11 @@ import { renderMailboxPane } from "./dashboard-panes/mailbox-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { renderHealthPane } from "./dashboard-panes/health-pane.ts";
+import { renderMetricsPane } from "./dashboard-panes/metrics-pane.ts";
 import { dashboardActionForKey } from "./keybinding-map.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
 
 interface DashboardComponent {
 	invalidate(): void;
@@ -34,6 +36,7 @@ export interface RunDashboardOptions {
 	showTools?: boolean;
 	snapshotCache?: RunSnapshotCache;
 	runProvider?: () => TeamRunManifest[];
+	registry?: MetricRegistry;
 }
 
 export type RunDashboardAction = "status" | "summary" | "artifacts" | "api" | "events" | "agents" | "agent-events" | "agent-output" | "agent-transcript" | "mailbox" | "reload" | "mailbox-detail" | "health-recovery" | "health-kill-stale" | "health-diagnostic-export" | "notifications-dismiss";
@@ -221,7 +224,7 @@ function countByStatus(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache
 export class RunDashboard implements DashboardComponent {
 	private selected = 0;
 	private showFullProgress = false;
-	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" = "agents";
+	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" = "agents";
 	private runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
 	private readonly theme: CrewTheme;
@@ -265,7 +268,8 @@ export class RunDashboard implements DashboardComponent {
 			if (status === "running" || agents.some((agent) => agent.status === "running")) hasRunning = true;
 			return snapshot?.signature ?? `${displayRun.runId}:${displayRun.status}:${displayRun.updatedAt}:${status}`;
 		}).join("|");
-		return `${this.selected}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}`;
+		const metricsSig = this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
+		return `${this.selected}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
 	}
 
 	invalidate(): void {
@@ -295,7 +299,7 @@ export class RunDashboard implements DashboardComponent {
 				border("╭", "╮"),
 				`│ ${pad(truncate(`${fg("accent", "▐")} ${this.theme.bold(this.options.placement === "right" ? "pi-crew right sidebar (anchored top-right)" : "pi-crew dashboard")}`, innerWidth - 1), innerWidth - 1)}│`,
 				`│ ${pad(truncate(`Runs: ${this.runs.length} • ${countByStatus(this.runs, this.options.snapshotCache)}`, innerWidth - 1), innerWidth - 1)}│`,
-				`│ ${pad(truncate(`↑/↓ select • 1 agents 2 progress 3 mailbox 4 output 5 health • s/u/a/i actions • R/K/D health • H hush`, innerWidth - 1), innerWidth - 1)}│`,
+				`│ ${pad(truncate(`↑/↓ select • 1 agents 2 progress 3 mailbox 4 output 5 health 6 metrics • s/u/a/i actions • R/K/D health • H hush`, innerWidth - 1), innerWidth - 1)}│`,
 				border("├", "┤"),
 			];
 			if (this.runs.length === 0) {
@@ -340,7 +344,9 @@ export class RunDashboard implements DashboardComponent {
 									? renderMailboxPane(selectedSnapshot)
 									: this.activePane === "health"
 										? renderHealthPane(selectedSnapshot, { isForeground: selectedDisplayRun.async ? false : true })
-										: renderTranscriptPane(selectedSnapshot)
+										: this.activePane === "metrics"
+											? renderMetricsPane(selectedSnapshot, { registry: this.options.registry })
+											: renderTranscriptPane(selectedSnapshot)
 						: [
 							...readAgentPreview(selectedDisplayRun, this.showFullProgress ? 20 : 8, this.options),
 							...readProgressPreview(selectedDisplayRun, this.showFullProgress ? 20 : 5),
@@ -412,6 +418,7 @@ export class RunDashboard implements DashboardComponent {
 		else if (action === "pane-mailbox") this.activePane = "mailbox";
 		else if (action === "pane-output") this.activePane = "output";
 		else if (action === "pane-health") this.activePane = "health";
+		else if (action === "pane-metrics") this.activePane = "metrics";
 		else if (action === "up") this.selected = Math.max(0, this.selected - 1);
 		else if (action === "down") {
 			const selectableCount = groupedRuns(this.runs, this.options.snapshotCache).filter((row) => row.run).length;

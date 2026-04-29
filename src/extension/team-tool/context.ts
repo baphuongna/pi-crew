@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import type { TeamToolDetails } from "../team-tool-types.ts";
 import { toolResult, type PiTeamsToolResult } from "../tool-result.ts";
 
@@ -6,6 +7,7 @@ export type TeamContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<Extension
 	modelRegistry?: unknown;
 	sessionManager?: { getBranch?: () => unknown[] };
 	events?: { emit?: (event: string, data: unknown) => void };
+	metricRegistry?: MetricRegistry;
 	signal?: AbortSignal;
 	startForegroundRun?: (runner: (signal?: AbortSignal) => Promise<void>, runId?: string) => void;
 	onRunStarted?: (runId: string) => void;

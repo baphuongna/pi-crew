@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import type { AgentConfig } from "../agents/agent-config.ts";
-import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
+import type { CrewLimitsConfig, CrewRuntimeConfig, CrewReliabilityConfig } from "../config/config.ts";
 import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
-import type { ArtifactDescriptor, PolicyDecision, TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { ArtifactDescriptor, PolicyDecision, TeamRunManifest, TaskAttemptState, TeamTaskState } from "../state/types.ts";
 import { saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
@@ -18,6 +18,10 @@ import { saveCrewAgents } from "./crew-agent-records.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { runTeamTask } from "./task-runner.ts";
+import { executeWithRetry, DEFAULT_RETRY_POLICY, type RetryPolicy } from "./retry-executor.ts";
+import { appendDeadletter } from "./deadletter.ts";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
+import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import { resolveBatchConcurrency } from "./concurrency.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 
@@ -36,6 +40,8 @@ export interface ExecuteTeamRunInput {
 	modelRegistry?: unknown;
 	modelOverride?: string;
 	signal?: AbortSignal;
+	reliability?: CrewReliabilityConfig;
+	metricRegistry?: MetricRegistry;
 }
 
 function findReadyTask(tasks: TeamTaskState[]): TeamTaskState | undefined {
@@ -73,7 +79,7 @@ function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): 
 	// contain stale queued/running copies of tasks that another worker already
 	// completed. Never let those stale snapshots regress durable task state.
 	if (!isNonTerminalTaskStatus(current.status) && isNonTerminalTaskStatus(updated.status)) return false;
-	return updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage);
+	return updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage) || Boolean(updated.attempts?.length);
 }
 
 export function __test__mergeTaskUpdates(base: TeamTaskState[], results: Array<{ tasks: TeamTaskState[] }>): TeamTaskState[] {
@@ -384,6 +390,14 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 	return { ...manifest, updatedAt: new Date().toISOString(), policyDecisions: decisions, artifacts: [...manifest.artifacts.filter((artifact) => !(artifact.kind === "metadata" && (artifact.path.endsWith("policy-decisions.json") || artifact.path.endsWith("recovery-ledger.json") || artifact.path.endsWith("branch-freshness.json")))), branchArtifact, policyArtifact, recoveryArtifact] };
 }
 
+function retryPolicyFromConfig(config: CrewReliabilityConfig | undefined): RetryPolicy {
+	return { ...DEFAULT_RETRY_POLICY, ...(config?.retryPolicy ?? {}) };
+}
+
+function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): TeamTaskState | undefined {
+	return result.tasks.find((item) => item.id === taskId && item.status === "failed");
+}
+
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
 	let workflow = input.workflow;
 	let manifest = updateRunStatus(input.manifest, "running", input.executeWorkers ? "Executing team workflow." : "Creating workflow prompts and placeholder results.");
@@ -450,10 +464,48 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		const results = await mapConcurrent(
 			readyBatch,
 			concurrency.selectedCount,
-			(task) => {
+			async (task) => {
 				const step = findStep(workflow, task);
 				const agent = findAgent(input.agents, task);
-				return runTeamTask({ manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits });
+				const baseInput = { manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits };
+				if (input.reliability?.autoRetry !== true) return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
+				let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
+				const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];
+				const policy = retryPolicyFromConfig(input.reliability);
+				try {
+					return await executeWithRetry(async (attempt) => {
+						const startedAt = new Date().toISOString();
+						const inFlightAttempts: TaskAttemptState[] = [...attemptsSoFar, { startedAt }];
+						input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({ runId: manifest.runId, taskId: task.id });
+						const taskWithAttempt: TeamTaskState = { ...task, attempts: inFlightAttempts };
+						const result = await withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask({ ...baseInput, task: taskWithAttempt }));
+						const failed = failedTaskFrom(result, task.id);
+						const endedAt = new Date().toISOString();
+						const finishedAttempt: TaskAttemptState = { startedAt, endedAt, ...(failed?.error ? { error: failed.error } : {}) };
+						attemptsSoFar.push(finishedAttempt);
+						const withAttempt = result.tasks.map((item) => item.id === task.id ? { ...item, attempts: [...attemptsSoFar] } : item);
+						const enriched = { manifest: result.manifest, tasks: withAttempt };
+						if (failed) {
+							lastFailed = enriched;
+							throw new Error(failed.error ?? `Task ${task.id} failed.`);
+						}
+						input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe({ runId: manifest.runId, team: input.team.name }, Math.max(0, attempt - 1));
+						return enriched;
+					}, policy, {
+						signal: input.signal,
+						onAttemptFailed: (attempt, error, delayMs) => {
+							appendEvent(manifest.eventsPath, { type: "crew.task.retry_attempt", runId: manifest.runId, taskId: task.id, message: error.message, data: { attempt, delayMs } });
+							input.metricRegistry?.histogram("crew.task.retry_delay_ms", "Retry backoff delay, milliseconds").observe({ runId: manifest.runId, taskId: task.id }, delayMs);
+						},
+						onRetryGivenUp: (attempts, error) => {
+							appendDeadletter(manifest, { runId: manifest.runId, taskId: task.id, reason: "max-retries", attempts, lastError: error.message, timestamp: new Date().toISOString() });
+							input.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "max-retries" });
+							input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe({ runId: manifest.runId, team: input.team.name }, Math.max(0, attempts - 1));
+						},
+					});
+				} catch {
+					return lastFailed ?? withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
+				}
 			},
 		);
 		manifest = { ...results.at(-1)!.manifest, artifacts: mergeArtifacts([manifest.artifacts, ...results.map((item) => item.manifest.artifacts)].flat()) };

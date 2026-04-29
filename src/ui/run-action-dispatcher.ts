@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { handleTeamTool } from "../extension/team-tool.ts";
 import { isToolError, textFromToolResult } from "../extension/tool-result.ts";
 import { loadRunManifestById, saveRunTasks } from "../state/state-store.ts";
@@ -91,9 +92,9 @@ export async function dispatchKillStaleWorkers(ctx: ExtensionContext, runId: str
 	}
 }
 
-export async function dispatchDiagnosticExport(ctx: ExtensionContext, runId: string): Promise<RunActionResult> {
+export async function dispatchDiagnosticExport(ctx: ExtensionContext, runId: string, options: { registry?: MetricRegistry } = {}): Promise<RunActionResult> {
 	try {
-		const exported = await exportDiagnostic(ctx, runId);
+		const exported = await exportDiagnostic(ctx, runId, options);
 		return { ok: true, message: `Diagnostic exported to ${exported.path}`, data: exported.path };
 	} catch (error) {
 		return err(error);

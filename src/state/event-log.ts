@@ -48,7 +48,7 @@ const MAX_EVENTS_BYTES = 50 * 1024 * 1024;
 
 const sequenceCache = new Map<string, { size: number; mtimeMs: number; seq: number }>();
 
-function sequencePath(eventsPath: string): string {
+export function sequencePath(eventsPath: string): string {
 	return `${eventsPath}.seq`;
 }
 
@@ -57,7 +57,8 @@ function parseSequence(raw: string): number | undefined {
 	return Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
-function scanSequence(eventsPath: string): number {
+export function scanSequence(eventsPath: string): number {
+	if (!fs.existsSync(eventsPath)) return 0;
 	let max = 0;
 	for (const line of fs.readFileSync(eventsPath, "utf-8").split("\n")) {
 		if (!line.trim()) continue;

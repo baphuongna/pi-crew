@@ -13,7 +13,7 @@ export const DASHBOARD_KEYS = {
 		reload: ["r"],
 		progressToggle: ["p"],
 	},
-	pane: { agents: ["1"], progress: ["2"], mailbox: ["3"], output: ["4"], health: ["5"] },
+	pane: { agents: ["1"], progress: ["2"], mailbox: ["3"], output: ["4"], health: ["5"], metrics: ["6"] },
 	navigation: { up: ["k", "\u001b[A"], down: ["j", "\u001b[B"] },
 	mailbox: { ack: ["A"], nudge: ["N"], compose: ["C"], preview: ["P"], ackAll: ["X"], openDetail: ["\r", "\n"] },
 	health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
@@ -53,6 +53,7 @@ export type DashboardKeyAction =
 	| "pane-mailbox"
 	| "pane-output"
 	| "pane-health"
+	| "pane-metrics"
 	| "up"
 	| "down"
 	| "mailbox-detail"
@@ -61,7 +62,7 @@ export type DashboardKeyAction =
 	| "health-diagnostic-export"
 	| "notifications-dismiss";
 
-export function dashboardActionForKey(data: string, activePane?: "agents" | "progress" | "mailbox" | "output" | "health"): DashboardKeyAction | undefined {
+export function dashboardActionForKey(data: string, activePane?: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics"): DashboardKeyAction | undefined {
 	if (includes(DASHBOARD_KEYS.close, data)) return "close";
 	if (activePane === "mailbox" && includes(DASHBOARD_KEYS.mailbox.openDetail, data)) return "mailbox-detail";
 	if (activePane === "health") {
@@ -86,6 +87,7 @@ export function dashboardActionForKey(data: string, activePane?: "agents" | "pro
 	if (includes(DASHBOARD_KEYS.pane.mailbox, data)) return "pane-mailbox";
 	if (includes(DASHBOARD_KEYS.pane.output, data)) return "pane-output";
 	if (includes(DASHBOARD_KEYS.pane.health, data)) return "pane-health";
+	if (includes(DASHBOARD_KEYS.pane.metrics, data)) return "pane-metrics";
 	if (includes(DASHBOARD_KEYS.navigation.up, data)) return "up";
 	if (includes(DASHBOARD_KEYS.navigation.down, data)) return "down";
 	return undefined;

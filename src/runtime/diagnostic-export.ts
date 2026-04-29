@@ -1,4 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
+import type { MetricSnapshot } from "../observability/metrics-primitives.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCrewAgents } from "./crew-agent-records.ts";
@@ -9,6 +11,7 @@ import { summarizeHeartbeats, type HeartbeatSummary } from "../ui/heartbeat-aggr
 import type { RunUiSnapshot } from "../ui/snapshot-types.ts";
 
 export interface DiagnosticReport {
+	schemaVersion?: number;
 	runId: string;
 	exportedAt: string;
 	manifest: TeamRunManifest;
@@ -17,6 +20,7 @@ export interface DiagnosticReport {
 	heartbeat: HeartbeatSummary;
 	agents: unknown[];
 	envRedacted: Record<string, string>;
+	metricsSnapshot?: MetricSnapshot[];
 }
 
 const SECRET_KEY_PATTERN = /(token|key|password|secret|credential|auth)/i;
@@ -70,13 +74,15 @@ function buildSnapshot(manifest: TeamRunManifest, tasks: TeamTaskState[]): RunUi
 	};
 }
 
-export async function exportDiagnostic(ctx: Pick<ExtensionContext, "cwd">, runId: string): Promise<{ path: string; report: DiagnosticReport }> {
+export async function exportDiagnostic(ctx: Pick<ExtensionContext, "cwd">, runId: string, options: { registry?: MetricRegistry } = {}): Promise<{ path: string; report: DiagnosticReport }> {
 	const loaded = loadRunManifestById(ctx.cwd, runId);
 	if (!loaded) throw new Error(`Run '${runId}' not found.`);
 	const exportedAt = new Date().toISOString();
 	const safeTimestamp = exportedAt.replace(/[:.]/g, "-");
 	const recentEvents = readEvents(loaded.manifest.eventsPath).slice(-200);
+	const metricsSnapshot = options.registry?.snapshot();
 	const report: DiagnosticReport = {
+		...(metricsSnapshot ? { schemaVersion: 2 } : {}),
 		runId,
 		exportedAt,
 		manifest: redactSecrets(loaded.manifest) as TeamRunManifest,
@@ -85,6 +91,7 @@ export async function exportDiagnostic(ctx: Pick<ExtensionContext, "cwd">, runId
 		heartbeat: summarizeHeartbeats(buildSnapshot(loaded.manifest, loaded.tasks)),
 		agents: redactSecrets(readCrewAgents(loaded.manifest)) as unknown[],
 		envRedacted: envRedacted(),
+		...(metricsSnapshot ? { metricsSnapshot: redactSecrets(metricsSnapshot) as MetricSnapshot[] } : {}),
 	};
 	const dir = path.join(loaded.manifest.artifactsRoot, "diagnostic");
 	fs.mkdirSync(dir, { recursive: true });

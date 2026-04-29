@@ -81,6 +81,32 @@ export const PiTeamsNotificationsConfigSchema = Type.Object({
 	sinkRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
 });
 
+export const PiTeamsObservabilityConfigSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean()),
+	pollIntervalMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 60000 })),
+	metricRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })),
+});
+
+export const PiTeamsReliabilityConfigSchema = Type.Object({
+	autoRetry: Type.Optional(Type.Boolean()),
+	retryPolicy: Type.Optional(Type.Object({
+		maxAttempts: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+		backoffMs: Type.Optional(Type.Integer({ minimum: 100, maximum: 60000 })),
+		jitterRatio: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+		exponentialFactor: Type.Optional(Type.Number({ minimum: 1, maximum: 5 })),
+		retryableErrors: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	})),
+	autoRecover: Type.Optional(Type.Boolean()),
+	deadletterThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+export const PiTeamsOtlpConfigSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean()),
+	endpoint: Type.Optional(Type.String({ minLength: 1 })),
+	headers: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String())),
+	intervalMs: Type.Optional(Type.Integer({ minimum: 5000 })),
+});
+
 export const PiTeamsUiConfigSchema = Type.Object({
 	widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")])),
 	widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -112,5 +138,8 @@ export const PiTeamsConfigSchema = Type.Object({
 	tools: Type.Optional(PiTeamsToolsConfigSchema),
 	telemetry: Type.Optional(PiTeamsTelemetryConfigSchema),
 	notifications: Type.Optional(PiTeamsNotificationsConfigSchema),
+	observability: Type.Optional(PiTeamsObservabilityConfigSchema),
+	reliability: Type.Optional(PiTeamsReliabilityConfigSchema),
+	otlp: Type.Optional(PiTeamsOtlpConfigSchema),
 	ui: Type.Optional(PiTeamsUiConfigSchema),
 });

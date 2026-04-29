@@ -6,6 +6,7 @@ import { updateCrewWidget } from "../../ui/crew-widget.ts";
 import { updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
+import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { handleTeamTool } from "../team-tool.ts";
 
 export interface RegisterTeamToolDeps {
@@ -14,6 +15,7 @@ export interface RegisterTeamToolDeps {
 	openLiveSidebar: (ctx: ExtensionContext, runId: string) => void;
 	getManifestCache: (cwd: string) => ReturnType<typeof createManifestCache>;
 	getRunSnapshotCache?: (cwd: string) => ReturnType<typeof createRunSnapshotCache>;
+	getMetricRegistry?: () => MetricRegistry | undefined;
 	widgetState: CrewWidgetState;
 }
 
@@ -36,7 +38,7 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 					const runLabel = resolved.team ?? resolved.agent ?? "direct";
 					pi.setSessionName(`pi-crew: ${runLabel}/${resolved.workflow ?? "default"} — ${resolved.goal.slice(0, 60)}`);
 				}
-				const output = await handleTeamTool(resolved, { ...ctx, signal: controller.signal, startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId) });
+				const output = await handleTeamTool(resolved, { ...ctx, signal: controller.signal, metricRegistry: deps.getMetricRegistry?.(), startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId) });
 				if (resolved.action === "run") {
 					pi.appendEntry("crew:run-started", {
 						runId: output.details?.runId,

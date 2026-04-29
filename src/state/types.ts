@@ -138,6 +138,12 @@ export interface TaskCheckpointState {
 	childPid?: number;
 }
 
+export interface TaskAttemptState {
+	startedAt: string;
+	endedAt?: string;
+	error?: string;
+}
+
 export interface TeamTaskState {
 	id: string;
 	runId: string;
@@ -166,6 +172,7 @@ export interface TeamTaskState {
 	claim?: TaskClaimState;
 	heartbeat?: WorkerHeartbeatState;
 	checkpoint?: TaskCheckpointState;
+	attempts?: TaskAttemptState[];
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
 	graph?: TaskGraphNode;

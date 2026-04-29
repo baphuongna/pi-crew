@@ -19,12 +19,37 @@ import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../su
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { configRecord, result, type TeamContext } from "./context.ts";
 
+function globMatch(value: string, pattern: string): boolean {
+	const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+	return new RegExp(`^${escaped}$`).test(value);
+}
+
+function snapshotHasRunId(snapshot: { values?: unknown }, runId: string): boolean {
+	const values = Array.isArray(snapshot.values) ? snapshot.values : [];
+	return values.some((value) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+		const labels = (value as { labels?: unknown }).labels;
+		return labels && typeof labels === "object" && !Array.isArray(labels) && (labels as Record<string, unknown>).runId === runId;
+	});
+}
+
 export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
+	const cfg = configRecord(params.config);
+	const operation = typeof cfg.operation === "string" ? cfg.operation : "read-manifest";
+	if (operation === "metrics-snapshot") {
+		const filter = typeof cfg.filter === "string" ? cfg.filter : undefined;
+		const runIdFilter = typeof cfg.runId === "string" ? cfg.runId : params.runId;
+		const snapshots = ctx.metricRegistry?.snapshot() ?? [];
+		const filtered = snapshots.filter((snapshot) => {
+			if (filter && !globMatch(snapshot.name, filter)) return false;
+			if (runIdFilter && !snapshotHasRunId(snapshot, runIdFilter)) return false;
+			return true;
+		});
+		return result(JSON.stringify(filtered, null, 2), { action: "api", status: "ok", ...(runIdFilter ? { runId: runIdFilter } : {}) });
+	}
 	if (!params.runId) return result("API requires runId.", { action: "api", status: "error" }, true);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId);
 	if (!loaded) return result(`Run '${params.runId}' not found.`, { action: "api", status: "error" }, true);
-	const cfg = configRecord(params.config);
-	const operation = typeof cfg.operation === "string" ? cfg.operation : "read-manifest";
 	if (operation === "read-manifest") {
 		return result(JSON.stringify(loaded.manifest, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}

@@ -21,12 +21,14 @@ import { openTranscriptViewer, selectAgentTask } from "./viewers.ts";
 import { printTimings, time } from "../../utils/timings.ts";
 import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
+import type { MetricRegistry } from "../../observability/metric-registry.ts";
 
 export interface RegisterTeamCommandsDeps {
 	startForegroundRun: (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string) => void;
 	openLiveSidebar: (ctx: ExtensionContext, runId: string) => void;
 	getManifestCache: (cwd: string) => { list(max?: number): TeamRunManifest[] };
 	getRunSnapshotCache?: (cwd: string) => ReturnType<typeof createRunSnapshotCache>;
+	getMetricRegistry?: () => MetricRegistry | undefined;
 	dismissNotifications?: () => void;
 }
 
@@ -106,12 +108,15 @@ async function handleHealthDashboardAction(ctx: ExtensionCommandContext, selecti
 			const confirmed = await openConfirm(ctx, { title: "Recent diagnostic exists", body: `File ${recent} was created <1min ago. Export another diagnostic?`, defaultAction: "cancel" });
 			if (!confirmed) return;
 		}
-		const result = await dispatchDiagnosticExport(ctx as ExtensionContext, selection.runId);
+		const result = await dispatchDiagnosticExport(ctx as ExtensionContext, selection.runId, { registry: depsRef?.getMetricRegistry?.() });
 		depsNotify(ctx, result.message, result.ok ? "info" : "error");
 	}
 }
 
+let depsRef: RegisterTeamCommandsDeps | undefined;
+
 export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
+	depsRef = deps;
 	pi.registerCommand("teams", {
 		description: "List pi-crew teams, workflows, and agents",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
@@ -123,7 +128,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 	pi.registerCommand("team-run", {
 		description: "Manually start a pi-crew run (agent may also use the team tool autonomously)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const result = await handleTeamTool(parseRunArgs(args), { ...ctx, startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx as ExtensionContext, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx as ExtensionContext, runId) });
+			const result = await handleTeamTool(parseRunArgs(args), { ...ctx, metricRegistry: deps.getMetricRegistry?.(), startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx as ExtensionContext, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx as ExtensionContext, runId) });
 			await notifyCommandResult(ctx, commandText(result));
 		},
 	});
@@ -160,6 +165,12 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 			await notifyCommandResult(ctx, commandText(result));
 		},
 	});
+
+	pi.registerCommand("team-metrics", { description: "Show pi-crew metrics snapshot: [filter]", handler: async (args: string, ctx: ExtensionCommandContext) => {
+		const filter = args.trim() || undefined;
+		const result = await handleTeamTool({ action: "api", config: { operation: "metrics-snapshot", filter } }, { ...ctx, metricRegistry: deps.getMetricRegistry?.() });
+		await notifyCommandResult(ctx, commandText(result));
+	} });
 
 	pi.registerCommand("team-imports", { description: "List imported pi-crew run bundles", handler: async (_args: string, ctx: ExtensionCommandContext) => {
 		const result = await handleTeamTool({ action: "imports" }, ctx);
@@ -225,7 +236,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 			const uiConfig = loadConfig(ctx.cwd).config.ui;
 			const rightPanel = uiConfig?.dashboardPlacement !== "center";
 			const width = rightPanel ? Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? 56)) : "90%";
-			const selection = await ctx.ui.custom<RunDashboardSelection | undefined>((_tui, theme, _keybindings, done) => new RunDashboard(runs, done, theme, { placement: rightPanel ? "right" : "center", showModel: uiConfig?.showModel, showTokens: uiConfig?.showTokens, showTools: uiConfig?.showTools, snapshotCache: deps.getRunSnapshotCache?.(ctx.cwd), runProvider: () => deps.getManifestCache(ctx.cwd).list(50) }), { overlay: true, overlayOptions: rightPanel ? { width, minWidth: 40, maxHeight: "100%", anchor: "top-right", offsetX: 0, offsetY: 0, margin: { top: 0, right: 0, bottom: 0, left: 0 } } : { width, maxHeight: "90%", anchor: "center", margin: 2 } });
+			const selection = await ctx.ui.custom<RunDashboardSelection | undefined>((_tui, theme, _keybindings, done) => new RunDashboard(runs, done, theme, { placement: rightPanel ? "right" : "center", showModel: uiConfig?.showModel, showTokens: uiConfig?.showTokens, showTools: uiConfig?.showTools, snapshotCache: deps.getRunSnapshotCache?.(ctx.cwd), runProvider: () => deps.getManifestCache(ctx.cwd).list(50), registry: deps.getMetricRegistry?.() }), { overlay: true, overlayOptions: rightPanel ? { width, minWidth: 40, maxHeight: "100%", anchor: "top-right", offsetX: 0, offsetY: 0, margin: { top: 0, right: 0, bottom: 0, left: 0 } } : { width, maxHeight: "90%", anchor: "center", margin: 2 } });
 			if (!selection) return;
 			if (selection.action === "reload") continue;
 			if (selection.action === "notifications-dismiss") {

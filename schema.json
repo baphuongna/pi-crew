@@ -163,6 +163,48 @@
         "quietHours": { "type": "string", "pattern": "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$", "description": "Local HH:MM-HH:MM quiet-hours range; supports cross-day ranges such as 22:00-07:00." },
         "sinkRetentionDays": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 }
       }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Metric registry, heartbeat watcher, and metric file sink settings.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "pollIntervalMs": { "type": "integer", "minimum": 1000, "maximum": 60000, "default": 5000 },
+        "metricRetentionDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 }
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in reliability controls for retry, recovery, and deadletter handling.",
+      "properties": {
+        "autoRetry": { "type": "boolean", "default": false },
+        "autoRecover": { "type": "boolean", "default": false },
+        "deadletterThreshold": { "type": "integer", "minimum": 1, "default": 3 },
+        "retryPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+            "backoffMs": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 1000 },
+            "jitterRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3 },
+            "exponentialFactor": { "type": "number", "minimum": 1, "maximum": 5, "default": 2 },
+            "retryableErrors": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "otlp": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional OpenTelemetry metric export. Disabled by default.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "endpoint": { "type": "string", "minLength": 1 },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "intervalMs": { "type": "integer", "minimum": 5000, "default": 60000 }
+      }
     }
   }
 }
