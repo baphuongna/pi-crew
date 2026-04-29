@@ -1,3 +1,8 @@
+---
+name: read-only-explorer
+description: Read-only exploration and audit workflow. Use for explorer, analyst, reviewer, and source-audit roles that must inspect code without modifying files.
+---
+
 # read-only-explorer
 
 Use this skill for explorer, analyst, reviewer, and source-audit roles.

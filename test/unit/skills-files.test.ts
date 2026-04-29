@@ -11,7 +11,7 @@ test("package ships built-in coding skills", () => {
 		const skillPath = path.join(root, "skills", name, "SKILL.md");
 		assert.equal(fs.existsSync(skillPath), true, `${name} should have SKILL.md`);
 		const content = fs.readFileSync(skillPath, "utf-8");
-		assert.match(content, new RegExp(`# ${name}`));
+		assert.match(content, new RegExp(`^---\\r?\\nname: ${name}\\r?\\ndescription: .+\\r?\\n---\\r?\\n\\r?\\n# ${name}`));
 		assert.ok(content.length > 100, `${name} should contain usable guidance`);
 	}
 });

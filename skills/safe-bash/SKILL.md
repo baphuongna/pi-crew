@@ -1,3 +1,8 @@
+---
+name: safe-bash
+description: Safe shell-command workflow. Use whenever a task may execute shell commands, especially to prefer read-only commands and avoid destructive actions without confirmation.
+---
+
 # safe-bash
 
 Use this skill whenever a task may execute shell commands.

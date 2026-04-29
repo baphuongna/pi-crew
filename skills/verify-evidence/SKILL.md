@@ -1,3 +1,8 @@
+---
+name: verify-evidence
+description: Final verification evidence checklist. Use before finalizing implementation, review, or audit work to report changed files, checks run, artifacts, risks, and rollback notes.
+---
+
 # verify-evidence
 
 Use this skill before finalizing implementation, review, or audit work.

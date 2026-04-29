@@ -1,3 +1,8 @@
+---
+name: git-master
+description: Commit and release hygiene for safe version-control work. Use when preparing commits, releases, version bumps, publishing, or validating package installation.
+---
+
 # git-master
 
 Use this skill for commit/release hygiene.

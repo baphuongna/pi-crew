@@ -1,3 +1,8 @@
+---
+name: task-packet
+description: Structured worker task-packet template. Use when creating or executing worker tasks that need clear objective, scope, constraints, outputs, acceptance criteria, and verification.
+---
+
 # task-packet
 
 Use this skill when creating or executing a worker task.
