@@ -29,14 +29,15 @@ export function findRepoRoot(cwd: string): string | undefined {
 	let current = path.resolve(cwd);
 	const root = path.parse(current).root;
 	const home = path.resolve(os.homedir());
+	const tempRoot = path.resolve(os.tmpdir());
 	while (current !== root) {
-		if (current === home) return undefined;
+		if (current === home || current === tempRoot) return undefined;
 		if (hasProjectMarker(current)) return current;
 		const parent = path.dirname(current);
 		if (parent === current) break;
 		current = parent;
 	}
-	if (current === home) return undefined;
+	if (current === home || current === tempRoot) return undefined;
 	if (hasProjectMarker(root)) return root;
 	return undefined;
 }

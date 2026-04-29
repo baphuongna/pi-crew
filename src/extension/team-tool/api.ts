@@ -133,8 +133,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent) return result("API read-agent-transcript requires config.agentId matching an agent id or task id, or at least one agent in the run.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
 		const artifactTranscriptPath = safeContainedPath(loaded.manifest.artifactsRoot, agent.transcriptPath);
-		const transcriptPath = artifactTranscriptPath ?? agentOutputPath(loaded.manifest, agent.taskId);
-		const text = artifactTranscriptPath ? safeReadContainedFile(loaded.manifest.artifactsRoot, artifactTranscriptPath) ?? "" : safeReadContainedFile(loaded.manifest.stateRoot, transcriptPath) ?? "";
+		const fallbackPath = agentOutputPath(loaded.manifest, agent.taskId);
+		const artifactText = artifactTranscriptPath ? safeReadContainedFile(loaded.manifest.artifactsRoot, artifactTranscriptPath) ?? "" : "";
+		const fallbackText = artifactText ? "" : safeReadContainedFile(loaded.manifest.stateRoot, fallbackPath) ?? "";
+		const transcriptPath = artifactText ? artifactTranscriptPath : fallbackPath;
+		const text = artifactText || fallbackText;
 		return result(text || `(no transcript at ${transcriptPath})`, { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
 	}
 	if (operation === "read-agent-output") {

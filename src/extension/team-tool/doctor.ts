@@ -107,8 +107,8 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 			const userWritable = checkWritableDir(userCrewRoot());
 			const projectWritable = checkWritableDir(projectCrewRoot(input.cwd));
 			return [
-				{ label: "user state", ok: userWritable.ok, detail: userWritable.detail },
-				{ label: "project state", ok: projectWritable.ok, detail: projectWritable.detail },
+				{ label: "user state", ok: userWritable.ok || userWritable.detail.endsWith(": missing"), detail: userWritable.detail },
+				{ label: "project state", ok: projectWritable.ok || projectWritable.detail.endsWith(": missing"), detail: projectWritable.detail },
 				{ label: "project state root", ok: true, detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.runsSubdir) },
 				{ label: "artifacts root", ok: true, detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir) },
 			];
