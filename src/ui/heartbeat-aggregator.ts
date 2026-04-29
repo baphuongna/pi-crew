@@ -28,7 +28,7 @@ function nowMs(now: number | Date | undefined): number {
 }
 
 function isActiveTask(task: TeamTaskState): boolean {
-	return task.status === "running" || task.status === "queued";
+	return task.status === "running";
 }
 
 export function summarizeHeartbeats(snapshot: RunUiSnapshot, opts: HeartbeatSummaryOptions = {}): HeartbeatSummary {

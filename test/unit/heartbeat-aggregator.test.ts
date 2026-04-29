@@ -28,9 +28,14 @@ test("summarizeHeartbeats classifies healthy stale dead and missing", () => {
 	assert.equal(summary.worstStaleMs, 10 * 60_000);
 });
 
-test("summarizeHeartbeats treats alive=false as dead and supports custom thresholds", () => {
-	const summary = summarizeHeartbeats(snapshot([task("a", "queued", "2026-01-01T00:00:00.000Z", false)]), { now: Date.parse("2026-01-01T00:00:01.000Z"), staleMs: 10, deadMs: 20 });
+test("summarizeHeartbeats treats alive=false running tasks as dead and supports custom thresholds", () => {
+	const summary = summarizeHeartbeats(snapshot([task("a", "running", "2026-01-01T00:00:00.000Z", false)]), { now: Date.parse("2026-01-01T00:00:01.000Z"), staleMs: 10, deadMs: 20 });
 	assert.equal(summary.dead, 1);
+});
+
+test("summarizeHeartbeats ignores queued tasks that have not started", () => {
+	const summary = summarizeHeartbeats(snapshot([task("queued", "queued")]), { now: Date.parse("2026-01-01T00:00:00.000Z") });
+	assert.equal(summary.healthy + summary.stale + summary.dead + summary.missing, 0);
 });
 
 test("summarizeHeartbeats ignores terminal tasks", () => {

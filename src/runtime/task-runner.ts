@@ -106,8 +106,16 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		const transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.jsonl`;
 		let finalCheckpointWritten = false;
 		let lastAgentRecordPersistedAt = 0;
+		let lastHeartbeatPersistedAt = 0;
 		let lastRunProgressPersistedAt = 0;
 		let lastRunProgressSummary: ProgressEventSummary | undefined;
+		const persistHeartbeat = (force = false): void => {
+			const now = Date.now();
+			if (!force && now - lastHeartbeatPersistedAt < 1000) return;
+			lastHeartbeatPersistedAt = now;
+			task = { ...task, heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id)) };
+			tasks = persistSingleTaskUpdate(manifest, tasks, task);
+		};
 		const persistChildProgress = (event: unknown, force = false): void => {
 			const now = Date.now();
 			if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
@@ -140,9 +148,13 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				onSpawn: (pid) => {
 					({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
 				},
-				onStdoutLine: (line) => appendCrewAgentOutput(manifest, task.id, line),
+				onStdoutLine: (line) => {
+					appendCrewAgentOutput(manifest, task.id, line);
+					persistHeartbeat();
+				},
 				onJsonEvent: (event) => {
 					appendCrewAgentEvent(manifest, task.id, event);
+					persistHeartbeat();
 					task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 					tasks = updateTask(tasks, task);
 					if (!finalCheckpointWritten && isFinalChildEvent(event)) {
@@ -158,6 +170,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			finalStderr = childResult.stderr;
 			parsedOutput = parsePiJsonOutput(fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf-8") : childResult.stdout);
 			error = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : undefined);
+			persistHeartbeat(true);
 			persistChildProgress({ type: "attempt_finished" }, true);
 			const attempt: ModelAttemptSummary = { model: model ?? "default", success: !error, exitCode, error };
 			modelAttempts.push(attempt);

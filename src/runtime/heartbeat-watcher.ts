@@ -46,7 +46,7 @@ export class HeartbeatWatcher {
 			const loaded = loadRunManifestById(this.opts.cwd, run.runId);
 			if (!loaded) continue;
 			for (const task of loaded.tasks) {
-				if (task.status !== "running" && task.status !== "queued") continue;
+				if (task.status !== "running") continue;
 				const key = `${run.runId}:${task.id}`;
 				const elapsed = heartbeatAgeMs(task.heartbeat, now);
 				const level = classifyHeartbeat(task.heartbeat, thresholds, now);
