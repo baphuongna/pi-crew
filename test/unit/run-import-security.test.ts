@@ -5,14 +5,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { importRunBundle } from "../../src/extension/run-import.ts";
 
-function tryDirectorySymlink(target: string, linkPath: string): boolean {
+function isUsableDirectoryLink(linkPath: string): boolean {
 	try {
-		fs.symlinkSync(target, linkPath, "dir");
+		fs.lstatSync(linkPath);
+		fs.realpathSync.native(linkPath);
 		return true;
 	} catch {
 		try {
+			fs.unlinkSync(linkPath);
+		} catch {
+			try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch { /* ignore cleanup failure */ }
+		}
+		return false;
+	}
+}
+
+function tryDirectorySymlink(target: string, linkPath: string): boolean {
+	try {
+		fs.symlinkSync(target, linkPath, "dir");
+		return isUsableDirectoryLink(linkPath);
+	} catch {
+		try {
 			fs.symlinkSync(target, linkPath, "junction");
-			return true;
+			return isUsableDirectoryLink(linkPath);
 		} catch {
 			return false;
 		}

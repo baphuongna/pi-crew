@@ -25,14 +25,25 @@ const workflow: WorkflowConfig = {
 	steps: [{ id: "plan", role: "planner", task: "Plan {goal}" }],
 };
 
+function isUsableDirectoryLink(linkPath: string): boolean {
+	try {
+		fs.lstatSync(linkPath);
+		fs.realpathSync.native(linkPath);
+		return true;
+	} catch {
+		removeDirectoryLink(linkPath);
+		return false;
+	}
+}
+
 function tryDirectorySymlink(target: string, linkPath: string): boolean {
 	try {
 		fs.symlinkSync(target, linkPath, "dir");
-		return true;
+		return isUsableDirectoryLink(linkPath);
 	} catch {
 		try {
 			fs.symlinkSync(target, linkPath, "junction");
-			return true;
+			return isUsableDirectoryLink(linkPath);
 		} catch {
 			return false;
 		}

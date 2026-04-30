@@ -11,14 +11,29 @@ import { writeArtifact } from "../../src/state/artifact-store.ts";
 
 const team: TeamConfig = { name: "security", description: "security", source: "builtin", filePath: "security.team.md", roles: [{ name: "executor", agent: "executor" }] };
 
-function tryDirectorySymlink(target: string, linkPath: string): boolean {
+function isUsableDirectoryLink(linkPath: string): boolean {
 	try {
-		fs.symlinkSync(target, linkPath, "dir");
+		fs.lstatSync(linkPath);
+		fs.realpathSync.native(linkPath);
 		return true;
 	} catch {
 		try {
+			fs.unlinkSync(linkPath);
+		} catch {
+			try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch { /* ignore cleanup failure */ }
+		}
+		return false;
+	}
+}
+
+function tryDirectorySymlink(target: string, linkPath: string): boolean {
+	try {
+		fs.symlinkSync(target, linkPath, "dir");
+		return isUsableDirectoryLink(linkPath);
+	} catch {
+		try {
 			fs.symlinkSync(target, linkPath, "junction");
-			return true;
+			return isUsableDirectoryLink(linkPath);
 		} catch {
 			return false;
 		}
