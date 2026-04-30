@@ -29,7 +29,7 @@ function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-test("async notifier suppresses pre-existing active runs that later become failed", async () => {
+test("async notifier reports pre-existing active runs that finish after notifier start", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-existing-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	const notifications: Array<{ text: string; level?: string }> = [];
@@ -38,9 +38,34 @@ test("async notifier suppresses pre-existing active runs that later become faile
 		const created = createRunManifest({ cwd, team, workflow, goal: "pre-existing" });
 		saveRunManifest({ ...created.manifest, status: "running" });
 		startAsyncRunNotifier({ cwd, ui: { notify: (text: string, level?: string) => notifications.push({ text, level }) } } as never, state, 10);
-		saveRunManifest({ ...created.manifest, status: "failed", summary: "stale" });
+		saveRunManifest({ ...created.manifest, status: "failed", summary: "finished after notifier start", updatedAt: new Date().toISOString() });
 		await wait(40);
-		assert.equal(notifications.length, 0);
+		assert.equal(notifications.length, 1);
+		assert.match(notifications[0]!.text, /failed/);
+	} finally {
+		stopAsyncRunNotifier(state);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+/* Regression: auto-compaction can stop/restart the extension while an async run
+ * is still active. The restarted notifier must not mark that active run as
+ * already consumed, otherwise the completion follow-up is lost. */
+test("async notifier reports run completed across session restart", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-restart-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const notifications: Array<{ text: string; level?: string }> = [];
+	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "compaction restart" });
+		saveRunManifest({ ...created.manifest, status: "running" });
+		startAsyncRunNotifier({ cwd, ui: { notify: (text: string, level?: string) => notifications.push({ text, level }) } } as never, state, 10);
+		stopAsyncRunNotifier(state);
+		saveRunManifest({ ...created.manifest, status: "completed", updatedAt: new Date().toISOString() });
+		startAsyncRunNotifier({ cwd, ui: { notify: (text: string, level?: string) => notifications.push({ text, level }) } } as never, state, 10);
+		await wait(40);
+		assert.equal(notifications.length, 1);
+		assert.match(notifications[0]!.text, /completed/);
 	} finally {
 		stopAsyncRunNotifier(state);
 		fs.rmSync(cwd, { recursive: true, force: true });
@@ -61,6 +86,25 @@ test("async notifier marks quiet dead background runner as failed", () => {
 		assert.equal(marked.status, "failed");
 		assert.equal(readEvents(marked.eventsPath).some((event) => event.type === "async.died"), true);
 	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("async notifier suppresses notifications after generation becomes stale", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-stale-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const notifications: Array<{ text: string; level?: string }> = [];
+	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
+	let currentGeneration = 1;
+	try {
+		startAsyncRunNotifier({ cwd, ui: { notify: (text: string, level?: string) => notifications.push({ text, level }) } } as never, state, 10, { generation: 1, isCurrent: (generation) => generation === currentGeneration });
+		currentGeneration = 2;
+		const created = createRunManifest({ cwd, team, workflow, goal: "stale run" });
+		saveRunManifest({ ...created.manifest, status: "completed" });
+		await wait(40);
+		assert.equal(notifications.length, 0);
+	} finally {
+		stopAsyncRunNotifier(state);
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { redactSecrets } from "../runtime/diagnostic-export.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { MetricRegistry } from "./metric-registry.ts";
 import type { MetricSnapshot } from "./metrics-primitives.ts";

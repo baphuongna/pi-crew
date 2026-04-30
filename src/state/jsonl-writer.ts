@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { redactJsonLine } from "../utils/redaction.ts";
 
 export interface DrainableSource {
 	pause(): void;
@@ -50,7 +51,8 @@ export function createJsonlWriter(filePath: string | undefined, source: Drainabl
 	return {
 		writeLine(line: string) {
 			if (!stream || closed || !line.trim()) return;
-			const chunk = `${line}\n`;
+			const safeLine = redactJsonLine(line);
+			const chunk = `${safeLine}\n`;
 			const chunkBytes = Buffer.byteLength(chunk, "utf-8");
 			if (bytesWritten + chunkBytes > maxBytes) return;
 			try {

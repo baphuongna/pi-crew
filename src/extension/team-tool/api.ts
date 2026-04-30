@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { loadConfig } from "../../config/config.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { saveRunTasks, loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import { withRunLockSync } from "../../state/locks.ts";
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../state/contracts.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
@@ -9,6 +9,7 @@ import { acknowledgeMailboxMessage, appendMailboxMessage, readDeliveryState, rea
 import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import { probeLiveSessionRuntime } from "../../subagents/live/session-runtime.ts";
+import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import { touchWorkerHeartbeat } from "../../runtime/worker-heartbeat.ts";
 import { agentOutputPath, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { buildAgentDashboard, readAgentOutput } from "../../runtime/agent-observability.ts";
@@ -54,6 +55,13 @@ function snapshotHasRunId(snapshot: { values?: unknown }, runId: string): boolea
 	});
 }
 
+function canApprovePlan(): { allowed: boolean; reason?: string } {
+	const role = currentCrewRole();
+	if (!role) return { allowed: true };
+	if (permissionForRole(role) === "read_only") return { allowed: false, reason: `Role '${role}' is read-only and cannot approve or cancel plan gates.` };
+	return { allowed: true };
+}
+
 export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const cfg = configRecord(params.config);
 	const operation = typeof cfg.operation === "string" ? cfg.operation : "read-manifest";
@@ -73,6 +81,47 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 	if (!loaded) return result(`Run '${params.runId}' not found.`, { action: "api", status: "error" }, true);
 	if (operation === "read-manifest") {
 		return result(JSON.stringify(loaded.manifest, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
+	}
+	if (operation === "approve-plan") {
+		const permission = canApprovePlan();
+		if (!permission.allowed) return result(permission.reason ?? "Plan approval is not allowed in this context.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		try {
+			return withRunLockSync(loaded.manifest, () => {
+				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded;
+				const approval = current.manifest.planApproval;
+				if (!approval?.required || approval.status !== "pending") return result("Run has no pending plan approval request.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+				const now = new Date().toISOString();
+				const manifest = { ...current.manifest, updatedAt: now, planApproval: { ...approval, status: "approved" as const, approvedAt: now, updatedAt: now } };
+				saveRunManifest(manifest);
+				appendEvent(manifest.eventsPath, { type: "plan.approved", runId: manifest.runId, taskId: approval.planTaskId, message: "Adaptive implementation plan approved; resume the run to execute mutating tasks.", metadata: { provenance: "api" } });
+				return result(JSON.stringify(manifest.planApproval, null, 2), { action: "api", status: "ok", runId: manifest.runId, artifactsRoot: manifest.artifactsRoot });
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return result(message, { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		}
+	}
+	if (operation === "cancel-plan") {
+		const permission = canApprovePlan();
+		if (!permission.allowed) return result(permission.reason ?? "Plan approval cancellation is not allowed in this context.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		try {
+			return withRunLockSync(loaded.manifest, () => {
+				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded;
+				const approval = current.manifest.planApproval;
+				if (!approval?.required || approval.status !== "pending") return result("Run has no pending plan approval request.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+				const now = new Date().toISOString();
+				const tasks = current.tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled" as const, finishedAt: now, error: "Plan approval was cancelled." } : task);
+				let manifest: typeof current.manifest = { ...current.manifest, updatedAt: now, planApproval: { ...approval, status: "cancelled" as const, cancelledAt: now, updatedAt: now } };
+				saveRunManifest(manifest);
+				saveRunTasks(manifest, tasks);
+				appendEvent(manifest.eventsPath, { type: "plan.cancelled", runId: manifest.runId, taskId: approval.planTaskId, message: "Adaptive implementation plan was cancelled.", metadata: { provenance: "api" } });
+				manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
+				return result(JSON.stringify({ planApproval: manifest.planApproval, cancelledTasks: tasks.filter((task) => task.status === "cancelled").map((task) => task.id) }, null, 2), { action: "api", status: "ok", runId: manifest.runId, artifactsRoot: manifest.artifactsRoot });
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return result(message, { action: "api", status: "error", runId: loaded.manifest.runId }, true);
+		}
 	}
 	if (operation === "list-tasks") {
 		return result(JSON.stringify(loaded.tasks, null, 2), { action: "api", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });

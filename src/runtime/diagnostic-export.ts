@@ -9,6 +9,8 @@ import { loadRunManifestById } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { summarizeHeartbeats, type HeartbeatSummary } from "../ui/heartbeat-aggregator.ts";
 import type { RunUiSnapshot } from "../ui/snapshot-types.ts";
+import { redactSecrets } from "../utils/redaction.ts";
+export { redactSecrets } from "../utils/redaction.ts";
 
 export interface DiagnosticReport {
 	schemaVersion?: number;
@@ -24,22 +26,6 @@ export interface DiagnosticReport {
 }
 
 const SECRET_KEY_PATTERN = /(token|key|password|secret|credential|auth)/i;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-export function redactSecrets(value: unknown, keyName = ""): unknown {
-	if (SECRET_KEY_PATTERN.test(keyName)) return "***";
-	if (typeof value === "string") return value.replace(/((?:token|key|password|secret|credential|auth)[\w.-]*\s*[=:]\s*)[^\s,;]+/gi, "$1***");
-	if (Array.isArray(value)) return value.map((item) => redactSecrets(item));
-	if (isRecord(value)) {
-		const output: Record<string, unknown> = {};
-		for (const [key, entry] of Object.entries(value)) output[key] = redactSecrets(entry, key);
-		return output;
-	}
-	return value;
-}
 
 function envRedacted(): Record<string, string> {
 	const output: Record<string, string> = {};

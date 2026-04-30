@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { NotificationDescriptor } from "./notification-router.ts";
-import { redactSecrets } from "../runtime/diagnostic-export.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 export interface NotificationSink {

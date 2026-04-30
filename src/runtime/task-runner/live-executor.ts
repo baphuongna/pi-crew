@@ -24,6 +24,7 @@ export interface RunLiveTaskInput {
 	parentContext?: string;
 	parentModel?: unknown;
 	modelRegistry?: unknown;
+	isCurrent?: () => boolean;
 }
 
 export interface RunLiveTaskOutput {
@@ -65,6 +66,7 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 		}
 	};
 	const attemptStartedAt = new Date();
+	const isCurrent = input.isCurrent ?? (() => input.signal?.aborted !== true);
 	const liveResult = await runLiveSessionTask({
 		manifest,
 		task,
@@ -77,6 +79,7 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 		parentContext: input.parentContext,
 		parentModel: input.parentModel,
 		modelRegistry: input.modelRegistry,
+		isCurrent,
 		onOutput: (text) => appendCrewAgentOutput(manifest, task.id, text),
 		onEvent: (event) => {
 			appendCrewAgentEvent(manifest, task.id, event);

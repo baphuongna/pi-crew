@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { DEFAULT_EVENT_LOG } from "../config/defaults.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 
 export type TeamEventProvenance = "live_worker" | "test" | "healthcheck" | "replay" | "api" | "background" | "team_runner";
 export type TeamWatcherAction = "act" | "observe" | "ignore";
@@ -135,7 +136,7 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 	} catch (error) {
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 	}
-	fs.appendFileSync(eventsPath, `${JSON.stringify(fullEvent)}\n`, "utf-8");
+	fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
 	const seq = fullEvent.metadata?.seq ?? 0;
 	try {
 		const stat = fs.statSync(eventsPath);

@@ -7,6 +7,7 @@ import { getPiSpawnCommand } from "./pi-spawn.ts";
 import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
+import { redactJsonLine } from "../utils/redaction.ts";
 
 const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
 const FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
@@ -118,7 +119,7 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv): S
 function appendTranscript(input: ChildPiRunInput, line: string): void {
 	if (!input.transcriptPath) return;
 	fs.mkdirSync(path.dirname(input.transcriptPath), { recursive: true });
-	fs.appendFileSync(input.transcriptPath, `${line}\n`, "utf-8");
+	fs.appendFileSync(input.transcriptPath, `${redactJsonLine(line)}\n`, "utf-8");
 }
 
 function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS): string {

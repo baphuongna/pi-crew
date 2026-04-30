@@ -8,6 +8,13 @@ import { listRuns } from "./run-index.ts";
 export interface AsyncNotifierState {
 	seenFinishedRunIds: Set<string>;
 	interval?: ReturnType<typeof setInterval>;
+	generation?: number;
+	lastStoppedAtMs?: number;
+}
+
+export interface AsyncNotifierOptions {
+	generation?: number;
+	isCurrent?: (generation: number) => boolean;
 }
 
 function isFinished(status: string): boolean {
@@ -16,6 +23,12 @@ function isFinished(status: string): boolean {
 
 function isAsyncTerminalEvent(event: TeamEvent): boolean {
 	return event.type === "async.completed" || event.type === "async.failed" || event.type === "async.died";
+}
+
+function timeMs(value: string | undefined): number | undefined {
+	if (!value) return undefined;
+	const parsed = new Date(value).getTime();
+	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function latestEventAgeMs(events: TeamEvent[], now = Date.now()): number {
@@ -38,14 +51,21 @@ export function markDeadAsyncRunIfNeeded(run: TeamRunManifest, now = Date.now(),
 	return failed;
 }
 
-export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifierState, intervalMs = 5000): void {
+export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifierState, intervalMs = 5000, options: AsyncNotifierOptions = {}): void {
 	if (state.interval) clearInterval(state.interval);
+	const generation = options.generation ?? ((state.generation ?? 0) + 1);
+	state.generation = generation;
+	const startedAtMs = Date.now();
+	const staleBeforeMs = state.lastStoppedAtMs ?? startedAtMs;
 	for (const run of listRuns(ctx.cwd)) {
-		// Treat all pre-existing runs as seen. This avoids noisy error toasts when
-		// an old active/stale run is later inspected and transitions to failed.
-		state.seenFinishedRunIds.add(run.runId);
+		// Suppress only terminal runs that were already finished before this owner
+		// session (or before the previous session switch). Active runs must remain
+		// un-seen so completions during auto-compaction/session restart are delivered.
+		const updatedAtMs = timeMs(run.updatedAt) ?? 0;
+		if (isFinished(run.status) && updatedAtMs < staleBeforeMs) state.seenFinishedRunIds.add(run.runId);
 	}
 	state.interval = setInterval(() => {
+		if (options.isCurrent && !options.isCurrent(generation)) return;
 		try {
 			for (const run of listRuns(ctx.cwd).slice(0, 20)) {
 				const current = markDeadAsyncRunIfNeeded(run) ?? run;
@@ -64,4 +84,6 @@ export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifie
 export function stopAsyncRunNotifier(state: AsyncNotifierState): void {
 	if (state.interval) clearInterval(state.interval);
 	state.interval = undefined;
+	state.generation = (state.generation ?? 0) + 1;
+	state.lastStoppedAtMs = Date.now();
 }

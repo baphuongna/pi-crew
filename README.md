@@ -25,13 +25,14 @@ Current highlights:
 - metadata-aware `recommend` action for routing, decomposition, fanout hints, async/worktree suggestions
 - configurable autonomy profiles: `manual`, `suggested`, `assisted`, `aggressive`
 - builtin agents, teams, and workflows
-- user/project/builtin resource discovery with priority `builtin < user < project`
+- user/project/builtin resource discovery where user resources override builtin resources, and project resources cannot shadow trusted user/builtin names
 - resource format support for routing metadata: `triggers`, `useWhen`, `avoidWhen`, `cost`, `category`
 - durable run state: manifest, tasks, events, artifacts, imports/exports
 - foreground workflow scheduler
 - detached async/background runner
 - stale async PID detection
 - active run summary and async completion notifications in Pi sessions
+- owner-session delivery guards so stale sessions do not receive background subagent/result/live-session completions
 - real child Pi worker execution by default, with explicit scaffold/dry-run opt-out
 - child Pi JSON output parsing for final text, usage, and event counts
 - retryable model fallback attempts per task
@@ -58,6 +59,8 @@ Current highlights:
 - observability metrics: per-session Counter/Gauge/Histogram registry, JSONL sink, `/team-metrics`, dashboard metrics pane, Prometheus/OTLP exporters (OTLP opt-in)
 - reliability hardening: heartbeat gradient watcher, opt-in retry executor with attempt trace, crash-recovery detection, deadletter queue
 - background `Agent`/`crew_agent` completion wake-up so parent sessions can automatically join completed subagent results
+- optional `runtime.requirePlanApproval` gate for planner-first approval before mutating adaptive implementation workers run
+- shared redaction for common secrets before durable event/log/mailbox/artifact/metric/diagnostic persistence
 - package polish: `schema.json`, TypeScript semantic check, strip-types import smoke, cross-platform CI workflow, dry-run package verification
 
 ## Install
@@ -146,8 +149,12 @@ The project root is auto-detected by walking up from the current directory and s
 Config merge priority:
 
 ```text
-user < project
+user < project for ordinary presentation/UX settings
 ```
+
+Trust-boundary exception: project config is intentionally not trusted for sensitive execution controls. Project-level values such as `executeWorkers`, `asyncByDefault`, runtime mode/live-session inheritance, autonomy mode, `agents.disableBuiltins`, `agents.overrides`, `worktree.setupHook`, and `otlp.headers` are ignored with warnings. Set those in user config when you want to trust them explicitly.
+
+Resource discovery trust boundary: project-local agents, teams, and workflows may add new names, but cannot shadow builtin or user resources with the same name.
 
 Supported config:
 
@@ -166,6 +173,10 @@ Supported config:
     "magicKeywords": {
       "review": ["review", "audit", "inspect"]
     }
+  },
+  "runtime": {
+    "mode": "auto",
+    "requirePlanApproval": false
   },
   "limits": {
     "maxConcurrentWorkers": 3,
@@ -222,9 +233,11 @@ Supported config:
 Safety notes:
 
 - Foreground child-process runs continue in the Pi extension process and return control to chat immediately, so large workflows do not block the interactive session. They are interrupted on session shutdown. Use `async: true` only for intentionally detached runs that may survive the current session.
+- Async completion notifications survive extension reload/auto-compaction: active runs are not marked consumed just because the notifier restarts, while stale owner-session callbacks are suppressed after session switches.
 - Background `Agent`/`crew_agent` runs notify the parent session when they reach a terminal state; the parent can then call `get_subagent_result`/`crew_agent_result` and continue the original task.
 - `tools.terminateOnForeground` is an opt-in power-user setting. When true, foreground `Agent`/`crew_agent` calls return with `terminate: true` after the child result is available, saving one follow-up LLM turn. Default is false so the assistant can still summarize raw worker output.
 - Runtime state paths are treated as untrusted data: run ids, import bundles, artifact/transcript paths, mailbox files, and agent control/log files are validated with containment checks before reads or writes.
+- Common secret patterns (`token=`, `apiKey=`, `Authorization: Bearer ...`, private keys, etc.) are redacted before durable logs/events/mailbox/artifacts/metrics/diagnostics are written.
 - `observability.enabled` defaults to true for in-memory metrics and heartbeat watching. Metric JSONL snapshots are gated by `telemetry.enabled`; set `telemetry.enabled=false` to opt out of local telemetry files.
 - `reliability.autoRetry` and `reliability.autoRecover` default to false. Enabling retry may execute an idempotent task more than once; each attempt is recorded in `task.attempts`, and exhausted retries append a deadletter entry.
 - `otlp.enabled` defaults to false. Configure `otlp.endpoint` only when you want to push metrics to an OTLP HTTP collector.
@@ -320,7 +333,7 @@ Supported actions:
 | `config` | Show/update config |
 | `init` | Create project `.pi` layout and update `.gitignore` |
 | `autonomy` | Show/update autonomous delegation settings |
-| `api` | Safe interop for run/task/event/heartbeat/claim/mailbox state |
+| `api` | Safe interop for run/task/event/heartbeat/claim/mailbox state, including plan approval/cancel operations |
 | `help` | Show help text |
 
 ## Example tool calls
@@ -355,6 +368,30 @@ Run with worktrees:
   "workflow": "implementation",
   "goal": "Add API endpoint and tests",
   "workspaceMode": "worktree"
+}
+```
+
+Require explicit approval after the adaptive planner writes a plan artifact and before mutating workers run:
+
+```json
+{
+  "action": "run",
+  "team": "implementation",
+  "workflow": "implementation",
+  "goal": "Refactor auth and update tests",
+  "config": {
+    "runtime": { "requirePlanApproval": true }
+  }
+}
+```
+
+Approve or cancel the pending plan:
+
+```json
+{
+  "action": "api",
+  "runId": "team_...",
+  "config": { "operation": "approve-plan" }
 }
 ```
 
@@ -438,6 +475,8 @@ Manual slash commands are ops/debug controls. Autonomous tool use via policy/rec
 /team-api team_... ack-message messageId=msg_...
 /team-api team_... read-delivery
 /team-api team_... validate-mailbox repair=true
+/team-api team_... approve-plan
+/team-api team_... cancel-plan
 ```
 
 Use `/team-metrics` for a current metrics snapshot. The optional argument is a glob-style metric filter:

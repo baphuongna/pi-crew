@@ -6,6 +6,7 @@ import { DEFAULT_SUBAGENT } from "../config/defaults.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "error" | "blocked" | "stopped";
 
@@ -17,6 +18,7 @@ export interface SubagentSpawnOptions {
 	background: boolean;
 	model?: string;
 	maxTurns?: number;
+	ownerSessionGeneration?: number;
 }
 
 export interface SubagentRecord {
@@ -33,6 +35,7 @@ export interface SubagentRecord {
 	resultConsumed?: boolean;
 	model?: string;
 	background: boolean;
+	ownerSessionGeneration?: number;
 	stuckNotified?: boolean;
 	blockedAt?: number;
 	promise?: Promise<void>;
@@ -66,7 +69,7 @@ export function savePersistedSubagentRecord(cwd: string, record: SubagentRecord)
 	try {
 		const filePath = persistedSubagentPath(cwd, record.id);
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
-		fs.writeFileSync(filePath, `${JSON.stringify(serializableRecord(record), null, 2)}\n`, "utf-8");
+		fs.writeFileSync(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}\n`, "utf-8");
 	} catch (error) {
 		logInternalError("subagent-manager.save", error, `id=${record.id}`);
 	}
@@ -136,6 +139,7 @@ export class SubagentManager {
 			startedAt: Date.now(),
 			model: options.model,
 			background: options.background,
+			ownerSessionGeneration: options.ownerSessionGeneration,
 		};
 		this.records.set(record.id, record);
 		this.cwdByRecord.set(record.id, options.cwd);
@@ -373,6 +377,7 @@ export class SubagentManager {
 				id: current.id,
 				runId: current.runId,
 				durationMs: Math.max(0, Date.now() - current.blockedAt),
+				ownerSessionGeneration: current.ownerSessionGeneration,
 			});
 			savePersistedSubagentRecord(cwd, current);
 		};

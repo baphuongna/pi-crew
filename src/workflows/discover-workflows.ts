@@ -129,7 +129,7 @@ export function discoverWorkflows(cwd: string): WorkflowDiscoveryResult {
 
 export function allWorkflows(discovery: WorkflowDiscoveryResult): WorkflowConfig[] {
 	const byName = new Map<string, WorkflowConfig>();
-	for (const workflow of [...discovery.builtin, ...discovery.user, ...discovery.project]) {
+	for (const workflow of [...discovery.project, ...discovery.builtin, ...discovery.user]) {
 		byName.set(workflow.name, workflow);
 	}
 	return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));

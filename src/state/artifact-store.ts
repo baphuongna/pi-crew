@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { ArtifactDescriptor } from "./types.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { redactSecretString } from "../utils/redaction.ts";
 
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
@@ -108,7 +109,8 @@ export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptio
 	resolveRealContainedPath(path.dirname(artifactsRoot), path.basename(artifactsRoot));
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	resolveRealContainedPath(artifactsRoot, path.dirname(filePath));
-	atomicWriteFile(filePath, options.content);
+	const content = redactSecretString(options.content);
+	atomicWriteFile(filePath, content);
 	const stats = fs.statSync(filePath);
 	return {
 		kind: options.kind,
@@ -116,7 +118,7 @@ export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptio
 		createdAt: new Date().toISOString(),
 		producer: options.producer,
 		sizeBytes: stats.size,
-		contentHash: hashContent(options.content),
+		contentHash: hashContent(content),
 		retention: options.retention ?? "run",
 	};
 }

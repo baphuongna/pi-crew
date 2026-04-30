@@ -41,6 +41,47 @@ test("result watcher dedupes duplicate completion payloads within ttl", async ()
 	}
 });
 
+test("result watcher suppresses stale primed results", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-result-watcher-stale-"));
+	const emitted: unknown[] = [];
+	try {
+		fs.writeFileSync(path.join(dir, "stale.json"), JSON.stringify({ runId: "stale", status: "completed" }), "utf-8");
+		const watcher = createResultWatcher({ emit: (_event, data) => emitted.push(data) }, dir, { isCurrent: () => false });
+		watcher.prime();
+		await wait(20);
+		watcher.stop();
+		assert.deepEqual(emitted, []);
+		assert.equal(fs.existsSync(path.join(dir, "stale.json")), true);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("result watcher does not restart when generation is stale", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-result-watcher-stale-restart-"));
+	let watchCalls = 0;
+	let current = true;
+	try {
+		const watcher = createResultWatcher({ emit: () => {} }, dir, {
+			isCurrent: () => current,
+			watch: (_resultsDir, _listener, onError) => {
+				watchCalls += 1;
+				onError();
+				return null;
+			},
+		});
+		watcher.start();
+		await wait(50);
+		assert.equal(watchCalls, 1);
+		current = false;
+		await wait(3500);
+		assert.equal(watchCalls, 1);
+		watcher.stop();
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("result watcher restarts after watch error", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-result-watcher-restart-"));
 	let watchCalls = 0;

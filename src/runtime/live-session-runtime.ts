@@ -10,6 +10,7 @@ import { subscribeLiveControlRealtime } from "./live-control-realtime.ts";
 import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "./sidechain-output.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { isLiveSessionRuntimeAvailable } from "./runtime-resolver.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 
 export interface LiveSessionSpawnInput {
 	manifest: TeamRunManifest;
@@ -25,6 +26,7 @@ export interface LiveSessionSpawnInput {
 	parentContext?: string;
 	parentModel?: unknown;
 	modelRegistry?: unknown;
+	isCurrent?: () => boolean;
 }
 
 export interface LiveSessionRunResult {
@@ -70,7 +72,7 @@ type LiveSessionLike = {
 function appendTranscript(filePath: string | undefined, event: unknown): void {
 	if (!filePath) return;
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, "utf-8");
+	fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets(event))}\n`, "utf-8");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -173,6 +175,7 @@ export async function probeLiveSessionRuntime(): Promise<LiveSessionUnavailableR
 }
 
 export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<LiveSessionRunResult> {
+	const isCurrent = input.isCurrent ?? (() => true);
 	if (process.env.PI_CREW_MOCK_LIVE_SESSION === "success") {
 		const agentId = `${input.manifest.runId}:${input.task.id}`;
 		const inherited = input.runtimeConfig?.inheritContext === true && input.parentContext ? ` with inherited context: ${input.parentContext}` : "";
@@ -183,9 +186,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		const sidechainPath = sidechainOutputPath(input.manifest.stateRoot, input.task.id);
 		writeSidechainEntry(sidechainPath, { agentId, type: "user", message: { role: "user", content: input.prompt }, cwd: input.task.cwd });
 		writeSidechainEntry(sidechainPath, { agentId, type: "message", message: event, cwd: input.task.cwd });
-		input.onEvent?.(event);
+		if (isCurrent()) input.onEvent?.(event);
 		const stdout = `Mock live-session success for ${input.agent.name}${inherited}`;
-		input.onOutput?.(stdout);
+		if (isCurrent()) input.onOutput?.(stdout);
 		updateLiveAgentStatus(agentId, "completed");
 		return { available: true, exitCode: 0, stdout, stderr: "", jsonEvents: 1 };
 	}
@@ -234,7 +237,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		const seenControlRequestIds = new Set<string>();
 		let controlBusy = false;
 		const pollControl = async () => {
-			if (controlBusy || !session) return;
+			if (!isCurrent() || controlBusy || !session) return;
 			controlBusy = true;
 			try {
 				controlCursor = await applyLiveAgentControlRequests({ manifest: input.manifest, taskId: input.task.id, agentId, session, cursor: controlCursor, seenRequestIds: seenControlRequestIds });
@@ -243,11 +246,13 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			}
 		};
 		unsubscribeControlRealtime = subscribeLiveControlRealtime((request) => {
-			if (request.runId !== input.manifest.runId || request.taskId !== input.task.id || !session) return;
+			if (!isCurrent() || request.runId !== input.manifest.runId || request.taskId !== input.task.id || !session) return;
 			void applyLiveAgentControlRequest({ request, taskId: input.task.id, agentId, session, seenRequestIds: seenControlRequestIds });
 		});
 		await pollControl();
-		controlTimer = setInterval(() => { void pollControl(); }, 500);
+		controlTimer = setInterval(() => {
+			if (isCurrent()) void pollControl();
+		}, 500);
 		let turnCount = 0;
 		let softLimitReached = false;
 		const maxTurns = input.runtimeConfig?.maxTurns;
@@ -256,6 +261,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		writeSidechainEntry(sidechainPath, { agentId, type: "user", message: { role: "user", content: input.prompt }, cwd: input.task.cwd });
 		if (typeof session.subscribe === "function") {
 			unsubscribe = session.subscribe((event) => {
+				if (!isCurrent()) return;
 				jsonEvents += 1;
 				appendTranscript(input.transcriptPath, event);
 				const sidechainType = eventToSidechainType(event);

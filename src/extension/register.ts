@@ -53,6 +53,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	}
 	const notifierState: AsyncNotifierState = { seenFinishedRunIds: new Set() };
 	let currentCtx: ExtensionContext | undefined;
+	let sessionGeneration = 0;
 	let rpcHandle: PiCrewRpcHandle | undefined;
 	let cleanedUp = false;
 	let manifestCache = createManifestCache(process.cwd());
@@ -153,6 +154,9 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			sendFollowUp(pi, [notification.title, notification.body].filter((line): line is string => Boolean(line)).join("\n"));
 		}
 	};
+	const captureSessionGeneration = (): number => sessionGeneration;
+	const isOwnerSessionCurrent = (ownerGeneration: number | undefined): boolean => !cleanedUp && (ownerGeneration === undefined || ownerGeneration === sessionGeneration);
+	const isContextCurrent = (ctx: ExtensionContext, ownerGeneration: number): boolean => !cleanedUp && currentCtx === ctx && sessionGeneration === ownerGeneration;
 	const subagentManager = new SubagentManager(
 		4,
 		(record) => {
@@ -170,6 +174,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				});
 			}
 			if (!record.background || record.resultConsumed) return;
+			if (!isOwnerSessionCurrent(record.ownerSessionGeneration)) return;
 			if (record.status === "completed" || record.status === "failed" || record.status === "cancelled" || record.status === "blocked" || record.status === "error") {
 				const metadata = JSON.stringify({ id: record.id, status: record.status, type: record.type, runId: record.runId, description: record.description }, null, 2);
 				const joinInstruction = [
@@ -186,6 +191,8 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		},
 		1000,
 		(event, payload) => {
+			const ownerGeneration = typeof payload.ownerSessionGeneration === "number" ? payload.ownerSessionGeneration : undefined;
+			if (ownerGeneration !== undefined && !isOwnerSessionCurrent(ownerGeneration)) return;
 			if (event === "subagent.stuck-blocked") {
 				const id = typeof payload.id === "string" ? payload.id : "unknown";
 				const runId = typeof payload.runId === "string" ? payload.runId : "unknown";
@@ -233,6 +240,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		});
 	};
 	const startForegroundRun = (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string): void => {
+		const ownerGeneration = captureSessionGeneration();
 		const controller = new AbortController();
 		foregroundControllers.add(controller);
 		if (ctx.hasUI) {
@@ -251,15 +259,16 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 							logInternalError("register.foreground-run-failure", statusError, `runId=${runId}`);
 						}
 					}
-					ctx.ui.notify(`pi-crew foreground run failed: ${message}`, "error");
+					if (isContextCurrent(ctx, ownerGeneration)) ctx.ui.notify(`pi-crew foreground run failed: ${message}`, "error");
 				})
 				.finally(() => {
 					foregroundControllers.delete(controller);
-					if (ctx.hasUI) {
+					const ownerCurrent = isContextCurrent(ctx, ownerGeneration);
+					if (ownerCurrent && ctx.hasUI) {
 						setWorkingIndicator(ctx);
 						ctx.ui.setWorkingMessage();
 					}
-					if (runId) {
+					if (ownerCurrent && runId) {
 						const loaded = loadRunManifestById(ctx.cwd, runId);
 						const status = loaded?.manifest.status ?? "finished";
 						const level = status === "failed" || status === "blocked" ? "error" : status === "cancelled" ? "warning" : "info";
@@ -287,7 +296,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 							});
 						}
 					}
-					if (currentCtx) {
+					if (ownerCurrent && currentCtx) {
 						const config = loadConfig(currentCtx.cwd).config.ui;
 						updateCrewWidget(currentCtx, widgetState, config, getManifestCache(currentCtx.cwd), getRunSnapshotCache(currentCtx.cwd));
 						updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, getManifestCache(currentCtx.cwd), getRunSnapshotCache(currentCtx.cwd), currentCtx, widgetState.notificationCount ?? 0);
@@ -328,6 +337,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		notificationSink = undefined;
 		rpcHandle?.unsubscribe();
 		rpcHandle = undefined;
+		sessionGeneration += 1;
 		currentCtx = undefined;
 		if (globalStore[runtimeCleanupStoreKey] === cleanupRuntime) delete globalStore[runtimeCleanupStoreKey];
 	};
@@ -337,6 +347,8 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		runArtifactCleanup(ctx.cwd);
 		time("register.session-start");
 		cleanedUp = false;
+		sessionGeneration++;
+		const ownerGeneration = sessionGeneration;
 		currentCtx = ctx;
 		if (widgetState.interval) clearInterval(widgetState.interval);
 		widgetState.interval = undefined;
@@ -346,7 +358,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		configureNotifications(ctx);
 		configureObservability(ctx);
 		registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
-		startAsyncRunNotifier(ctx, notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs);
+		startAsyncRunNotifier(ctx, notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, { generation: ownerGeneration, isCurrent: (generation) => generation === sessionGeneration && currentCtx === ctx && !cleanedUp });
 		const cache = getManifestCache(ctx.cwd);
 		updateCrewWidget(ctx, widgetState, loadedConfig.config.ui, cache, getRunSnapshotCache(ctx.cwd));
 		updatePiCrewPowerbar(pi.events, ctx.cwd, loadedConfig.config.ui, cache, getRunSnapshotCache(ctx.cwd), ctx, widgetState.notificationCount ?? 0);
@@ -395,7 +407,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			onInvalidate: () => getRunSnapshotCache(ctx.cwd).invalidate(),
 		});
 	});
-	pi.on("session_before_switch", () => stopSessionBoundSubagents());
+	pi.on("session_before_switch", () => {
+		sessionGeneration++;
+		stopAsyncRunNotifier(notifierState);
+		stopSessionBoundSubagents();
+	});
 	pi.on("session_shutdown", () => cleanupRuntime());
 
 	registerCompactionGuard(pi, { foregroundControllers });
@@ -417,7 +433,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	});
 
 	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, widgetState });
-	registerSubagentTools(pi, subagentManager);
+	registerSubagentTools(pi, subagentManager, { ownerSessionGeneration: captureSessionGeneration });
 	time("register.tools");
 
 	registerTeamCommands(pi, { startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, dismissNotifications: () => {

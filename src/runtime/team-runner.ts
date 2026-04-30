@@ -24,6 +24,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import { resolveBatchConcurrency } from "./concurrency.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
+import { permissionForRole } from "./role-permission.ts";
 
 export interface ExecuteTeamRunInput {
 	manifest: TeamRunManifest;
@@ -398,6 +399,47 @@ function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): Tea
 	return result.tasks.find((item) => item.id === taskId && item.status === "failed");
 }
 
+function requiresPlanApproval(workflow: WorkflowConfig, runtimeConfig: CrewRuntimeConfig | undefined): boolean {
+	return workflow.name === "implementation" && runtimeConfig?.requirePlanApproval === true;
+}
+
+function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
+	return manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
+}
+
+function isMutatingTask(task: TeamTaskState): boolean {
+	return permissionForRole(task.role) !== "read_only";
+}
+
+function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: TeamTaskState[]): TeamRunManifest {
+	if (manifest.planApproval) return manifest;
+	const assessTask = tasks.find((task) => task.stepId === "assess" && task.status === "completed");
+	const now = new Date().toISOString();
+	const updated: TeamRunManifest = {
+		...manifest,
+		updatedAt: now,
+		planApproval: {
+			required: true,
+			status: "pending",
+			requestedAt: now,
+			updatedAt: now,
+			planTaskId: assessTask?.id,
+			planArtifactPath: assessTask?.resultArtifact?.path,
+		},
+	};
+	saveRunManifest(updated);
+	appendEvent(updated.eventsPath, { type: "plan.approval_required", runId: updated.runId, taskId: assessTask?.id, message: "Adaptive implementation plan requires explicit approval before mutating tasks run.", data: { planArtifactPath: assessTask?.resultArtifact?.path } });
+	return updated;
+}
+
+function cancelPlanTasks(tasks: TeamTaskState[], reason: string): TeamTaskState[] {
+	return tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled", finishedAt: new Date().toISOString(), error: reason, graph: task.graph ? { ...task.graph, queue: "done" } : undefined } : task);
+}
+
+function hasPendingMutatingAdaptiveTask(tasks: TeamTaskState[]): boolean {
+	return tasks.some((task) => task.status === "queued" && task.adaptive && isMutatingTask(task));
+}
+
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
 	let workflow = input.workflow;
 	let manifest = updateRunStatus(input.manifest, "running", input.executeWorkers ? "Executing team workflow." : "Creating workflow prompts and placeholder results.");
@@ -422,7 +464,18 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		manifest = updateRunStatus(manifest, "blocked", "Adaptive planner did not produce a valid subagent plan.");
 		return { manifest, tasks };
 	}
-	if (initialAdaptive.injected) queueIndex = buildTaskGraphIndex(tasks);
+	if (initialAdaptive.injected) {
+		manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? ensurePlanApprovalRequested(manifest, tasks) : manifest;
+		queueIndex = buildTaskGraphIndex(tasks);
+	} else if (requiresPlanApproval(workflow, input.runtimeConfig) && hasPendingMutatingAdaptiveTask(tasks)) {
+		manifest = ensurePlanApprovalRequested(manifest, tasks);
+	}
+	if (manifest.planApproval?.status === "cancelled") {
+		tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");
+		await saveRunTasksAsync(manifest, tasks);
+		manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
+		return { manifest, tasks };
+	}
 	manifest = writeProgress(manifest, tasks, "team-runner");
 	await saveRunManifestAsync(manifest);
 	const runtimeKind = input.runtime?.kind ?? (input.executeWorkers ? "child-process" : "scaffold");
@@ -451,8 +504,16 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		if (concurrency.reason.includes(";unbounded:")) {
 			appendEvent(manifest.eventsPath, { type: "limits.unbounded", runId: manifest.runId, message: "Unbounded worker concurrency was explicitly enabled for this run.", data: { concurrencyReason: concurrency.reason, maxConcurrent: concurrency.maxConcurrent } });
 		}
-		const readyBatch = getReadyTasks(tasks, concurrency.selectedCount, queueIndex);
+		const approvalPending = isPlanApprovalPending(manifest);
+		const candidateBatch = approvalPending ? getReadyTasks(tasks, tasks.length, queueIndex) : getReadyTasks(tasks, concurrency.selectedCount, queueIndex);
+		const readyBatch = approvalPending ? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, concurrency.selectedCount) : candidateBatch;
 		if (readyBatch.length === 0) {
+			if (approvalPending && candidateBatch.some(isMutatingTask)) {
+				await saveRunTasksAsync(manifest, tasks);
+				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+				manifest = updateRunStatus(manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
+				return { manifest, tasks };
+			}
 			tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
 			await saveRunTasksAsync(manifest, tasks);
 			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
@@ -460,7 +521,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			return { manifest, tasks };
 		}
 
-		appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, message: `Starting ready batch with ${readyBatch.length} task(s).`, data: { taskIds: readyBatch.map((task) => task.id), readyCount: snapshot.ready.length, blockedCount: snapshot.blocked.length, runningCount: snapshot.running.length, doneCount: snapshot.done.length, selectedCount: readyBatch.length, maxConcurrent: concurrency.maxConcurrent, defaultConcurrency: concurrency.defaultConcurrency, concurrencyReason: concurrency.reason } });
+		appendEvent(manifest.eventsPath, { type: "task.progress", runId: manifest.runId, message: `Starting ready batch with ${readyBatch.length} task(s).`, data: { taskIds: readyBatch.map((task) => task.id), readyCount: snapshot.ready.length, blockedCount: snapshot.blocked.length, runningCount: snapshot.running.length, doneCount: snapshot.done.length, selectedCount: readyBatch.length, maxConcurrent: concurrency.maxConcurrent, defaultConcurrency: concurrency.defaultConcurrency, concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason } });
 		const results = await mapConcurrent(
 			readyBatch,
 			concurrency.selectedCount,
@@ -520,7 +581,17 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			return { manifest, tasks };
 		}
 		if (injectedAfterBatch.injected) {
+			manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? ensurePlanApprovalRequested(manifest, tasks) : manifest;
 			queueIndex = buildTaskGraphIndex(tasks);
+		} else if (requiresPlanApproval(workflow, input.runtimeConfig) && hasPendingMutatingAdaptiveTask(tasks)) {
+			manifest = ensurePlanApprovalRequested(manifest, tasks);
+		}
+		if (manifest.planApproval?.status === "cancelled") {
+			tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");
+			await saveRunTasksAsync(manifest, tasks);
+			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+			manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
+			return { manifest, tasks };
 		}
 		await saveRunTasksAsync(manifest, tasks);
 		saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));

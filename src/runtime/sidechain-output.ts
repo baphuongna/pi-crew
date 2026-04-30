@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { redactSecrets } from "../utils/redaction.ts";
 
 export interface SidechainEntry {
 	isSidechain: true;
@@ -12,7 +13,7 @@ export interface SidechainEntry {
 
 export function writeSidechainEntry(filePath: string, entry: Omit<SidechainEntry, "isSidechain" | "timestamp">): void {
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.appendFileSync(filePath, `${JSON.stringify({ isSidechain: true, timestamp: new Date().toISOString(), ...entry })}\n`, "utf-8");
+	fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ isSidechain: true, timestamp: new Date().toISOString(), ...entry }))}\n`, "utf-8");
 }
 
 export function sidechainOutputPath(stateRoot: string, taskId: string): string {

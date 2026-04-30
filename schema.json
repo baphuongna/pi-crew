@@ -68,7 +68,8 @@
         "graceTurns": { "type": "integer", "minimum": 1 },
         "inheritContext": { "type": "boolean" },
         "promptMode": { "type": "string", "enum": ["replace", "append"] },
-        "groupJoin": { "type": "string", "enum": ["off", "group", "smart"] }
+        "groupJoin": { "type": "string", "enum": ["off", "group", "smart"] },
+        "requirePlanApproval": { "type": "boolean" }
       }
     },
     "control": {

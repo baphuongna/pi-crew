@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.1.40
+
+### Added
+
+- Added owner-session generation guards for background subagents, async run notifications, result watchers, and live-session callbacks so stale sessions do not receive completions.
+- Added `runtime.requirePlanApproval` with approve/cancel API support to gate mutating adaptive implementation tasks behind an explicit planner artifact approval.
+- Added shared secret redaction for event logs, mailbox persistence, artifacts, JSONL streams, agent records, notifications, metrics, and diagnostics.
+
+### Changed
+
+- Project-local agents, teams, and workflows can no longer shadow builtin or user resources with the same name.
+- Project-level sensitive config such as worker execution, runtime mode, autonomy, agent overrides, worktree setup hooks, and OTLP headers is ignored with warnings unless configured in trusted user scope.
+
+### Fixed
+
+- Fixed lost async completion notifications after auto-compaction/session restart by continuing to track active runs across notifier restarts.
+- Fixed stale background subagent wakeups after session switch/shutdown while preserving terminal results for explicit joins.
+- Fixed resume bypasses in plan approval by re-gating persisted mutating adaptive tasks when approval state is missing or pending.
+- Restricted plan approval and cancellation to non-read-only roles and rejected cancel/approve after the approval state is no longer pending.
+
 ## 0.1.39
 
 ### Fixed

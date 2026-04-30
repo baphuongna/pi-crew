@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { loadConfig, projectConfigPath } from "../../src/config/config.ts";
 
-test("loadConfig merges project config over user config", () => {
+test("loadConfig merges project config but ignores sensitive project trust-boundary keys", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-project-config-"));
 	const oldHome = process.env.HOME;
 	const oldUserProfile = process.env.USERPROFILE;
@@ -23,8 +23,10 @@ test("loadConfig merges project config over user config", () => {
 
 		const loaded = loadConfig(tmp);
 		assert.equal(loaded.config.asyncByDefault, true);
-		assert.equal(loaded.config.executeWorkers, true);
-		assert.equal(loaded.config.autonomous?.profile, "manual");
+		assert.equal(loaded.config.executeWorkers, undefined);
+		assert.ok(loaded.warnings?.some((warning) => warning.includes("executeWorkers")));
+		assert.equal(loaded.config.autonomous?.profile, "suggested");
+		assert.ok(loaded.warnings?.some((warning) => warning.includes("autonomous.profile")));
 		assert.equal(loaded.config.autonomous?.preferAsyncForLongTasks, false);
 		assert.ok(loaded.paths.includes(projectConfig));
 	} finally {

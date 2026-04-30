@@ -39,6 +39,7 @@ export interface CrewRuntimeConfig {
 	inheritContext?: boolean;
 	promptMode?: "replace" | "append";
 	groupJoin?: "off" | "group" | "smart";
+	requirePlanApproval?: boolean;
 }
 
 export interface CrewControlConfig {
@@ -204,6 +205,82 @@ function validateConfigWithWarnings(raw: unknown): string[] {
 		});
 	}
 	return [];
+}
+
+function projectOverrideWarning(projectPath: string, dottedPath: string): string {
+	return `${projectPath}: project-level sensitive config '${dottedPath}' is ignored; set it in user config to trust it explicitly`;
+}
+
+function sanitizeProjectConfig(projectPath: string, userConfig: PiTeamsConfig, config: PiTeamsConfig): ConfigValidationResult {
+	const sanitized: PiTeamsConfig = { ...config };
+	const warnings: string[] = [];
+	const dropTopLevel = (key: keyof PiTeamsConfig): void => {
+		if (config[key] === undefined) return;
+		delete sanitized[key];
+		warnings.push(projectOverrideWarning(projectPath, String(key)));
+	};
+	dropTopLevel("executeWorkers");
+	dropTopLevel("asyncByDefault");
+	dropTopLevel("requireCleanWorktreeLeader");
+	if (config.runtime) {
+		const runtime = { ...config.runtime };
+		for (const key of ["mode", "preferLiveSession", "allowChildProcessFallback", "inheritContext"] as const) {
+			if (runtime[key] !== undefined) {
+				delete runtime[key];
+				warnings.push(projectOverrideWarning(projectPath, `runtime.${key}`));
+			}
+		}
+		if (runtime.requirePlanApproval === false) {
+			delete runtime.requirePlanApproval;
+			warnings.push(projectOverrideWarning(projectPath, "runtime.requirePlanApproval"));
+		}
+		sanitized.runtime = Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
+	}
+	if (config.autonomous) {
+		const autonomous = { ...config.autonomous };
+		for (const key of ["profile", "enabled", "injectPolicy", "preferAsyncForLongTasks", "allowWorktreeSuggestion"] as const) {
+			if (autonomous[key] !== undefined) {
+				delete autonomous[key];
+				warnings.push(projectOverrideWarning(projectPath, `autonomous.${key}`));
+			}
+		}
+		sanitized.autonomous = Object.values(autonomous).some((entry) => entry !== undefined) ? autonomous : undefined;
+	}
+	if (config.worktree?.setupHook !== undefined) {
+		sanitized.worktree = { ...config.worktree, setupHook: undefined };
+		if (!Object.values(sanitized.worktree).some((entry) => entry !== undefined)) sanitized.worktree = undefined;
+		warnings.push(projectOverrideWarning(projectPath, "worktree.setupHook"));
+	}
+	if (config.otlp?.headers !== undefined) {
+		sanitized.otlp = { ...config.otlp, headers: undefined };
+		if (!Object.values(sanitized.otlp).some((entry) => entry !== undefined)) sanitized.otlp = undefined;
+		warnings.push(projectOverrideWarning(projectPath, "otlp.headers"));
+	}
+	if (config.agents?.disableBuiltins !== undefined || config.agents?.overrides !== undefined) {
+		const agents = { ...config.agents };
+		if (agents.disableBuiltins !== undefined) {
+			delete agents.disableBuiltins;
+			warnings.push(projectOverrideWarning(projectPath, "agents.disableBuiltins"));
+		}
+		if (agents.overrides !== undefined) {
+			delete agents.overrides;
+			warnings.push(projectOverrideWarning(projectPath, "agents.overrides"));
+		}
+		sanitized.agents = Object.values(agents).some((entry) => entry !== undefined) ? agents : undefined;
+	}
+	if (config.tools?.enableSteer !== undefined || config.tools?.terminateOnForeground !== undefined) {
+		const tools = { ...config.tools };
+		if (tools.enableSteer !== undefined) {
+			delete tools.enableSteer;
+			warnings.push(projectOverrideWarning(projectPath, "tools.enableSteer"));
+		}
+		if (tools.terminateOnForeground !== undefined) {
+			delete tools.terminateOnForeground;
+			warnings.push(projectOverrideWarning(projectPath, "tools.terminateOnForeground"));
+		}
+		sanitized.tools = Object.values(tools).some((entry) => entry !== undefined) ? tools : undefined;
+	}
+	return { config: sanitized, warnings };
 }
 
 function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfig {
@@ -416,6 +493,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext),
 		promptMode: parseWithSchema(Type.Union([Type.Literal("replace"), Type.Literal("append")]), obj.promptMode),
 		groupJoin: parseWithSchema(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")]), obj.groupJoin),
+		requirePlanApproval: parseWithSchema(Type.Boolean(), obj.requirePlanApproval),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
 }
@@ -639,8 +717,9 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 		if (cwd) {
 			const projectPath = projectConfigPath(cwd);
 			const projectConfig = parseConfigWithWarnings(readConfigRecord(projectPath));
-			warnings.push(...projectConfig.warnings.map((warning) => `${projectPath}: ${warning}`));
-			config = mergeConfig(config, projectConfig.config);
+			const projectSafeConfig = sanitizeProjectConfig(projectPath, config, projectConfig.config);
+			warnings.push(...projectConfig.warnings.map((warning) => `${projectPath}: ${warning}`), ...projectSafeConfig.warnings);
+			config = mergeConfig(config, projectSafeConfig.config);
 		}
 		return { path: filePath, paths, config, warnings: warnings.length > 0 ? warnings : undefined };
 	} catch (error) {

@@ -7,6 +7,7 @@ import type { CrewAgentProgress, CrewAgentRecord, CrewRuntimeKind } from "./crew
 import { taskStatusToAgentStatus } from "./crew-agent-runtime.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { assertSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { redactSecretString, redactSecrets } from "../utils/redaction.ts";
 
 export function agentsPath(manifest: TeamRunManifest): string {
 	return path.join(manifest.stateRoot, "agents.json");
@@ -71,7 +72,7 @@ export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
 
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
 	fs.mkdirSync(manifest.stateRoot, { recursive: true });
-	atomicWriteJson(agentsPath(manifest), records);
+	atomicWriteJson(agentsPath(manifest), redactSecrets(records));
 	for (const record of records) writeCrewAgentStatus(manifest, record);
 }
 
@@ -84,7 +85,7 @@ export function upsertCrewAgent(manifest: TeamRunManifest, record: CrewAgentReco
 
 export function writeCrewAgentStatus(manifest: TeamRunManifest, record: CrewAgentRecord): void {
 	ensureAgentStateDir(manifest, record.taskId);
-	atomicWriteJson(agentStatusPath(manifest, record.taskId), record);
+	atomicWriteJson(agentStatusPath(manifest, record.taskId), redactSecrets(record));
 }
 
 export function readCrewAgentStatus(manifest: TeamRunManifest, taskOrAgentId: string): CrewAgentRecord | undefined {
@@ -121,7 +122,7 @@ export function appendCrewAgentEvent(manifest: TeamRunManifest, taskId: string, 
 	ensureAgentStateDir(manifest, taskId);
 	const filePath = agentStateFile(manifest, taskId, "events.jsonl");
 	const seq = nextAgentEventSeq(filePath);
-	fs.appendFileSync(filePath, `${JSON.stringify({ seq, time: new Date().toISOString(), event })}\n`, "utf-8");
+	fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ seq, time: new Date().toISOString(), event }))}\n`, "utf-8");
 	try {
 		const stat = fs.statSync(filePath);
 		agentEventSeqCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, seq });
@@ -172,7 +173,7 @@ export function readCrewAgentEventsCursor(manifest: TeamRunManifest, taskId: str
 export function appendCrewAgentOutput(manifest: TeamRunManifest, taskId: string, text: string): void {
 	if (!text.trim()) return;
 	ensureAgentStateDir(manifest, taskId);
-	fs.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${text}\n`, "utf-8");
+	fs.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${redactSecretString(text)}\n`, "utf-8");
 }
 
 export function emptyCrewAgentProgress(): CrewAgentProgress {

@@ -8,7 +8,11 @@ import { loadConfig } from "../../config/config.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { __test__subagentSpawnParams, formatSubagentRecord, readSubagentRunResult, refreshPersistedSubagentRecord, subagentToolResult } from "./subagent-helpers.ts";
 
-export function registerSubagentTools(pi: ExtensionAPI, subagentManager: SubagentManager): void {
+export interface SubagentToolRegistrationOptions {
+	ownerSessionGeneration?: () => number;
+}
+
+export function registerSubagentTools(pi: ExtensionAPI, subagentManager: SubagentManager, options: SubagentToolRegistrationOptions = {}): void {
 	const agentTool: ToolDefinition = {
 		name: "Agent",
 		label: "Agent",
@@ -31,11 +35,12 @@ export function registerSubagentTools(pi: ExtensionAPI, subagentManager: Subagen
 			const currentRole = currentCrewRole();
 			const permission = checkSubagentSpawnPermission(currentRole);
 			if (!permission.allowed) return subagentToolResult(permission.reason ?? "Current role cannot spawn subagents.", { role: currentRole, mode: permission.mode }, true);
-			const options = __test__subagentSpawnParams(params as Record<string, unknown>, ctx);
-			if (!options.prompt.trim()) return subagentToolResult("Agent requires prompt.", {}, true);
-			const runner = async (spawnOptions: SubagentSpawnOptions, childSignal?: AbortSignal) => handleTeamTool({ action: "run", agent: spawnOptions.type, goal: spawnOptions.prompt, model: spawnOptions.model, async: spawnOptions.background, config: spawnOptions.maxTurns ? { runtime: { maxTurns: spawnOptions.maxTurns } } : undefined } as TeamToolParamsValue, spawnOptions.background ? { ...ctx, signal: childSignal } : { ...ctx, signal: childSignal });
-			const record = subagentManager.spawn(options, runner, options.background ? undefined : signal);
-			if (options.background || record.status === "queued") {
+			const spawnOptions = __test__subagentSpawnParams(params as Record<string, unknown>, ctx);
+			spawnOptions.ownerSessionGeneration = options.ownerSessionGeneration?.();
+			if (!spawnOptions.prompt.trim()) return subagentToolResult("Agent requires prompt.", {}, true);
+			const runner = async (currentOptions: SubagentSpawnOptions, childSignal?: AbortSignal) => handleTeamTool({ action: "run", agent: currentOptions.type, goal: currentOptions.prompt, model: currentOptions.model, async: currentOptions.background, config: currentOptions.maxTurns ? { runtime: { maxTurns: currentOptions.maxTurns } } : undefined } as TeamToolParamsValue, currentOptions.background ? { ...ctx, signal: childSignal } : { ...ctx, signal: childSignal });
+			const record = subagentManager.spawn(spawnOptions, runner, spawnOptions.background ? undefined : signal);
+			if (spawnOptions.background || record.status === "queued") {
 				// Phase 1.1a: Terminate turn for background queued — no LLM follow-up needed.
 				// Phase 1.6: Record was terminated for telemetry.
 				record.terminated = true;

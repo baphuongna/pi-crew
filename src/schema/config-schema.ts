@@ -36,6 +36,7 @@ export const PiTeamsRuntimeConfigSchema = Type.Object({
 	inheritContext: Type.Optional(Type.Boolean()),
 	promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 	groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
+	requirePlanApproval: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
 export const PiTeamsControlConfigSchema = Type.Object({

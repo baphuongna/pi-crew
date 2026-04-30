@@ -24,8 +24,8 @@ function createFakePi(options: { throwForTools?: string[] } = {}) {
 			handlers.set(event, list);
 			return () => handlers.set(event, (handlers.get(event) ?? []).filter((item) => item !== handler));
 		},
-		emit(event: string, data: unknown) {
-			for (const handler of handlers.get(event) ?? []) handler(data);
+		emit(event: string, data: unknown, ctx?: unknown) {
+			for (const handler of handlers.get(event) ?? []) handler(data, ctx);
 		},
 	};
 	return {
@@ -79,6 +79,32 @@ test("conflict-safe crew_agent aliases still register when generic Agent name is
 	assert.equal(fake.tools.has("crew_agent_result"), true);
 	assert.equal(fake.tools.has("crew_agent_steer"), true);
 	fake.api.events.emit("session_shutdown", {});
+});
+
+test("registered Agent tool stamps background subagents with owner session generation", async () => {
+	const fake = createFakePi();
+	let captured: SubagentSpawnOptions | undefined;
+	const manager = {
+		spawn(options: SubagentSpawnOptions) {
+			captured = options;
+			return {
+				id: "agent_owner_generation",
+				type: options.type,
+				description: options.description,
+				prompt: options.prompt,
+				status: "running",
+				startedAt: Date.now(),
+				background: options.background,
+				ownerSessionGeneration: options.ownerSessionGeneration,
+			};
+		},
+		getRecord() { return undefined; },
+		waitForRecord: async () => undefined,
+	} as unknown as SubagentManager;
+	registerSubagentTools(fake.api as never, manager, { ownerSessionGeneration: () => 42 });
+	const result = await fake.tools.get("Agent").execute("call-owner", { prompt: "Explore", description: "Explore", subagent_type: "explorer", run_in_background: true }, undefined, undefined, fakeCtx(process.cwd()) as never);
+	assert.match(firstText(result), /Agent ID: agent_owner_generation/);
+	assert.equal(captured?.ownerSessionGeneration, 42);
 });
 
 test("registered Agent tool can run a background subagent and join its result", async () => {
@@ -163,6 +189,78 @@ test("background subagent completion wakes the parent agent to join results", as
 		assert.match(fake.sentUserMessages[0]!.content, new RegExp(`agent_id="${agentId}"`));
 		assert.match(fake.sentUserMessages[0]!.content, /continue the user's original task/);
 		assert.deepEqual(fake.sentUserMessages[0]!.options, { deliverAs: "followUp", triggerTurn: true });
+	} finally {
+		fake?.api.events.emit("session_shutdown", {});
+		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
+		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
+		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
+		else process.env.PI_CREW_ROLE = previousCrewRole;
+		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
+		else process.env.PI_TEAMS_ROLE = previousTeamsRole;
+		await removeDirWithRetry(cwd);
+	}
+});
+
+test("background subagent completion does not wake a newer session", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-stale-wakeup-test-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const previousCrewRole = process.env.PI_CREW_ROLE;
+	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
+	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	delete process.env.PI_CREW_ROLE;
+	delete process.env.PI_TEAMS_ROLE;
+	let fake: ReturnType<typeof createFakePi> | undefined;
+	try {
+		fake = createFakePi();
+		registerPiTeams(fake.api as never);
+		const ctx = fakeCtx(cwd) as never;
+		fake.api.events.emit("session_start", {}, ctx);
+		const launched = await fake.tools.get("Agent").execute("call-stale-wakeup", { prompt: "Explore and report", description: "Explore", subagent_type: "explorer", run_in_background: true }, undefined, undefined, ctx);
+		assert.match(firstText(launched), /Agent ID:/);
+		fake.api.events.emit("session_start", {}, ctx);
+		await new Promise((resolve) => setTimeout(resolve, 3500));
+		assert.equal(fake.sentUserMessages.length, 0);
+	} finally {
+		fake?.api.events.emit("session_shutdown", {});
+		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
+		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
+		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
+		else process.env.PI_CREW_ROLE = previousCrewRole;
+		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
+		else process.env.PI_TEAMS_ROLE = previousTeamsRole;
+		await removeDirWithRetry(cwd);
+	}
+});
+
+test("session_before_switch suppresses pending background subagent wakeup", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-switch-wakeup-test-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const previousCrewRole = process.env.PI_CREW_ROLE;
+	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
+	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	delete process.env.PI_CREW_ROLE;
+	delete process.env.PI_TEAMS_ROLE;
+	let fake: ReturnType<typeof createFakePi> | undefined;
+	try {
+		fake = createFakePi();
+		registerPiTeams(fake.api as never);
+		const ctx = fakeCtx(cwd) as never;
+		fake.api.events.emit("session_start", {}, ctx);
+		const launched = await fake.tools.get("Agent").execute("call-switch-wakeup", { prompt: "Explore and report", description: "Explore", subagent_type: "explorer", run_in_background: true }, undefined, undefined, ctx);
+		assert.match(firstText(launched), /Agent ID:/);
+		fake.api.events.emit("session_before_switch", {});
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+		assert.equal(fake.sentUserMessages.length, 0);
 	} finally {
 		fake?.api.events.emit("session_shutdown", {});
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;

@@ -95,7 +95,7 @@ export function discoverAgents(cwd: string): AgentDiscoveryResult {
 
 export function allAgents(discovery: AgentDiscoveryResult): AgentConfig[] {
 	const byName = new Map<string, AgentConfig>();
-	for (const agent of [...discovery.builtin, ...discovery.user, ...discovery.project]) {
+	for (const agent of [...discovery.project, ...discovery.builtin, ...discovery.user]) {
 		byName.set(agent.name.toLowerCase(), agent);
 	}
 	return [...byName.values()].filter((agent) => !agent.disabled).sort((a, b) => a.name.localeCompare(b.name));

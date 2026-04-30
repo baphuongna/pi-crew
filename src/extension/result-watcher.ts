@@ -22,6 +22,7 @@ interface ResultWatcherDependencies {
 export interface ResultWatcherOptions extends ResultWatcherDependencies {
 	eventName?: string;
 	completionTtlMs?: number;
+	isCurrent?: () => boolean;
 }
 
 const RESULT_WATCHER_RESTART_MS = 3000;
@@ -40,10 +41,12 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 	const eventName = options.eventName ?? "pi-crew:run-result";
 	const completionTtlMs = options.completionTtlMs ?? 5 * 60_000;
 	const watch = options.watch ?? watchWithErrorHandler;
+	const isCurrent = options.isCurrent ?? (() => true);
 	const seen = getGlobalSeenMap("pi-crew.result-watcher");
 	let watcher: fs.FSWatcher | null | undefined;
 	let restartTimer: ReturnType<typeof setTimeout> | undefined;
 	const coalescer = createFileCoalescer((file) => {
+		if (!isCurrent()) return;
 		const filePath = path.join(resultsDir, file);
 		if (!file.endsWith(".json") || !fs.existsSync(filePath)) return;
 		const payload = readJson(filePath);
@@ -64,6 +67,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 		restartTimer = setTimeout(() => {
 			restartTimer = undefined;
 			try {
+				if (!isCurrent()) return;
 				fs.mkdirSync(resultsDir, { recursive: true });
 				handle.start();
 			} catch (error) {
@@ -74,6 +78,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 	};
 	const handle: ResultWatcherHandle = {
 		start() {
+			if (!isCurrent()) return;
 			fs.mkdirSync(resultsDir, { recursive: true });
 			if (watcher) closeWatcher(watcher);
 			watcher = watch(resultsDir, (event, fileName) => {
@@ -83,7 +88,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 			watcher?.unref?.();
 		},
 		prime() {
-			if (!fs.existsSync(resultsDir)) return;
+			if (!isCurrent() || !fs.existsSync(resultsDir)) return;
 			for (const file of fs.readdirSync(resultsDir).filter((entry) => entry.endsWith(".json"))) coalescer.schedule(file, 0);
 		},
 		stop() {

@@ -109,7 +109,7 @@ export function discoverTeams(cwd: string): TeamDiscoveryResult {
 
 export function allTeams(discovery: TeamDiscoveryResult): TeamConfig[] {
 	const byName = new Map<string, TeamConfig>();
-	for (const team of [...discovery.builtin, ...discovery.user, ...discovery.project]) {
+	for (const team of [...discovery.project, ...discovery.builtin, ...discovery.user]) {
 		byName.set(team.name, team);
 	}
 	return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));

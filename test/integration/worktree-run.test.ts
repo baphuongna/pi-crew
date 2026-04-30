@@ -27,7 +27,10 @@ test("worktree mode supports setup hook metadata and diff stat artifacts", async
 		return;
 	}
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-worktree-hook-"));
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-worktree-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
 	try {
+		process.env.PI_TEAMS_HOME = home;
 		git(cwd, ["init"]);
 		git(cwd, ["config", "user.email", "pi-crew@example.invalid"]);
 		git(cwd, ["config", "user.name", "pi Teams Test"]);
@@ -38,8 +41,9 @@ test("worktree mode supports setup hook metadata and diff stat artifacts", async
 		git(cwd, ["commit", "-m", "initial"]);
 		const hook = path.join(cwd, "hook.cjs");
 		fs.writeFileSync(hook, "const fs=require('fs'); fs.writeFileSync('generated.txt','x'); console.log(JSON.stringify({syntheticPaths:['generated.txt']}));\n", "utf-8");
-		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
-		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ requireCleanWorktreeLeader: false, worktree: { setupHook: hook, linkNodeModules: true } }), "utf-8");
+		const userConfigDir = path.join(home, ".pi", "agent", "extensions", "pi-crew");
+		fs.mkdirSync(userConfigDir, { recursive: true });
+		fs.writeFileSync(path.join(userConfigDir, "config.json"), JSON.stringify({ requireCleanWorktreeLeader: false, worktree: { setupHook: hook, linkNodeModules: true } }), "utf-8");
 		const run = await handleTeamTool({ action: "run", config: { runtime: { mode: "scaffold" } }, team: "fast-fix", goal: "Worktree hook smoke", workspaceMode: "worktree" }, { cwd });
 		assert.equal(run.isError, false);
 		const loaded = loadRunManifestById(cwd, run.details.runId!);
@@ -49,7 +53,10 @@ test("worktree mode supports setup hook metadata and diff stat artifacts", async
 		assert.deepEqual(stat.syntheticPaths, ["generated.txt"]);
 		assert.equal(stat.nodeModulesLinked, true);
 	} finally {
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
 		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
 	}
 });
 

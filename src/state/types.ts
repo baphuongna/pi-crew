@@ -81,6 +81,17 @@ export interface AsyncRunState {
 	spawnedAt: string;
 }
 
+export interface PlanApprovalState {
+	required: boolean;
+	status: "pending" | "approved" | "cancelled";
+	requestedAt: string;
+	updatedAt: string;
+	approvedAt?: string;
+	cancelledAt?: string;
+	planTaskId?: string;
+	planArtifactPath?: string;
+}
+
 export interface TeamRunManifest {
 	schemaVersion: 1;
 	runId: string;
@@ -98,6 +109,7 @@ export interface TeamRunManifest {
 	eventsPath: string;
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
+	planApproval?: PlanApprovalState;
 	summary?: string;
 	policyDecisions?: PolicyDecision[];
 }

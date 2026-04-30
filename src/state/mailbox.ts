@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamRunManifest } from "./types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { redactSecrets } from "../utils/redaction.ts";
 
 export type MailboxDirection = "inbox" | "outbox";
 export type MailboxMessageStatus = "queued" | "delivered" | "acknowledged";
@@ -190,7 +191,7 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 
 function writeDeliveryState(manifest: TeamRunManifest, state: MailboxDeliveryState): void {
 	ensureRunMailbox(manifest);
-	fs.writeFileSync(deliveryFile(manifest, true), `${JSON.stringify(state, null, 2)}\n`, "utf-8");
+	fs.writeFileSync(deliveryFile(manifest, true), `${JSON.stringify(redactSecrets(state), null, 2)}\n`, "utf-8");
 }
 
 export function appendMailboxMessage(manifest: TeamRunManifest, message: Omit<MailboxMessage, "id" | "runId" | "createdAt" | "status"> & { id?: string; status?: MailboxMessageStatus }): MailboxMessage {
@@ -208,7 +209,7 @@ export function appendMailboxMessage(manifest: TeamRunManifest, message: Omit<Ma
 		status: message.status ?? "queued",
 		taskId: message.taskId,
 	};
-	fs.appendFileSync(mailboxFile(manifest, complete.direction, complete.taskId), `${JSON.stringify(complete)}\n`, "utf-8");
+	fs.appendFileSync(mailboxFile(manifest, complete.direction, complete.taskId), `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
 	const delivery = readDeliveryState(manifest);
 	delivery.messages[complete.id] = complete.status;
 	delivery.updatedAt = createdAt;
@@ -249,7 +250,7 @@ export function validateMailbox(manifest: TeamRunManifest, options: { repair?: b
 				const parsed = JSON.parse(line) as unknown;
 				const message = parseMailboxMessage(parsed, direction);
 				if (!message) throw new Error("invalid message schema");
-				validLines.push(JSON.stringify(message));
+				validLines.push(JSON.stringify(redactSecrets(message)));
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				issues.push({ level: "error", path: filePath, message });
