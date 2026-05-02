@@ -3,6 +3,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { loadRunManifestById } from "../state/state-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import type { ManifestCache } from "./manifest-cache.ts";
 import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS, heartbeatAgeMs, type GradientThresholds, type HeartbeatLevel } from "./heartbeat-gradient.ts";
 
@@ -69,6 +70,17 @@ export class HeartbeatWatcher {
 				}
 			}
 		}
+		// Remove stale entries for tasks that are no longer running.
+		const activeKeys = new Set<string>();
+		for (const run of this.opts.manifestCache.list(50)) {
+			const loaded = loadRunManifestById(this.opts.cwd, run.runId);
+			if (!loaded) continue;
+			for (const task of loaded.tasks) {
+				if (task.status === "running") activeKeys.add(`${run.runId}:${task.id}`);
+			}
+		}
+		for (const key of this.lastLevel.keys()) if (!activeKeys.has(key)) this.lastLevel.delete(key);
+		for (const key of this.consecutiveDead.keys()) if (!activeKeys.has(key)) this.consecutiveDead.delete(key);
 	}
 
 	dispose(): void {

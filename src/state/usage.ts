@@ -23,7 +23,7 @@ export function formatUsage(usage: UsageState | undefined): string {
 	if (usage.output !== undefined) parts.push(`output=${usage.output}`);
 	if (usage.cacheRead !== undefined) parts.push(`cacheRead=${usage.cacheRead}`);
 	if (usage.cacheWrite !== undefined) parts.push(`cacheWrite=${usage.cacheWrite}`);
-	if (usage.cost !== undefined) parts.push(`cost=${usage.cost.toFixed(6)}`);
+	if (usage.cost !== undefined && Number.isFinite(usage.cost)) parts.push(`cost=${usage.cost.toFixed(6)}`);
 	if (usage.turns !== undefined) parts.push(`turns=${usage.turns}`);
 	return parts.join(", ") || "(none)";
 }

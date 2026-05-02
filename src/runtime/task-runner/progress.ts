@@ -8,6 +8,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
+function safeNum(v: number | undefined): number {
+	return Number.isFinite(v) ? v! : 0;
+}
+
 function textFromContent(content: unknown): string[] {
 	if (typeof content === "string") return [content];
 	if (!Array.isArray(content)) return [];
@@ -67,7 +71,8 @@ function previewArgs(args: unknown): string | undefined {
 export function applyUsageToProgress(progress: CrewAgentProgress | undefined, usage: UsageState | undefined): CrewAgentProgress | undefined {
 	if (!usage) return progress;
 	const base = progress ?? emptyCrewAgentProgress();
-	return { ...base, tokens: (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0), turns: usage.turns ?? base.turns };
+	const tokens = safeNum(usage.input) + safeNum(usage.output) + safeNum(usage.cacheRead) + safeNum(usage.cacheWrite);
+	return { ...base, tokens, turns: usage.turns ?? base.turns };
 }
 
 export function shouldFlushProgressEvent(event: unknown): boolean {
@@ -84,7 +89,10 @@ export function applyAgentProgressEvent(progress: CrewAgentProgress, event: unkn
 	const obj = asRecord(event);
 	const now = new Date().toISOString();
 	const next: CrewAgentProgress = { ...progress, recentTools: [...progress.recentTools], recentOutput: [...progress.recentOutput], lastActivityAt: now, activityState: "active" };
-	if (startedAt) next.durationMs = Date.now() - new Date(startedAt).getTime();
+	if (startedAt) {
+		const startMs = new Date(startedAt).getTime();
+		next.durationMs = Number.isFinite(startMs) ? Date.now() - startMs : undefined;
+	}
 	if (obj?.type === "tool_execution_start") {
 		next.toolCount += 1;
 		next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
@@ -100,7 +108,7 @@ export function applyAgentProgressEvent(progress: CrewAgentProgress, event: unkn
 	if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool) next.failedTool = next.currentTool;
 	const usage = eventUsage(event);
 	if (usage) {
-		next.tokens = (usage.input ?? 0) + (usage.output ?? 0);
+		next.tokens = safeNum(usage.input) + safeNum(usage.output);
 		next.turns = usage.turns ?? next.turns;
 	}
 	const text = eventText(event);

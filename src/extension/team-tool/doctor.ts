@@ -52,7 +52,14 @@ function checkWritableDir(dir: string): { ok: boolean; detail: string } {
 	try {
 		if (!fs.existsSync(dir)) return { ok: false, detail: `${dir}: missing` };
 		if (!fs.statSync(dir).isDirectory()) return { ok: false, detail: `${dir}: not a directory` };
-		fs.accessSync(dir, fs.constants.W_OK);
+		// fs.accessSync(W_OK) is unreliable on Windows; verify by writing a temp file.
+		const probePath = `${dir}/.pi-crew-write-test`;
+		try {
+			fs.writeFileSync(probePath, "ok", "utf-8");
+			fs.rmSync(probePath, { force: true });
+		} catch {
+			return { ok: false, detail: `${dir}: not writable (write test failed)` };
+		}
 		return { ok: true, detail: dir };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
