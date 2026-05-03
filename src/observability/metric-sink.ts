@@ -36,11 +36,12 @@ export function createMetricFileSink(opts: MetricFileSinkOptions): MetricSink {
 	const retentionDays = opts.retentionDays ?? 7;
 	const writeSnapshot = (snapshots: MetricSnapshot[]): void => {
 		try {
-			const date = new Date().toISOString().slice(0, 10);
+			const now = new Date();
+			const date = now.toISOString().slice(0, 10);
 			fs.mkdirSync(dir, { recursive: true });
 			rotateOldFiles(dir, retentionDays);
 			const redacted = redactSecrets(snapshots) as MetricSnapshot[];
-			fs.appendFileSync(path.join(dir, `${date}.jsonl`), `${JSON.stringify({ exportedAt: new Date().toISOString(), snapshots: redacted })}\n`, "utf-8");
+			fs.appendFileSync(path.join(dir, `${date}.jsonl`), `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}\n`, "utf-8");
 		} catch (error) {
 			logInternalError("metric-sink.write", error);
 		}

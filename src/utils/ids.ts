@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 export function createRunId(prefix = "team"): string {
 	const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
-	const suffix = randomBytes(4).toString("hex");
+	const suffix = randomBytes(8).toString("hex");
 	return `${prefix}_${stamp}_${suffix}`;
 }
 

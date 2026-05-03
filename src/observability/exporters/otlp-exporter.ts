@@ -49,7 +49,7 @@ export class OTLPExporter implements MetricExporter {
 	start(): void {
 		this.dispose();
 		this.timer = setInterval(() => { void this.push(this.registry.snapshot()); }, this.opts.intervalMs ?? 60_000);
-		this.timer.unref?.();
+		this.timer.unref();
 	}
 
 	async push(snapshots: MetricSnapshot[]): Promise<void> {
@@ -58,7 +58,10 @@ export class OTLPExporter implements MetricExporter {
 			const controller = new AbortController();
 			const timer = setTimeout(() => controller.abort(), timeoutMs);
 			try {
-				await fetch(this.opts.endpoint, { method: "POST", headers: { "content-type": "application/json", ...(this.opts.headers ?? {}) }, body: JSON.stringify(convertToOTLP(snapshots)), signal: controller.signal });
+				const response = await fetch(this.opts.endpoint, { method: "POST", headers: { "content-type": "application/json", ...(this.opts.headers ?? {}) }, body: JSON.stringify(convertToOTLP(snapshots)), signal: controller.signal });
+				if (!response.ok) {
+					logInternalError("otlp-export-http", new Error(`HTTP ${response.status}: ${response.statusText}`), `endpoint=${this.opts.endpoint}`);
+				}
 			} finally {
 				clearTimeout(timer);
 			}

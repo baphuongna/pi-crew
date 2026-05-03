@@ -39,7 +39,7 @@ function parseRoleLine(line: string): TeamRole | undefined {
 		return "";
 	});
 	const description = descriptionSource.replace(/\s+/g, " ").trim() || undefined;
-	const maxConcurrency = metadata.maxConcurrency ? Number.parseInt(metadata.maxConcurrency, 10) : undefined;
+	const maxConcurrency = metadata.maxConcurrency ? (() => { const p = Number.parseInt(metadata.maxConcurrency, 10); return p > 0 ? p : undefined; })() : undefined;
 	return {
 		name,
 		agent: metadata.agent ?? name,

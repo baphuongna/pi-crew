@@ -66,7 +66,7 @@ export class Counter extends Metric {
 	private values = new Map<string, StoredValue>();
 
 	inc(labels: MetricLabels = {}, delta = 1): void {
-		if (!Number.isFinite(delta)) return;
+		if (!Number.isFinite(delta) || delta < 0) return;
 		const key = labelKey(labels);
 		const current = this.values.get(key) ?? { labels: normalizeLabels(labels), value: 0 };
 		this.values.set(key, { labels: current.labels, value: current.value + delta });
