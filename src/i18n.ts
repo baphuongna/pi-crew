@@ -4,6 +4,8 @@ type Locale = "es" | "fr" | "pt-BR";
 type Params = Record<string, string | number>;
 
 const namespace = "pi-crew";
+const TEMPLATE_RE = /\{(\w+)\}/g;
+const SUPPORTED_LOCALES = new Set<string>(["es", "fr", "pt-BR"]);
 
 const fallback = {
 	"agent.requiresPrompt": "Agent requires prompt.",
@@ -87,26 +89,63 @@ const translations: Record<Locale, Partial<Record<Key, string>>> = {
 	},
 };
 
+// --- Runtime state ---
+
 let currentLocale: string | undefined;
+const warnedMissing = new Set<string>();
+
+// --- Helpers ---
 
 function format(template: string, params: Params = {}): string {
-	return template.replace(/\{(\w+)\}/g, (_match, key) => String(params[key] ?? `{${key}}`));
+	return template.replace(TEMPLATE_RE, (_match, key) => String(params[key] ?? `{${key}}`));
 }
 
+function warnOnce(key: string): void {
+	const tag = `${currentLocale}:${key}`;
+	if (warnedMissing.has(tag)) return;
+	warnedMissing.add(tag);
+	process.stderr.write(`[pi-crew] i18n: missing translation for "${key}" in locale "${currentLocale}" — using English fallback\n`);
+}
+
+// --- Public API ---
+
 export function t(key: Key, params?: Params): string {
-	const locale = currentLocale as Locale | undefined;
-	const template = locale ? translations[locale]?.[key] : undefined;
-	return format(template ?? fallback[key] ?? key, params);
+	if (currentLocale && SUPPORTED_LOCALES.has(currentLocale)) {
+		const template = translations[currentLocale as Locale]?.[key];
+		if (template) return format(template, params);
+		warnOnce(key);
+	}
+	return format(fallback[key] ?? key, params);
 }
 
 export function initI18n(pi: ExtensionAPI): () => void {
-	pi.events?.emit?.("pi-core/i18n/registerBundle", { namespace, defaultLocale: "en", fallback, translations });
+	try {
+		pi.events?.emit?.("pi-core/i18n/registerBundle", { namespace, defaultLocale: "en", fallback, translations });
+	} catch {
+		// Non-critical; extension should still load.
+	}
 	const unsubscribe = pi.events?.on?.("pi-core/i18n/localeChanged", (event: unknown) => {
-		currentLocale = event && typeof event === "object" && "locale" in event ? String((event as { locale?: unknown }).locale ?? "") : undefined;
+		if (!event || typeof event !== "object") return;
+		const raw = String((event as { locale?: unknown }).locale ?? "");
+		currentLocale = SUPPORTED_LOCALES.has(raw) ? raw : undefined;
 	});
-	pi.events?.emit?.("pi-core/i18n/requestApi", { namespace, onApi(api: { getLocale?: () => string | undefined }) { currentLocale = api.getLocale?.(); } });
+	try {
+		pi.events?.emit?.("pi-core/i18n/requestApi", { namespace, onApi(api: { getLocale?: () => string | undefined }) {
+			const raw = api.getLocale?.();
+			if (raw && SUPPORTED_LOCALES.has(raw)) currentLocale = raw;
+		} });
+	} catch {
+		// Extension still loads without locale detection.
+	}
 	return () => {
 		currentLocale = undefined;
 		unsubscribe?.();
 	};
+}
+
+// --- Test helpers ---
+
+export function __test__resetI18n(): void {
+	currentLocale = undefined;
+	warnedMissing.clear();
 }
