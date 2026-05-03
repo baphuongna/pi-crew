@@ -1,11 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-type Locale = "es" | "fr" | "pt-BR";
 type Params = Record<string, string | number>;
 
 const namespace = "pi-crew";
 const TEMPLATE_RE = /\{(\w+)\}/g;
-const SUPPORTED_LOCALES = new Set<string>(["es", "fr", "pt-BR"]);
 
 const fallback = {
 	"agent.requiresPrompt": "Agent requires prompt.",
@@ -29,7 +27,8 @@ const fallback = {
 
 type Key = keyof typeof fallback;
 
-const translations: Record<Locale, Partial<Record<Key, string>>> = {
+/** Map of locale → partial translations. Keys not present fall back to English. */
+const translations: Record<string, Partial<Record<Key, string>>> = {
 	es: {
 		"agent.requiresPrompt": "Agent requiere prompt.",
 		"agent.started": "Agent {state}.",
@@ -104,38 +103,68 @@ function warnOnce(key: string): void {
 	const tag = `${currentLocale}:${key}`;
 	if (warnedMissing.has(tag)) return;
 	warnedMissing.add(tag);
-	process.stderr.write(`[pi-crew] i18n: missing translation for "${key}" in locale "${currentLocale}" — using English fallback\n`);
+	process.stderr.write(`[pi-crew] i18n: missing "${key}" in locale "${currentLocale}" — using English\n`);
 }
 
 // --- Public API ---
 
+/**
+ * Translate a key for the currently active locale.
+ * Falls back to English, then to the raw key as a last resort.
+ */
 export function t(key: Key, params?: Params): string {
-	if (currentLocale && SUPPORTED_LOCALES.has(currentLocale)) {
-		const template = translations[currentLocale as Locale]?.[key];
+	if (currentLocale && translations[currentLocale]) {
+		const template = translations[currentLocale]?.[key];
 		if (template) return format(template, params);
 		warnOnce(key);
 	}
 	return format(fallback[key] ?? key, params);
 }
 
+/**
+ * Register or extend translations for a locale at runtime.
+ * Useful for contributors adding new language bundles without modifying i18n.ts.
+ *
+ * @example
+ * addTranslations("vi", { "agent.requiresPrompt": "Agent cần prompt." })
+ */
+export function addTranslations(locale: string, bundle: Partial<Record<Key, string>>): void {
+	if (!locale) return;
+	const existing = translations[locale];
+	if (existing) {
+		Object.assign(existing, bundle);
+	} else {
+		translations[locale] = { ...bundle };
+	}
+}
+
+/**
+ * Returns the list of currently registered locales (excluding English, which is always available).
+ */
+export function listLocales(): string[] {
+	return Object.keys(translations);
+}
+
+// --- Initialization ---
+
 export function initI18n(pi: ExtensionAPI): () => void {
 	try {
 		pi.events?.emit?.("pi-core/i18n/registerBundle", { namespace, defaultLocale: "en", fallback, translations });
 	} catch {
-		// Non-critical; extension should still load.
+		// Non-critical.
 	}
 	const unsubscribe = pi.events?.on?.("pi-core/i18n/localeChanged", (event: unknown) => {
 		if (!event || typeof event !== "object") return;
-		const raw = String((event as { locale?: unknown }).locale ?? "");
-		currentLocale = SUPPORTED_LOCALES.has(raw) ? raw : undefined;
+		const raw = String((event as { locale?: unknown }).locale ?? "").trim();
+		currentLocale = raw && translations[raw] ? raw : undefined;
 	});
 	try {
 		pi.events?.emit?.("pi-core/i18n/requestApi", { namespace, onApi(api: { getLocale?: () => string | undefined }) {
-			const raw = api.getLocale?.();
-			if (raw && SUPPORTED_LOCALES.has(raw)) currentLocale = raw;
+			const raw = api.getLocale?.()?.trim();
+			if (raw && translations[raw]) currentLocale = raw;
 		} });
 	} catch {
-		// Extension still loads without locale detection.
+		// Non-critical.
 	}
 	return () => {
 		currentLocale = undefined;
@@ -148,4 +177,8 @@ export function initI18n(pi: ExtensionAPI): () => void {
 export function __test__resetI18n(): void {
 	currentLocale = undefined;
 	warnedMissing.clear();
+	// Clear runtime-added translations but keep built-in ones.
+	for (const key of Object.keys(translations)) {
+		if (!["es", "fr", "pt-BR"].includes(key)) delete translations[key];
+	}
 }
