@@ -331,7 +331,7 @@ function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfi
 			...withoutUndefined((override.agents ?? {}) as Record<string, unknown>),
 			overrides: {
 				...(base.agents?.overrides ?? {}),
-				...(override.agents?.overrides ?? {}),
+				...withoutUndefined((override.agents?.overrides ?? {}) as Record<string, unknown>) as Record<string, AgentOverrideConfig>,
 			},
 		};
 	}

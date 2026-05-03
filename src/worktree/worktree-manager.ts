@@ -92,7 +92,12 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 	const worktreePath = path.join(worktreeRoot, task.id);
 	const branch = `pi-crew/${sanitizeBranchPart(manifest.runId)}/${sanitizeBranchPart(task.id)}`;
 	if (fs.existsSync(worktreePath)) {
-		const currentBranch = git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		let currentBranch: string;
+		try {
+			currentBranch = git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		} catch (gitError) {
+			throw new Error(`Existing worktree at ${worktreePath} is not a valid git repository; cannot verify branch: ${gitError instanceof Error ? gitError.message : String(gitError)}`);
+		}
 		if (currentBranch !== branch) {
 			throw new Error(`Existing worktree branch mismatch at ${worktreePath}: expected '${branch}', got '${currentBranch}'.`);
 		}

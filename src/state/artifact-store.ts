@@ -105,7 +105,7 @@ function resolveInside(baseDir: string, relativePath: string): string {
 export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptions): ArtifactDescriptor {
 	const filePath = resolveInside(artifactsRoot, options.relativePath);
 	fs.mkdirSync(artifactsRoot, { recursive: true });
-	if (fs.lstatSync(artifactsRoot).isSymbolicLink()) throw new Error(`Path is outside ${path.dirname(artifactsRoot)}: ${artifactsRoot}`);
+	if (fs.lstatSync(artifactsRoot).isSymbolicLink()) throw new Error(`Artifacts root is a symbolic link — not allowed: ${artifactsRoot}`);
 	resolveRealContainedPath(path.dirname(artifactsRoot), path.basename(artifactsRoot));
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	resolveRealContainedPath(artifactsRoot, path.dirname(filePath));
