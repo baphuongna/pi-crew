@@ -69,7 +69,7 @@ function killProcessTree(pid: number | undefined, child?: ChildProcess): void {
 			}
 			childHardKillTimers.delete(pid);
 		}, HARD_KILL_MS);
-		hardKillTimer.unref?.();
+		hardKillTimer.unref();
 		child?.once("exit", () => clearHardKillTimer(pid));
 		childHardKillTimers.set(pid, hardKillTimer);
 	} catch (error) {
@@ -318,7 +318,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						logInternalError("child-pi.response-timeout-term", error, `pid=${child.pid}`);
 					}
 				}, responseTimeoutMs);
-				noResponseTimer.unref?.();
+				noResponseTimer.unref();
 			};
 			const clearNoResponseTimer = (): void => {
 				if (noResponseTimer) clearTimeout(noResponseTimer);
@@ -352,9 +352,9 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 								logInternalError("child-pi.final-drain-kill", error, `pid=${child.pid}`);
 							}
 						}, hardKillMs);
-						hardKillTimer.unref?.();
+						hardKillTimer.unref();
 					}, finalDrainMs);
-					finalDrainTimer.unref?.();
+					finalDrainTimer.unref();
 				},
 			});
 
