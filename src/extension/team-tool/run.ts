@@ -52,7 +52,7 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 		const failed = updateRunStatus(loaded.manifest, "failed", "Background runner exited within 3s; see background.log");
 		appendEvent(failed.eventsPath, { type: "async.failed", runId: failed.runId, message, data: { pid, detail: liveness.detail } });
 	}, 3000);
-	timer.unref?.();
+	timer.unref();
 }
 
 export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {

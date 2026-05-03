@@ -150,7 +150,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			listTimer = undefined;
 			listCache.clear();
 		}, ttlMs);
-		listTimer.unref?.();
+		listTimer.unref();
 	}
 
 	function loadManifest(runId: string, rootsToCheck: string[]): CachedManifest | undefined {
@@ -222,7 +222,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 				scheduleListRefresh();
 			});
 			if (watcher) {
-				watcher.unref?.();
+				watcher.unref();
 				watchers.push(watcher);
 			}
 		}

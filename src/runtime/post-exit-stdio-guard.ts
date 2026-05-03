@@ -59,7 +59,7 @@ export function attachPostExitStdioGuard(child: ChildWithPipedStdio, options: Po
 		if (!exited) return;
 		if (idleTimer) clearTimeout(idleTimer);
 		idleTimer = setTimeout(destroyUnendedStdio, idleMs);
-		idleTimer.unref?.();
+		idleTimer.unref();
 	};
 
 	child.stdout?.on("data", armIdleTimer);
@@ -77,7 +77,7 @@ export function attachPostExitStdioGuard(child: ChildWithPipedStdio, options: Po
 		armIdleTimer();
 		if (hardTimer) return;
 		hardTimer = setTimeout(destroyUnendedStdio, hardMs);
-		hardTimer.unref?.();
+		hardTimer.unref();
 	});
 	child.on("close", clearTimers);
 	child.on("error", clearTimers);

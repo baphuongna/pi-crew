@@ -40,7 +40,7 @@ export class RenderScheduler {
 		this.fallbackMs = options.fallbackMs ?? 750;
 		for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
 		this.fallbackTimer = setInterval(() => this.fallback(), this.fallbackMs);
-		this.fallbackTimer.unref?.();
+		this.fallbackTimer.unref();
 	}
 
 	private subscribe(events: RenderSchedulerEventBus | undefined, event: string): void {
@@ -73,7 +73,7 @@ export class RenderScheduler {
 			this.debounceTimer = undefined;
 			this.flush();
 		}, this.debounceMs);
-		this.debounceTimer.unref?.();
+		this.debounceTimer.unref();
 	}
 
 	flush(): void {

@@ -51,6 +51,6 @@ export function createMetricFileSink(opts: MetricFileSinkOptions): MetricSink {
 		}
 	};
 	const timer = setInterval(() => writeSnapshot(opts.registry.snapshot()), opts.intervalMs ?? 60_000);
-	timer.unref?.();
+	timer.unref();
 	return { writeSnapshot, dispose: () => clearInterval(timer) };
 }

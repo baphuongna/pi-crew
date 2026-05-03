@@ -36,7 +36,7 @@ export class HeartbeatWatcher {
 	start(): void {
 		this.dispose();
 		this.timer = setInterval(() => this.tick(), this.opts.pollIntervalMs ?? 5000);
-		this.timer.unref?.();
+		this.timer.unref();
 	}
 
 	tick(now = Date.now()): void {

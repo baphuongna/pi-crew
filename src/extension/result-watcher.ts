@@ -78,7 +78,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 	const startPolling = () => {
 		if (pollTimer) return;
 		pollTimer = setInterval(poll, RESULT_WATCHER_POLL_MS);
-		pollTimer.unref?.();
+		pollTimer.unref();
 		poll();
 	};
 	const stopPolling = () => {
@@ -98,7 +98,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 				logInternalError("result-watcher.restart", error, `resultsDir=${resultsDir}`);
 			}
 		}, RESULT_WATCHER_RESTART_MS);
-		restartTimer.unref?.();
+		restartTimer.unref();
 	};
 	const handle: ResultWatcherHandle = {
 		start() {
@@ -110,7 +110,7 @@ export function createResultWatcher(events: ResultWatcherEvents, resultsDir: str
 				coalescer.schedule(fileName.toString());
 			}, scheduleRestart);
 			if (watcher) stopPolling();
-			watcher?.unref?.();
+			watcher?.unref();
 		},
 		prime() {
 			poll();

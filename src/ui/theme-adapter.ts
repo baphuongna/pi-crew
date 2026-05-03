@@ -148,7 +148,7 @@ function startThemeSourceSubscription(theme: object, subscription: ThemeSourceSu
 		subscription.lastSignature = nextSignature;
 		emit();
 	}, 1000);
-	subscription.pollTimer.unref?.();
+	subscription.pollTimer.unref();
 }
 
 export function subscribeThemeChange(theme: unknown, callback: () => void): () => void {

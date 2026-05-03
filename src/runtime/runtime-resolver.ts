@@ -41,7 +41,7 @@ export async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env: NodeJ
 			probe(),
 			new Promise<{ available: boolean; reason: string }>((resolve) => {
 				timer = setTimeout(() => resolve({ available: false, reason: `Timed out probing optional Pi SDK live-session runtime after ${timeoutMs}ms.` }), timeoutMs);
-				timer.unref?.();
+				timer.unref();
 			}),
 		]);
 	} finally {

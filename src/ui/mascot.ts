@@ -136,9 +136,9 @@ export class AnimatedMascot {
 		this.currentArminGrid = this.style === "armin" ? this.initialArminGrid() : emptyArminGrid();
 		this.initEffect();
 		this.interval = setInterval(() => this.tick(), this.frameIntervalMs);
-		this.interval.unref?.();
+		this.interval.unref();
 		this.timeout = this.autoCloseMs > 0 ? setTimeout(() => this.close(), this.autoCloseMs) : undefined;
-		this.timeout?.unref?.();
+		this.timeout?.unref();
 	}
 
 	private resolveEffect(requested: MascotEffect | undefined): MascotEffect {
