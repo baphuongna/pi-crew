@@ -216,8 +216,8 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 		const loaded = selected ? loadRunManifestById(ctx.cwd, selected.runId) : undefined;
 		if (ctx.hasUI && loaded) {
 			const agent = readCrewAgents(loaded.manifest).find((item) => item.taskId === selected?.taskId || item.id === selected?.taskId) ?? readCrewAgents(loaded.manifest)[0];
-			const text = agent?.resultArtifactPath ? commandText(await handleTeamTool({ action: "api", runId: selected!.runId, config: { operation: "read-agent-output", agentId: agent.taskId, maxBytes: 64_000 } }, ctx)) : "(no result)";
-			await ctx.ui.custom<undefined>((_tui, theme, _keybindings, done) => new DurableTextViewer("pi-crew result", `${selected!.runId}:${agent?.taskId ?? "unknown"}`, text.split(/\r?\n/), theme, done), { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } });
+			const resultText = agent?.resultArtifactPath ? commandText(await handleTeamTool({ action: "api", runId: selected?.runId ?? "", config: { operation: "read-agent-output", agentId: agent.taskId, maxBytes: 64_000 } }, ctx)) : "(no result)";
+			await ctx.ui.custom<undefined>((_tui, theme, _keybindings, done) => new DurableTextViewer("pi-crew result", `${selected?.runId ?? ""}:${agent?.taskId ?? "unknown"}`, resultText.split(/\r?\n/), theme, done), { overlay: true, overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" } });
 			return;
 		}
 		const result = await handleTeamTool({ action: "api", runId, config: { operation: "read-agent-output", agentId: rawTaskId, maxBytes: 64_000 } }, ctx);

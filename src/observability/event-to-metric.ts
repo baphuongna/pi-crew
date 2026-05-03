@@ -22,7 +22,8 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 	const taskCount = registry.counter("crew.task.count", "Total tasks by status");
 	const subagentCount = registry.counter("crew.subagent.count", "Total subagent records by status");
 	const mailboxCount = registry.counter("crew.mailbox.count", "Total mailbox messages by direction");
-	registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
+	const retryAttemptCount = registry.counter("crew.task.retry_attempt_total", "Retry attempts by run and task");
+	const deadletterCount = registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
 	registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds");
 	const runDuration = registry.histogram("crew.run.duration_ms", "Run end-to-end duration, milliseconds");
 	const taskDuration = registry.histogram("crew.task.duration_ms", "Task duration, milliseconds");
@@ -35,8 +36,8 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 		["crew.run.cancelled", () => runCount.inc({ status: "cancelled" })],
 		["crew.task.completed", (data) => { const item = recordValue(data); taskCount.inc({ status: "completed" }); taskDuration.observe({ role: stringValue(item.role, "unknown") }, numberValue(item.durationMs)); tokenUsage.observe({ role: stringValue(item.role, "unknown") }, numberValue(item.tokens)); }],
 		["crew.task.failed", () => taskCount.inc({ status: "failed" })],
-		["crew.task.retry_attempt", (data) => { const item = recordValue(data); taskCount.inc({ status: "retry" }); registry.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({ runId: stringValue(item.runId, "unknown"), taskId: stringValue(item.taskId, "unknown") }); }],
-		["crew.task.deadletter", (data) => { const item = recordValue(data); registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: stringValue(item.reason, "unknown") }); }],
+		["crew.task.retry_attempt", (data) => { const item = recordValue(data); taskCount.inc({ status: "retry" }); retryAttemptCount.inc({ runId: stringValue(item.runId, "unknown"), taskId: stringValue(item.taskId, "unknown") }); }],
+		["crew.task.deadletter", (data) => { const item = recordValue(data); deadletterCount.inc({ reason: stringValue(item.reason, "unknown") }); }],
 		["crew.subagent.completed", (data) => { const item = recordValue(data); subagentCount.inc({ status: stringValue(item.status, "completed") }); }],
 		["crew.subagent.failed", () => subagentCount.inc({ status: "failed" })],
 		["crew.mailbox.message", (data) => { const item = recordValue(data); mailboxCount.inc({ direction: stringValue(item.direction, "unknown") }); }],
