@@ -116,12 +116,13 @@ export class Histogram extends Metric {
 	observe(labels: MetricLabels = {}, value: number): void {
 		if (!Number.isFinite(value)) return;
 		const key = labelKey(labels);
-		const current = this.observations.get(key) ?? { labels: normalizeLabels(labels), counts: new Array(this.buckets.length + 1).fill(0) as number[], sum: 0, count: 0 };
+		const existing = this.observations.get(key);
+		const current = existing ?? { labels: normalizeLabels(labels), counts: new Array(this.buckets.length + 1).fill(0) as number[], sum: 0, count: 0 };
 		const bucketIndex = this.buckets.findIndex((bucket) => value <= bucket);
 		current.counts[bucketIndex === -1 ? this.buckets.length : bucketIndex] = (current.counts[bucketIndex === -1 ? this.buckets.length : bucketIndex] ?? 0) + 1;
 		current.sum += value;
 		current.count += 1;
-		this.observations.set(key, current);
+		if (!existing) this.observations.set(key, current);
 	}
 
 	quantile(labels: MetricLabels = {}, q: number): number {
