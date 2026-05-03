@@ -457,6 +457,7 @@ Manual slash commands are ops/debug controls. Autonomous tool use via policy/rec
 /team-dashboard
 /team-init [--copy-builtins] [--overwrite]
 /team-config [key=value] [--unset=key.path] [--project]
+/team-settings [list|get <key>|set <key> <value>|unset <key>|path|scope]
 /team-autonomy [status|on|off|manual|suggested|assisted|aggressive] [--prefer-async] [--no-worktree-suggest]
 /team-validate
 /team-help
@@ -492,6 +493,56 @@ Use `/team-metrics` for a current metrics snapshot. The optional argument is a g
 /team-metrics
 /team-metrics crew.task.*
 ```
+
+### `/team-settings` — view & manage config
+
+List all settings, get/set individual keys, or unset (reset to default).
+
+```text
+/team-settings                          # list all known config keys
+/team-settings get limits.maxTurns      # read one key
+/team-settings set limits.maxTurns 20   # update a key
+/team-settings unset runtime.maxTurns   # reset to default
+/team-settings path                     # show config file path
+/team-settings scope                    # show current scope (user/project)
+```
+
+**Supported config keys:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `asyncByDefault` | boolean | Run workflows async by default |
+| `executeWorkers` | boolean | Enable real child Pi workers |
+| `notifierIntervalMs` | number | Polling interval for async notifications |
+| `runtime.mode` | `"auto"\|"scaffold"\|"child-process"\|"live-session"` | Crew runtime selection |
+| `runtime.maxTurns` | number | Max turns per worker |
+| `runtime.graceTurns` | number | Grace turns after max |
+| `runtime.inheritContext` | boolean | Workers inherit parent context |
+| `runtime.promptMode` | `"replace"\|"append"` | Prompt merge strategy |
+| `runtime.groupJoin` | `"off"\|"group"\|"smart"` | Group join strategy |
+| `runtime.groupJoinAckTimeoutMs` | number | Group join ack timeout (ms) |
+| `runtime.requirePlanApproval` | boolean | Require plan approval before execution |
+| `runtime.completionMutationGuard` | `"off"\|"warn"\|"fail"` | Mutation guard on completion |
+| `limits.maxConcurrentWorkers` | number | Max concurrent workers |
+| `limits.maxTaskDepth` | number | Max task tree depth |
+| `limits.maxChildrenPerTask` | number | Max children per task |
+| `limits.maxRunMinutes` | number | Max run duration (minutes) |
+| `limits.maxRetriesPerTask` | number | Max retries per task |
+| `limits.maxTasksPerRun` | number | Max tasks per run |
+| `limits.heartbeatStaleMs` | number | Heartbeat stale threshold (ms) |
+| `control.enabled` | boolean | Enable agent control-plane |
+| `control.needsAttentionAfterMs` | number | Attention trigger after inactivity (ms) |
+| `autonomous.profile` | `"manual"\|"suggested"\|"assisted"\|"aggressive"` | Autonomy profile |
+| `autonomous.injectPolicy` | boolean | Inject autonomy policy into prompt |
+| `autonomous.preferAsyncForLongTasks` | boolean | Auto-async for long tasks |
+| `autonomous.allowWorktreeSuggestion` | boolean | Suggest worktree mode |
+| `tools.enableClaudeStyleAliases` | boolean | Enable Claude-style tool aliases |
+| `tools.enableSteer` | boolean | Enable steer tool |
+| `tools.terminateOnForeground` | boolean | Return terminate:true from foreground Agent |
+| `agents.disableBuiltins` | boolean | Disable all builtin agents |
+| `observability.prometheus.enabled` | boolean | Enable Prometheus exporter |
+| `observability.otlp.enabled` | boolean | Enable OTLP exporter |
+| `worktree.enabled` | boolean | Enable worktree isolation |
 
 ## Dashboard
 

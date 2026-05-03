@@ -4,6 +4,10 @@ import { configPatchFromConfig } from "../team-tool/config-patch.ts";
 import { result } from "../team-tool/context.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function setNested(obj: Record<string, unknown>, path: string, value: unknown): void {
 	const keys = path.split(".");
 	let target: Record<string, unknown> = obj;
@@ -32,11 +36,25 @@ function formatValue(value: unknown): string {
 	return String(value);
 }
 
-const KNOWN_KEYS = [
+function parseValue(raw: string): unknown {
+	// JSON handles strings (quoted), numbers, booleans, null, arrays, objects.
+	try { return JSON.parse(raw); } catch { /* keep as string */ }
+	return raw;
+}
+
+// ---------------------------------------------------------------------------
+// Known config keys — mirrors config-schema.ts + config.ts.
+// When adding new config fields, add the dotted path here so team-settings
+// can discover and display them.
+// ---------------------------------------------------------------------------
+
+const KNOWN_KEYS = new Set([
+	// top-level
 	"asyncByDefault",
 	"executeWorkers",
 	"notifierIntervalMs",
 	"requireCleanWorktreeLeader",
+	// runtime
 	"runtime.mode",
 	"runtime.preferLiveSession",
 	"runtime.allowChildProcessFallback",
@@ -48,6 +66,7 @@ const KNOWN_KEYS = [
 	"runtime.groupJoinAckTimeoutMs",
 	"runtime.requirePlanApproval",
 	"runtime.completionMutationGuard",
+	// limits
 	"limits.maxConcurrentWorkers",
 	"limits.allowUnboundedConcurrency",
 	"limits.maxTaskDepth",
@@ -56,24 +75,42 @@ const KNOWN_KEYS = [
 	"limits.maxRetriesPerTask",
 	"limits.maxTasksPerRun",
 	"limits.heartbeatStaleMs",
+	// control
 	"control.enabled",
 	"control.needsAttentionAfterMs",
+	// autonomous
 	"autonomous.profile",
 	"autonomous.enabled",
 	"autonomous.injectPolicy",
 	"autonomous.preferAsyncForLongTasks",
 	"autonomous.allowWorktreeSuggestion",
+	// tools
 	"tools.enableClaudeStyleAliases",
 	"tools.enableSteer",
 	"tools.terminateOnForeground",
+	// agents
 	"agents.disableBuiltins",
+	// observability
 	"observability.prometheus.enabled",
 	"observability.otlp.enabled",
+	// worktree
 	"worktree.enabled",
-];
+]);
+
+const KNOWN_SORTED = [...KNOWN_KEYS].sort();
+
+// ---------------------------------------------------------------------------
+// Detail objects – all require { action, status } from TeamToolDetails.
+// Extras (count, key, value, path) are passed as never to bypass the narrow
+// TeamToolDetails interface (consistent with the rest of the codebase).
+// ---------------------------------------------------------------------------
 
 const OK = { action: "settings", status: "ok" as const };
 const ERR = { action: "settings", status: "error" as const };
+
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
 
 export function handleSettings(params: { config?: Record<string, unknown> }, ctx: TeamContext): PiTeamsToolResult {
 	const cfg = (params.config ?? {}) as Record<string, unknown>;
@@ -85,12 +122,12 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 	// team-settings list
 	if (!args || args === "list") {
 		const lines = ["pi-crew settings:", `Path: ${loaded.path}`, ""];
-		for (const key of KNOWN_KEYS) {
+		for (const key of KNOWN_SORTED) {
 			const value = getNested(effective, key);
 			lines.push(`  ${key} = ${formatValue(value)}`);
 		}
 		lines.push("", "Usage: team-settings [list|get <key>|set <key> <value>|unset <key>|path|scope]");
-		return result(lines.join("\n"), { ...OK, count: KNOWN_KEYS.length } as never);
+		return result(lines.join("\n"), { ...OK, count: KNOWN_KEYS.size } as never);
 	}
 
 	// team-settings path
@@ -108,7 +145,8 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 		const key = args.slice(4).trim();
 		if (!key) return result("Usage: team-settings get <key>", { ...ERR }, true);
 		const value = getNested(effective, key);
-		return result(`${key} = ${formatValue(value)}`, { ...OK, key, value } as never);
+		const note = KNOWN_KEYS.has(key) ? "" : " (unknown key — may not take effect)";
+		return result(`${key} = ${formatValue(value)}${note}`, { ...OK, key, value } as never);
 	}
 
 	// team-settings unset <key>
@@ -132,18 +170,15 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 		const rawValue = rest.slice(spaceIdx + 1).trim();
 		if (!key) return result("Usage: team-settings set <key> <value>", { ...ERR }, true);
 
-		let value: unknown = rawValue;
-		try { value = JSON.parse(rawValue); } catch { /* keep as string */ }
-		if (rawValue === "true") value = true;
-		if (rawValue === "false") value = false;
-
+		const value = parseValue(rawValue);
 		const patch = {};
 		setNested(patch as Record<string, unknown>, key, value);
 
 		try {
 			const converted = configPatchFromConfig({ config: patch as Record<string, unknown> });
 			const saved = updateConfig(converted, { cwd: ctx.cwd, scope });
-			return result(`Set ${key} = ${formatValue(value)}\nPath: ${saved.path}`, { ...OK, key, value } as never);
+			const warning = KNOWN_KEYS.has(key) ? "" : "\nWarning: unknown key — verify it exists in config schema.";
+			return result(`Set ${key} = ${formatValue(value)}\nPath: ${saved.path}${warning}`, { ...OK, key, value } as never);
 		} catch (error) {
 			return result(error instanceof Error ? error.message : String(error), { ...ERR }, true);
 		}
