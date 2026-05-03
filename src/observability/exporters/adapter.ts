@@ -19,6 +19,12 @@ export class CompositeExporter implements MetricExporter {
 	}
 
 	dispose(): void {
-		for (const exporter of this.exporters) exporter.dispose();
+		for (const exporter of this.exporters) {
+			try {
+				exporter.dispose();
+			} catch {
+				// Best-effort cleanup; one exporter failing shouldn't prevent others.
+			}
+		}
 	}
 }

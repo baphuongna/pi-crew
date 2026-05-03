@@ -35,21 +35,36 @@ export class MetricRegistry {
 
 	counter(name: string, description: string): Counter {
 		const existing = this.metrics.get(name);
-		if (existing instanceof Counter) return existing;
+		if (existing instanceof Counter) {
+			if (existing.description !== description) {
+				process.stderr.write(`[pi-crew] metric-registry: counter '${name}' description changed; using original: '${existing.description}'\n`);
+			}
+			return existing;
+		}
 		if (existing) throw new Error(`Metric '${name}' is not a counter.`);
 		return this.registerCounter(name, description);
 	}
 
 	gauge(name: string, description: string): Gauge {
 		const existing = this.metrics.get(name);
-		if (existing instanceof Gauge) return existing;
+		if (existing instanceof Gauge) {
+			if (existing.description !== description) {
+				process.stderr.write(`[pi-crew] metric-registry: gauge '${name}' description changed; using original: '${existing.description}'\n`);
+			}
+			return existing;
+		}
 		if (existing) throw new Error(`Metric '${name}' is not a gauge.`);
 		return this.registerGauge(name, description);
 	}
 
 	histogram(name: string, description: string, buckets?: number[]): Histogram {
 		const existing = this.metrics.get(name);
-		if (existing instanceof Histogram) return existing;
+		if (existing instanceof Histogram) {
+			if (existing.description !== description) {
+				process.stderr.write(`[pi-crew] metric-registry: histogram '${name}' description changed; using original: '${existing.description}'\n`);
+			}
+			return existing;
+		}
 		if (existing) throw new Error(`Metric '${name}' is not a histogram.`);
 		return this.registerHistogram(name, description, buckets);
 	}

@@ -100,7 +100,7 @@ export interface TeamToolParamsValue {
 	model?: string;
 	skill?: string | string[] | boolean;
 	scope?: "user" | "project" | "both";
-	config?: unknown;
+	config?: Record<string, unknown>;
 	dryRun?: boolean;
 	confirm?: boolean;
 	force?: boolean;
