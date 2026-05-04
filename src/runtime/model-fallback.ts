@@ -249,7 +249,7 @@ export function buildConfiguredModelRouting(input: {
 	const preferredProvider = parentModel?.split("/")[0] ?? availableModels?.[0]?.provider;
 	// B3: Parent model inheritance — when agent has no model specified,
 	// inherit from parent session model before falling back to defaults.
-	const effectiveAgentModel = input.agentModel ?? parentModel;
+	const effectiveAgentModel = input.agentModel?.trim() ? input.agentModel : parentModel;
 	const requested = [input.overrideModel, input.stepModel, effectiveAgentModel].find((model): model is string => Boolean(model?.trim()));
 	if (availableModels && availableModels.length === 0) return { requested, candidates: [], reason: "no configured Pi models available" };
 	const rawModels = availableModels
