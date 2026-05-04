@@ -103,6 +103,18 @@ describe("OverflowRecoveryTracker", () => {
 		tracker.dispose();
 	});
 
+	it("keeps same task ids isolated across runs", () => {
+		const tracker = new OverflowRecoveryTracker();
+		tracker.feedEvent("task-1", "run-1", "compaction_start");
+		tracker.feedEvent("task-1", "run-2", "auto_retry_start");
+		assert.equal(tracker.getPhase("task-1", "run-1"), "compaction");
+		assert.equal(tracker.getPhase("task-1", "run-2"), "retrying");
+		tracker.removeTask("task-1", "run-1");
+		assert.equal(tracker.getPhase("task-1", "run-1"), "none");
+		assert.equal(tracker.getPhase("task-1", "run-2"), "retrying");
+		tracker.dispose();
+	});
+
 	it("dispose clears all state", () => {
 		const tracker = new OverflowRecoveryTracker();
 		tracker.feedEvent("task-1", "run-1", "compaction_start");

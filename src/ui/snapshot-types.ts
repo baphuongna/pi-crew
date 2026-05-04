@@ -8,6 +8,9 @@ export interface RunUiProgress {
 	running: number;
 	failed: number;
 	queued: number;
+	waiting?: number;
+	cancelled?: number;
+	skipped?: number;
 }
 
 export interface RunUiUsage {

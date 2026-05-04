@@ -19,6 +19,7 @@ export interface ReconcileResult {
 }
 
 const STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ACTIVE_EVIDENCE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Phase 1: Check if a result file already exists for the run.
@@ -72,6 +73,16 @@ function evaluateStaleness(
 		return { stale: true, reason: `alive_but_stale_${Math.round((now - updatedAt) / 3600_000)}h` };
 	}
 	return { stale: false, reason: "alive_and_recent" };
+}
+
+function hasRecentActiveEvidence(tasks: TeamTaskState[], now: number): boolean {
+	return tasks.some((task) => {
+		if (task.status !== "running" && task.status !== "waiting") return false;
+		const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
+		if (task.heartbeat?.alive !== false && Number.isFinite(heartbeatAt) && now - heartbeatAt <= ACTIVE_EVIDENCE_TTL_MS) return true;
+		const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
+		return Number.isFinite(activityAt) && now - activityAt <= ACTIVE_EVIDENCE_TTL_MS;
+	});
 }
 
 /**
@@ -138,7 +149,16 @@ export function reconcileStaleRun(
 	const pidStatus = checkPidLiveness(pid);
 
 	if (pidStatus.detail === "no pid recorded") {
-		// No async PID — not an async run, check updatedAt staleness
+		// No async PID may be a foreground/live run. Preserve it if task heartbeat
+		// or agent progress proves active work even when manifest.updatedAt is old.
+		if (hasRecentActiveEvidence(tasks, now)) {
+			return {
+				runId,
+				verdict: "no_status",
+				repaired: false,
+				detail: "No PID recorded, but recent task heartbeat/progress exists; not repairing",
+			};
+		}
 		const updatedAt = new Date(manifest.updatedAt).getTime();
 		if (Number.isFinite(updatedAt) && now - updatedAt > STALE_ALIVE_PID_MS) {
 			const repaired = repairStaleRun(manifest, tasks, "no_pid_stale");

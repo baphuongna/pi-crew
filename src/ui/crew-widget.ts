@@ -118,9 +118,11 @@ function statusSummary(runs: WidgetRun[]): string {
 	const agents = runs.flatMap((item) => item.agents);
 	const runningAgents = agents.filter((agent) => agent.status === "running").length;
 	const queuedAgents = agents.filter((agent) => agent.status === "queued").length;
+	const waitingAgents = agents.filter((agent) => agent.status === "waiting").length;
 	const completedAgents = agents.filter((agent) => agent.status === "completed").length;
 	const parts = [`${runningAgents} running`];
 	if (queuedAgents) parts.push(`${queuedAgents} queued`);
+	if (waitingAgents) parts.push(`${waitingAgents} waiting`);
 	if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
 	return `Crew: ${parts.join(", ")}`;
 }
@@ -136,9 +138,11 @@ export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines =
 	const agents = runs.flatMap((item) => item.agents);
 	const runningAgents = agents.filter((agent) => agent.status === "running").length;
 	const queuedAgents = agents.filter((agent) => agent.status === "queued").length;
+	const waitingAgents = agents.filter((agent) => agent.status === "waiting").length;
 	const completedAgents = agents.filter((agent) => agent.status === "completed").length;
 	const parts = [`${runningAgents} running`];
 	if (queuedAgents) parts.push(`${queuedAgents} queued`);
+	if (waitingAgents) parts.push(`${waitingAgents} waiting`);
 	if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
 	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")} · /team-dashboard`;
 }
@@ -153,7 +157,7 @@ export function buildCrewWidgetLines(cwd: string, frame = 0, maxLines = 8, provi
 	const runningGlyph = SPINNER[frame % SPINNER.length] ?? SPINNER[0];
 	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
 	for (const { run, agents } of runs) {
-		const activeAgents = agents.filter((item) => item.status === "running" || item.status === "queued");
+		const activeAgents = agents.filter((item) => item.status === "running" || item.status === "queued" || item.status === "waiting");
 		const completed = agents.filter((agent) => agent.status === "completed").length;
 		const runGlyph = iconForStatus(run.status, { runningGlyph });
 		lines.push(`├─ ${runGlyph} ${shortRunLabel(run)} · ${completed}/${agents.length} done · ${run.runId.slice(-8)}`);

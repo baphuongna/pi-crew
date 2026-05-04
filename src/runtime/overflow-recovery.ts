@@ -18,6 +18,7 @@ export interface OverflowRecoveryCallbacks {
 }
 
 const PHASE_TIMEOUT_MS = 120_000; // 120 seconds per phase
+const TERMINAL_STATE_TTL_MS = 5 * 60_000;
 
 export class OverflowRecoveryTracker {
 	private states = new Map<string, OverflowRecoveryState>();
@@ -29,7 +30,8 @@ export class OverflowRecoveryTracker {
 	}
 
 	feedEvent(taskId: string, runId: string, eventType: string): OverflowPhase {
-		const existing = this.states.get(taskId);
+		const key = this.keyFor(taskId, runId);
+		const existing = this.states.get(key);
 		const now = Date.now();
 
 		if (existing && existing.phase === "recovered") {
@@ -84,8 +86,8 @@ export class OverflowRecoveryTracker {
 			retryCount,
 		};
 
-		this.states.set(taskId, state);
-		this.resetTimeout(taskId);
+		this.states.set(key, state);
+		this.resetTimeout(key);
 
 		if (previousPhase !== phase && this.callbacks.onPhaseChange) {
 			try {
@@ -98,21 +100,20 @@ export class OverflowRecoveryTracker {
 		return phase;
 	}
 
-	getState(taskId: string): OverflowRecoveryState | undefined {
-		return this.states.get(taskId);
+	getState(taskId: string, runId?: string): OverflowRecoveryState | undefined {
+		if (runId) return this.states.get(this.keyFor(taskId, runId));
+		return [...this.states.values()].find((state) => state.taskId === taskId);
 	}
 
-	getPhase(taskId: string): OverflowPhase {
-		return this.states.get(taskId)?.phase ?? "none";
+	getPhase(taskId: string, runId?: string): OverflowPhase {
+		return this.getState(taskId, runId)?.phase ?? "none";
 	}
 
-	removeTask(taskId: string): void {
-		this.states.delete(taskId);
-		const timer = this.timers.get(taskId);
-		if (timer) {
-			clearTimeout(timer);
-			this.timers.delete(taskId);
-		}
+	removeTask(taskId: string, runId?: string): void {
+		const keys = runId
+			? [this.keyFor(taskId, runId)]
+			: [...this.states.entries()].filter(([, state]) => state.taskId === taskId).map(([key]) => key);
+		for (const key of keys) this.removeKey(key);
 	}
 
 	dispose(): void {
@@ -121,15 +122,33 @@ export class OverflowRecoveryTracker {
 		this.states.clear();
 	}
 
-	private resetTimeout(taskId: string): void {
-		const existing = this.timers.get(taskId);
+	private keyFor(taskId: string, runId: string): string {
+		return `${runId}\u0000${taskId}`;
+	}
+
+	private removeKey(key: string): void {
+		this.states.delete(key);
+		const timer = this.timers.get(key);
+		if (timer) clearTimeout(timer);
+		this.timers.delete(key);
+	}
+
+	private resetTimeout(key: string): void {
+		const existing = this.timers.get(key);
 		if (existing) clearTimeout(existing);
+		const current = this.states.get(key);
+		const timeoutMs = current?.phase === "recovered" || current?.phase === "failed" || current?.phase === "none"
+			? TERMINAL_STATE_TTL_MS
+			: PHASE_TIMEOUT_MS;
 
 		const timer = setTimeout(() => {
-			this.timers.delete(taskId);
-			const state = this.states.get(taskId);
+			this.timers.delete(key);
+			const state = this.states.get(key);
 			if (!state) return;
-			if (state.phase === "recovered" || state.phase === "failed" || state.phase === "none") return;
+			if (state.phase === "recovered" || state.phase === "failed" || state.phase === "none") {
+				this.states.delete(key);
+				return;
+			}
 
 			const previousPhase = state.phase;
 			state.phase = "failed";
@@ -139,19 +158,19 @@ export class OverflowRecoveryTracker {
 				try {
 					this.callbacks.onTimeout(state);
 				} catch (error) {
-					logInternalError("overflow-recovery.onTimeout", error, `taskId=${taskId}`);
+					logInternalError("overflow-recovery.onTimeout", error, `taskId=${state.taskId}`);
 				}
 			}
 			if (this.callbacks.onPhaseChange) {
 				try {
 					this.callbacks.onPhaseChange(state, previousPhase);
 				} catch (error) {
-					logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${taskId}`);
+					logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${state.taskId}`);
 				}
 			}
-		}, PHASE_TIMEOUT_MS);
+		}, timeoutMs);
 
 		timer.unref();
-		this.timers.set(taskId, timer);
+		this.timers.set(key, timer);
 	}
 }

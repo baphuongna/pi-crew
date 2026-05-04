@@ -291,13 +291,17 @@ async function recentOutputLinesAsync(manifest: TeamRunManifest, agents: CrewAge
 }
 
 function progressFromTasks(tasks: TeamTaskState[]): RunUiProgress {
-	return {
-		total: tasks.length,
-		completed: tasks.filter((task) => task.status === "completed").length,
-		running: tasks.filter((task) => task.status === "running").length,
-		failed: tasks.filter((task) => task.status === "failed").length,
-		queued: tasks.filter((task) => task.status === "queued").length,
-	};
+	const progress: RunUiProgress = { total: tasks.length, completed: 0, running: 0, failed: 0, queued: 0, waiting: 0, cancelled: 0, skipped: 0 };
+	for (const task of tasks) {
+		if (task.status === "completed") progress.completed += 1;
+		else if (task.status === "running") progress.running += 1;
+		else if (task.status === "failed") progress.failed += 1;
+		else if (task.status === "queued") progress.queued += 1;
+		else if (task.status === "waiting") progress.waiting = (progress.waiting ?? 0) + 1;
+		else if (task.status === "cancelled") progress.cancelled = (progress.cancelled ?? 0) + 1;
+		else if (task.status === "skipped") progress.skipped = (progress.skipped ?? 0) + 1;
+	}
+	return progress;
 }
 
 function usageFrom(tasks: TeamTaskState[], agents: CrewAgentRecord[]): RunUiUsage {

@@ -50,6 +50,19 @@ describe("reconcileStaleRun", () => {
 		assert.equal(result.repaired, false);
 	});
 
+	it("preserves stale non-async run when fresh heartbeat exists", () => {
+		const now = Date.now();
+		const staleTime = now - 25 * 60 * 60 * 1000;
+		const manifest = {
+			...baseManifest,
+			updatedAt: new Date(staleTime).toISOString(),
+		};
+		const task = { ...runningTask, heartbeat: { workerId: "task-1", lastSeenAt: new Date(now - 1000).toISOString(), alive: true } };
+		const result = reconcileStaleRun(manifest, [task], now);
+		assert.equal(result.verdict, "no_status");
+		assert.equal(result.repaired, false);
+	});
+
 	it("repairs stale non-async run (>24h old)", () => {
 		const staleTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
 		const manifest = {

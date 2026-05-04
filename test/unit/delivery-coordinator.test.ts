@@ -102,6 +102,22 @@ describe("DeliveryCoordinator", () => {
 		dc.dispose();
 	});
 
+	it("requeues result when active emit throws", () => {
+		const dc = new DeliveryCoordinator({ emit: () => { throw new Error("transient"); } });
+		dc.activate("session-1");
+		dc.deliverResult("run1", { status: "completed" });
+		assert.equal(dc.getPendingCount(), 1);
+		dc.dispose();
+	});
+
+	it("requeues notification when active follow-up throws", () => {
+		const dc = new DeliveryCoordinator({ sendFollowUp: () => { throw new Error("transient"); } });
+		dc.activate("session-1");
+		dc.deliverNotification({ id: "n1", severity: "info", source: "test", title: "Test", body: "Body" });
+		assert.equal(dc.getPendingCount(), 1);
+		dc.dispose();
+	});
+
 	it("dispose clears all pending", () => {
 		const dc = new DeliveryCoordinator({});
 		dc.deliverResult("run1", {});

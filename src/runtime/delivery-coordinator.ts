@@ -55,21 +55,25 @@ export class DeliveryCoordinator {
 		if (this.active && this.deps.emit) {
 			try {
 				this.deps.emit("pi-crew:run-result", result);
+				return;
 			} catch (error) {
 				logInternalError("delivery-coordinator.deliverResult", error, `runId=${runId}`);
 			}
-			return;
 		}
 		this.enqueue({ runId, payload: result, timestamp: Date.now(), type: "result" });
 	}
 
 	deliverNotification(notification: NotificationDescriptor): void {
+		let delivered = false;
 		if (this.active && this.deps.sendFollowUp) {
 			try {
 				this.deps.sendFollowUp(notification.title, notification.body ?? "");
+				delivered = true;
 			} catch (error) {
 				logInternalError("delivery-coordinator.deliverNotification", error, `id=${notification.id}`);
 			}
+		}
+		if (delivered) {
 			if (this.deps.emit) {
 				try {
 					this.deps.emit("pi-crew:notification", notification);
@@ -84,10 +88,10 @@ export class DeliveryCoordinator {
 		if (this.active && this.deps.sendWakeUp) {
 			try {
 				this.deps.sendWakeUp(message);
+				return;
 			} catch (error) {
 				logInternalError("delivery-coordinator.deliverSteer", error, `runId=${runId}`);
 			}
-			return;
 		}
 		this.enqueue({ runId, payload: message, timestamp: Date.now(), type: "steer" });
 	}

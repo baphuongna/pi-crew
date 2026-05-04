@@ -151,12 +151,28 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 		} });
 	}
 
+	pi.registerCommand("team-respond", {
+		description: "Respond to a waiting pi-crew task: <runId> <taskId|--all> <message>",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const runId = tokens.shift();
+			const taskToken = tokens[0] === "--all" ? tokens.shift() : tokens.shift();
+			const taskId = taskToken === "--all" ? undefined : taskToken;
+			const message = tokens.join(" ") || undefined;
+			const result = await handleTeamTool({ action: "respond", runId, taskId, message }, ctx);
+			await notifyCommandResult(ctx, commandText(result));
+		},
+	});
+
 	pi.registerCommand("team-api", {
 		description: "Run safe pi-crew API interop operations: <runId> <operation> [key=value]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const tokens = args.trim().split(/\s+/).filter(Boolean);
-			const runId = tokens.find((token) => !token.includes("=") && !token.startsWith("--"));
-			const operation = tokens.find((token) => token !== runId && !token.includes("=") && !token.startsWith("--")) ?? "read-manifest";
+			const positional = tokens.filter((token) => !token.includes("=") && !token.startsWith("--"));
+			const runIdLessOperations = new Set(["metrics-snapshot"]);
+			const first = positional[0];
+			const runId = first && runIdLessOperations.has(first) ? undefined : first;
+			const operation = runId ? (positional[1] ?? "read-manifest") : (first ?? "read-manifest");
 			const config: Record<string, unknown> = { operation };
 			for (const token of tokens.filter((item) => item.includes("="))) {
 				const [key, ...rest] = token.split("=");

@@ -1,6 +1,7 @@
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/locks.ts";
 import { loadRunManifestById, saveRunTasks } from "../../state/state-store.ts";
+import { appendMailboxMessage } from "../../state/mailbox.ts";
 import { saveCrewAgents, recordFromTask } from "../../runtime/crew-agent-records.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -22,27 +23,43 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 		const taskId = params.taskId;
 		const message = params.message ?? "";
 
-		// Find the waiting task(s)
 		const targetTasks = taskId
-			? loaded.tasks.filter((t) => t.id === taskId)
+			? loaded.tasks.filter((t) => t.id === taskId && t.status === "waiting")
 			: loaded.tasks.filter((t) => t.status === "waiting");
 
 		if (targetTasks.length === 0) {
+			const existing = taskId ? loaded.tasks.find((t) => t.id === taskId) : undefined;
 			return result(
-				taskId ? `Task '${taskId}' not found or not in waiting state.` : `No waiting tasks in run ${loaded.manifest.runId}.`,
-				{ action: "respond", status: "error" },
+				taskId
+					? existing
+						? `Task '${taskId}' is ${existing.status}, not waiting.`
+						: `Task '${taskId}' not found.`
+					: `No waiting tasks in run ${loaded.manifest.runId}.`,
+				{ action: "respond", status: "error", runId: loaded.manifest.runId },
 				true,
 			);
 		}
 
+		const resumed = new Set(targetTasks.map((t) => t.id));
+		const mailboxIds: string[] = [];
+		for (const task of targetTasks) {
+			const mailbox = appendMailboxMessage(loaded.manifest, {
+				direction: "inbox",
+				from: "leader",
+				to: task.id,
+				taskId: task.id,
+				body: message || "(resume)",
+				data: { action: "respond" },
+			});
+			mailboxIds.push(mailbox.id);
+		}
+
 		// Transition waiting tasks back to running
 		const updatedTasks = loaded.tasks.map((task) => {
-			if (task.status !== "waiting") return task;
-			if (taskId && task.id !== taskId) return task;
+			if (!resumed.has(task.id)) return task;
 			return {
 				...task,
 				status: "running" as const,
-				// Store the response in the task's adaptive field
 				adaptive: {
 					...task.adaptive,
 					phase: "resumed",
@@ -60,8 +77,8 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 
 		const resumedIds = targetTasks.map((t) => t.id);
 		return result(
-			`Resumed ${resumedIds.length} task(s): ${resumedIds.join(", ")}. Message: ${message || "(no message)"}`,
-			{ action: "respond", status: "ok", runId: loaded.manifest.runId, resumedIds },
+			`Resumed ${resumedIds.length} waiting task(s): ${resumedIds.join(", ")}. Message: ${message || "(no message)"}`,
+			{ action: "respond", status: "ok", runId: loaded.manifest.runId, resumedIds, mailboxIds } as never,
 		);
 	});
 }
