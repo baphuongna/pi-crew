@@ -40,6 +40,7 @@ import { detectInterruptedRuns } from "../runtime/crash-recovery.ts";
 import { DeliveryCoordinator } from "../runtime/delivery-coordinator.ts";
 import { OverflowRecoveryTracker } from "../runtime/overflow-recovery.ts";
 import { tryRegisterSessionCleanup } from "../runtime/session-resources.ts";
+import { createSessionSnapshot } from "../runtime/session-snapshot.ts";
 import { initI18n } from "../i18n.ts";
 
 export { __test__subagentSpawnParams };
@@ -509,8 +510,14 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	});
 	pi.on("session_before_switch", () => {
 		sessionGeneration++;
-		// Phase 11b: Capture state before session switch
 		const pendingCount = deliveryCoordinator?.getPendingCount() ?? 0;
+		try {
+			const activeRuns = currentCtx ? getManifestCache(currentCtx.cwd).list(50).filter((run) => run.status === "running" || run.status === "queued" || run.status === "blocked") : [];
+			const snapshot = createSessionSnapshot(activeRuns, pendingCount, sessionGeneration);
+			if (pendingCount > 0 || snapshot.activeRunIds.length > 0) logInternalError("register.session-before-switch", undefined, JSON.stringify(snapshot));
+		} catch (error) {
+			logInternalError("register.session-before-switch.snapshot", error);
+		}
 		if (pendingCount > 0) {
 			logInternalError("register.session-before-switch", `Switching session with ${pendingCount} pending deliveries`);
 		}
