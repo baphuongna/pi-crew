@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.1.45
+
+### Added
+
+- Added `/team-respond <runId> <taskId|--all> <message>` for replying to interactive/waiting tasks from slash commands.
+- Added runtime-extensible run ownership metadata (`ownerSessionId`) so destructive cancellation can be guarded by session ownership.
+- Added async manifest and crew-agent readers used by snapshot preloading.
+
+### Fixed
+
+- Fixed `respond` action to validate waiting-only tasks, write replies to task mailboxes, and reject non-waiting task responses instead of reporting false success.
+- Fixed `cancel` ownership handling so runs created by another Pi session are not cancelled when `ownerSessionId` mismatches.
+- Fixed `DeliveryCoordinator` to requeue payloads when active delivery callbacks throw, and to drop queued payloads from stale session generations.
+- Fixed `OverflowRecoveryTracker` collisions by keying recovery state with `runId + taskId`, plus cleanup of terminal recovery states.
+- Fixed stale reconciliation false positives for foreground/live no-PID runs by preserving runs with recent task heartbeat or agent progress evidence.
+- Fixed UI waiting counts: snapshots, powerbar, and crew widget now include `waiting` tasks/agents where appropriate.
+- Fixed team tool `cwd` override handling so valid overrides are applied consistently and invalid overrides return a clear error.
+- Fixed session history pollution by only appending `crew:run-started` after a successful run with a real `runId`.
+- Fixed async snapshot preload path to avoid synchronous manifest/agent reads.
+- Fixed mailbox count semantics for large mailbox files by marking tail-derived counts as approximate when the file is larger than the bounded tail window.
+- Fixed auto-retry freshness by reloading manifest/tasks before retry attempts and fallback task runs.
+
+### Changed
+
+- Wired session snapshots into `session_before_switch` logging so active runs and pending deliveries are captured before session transitions.
+- Dashboard mailbox pane now indicates when counts are approximate tail-derived values.
+
 ## 0.1.43
 
 ### Added
