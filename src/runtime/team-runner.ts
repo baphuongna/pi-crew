@@ -43,6 +43,8 @@ export interface ExecuteTeamRunInput {
 	signal?: AbortSignal;
 	reliability?: CrewReliabilityConfig;
 	metricRegistry?: MetricRegistry;
+	/** Optional callback for JSON events from child Pi. Used for overflow recovery tracking. */
+	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 }
 
 function findStep(workflow: WorkflowConfig, task: TeamTaskState): WorkflowStep {
@@ -579,7 +581,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			async (task) => {
 				const step = findStep(workflow, task);
 				const agent = findAgent(input.agents, task);
-				const baseInput = { manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits };
+				const baseInput = { manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: input.runtime?.kind, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, limits: input.limits, onJsonEvent: input.onJsonEvent };
 				if (input.reliability?.autoRetry !== true) return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
 				let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
 				const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];

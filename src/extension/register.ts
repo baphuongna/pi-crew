@@ -34,6 +34,9 @@ import { OTLPExporter } from "../observability/exporters/otlp-exporter.ts";
 import { HeartbeatWatcher } from "../runtime/heartbeat-watcher.ts";
 import { appendDeadletter } from "../runtime/deadletter.ts";
 import { detectInterruptedRuns } from "../runtime/crash-recovery.ts";
+import { DeliveryCoordinator } from "../runtime/delivery-coordinator.ts";
+import { OverflowRecoveryTracker } from "../runtime/overflow-recovery.ts";
+import { tryRegisterSessionCleanup } from "../runtime/session-resources.ts";
 import { initI18n } from "../i18n.ts";
 
 export { __test__subagentSpawnParams };
@@ -83,6 +86,8 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	let metricSink: MetricSink | undefined;
 	let heartbeatWatcher: HeartbeatWatcher | undefined;
 	let otlpExporter: OTLPExporter | undefined;
+	let deliveryCoordinator: DeliveryCoordinator | undefined;
+	let overflowTracker: OverflowRecoveryTracker | undefined;
 	const configureNotifications = (ctx: ExtensionContext): void => {
 		notificationRouter?.dispose();
 		notificationSink?.dispose();
@@ -148,6 +153,28 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		}
 	};
 	const autoRecoveryLast = new Map<string, number>();
+	const configureDeliveryCoordinator = (): void => {
+		deliveryCoordinator?.dispose();
+		deliveryCoordinator = undefined;
+		overflowTracker?.dispose();
+		overflowTracker = undefined;
+		deliveryCoordinator = new DeliveryCoordinator({
+			emit: (event, data) => { pi.events?.emit?.(event, data); },
+			sendFollowUp: (title, body) => { sendFollowUp(pi, [title, body].filter((line): line is string => Boolean(line)).join("\n")); },
+			sendWakeUp: (message) => { sendAgentWakeUp(pi, message); },
+		});
+		overflowTracker = new OverflowRecoveryTracker({
+			onPhaseChange: (state, previousPhase) => {
+				if (metricRegistry) {
+					metricRegistry.counter("crew.task.overflow_recovery_total", "Overflow recovery phase transitions").inc({ phase: state.phase, previous_phase: previousPhase });
+				}
+				pi.events?.emit?.("crew.task.overflow", { runId: state.runId, taskId: state.taskId, phase: state.phase, previousPhase });
+			},
+			onTimeout: (state) => {
+				notifyOperator({ id: `overflow_timeout_${state.taskId}`, severity: "warning", source: "overflow-recovery", runId: state.runId, title: `Task ${state.taskId} overflow recovery timed out`, body: `Phase: ${state.phase}, compaction_count: ${state.compactionCount}, retry_count: ${state.retryCount}. The task may be stuck.` });
+			},
+		});
+	};
 	const notifyOperator = (notification: NotificationDescriptor): void => {
 		try {
 			notificationRouter?.enqueue(notification);
@@ -328,6 +355,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		eventMetricSub = undefined;
 		otlpExporter = undefined;
 		metricRegistry = undefined;
+		deliveryCoordinator?.dispose();
+		overflowTracker?.dispose();
+		deliveryCoordinator = undefined;
+		overflowTracker = undefined;
 		manifestCache.dispose();
 		runSnapshotCache.dispose?.();
 		renderScheduler?.dispose();
@@ -360,6 +391,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		autoRecoveryLast.clear();
 		configureNotifications(ctx);
 		configureObservability(ctx);
+		configureDeliveryCoordinator();
+		const sessionId = (ctx as unknown as Record<string, unknown>).sessionId;
+		if (typeof sessionId === "string" && sessionId) deliveryCoordinator?.activate(sessionId);
+		tryRegisterSessionCleanup(pi, () => { terminateActiveChildPiProcesses(); cleanupRuntime(); });
 		registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
 		startAsyncRunNotifier(ctx, notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, { generation: ownerGeneration, isCurrent: (generation) => generation === sessionGeneration && currentCtx === ctx && !cleanedUp });
 		const cache = getManifestCache(ctx.cwd);
@@ -412,6 +447,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	});
 	pi.on("session_before_switch", () => {
 		sessionGeneration++;
+		deliveryCoordinator?.deactivate();
 		stopAsyncRunNotifier(notifierState);
 		stopSessionBoundSubagents();
 	});
@@ -435,7 +471,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		};
 	});
 
-	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, widgetState });
+	registerTeamTool(pi, { foregroundControllers, startForegroundRun, openLiveSidebar, getManifestCache, getRunSnapshotCache, getMetricRegistry: () => metricRegistry, widgetState, onJsonEvent: (taskId, runId, event) => {
+		const record = event as Record<string, unknown>;
+		const eventType = typeof record.type === "string" ? record.type : undefined;
+		if (eventType) overflowTracker?.feedEvent(taskId, runId, eventType);
+	} });
 	registerSubagentTools(pi, subagentManager, { ownerSessionGeneration: captureSessionGeneration });
 	time("register.tools");
 

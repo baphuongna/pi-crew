@@ -17,6 +17,7 @@ export interface RegisterTeamToolDeps {
 	getRunSnapshotCache?: (cwd: string) => ReturnType<typeof createRunSnapshotCache>;
 	getMetricRegistry?: () => MetricRegistry | undefined;
 	widgetState: CrewWidgetState;
+	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 }
 
 export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): void {
@@ -38,7 +39,7 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 					const runLabel = resolved.team ?? resolved.agent ?? "direct";
 					pi.setSessionName(`pi-crew: ${runLabel}/${resolved.workflow ?? "default"} — ${resolved.goal.slice(0, 60)}`);
 				}
-				const output = await handleTeamTool(resolved, { ...ctx, signal: controller.signal, metricRegistry: deps.getMetricRegistry?.(), startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId) });
+				const output = await handleTeamTool(resolved, { ...ctx, signal: controller.signal, metricRegistry: deps.getMetricRegistry?.(), startForegroundRun: (runner, runId) => deps.startForegroundRun(ctx, runner, runId), onRunStarted: (runId) => deps.openLiveSidebar(ctx, runId), onJsonEvent: deps.onJsonEvent });
 				if (resolved.action === "run") {
 					pi.appendEntry("crew:run-started", {
 						runId: output.details?.runId,

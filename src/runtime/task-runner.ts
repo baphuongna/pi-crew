@@ -44,6 +44,8 @@ export interface TaskRunnerInput {
 	modelOverride?: string;
 	limits?: CrewLimitsConfig;
 	dependencyContextText?: string;
+	/** Optional callback for JSON events from child Pi. Used for overflow recovery tracking. */
+	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 }
 
 export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
@@ -160,6 +162,12 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					persistHeartbeat();
 					task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 					tasks = updateTask(tasks, task);
+					// Feed overflow recovery tracker
+					if (input.onJsonEvent) {
+						try {
+							input.onJsonEvent(task.id, manifest.runId, event);
+						} catch { /* overflow tracking errors should not affect task */ }
+					}
 					if (!finalCheckpointWritten && isFinalChildEvent(event)) {
 						finalCheckpointWritten = true;
 						({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));

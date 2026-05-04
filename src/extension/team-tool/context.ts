@@ -11,6 +11,7 @@ export type TeamContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<Extension
 	signal?: AbortSignal;
 	startForegroundRun?: (runner: (signal?: AbortSignal) => Promise<void>, runId?: string) => void;
 	onRunStarted?: (runId: string) => void;
+	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 };
 
 export function result(text: string, details: TeamToolDetails, isError = false): PiTeamsToolResult {

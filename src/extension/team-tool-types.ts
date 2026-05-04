@@ -3,4 +3,7 @@ export interface TeamToolDetails {
 	status: "ok" | "error" | "planned";
 	runId?: string;
 	artifactsRoot?: string;
+	abortedIds?: string[];
+	missingIds?: string[];
+	foreignIds?: string[];
 }
