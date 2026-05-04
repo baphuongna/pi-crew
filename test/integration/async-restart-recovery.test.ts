@@ -19,6 +19,8 @@ function firstText(result: Awaited<ReturnType<typeof handleTeamTool>>): string {
 
 test("async restart recovery status marks dead background pid failed", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-async-restart-"));
+	// Create .crew marker so pi-crew uses project-level state under cwd
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "dead async recovery" });
 		const logPath = path.join(created.manifest.stateRoot, "background.log");
