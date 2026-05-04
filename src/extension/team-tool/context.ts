@@ -4,6 +4,7 @@ import type { TeamToolDetails } from "../team-tool-types.ts";
 import { toolResult, type PiTeamsToolResult } from "../tool-result.ts";
 
 export type TeamContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<ExtensionContext, "model">> & {
+	sessionId?: string;
 	modelRegistry?: unknown;
 	sessionManager?: { getBranch?: () => unknown[] };
 	events?: { emit?: (event: string, data: unknown) => void };

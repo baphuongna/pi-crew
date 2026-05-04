@@ -36,6 +36,7 @@ export function abortOwned(
 	const result: AbortOwnedResult = { abortedIds: [], missingIds: [], foreignIds: [] };
 	const taskMap = new Map(loaded.tasks.map((t) => [t.id, t] as const));
 	const targetIds = taskIds ?? loaded.tasks.map((t) => t.id);
+	const foreignRun = typeof loaded.manifest.ownerSessionId === "string" && loaded.manifest.ownerSessionId !== ctx.sessionId;
 
 	for (const id of targetIds) {
 		const task = taskMap.get(id);
@@ -44,11 +45,10 @@ export function abortOwned(
 			continue;
 		}
 		if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") continue;
-		// All tasks in a run are owned by the session that created the run.
-		// Since cancel is always called within the session that created it,
-		// all cancellable tasks are abortable.
-		// Foreign detection is a placeholder for when tasks can be owned
-		// by different sessions (e.g., shared runs with session-scoped tasks).
+		if (foreignRun) {
+			result.foreignIds.push(id);
+			continue;
+		}
 		result.abortedIds.push(id);
 	}
 
@@ -64,6 +64,9 @@ export function handleCancel(params: TeamToolParamsValue, ctx: TeamContext): PiT
 
 		// Classify tasks for foreign-aware cancellation
 		const abortResult = abortOwned(loaded.manifest.runId, undefined, ctx);
+		if (abortResult.abortedIds.length === 0 && abortResult.foreignIds.length > 0) {
+			return result(`Run ${loaded.manifest.runId} belongs to another session; not cancelled.`, { action: "cancel", status: "error", runId: loaded.manifest.runId, foreignIds: abortResult.foreignIds } as never, true);
+		}
 		const cancellableIds = new Set(abortResult.abortedIds);
 
 		const tasks = loaded.tasks.map((task) => {

@@ -123,6 +123,8 @@ export interface TeamRunManifest {
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
 	planApproval?: PlanApprovalState;
+	/** Pi session that created the run, when available. Used to prevent cross-session destructive actions. */
+	ownerSessionId?: string;
 	summary?: string;
 	policyDecisions?: PolicyDecision[];
 }

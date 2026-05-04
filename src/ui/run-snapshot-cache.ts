@@ -373,7 +373,28 @@ async function readGroupJoinMailboxAsync(filePath: string, delivery: Record<stri
 	});
 }
 
-function readMailboxCounts(filePath: string, delivery: Record<string, MailboxMessageStatus>): number {
+interface MailboxCount {
+	count: number;
+	approximate: boolean;
+}
+
+function tailApproximate(filePath: string): boolean {
+	try {
+		return fs.statSync(filePath).size > MAX_TAIL_BYTES;
+	} catch {
+		return false;
+	}
+}
+
+async function tailApproximateAsync(filePath: string): Promise<boolean> {
+	try {
+		return (await fs.promises.stat(filePath)).size > MAX_TAIL_BYTES;
+	} catch {
+		return false;
+	}
+}
+
+function readMailboxCounts(filePath: string, delivery: Record<string, MailboxMessageStatus>): MailboxCount {
 	const items = tailJsonlLines(filePath, MAX_TAIL_LINES, (line) => {
 		try {
 			const parsed = JSON.parse(line) as unknown;
@@ -385,10 +406,10 @@ function readMailboxCounts(filePath: string, delivery: Record<string, MailboxMes
 			return 0;
 		}
 	}) as number[];
-	return items.reduce((sum, val) => sum + val, 0);
+	return { count: items.reduce((sum, val) => sum + val, 0), approximate: tailApproximate(filePath) };
 }
 
-async function readMailboxCountsAsync(filePath: string, delivery: Record<string, MailboxMessageStatus>): Promise<number> {
+async function readMailboxCountsAsync(filePath: string, delivery: Record<string, MailboxMessageStatus>): Promise<MailboxCount> {
 	const items = await tailJsonlLinesAsync(filePath, MAX_TAIL_LINES, (line) => {
 		try {
 			const parsed = JSON.parse(line) as unknown;
@@ -400,7 +421,7 @@ async function readMailboxCountsAsync(filePath: string, delivery: Record<string,
 			return 0;
 		}
 	}) as number[];
-	return items.reduce((sum, val) => sum + val, 0);
+	return { count: items.reduce((sum, val) => sum + val, 0), approximate: await tailApproximateAsync(filePath) };
 }
 
 function groupJoinsFrom(manifest: TeamRunManifest): RunUiGroupJoin[] {
@@ -418,39 +439,43 @@ async function groupJoinsFromAsync(manifest: TeamRunManifest): Promise<RunUiGrou
 function mailboxFrom(manifest: TeamRunManifest, agents: CrewAgentRecord[]): RunUiMailbox {
 	const root = path.join(manifest.stateRoot, "mailbox");
 	const delivery = readDeliveryMessages(path.join(root, "delivery.json"));
-	let inboxUnread = readMailboxCounts(path.join(root, "inbox.jsonl"), delivery);
-	let outboxPending = readMailboxCounts(path.join(root, "outbox.jsonl"), delivery);
+	let inbox = readMailboxCounts(path.join(root, "inbox.jsonl"), delivery);
+	let outbox = readMailboxCounts(path.join(root, "outbox.jsonl"), delivery);
 	const tasksRoot = path.join(root, "tasks");
 	try {
 		for (const entry of fs.readdirSync(tasksRoot, { withFileTypes: true })) {
 			if (!entry.isDirectory()) continue;
-			inboxUnread += readMailboxCounts(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery);
-			outboxPending += readMailboxCounts(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery);
+			const taskInbox = readMailboxCounts(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery);
+			const taskOutbox = readMailboxCounts(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery);
+			inbox = { count: inbox.count + taskInbox.count, approximate: inbox.approximate || taskInbox.approximate };
+			outbox = { count: outbox.count + taskOutbox.count, approximate: outbox.approximate || taskOutbox.approximate };
 		}
 	} catch {
 		// No task mailboxes yet.
 	}
 	const attentionAgents = agents.filter((agent) => agent.progress?.activityState === "needs_attention").length;
-	return { inboxUnread, outboxPending, needsAttention: inboxUnread + attentionAgents };
+	return { inboxUnread: inbox.count, outboxPending: outbox.count, needsAttention: inbox.count + attentionAgents, approximate: inbox.approximate || outbox.approximate };
 }
 
 async function mailboxFromAsync(manifest: TeamRunManifest, agents: CrewAgentRecord[]): Promise<RunUiMailbox> {
 	const root = path.join(manifest.stateRoot, "mailbox");
 	const delivery = await readDeliveryMessagesAsync(path.join(root, "delivery.json"));
-	let inboxUnread = await readMailboxCountsAsync(path.join(root, "inbox.jsonl"), delivery);
-	let outboxPending = await readMailboxCountsAsync(path.join(root, "outbox.jsonl"), delivery);
+	let inbox = await readMailboxCountsAsync(path.join(root, "inbox.jsonl"), delivery);
+	let outbox = await readMailboxCountsAsync(path.join(root, "outbox.jsonl"), delivery);
 	const tasksRoot = path.join(root, "tasks");
 	try {
 		for (const entry of await fs.promises.readdir(tasksRoot, { withFileTypes: true })) {
 			if (!entry.isDirectory()) continue;
-			inboxUnread += await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery);
-			outboxPending += await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery);
+			const taskInbox = await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery);
+			const taskOutbox = await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery);
+			inbox = { count: inbox.count + taskInbox.count, approximate: inbox.approximate || taskInbox.approximate };
+			outbox = { count: outbox.count + taskOutbox.count, approximate: outbox.approximate || taskOutbox.approximate };
 		}
 	} catch {
 		// No task mailboxes yet.
 	}
 	const attentionAgents = agents.filter((agent) => agent.progress?.activityState === "needs_attention").length;
-	return { inboxUnread, outboxPending, needsAttention: inboxUnread + attentionAgents };
+	return { inboxUnread: inbox.count, outboxPending: outbox.count, needsAttention: inbox.count + attentionAgents, approximate: inbox.approximate || outbox.approximate };
 }
 
 function signatureFor(input: Omit<RunUiSnapshot, "signature" | "fetchedAt">, stamps: SnapshotStamps): string {

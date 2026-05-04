@@ -97,6 +97,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		workflow,
 		goal,
 		workspaceMode: params.workspaceMode,
+		ownerSessionId: ctx.sessionId,
 	});
 	const goalArtifact = writeArtifact(paths.artifactsRoot, {
 		kind: "prompt",

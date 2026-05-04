@@ -6,7 +6,7 @@ import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { ArtifactDescriptor, PolicyDecision, TeamRunManifest, TaskAttemptState, TeamTaskState } from "../state/types.ts";
-import { saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
@@ -591,8 +591,12 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 						const startedAt = new Date().toISOString();
 						const inFlightAttempts: TaskAttemptState[] = [...attemptsSoFar, { startedAt }];
 						input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({ runId: manifest.runId, taskId: task.id });
-						const taskWithAttempt: TeamTaskState = { ...task, attempts: inFlightAttempts };
-						const result = await withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask({ ...baseInput, task: taskWithAttempt }));
+						const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+						const freshManifest = fresh?.manifest ?? manifest;
+						const freshTasks = fresh?.tasks ?? tasks;
+						const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+						const taskWithAttempt: TeamTaskState = { ...freshTask, attempts: inFlightAttempts };
+						const result = await withCorrelation(childCorrelation(freshManifest.runId, task.id), () => runTeamTask({ ...baseInput, manifest: freshManifest, tasks: freshTasks, task: taskWithAttempt }));
 						const failed = failedTaskFrom(result, task.id);
 						const endedAt = new Date().toISOString();
 						const finishedAttempt: TaskAttemptState = { startedAt, endedAt, ...(failed?.error ? { error: failed.error } : {}) };
@@ -618,7 +622,12 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 						},
 					});
 				} catch {
-					return lastFailed ?? withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
+					if (lastFailed) return lastFailed;
+					const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+					const freshManifest = fresh?.manifest ?? manifest;
+					const freshTasks = fresh?.tasks ?? tasks;
+					const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+					return withCorrelation(childCorrelation(freshManifest.runId, task.id), () => runTeamTask({ ...baseInput, manifest: freshManifest, tasks: freshTasks, task: freshTask }));
 				}
 			},
 		);

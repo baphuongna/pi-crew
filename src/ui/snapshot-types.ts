@@ -23,6 +23,8 @@ export interface RunUiMailbox {
 	inboxUnread: number;
 	outboxPending: number;
 	needsAttention: number;
+	/** True when counts come from bounded tail reads and older messages may be omitted. */
+	approximate?: boolean;
 }
 
 export interface RunUiGroupJoin {

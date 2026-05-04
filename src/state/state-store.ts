@@ -133,6 +133,7 @@ export function createRunManifest(params: {
 	workflow?: WorkflowConfig;
 	goal: string;
 	workspaceMode?: "single" | "worktree";
+	ownerSessionId?: string;
 }): { manifest: TeamRunManifest; tasks: TeamTaskState[]; paths: RunPaths } {
 	const paths = createRunPaths(params.cwd);
 	const now = new Date().toISOString();
@@ -153,6 +154,7 @@ export function createRunManifest(params: {
 		tasksPath: paths.tasksPath,
 		eventsPath: paths.eventsPath,
 		artifacts: [],
+		...(params.ownerSessionId ? { ownerSessionId: params.ownerSessionId } : {}),
 	};
 	fs.mkdirSync(paths.stateRoot, { recursive: true });
 	fs.mkdirSync(paths.artifactsRoot, { recursive: true });

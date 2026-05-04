@@ -57,6 +57,20 @@ test("RunSnapshotCache returns previous valid snapshot on parse errors", () => {
 	}
 });
 
+test("RunSnapshotCache marks mailbox counts approximate when tail-truncated", () => {
+	const cwd = tempCwd("pi-crew-snapshot-mailbox-large-");
+	try {
+		const { manifest } = fixtures(cwd);
+		for (let i = 0; i < 260; i += 1) appendMailboxMessage(manifest, { direction: "inbox", from: "leader", to: "worker", body: `please check ${i} ${"x".repeat(220)}` });
+		const cache = createRunSnapshotCache(cwd, { ttlMs: 0 });
+		const snapshot = cache.refresh(manifest.runId);
+		assert.equal(snapshot.mailbox.approximate, true);
+		assert.ok(snapshot.mailbox.inboxUnread > 0);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("RunSnapshotCache captures mailbox badges and LRU-evicts old entries", () => {
 	const cwd = tempCwd("pi-crew-snapshot-lru-");
 	try {
