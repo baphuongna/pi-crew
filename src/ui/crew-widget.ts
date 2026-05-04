@@ -100,12 +100,12 @@ function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
 	}
 }
 
-export function activeWidgetRuns(cwd: string, manifestCache?: ManifestCache, snapshotCache?: RunSnapshotCache): WidgetRun[] {
-	const runs = manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20);
+export function activeWidgetRuns(cwd: string, manifestCache?: ManifestCache, snapshotCache?: RunSnapshotCache, preloadedManifests?: TeamRunManifest[]): WidgetRun[] {
+	const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
 	return runs
 		.map((run) => {
 			try {
-				const snapshot = snapshotCache?.refreshIfStale(run.runId);
+				const snapshot = snapshotCache?.get(run.runId) ?? snapshotCache?.refreshIfStale(run.runId);
 				return snapshot ? { run: snapshot.manifest, agents: snapshot.agents, snapshot } : { run, agents: agentsFor(run) };
 			} catch {
 				return { run, agents: agentsFor(run) };
@@ -279,11 +279,12 @@ export function updateCrewWidget(
 	config?: CrewUiConfig,
 	manifestCache?: ManifestCache,
 	snapshotCache?: RunSnapshotCache,
+	preloadedManifests?: TeamRunManifest[],
 ): void {
 	if (!ctx.hasUI) return;
 	state.frame += 1;
 	const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
-	const runs = activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache);
+	const runs = activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache, preloadedManifests);
 	const lines = buildCrewWidgetLines(ctx.cwd, state.frame, maxLines, runs, state.notificationCount ?? 0);
 	const placement = config?.widgetPlacement ?? "aboveEditor";
 	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);

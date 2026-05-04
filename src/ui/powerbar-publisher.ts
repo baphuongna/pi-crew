@@ -63,14 +63,14 @@ export function registerPiCrewPowerbarSegments(events: EventBus, config?: CrewUi
 	safeEmit(events, "powerbar:register-segment", { id: "pi-crew-progress", label: "pi-crew run progress" });
 }
 
-export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: CrewUiConfig, manifestCache?: ManifestCache, snapshotCache?: RunSnapshotCache, ctx?: StatusContext, notificationCount = 0): void {
+export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: CrewUiConfig, manifestCache?: ManifestCache, snapshotCache?: RunSnapshotCache, ctx?: StatusContext, notificationCount = 0, preloadedManifests?: TeamRunManifest[]): void {
 	if (config?.powerbar === false) return;
 	const useStatusFallback = !hasPowerbarConsumer(events);
-	const runs = manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20);
+	const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
 	const active = runs.map((run) => {
 		let snapshot: RunUiSnapshot | undefined;
 		try {
-			snapshot = snapshotCache?.refreshIfStale(run.runId);
+			snapshot = snapshotCache?.get(run.runId) ?? snapshotCache?.refreshIfStale(run.runId);
 		} catch (error) {
 			logInternalError("powerbar.snapshot", error, run.runId);
 		}

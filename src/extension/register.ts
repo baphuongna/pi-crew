@@ -10,6 +10,7 @@ import { registerPiCrewRpc, type PiCrewRpcHandle } from "./cross-extension-rpc.t
 import { stopCrewWidget, updateCrewWidget, type CrewWidgetState } from "../ui/crew-widget.ts";
 import { clearPiCrewPowerbar, registerPiCrewPowerbarSegments, updatePiCrewPowerbar } from "../ui/powerbar-publisher.ts";
 import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
+import type { TeamRunManifest } from "../state/types.ts";
 import { terminateActiveChildPiProcesses } from "../subagents/spawn.ts";
 import { SubagentManager } from "../subagents/manager.ts";
 import { __test__subagentSpawnParams, sendAgentWakeUp, sendFollowUp } from "./registration/subagent-helpers.ts";
@@ -405,21 +406,34 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		updateCrewWidget(ctx, widgetState, loadedConfig.config.ui, cache, getRunSnapshotCache(ctx.cwd));
 		updatePiCrewPowerbar(pi.events, ctx.cwd, loadedConfig.config.ui, cache, getRunSnapshotCache(ctx.cwd), ctx, widgetState.notificationCount ?? 0);
 		renderScheduler?.dispose();
-		// Phase 12: Async preloading — renderTick reads only in-memory cache,
-		// background preload loop does async I/O to refresh cache entries.
+		// Phase 12: Async preloading — renderTick reads only a pre-computed frame
+		// from memory (zero fs I/O). Background preload refreshes the frame async.
 		let preloading = false;
+
+		let lastPreloadedConfig: ReturnType<typeof loadConfig> | undefined;
+		let lastPreloadedManifests: TeamRunManifest[] = [];
+		let lastFrameManifestCache: ReturnType<typeof createManifestCache> | undefined;
+		let lastFrameSnapshotCache: ReturnType<typeof createRunSnapshotCache> | undefined;
+
+		const buildFrame = async (): Promise<boolean> => {
+			if (!currentCtx) return false;
+			lastPreloadedConfig = loadConfig(currentCtx.cwd);
+			lastFrameManifestCache = getManifestCache(currentCtx.cwd);
+			lastFrameSnapshotCache = getRunSnapshotCache(currentCtx.cwd);
+			const manifests = lastFrameManifestCache.list(20);
+			lastPreloadedManifests = manifests;
+			const runIds = manifests.map((r) => r.runId);
+			await lastFrameSnapshotCache.preloadAllStale(runIds);
+			return true;
+		};
 
 		const backgroundPreload = (): void => {
 			if (!currentCtx || preloading) return;
 			preloading = true;
-			const cache = getRunSnapshotCache(currentCtx.cwd);
-			const activeCache = getManifestCache(currentCtx.cwd);
-			const runIds = activeCache.list(20).map((r) => r.runId);
-			cache.preloadAllStale(runIds)
-				.then(() => {
+			buildFrame()
+				.then((ok) => {
 					preloading = false;
-					// After preload completes, trigger a render to show updated data
-					renderScheduler?.schedule();
+					if (ok) renderScheduler?.schedule();
 				})
 				.catch((error: unknown) => {
 					preloading = false;
@@ -440,9 +454,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 
 		const renderTick = (): void => {
 			if (!currentCtx) return;
-			const config = loadConfig(currentCtx.cwd).config.ui;
-			const activeCache = getManifestCache(currentCtx.cwd);
-			const snapshotCache = getRunSnapshotCache(currentCtx.cwd);
+			const config = lastPreloadedConfig?.config.ui;
+			const activeCache = lastFrameManifestCache ?? getManifestCache(currentCtx.cwd);
+			const snapshotCache = lastFrameSnapshotCache ?? getRunSnapshotCache(currentCtx.cwd);
+			const manifests = lastPreloadedManifests.length > 0 ? lastPreloadedManifests : activeCache.list(20);
 			if (liveSidebarRunId) {
 				const placement = config?.widgetPlacement ?? "aboveEditor";
 				if (widgetState.lastVisibility !== "hidden" || widgetState.lastPlacement !== placement) {
@@ -455,14 +470,13 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				}
 				requestRender(currentCtx);
 			} else {
-				updateCrewWidget(currentCtx, widgetState, config, activeCache, snapshotCache);
+				updateCrewWidget(currentCtx, widgetState, config, activeCache, snapshotCache, manifests);
 			}
-			updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, activeCache, snapshotCache, currentCtx, widgetState.notificationCount ?? 0);
-			// Health notifications: read from in-memory cache only (no I/O)
+			updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, activeCache, snapshotCache, currentCtx, widgetState.notificationCount ?? 0, manifests);
+			// Health notifications: read from in-memory frame data only
 			const now = Date.now();
-			for (const run of activeCache.list(20)) {
+			for (const run of manifests) {
 				try {
-					// Use cached snapshot — preload loop refreshes it async
 					const snapshot = snapshotCache.get(run.runId);
 					if (!snapshot) continue;
 					const summary = summarizeHeartbeats(snapshot, { now });
