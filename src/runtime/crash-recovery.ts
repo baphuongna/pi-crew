@@ -6,6 +6,7 @@ import type { TeamTaskState } from "../state/types.ts";
 import { isWorkerHeartbeatStale } from "./worker-heartbeat.ts";
 import type { ManifestCache } from "./manifest-cache.ts";
 import { checkProcessLiveness } from "./process-status.ts";
+import { reconcileStaleRun, type ReconcileResult } from "./stale-reconciler.ts";
 
 export interface RecoveryPlan {
 	runId: string;
@@ -54,4 +55,26 @@ export function declineRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionConte
 	// Log the event first — if appendEvent fails, state remains consistent.
 	appendEvent(loaded.manifest.eventsPath, { type: "crew.run.recovery_declined", runId: plan.runId, message: "Interrupted run was not resumed.", data: { recoveredFromSeq: plan.lastEventSeq } });
 	updateRunStatus(loaded.manifest, "cancelled", "interrupted-not-resumed");
+}
+
+/**
+ * Run 3-phase stale reconciliation on all active runs.
+ * Returns results for each reconciled run.
+ */
+export function reconcileAllStaleRuns(cwd: string, manifestCache: ManifestCache, now = Date.now()): ReconcileResult[] {
+	const results: ReconcileResult[] = [];
+	for (const manifest of manifestCache.list(50)) {
+		if (manifest.status !== "running") continue;
+		const loaded = loadRunManifestById(cwd, manifest.runId);
+		if (!loaded) continue;
+		const result = reconcileStaleRun(loaded.manifest, loaded.tasks, now);
+		if (result.repaired) {
+			updateRunStatus(loaded.manifest, "failed", `Stale run reconciled: ${result.detail}`);
+			appendEvent(loaded.manifest.eventsPath, { type: "crew.run.reconciled_stale", runId: manifest.runId, message: result.detail, data: { verdict: result.verdict } });
+		}
+		if (result.verdict !== "healthy") {
+			results.push(result);
+		}
+	}
+	return results;
 }
