@@ -1,4 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { loadConfig } from "../config/config.ts";
 import { registerAutonomousPolicy } from "./autonomous-policy.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier, type AsyncNotifierState } from "./async-notifier.ts";
@@ -452,6 +454,18 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		stopSessionBoundSubagents();
 	});
 	pi.on("session_shutdown", () => cleanupRuntime());
+
+	// Phase 11a: Dynamic resource discovery — inject pi-crew skill paths.
+	try {
+		pi.on("resources_discover", () => {
+			const skillDir = path.resolve(process.cwd(), "skills");
+			const extSkillDir = path.resolve(__dirname, "..", "skills");
+			const paths: string[] = [];
+			if (fs.existsSync(extSkillDir)) paths.push(extSkillDir);
+			if (skillDir !== extSkillDir && fs.existsSync(skillDir)) paths.push(skillDir);
+			return paths.length > 0 ? { skillPaths: paths } : {};
+		});
+	} catch { /* older Pi without resources_discover */ }
 
 	registerCompactionGuard(pi, { foregroundControllers });
 

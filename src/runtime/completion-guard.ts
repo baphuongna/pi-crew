@@ -1,4 +1,10 @@
 import * as fs from "node:fs";
+import type { TeamTaskState, TeamRunManifest } from "../state/types.ts";
+
+// ============================================================================
+// Phase 1.2: Completion Mutation Guard — detects tasks that claim success but
+// made no observable mutations. Used by task-runner.ts.
+// ============================================================================
 
 export interface CompletionMutationGuardInput {
 	role: string;
@@ -100,4 +106,85 @@ export function evaluateCompletionMutationGuard(input: CompletionMutationGuardIn
 		observedTools,
 		...(expectedMutation && !observedMutation ? { reason: "no_mutation_observed" as const } : {}),
 	};
+}
+
+// ============================================================================
+// Phase 11a: Artifact-based Completion Verification — a second layer that
+// checks whether a completed task actually produced meaningful artifacts.
+// ============================================================================
+
+/**
+ * Guard against false-positive task completions.
+ *
+ * Checks whether a task that claims success actually produced meaningful output.
+ * Returns a verification result with the green level (0-3) and any warnings.
+ */
+export interface CompletionVerifyResult {
+	/** 0 = no output, 1 = minimal, 2 = moderate, 3 = strong */
+	greenLevel: number;
+	/** Warnings about potentially incomplete work */
+	warnings: string[];
+}
+
+const MAX_OUTPUT_PREVIEW = 200;
+
+function isTrivialError(error: string | undefined): boolean {
+	if (!error) return false;
+	return error.trim().length === 0;
+}
+
+export function verifyTaskCompletion(
+	task: TeamTaskState,
+	manifest: TeamRunManifest,
+): CompletionVerifyResult {
+	const warnings: string[] = [];
+	let greenLevel = 0;
+
+	// Check 1: Has an error?
+	if (task.error && !isTrivialError(task.error)) {
+		return { greenLevel: 0, warnings: [`Task has error: ${task.error}`] };
+	}
+
+	// Check 2: Has result artifact?
+	if (task.resultArtifact) {
+		greenLevel += 1;
+	}
+
+	// Check 3: Has transcript?
+	if (task.transcriptArtifact) {
+		greenLevel += 1;
+	}
+
+	// Check 4: For implementation tasks, verify artifacts were actually produced
+	const runArtifacts = manifest.artifacts.filter(
+		(a) => a.producer === task.id || a.producer === task.agent,
+	);
+	if (runArtifacts.length > 0) {
+		greenLevel += 1;
+	} else if (greenLevel < 3) {
+		warnings.push("No run-level artifacts produced by this task");
+	}
+
+	// Check 5: Usage tracking — did the task actually consume tokens?
+	if (task.usage) {
+		const totalTokens = (task.usage.input ?? 0) + (task.usage.output ?? 0);
+		if (totalTokens === 0 && greenLevel < 3) {
+			warnings.push("Task reports zero token usage — may not have executed");
+		}
+	}
+
+	return {
+		greenLevel: Math.min(greenLevel, 3),
+		warnings,
+	};
+}
+
+/**
+ * Format a preview of task output for diagnostic display.
+ */
+export function formatOutputPreview(output: string | undefined): string {
+	if (!output) return "(no output)";
+	const trimmed = output.trim();
+	if (trimmed.length <= MAX_OUTPUT_PREVIEW) return trimmed;
+	return trimmed.slice(0, MAX_OUTPUT_PREVIEW) + "...";
 }

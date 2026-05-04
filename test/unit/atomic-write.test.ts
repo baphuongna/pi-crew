@@ -1,89 +1,84 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import test from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { __test__renameWithRetry, __test__renameWithRetryAsync, atomicWriteFile, atomicWriteFileAsync } from "../../src/state/atomic-write.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import { writeAtomicJson, readJsonFile, appendJsonlLine } from "../../src/utils/atomic-write.ts";
 
-function eperm(): NodeJS.ErrnoException {
-	const error = new Error("locked") as NodeJS.ErrnoException;
-	error.code = "EPERM";
-	return error;
-}
+describe("writeAtomicJson", () => {
+	const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-atomic-"));
 
-test("atomicWriteFile writes through a temp file", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-atomic-write-"));
-	const filePath = path.join(cwd, "state.json");
-	try {
-		atomicWriteFile(filePath, "ok\n");
-		assert.equal(fs.readFileSync(filePath, "utf-8"), "ok\n");
-		assert.deepEqual(fs.readdirSync(cwd), ["state.json"]);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
-
-test("atomicWriteFileAsync writes through a temp file", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-atomic-write-async-"));
-	const filePath = path.join(cwd, "state.json");
-	try {
-		await atomicWriteFileAsync(filePath, "ok\n");
-		assert.equal(fs.readFileSync(filePath, "utf-8"), "ok\n");
-		assert.deepEqual(fs.readdirSync(cwd), ["state.json"]);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
-
-test("renameWithRetry retries transient Windows rename failures", () => {
-	let calls = 0;
-	__test__renameWithRetry("from.tmp", "to.json", 2, () => {
-		calls++;
-		if (calls < 3) throw eperm();
+	it("writes valid JSON to file", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "test.json");
+		writeAtomicJson(filePath, { hello: "world" });
+		const content = fs.readFileSync(filePath, "utf-8");
+		assert.equal(JSON.parse(content).hello, "world");
+		fs.rmSync(dir, { recursive: true });
 	});
-	assert.equal(calls, 3);
-});
 
-test("renameWithRetryAsync retries transient Windows rename failures", async () => {
-	let calls = 0;
-	await __test__renameWithRetryAsync("from.tmp", "to.json", 2, async () => {
-		calls++;
-		if (calls < 3) throw eperm();
+	it("writes pretty JSON when requested", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "test.json");
+		writeAtomicJson(filePath, { a: 1 }, true);
+		const content = fs.readFileSync(filePath, "utf-8");
+		assert.ok(content.includes("\n"));
+		fs.rmSync(dir, { recursive: true });
 	});
-	assert.equal(calls, 3);
+
+	it("overwrites existing file atomically", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "test.json");
+		writeAtomicJson(filePath, { v: 1 });
+		writeAtomicJson(filePath, { v: 2 });
+		const data = readJsonFile<{ v: number }>(filePath);
+		assert.equal(data?.v, 2);
+		fs.rmSync(dir, { recursive: true });
+	});
+
+	it("does not leave .tmp files on success", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "test.json");
+		writeAtomicJson(filePath, { ok: true });
+		const entries = fs.readdirSync(dir);
+		assert.ok(!entries.some((e) => e.endsWith(".tmp")));
+		fs.rmSync(dir, { recursive: true });
+	});
 });
 
-test("renameWithRetry rethrows permanent Windows rename failures", () => {
-	let calls = 0;
-	assert.throws(() => __test__renameWithRetry("from.tmp", "to.json", 2, () => {
-		calls++;
-		throw eperm();
-	}), /locked/);
-	assert.equal(calls, 3);
+describe("readJsonFile", () => {
+	it("returns parsed JSON for valid file", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-read-"));
+		const filePath = path.join(dir, "test.json");
+		fs.writeFileSync(filePath, '{"key":"value"}');
+		const data = readJsonFile<{ key: string }>(filePath);
+		assert.equal(data?.key, "value");
+		fs.rmSync(dir, { recursive: true });
+	});
+
+	it("returns undefined for missing file", () => {
+		assert.equal(readJsonFile("/nonexistent/file.json"), undefined);
+	});
+
+	it("returns undefined for invalid JSON", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-read-"));
+		const filePath = path.join(dir, "bad.json");
+		fs.writeFileSync(filePath, "not json");
+		assert.equal(readJsonFile(filePath), undefined);
+		fs.rmSync(dir, { recursive: true });
+	});
 });
 
-test("renameWithRetryAsync rethrows permanent Windows rename failures", async () => {
-	let calls = 0;
-	try {
-		await __test__renameWithRetryAsync("from.tmp", "to.json", 2, async () => {
-			calls++;
-			throw eperm();
-		});
-		assert.fail("Expected rejection");
-	} catch (error) {
-		assert.match((error as Error).message, /locked/);
-	}
-	assert.equal(calls, 3);
-});
-
-test("atomicWriteFileAsync treats same-content concurrent writes as success", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-atomic-write-async-"));
-	const filePath = path.join(cwd, "state.json");
-	const content = "same content\n";
-	try {
-		await Promise.all(Array.from({ length: 20 }, () => atomicWriteFileAsync(filePath, content)));
-		assert.equal(fs.readFileSync(filePath, "utf-8"), content);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
+describe("appendJsonlLine", () => {
+	it("appends JSON lines to file", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-jsonl-"));
+		const filePath = path.join(dir, "log.jsonl");
+		appendJsonlLine(filePath, { a: 1 });
+		appendJsonlLine(filePath, { b: 2 });
+		const lines = fs.readFileSync(filePath, "utf-8").trim().split("\n");
+		assert.equal(lines.length, 2);
+		assert.equal(JSON.parse(lines[0]).a, 1);
+		assert.equal(JSON.parse(lines[1]).b, 2);
+		fs.rmSync(dir, { recursive: true });
+	});
 });
