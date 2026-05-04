@@ -80,6 +80,7 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string): AgentConfig[] 
 				fallbackModels: override.fallbackModels === false ? undefined : override.fallbackModels ?? agent.fallbackModels,
 				thinking: override.thinking === false ? undefined : override.thinking ?? agent.thinking,
 				tools: override.tools === false ? undefined : override.tools ?? agent.tools,
+				skills: override.skills === false ? undefined : override.skills ?? agent.skills,
 				override: { source: "config", path: loaded.path },
 			};
 		});

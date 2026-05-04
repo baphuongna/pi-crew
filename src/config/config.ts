@@ -80,6 +80,7 @@ export interface AgentOverrideConfig {
 	fallbackModels?: string[] | false;
 	thinking?: string | false;
 	tools?: string[] | false;
+	skills?: string[] | false;
 }
 
 export interface CrewAgentsConfig {
@@ -187,6 +188,14 @@ export function configPath(): string {
 
 export function projectConfigPath(cwd: string): string {
 	return path.join(projectCrewRoot(cwd), "config.json");
+}
+
+/**
+ * Alternative project config path: `.pi/pi-crew.json` in the project root.
+ * This is a convenience path alongside the standard `config.json` in crewRoot.
+ */
+export function projectPiCrewJsonPath(cwd: string): string {
+	return path.join(cwd, ".pi", "pi-crew.json");
 }
 
 function withoutUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
@@ -536,6 +545,7 @@ function parseAgentOverride(value: unknown): AgentOverrideConfig | undefined {
 		fallbackModels: parseStringArrayOrFalse(obj.fallbackModels),
 		thinking: parseWithSchema(Type.Union([Type.String(), Type.Literal(false)]), obj.thinking),
 		tools: parseStringArrayOrFalse(obj.tools),
+		skills: parseStringArrayOrFalse(obj.skills),
 	};
 	return Object.values(override).some((entry) => entry !== undefined) ? override : undefined;
 }
@@ -731,6 +741,15 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 			const projectSafeConfig = sanitizeProjectConfig(projectPath, config, projectConfig.config);
 			warnings.push(...projectConfig.warnings.map((warning) => `${projectPath}: ${warning}`), ...projectSafeConfig.warnings);
 			config = mergeConfig(config, projectSafeConfig.config);
+			// Also load .pi/pi-crew.json from project root if it exists
+			const piCrewJsonPath = projectPiCrewJsonPath(cwd);
+			if (fs.existsSync(piCrewJsonPath)) {
+				const piCrewJsonConfig = parseConfigWithWarnings(readConfigRecord(piCrewJsonPath));
+				const piCrewJsonSafeConfig = sanitizeProjectConfig(piCrewJsonPath, config, piCrewJsonConfig.config);
+				warnings.push(...piCrewJsonConfig.warnings.map((warning) => `${piCrewJsonPath}: ${warning}`), ...piCrewJsonSafeConfig.warnings);
+				config = mergeConfig(config, piCrewJsonSafeConfig.config);
+				paths.push(piCrewJsonPath);
+			}
 		}
 		return { path: filePath, paths, config, warnings: warnings.length > 0 ? warnings : undefined };
 	} catch (error) {
