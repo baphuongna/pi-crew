@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readCrewAgents, agentsPath, agentOutputPath } from "../runtime/crew-agent-records.ts";
+import { readCrewAgents, readCrewAgentsAsync, agentsPath, agentOutputPath } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isActiveRunStatus } from "../runtime/process-status.ts";
 import type { TeamEvent } from "../state/event-log.ts";
 import type { MailboxMessageStatus } from "../state/mailbox.ts";
-import { loadRunManifestById } from "../state/state-store.ts";
+import { loadRunManifestById, loadRunManifestByIdAsync } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { RunSnapshotCache as RunSnapshotCacheBase, RunUiGroupJoin, RunUiMailbox, RunUiProgress, RunUiSnapshot, RunUiUsage } from "./snapshot-types.ts";
 
@@ -151,16 +151,6 @@ function sameStamps(a: SnapshotStamps, b: SnapshotStamps): boolean {
 function readTasks(tasksPath: string): TeamTaskState[] {
 	try {
 		const parsed = JSON.parse(fs.readFileSync(tasksPath, "utf-8")) as unknown;
-		return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
-	} catch {
-		throw new Error(`Failed to parse tasks at ${tasksPath}`);
-	}
-}
-
-async function readTasksAsync(tasksPath: string): Promise<TeamTaskState[]> {
-	try {
-		const content = await fs.promises.readFile(tasksPath, "utf-8");
-		const parsed = JSON.parse(content) as unknown;
 		return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
 	} catch {
 		throw new Error(`Failed to parse tasks at ${tasksPath}`);
@@ -575,9 +565,9 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 	}
 
 	async function buildAsync(runId: string, previous?: CacheEntry): Promise<CacheEntry> {
-		let loaded: ReturnType<typeof loadRunManifestById>;
+		let loaded: Awaited<ReturnType<typeof loadRunManifestByIdAsync>>;
 		try {
-			loaded = loadRunManifestById(cwd, runId);
+			loaded = await loadRunManifestByIdAsync(cwd, runId);
 		} catch {
 			if (previous) return previous;
 			throw new Error(`Run '${runId}' could not be parsed.`);
@@ -589,8 +579,8 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		let tasks: TeamTaskState[];
 		let agents: CrewAgentRecord[];
 		try {
-			tasks = await readTasksAsync(loaded.manifest.tasksPath);
-			agents = readCrewAgents(loaded.manifest);
+			tasks = loaded.tasks;
+			agents = await readCrewAgentsAsync(loaded.manifest);
 		} catch {
 			if (previous) return previous;
 			throw new Error(`Run '${runId}' could not be parsed.`);

@@ -6,6 +6,7 @@ export interface PendingDelivery {
 	payload: unknown;
 	timestamp: number;
 	type: "result" | "notification" | "steer";
+	generation?: number;
 }
 
 export interface DeliveryCoordinatorDeps {
@@ -22,6 +23,7 @@ const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export class DeliveryCoordinator {
 	private ownerSessionId: string | undefined;
 	private active = false;
+	private generation = 0;
 	private pending: PendingDelivery[] = [];
 	private readonly deps: DeliveryCoordinatorDeps;
 	private ttlTimer: ReturnType<typeof setInterval> | undefined;
@@ -41,6 +43,7 @@ export class DeliveryCoordinator {
 	deactivate(): void {
 		this.active = false;
 		this.ownerSessionId = undefined;
+		this.generation += 1;
 	}
 
 	isActive(): boolean {
@@ -100,6 +103,10 @@ export class DeliveryCoordinator {
 		if (!this.active || this.pending.length === 0) return;
 		const batch = this.pending.splice(0);
 		for (const delivery of batch) {
+			if (delivery.generation !== undefined && delivery.generation !== this.generation) {
+				logInternalError("delivery-coordinator.flush.stale", undefined, `runId=${delivery.runId} type=${delivery.type}`);
+				continue;
+			}
 			try {
 				switch (delivery.type) {
 					case "result":
@@ -132,7 +139,7 @@ export class DeliveryCoordinator {
 	}
 
 	private enqueue(delivery: PendingDelivery): void {
-		this.pending.push(delivery);
+		this.pending.push({ ...delivery, generation: this.generation });
 	}
 
 	private evictExpired(): void {

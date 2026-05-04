@@ -70,6 +70,14 @@ export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
 	}
 }
 
+export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<CrewAgentRecord[]> {
+	try {
+		return JSON.parse(await fs.promises.readFile(agentsPath(manifest), "utf-8")) as CrewAgentRecord[];
+	} catch {
+		return [];
+	}
+}
+
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
 	fs.mkdirSync(manifest.stateRoot, { recursive: true });
 	atomicWriteJson(agentsPath(manifest), redactSecrets(records));

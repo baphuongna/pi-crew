@@ -118,6 +118,29 @@ describe("DeliveryCoordinator", () => {
 		dc.dispose();
 	});
 
+	it("drops deliveries queued before a session switch", () => {
+		const emitted: unknown[] = [];
+		const dc = new DeliveryCoordinator({ emit: (_event, data) => { emitted.push(data); } });
+		dc.deliverResult("run-before", { status: "queued-before-switch" });
+		assert.equal(dc.getPendingCount(), 1);
+		dc.deactivate();
+		dc.activate("session-2");
+		assert.equal(dc.getPendingCount(), 0);
+		assert.equal(emitted.length, 0);
+		dc.dispose();
+	});
+
+	it("delivers inactive payloads queued during the current generation", () => {
+		const emitted: unknown[] = [];
+		const dc = new DeliveryCoordinator({ emit: (_event, data) => { emitted.push(data); } });
+		dc.deactivate();
+		dc.deliverResult("run-after", { status: "queued-after-switch" });
+		dc.activate("session-2");
+		assert.equal(dc.getPendingCount(), 0);
+		assert.equal(emitted.length, 1);
+		dc.dispose();
+	});
+
 	it("dispose clears all pending", () => {
 		const dc = new DeliveryCoordinator({});
 		dc.deliverResult("run1", {});

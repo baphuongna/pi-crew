@@ -222,6 +222,14 @@ export function __test__clearManifestCache(): void {
 	manifestCache.clear();
 }
 
+async function readJsonFileAsync<T>(filePath: string): Promise<T | undefined> {
+	try {
+		return JSON.parse(await fs.promises.readFile(filePath, "utf-8")) as T;
+	} catch {
+		return undefined;
+	}
+}
+
 export function loadRunManifestById(cwd: string, runId: string): { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined {
 	const stateRoot = resolveRunStateRoot(cwd, runId);
 	if (!stateRoot) return undefined;
@@ -267,5 +275,38 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 		tasksMtimeMs,
 		tasksSize: tasksStat?.size ?? 0,
 	});
+	return { manifest, tasks };
+}
+
+export async function loadRunManifestByIdAsync(cwd: string, runId: string): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined> {
+	const stateRoot = resolveRunStateRoot(cwd, runId);
+	if (!stateRoot) return undefined;
+	const manifestPath = path.join(stateRoot, "manifest.json");
+	const tasksPath = path.join(stateRoot, "tasks.json");
+	let manifestStat: fs.Stats;
+	try {
+		manifestStat = await fs.promises.stat(manifestPath);
+	} catch {
+		return undefined;
+	}
+	const cached = manifestCache.get(stateRoot);
+	let tasksStat: fs.Stats | undefined;
+	try {
+		tasksStat = await fs.promises.stat(tasksPath);
+	} catch {
+		tasksStat = undefined;
+	}
+	const tasksMtimeMs = tasksStat?.mtimeMs ?? 0;
+	if (cached && cached.manifestMtimeMs === manifestStat.mtimeMs && cached.manifestSize === manifestStat.size && cached.tasksMtimeMs === tasksMtimeMs && cached.tasksSize === (tasksStat?.size ?? 0)) {
+		if (!validateRunManifestPaths(cwd, runId, cached.manifest, stateRoot, tasksPath)) {
+			manifestCache.delete(stateRoot);
+			return undefined;
+		}
+		return { manifest: cached.manifest, tasks: cached.tasks };
+	}
+	const manifest = await readJsonFileAsync<TeamRunManifest>(manifestPath);
+	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
+	const tasks = await readJsonFileAsync<TeamTaskState[]>(tasksPath) ?? [];
+	setManifestCache(stateRoot, { manifest, tasks, manifestMtimeMs: manifestStat.mtimeMs, manifestSize: manifestStat.size, tasksMtimeMs, tasksSize: tasksStat?.size ?? 0 });
 	return { manifest, tasks };
 }
