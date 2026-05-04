@@ -473,12 +473,15 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				updateCrewWidget(currentCtx, widgetState, config, activeCache, snapshotCache, manifests);
 			}
 			updatePiCrewPowerbar(pi.events, currentCtx.cwd, config, activeCache, snapshotCache, currentCtx, widgetState.notificationCount ?? 0, manifests);
-			// Health notifications: read from in-memory frame data only
+			// Health notifications: only warn about genuinely running runs
 			const now = Date.now();
 			for (const run of manifests) {
+				if (run.status !== "running") continue;
 				try {
 					const snapshot = snapshotCache.get(run.runId);
 					if (!snapshot) continue;
+					// Skip if snapshot shows run already completed/failed (stale cache)
+					if (snapshot.manifest.status !== "running") continue;
 					const summary = summarizeHeartbeats(snapshot, { now });
 					const maybeNotifyHealth = (kind: string, count: number, title: string, body: string): void => {
 						if (count <= 0) return;
