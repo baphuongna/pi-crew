@@ -247,10 +247,13 @@ export function buildConfiguredModelRouting(input: {
 	const availableModels = registryModels && registryModels.length > 0 ? registryModels : configModels.length > 0 ? configModels : registryModels;
 	const parentModel = modelStringFromUnknown(input.parentModel);
 	const preferredProvider = parentModel?.split("/")[0] ?? availableModels?.[0]?.provider;
-	const requested = [input.overrideModel, input.stepModel, input.agentModel, parentModel].find((model): model is string => Boolean(model?.trim()));
+	// B3: Parent model inheritance — when agent has no model specified,
+	// inherit from parent session model before falling back to defaults.
+	const effectiveAgentModel = input.agentModel ?? parentModel;
+	const requested = [input.overrideModel, input.stepModel, effectiveAgentModel].find((model): model is string => Boolean(model?.trim()));
 	if (availableModels && availableModels.length === 0) return { requested, candidates: [], reason: "no configured Pi models available" };
 	const rawModels = availableModels
-		? [input.overrideModel, input.stepModel, input.agentModel, ...(input.fallbackModels ?? []), parentModel, ...availableModels.map((model) => model.fullId)]
+		? [input.overrideModel, input.stepModel, effectiveAgentModel, ...(input.fallbackModels ?? []), ...availableModels.map((model) => model.fullId)]
 		: [input.overrideModel, parentModel];
 	const configuredModels = rawModels
 		.filter((model): model is string => Boolean(model?.trim()))

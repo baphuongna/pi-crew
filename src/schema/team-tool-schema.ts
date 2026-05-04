@@ -24,6 +24,7 @@ export const TeamToolParams = Type.Object({
 		Type.Literal("get"),
 		Type.Literal("cancel"),
 		Type.Literal("resume"),
+		Type.Literal("respond"),
 		Type.Literal("create"),
 		Type.Literal("update"),
 		Type.Literal("delete"),
@@ -59,6 +60,8 @@ export const TeamToolParams = Type.Object({
 	goal: Type.Optional(Type.String({ description: "High-level objective for a team run." })),
 	task: Type.Optional(Type.String({ description: "Concrete task text for direct role/agent execution." })),
 	runId: Type.Optional(Type.String({ description: "Run ID for status, cancel, or resume." })),
+	taskId: Type.Optional(Type.String({ description: "Task ID for respond action." })),
+	message: Type.Optional(Type.String({ description: "Message for respond action." })),
 	async: Type.Optional(Type.Boolean({ description: "Run in background when execution support is enabled." })),
 	workspaceMode: Type.Optional(Type.Union([
 		Type.Literal("single"),
@@ -85,7 +88,7 @@ export const TeamToolParams = Type.Object({
 });
 
 export interface TeamToolParamsValue {
-	action?: "run" | "plan" | "status" | "list" | "get" | "cancel" | "resume" | "create" | "update" | "delete" | "doctor" | "cleanup" | "events" | "artifacts" | "worktrees" | "forget" | "summary" | "prune" | "export" | "import" | "imports" | "help" | "validate" | "config" | "init" | "recommend" | "autonomy" | "api" | "settings";
+	action?: "run" | "plan" | "status" | "list" | "get" | "cancel" | "resume" | "respond" | "create" | "update" | "delete" | "doctor" | "cleanup" | "events" | "artifacts" | "worktrees" | "forget" | "summary" | "prune" | "export" | "import" | "imports" | "help" | "validate" | "config" | "init" | "recommend" | "autonomy" | "api" | "settings";
 	resource?: "agent" | "team" | "workflow";
 	team?: string;
 	workflow?: string;
@@ -94,6 +97,8 @@ export interface TeamToolParamsValue {
 	goal?: string;
 	task?: string;
 	runId?: string;
+	taskId?: string;
+	message?: string;
 	async?: boolean;
 	workspaceMode?: "single" | "worktree";
 	context?: "fresh" | "fork";

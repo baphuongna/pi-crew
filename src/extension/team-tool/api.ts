@@ -110,7 +110,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				const approval = current.manifest.planApproval;
 				if (!approval?.required || approval.status !== "pending") return result("Run has no pending plan approval request.", { action: "api", status: "error", runId: loaded.manifest.runId }, true);
 				const now = new Date().toISOString();
-				const tasks = current.tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled" as const, finishedAt: now, error: "Plan approval was cancelled." } : task);
+				const tasks = current.tasks.map((task) => task.status === "queued" || task.status === "running" || task.status === "waiting" ? { ...task, status: "cancelled" as const, finishedAt: now, error: "Plan approval was cancelled." } : task);
 				let manifest: typeof current.manifest = { ...current.manifest, updatedAt: now, planApproval: { ...approval, status: "cancelled" as const, cancelledAt: now, updatedAt: now } };
 				saveRunManifest(manifest);
 				saveRunTasks(manifest, tasks);

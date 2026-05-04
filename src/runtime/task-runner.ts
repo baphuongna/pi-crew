@@ -27,6 +27,7 @@ import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./task-runn
 import { cleanResultText, isFinalChildEvent } from "./task-runner/result-utils.ts";
 import { evaluateCompletionMutationGuard } from "./completion-guard.ts";
 import { appendTaskAttentionEvent } from "./attention-events.ts";
+import { parseSupervisorContactFromLine, recordSupervisorContact } from "./supervisor-contact.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -156,6 +157,11 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				onStdoutLine: (line) => {
 					appendCrewAgentOutput(manifest, task.id, line);
 					persistHeartbeat();
+					// Check for supervisor contact requests from child Pi
+					const contact = parseSupervisorContactFromLine(line);
+					if (contact) {
+						recordSupervisorContact(manifest, { runId: manifest.runId, ...contact });
+					}
 				},
 				onJsonEvent: (event) => {
 					appendCrewAgentEvent(manifest, task.id, event);

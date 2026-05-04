@@ -6,4 +6,5 @@ export interface TeamToolDetails {
 	abortedIds?: string[];
 	missingIds?: string[];
 	foreignIds?: string[];
+	resumedIds?: string[];
 }

@@ -70,7 +70,7 @@ function mergeArtifacts(items: ArtifactDescriptor[]): ArtifactDescriptor[] {
 }
 
 function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
-	return status === "queued" || status === "running";
+	return status === "queued" || status === "running" || status === "waiting";
 }
 
 function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): boolean {
@@ -485,7 +485,7 @@ function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: TeamTaskS
 }
 
 function cancelPlanTasks(tasks: TeamTaskState[], reason: string): TeamTaskState[] {
-	return tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled", finishedAt: new Date().toISOString(), error: reason, graph: task.graph ? { ...task.graph, queue: "done" } : undefined } : task);
+	return tasks.map((task) => task.status === "queued" || task.status === "running" || task.status === "waiting" ? { ...task, status: "cancelled", finishedAt: new Date().toISOString(), error: reason, graph: task.graph ? { ...task.graph, queue: "done" } : undefined } : task);
 }
 
 function hasPendingMutatingAdaptiveTask(tasks: TeamTaskState[]): boolean {
@@ -535,7 +535,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 
 	while (tasks.some((task) => task.status === "queued")) {
 		if (input.signal?.aborted) {
-			tasks = tasks.map((task) => task.status === "queued" || task.status === "running" ? { ...task, status: "cancelled", finishedAt: new Date().toISOString(), error: "Run cancelled." } : task);
+			tasks = tasks.map((task) => task.status === "queued" || task.status === "running" || task.status === "waiting" ? { ...task, status: "cancelled", finishedAt: new Date().toISOString(), error: "Run cancelled." } : task);
 			await saveRunTasksAsync(manifest, tasks);
 			manifest = updateRunStatus(manifest, "cancelled", "Run cancelled.");
 			return { manifest, tasks };

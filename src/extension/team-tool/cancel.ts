@@ -43,7 +43,7 @@ export function abortOwned(
 			result.missingIds.push(id);
 			continue;
 		}
-		if (task.status !== "queued" && task.status !== "running") continue;
+		if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") continue;
 		// All tasks in a run are owned by the session that created the run.
 		// Since cancel is always called within the session that created it,
 		// all cancellable tasks are abortable.
@@ -67,7 +67,7 @@ export function handleCancel(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const cancellableIds = new Set(abortResult.abortedIds);
 
 		const tasks = loaded.tasks.map((task) => {
-			if (cancellableIds.has(task.id) && (task.status === "queued" || task.status === "running")) {
+			if (cancellableIds.has(task.id) && (task.status === "queued" || task.status === "running" || task.status === "waiting")) {
 				return { ...task, status: "cancelled" as const, finishedAt: new Date().toISOString(), error: "Run cancelled by user request." };
 			}
 			return task;
