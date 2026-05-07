@@ -73,6 +73,7 @@ test("modify hook updates context", async () => {
 		const report = await executeHook("before_task_start", ctx);
 		assert.equal(report.outcome, "allow");
 		assert.equal((ctx as Record<string, unknown>).extraKey, "extra");
+		assert.deepEqual(report.modifiedData, { extraKey: "extra" });
 	} finally {
 		clearHooks();
 	}
@@ -141,4 +142,11 @@ test("blocking hook in chain stops subsequent hooks", async () => {
 	} finally {
 		clearHooks();
 	}
+});
+
+test("no registered hooks report has no modifiedData", async () => {
+	clearHooks();
+	const report = await executeHook("before_run_start", { runId: "test-9", cwd: "/tmp" });
+	assert.equal(report.outcome, "allow");
+	assert.equal(report.modifiedData, undefined);
 });

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { logInternalError } from "../utils/internal-error.ts";
+import { isSafePathId, resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 
 const PACKAGE_SKILLS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
 
@@ -33,16 +34,30 @@ export function discoverSkills(cwd: string): SkillDescriptor[] {
 		try {
 			for (const entry of fs.readdirSync(dir.root, { withFileTypes: true })) {
 				if (!entry.isDirectory()) continue;
-				const skillMd = path.join(dir.root, entry.name, "SKILL.md");
-				if (!fs.existsSync(skillMd)) continue;
+				if (!isSafePathId(entry.name)) continue;
+				const skillDirPath = path.join(dir.root, entry.name);
+				try {
+					if (fs.lstatSync(skillDirPath).isSymbolicLink()) continue;
+				} catch { continue; }
+				const skillMdRelative = path.join(entry.name, "SKILL.md");
+				let skillMdPath: string;
+				try {
+					skillMdPath = resolveContainedPath(dir.root, skillMdRelative);
+				} catch { continue; }
+				if (!fs.existsSync(skillMdPath)) continue;
+				try {
+					if (fs.lstatSync(skillMdPath).isSymbolicLink()) continue;
+				} catch { continue; }
 				let description = "";
 				try {
-					const content = fs.readFileSync(skillMd, "utf-8");
+					const realPath = resolveRealContainedPath(dir.root, skillMdRelative);
+					const content = fs.readFileSync(realPath, "utf-8");
 					description = frontmatterDescription(content) ?? "";
+					skillMdPath = realPath;
 				} catch (error) {
 					logInternalError("discoverSkills.readSkill", error, `skill=${entry.name}`);
 				}
-				results.push({ name: entry.name, description, source: dir.source, path: skillMd });
+				results.push({ name: entry.name, description, source: dir.source, path: skillMdPath });
 			}
 		} catch (error) {
 			logInternalError("discoverSkills.readdir", error, `root=${dir.root}`);

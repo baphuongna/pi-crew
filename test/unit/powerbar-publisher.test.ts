@@ -77,6 +77,9 @@ test("powerbar progress uses task totals and respects model/token visibility", (
 });
 
 test("powerbar mirrors status when no powerbar consumer is registered", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-fallback-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-fallback-"));
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
@@ -94,10 +97,16 @@ test("powerbar mirrors status when no powerbar consumer is registered", () => {
 		assert.ok(statuses.some((item) => item.key === "pi-crew" && item.text?.includes("crew 1a")));
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
 	}
 });
 
 test("powerbar skips status fallback when a powerbar consumer is registered", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-consumer-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-consumer-"));
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
@@ -113,10 +122,16 @@ test("powerbar skips status fallback when a powerbar consumer is registered", ()
 		assert.equal(statuses.length, 0);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
 	}
 });
 
 test("powerbar active segment includes notification badge", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-badge-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-badge-"));
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
@@ -132,6 +147,9 @@ test("powerbar active segment includes notification badge", () => {
 		assert.match(String(active?.text ?? ""), /3/);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
 	}
 });
 

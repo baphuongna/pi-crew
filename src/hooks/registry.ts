@@ -24,6 +24,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 	if (hooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
 	const start = Date.now();
 	const diagnostics: string[] = [];
+	let capturedModifications: Record<string, unknown> | undefined;
 	for (const hook of hooks) {
 		try {
 			const result: HookResult = await hook.handler(ctx);
@@ -32,6 +33,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 			}
 			if (result.outcome === "modify" && result.data) {
 				Object.assign(ctx, result.data);
+				capturedModifications = { ...result.data };
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -40,12 +42,12 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 			}
 			// Non-blocking hook errors are accumulated as diagnostics; continue to next hook
 			diagnostics.push(message);
-		}
+			}
 	}
 	if (diagnostics.length > 0) {
-		return { hookName: name, outcome: "diagnostic", durationMs: Date.now() - start, reason: diagnostics.join("; ") };
+		return { hookName: name, outcome: "diagnostic", durationMs: Date.now() - start, reason: diagnostics.join("; "), modifiedData: capturedModifications };
 	}
-	return { hookName: name, outcome: "allow", durationMs: Date.now() - start };
+	return { hookName: name, outcome: "allow", durationMs: Date.now() - start, modifiedData: capturedModifications };
 }
 
 export function appendHookEvent(manifest: TeamRunManifest, report: HookExecutionReport): void {

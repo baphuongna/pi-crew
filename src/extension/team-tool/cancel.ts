@@ -77,7 +77,13 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 	const loaded = loadRunManifestById(ctx.cwd, params.runId);
 	if (!loaded) return result(`Run '${params.runId}' not found.`, { action: "cancel", status: "error" }, true);
 
-	// Execute before_cancel hook
+	// Pre-lock ownership check: reject foreign-owned runs before executing hooks
+	const preCheck = abortOwned(loaded.manifest.runId, undefined, ctx);
+	if (preCheck.abortedIds.length === 0 && preCheck.foreignIds.length > 0) {
+		return result(`Run ${loaded.manifest.runId} belongs to another session; not cancelled.`, { action: "cancel", status: "error", runId: loaded.manifest.runId, foreignIds: preCheck.foreignIds }, true);
+	}
+
+	// Execute before_cancel hook after ownership confirmed, before mutation lock
 	const hookReport = await executeHook("before_cancel", { runId: loaded.manifest.runId, cwd: ctx.cwd });
 	appendHookEvent(loaded.manifest, hookReport);
 	if (hookReport.outcome === "block") {

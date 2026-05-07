@@ -3,6 +3,12 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 
+const SHA256_HEX = /^[a-f0-9]{64}$/i;
+
+function validateBlobHash(hash: string): void {
+	if (!SHA256_HEX.test(hash)) throw new Error(`Invalid blob hash: ${hash}`);
+}
+
 const BLOBS_DIR = "blobs";
 const BLOB_META_DIR = "blob-metadata";
 const SHA256_PREFIX = "sha256";
@@ -82,18 +88,22 @@ export function writeBlob(artifactsRoot: string, input: {
 
 /**
  * Read a content-addressed blob by hash.
+ * Validates hash format and enforces path containment.
  */
 export function readBlob(artifactsRoot: string, hash: string): Buffer | undefined {
-	const blobPath = path.join(artifactsRoot, BLOBS_DIR, SHA256_PREFIX, hash);
-	if (!fs.existsSync(blobPath)) return undefined;
+	validateBlobHash(hash);
+	const blobDir = path.join(artifactsRoot, BLOBS_DIR, SHA256_PREFIX);
+	const blobPath = resolveRealContainedPath(blobDir, hash);
 	return fs.readFileSync(blobPath);
 }
 
 /**
  * Read blob metadata by hash.
+ * Validates hash format and enforces path containment.
  */
 export function readBlobMetadata(artifactsRoot: string, hash: string): BlobMetadata | undefined {
-	const metaPath = path.join(artifactsRoot, BLOB_META_DIR, `${hash}.json`);
-	if (!fs.existsSync(metaPath)) return undefined;
+	validateBlobHash(hash);
+	const metaDir = path.join(artifactsRoot, BLOB_META_DIR);
+	const metaPath = resolveRealContainedPath(metaDir, `${hash}.json`);
 	return JSON.parse(fs.readFileSync(metaPath, "utf-8")) as BlobMetadata;
 }

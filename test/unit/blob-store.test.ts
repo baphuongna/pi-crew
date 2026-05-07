@@ -99,8 +99,46 @@ test("readBlobMetadata returns metadata by hash", () => {
 test("readBlob returns undefined for non-existent hash", () => {
 	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
 	try {
-		const content = readBlob(artifactsRoot, "nonexistenthash");
-		assert.equal(content, undefined);
+		assert.throws(() => readBlob(artifactsRoot, "nonexistenthash"), /Invalid blob hash/);
+	} finally {
+		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+	}
+});
+
+test("readBlob rejects path traversal in hash", () => {
+	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
+	try {
+		assert.throws(() => readBlob(artifactsRoot, "../etc/passwd"), /Invalid blob hash/);
+		assert.throws(() => readBlob(artifactsRoot, "..\\etc\\passwd"), /Invalid blob hash/);
+		assert.throws(() => readBlob(artifactsRoot, "/etc/passwd"), /Invalid blob hash/);
+	} finally {
+		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+	}
+});
+
+test("readBlobMetadata rejects path traversal in hash", () => {
+	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
+	try {
+		assert.throws(() => readBlobMetadata(artifactsRoot, "../etc/passwd"), /Invalid blob hash/);
+		assert.throws(() => readBlobMetadata(artifactsRoot, "..\\etc\\passwd"), /Invalid blob hash/);
+	} finally {
+		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+	}
+});
+
+test("readBlob rejects empty hash", () => {
+	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
+	try {
+		assert.throws(() => readBlob(artifactsRoot, ""), /Invalid blob hash/);
+	} finally {
+		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+	}
+});
+
+test("readBlob rejects short hash", () => {
+	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
+	try {
+		assert.throws(() => readBlob(artifactsRoot, "abc123"), /Invalid blob hash/);
 	} finally {
 		fs.rmSync(artifactsRoot, { recursive: true, force: true });
 	}

@@ -36,4 +36,5 @@ export interface HookExecutionReport {
 	outcome: HookOutcome;
 	durationMs: number;
 	reason?: string;
+	modifiedData?: Record<string, unknown>;
 }
