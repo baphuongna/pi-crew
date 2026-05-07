@@ -35,6 +35,7 @@ import { appendTaskAttentionEvent } from "./attention-events.ts";
 import { parseSupervisorContactFromLine, recordSupervisorContact } from "./supervisor-contact.ts";
 import { registerStreamBridge, bridgeEventFromJsonEvent } from "./event-stream-bridge.ts";
 import { renderSkillInstructions } from "./skill-instructions.ts";
+import { DEFAULT_YIELD_CONFIG, extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } from "./yield-handler.ts";
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -116,6 +117,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	let finalStdout = "";
 	let transcriptPath: string | undefined;
 	let terminalEvidence: OperationTerminalEvidence[] = [];
+	const collectedJsonEvents: Record<string, unknown>[] = [];
 
 	let startupEvidence = createStartupEvidence({ command: runtimeKind === "child-process" ? "pi" : runtimeKind === "live-session" ? "live-session" : "safe-scaffold", startedAt: new Date(task.startedAt ?? new Date().toISOString()), finishedAt: new Date(), promptSentAt: new Date(task.startedAt ?? new Date().toISOString()), promptAccepted: true, exitCode: 0 });
 	const inputsArtifact = writeTaskInputsArtifact(manifest, task, dependencyContext);
@@ -195,6 +197,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				},
 				onJsonEvent: (event) => {
 					appendCrewAgentEvent(manifest, task.id, event);
+					if (event && typeof event === "object" && !Array.isArray(event)) collectedJsonEvents.push(event as Record<string, unknown>);
 					persistHeartbeat();
 					task = { ...task, agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt) };
 					tasks = updateTask(tasks, task);
@@ -302,6 +305,17 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			].join("\n"),
 			producer: task.id,
 		});
+	}
+
+	// --- Yield-based completion contract ---
+	let yieldResult: YieldResult | undefined;
+	const yieldEnabled = input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled;
+	if (yieldEnabled && collectedJsonEvents.length > 0) {
+		if (hasYieldInOutput(collectedJsonEvents)) {
+			yieldResult = extractYieldResult(collectedJsonEvents.find((e) => isYieldEvent(e))!);
+		} else if (!error) {
+			appendEvent(manifest.eventsPath, { type: "task.attention", runId: manifest.runId, taskId: task.id, message: "Worker completed without calling submit_result tool.", data: { activityState: "needs_attention", reason: "no_yield" } });
+		}
 	}
 
 	const diffArtifact = workspace.worktreePath ? writeArtifact(manifest.artifactsRoot, {

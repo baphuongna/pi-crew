@@ -7,6 +7,7 @@ import { emitFromTeamEvent } from "../ui/run-event-bus.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { readJsonlSince, type IncrementalReadState } from "../utils/incremental-reader.ts";
 import { redactSecrets } from "../utils/redaction.ts";
+import { needsRotation, compactEventLog } from "./event-log-rotation.ts";
 
 export type TeamEventProvenance = "live_worker" | "test" | "healthcheck" | "replay" | "api" | "background" | "team_runner";
 export type TeamWatcherAction = "act" | "observe" | "ignore";
@@ -56,6 +57,7 @@ const TERMINAL_EVENT_TYPES = new Set<string>(DEFAULT_EVENT_LOG.terminalEventType
 const MAX_EVENTS_BYTES = 50 * 1024 * 1024;
 
 const sequenceCache = new Map<string, { size: number; mtimeMs: number; seq: number }>();
+let appendCounter = 0;
 
 export function sequencePath(eventsPath: string): string {
 	return `${eventsPath}.seq`;
@@ -148,6 +150,10 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 	}
 	fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
+	appendCounter++;
+	if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+		try { compactEventLog(eventsPath); } catch (error) { logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`); }
+	}
 	// Emit to UI event bus for event-first delivery
 	try { emitFromTeamEvent(fullEvent); } catch (error) { logInternalError("event-log.emit", error); }
 	const seq = fullEvent.metadata?.seq ?? 0;

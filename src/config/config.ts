@@ -46,6 +46,7 @@ export interface CrewRuntimeConfig {
 	requirePlanApproval?: boolean;
 	completionMutationGuard?: CompletionMutationGuardMode;
 	effectivenessGuard?: EffectivenessGuardMode;
+	yield?: { enabled?: boolean; maxReminders?: number; reminderPrompt?: string };
 }
 
 export interface CrewControlConfig {
