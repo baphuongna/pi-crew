@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_EVENT_LOG } from "../config/defaults.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
+import { emitFromTeamEvent } from "../ui/run-event-bus.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 
@@ -146,6 +147,8 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 	}
 	fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
+	// Emit to UI event bus for event-first delivery
+	try { emitFromTeamEvent(fullEvent); } catch { /* event bus errors are non-fatal */ }
 	const seq = fullEvent.metadata?.seq ?? 0;
 	try {
 		const stat = fs.statSync(eventsPath);
