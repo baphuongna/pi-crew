@@ -13,6 +13,7 @@ import { buildConfiguredModelRouting, formatModelAttemptNote, isRetryableModelFa
 import { parsePiJsonOutput, type ParsedPiJsonOutput } from "./pi-json-output.ts";
 import { runChildPi } from "./child-pi.ts";
 import { buildTaskPacket } from "./task-packet.ts";
+import { executeHook, appendHookEvent } from "../hooks/registry.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import { createStartupEvidence } from "./worker-startup.ts";
 import { permissionForRole } from "./role-permission.ts";
@@ -385,6 +386,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	saveRunManifest(manifest);
 	tasks = persistSingleTaskUpdate(manifest, tasks, task);
 	upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
+	// Execute task_result hook before emitting terminal event
+	const hookReport = await executeHook("task_result", { runId: manifest.runId, taskId: task.id, cwd: manifest.cwd });
+	appendHookEvent(manifest, hookReport);
 	appendEvent(manifest.eventsPath, { type: error ? "task.failed" : "task.completed", runId: manifest.runId, taskId: task.id, message: error });
 	return { manifest, tasks };
 }

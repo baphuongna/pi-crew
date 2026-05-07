@@ -41,10 +41,17 @@ export function handleImport(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	}
 }
 
-export function handleExport(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	if (!params.runId) return result("Export requires runId.", { action: "export", status: "error" }, true);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId);
 	if (!loaded) return result(`Run '${params.runId}' not found.`, { action: "export", status: "error" }, true);
+
+	const hookReport = await executeHook("before_publish", { runId: loaded.manifest.runId, cwd: ctx.cwd });
+	appendHookEvent(loaded.manifest, hookReport);
+	if (hookReport.outcome === "block") {
+		return result(`Export blocked by hook: ${hookReport.reason ?? "before_publish hook blocked the operation."}`, { action: "export", status: "error", runId: loaded.manifest.runId }, true);
+	}
+
 	const exported = exportRunBundle(loaded.manifest, loaded.tasks);
 	appendEvent(loaded.manifest.eventsPath, { type: "run.exported", runId: loaded.manifest.runId, data: exported });
 	return result([`Exported run ${loaded.manifest.runId}.`, `JSON: ${exported.jsonPath}`, `Markdown: ${exported.markdownPath}`].join("\n"), { action: "export", status: "ok", runId: loaded.manifest.runId, artifactsRoot: loaded.manifest.artifactsRoot });
