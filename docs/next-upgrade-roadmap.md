@@ -73,10 +73,10 @@ This roadmap is **not complete overall**. The `v0.1.46` release completed severa
 
 ### Missing / backlog
 
-- P2.8 shared raw scan-entry cache — `SharedScanCache` implemented but not yet wired into hot paths.
+- P2.7 event-first UI — RunEventBus wired into appendEvent; UI pane subscription not yet implemented.
+- P2.8 shared raw scan-entry cache — SharedScanCache implemented and wired into manifest reads; not yet wired into artifact-store or mailbox.
 - P3.1 tarball-install smoke — `scripts/release-smoke.mjs` runs as manual check; not yet a CI gate.
-- Hook wiring — `before_cancel`/`before_forget`/`before_cleanup` not yet wired (requires converting `handleCancel` to async).
-- P2.7 event-first UI — `RunEventBus` created and wired; UI panes not yet migrated from polling.
+- Hook lifecycle — `before_cancel`/`before_forget`/`before_cleanup` wired with async handlers. `task_result`/`before_publish`/`session_before_switch`/`run_recovery` not yet wired.
 
 ## Priority Legend
 
