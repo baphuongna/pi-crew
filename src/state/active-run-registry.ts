@@ -5,6 +5,7 @@ import type { TeamRunManifest } from "./types.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 import { userCrewRoot } from "../utils/paths.ts";
 import { isSafePathId } from "../utils/safe-paths.ts";
+import { sharedScanCache } from "../utils/scan-cache.ts";
 
 export interface ActiveRunRegistryEntry {
 	runId: string;
@@ -150,7 +151,8 @@ export function activeRunEntries(): ActiveRunRegistryEntry[] {
 		try {
 			if (!fs.existsSync(entry.stateRoot) || !fs.existsSync(entry.manifestPath)) continue;
 			if (fs.lstatSync(entry.stateRoot).isSymbolicLink()) continue;
-			const manifest = JSON.parse(fs.readFileSync(entry.manifestPath, "utf-8")) as { status?: unknown };
+			const cached = sharedScanCache.readAndCache("active-manifests", entry.runId, entry.manifestPath);
+			const manifest = (cached?.raw ?? JSON.parse(fs.readFileSync(entry.manifestPath, "utf-8"))) as { status?: unknown };
 			if (manifest.status !== "queued" && manifest.status !== "planning" && manifest.status !== "running" && manifest.status !== "blocked") continue;
 			entries.push(entry);
 		} catch {
