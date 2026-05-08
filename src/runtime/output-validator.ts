@@ -9,20 +9,20 @@
  * (headings, code blocks, URLs) after compression.
  */
 
-/** Role-specific output format patterns */
-const ROLE_PATTERNS: Record<string, RegExp> = {
-	explorer: /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
-	executor: /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
-	reviewer: /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
-	"security-reviewer": /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
-	verifier: /^(PASS:|FAIL:)/m,
+/** Role-specific output format patterns — constructed fresh per call to avoid /g lastIndex leak */
+const ROLE_PATTERN_DEFS: Record<string, () => RegExp> = {
+	explorer: () => /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
+	executor: () => /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
+	reviewer: () => /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
+	"security-reviewer": () => /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
+	verifier: () => /^(PASS:|FAIL:)/m,
 };
 
-/** Structural preservation checks for compressed prose */
-const URL_RE = /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
-const FENCED_CODE_RE = /```[\s\S]*?```/g;
-const INLINE_CODE_RE = /`[^`\n]+`/g;
-const HEADING_RE = /^#{1,6}\s+.+/gm;
+/** Fresh RegExp factories for structural preservation checks (avoids /g lastIndex leak) */
+const makeUrlRe = () => /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
+const makeFencedCodeRe = () => /```[\s\S]*?```/g;
+const makeInlineCodeRe = () => /`[^`\n]+`/g;
+const makeHeadingRe = () => /^#{1,6}\s+.+/gm;
 
 export interface OutputValidationResult {
 	/** Whether the output passes validation */
@@ -47,7 +47,8 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
 	}
 
 	// Check role-specific format
-	const pattern = ROLE_PATTERNS[role];
+	const patternFactory = ROLE_PATTERN_DEFS[role];
+	const pattern = patternFactory ? patternFactory() : undefined;
 	const formatMatch = !pattern || pattern.test(output);
 	if (!formatMatch) {
 		issues.push(`Output does not match expected ${role} contract format`);
@@ -65,7 +66,7 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
 	}
 
 	// Check for malformed URLs
-	const urls = trimmedOutput.match(URL_RE) ?? [];
+	const urls = trimmedOutput.match(makeUrlRe()) ?? [];
 	for (const url of urls) {
 		if (url.endsWith(".") || url.endsWith(",")) {
 			structurePreserved = false;
@@ -144,8 +145,8 @@ export function validateCompressionPreservation(original: string, compressed: st
 	const issues: string[] = [];
 
 	// Check code blocks preserved
-	const origBlocks = original.match(FENCED_CODE_RE) ?? [];
-	const compBlocks = compressed.match(FENCED_CODE_RE) ?? [];
+	const origBlocks = original.match(makeFencedCodeRe()) ?? [];
+	const compBlocks = compressed.match(makeFencedCodeRe()) ?? [];
 	if (origBlocks.length !== compBlocks.length) {
 		issues.push(`Code block count: ${origBlocks.length} → ${compBlocks.length}`);
 	}
@@ -156,8 +157,8 @@ export function validateCompressionPreservation(original: string, compressed: st
 	}
 
 	// Check URLs preserved
-	const origUrls = new Set(original.match(URL_RE) ?? []);
-	const compUrls = new Set(compressed.match(URL_RE) ?? []);
+	const origUrls = new Set(original.match(makeUrlRe()) ?? []);
+	const compUrls = new Set(compressed.match(makeUrlRe()) ?? []);
 	for (const url of origUrls) {
 		if (!compUrls.has(url)) {
 			issues.push(`URL lost: ${url.slice(0, 60)}...`);
@@ -165,8 +166,8 @@ export function validateCompressionPreservation(original: string, compressed: st
 	}
 
 	// Check inline code preserved
-	const origInline = original.match(INLINE_CODE_RE) ?? [];
-	const compInline = compressed.match(INLINE_CODE_RE) ?? [];
+	const origInline = original.match(makeInlineCodeRe()) ?? [];
+	const compInline = compressed.match(makeInlineCodeRe()) ?? [];
 	const origInlineSet = new Set(origInline);
 	const compInlineSet = new Set(compInline);
 	for (const code of origInlineSet) {
@@ -176,8 +177,8 @@ export function validateCompressionPreservation(original: string, compressed: st
 	}
 
 	// Check headings preserved
-	const origHeadings = original.match(HEADING_RE) ?? [];
-	const compHeadings = compressed.match(HEADING_RE) ?? [];
+	const origHeadings = original.match(makeHeadingRe()) ?? [];
+	const compHeadings = compressed.match(makeHeadingRe()) ?? [];
 	if (origHeadings.length !== compHeadings.length) {
 		issues.push(`Heading count: ${origHeadings.length} → ${compHeadings.length}`);
 	}

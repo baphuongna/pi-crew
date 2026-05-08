@@ -36,6 +36,7 @@ import { parseSupervisorContactFromLine, recordSupervisorContact } from "./super
 import { registerStreamBridge, bridgeEventFromJsonEvent } from "./event-stream-bridge.ts";
 import { renderSkillInstructions } from "./skill-instructions.ts";
 import { DEFAULT_YIELD_CONFIG, extractYieldResult, hasYieldInOutput, isYieldEvent, registerYieldTool, type YieldResult } from "./yield-handler.ts";
+import { validateWorkerOutput, type OutputValidationResult } from "./output-validator.ts";
 
 // Register the submit_result tool handler so subprocess events can extract yield data.
 registerYieldTool();
@@ -359,6 +360,22 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		tasks = updateTask(tasks, task);
 	}
 
+	// --- Output format validation (caveman Phase 4) ---
+	// Validate worker output against the role's output contract.
+	// On failure: emit attention event but don't fail the task.
+	let outputValidation: OutputValidationResult | undefined;
+	if (!error) {
+		const outputText = parsedOutput?.finalText ?? finalStdout;
+		if (outputText) {
+			outputValidation = validateWorkerOutput(task.role, outputText);
+			if (!outputValidation.valid) {
+				appendEvent(manifest.eventsPath, { type: "task.output_validation", runId: manifest.runId, taskId: task.id, data: { valid: false, formatMatch: outputValidation.formatMatch, structurePreserved: outputValidation.structurePreserved, issues: outputValidation.issues } });
+				task = { ...task, agentProgress: { ...(task.agentProgress ?? emptyCrewAgentProgress()), activityState: "needs_attention" } };
+				tasks = updateTask(tasks, task);
+			}
+		}
+	}
+
 	task = {
 		...task,
 		status: error ? "failed" : "completed",
@@ -417,7 +434,13 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		content: `${JSON.stringify(buildWorkerPromptPipeline({ artifactsRoot: manifest.artifactsRoot, taskId: task.id, promptArtifact, inputsArtifact, skillArtifact, capabilityArtifact, coordinationArtifact, skillInstructionCount: skillNames?.length ?? 0, skillsDisabled: input.skillOverride === false || input.teamRoleSkills === false }), null, 2)}\n`,
 		producer: task.id,
 	});
-	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, inputsArtifact, coordinationArtifact, ...(skillArtifact ? [skillArtifact] : []), packetArtifact, verificationArtifact, startupArtifact, permissionArtifact, capabilityArtifact, promptPipelineArtifact, ...(sharedOutputArtifact ? [sharedOutputArtifact] : []), ...(logArtifact ? [logArtifact] : []), ...(transcriptArtifact ? [transcriptArtifact] : []), ...(diffArtifact ? [diffArtifact] : []), ...(diffStatArtifact ? [diffStatArtifact] : [])] };
+	const outputValidationArtifact = outputValidation ? writeArtifact(manifest.artifactsRoot, {
+		kind: "metadata",
+		relativePath: `metadata/${task.id}.output-validation.json`,
+		content: `${JSON.stringify(outputValidation, null, 2)}\n`,
+		producer: task.id,
+	}) : undefined;
+	manifest = { ...manifest, updatedAt: new Date().toISOString(), artifacts: [...manifest.artifacts, promptArtifact, resultArtifact, inputsArtifact, coordinationArtifact, ...(skillArtifact ? [skillArtifact] : []), packetArtifact, verificationArtifact, startupArtifact, permissionArtifact, capabilityArtifact, promptPipelineArtifact, ...(outputValidationArtifact ? [outputValidationArtifact] : []), ...(sharedOutputArtifact ? [sharedOutputArtifact] : []), ...(logArtifact ? [logArtifact] : []), ...(transcriptArtifact ? [transcriptArtifact] : []), ...(diffArtifact ? [diffArtifact] : []), ...(diffStatArtifact ? [diffStatArtifact] : [])] };
 	saveRunManifest(manifest);
 	tasks = persistSingleTaskUpdate(manifest, tasks, task);
 	upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
