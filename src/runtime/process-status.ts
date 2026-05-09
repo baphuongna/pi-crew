@@ -10,7 +10,7 @@ export interface ProcessLiveness {
 
 const ORPHANED_ACTIVE_RUN_MS = 10 * 60 * 1000;
 /** How long a completed run stays visible in the widget after completion. */
-const COMPLETED_VISIBILITY_GRACE_MS = 5000;
+const COMPLETED_VISIBILITY_GRACE_MS = 8000;
 
 export function checkProcessLiveness(pid: number | undefined): ProcessLiveness {
 	if (pid === undefined || !Number.isInteger(pid) || pid <= 0) {
