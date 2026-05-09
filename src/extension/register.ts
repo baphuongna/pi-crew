@@ -301,9 +301,9 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				.finally(() => {
 					foregroundControllers.delete(key);
 					const ownerCurrent = isContextCurrent(ctx, ownerGeneration);
-					if (ownerCurrent && ctx.hasUI) {
-						setWorkingIndicator(ctx);
-						ctx.ui.setWorkingMessage();
+					if (ctx.hasUI) {
+						// Always clear working message/spinner — stale spinners for completed runs are confusing.
+						try { setWorkingIndicator(ctx); ctx.ui.setWorkingMessage(); } catch { /* ignore */ }
 					}
 					if (ownerCurrent && runId) {
 						const loaded = loadRunManifestById(ctx.cwd, runId);
