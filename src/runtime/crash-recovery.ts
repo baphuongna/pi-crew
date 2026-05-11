@@ -13,7 +13,6 @@ import { executeHook, appendHookEvent } from "../hooks/registry.ts";
 import { activeRunEntries, unregisterActiveRun, readActiveRunRegistry } from "../state/active-run-registry.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
-import { pruneUserLevelRuns } from "../extension/run-maintenance.ts";
 
 export interface RecoveryPlan {
 	runId: string;
@@ -272,13 +271,6 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 		}
 
 		kept.push(entry.runId);
-	}
-
-	// Also auto-prune finished run directories at user level to prevent accumulation
-	try {
-		pruneUserLevelRuns(10);
-	} catch {
-		// Best-effort — user-level cleanup should not block startup
 	}
 
 	return { purged, kept };

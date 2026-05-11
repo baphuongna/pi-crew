@@ -125,10 +125,14 @@ const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "blocked"
  */
 function filterAliveEntries(entries: ActiveRunRegistryEntry[]): ActiveRunRegistryEntry[] {
 	return entries.filter((entry) => {
-		// Entry whose CWD directory is gone (e.g., temp test dir cleaned up) is stale
-		if (!fs.existsSync(entry.cwd)) return false;
-		// Entry whose state directory is gone is definitely stale
-		if (!fs.existsSync(entry.manifestPath)) return false;
+		// Quick checks first — skip heavy manifest read if CWD or state dir is gone
+		try {
+			if (!fs.existsSync(entry.cwd)) return false;
+			if (!fs.existsSync(entry.manifestPath)) return false;
+		} catch {
+			return false;
+		}
+		// Only read manifest if quick checks pass
 		try {
 			const raw = JSON.parse(fs.readFileSync(entry.manifestPath, "utf-8")) as { status?: string };
 			if (TERMINAL_STATUSES.has(raw.status ?? "")) return false;

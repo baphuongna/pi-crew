@@ -39,15 +39,40 @@ export function summaryPathsFor(stateRoot: string): SummaryPaths {
 
 /**
  * Read the last N lines from a text file.
- *
- * Note: Currently reads the entire file into memory then slices.
- * For very large event logs, consider a reverse reader approach.
+ * Uses reverse buffer reading to avoid loading the entire file into memory.
+ * For files larger than TAIL_MAX_READ bytes, only the last chunk is read.
  */
+const TAIL_MAX_READ = 256 * 1024; // 256KB — enough for ~1000 lines of JSONL
 function readTailLines(filePath: string, maxLines: number): string[] {
 	if (!fs.existsSync(filePath)) return [];
-	const content = fs.readFileSync(filePath, "utf-8");
-	const lines = content.split("\n").filter((line) => line.trim().length > 0);
-	return lines.slice(-maxLines);
+	try {
+		const stat = fs.statSync(filePath);
+		const fileSize = stat.size;
+		if (fileSize === 0) return [];
+
+		// For small files, just read everything
+		if (fileSize <= TAIL_MAX_READ) {
+			const content = fs.readFileSync(filePath, "utf-8");
+			return content.split("\n").filter((line) => line.trim().length > 0).slice(-maxLines);
+		}
+
+		// For large files, read only the last chunk
+		const fd = fs.openSync(filePath, "r");
+		try {
+			const readSize = Math.min(fileSize, TAIL_MAX_READ);
+			const buf = Buffer.alloc(readSize);
+			fs.readSync(fd, buf, 0, readSize, fileSize - readSize);
+			const content = buf.toString("utf-8");
+			// Drop the first partial line (we started reading from the middle)
+			const lines = content.split("\n").filter((line) => line.trim().length > 0);
+			if (lines.length > 0 && fileSize > readSize) lines.shift();
+			return lines.slice(-maxLines);
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return [];
+	}
 }
 
 /**

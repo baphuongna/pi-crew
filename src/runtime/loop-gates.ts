@@ -101,9 +101,14 @@ export function computeTaskProgressSignal(task: TeamTaskState, artifactsDir: str
 	if (artifactsDir && fs.existsSync(artifactsDir)) {
 		try {
 			const entries = fs.readdirSync(artifactsDir);
-			// Look for files that include the task ID
+			// Look for files/directories that START with the task ID prefix.
+			// Using startsWith instead of includes to avoid false positives
+			// from short task IDs like "01" matching unrelated entries.
 			const taskPrefix = task.id.replace(/[^a-zA-Z0-9_-]/g, "");
-			producedArtifacts = entries.some((entry) => entry.includes(taskPrefix));
+			producedArtifacts = entries.some((entry) => {
+				const baseName = entry.split(".")[0] ?? entry;
+				return baseName.startsWith(taskPrefix);
+			});
 		} catch {
 			producedArtifacts = false;
 		}
