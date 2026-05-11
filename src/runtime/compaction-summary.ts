@@ -175,7 +175,7 @@ export function buildCompactionSummary(stateRoot: string): string {
 			sections.push(`- **Workflow**: ${manifest.workflow}`);
 		}
 		if (manifest.goal) {
-			sections.push(`- **Goal**: ${manifest.goal}`);
+			sections.push(`- **Goal**: ${manifest.goal.replace(/\n/g, " ").slice(0, 500)}`);
 		}
 		sections.push(`- **Status**: ${manifest.status}`);
 		sections.push(`- **Created**: ${manifest.createdAt}`);
