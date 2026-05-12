@@ -11,6 +11,16 @@ export type FileExists = (filePath: string) => boolean;
 
 const requireFromHere = createRequire(import.meta.url);
 
+// Node introduced --experimental-strip-types in v22.6.0
+const STRIP_TYPES_MIN_MAJOR = 22;
+const STRIP_TYPES_MIN_MINOR = 6;
+
+export type LoaderSpec =
+	| { kind: "jiti"; path: string }
+	| { kind: "strip-types" };
+
+type LoaderInput = LoaderSpec | string | false | undefined;
+
 function packageRootFromRuntime(): string {
 	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
@@ -41,11 +51,61 @@ export function resolveJitiRegisterPath(packageRoot = packageRootFromRuntime(), 
 	return undefined;
 }
 
-export function getBackgroundRunnerCommand(runnerPath: string, cwd: string, runId: string, jitiRegisterPath: string | false | undefined = resolveJitiRegisterPath()): { args: string[]; loader: "jiti" } {
-	if (!jitiRegisterPath) throw new Error("pi-crew background runner cannot start: jiti loader not found. Reinstall pi-crew (`pi install npm:pi-crew`) or ensure node_modules/jiti is present.");
+export function nodeSupportsStripTypes(version = process.version): boolean {
+	const match = /^v?(\d+)\.(\d+)/.exec(version);
+	if (!match) return false;
+	const major = Number(match[1]);
+	const minor = Number(match[2]);
+	if (major > STRIP_TYPES_MIN_MAJOR) return true;
+	if (major === STRIP_TYPES_MIN_MAJOR && minor >= STRIP_TYPES_MIN_MINOR) return true;
+	return false;
+}
+
+export interface ResolveLoaderOptions {
+	packageRoot?: string;
+	exists?: FileExists;
+	nodeVersion?: string;
+}
+
+export function resolveTypeScriptLoader(opts: ResolveLoaderOptions = {}): LoaderSpec | undefined {
+	const jitiPath = resolveJitiRegisterPath(opts.packageRoot, opts.exists);
+	if (jitiPath) return { kind: "jiti", path: jitiPath };
+	if (nodeSupportsStripTypes(opts.nodeVersion)) return { kind: "strip-types" };
+	return undefined;
+}
+
+function normalizeLoaderInput(input: LoaderInput): LoaderSpec | undefined {
+	if (input === undefined || input === null || input === false || input === "") return undefined;
+	if (typeof input === "string") return { kind: "jiti", path: input };
+	return input;
+}
+
+function buildLoaderUnavailableMessage(searchedFrom: string): string {
+	return [
+		"pi-crew background runner cannot start: jiti loader not found and Node --experimental-strip-types fallback unavailable.",
+		`  - Searched for node_modules/jiti walking upward from: ${searchedFrom}`,
+		`  - Node --experimental-strip-types requires >= 22.6 (current: ${process.version})`,
+		"  - Fix: run 'npm install' in the pi-crew directory, reinstall via 'pi install npm:pi-crew', or upgrade Node.js to >= 22.6.",
+	].join("\n");
+}
+
+export function getBackgroundRunnerCommand(
+	runnerPath: string,
+	cwd: string,
+	runId: string,
+	loaderInput: LoaderInput = resolveTypeScriptLoader(),
+): { args: string[]; loader: "jiti" | "strip-types" } {
+	const loader = normalizeLoaderInput(loaderInput);
+	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
+	if (loader.kind === "jiti") {
+		return {
+			args: ["--import", pathToFileURL(loader.path).href, runnerPath, "--cwd", cwd, "--run-id", runId],
+			loader: "jiti",
+		};
+	}
 	return {
-		args: ["--import", pathToFileURL(jitiRegisterPath).href, runnerPath, "--cwd", cwd, "--run-id", runId],
-		loader: "jiti",
+		args: ["--experimental-strip-types", runnerPath, "--cwd", cwd, "--run-id", runId],
+		loader: "strip-types",
 	};
 }
 
@@ -70,13 +130,13 @@ export function spawnBackgroundTeamRun(manifest: TeamRunManifest): SpawnBackgrou
 	fs.mkdirSync(manifest.stateRoot, { recursive: true });
 	const logFd = fs.openSync(logPath, "a");
 	try {
-		const jitiRegisterPath = resolveJitiRegisterPath();
-		if (!jitiRegisterPath) {
-			const message = "pi-crew background runner cannot start: jiti loader not found. Reinstall pi-crew (`pi install npm:pi-crew`) or ensure node_modules/jiti is present.";
+		const loader = resolveTypeScriptLoader();
+		if (!loader) {
+			const message = buildLoaderUnavailableMessage(packageRootFromRuntime());
 			appendEvent(manifest.eventsPath, { type: "async.failed", runId: manifest.runId, message });
 			throw new Error(message);
 		}
-		const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, jitiRegisterPath);
+		const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, loader);
 		fs.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}\n`, "utf-8");
 		const child = spawn(process.execPath, command.args, buildBackgroundSpawnOptions(manifest, logFd));
 		child.unref();
