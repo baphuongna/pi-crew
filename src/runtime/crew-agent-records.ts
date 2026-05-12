@@ -8,6 +8,7 @@ import { taskStatusToAgentStatus } from "./crew-agent-runtime.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { assertSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { redactSecretString, redactSecrets } from "../utils/redaction.ts";
+import { sleepSync } from "../utils/sleep.ts";
 
 export function agentsPath(manifest: TeamRunManifest): string {
 	return path.join(manifest.stateRoot, "agents.json");
@@ -62,8 +63,59 @@ export function agentOutputPath(manifest: TeamRunManifest, taskId: string): stri
 
 const AGENT_READER_TTL_MS = 200;
 const ASYNC_AGENT_READER_CACHE_MAX_ENTRIES = 128;
+const AGENTS_LOCK_STALE_MS = 30_000;
 
 const asyncAgentReaderCache = new Map<string, { expiresAt: number; records: CrewAgentRecord[]; inFlight?: Promise<CrewAgentRecord[]> }>();
+
+function agentsLockPath(manifest: TeamRunManifest): string {
+	return `${agentsPath(manifest)}.lock`;
+}
+
+function removeStaleAgentsLock(lockPath: string, staleMs: number): boolean {
+	try {
+		const raw = fs.readFileSync(lockPath, "utf-8");
+		const parsed = JSON.parse(raw) as { createdAt?: unknown; pid?: unknown };
+		const createdAt = typeof parsed.createdAt === "string" ? Date.parse(parsed.createdAt) : NaN;
+		if (Number.isFinite(createdAt) && Date.now() - createdAt <= staleMs) return false;
+		const pid = typeof parsed.pid === "number" ? parsed.pid : undefined;
+		if (pid && pid !== process.pid) {
+			try { process.kill(pid, 0); return false; } catch { /* owner dead */ }
+		}
+		fs.rmSync(lockPath, { force: true });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
+	const filePath = agentsLockPath(manifest);
+	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	let attempt = 0;
+	const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
+	while (true) {
+		try {
+			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+			try {
+				fs.writeSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+			} finally {
+				fs.closeSync(fd);
+			}
+			break;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "EEXIST") throw error;
+			if (!removeStaleAgentsLock(filePath, AGENTS_LOCK_STALE_MS) && Date.now() > deadline) throw new Error(`Crew agents file is locked by another operation: ${agentsPath(manifest)}`);
+			sleepSync(Math.min(250, 25 * 2 ** attempt));
+			attempt += 1;
+		}
+	}
+	try {
+		return fn();
+	} finally {
+		try { fs.rmSync(filePath, { force: true }); } catch { /* best-effort */ }
+	}
+}
 
 function setAsyncAgentReaderCache(filePath: string, entry: { expiresAt: number; records: CrewAgentRecord[]; inFlight?: Promise<CrewAgentRecord[]> }): void {
 	const now = Date.now();
@@ -133,11 +185,13 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 }
 
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
-	fs.mkdirSync(manifest.stateRoot, { recursive: true });
-	const filePath = agentsPath(manifest);
-	atomicWriteJson(filePath, redactSecrets(records));
-	asyncAgentReaderCache.delete(filePath);
-	for (const record of records) writeCrewAgentStatus(manifest, record);
+	withAgentsLock(manifest, () => {
+		fs.mkdirSync(manifest.stateRoot, { recursive: true });
+		const filePath = agentsPath(manifest);
+		atomicWriteJson(filePath, redactSecrets(records));
+		asyncAgentReaderCache.delete(filePath);
+		for (const record of records) writeCrewAgentStatus(manifest, record);
+	});
 }
 
 export function upsertCrewAgent(manifest: TeamRunManifest, record: CrewAgentRecord): void {

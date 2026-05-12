@@ -49,11 +49,15 @@ export function updateLiveAgentStatus(agentId: string, status: CrewAgentRecord["
 	handle.updatedAt = new Date().toISOString();
 }
 
+function safeDisposeLiveSession(handle: LiveAgentHandle): void {
+	try { handle.session.dispose?.(); } catch { /* best-effort cleanup */ }
+}
+
 export function removeLiveAgentHandle(agentId: string): LiveAgentHandle | undefined {
 	const handle = liveAgents.get(agentId);
 	if (!handle) return undefined;
 	liveAgents.delete(agentId);
-	handle.session.dispose?.();
+	safeDisposeLiveSession(handle);
 	return handle;
 }
 
@@ -66,7 +70,7 @@ export async function terminateLiveAgent(agentIdOrTaskId: string, status: CrewAg
 	try {
 		await handle.session.abort?.();
 	} finally {
-		handle.session.dispose?.();
+		safeDisposeLiveSession(handle);
 	}
 	return handle;
 }

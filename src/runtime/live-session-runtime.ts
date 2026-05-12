@@ -279,6 +279,24 @@ function usageFromStats(stats: unknown): UsageState | undefined {
 	return [input, output, cacheRead, cacheWrite, cost, turns].some((value) => value !== undefined) ? { input, output, cacheRead, cacheWrite, cost, turns } : undefined;
 }
 
+async function promptWithTimeout(session: LiveSessionLike, text: string, timeoutMs: number, label: string): Promise<boolean> {
+	const promptPromise = session.prompt?.(text, { source: "api", expandPromptTemplates: false });
+	if (!promptPromise) return false;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			promptPromise,
+			new Promise<void>((_, reject) => {
+				timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+				timer.unref?.();
+			}),
+		]);
+		return true;
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
 export async function probeLiveSessionRuntime(): Promise<LiveSessionUnavailableResult | LiveSessionPlannedResult> {
 	const availability = await isLiveSessionRuntimeAvailable();
 	if (!availability.available) return { available: false, reason: availability.reason ?? "Live-session runtime is unavailable." };
@@ -319,6 +337,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	let stdout = "";
 	let jsonEvents = 0;
 	const collectedJsonEvents: Record<string, unknown>[] = [];
+	const maxCollectedJsonEvents = 200;
 	let yieldResult: YieldResult | undefined;
 
 	const agentId = `${input.manifest.runId}:${input.task.id}`;
@@ -442,6 +461,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				// Phase 1: collect events for yield detection
 				if (event && typeof event === "object" && !Array.isArray(event)) {
 					collectedJsonEvents.push(event as Record<string, unknown>);
+					if (collectedJsonEvents.length > maxCollectedJsonEvents) collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
 				}
 			});
 		}
@@ -453,23 +473,16 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 
 		// Phase 3: Wrap session.prompt with timeout for graceful cancellation
 		const sessionTimeoutMs = DEFAULT_LIVE_SESSION.responseTimeoutMs;
-		const promptPromise = session.prompt?.(effectivePrompt, { source: "api", expandPromptTemplates: false });
-		if (promptPromise) {
-			const timeoutPromise = new Promise<void>((_, reject) => {
-				const timer = setTimeout(() => reject(new Error(`Live-session timed out after ${sessionTimeoutMs}ms`)), sessionTimeoutMs);
-				timer.unref();
-			});
-			try {
-				await Promise.race([promptPromise, timeoutPromise]);
-			} catch (promptError) {
-				const msg = promptError instanceof Error ? promptError.message : String(promptError);
-				if (msg.includes("timed out")) {
-					await session.abort?.();
-					updateLiveAgentStatus(agentId, "failed");
-					return { available: true, exitCode: 1, stdout: stdout.trim(), stderr: msg, jsonEvents, error: msg };
-				}
-				throw promptError;
+		try {
+			await promptWithTimeout(session, effectivePrompt, sessionTimeoutMs, "Live-session");
+		} catch (promptError) {
+			const msg = promptError instanceof Error ? promptError.message : String(promptError);
+			if (msg.includes("timed out")) {
+				await session.abort?.();
+				updateLiveAgentStatus(agentId, "failed");
+				return { available: true, exitCode: 1, stdout: stdout.trim(), stderr: msg, jsonEvents, error: msg };
 			}
+			throw promptError;
 		}
 
 		// --- Phase 1: Yield enforcement loop ---
@@ -500,7 +513,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					customToolYieldResolved = false;
 					const schemaReminder = `Your submit_result data did not match the required schema: ${validation.error}. Please fix and call submit_result again with valid data.`;
 					try {
-						await session.prompt?.(schemaReminder, { source: "api", expandPromptTemplates: false });
+						await promptWithTimeout(session, schemaReminder, Math.min(sessionTimeoutMs, DEFAULT_LIVE_SESSION.idleWaitTimeoutMs), "Live-session schema reminder");
 					} catch {
 						/* ignore */
 					}
@@ -531,19 +544,20 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			while (!customToolYieldResolved && !yieldResult && retryCount < maxReminders && !input.signal?.aborted) {
 				retryCount++;
 				const reminder = buildYieldReminder(retryCount, maxReminders, yieldConfig.reminderPrompt);
+				const prevTools = typeof session.getActiveToolNames === "function" ? session.getActiveToolNames() : [];
 				try {
 					// G6: Constrain tool set to submit_result before sending reminder
-					const prevTools = typeof session.getActiveToolNames === "function" ? session.getActiveToolNames() : [];
 					if (typeof session.setActiveToolsByName === "function" && prevTools.length > 0) {
 						session.setActiveToolsByName(["submit_result"]);
 					}
-					await session.prompt?.(reminder, { source: "api", expandPromptTemplates: false });
-					// Restore previous tools
+					await promptWithTimeout(session, reminder, Math.min(sessionTimeoutMs, DEFAULT_LIVE_SESSION.idleWaitTimeoutMs), "Live-session yield reminder");
+				} catch {
+					break;
+				} finally {
+					// Restore previous tools even if reminder prompt times out/throws.
 					if (typeof session.setActiveToolsByName === "function" && prevTools.length > 0) {
 						session.setActiveToolsByName(prevTools);
 					}
-				} catch {
-					break;
 				}
 				const pollInterval = DEFAULT_LIVE_SESSION.yieldPollIntervalMs;
 				await new Promise((resolve) => setTimeout(resolve, pollInterval));
