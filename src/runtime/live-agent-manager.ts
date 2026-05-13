@@ -30,8 +30,10 @@ export interface LiveAgentActivity {
 	compactionCount: number;
 	/** Started-at timestamp (ms epoch). */
 	startedAtMs: number;
-	/** Completed-at timestamp (ms epoch), if finished. */
-	completedAtMs?: number;
+	/** Completed-at timestamp (ms epoch, 0 = still running). */
+	completedAtMs: number;
+	/** Model name used for this agent (e.g. "sonnet", "haiku"). */
+	modelName?: string;
 }
 
 export interface LiveAgentHandle {
@@ -41,6 +43,8 @@ export interface LiveAgentHandle {
 	role?: string;
 	agent?: string;
 	description?: string;
+	/** Model name used for this agent (e.g. "sonnet", "haiku"). */
+	modelName?: string;
 	session: LiveSessionHandle;
 	createdAt: string;
 	updatedAt: string;
@@ -72,6 +76,8 @@ export function registerLiveAgent(input: Omit<LiveAgentHandle, "createdAt" | "up
 			responseText: "",
 			compactionCount: 0,
 			startedAtMs: Date.now(),
+			completedAtMs: 0,
+			modelName: undefined,
 		},
 	};
 	liveAgents.set(input.agentId, handle);

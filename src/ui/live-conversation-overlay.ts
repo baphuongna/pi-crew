@@ -99,7 +99,7 @@ export class LiveConversationOverlay {
 		if (act.toolUses > 0) headerParts.push(`${act.toolUses} tools`);
 		headerParts.push(elapsed);
 
-		// Context %
+		// Context % + compaction
 		try {
 			const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
 			if (ctxPct != null) {
@@ -108,6 +108,8 @@ export class LiveConversationOverlay {
 			}
 		} catch { /* ignore */ }
 		if (act.compactionCount > 0) headerParts.push(th.fg("dim", `↻${act.compactionCount}`));
+		// Model name
+		if (this.handle.modelName) headerParts.push(th.fg("muted", this.handle.modelName));
 
 		const desc = this.handle.description ?? this.handle.role ?? "";
 		lines.push(row(`${statusIcon} ${th.fg("accent", name)}  ${th.fg("muted", desc)} ${th.fg("dim", "·")} ${th.fg("dim", headerParts.join(" · "))}`));

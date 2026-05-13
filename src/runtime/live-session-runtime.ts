@@ -412,7 +412,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			}
 		}
 
-		registerLiveAgent({ agentId, runId: input.manifest.runId, taskId: input.task.id, role: input.task.role, agent: input.agent?.name ?? "unknown", description: input.task.adaptive?.task ?? input.step?.task ?? "", session, status: "running" });
+		registerLiveAgent({ agentId, runId: input.manifest.runId, taskId: input.task.id, role: input.task.role, agent: input.agent?.name ?? "unknown", description: input.task.adaptive?.task ?? input.step?.task ?? "", modelName: (resolvedModel as { name?: string })?.name, session, status: "running" });
 		streamOut = createStreamingOutput(input.manifest, input.task.id);
 		let controlCursor: LiveAgentControlCursor = { offset: 0 };
 		const seenControlRequestIds = new Set<string>();

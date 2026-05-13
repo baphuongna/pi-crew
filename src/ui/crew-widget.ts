@@ -135,6 +135,7 @@ function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): strin
 	const parts: string[] = [];
 	if (liveHandle) {
 		const act = liveHandle.activity;
+		const model = liveHandle.modelName;
 		// G3: Turn counter with limit
 		if (act.maxTurns != null) parts.push(`\u27F3${act.turnCount}\u2264${act.maxTurns}`);
 		else if (act.turnCount > 0) parts.push(`\u27F3${act.turnCount}`);
@@ -145,7 +146,7 @@ function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): strin
 			const stats = liveHandle.session.getSessionStats?.();
 			const ctxPct = stats?.contextUsage?.percent;
 			if (ctxPct != null) {
-				const color = ctxPct >= 85 ? "error" : ctxPct >= 70 ? "warning" : "dim";
+				// Note: color coding applied at render layer, not in widget string
 				tokenAnnot.push(`${Math.round(ctxPct)}%`);
 			}
 		} catch { /* ignore */ }
@@ -159,10 +160,12 @@ function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): strin
 		} else if (tokenAnnot.length > 0) {
 			parts.push(`(${tokenAnnot.join(" · ")})`);
 		}
-		// R7: Duration with (running) suffix
+		// R7: Duration with (running) suffix + model name
 		const ms = (act.completedAtMs ?? Date.now()) - act.startedAtMs;
 		const dur = `${(ms / 1000).toFixed(1)}s`;
-		parts.push(liveHandle.status === "running" ? `${dur} (running)` : dur);
+		const durPart = liveHandle.status === "running" ? `${dur} (running)` : dur;
+		const modelPart = model && model !== "default" ? ` · ${model}` : "";
+		parts.push(durPart + modelPart);
 	} else {
 		if (agent.toolUses) parts.push(`${agent.toolUses} tool${agent.toolUses === 1 ? "" : "s"}`);
 		if (agent.progress?.tokens) parts.push(formatTokensCompact(agent.progress.tokens));
