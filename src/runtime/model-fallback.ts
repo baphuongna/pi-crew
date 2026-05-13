@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fuzzyResolveModelId } from "./model-resolver.ts";
 
 export interface AvailableModelInfo {
 	provider: string;
@@ -150,7 +151,12 @@ export function resolveModelCandidate(
 	}
 	// When multiple providers share the same model id, return the raw model string.
 	// Callers should use the preferredProvider hint via resolveModelCandidate.
-	if (matches.length !== 1) return model;
+	if (matches.length !== 1) {
+		// Fuzzy fallback: try to resolve via partial name matching
+		const fuzzy = fuzzyResolveModelId(baseModel, availableModels);
+		if (fuzzy) return `${fuzzy}${thinkingSuffix}`;
+		return model;
+	}
 	return `${matches[0]!.fullId}${thinkingSuffix}`;
 }
 
@@ -225,7 +231,9 @@ function isAvailableModel(model: string, availableModels: AvailableModelInfo[] |
 	if (!availableModels || availableModels.length === 0) return true;
 	const { baseModel } = splitThinkingSuffix(model);
 	if (baseModel.includes("/")) return availableModels.some((entry) => entry.fullId === baseModel);
-	return availableModels.some((entry) => entry.id === baseModel);
+	if (availableModels.some((entry) => entry.id === baseModel)) return true;
+	const fuzzy = fuzzyResolveModelId(baseModel, availableModels);
+	return fuzzy !== undefined;
 }
 
 export interface ConfiguredModelRouting {

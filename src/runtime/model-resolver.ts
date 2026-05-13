@@ -72,3 +72,47 @@ export function resolveModel(input: string, registry: ModelRegistry): any | stri
 		.join("\n");
 	return `Model not found: "${input}".\n\nAvailable models:\n${modelList}`;
 }
+
+export interface SimpleModelEntry {
+	id: string;
+	name?: string;
+	provider: string;
+}
+
+/**
+ * Fuzzy-match a model query against a flat list of available models.
+ * Returns the best-match fullId (provider/id) or undefined.
+ */
+export function fuzzyResolveModelId(input: string, models: SimpleModelEntry[]): string | undefined {
+	const query = input.toLowerCase();
+	let bestMatch: SimpleModelEntry | undefined;
+	let bestScore = 0;
+
+	for (const m of models) {
+		const id = m.id.toLowerCase();
+		const name = (m.name ?? "").toLowerCase();
+		const full = `${m.provider}/${m.id}`.toLowerCase();
+
+		let score = 0;
+		if (id === query || full === query) {
+			score = 100;
+		} else if (id.includes(query) || full.includes(query)) {
+			score = 60 + (query.length / id.length) * 30;
+		} else if (name.includes(query)) {
+			score = 40 + (query.length / (name.length || 1)) * 20;
+		} else if (
+			query
+				.split(/[\s\-/]+/)
+				.every((part) => id.includes(part) || name.includes(part) || m.provider.toLowerCase().includes(part))
+		) {
+			score = 20;
+		}
+
+		if (score > bestScore) {
+			bestScore = score;
+			bestMatch = m;
+		}
+	}
+
+	return bestMatch && bestScore >= 20 ? `${bestMatch.provider}/${bestMatch.id}` : undefined;
+}
