@@ -2,6 +2,31 @@
 
 This package is a Pi extension for team orchestration.
 
+## Source of Truth
+
+Read in this order:
+
+1. This file (`AGENTS.md`) for operating rules and paths.
+2. `docs/HARNESS.md` for the human-agent collaboration model.
+3. `docs/FEATURE_INTAKE.md` before turning any request into work.
+4. `docs/product/` for current product contracts.
+5. `docs/ARCHITECTURE.md` for implementation shape.
+6. `docs/stories/` for story packets and backlog.
+7. `docs/TEST_MATRIX.md` for proof status.
+8. `docs/decisions/` for why important choices were made.
+
+## Task Loop
+
+For every task:
+
+1. Classify the request with `docs/FEATURE_INTAKE.md`.
+2. Identify affected modules and risk level.
+3. Choose lane: tiny, normal, or high-risk.
+4. Implement the change.
+5. Run validation: `npm test` + `npm run typecheck`.
+6. Update docs, stories, test matrix, decisions as needed.
+7. Report what changed and what was not attempted.
+
 ## Rules
 
 - Keep `index.ts` minimal; register functionality from `src/extension/register.ts`.
