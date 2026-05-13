@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../config/config.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
+import { appendEvent } from "../state/event-log.ts";
 import { buildMemoryBlock } from "./agent-memory.ts";
 import { trackTaskUsage } from "./usage-tracker.ts";
 import { createStreamingOutput, type StreamingOutputHandle } from "./streaming-output.ts";
@@ -377,6 +378,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		const ircTool = createIrcTool(agentId);
 		const customTools = [submitResultTool, ircTool];
 
+		const sessionCreateStart = Date.now();
 		const created = await mod.createAgentSession({
 			cwd: input.task.cwd,
 			...(agentDir ? { agentDir } : {}),
@@ -390,8 +392,21 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			customTools,
 		});
 		session = created.session;
+		appendEvent(input.manifest.eventsPath, { type: "live-session.session_created", runId: input.manifest.runId, taskId: input.task.id, data: { elapsedMs: Date.now() - sessionCreateStart, modelFallbackMessage: created.modelFallbackMessage } });
 		filterActiveTools(session, input.agent);
-		await session.bindExtensions?.({});
+
+		// Diagnostic: log before bindExtensions so we can identify extension-loading hangs
+		const bindExtensionsStart = Date.now();
+		try {
+			await Promise.race([
+				session.bindExtensions?.({}) ?? Promise.resolve(),
+				new Promise<void>((_, reject) => setTimeout(() => reject(new Error("bindExtensions timed out after 30s")), 30_000)),
+			]);
+		} catch (bindError) {
+			const msg = bindError instanceof Error ? bindError.message : String(bindError);
+			appendEvent(input.manifest.eventsPath, { type: "live-session.bind_extensions_error", runId: input.manifest.runId, taskId: input.task.id, data: { elapsedMs: Date.now() - bindExtensionsStart, error: msg } });
+			// Continue without extensions — they should not block the session
+		}
 
 		// Phase 3 (caveman): Compress tool descriptions to reduce input token cost
 		compressSessionToolDescriptions(session);
@@ -501,12 +516,17 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		}
 		const effectivePrompt = input.runtimeConfig?.inheritContext === true && input.parentContext ? `${input.parentContext}\n\n---\n# Live Subagent Task\n${input.prompt}` : input.prompt;
 
+		// Diagnostic: log prompt size and timing
+		const promptStart = Date.now();
+		appendEvent(input.manifest.eventsPath, { type: "live-session.prompt_start", runId: input.manifest.runId, taskId: input.task.id, data: { promptLength: effectivePrompt.length, agent: input.agent.name, role: input.task.role } });
+
 		// Phase 3: Wrap session.prompt with timeout for graceful cancellation
 		const sessionTimeoutMs = DEFAULT_LIVE_SESSION.responseTimeoutMs;
 		try {
 			await promptWithTimeout(session, effectivePrompt, sessionTimeoutMs, "Live-session");
 		} catch (promptError) {
 			const msg = promptError instanceof Error ? promptError.message : String(promptError);
+			appendEvent(input.manifest.eventsPath, { type: "live-session.prompt_error", runId: input.manifest.runId, taskId: input.task.id, data: { elapsedMs: Date.now() - promptStart, error: msg } });
 			if (msg.includes("timed out")) {
 				await session.abort?.();
 				updateLiveAgentStatus(agentId, "failed");
@@ -514,6 +534,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			}
 			throw promptError;
 		}
+		appendEvent(input.manifest.eventsPath, { type: "live-session.prompt_done", runId: input.manifest.runId, taskId: input.task.id, data: { elapsedMs: Date.now() - promptStart, jsonEvents, outputLength: stdout.length } });
 
 		// --- Phase 1: Yield enforcement loop ---
 		// After the initial prompt completes, check if the worker called submit_result.
