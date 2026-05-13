@@ -6,4 +6,5 @@ coverage/
 .DS_Store
 .pi/
 .crew/cache/
-.crew
+.crew.pi-recall/
+PI_MEMORY.md
