@@ -36,7 +36,7 @@ function shouldRecoverTask(task: TeamTaskState, deadMs: number): boolean {
 export function detectInterruptedRuns(cwd: string, manifestCache: ManifestCache, deadMs = 300_000): RecoveryPlan[] {
 	const plans: RecoveryPlan[] = [];
 	for (const manifest of manifestCache.list(50)) {
-		if (manifest.status !== "running") continue;
+		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
 		if (manifest.async?.pid !== undefined && checkProcessLiveness(manifest.async.pid).alive) continue;
 		const loaded = loadRunManifestById(cwd, manifest.runId);
 		if (!loaded) continue;
@@ -104,7 +104,7 @@ export function cancelOrphanedRuns(
 
 	// Phase 1: Scan project-level manifests via manifestCache
 	for (const manifest of manifestCache.list(50)) {
-		if (manifest.status !== "running") continue;
+		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
 
 		// Only consider runs owned by a different session
 		const ownerId = manifest.ownerSessionId;
@@ -142,7 +142,7 @@ export function cancelOrphanedRuns(
 		let cancelledRun = false;
 		withRunLockSync(loaded.manifest, () => {
 			const fresh = loadRunManifestById(cwd, manifest.runId);
-			if (!fresh || fresh.manifest.status !== "running") return;
+			if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
 
 			const now_iso = new Date(now).toISOString();
 			const repairedTasks = fresh.tasks.map((task) => {
@@ -290,16 +290,16 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 export function reconcileAllStaleRuns(cwd: string, manifestCache: ManifestCache, now = Date.now()): ReconcileResult[] {
 	const results: ReconcileResult[] = [];
 	for (const manifest of manifestCache.list(50)) {
-		if (manifest.status !== "running") continue;
+		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
 		const loaded = loadRunManifestById(cwd, manifest.runId);
 		if (!loaded) continue;
 		// Use lock to prevent race with cancel/status handlers modifying the same run
 		withRunLockSync(loaded.manifest, () => {
 			// Re-read inside lock to get freshest data
 			const fresh = loadRunManifestById(cwd, manifest.runId);
-			if (!fresh || fresh.manifest.status !== "running") return;
+			if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
 			const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
-			if (result.repaired) {
+			if (result.repaired || result.verdict === "result_exists") {
 				if (result.repairedTasks) {
 				saveRunTasks(fresh.manifest, result.repairedTasks);
 				for (const task of result.repairedTasks) { try { upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold")); } catch { /* non-critical */ } }
