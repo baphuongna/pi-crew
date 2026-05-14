@@ -426,6 +426,20 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				} catch {
 					// Ignore kill races.
 				}
+				// 3.5 — fast-escalate to SIGKILL within 200ms on explicit cancel
+				// so /team-cancel completes round-trip well under the operator
+				// expectation. The standard finalDrainMs / HARD_KILL_MS paths
+				// are for graceful drain, not user-initiated cancel.
+				const cancelHardKill = setTimeout(() => {
+					if (settled || childExited) return;
+					try {
+						hardKilled = true;
+						child.kill(process.platform === "win32" ? undefined : "SIGKILL");
+					} catch (error) {
+						logInternalError("child-pi.cancel-fast-kill", error, `pid=${child.pid}`);
+					}
+				}, 200);
+				cancelHardKill.unref();
 			};
 
 			input.signal?.addEventListener("abort", abort, { once: true });
