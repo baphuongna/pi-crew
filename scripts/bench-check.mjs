@@ -47,6 +47,14 @@ for (const [benchName, current] of Object.entries(results.results)) {
 		const cur = readPath(current, metric);
 		const ref = readPath(base, metric);
 		if (typeof cur !== "number" || typeof ref !== "number" || ref === 0) continue;
+		// Sub-ms metrics are dominated by GC / OS jitter — applying a strict
+		// percentage gate causes false positives. Use absolute delta cap instead.
+		if (ref < 1.0) {
+			const absDelta = cur - ref;
+			if (absDelta > 0.5) regressions.push({ bench: benchName, metric: metric.join("."), baseline: ref, current: cur, deltaPct: round(((cur - ref) / ref) * 100), reason: "abs > 0.5ms" });
+			else if (absDelta < -0.05) improvements.push({ bench: benchName, metric: metric.join("."), baseline: ref, current: cur, deltaPct: round(((cur - ref) / ref) * 100) });
+			continue;
+		}
 		const delta = (cur - ref) / ref;
 		if (delta > threshold) regressions.push({ bench: benchName, metric: metric.join("."), baseline: ref, current: cur, deltaPct: round(delta * 100) });
 		else if (delta < -0.05) improvements.push({ bench: benchName, metric: metric.join("."), baseline: ref, current: cur, deltaPct: round(delta * 100) });

@@ -7,7 +7,7 @@
 import { performance } from "node:perf_hooks";
 import { RenderScheduler } from "../../src/ui/render-scheduler.ts";
 
-const ITERS = Number(process.env.BENCH_ITERS ?? 100);
+const ITERS = Number(process.env.BENCH_ITERS ?? 200);
 const EVENTS_PER_ITER = 200;
 
 function createEvents() {
