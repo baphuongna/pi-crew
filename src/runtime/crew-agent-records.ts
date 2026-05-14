@@ -200,6 +200,8 @@ export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentReco
 	});
 }
 
+const TERMINAL_AGENT_STATUSES = new Set(["completed", "failed", "cancelled", "blocked"]);
+
 export function upsertCrewAgent(manifest: TeamRunManifest, record: CrewAgentRecord): void {
 	// Read current state
 	const existing = readCrewAgents(manifest);
@@ -207,8 +209,16 @@ export function upsertCrewAgent(manifest: TeamRunManifest, record: CrewAgentReco
 	const idIndex = new Map(existing.map((item, i) => [item.id, i]));
 	const merged: CrewAgentRecord[] = existing.map((item) => item.id === record.id ? record : item);
 	if (!idIndex.has(record.id)) merged.push(record);
-	saveCrewAgents(manifest, merged);
-	writeCrewAgentStatus(manifest, record);
+	// 2.5 caller migration: coalesce non-terminal progress writes; flush
+	// terminal statuses (completed/failed/cancelled/blocked) durably so
+	// downstream (notifier, dashboard health) sees them immediately.
+	if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
+		saveCrewAgents(manifest, merged);
+		writeCrewAgentStatus(manifest, record);
+	} else {
+		saveCrewAgentsCoalesced(manifest, merged);
+		writeCrewAgentStatusCoalesced(manifest, record);
+	}
 }
 
 export function writeCrewAgentStatus(manifest: TeamRunManifest, record: CrewAgentRecord): void {
