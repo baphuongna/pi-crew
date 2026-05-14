@@ -175,60 +175,131 @@ export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" 
 }
 
 export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEvent {
-	return withEventLogLockSync(eventsPath, () => {
-		fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
-		const baseMetadata = event.metadata;
-		let metadata: TeamEventMetadata = {
-			seq: baseMetadata?.seq ?? nextSequence(eventsPath),
-			provenance: baseMetadata?.provenance ?? "team_runner",
-			...(baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {}),
-			...(baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {}),
-			...(baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {}),
-			...(baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {}),
-			...(baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {}),
-			...(baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {}),
-			...(baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {}),
-			...(baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {}),
-			...(baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}),
-		};
-		const fullEvent: TeamEvent = {
-			time: new Date().toISOString(),
-			...event,
-			metadata,
-		};
-		if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
-			metadata = { ...metadata, fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent) };
-			fullEvent.metadata = metadata;
+	return withEventLogLockSync(eventsPath, () => appendEventInsideLock(eventsPath, event));
+}
+
+/**
+ * Body of `appendEvent` assuming the caller already holds
+ * `withEventLogLockSync` for `eventsPath`. Used by `appendEventBuffered` to
+ * write a whole batch of pending events under a single lock acquire.
+ */
+function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): TeamEvent {
+	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
+	const baseMetadata = event.metadata;
+	let metadata: TeamEventMetadata = {
+		seq: baseMetadata?.seq ?? nextSequence(eventsPath),
+		provenance: baseMetadata?.provenance ?? "team_runner",
+		...(baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {}),
+		...(baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {}),
+		...(baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {}),
+		...(baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {}),
+		...(baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {}),
+		...(baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {}),
+		...(baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {}),
+		...(baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {}),
+		...(baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}),
+	};
+	const fullEvent: TeamEvent = {
+		time: new Date().toISOString(),
+		...event,
+		metadata,
+	};
+	if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
+		metadata = { ...metadata, fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent) };
+		fullEvent.metadata = metadata;
+	}
+	try {
+		if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
+			logInternalError("event-log.size-limit", new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes`), `eventsPath=${eventsPath}`);
+			return { ...fullEvent, metadata: { ...(fullEvent.metadata ?? { seq: 0, provenance: "team_runner" }), appended: false } };
 		}
-		try {
-			if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-				logInternalError("event-log.size-limit", new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes`), `eventsPath=${eventsPath}`);
-				return { ...fullEvent, metadata: { ...(fullEvent.metadata ?? { seq: 0, provenance: "team_runner" }), appended: false } };
-			}
-		} catch (error) {
-			logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
+	} catch (error) {
+		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
+	}
+	fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
+	appendCounter++;
+	if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+		try { compactEventLog(eventsPath); } catch (error) { logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`); }
+	}
+	try { emitFromTeamEvent(fullEvent); } catch (error) { logInternalError("event-log.emit", error); }
+	const seq = fullEvent.metadata?.seq ?? 0;
+	try {
+		const stat = fs.statSync(eventsPath);
+		if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
+			evictOldestSequenceCacheEntry();
 		}
-		fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
-		appendCounter++;
-		if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
-			try { compactEventLog(eventsPath); } catch (error) { logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`); }
+		sequenceCache.set(eventsPath, { size: stat.size, mtimeMs: stat.mtimeMs, seq });
+		persistSequence(eventsPath, seq);
+	} catch (error) {
+		logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
+	}
+	return fullEvent;
+}
+
+// 2.2 — Buffered append API. Caller queues events and they are flushed under
+// a single `withEventLogLockSync` acquire after `bufferingMs` ms. The seq
+// invariant is preserved because the flush still goes through
+// appendEventInsideLock sequentially.
+//
+// Caveat: events still in the buffer at process kill -9 are lost. Callers
+// for whom durability is critical (lifecycle terminal events) should keep
+// using `appendEvent`. Used opportunistically for high-frequency events
+// like `task.progress` once integration tests cover crash semantics.
+interface BufferedAppend {
+	event: AppendTeamEvent;
+	resolve: (event: TeamEvent) => void;
+	reject: (error: unknown) => void;
+}
+const bufferedQueues = new Map<string, BufferedAppend[]>();
+const bufferedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const DEFAULT_BUFFER_MS = 20;
+
+export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, bufferMs = DEFAULT_BUFFER_MS): Promise<TeamEvent> {
+	return new Promise<TeamEvent>((resolve, reject) => {
+		const queue = bufferedQueues.get(eventsPath) ?? [];
+		queue.push({ event, resolve, reject });
+		bufferedQueues.set(eventsPath, queue);
+		if (!bufferedTimers.has(eventsPath)) {
+			const timer = setTimeout(() => flushOneEventLogBuffer(eventsPath), bufferMs);
+			timer.unref();
+			bufferedTimers.set(eventsPath, timer);
 		}
-		// Emit to UI event bus for event-first delivery
-		try { emitFromTeamEvent(fullEvent); } catch (error) { logInternalError("event-log.emit", error); }
-		const seq = fullEvent.metadata?.seq ?? 0;
-		try {
-			const stat = fs.statSync(eventsPath);
-			if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
-				evictOldestSequenceCacheEntry();
-			}
-			sequenceCache.set(eventsPath, { size: stat.size, mtimeMs: stat.mtimeMs, seq });
-			persistSequence(eventsPath, seq);
-		} catch (error) {
-			logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
-		}
-		return fullEvent;
 	});
 }
+
+function flushOneEventLogBuffer(eventsPath: string): void {
+	const queue = bufferedQueues.get(eventsPath);
+	bufferedQueues.delete(eventsPath);
+	const timer = bufferedTimers.get(eventsPath);
+	if (timer) clearTimeout(timer);
+	bufferedTimers.delete(eventsPath);
+	if (!queue || queue.length === 0) return;
+	try {
+		withEventLogLockSync(eventsPath, () => {
+			for (const item of queue) {
+				try {
+					const ev = appendEventInsideLock(eventsPath, item.event);
+					item.resolve(ev);
+				} catch (error) {
+					item.reject(error);
+				}
+			}
+		});
+	} catch (error) {
+		// Lock acquire failed — fail every queued item so callers can fall back.
+		for (const item of queue) item.reject(error);
+	}
+}
+
+/** Synchronously flush every queued buffered event across all paths. */
+export function flushEventLogBuffer(): void {
+	for (const eventsPath of [...bufferedQueues.keys()]) flushOneEventLogBuffer(eventsPath);
+}
+
+// Auto-flush on process exit so buffered events do not silently leak.
+process.on("exit", () => flushEventLogBuffer());
+process.on("SIGTERM", () => flushEventLogBuffer());
+process.on("SIGINT", () => flushEventLogBuffer());
 
 export function readEvents(eventsPath: string): TeamEvent[] {
 	if (!fs.existsSync(eventsPath)) return [];
