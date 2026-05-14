@@ -8,6 +8,7 @@ import { listLiveAgents, evictStaleLiveAgentHandles, type LiveAgentHandle } from
 import { getTaskUsage } from "../runtime/usage-tracker.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import type { ManifestCache } from "../runtime/manifest-cache.ts";
+import { reconcileAllStaleRuns } from "../runtime/crash-recovery.ts";
 import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
 import { pad, truncate } from "../utils/visual.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
@@ -191,10 +192,20 @@ function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
 	}
 }
 
+/** Timestamp of the last periodic stale-reconciliation. Throttled to 60s to avoid excessive disk I/O. */
+let lastStaleReconcileAt = 0;
+const STALE_RECONCILE_INTERVAL_MS = 60_000;
+
 export function activeWidgetRuns(cwd: string, manifestCache?: ManifestCache, snapshotCache?: RunSnapshotCache, preloadedManifests?: TeamRunManifest[]): WidgetRun[] {
-	// Evict stale live-agent handles (terminal status, >10min old) to prevent memory leaks
-	// from crashed processes and old test sessions.
+	// Evict stale live-agent handles (terminal status >10min, or running >30min with no update)
 	evictStaleLiveAgentHandles();
+	// Periodic stale reconciliation: detect ghost runs on disk with dead PIDs
+	// and repair them to terminal status. Throttled to once per 60 seconds.
+	const now = Date.now();
+	if (now - lastStaleReconcileAt > STALE_RECONCILE_INTERVAL_MS && manifestCache) {
+		lastStaleReconcileAt = now;
+		try { reconcileAllStaleRuns(cwd, manifestCache); } catch { /* non-critical background maintenance */ }
+	}
 	const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
 	return runs
 		.map((run) => {
