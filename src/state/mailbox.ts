@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { TeamRunManifest } from "./types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { redactSecrets } from "../utils/redaction.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 
 export type MailboxDirection = "inbox" | "outbox";
@@ -186,7 +187,44 @@ function readMailboxFile(filePath: string, direction: MailboxDirection): Mailbox
 
 function safeReadMailboxFile(filePath: string, direction: MailboxDirection): MailboxMessage[] {
 	if (!fs.existsSync(filePath)) return [];
-	return readMailboxFile(filePath, direction);
+	const messages: MailboxMessage[] = readMailboxFile(filePath, direction);
+	// 3.3 — also include any rotated archive files alongside the live file.
+	// Archive naming: `<filename>.<isoTimestamp>.archive.jsonl`.
+	try {
+		const dir = path.dirname(filePath);
+		const base = path.basename(filePath);
+		for (const entry of fs.readdirSync(dir)) {
+			if (!entry.startsWith(`${base}.`) || !entry.endsWith(".archive.jsonl")) continue;
+			const archivePath = path.join(dir, entry);
+			messages.push(...readMailboxFile(archivePath, direction));
+		}
+	} catch {
+		// Directory missing — nothing to read.
+	}
+	return messages;
+}
+
+/**
+ * 3.3 — rotate a mailbox JSONL file when it grows past `thresholdBytes`.
+ * Renames it to `<file>.<timestamp>.archive.jsonl` and re-creates an empty
+ * primary file. Readers continue to see all messages because
+ * `safeReadMailboxFile` walks both the primary file and any archives.
+ */
+const MAILBOX_ARCHIVE_THRESHOLD_BYTES = 10 * 1024 * 1024;
+function rotateMailboxFileIfNeeded(filePath: string, thresholdBytes = MAILBOX_ARCHIVE_THRESHOLD_BYTES): boolean {
+	try {
+		if (!fs.existsSync(filePath)) return false;
+		const stat = fs.statSync(filePath);
+		if (stat.size < thresholdBytes) return false;
+		const ts = new Date().toISOString().replace(/[:.]/g, "-");
+		const archivePath = `${filePath}.${ts}.archive.jsonl`;
+		fs.renameSync(filePath, archivePath);
+		fs.writeFileSync(filePath, "", "utf-8");
+		return true;
+	} catch (error) {
+		logInternalError("mailbox.rotate", error, filePath);
+		return false;
+	}
 }
 
 export function readMailbox(manifest: TeamRunManifest, direction?: MailboxDirection, taskId?: string, kind?: MailboxMessageKind): MailboxMessage[] {
@@ -261,6 +299,9 @@ export function appendMailboxMessage(manifest: TeamRunManifest, message: Omit<Ma
 		replyContent: message.replyContent,
 	};
 	fs.appendFileSync(mailboxFile(manifest, complete.direction, complete.taskId), `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+	// 3.3 — rotate mailbox file if it has grown past 10 MB. Cheap stat
+	// check; rotates at most once per append.
+	rotateMailboxFileIfNeeded(mailboxFile(manifest, complete.direction, complete.taskId));
 	const delivery = readDeliveryState(manifest);
 	delivery.messages[complete.id] = complete.status;
 	delivery.updatedAt = createdAt;
