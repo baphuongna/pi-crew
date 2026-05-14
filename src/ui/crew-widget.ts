@@ -198,7 +198,11 @@ export function activeWidgetRuns(cwd: string, manifestCache?: ManifestCache, sna
 	return runs
 		.map((run) => {
 			try {
-				const snapshot = snapshotCache?.get(run.runId) ?? snapshotCache?.refreshIfStale(run.runId);
+				// 1.2: render path is read-only. Use cache.get() only; if miss
+				// the background preload loop will populate on the next tick.
+				// Fall back to manifest-only data so the widget still renders
+				// without blocking on disk.
+				const snapshot = snapshotCache?.get(run.runId);
 				return snapshot ? { run: snapshot.manifest, agents: snapshot.agents, snapshot } : { run, agents: agentsFor(run) };
 			} catch {
 				return { run, agents: agentsFor(run) };

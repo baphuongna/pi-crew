@@ -72,7 +72,9 @@ export function updatePiCrewPowerbar(events: EventBus, cwd: string, config?: Cre
 	const active = runs.map((run) => {
 		let snapshot: RunUiSnapshot | undefined;
 		try {
-			snapshot = snapshotCache?.get(run.runId) ?? snapshotCache?.refreshIfStale(run.runId);
+			// 1.2: render path is read-only. Use cache.get() only; the background
+			// preload loop in register.ts populates entries on its own cadence.
+			snapshot = snapshotCache?.get(run.runId);
 		} catch (error) {
 			logInternalError("powerbar.snapshot", error, run.runId);
 		}
