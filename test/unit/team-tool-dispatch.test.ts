@@ -197,8 +197,8 @@ test("handleTeamTool 'settings' returns settings list", async () => {
 		const out = await handleTeamTool({ action: "settings" }, { cwd });
 		assert.equal(out.isError, false);
 		const text = firstText(out);
-		assert.match(text, /pi-crew settings:/);
-		assert.match(text, /executeWorkers/);
+		assert.match(text, /pi-crew (effective )?settings:/);
+		assert.match(text, /Config file:/);
 		assert.equal(out.details.action, "settings");
 	} finally {
 		cleanupCwd(cwd);
