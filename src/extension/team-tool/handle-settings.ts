@@ -338,7 +338,7 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 		setNested(patch, key, value);
 
 		try {
-			const converted = configPatchFromConfig({ config: patch as Record<string, unknown> });
+			const converted = configPatchFromConfig(patch as Record<string, unknown>);
 			const saved = updateConfig(converted, { cwd: ctx.cwd, scope });
 			const reloadCheck = loadConfig(ctx.cwd);
 			const effectiveValue = getNested(reloadCheck.config as Record<string, unknown>, key);
