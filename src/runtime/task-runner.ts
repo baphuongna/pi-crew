@@ -368,6 +368,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	}
 
 	// --- Yield-based completion contract ---
+	// _yieldResult: preserved for future use — yield completion contract not yet wired to task.result
 	let _yieldResult: YieldResult | undefined;
 	const yieldEnabled = input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled;
 	if (yieldEnabled && collectedJsonEvents.length > 0) {
