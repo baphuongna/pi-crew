@@ -1,7 +1,0 @@
-{
-  "requiredGreenLevel": "none",
-  "observedGreenLevel": "none",
-  "satisfied": true,
-  "commands": [],
-  "notes": "child-process worker finished without reporting a verification failure."
-}

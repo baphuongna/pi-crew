@@ -1,1 +1,0 @@
-Implement pi-visual extension FULLY. Read SPEC.md at /home/bom/source/my_pi/docs/extensions/pi-visual/SPEC.md. Create /home/bom/source/my_pi/pi-visual/ with all files. Plan review overlay, diff review overlay, architecture view, task progress widget. TUI components. Commands: /visual plan, /visual diff, /visual architecture, /visual progress. Include unit tests.

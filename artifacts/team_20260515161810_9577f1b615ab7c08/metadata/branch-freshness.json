@@ -1,9 +1,0 @@
-{
-  "status": "unknown",
-  "mainRef": "main",
-  "ahead": 0,
-  "behind": 0,
-  "missingFixes": [],
-  "message": "Branch freshness could not be determined.",
-  "error": "Command failed: git rev-parse --is-inside-work-tree\nfatal: not a git repository (or any of the parent directories): .git\n"
-}

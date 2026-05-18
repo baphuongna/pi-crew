@@ -1,1 +1,0 @@
-Implement pi-lsp extension FULLY. Read SPEC.md at /home/bom/source/my_pi/docs/extensions/pi-lsp/SPEC.md. Create /home/bom/source/my_pi/pi-lsp/ with all files. LSP client with JSON-RPC over stdio, go-to-def, find-refs, rename, diagnostics, code-actions, formatting. Client pooling, syncContent, auto-diagnostics hook. Include unit tests.

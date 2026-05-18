@@ -1,9 +1,0 @@
-{
-  "status": "fresh",
-  "branch": "main",
-  "mainRef": "main",
-  "ahead": 0,
-  "behind": 0,
-  "missingFixes": [],
-  "message": "Branch 'main' is fresh against main."
-}

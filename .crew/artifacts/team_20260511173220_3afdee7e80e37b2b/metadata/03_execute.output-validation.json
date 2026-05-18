@@ -1,8 +1,0 @@
-{
-  "valid": false,
-  "formatMatch": false,
-  "structurePreserved": true,
-  "issues": [
-    "Output does not match expected executor contract format"
-  ]
-}

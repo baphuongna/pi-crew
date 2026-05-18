@@ -1,1 +1,0 @@
-Implement pi-memory extension FULLY per SPEC.md. Read /home/bom/source/my_pi/docs/extensions/pi-memory/SPEC.md, study pi-crew pattern at /home/bom/source/my_pi/pi-crew/index.ts and /home/bom/source/my_pi/pi-crew/src/extension/register.ts. Create all files under /home/bom/source/my_pi/pi-memory/. Include unit tests. Must complete all files.

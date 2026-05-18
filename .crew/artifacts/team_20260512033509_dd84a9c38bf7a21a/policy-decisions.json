@@ -1,8 +1,0 @@
-[
-  {
-    "action": "closeout",
-    "reason": "run_complete",
-    "message": "All tasks completed and no policy blockers were found.",
-    "createdAt": "2026-05-12T04:05:55.910Z"
-  }
-]

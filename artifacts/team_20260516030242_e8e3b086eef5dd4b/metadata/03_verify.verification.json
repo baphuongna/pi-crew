@@ -1,7 +1,0 @@
-{
-  "requiredGreenLevel": "targeted",
-  "observedGreenLevel": "targeted",
-  "satisfied": true,
-  "commands": [],
-  "notes": "Safe scaffold mode; verification commands were not executed."
-}

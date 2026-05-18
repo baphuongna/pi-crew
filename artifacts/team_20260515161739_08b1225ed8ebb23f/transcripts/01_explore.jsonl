@@ -1,2 +1,0 @@
-{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Mock JSON success for explorer"}]}}
-{"type":"message_end","usage":{"input":10,"output":5,"cost":0.001,"turns":1}}
