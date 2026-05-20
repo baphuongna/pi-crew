@@ -932,7 +932,10 @@ Task `01_explore` hoàn thành thành công, nhưng run bị cancelled trước 
 
 
 | 11 | Background runner "spawn pi ENOENT" — pi binary not in PATH | 🔴 HIGH | ✅ Fixed — added resolvePiCliScript() call for non-Windows platforms in getPiSpawnCommand(). Restart Pi to verify. | Code |
-| 12 | Essential env vars (PATH) stripped - child Pi crashes with npm root -g error | HIGH | Fixed - added essential env vars (PATH, HOME, USER, etc.) to allow-list alongside model API keys. Restart Pi to verify. | Code |### Priority fix order
+| 12 | Essential env vars (PATH) stripped - child Pi crashes with npm root -g error | HIGH | ✅ Fixed — added essential env vars (PATH, HOME, USER, etc.) to allow-list alongside model API keys. Restart Pi to verify. | Code |
+| 15 | Background runner receives SIGTERM ~3s after spawn from Pi infrastructure | 🟠 MEDIUM | ✅ Fixed — disabled async mode by default + ignore SIGTERM from Pi in background-runner | Runtime |
+
+### Priority fix order
 
 1. **Bug #1** — ✅ Fixed — 429 now retried with model fallback chain
 2. **Bug #2** — ✅ Fixed — removed fast-fail 429
@@ -948,3 +951,4 @@ Task `01_explore` hoàn thành thành công, nhưng run bị cancelled trước 
 12. **Bug #12** — ✅ Fixed — Essential env vars (PATH, HOME, USER, etc.) added to allow-list alongside model API keys
 13. **Bug #13** — 🟠 MEDIUM — ✅ Fixed — Background runner dies after ~59s. 3-layer fix: (1) heartbeat mechanism prevents false repairs; (2) --max-old-space-size=512 limits V8 heap to prevent OOM; (3) SIGTERM/SIGINT handlers log async.failed event for diagnosis. Heartbeat includes memory stats (heapUsedMb, rssMb) for post-mortem.
 14. **Bug #14** — 🔴 HIGH — ✅ Fixed — Infinite retry loop: needs_attention tasks had `queue: "blocked"` in task graph instead of `queue: "done"`, causing them to be re-scheduled indefinitely. Added `needs_attention` to the terminal status check in `withQueue()` in task-graph-scheduler.ts.
+15. **Bug #15** — 🟠 MEDIUM — ✅ Fixed — Disabled async mode by default (runAsync=false). Background runners receive SIGTERM ~3s after spawn from Pi infrastructure because Node.js 22.22.0 setsid:true doesn't create a new session. Also added ignore-SIGTERM-from-Pi logic in background-runner.ts (A2 approach).

@@ -129,8 +129,66 @@ async function main(): Promise<void> {
 			if (loaded) appendEvent(loaded.manifest.eventsPath, { type: "async.failed", runId, message: `Background runner received ${sig} — exiting.`, data: { signal: sig, pid: process.pid } });
 		}
 	};
-	process.on("SIGTERM", () => { signalLog("SIGTERM"); process.exit(143); });
+	process.on("SIGTERM", () => {
+		// Capture caller identity via /proc/$ppid — Linux-specific
+		let callerInfo = "unknown";
+		let isPiProcess = false;
+		try {
+			const ppid = process.ppid;
+			callerInfo = `ppid=${ppid}`;
+			const cmdlinePath = `/proc/${ppid}/cmdline`;
+			const statPath = `/proc/${ppid}/stat`;
+			try {
+				const cmdline = require("node:fs").readFileSync(cmdlinePath, "utf8").replace(/\0/g, " ").trim();
+				const stat = require("node:fs").readFileSync(statPath, "utf8");
+				const statParts = stat.split(" ");
+				const ppidOfPpid = statParts[3];
+				callerInfo += ` cmdline="${cmdline.slice(0, 120)}" ppid_of_ppid=${ppidOfPpid}`;
+				// Check if sender is Pi process (infrastructure cleanup signal)
+				isPiProcess = cmdline.includes("pi") && ppidOfPpid !== "1";
+			} catch { /* best-effort */ }
+		} catch { /* best-effort */ }
+		// A2: Ignore SIGTERM from Pi infrastructure — Pi sends SIGTERM to cleanup
+		// children when tool call returns, but this is NOT a real error condition
+		// if the background runner is still doing useful work.
+		if (isPiProcess) {
+			const cwd = argValue("--cwd");
+			const runId = argValue("--run-id");
+			if (cwd && runId) {
+				const loaded = loadRunManifestById(cwd, runId);
+				if (loaded) appendEvent(loaded.manifest.eventsPath, { type: "async.sigterm_ignored", runId, message: `Background runner ignored SIGTERM from Pi infrastructure (${callerInfo}) — continuing work.`, data: { signal: "SIGTERM", pid: process.pid, ppid: process.ppid, callerInfo } });
+			}
+			return; // Don't exit — let the run complete
+		}
+		const cwd = argValue("--cwd");
+		const runId = argValue("--run-id");
+		if (cwd && runId) {
+			const loaded = loadRunManifestById(cwd, runId);
+			if (loaded) appendEvent(loaded.manifest.eventsPath, { type: "async.failed", runId, message: `Background runner received SIGTERM from ${callerInfo} — exiting.`, data: { signal: "SIGTERM", pid: process.pid, ppid: process.ppid, callerInfo } });
+		}
+		process.exit(143);
+	});
 	process.on("SIGINT", () => { signalLog("SIGINT"); process.exit(130); });
+	// Hook Node.js abort — if process.exit is called with code 1 (uncaught exception, assert failure)
+	// we log it before exiting so it appears in background.log
+	const origExit = process.exit.bind(process);
+	// Intercept all exit(code) calls to log them as async.exit events before exiting.
+	// This surfaces uncaught exceptions / early exits that would otherwise vanish silently.
+	process.exit = ((code?: number | string): never => {
+		if (code !== undefined) {
+			const cwd2 = argValue("--cwd");
+			const runId2 = argValue("--run-id");
+			if (cwd2 && runId2) {
+				try {
+					const loaded = loadRunManifestById(cwd2, runId2);
+					if (loaded) {
+						appendEvent(loaded.manifest.eventsPath, { type: "async.exit", runId: runId2, message: `Background runner exit(${code})`, data: { code, pid: process.pid } });
+					}
+				} catch { /* best-effort */ }
+			}
+		}
+		return origExit(code);
+	}) as typeof process.exit;
 
 	// Start parent guard FIRST — if parent is already dead, exit immediately
 	const parentPid = Number(process.env.PI_CREW_PARENT_PID);

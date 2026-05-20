@@ -133,13 +133,16 @@ export function buildBackgroundSpawnOptions(manifest: TeamRunManifest, logFd: nu
 	// Child workers spawned BY the background runner will have the background
 	// runner as their parent, so they correctly die when the runner exits.
 	const { PI_CREW_PARENT_PID: _, ...envWithoutParentPid } = process.env;
+	// setsid creates a new session so the background runner is immune to terminal/SIGTERM.
+	// It is not in the Node.js 22.22.0 @types/node SpawnOptions; cast via unknown.
 	return {
 		cwd: manifest.cwd,
 		detached: true,
+		setsid: true,
 		stdio: ["ignore", logFd, logFd],
 		env: envWithoutParentPid,
 		windowsHide: true,
-	};
+	} as unknown as SpawnOptions;
 }
 
 export function spawnBackgroundTeamRun(manifest: TeamRunManifest): SpawnBackgroundTeamRunResult {
@@ -158,7 +161,6 @@ export function spawnBackgroundTeamRun(manifest: TeamRunManifest): SpawnBackgrou
 		fs.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}\n`, "utf-8");
 		const child = spawn(process.execPath, command.args, buildBackgroundSpawnOptions(manifest, logFd));
 		child.unref();
-
 		return { pid: child.pid, logPath };
 	} finally {
 		fs.closeSync(logFd);

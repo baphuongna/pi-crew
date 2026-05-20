@@ -132,7 +132,13 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const executionManifest = { ...updatedManifest, runtimeResolution, runConfig: executedConfig, updatedAt: new Date().toISOString() };
 	atomicWriteJson(paths.manifestPath, executionManifest);
 	appendEvent(executionManifest.eventsPath, { type: "runtime.resolved", runId: executionManifest.runId, message: `Runtime resolved: ${runtime.kind} safety=${runtime.safety}`, data: { runtimeResolution } });
-	const runAsync = params.async ?? loadedConfig.config.asyncByDefault ?? false;
+	// Background runners are disabled by default because Pi infrastructure sends SIGTERM to
+	// async children ~3s after spawn (Bug #15). Set to true to enable background runs.
+	// const runAsync = params.async ?? loadedConfig.config.asyncByDefault ?? false;
+	const runAsync = false; // TEMP: always false until SIGTERM issue is fixed
+
+	// NOTE: The runAsync-dependent blocks below (runtime override, async spawn) are kept
+	// for when background mode is re-enabled. They are currently dead code since runAsync=false.
 	// Background runners are standalone Node processes — live-session (in-process Pi SDK)
 	// is only valid when tasks run inside the parent Pi agent session. Override to
 	// child-process for async runs so the background runner spawns child Pi workers.
