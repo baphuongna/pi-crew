@@ -9,6 +9,7 @@ import { validateWorkflowForTeam } from "../../src/workflows/validate-workflow.t
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readEvents } from "../../src/state/event-log.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];
@@ -47,6 +48,7 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 		const batchEvents = events.filter((event) => event.type === "task.progress" && typeof event.message === "string" && event.message.includes("Starting ready batch"));
 		assert.ok(batchEvents.some((event) => (event.data as { selectedCount?: number } | undefined)?.selectedCount === 3), "expected planner-selected phase with 3 concurrent specialist tasks");
 	} finally {
+		unregisterActiveRun(runId!);
 		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		fs.rmSync(cwd, { recursive: true, force: true });

@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
+import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 
 
 test("child-process runs maintain per-agent status, events, and output files", async () => {
@@ -13,11 +14,12 @@ test("child-process runs maintain per-agent status, events, and output files", a
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-files-"));
+	let runId: string | undefined;
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "exercise per-agent files" }, { cwd });
 		assert.equal(run.isError, false);
-		const runId = run.details.runId!;
+		runId = run.details.runId!;
 		const status = await handleTeamTool({ action: "status", runId }, { cwd });
 		assert.match(firstText(status), /status=.*status\.json/);
 
@@ -43,6 +45,8 @@ test("child-process runs maintain per-agent status, events, and output files", a
 		assert.match(firstText(transcriptApi), /Mock JSON success/);
 		assert.equal(path.basename(path.dirname(first.statusPath)), first.taskId);
 	} finally {
+		// Clean up active-run-registry BEFORE deleting temp directory
+		if (runId) unregisterActiveRun(runId);
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
@@ -50,4 +54,3 @@ test("child-process runs maintain per-agent status, events, and output files", a
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
-

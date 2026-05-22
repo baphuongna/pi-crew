@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 function restore(name: string, value: string | undefined): void {
@@ -34,6 +35,7 @@ test("queued dependency tasks are shown as waiting tasks, not materialized agent
 		const loadedAfter = loadRunManifestById(cwd, runId)!;
 		assert.equal(readCrewAgents(loadedAfter.manifest).length, 3);
 	} finally {
+		unregisterActiveRun(runId);
 		restore("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		restore("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		fs.rmSync(cwd, { recursive: true, force: true });
