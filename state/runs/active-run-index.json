@@ -1,23 +1,156 @@
 [
   {
-    "runId": "team_20260522054127_a2890a5a61bd3f89",
-    "cwd": "/tmp/pi-crew-agent-files-lrlwz7",
-    "stateRoot": "/tmp/pi-crew-agent-files-lrlwz7/.crew/state/runs/team_20260522054127_a2890a5a61bd3f89",
-    "manifestPath": "/tmp/pi-crew-agent-files-lrlwz7/.crew/state/runs/team_20260522054127_a2890a5a61bd3f89/manifest.json",
-    "updatedAt": "2026-05-22T05:41:27.938Z"
+    "runId": "team_20260522061208_e04f200ed28e0e34",
+    "cwd": "/tmp/pi-crew-agent-files-n9EpQq",
+    "stateRoot": "/tmp/pi-crew-agent-files-n9EpQq/.crew/state/runs/team_20260522061208_e04f200ed28e0e34",
+    "manifestPath": "/tmp/pi-crew-agent-files-n9EpQq/.crew/state/runs/team_20260522061208_e04f200ed28e0e34/manifest.json",
+    "updatedAt": "2026-05-22T06:12:08.235Z"
   },
   {
-    "runId": "team_20260522052046_0f7631d98e86d72e",
-    "cwd": "/tmp/pi-crew-lazy-agents-nOwtlV",
-    "stateRoot": "/tmp/pi-crew-lazy-agents-nOwtlV/.crew/state/runs/team_20260522052046_0f7631d98e86d72e",
-    "manifestPath": "/tmp/pi-crew-lazy-agents-nOwtlV/.crew/state/runs/team_20260522052046_0f7631d98e86d72e/manifest.json",
-    "updatedAt": "2026-05-22T05:20:46.882Z"
+    "runId": "team_20260522061138_f428aa1a83c6d6bc",
+    "cwd": "/tmp/pi-crew-export-test-PWIY51",
+    "stateRoot": "/tmp/pi-crew-export-test-PWIY51/.crew/state/runs/team_20260522061138_f428aa1a83c6d6bc",
+    "manifestPath": "/tmp/pi-crew-export-test-PWIY51/.crew/state/runs/team_20260522061138_f428aa1a83c6d6bc/manifest.json",
+    "updatedAt": "2026-05-22T06:11:38.975Z"
   },
   {
-    "runId": "team_20260522052021_b8df83203d40e769",
-    "cwd": "/tmp/pi-crew-agent-files-q1eofd",
-    "stateRoot": "/tmp/pi-crew-agent-files-q1eofd/.crew/state/runs/team_20260522052021_b8df83203d40e769",
-    "manifestPath": "/tmp/pi-crew-agent-files-q1eofd/.crew/state/runs/team_20260522052021_b8df83203d40e769/manifest.json",
-    "updatedAt": "2026-05-22T05:20:21.747Z"
+    "runId": "team_20260522061047_14833a31fc14f22d",
+    "cwd": "/tmp/pi-crew-agent-files-gWoniK",
+    "stateRoot": "/tmp/pi-crew-agent-files-gWoniK/.crew/state/runs/team_20260522061047_14833a31fc14f22d",
+    "manifestPath": "/tmp/pi-crew-agent-files-gWoniK/.crew/state/runs/team_20260522061047_14833a31fc14f22d/manifest.json",
+    "updatedAt": "2026-05-22T06:10:47.257Z"
+  },
+  {
+    "runId": "team_20260522061007_a2c6021bbf0ee252",
+    "cwd": "/tmp/pi-crew-agent-files-tofxFt",
+    "stateRoot": "/tmp/pi-crew-agent-files-tofxFt/.crew/state/runs/team_20260522061007_a2c6021bbf0ee252",
+    "manifestPath": "/tmp/pi-crew-agent-files-tofxFt/.crew/state/runs/team_20260522061007_a2c6021bbf0ee252/manifest.json",
+    "updatedAt": "2026-05-22T06:10:07.190Z"
+  },
+  {
+    "runId": "team_20260522060612_bb172f0a06142d4a",
+    "cwd": "/tmp/pi-crew-agent-files-Tj6wDB",
+    "stateRoot": "/tmp/pi-crew-agent-files-Tj6wDB/.crew/state/runs/team_20260522060612_bb172f0a06142d4a",
+    "manifestPath": "/tmp/pi-crew-agent-files-Tj6wDB/.crew/state/runs/team_20260522060612_bb172f0a06142d4a/manifest.json",
+    "updatedAt": "2026-05-22T06:06:12.500Z"
+  },
+  {
+    "runId": "team_20260522060537_57030e06ec50cf3a",
+    "cwd": "/tmp/pi-crew-agent-files-obthUq",
+    "stateRoot": "/tmp/pi-crew-agent-files-obthUq/.crew/state/runs/team_20260522060537_57030e06ec50cf3a",
+    "manifestPath": "/tmp/pi-crew-agent-files-obthUq/.crew/state/runs/team_20260522060537_57030e06ec50cf3a/manifest.json",
+    "updatedAt": "2026-05-22T06:05:37.169Z"
+  },
+  {
+    "runId": "team_20260522060112_f73ec1e07b3a8d17",
+    "cwd": "/tmp/pi-crew-agent-files-igYyNr",
+    "stateRoot": "/tmp/pi-crew-agent-files-igYyNr/.crew/state/runs/team_20260522060112_f73ec1e07b3a8d17",
+    "manifestPath": "/tmp/pi-crew-agent-files-igYyNr/.crew/state/runs/team_20260522060112_f73ec1e07b3a8d17/manifest.json",
+    "updatedAt": "2026-05-22T06:01:12.067Z"
+  },
+  {
+    "runId": "team_20260522055802_0e60b3a9da69c7a5",
+    "cwd": "/tmp/pi-crew-agent-files-8msdSE",
+    "stateRoot": "/tmp/pi-crew-agent-files-8msdSE/.crew/state/runs/team_20260522055802_0e60b3a9da69c7a5",
+    "manifestPath": "/tmp/pi-crew-agent-files-8msdSE/.crew/state/runs/team_20260522055802_0e60b3a9da69c7a5/manifest.json",
+    "updatedAt": "2026-05-22T05:58:02.291Z"
+  },
+  {
+    "runId": "team_20260522055750_a0b92097933c31f3",
+    "cwd": "/tmp/pi-crew-mailbox-IEihIW",
+    "stateRoot": "/tmp/pi-crew-mailbox-IEihIW/.crew/state/runs/team_20260522055750_a0b92097933c31f3",
+    "manifestPath": "/tmp/pi-crew-mailbox-IEihIW/.crew/state/runs/team_20260522055750_a0b92097933c31f3/manifest.json",
+    "updatedAt": "2026-05-22T05:57:50.699Z"
+  },
+  {
+    "runId": "team_20260522055742_21118416290b945c",
+    "cwd": "/tmp/pi-crew-lazy-agents-v9cuXJ",
+    "stateRoot": "/tmp/pi-crew-lazy-agents-v9cuXJ/.crew/state/runs/team_20260522055742_21118416290b945c",
+    "manifestPath": "/tmp/pi-crew-lazy-agents-v9cuXJ/.crew/state/runs/team_20260522055742_21118416290b945c/manifest.json",
+    "updatedAt": "2026-05-22T05:57:42.152Z"
+  },
+  {
+    "runId": "team_20260522055656_d0daabe64be73cca",
+    "cwd": "/tmp/pi-crew-agent-files-Bpa9xP",
+    "stateRoot": "/tmp/pi-crew-agent-files-Bpa9xP/.crew/state/runs/team_20260522055656_d0daabe64be73cca",
+    "manifestPath": "/tmp/pi-crew-agent-files-Bpa9xP/.crew/state/runs/team_20260522055656_d0daabe64be73cca/manifest.json",
+    "updatedAt": "2026-05-22T05:56:56.468Z"
+  },
+  {
+    "runId": "team_20260522055629_68c03f9d1e4925d0",
+    "cwd": "/tmp/pi-crew-lazy-agents-e6XOV9",
+    "stateRoot": "/tmp/pi-crew-lazy-agents-e6XOV9/.crew/state/runs/team_20260522055629_68c03f9d1e4925d0",
+    "manifestPath": "/tmp/pi-crew-lazy-agents-e6XOV9/.crew/state/runs/team_20260522055629_68c03f9d1e4925d0/manifest.json",
+    "updatedAt": "2026-05-22T05:56:29.490Z"
+  },
+  {
+    "runId": "team_20260522055550_dac64f292947b589",
+    "cwd": "/tmp/pi-crew-agent-files-Tp0rq3",
+    "stateRoot": "/tmp/pi-crew-agent-files-Tp0rq3/.crew/state/runs/team_20260522055550_dac64f292947b589",
+    "manifestPath": "/tmp/pi-crew-agent-files-Tp0rq3/.crew/state/runs/team_20260522055550_dac64f292947b589/manifest.json",
+    "updatedAt": "2026-05-22T05:55:50.871Z"
+  },
+  {
+    "runId": "team_20260522055515_93b7d9b533e008c5",
+    "cwd": "/tmp/pi-crew-agent-files-AbLkDA",
+    "stateRoot": "/tmp/pi-crew-agent-files-AbLkDA/.crew/state/runs/team_20260522055515_93b7d9b533e008c5",
+    "manifestPath": "/tmp/pi-crew-agent-files-AbLkDA/.crew/state/runs/team_20260522055515_93b7d9b533e008c5/manifest.json",
+    "updatedAt": "2026-05-22T05:55:15.995Z"
+  },
+  {
+    "runId": "team_20260522055305_58dcbc32225fe1df",
+    "cwd": "/tmp/pi-crew-gap-prompt-CPDqBI",
+    "stateRoot": "/tmp/pi-crew-gap-prompt-CPDqBI/.crew/state/runs/team_20260522055305_58dcbc32225fe1df",
+    "manifestPath": "/tmp/pi-crew-gap-prompt-CPDqBI/.crew/state/runs/team_20260522055305_58dcbc32225fe1df/manifest.json",
+    "updatedAt": "2026-05-22T05:53:05.526Z"
+  },
+  {
+    "runId": "team_20260522055253_0d06378adfb8d55f",
+    "cwd": "/tmp/pi-crew-agent-files-nbH8D6",
+    "stateRoot": "/tmp/pi-crew-agent-files-nbH8D6/.crew/state/runs/team_20260522055253_0d06378adfb8d55f",
+    "manifestPath": "/tmp/pi-crew-agent-files-nbH8D6/.crew/state/runs/team_20260522055253_0d06378adfb8d55f/manifest.json",
+    "updatedAt": "2026-05-22T05:52:53.634Z"
+  },
+  {
+    "runId": "team_20260522055247_999db73ea322a804",
+    "cwd": "/tmp/pi-crew-agent-files-V2s56b",
+    "stateRoot": "/tmp/pi-crew-agent-files-V2s56b/.crew/state/runs/team_20260522055247_999db73ea322a804",
+    "manifestPath": "/tmp/pi-crew-agent-files-V2s56b/.crew/state/runs/team_20260522055247_999db73ea322a804/manifest.json",
+    "updatedAt": "2026-05-22T05:52:47.898Z"
+  },
+  {
+    "runId": "team_20260522055247_f9deb001ed4fe4d6",
+    "cwd": "/tmp/pi-crew-api-claim-gKoqaH",
+    "stateRoot": "/tmp/pi-crew-api-claim-gKoqaH/.crew/state/runs/team_20260522055247_f9deb001ed4fe4d6",
+    "manifestPath": "/tmp/pi-crew-api-claim-gKoqaH/.crew/state/runs/team_20260522055247_f9deb001ed4fe4d6/manifest.json",
+    "updatedAt": "2026-05-22T05:52:47.819Z"
+  },
+  {
+    "runId": "team_20260522055238_431438592e00ca29",
+    "cwd": "/tmp/pi-crew-direct-agent-test-pcZsYm",
+    "stateRoot": "/tmp/pi-crew-direct-agent-test-pcZsYm/.crew/state/runs/team_20260522055238_431438592e00ca29",
+    "manifestPath": "/tmp/pi-crew-direct-agent-test-pcZsYm/.crew/state/runs/team_20260522055238_431438592e00ca29/manifest.json",
+    "updatedAt": "2026-05-22T05:52:38.970Z"
+  },
+  {
+    "runId": "team_20260522055226_3e634be3401ac105",
+    "cwd": "/tmp/pi-crew-agent-files-iaZJ7j",
+    "stateRoot": "/tmp/pi-crew-agent-files-iaZJ7j/.crew/state/runs/team_20260522055226_3e634be3401ac105",
+    "manifestPath": "/tmp/pi-crew-agent-files-iaZJ7j/.crew/state/runs/team_20260522055226_3e634be3401ac105/manifest.json",
+    "updatedAt": "2026-05-22T05:52:26.551Z"
+  },
+  {
+    "runId": "team_20260522055221_716cca58a5192143",
+    "cwd": "/tmp/pi-crew-invalid-adaptive-KsaT4u",
+    "stateRoot": "/tmp/pi-crew-invalid-adaptive-KsaT4u/.crew/state/runs/team_20260522055221_716cca58a5192143",
+    "manifestPath": "/tmp/pi-crew-invalid-adaptive-KsaT4u/.crew/state/runs/team_20260522055221_716cca58a5192143/manifest.json",
+    "updatedAt": "2026-05-22T05:52:21.439Z"
+  },
+  {
+    "runId": "team_20260522055050_621dfd3f6900b062",
+    "cwd": "/tmp/pi-crew-invalid-adaptive-pKJxTq",
+    "stateRoot": "/tmp/pi-crew-invalid-adaptive-pKJxTq/.crew/state/runs/team_20260522055050_621dfd3f6900b062",
+    "manifestPath": "/tmp/pi-crew-invalid-adaptive-pKJxTq/.crew/state/runs/team_20260522055050_621dfd3f6900b062/manifest.json",
+    "updatedAt": "2026-05-22T05:50:50.005Z"
   }
 ]
