@@ -222,9 +222,16 @@ export async function runIterationHook(
 			});
 		});
 
-		// Write payload to stdin and close it
-		child.stdin.write(stdinJson, "utf-8");
-		child.stdin.end();
+		// Write payload to stdin and close it.
+		// Handle EPIPE errors gracefully (occurs if the hook script exits before
+		// reading all of stdin, which is normal for some hook scripts on certain OS).
+		child.stdin.on("error", () => { /* ignore EPIPE — hook exited early */ });
+		try {
+			child.stdin.write(stdinJson, "utf-8");
+			child.stdin.end();
+		} catch {
+			// ignore
+		}
 	});
 }
 
