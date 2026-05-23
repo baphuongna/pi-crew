@@ -77,15 +77,18 @@ function normalizeSyntheticPath(worktreePath: string, rawPath: string): string {
  * @param hookPath - The hook script path to validate
  * @returns true if the path is allowed, false otherwise
  */
-function isAllowedSetupHook(hookPath: string): boolean {
-	if (!hookPath || hookPath.trim().length === 0) return false;
-	if (!path.isAbsolute(hookPath)) {
-		const normalized = path.normalize(hookPath);
-		return normalized === ".hooks" || normalized.startsWith(".hooks/");
+	function isAllowedSetupHook(hookPath: string): boolean {
+		if (!hookPath || hookPath.trim().length === 0) return false;
+		if (!path.isAbsolute(hookPath)) {
+			// Use path.posix.normalize for consistent forward-slash handling on all platforms.
+			const normalized = path.posix.normalize(hookPath);
+			return normalized === ".hooks" || normalized.startsWith(".hooks/");
+		}
+		// Normalize to forward slashes for consistent cross-platform comparison.
+		const normalizedHookPath = hookPath.replace(/\\/g, "/");
+		const homeHooksNormalized = (process.env.HOME ?? "").replace(/\\/g, "/") + "/.pi/hooks";
+		return normalizedHookPath === homeHooksNormalized || normalizedHookPath.startsWith(homeHooksNormalized + "/");
 	}
-	const homeHooks = path.join(process.env.HOME ?? "", "", ".pi", "hooks");
-	return hookPath === homeHooks || hookPath.startsWith(homeHooks + path.sep);
-}
 
 function runSetupHook(manifest: TeamRunManifest, task: TeamTaskState, repoRoot: string, worktreePath: string, branch: string): string[] {
 	const cfg = loadConfig(manifest.cwd).config.worktree;
@@ -101,15 +104,18 @@ function runSetupHook(manifest: TeamRunManifest, task: TeamTaskState, repoRoot: 
 		return [];
 	}
 	const nodeHook = hookPath.endsWith(".js") || hookPath.endsWith(".cjs") || hookPath.endsWith(".mjs");
+	// On Windows, set shell:true to ensure PATH resolution and .cjs/.bat file associations work.
+	const useShell = process.platform === "win32";
 	const result = spawnSync(nodeHook ? process.execPath : hookPath, nodeHook ? [hookPath] : [], {
 		cwd: worktreePath,
 		encoding: "utf-8",
 		input: JSON.stringify({ version: 1, repoRoot, worktreePath, agentCwd: worktreePath, branch, runId: manifest.runId, taskId: task.id, agent: task.agent }),
 		timeout: cfg.setupHookTimeoutMs ?? 30_000,
-		shell: false,
+		shell: useShell,
 		env: sanitizeEnvSecrets(process.env, {
 			allowList: ["PATH", "HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PI_*"],
 		}),
+		windowsHide: true,
 	});
 	if (result.error) throw new Error(`worktree setup hook failed: ${result.error.message}`);
 	if (result.status !== 0) throw new Error(`worktree setup hook failed with exit code ${result.status}: ${result.stderr || result.stdout || "no output"}`);
