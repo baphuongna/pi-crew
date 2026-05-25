@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.8] — Zombie Run Auto-Repair & Test Stability (2026-05-25)
+
+### Features
+- **Periodic auto-repair timer** — `autoRepairIntervalMs` in `CrewReliabilityConfig` (default 60s, 0 to disable) calls `reconcileAllStaleRuns` via `configureObservability`. Timer uses `.unref()` to avoid blocking Node exit; cleaned up on session shutdown.
+
+### Bug Fixes
+- **No-PID zombie run repair** — Runs without async PID (e.g. live-session /tmp workspaces) previously waited 24h for repair. Now `stale-reconciler` checks if ALL running tasks have heartbeats stale >5min (`NO_PID_HEARTBEAT_STALE_MS`) and repairs immediately.
+- **Orphaned /tmp workspace cleanup** — `reconcileOrphanedTempWorkspaces()` scans `/tmp/pi-crew-*` for stale `running` manifests and auto-cancels them. Runs every 5min alongside per-CWD reconciliation.
+- **Live-session test hang at depth > 0** — `runtime-policy.ts` now skips child-process override when `PI_CREW_MOCK_LIVE_SESSION='success'`, preventing tests from spawning real pi processes that hung indefinitely.
+
+### Tests
+- New `test/unit/auto-repair-timer.test.ts` (5 test cases for zombie reconciliation).
+- New `test/fixtures/test-tempdir.ts` — tracks temp dirs with `test.after()` cleanup.
+- Updated `live-session-context.test.ts` and `live-session-runtime.test.ts` to use tracked temp dirs and `PI_CREW_DEPTH=0`.
+- Updated `stale-reconciler.test.ts` for new reconciliation paths.
+
 ## [0.3.0] — Phase 3a+3b: Discovery Cache, Dynamic Agent Registry, Rich TUI Rendering (2026-05-23)
 
 ### Phase 3a: Agent Discovery Cache
