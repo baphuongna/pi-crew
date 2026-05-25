@@ -452,7 +452,14 @@ export async function handleResume(
 			{ action: "resume", status: "error" },
 			true,
 		);
-	const loaded = loadRunManifestById(ctx.cwd, params.runId);
+	const runCwd = locateRunCwd(params.runId, ctx.cwd);
+	if (!runCwd)
+		return result(
+			`Run '${params.runId}' not found.`,
+			{ action: "resume", status: "error" },
+			true,
+		);
+	const loaded = loadRunManifestById(runCwd, params.runId);
 	if (!loaded)
 		return result(
 			`Run '${params.runId}' not found.`,
@@ -668,7 +675,14 @@ export function handleSteer(
 			true,
 		);
 	}
-	const loaded = loadRunManifestById(ctx.cwd, runId);
+	const runCwd = locateRunCwd(runId, ctx.cwd);
+	if (!runCwd)
+		return result(
+			`Run '${runId}' not found`,
+			{ action: "steer", status: "error" },
+			true,
+		);
+	const loaded = loadRunManifestById(runCwd, runId);
 	if (!loaded)
 		return result(
 			`Run '${runId}' not found`,
@@ -715,6 +729,13 @@ function handleInvalidate(
 			{ action: "invalidate", status: "error" },
 			true,
 		);
+	const runCwd = locateRunCwd(runId, ctx.cwd);
+	if (!runCwd)
+		return result(
+			`Run '${runId}' not found.`,
+			{ action: "invalidate", status: "error" },
+			true,
+		);
 	const deps = cacheControlDepsFromContext(ctx);
 	if (!deps)
 		return result(
@@ -722,7 +743,7 @@ function handleInvalidate(
 			{ action: "invalidate", status: "error" },
 			true,
 		);
-	invalidateSnapshot(runId, ctx.cwd, deps);
+	invalidateSnapshot(runId, runCwd, deps);
 	return result(`Cache invalidated for run ${runId}.`, {
 		action: "invalidate",
 		status: "ok",
@@ -734,7 +755,7 @@ function handleInvalidate(
  * Locate the CWD where a run's state is stored.
  * Tries ctx.cwd first, then scans immediate child directories for .crew/state/runs/<runId>.
  */
-function locateRunCwd(runId: string, baseCwd: string): string | undefined {
+export function locateRunCwd(runId: string, baseCwd: string): string | undefined {
 	// Fast path: run is in the current CWD
 	if (loadRunManifestById(baseCwd, runId)) return baseCwd;
 
