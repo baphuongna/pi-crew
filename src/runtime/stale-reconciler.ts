@@ -5,6 +5,9 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { checkProcessLiveness } from "./process-status.ts";
 
+/** Age threshold for orphaned temp directory cleanup: 1 hour. */
+const ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1000;
+
 /**
  * Result of reconciling a single stale run.
  */
@@ -347,16 +350,34 @@ export function reconcileStaleRun(
 }
 
 /**
+ * Result of orphaned temp workspace reconciliation.
+ */
+export interface OrphanReconcileResult {
+	/** Number of runs repaired (manifests cancelled). */
+	repaired: number;
+	/** Number of /tmp/pi-crew-* directories removed. */
+	cleanedDirs: number;
+}
+
+/**
  * Scan /tmp (os.tmpdir()) for orphaned pi-crew-* workspaces and reconcile
  * any stale runs found. This catches runs created by tests or crashed sessions
  * that the per-CWD auto-repair timer would miss.
  *
- * @returns Number of runs repaired.
+ * When `cleanupOrphanedTempDirs` is not explicitly set to `false`, directories
+ * older than 1 hour with no remaining running manifests are deleted after
+ * their runs are reconciled.
+ *
+ * @returns Number of runs repaired and directories cleaned.
  */
-export function reconcileOrphanedTempWorkspaces(now = Date.now()): number {
+export function reconcileOrphanedTempWorkspaces(
+	now = Date.now(),
+	options?: { cleanupOrphanedTempDirs?: boolean },
+): OrphanReconcileResult {
 	const tmpDir = getSafeTempDir();
-	if (!tmpDir) return 0;
+	if (!tmpDir) return { repaired: 0, cleanedDirs: 0 };
 	let repaired = 0;
+	let cleanedDirs = 0;
 	try {
 		const entries = fs.readdirSync(tmpDir, { withFileTypes: true });
 		for (const entry of entries) {
@@ -367,6 +388,7 @@ export function reconcileOrphanedTempWorkspaces(now = Date.now()): number {
 			if (!fs.existsSync(crewDir)) continue;
 			const stateRunsDir = path.join(crewDir, "state", "runs");
 			if (!fs.existsSync(stateRunsDir)) continue;
+			let hasRunning = false;
 			try {
 				for (const runDir of fs.readdirSync(stateRunsDir)) {
 					const manifestPath = path.join(
@@ -427,6 +449,13 @@ export function reconcileOrphanedTempWorkspaces(now = Date.now()): number {
 							}
 							repaired++;
 						}
+						// If still running after reconciliation attempt, mark for dir-preserving
+						if (
+							result.verdict === "healthy" ||
+							(result.verdict === "no_status" && !result.repaired)
+						) {
+							hasRunning = true;
+						}
 					} catch {
 						/* skip corrupt manifests */
 					}
@@ -434,11 +463,61 @@ export function reconcileOrphanedTempWorkspaces(now = Date.now()): number {
 			} catch {
 				/* skip unreadable dirs */
 			}
+
+			// Post-loop: check if this workspace dir can be cleaned up.
+			// Eligible when cleanup is enabled, no running manifests remain, and
+			// the directory is older than the age threshold.
+			if (!hasRunning) {
+				// Re-scan manifests to confirm no running runs remain
+				// (some may have been cancelled on a previous pass)
+				if (fs.existsSync(stateRunsDir)) {
+					try {
+						for (const runDir of fs.readdirSync(stateRunsDir)) {
+							const manifestPath = path.join(
+								stateRunsDir,
+								runDir,
+								"manifest.json",
+							);
+							if (!fs.existsSync(manifestPath)) continue;
+							try {
+								const manifest: TeamRunManifest = JSON.parse(
+									fs.readFileSync(manifestPath, "utf-8"),
+								);
+								if (manifest.status === "running") {
+									hasRunning = true;
+									break;
+								}
+							} catch {
+								/* skip corrupt */
+							}
+						}
+					} catch {
+						/* skip unreadable */
+					}
+				}
+			}
+
+			const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
+			if (cleanupEnabled && !hasRunning) {
+				try {
+					const stat = fs.statSync(workspaceDir);
+					const dirAge = now - stat.mtimeMs;
+					if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
+						fs.rmSync(workspaceDir, {
+							recursive: true,
+							force: true,
+						});
+						cleanedDirs++;
+					}
+				} catch {
+					/* skip if stat or rm fails */
+				}
+			}
 		}
 	} catch {
 		/* skip if tmpdir unreadable */
 	}
-	return repaired;
+	return { repaired, cleanedDirs };
 }
 
 function getSafeTempDir(): string | undefined {

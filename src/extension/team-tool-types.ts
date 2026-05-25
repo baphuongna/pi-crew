@@ -10,4 +10,6 @@ export interface TeamToolDetails {
 	resumedIds?: string[];
 	retriedTaskIds?: string[];
 	mailboxIds?: string[];
+	/** Structured data for programmatic consumption (e.g. TUI widgets). */
+	data?: Record<string, unknown>;
 }

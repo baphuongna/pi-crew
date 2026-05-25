@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { reconcileStaleRun } from "../../src/runtime/stale-reconciler.ts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import {
+	reconcileOrphanedTempWorkspaces,
+	reconcileStaleRun,
+} from "../../src/runtime/stale-reconciler.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 
 const baseManifest: TeamRunManifest = {
@@ -195,5 +201,228 @@ describe("reconcileStaleRun", () => {
 
 		assert.equal(result.verdict, "no_status");
 		assert.equal(result.repaired, false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// reconcileOrphanedTempWorkspaces — orphaned /tmp cleanup tests
+// ---------------------------------------------------------------------------
+
+describe("reconcileOrphanedTempWorkspaces", () => {
+	const tempDirs: string[] = [];
+
+	afterEach(() => {
+		// Clean up any temp dirs created during tests
+		for (const dir of tempDirs.splice(0)) {
+			try {
+				fs.rmSync(dir, { recursive: true, force: true });
+			} catch {
+				/* ignore */
+			}
+		}
+	});
+
+	function createTempWorkspace(options: {
+		/** Status for the manifest. Default: "running" */
+		manifestStatus?: TeamRunManifest["status"];
+		/** If true, set the dir mtime to 2 hours ago. Default: true. */
+		old?: boolean;
+	}): string {
+		const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-test-"));
+		tempDirs.push(wsDir);
+		const runId = `test_run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+		const runDir = path.join(wsDir, ".crew", "state", "runs", runId);
+		fs.mkdirSync(runDir, { recursive: true });
+
+		const manifest: TeamRunManifest = {
+			schemaVersion: 1,
+			runId,
+			cwd: wsDir,
+			team: "test",
+			goal: "test",
+			status: options.manifestStatus ?? "running",
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			stateRoot: path.join(wsDir, ".crew", "state"),
+			artifactsRoot: path.join(wsDir, ".crew", "artifacts"),
+			tasksPath: path.join(runDir, "tasks.json"),
+			eventsPath: path.join(runDir, "events.jsonl"),
+			workspaceMode: "single",
+			artifacts: [],
+		};
+
+		// Write manifest with a dead PID so reconcileStaleRun repairs it
+		if (manifest.status === "running") {
+			(manifest as unknown as Record<string, unknown>).async = {
+				pid: 99999456,
+				logPath: "/dev/null",
+				spawnedAt: new Date().toISOString(),
+			};
+		}
+
+		fs.writeFileSync(
+			path.join(runDir, "manifest.json"),
+			JSON.stringify(manifest, null, 2),
+		);
+
+		const tasks: TeamTaskState[] = [
+			{
+				id: "task-1",
+				runId,
+				role: "executor",
+				agent: "test-agent",
+				title: "Test task",
+				status: "running",
+				dependsOn: [],
+				cwd: wsDir,
+			},
+		];
+		fs.writeFileSync(
+			path.join(runDir, "tasks.json"),
+			JSON.stringify(tasks, null, 2),
+		);
+
+		// Set directory mtime to simulate age
+		if (options.old !== false) {
+			const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+			fs.utimesSync(wsDir, new Date(twoHoursAgo), new Date(twoHoursAgo));
+		}
+
+		return wsDir;
+	}
+
+	it("reconciles and cleans old dir when cleanup enabled", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "running",
+			old: true,
+		});
+		const now = Date.now();
+
+		const result = reconcileOrphanedTempWorkspaces(now, {
+			cleanupOrphanedTempDirs: true,
+		});
+
+		assert.ok(
+			result.repaired >= 1,
+			`expected repaired >= 1, got ${result.repaired}`,
+		);
+		assert.ok(
+			result.cleanedDirs >= 1,
+			`expected cleanedDirs >= 1, got ${result.cleanedDirs}`,
+		);
+		assert.ok(!fs.existsSync(wsDir), "temp dir should be deleted");
+	});
+
+	it("reconciles but does NOT clean recent dir", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "running",
+			old: false,
+		});
+		const now = Date.now();
+
+		const result = reconcileOrphanedTempWorkspaces(now, {
+			cleanupOrphanedTempDirs: true,
+		});
+
+		assert.ok(
+			result.repaired >= 1,
+			`expected repaired >= 1, got ${result.repaired}`,
+		);
+		assert.equal(result.cleanedDirs, 0);
+		assert.ok(
+			fs.existsSync(wsDir),
+			"temp dir should still exist (too recent)",
+		);
+	});
+
+	it("respects cleanupOrphanedTempDirs: false", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "running",
+			old: true,
+		});
+		const now = Date.now();
+
+		const result = reconcileOrphanedTempWorkspaces(now, {
+			cleanupOrphanedTempDirs: false,
+		});
+
+		assert.ok(
+			result.repaired >= 1,
+			`expected repaired >= 1, got ${result.repaired}`,
+		);
+		assert.equal(result.cleanedDirs, 0);
+		assert.ok(
+			fs.existsSync(wsDir),
+			"temp dir should still exist (cleanup disabled)",
+		);
+	});
+
+	it("cleans dir with no running runs (already cancelled)", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "cancelled",
+			old: true,
+		});
+		const now = Date.now();
+
+		const result = reconcileOrphanedTempWorkspaces(now, {
+			cleanupOrphanedTempDirs: true,
+		});
+
+		assert.equal(result.repaired, 0);
+		assert.ok(
+			result.cleanedDirs >= 1,
+			`expected cleanedDirs >= 1, got ${result.cleanedDirs}`,
+		);
+		assert.ok(!fs.existsSync(wsDir), "temp dir should be deleted");
+	});
+
+	it("does NOT clean dir with active running run (alive PID)", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "running",
+			old: true,
+		});
+
+		// Override the manifest to use the current process PID (alive)
+		const stateRunsDir = path.join(wsDir, ".crew", "state", "runs");
+		const runDir = fs.readdirSync(stateRunsDir)[0]!;
+		const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
+		const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+		manifest.async = {
+			pid: process.pid,
+			logPath: "/dev/null",
+			spawnedAt: new Date().toISOString(),
+		};
+		manifest.updatedAt = new Date().toISOString();
+		fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+		const now = Date.now();
+		const result = reconcileOrphanedTempWorkspaces(now, {
+			cleanupOrphanedTempDirs: true,
+		});
+
+		// The run was NOT repaired (PID is alive and recent)
+		assert.equal(result.repaired, 0);
+		assert.equal(result.cleanedDirs, 0);
+		assert.ok(fs.existsSync(wsDir), "dir should be preserved (active run)");
+	});
+
+	it("defaults to cleanup enabled when options omitted", () => {
+		const wsDir = createTempWorkspace({
+			manifestStatus: "cancelled",
+			old: true,
+		});
+		const now = Date.now();
+
+		const result = reconcileOrphanedTempWorkspaces(now);
+
+		assert.equal(result.repaired, 0);
+		assert.ok(
+			result.cleanedDirs >= 1,
+			`expected cleanedDirs >= 1, got ${result.cleanedDirs}`,
+		);
+		assert.ok(
+			!fs.existsSync(wsDir),
+			"temp dir should be deleted (default cleanup)",
+		);
 	});
 });

@@ -113,6 +113,7 @@ export const PiTeamsReliabilityConfigSchema = Type.Object({
 	}, { additionalProperties: false })),
 	autoRecover: Type.Optional(Type.Boolean()),
 	deadletterThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
+	cleanupOrphanedTempDirs: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
 export const PiTeamsOtlpConfigSchema = Type.Object({

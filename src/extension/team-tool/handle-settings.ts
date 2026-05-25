@@ -40,6 +40,7 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"notifierIntervalMs": 5000,
 	"reliability.autoRetry": false,
 	"reliability.autoRecover": false,
+	"reliability.cleanupOrphanedTempDirs": true,
 	"telemetry.enabled": false,
 	"notifications.enabled": false,
 };
@@ -192,6 +193,7 @@ const KNOWN_KEYS = new Set([
 	// reliability
 	"reliability.autoRetry",
 	"reliability.autoRecover",
+	"reliability.cleanupOrphanedTempDirs",
 	"reliability.deadletterThreshold",
 	"reliability.retryPolicy.maxAttempts",
 	"reliability.retryPolicy.backoffMs",

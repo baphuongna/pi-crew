@@ -85,6 +85,7 @@ const SETTINGS: SettingDef[] = [
 	{ id: "notifierIntervalMs", label: "Notifier Interval", type: "number", tab: "advanced", description: "Async run notifier check interval in ms." },
 	{ id: "reliability.autoRetry", label: "Auto Retry", type: "boolean", tab: "advanced", description: "Automatically retry failed tasks." },
 	{ id: "reliability.autoRecover", label: "Auto Recover", type: "boolean", tab: "advanced", description: "Automatically recover from crashes." },
+	{ id: "reliability.cleanupOrphanedTempDirs", label: "Cleanup Orphaned Temp Dirs", type: "boolean", tab: "advanced", description: "Remove /tmp/pi-crew-* directories after reconciliation (1h age threshold)." },
 	{ id: "telemetry.enabled", label: "Telemetry", type: "boolean", tab: "advanced", description: "Enable telemetry collection." },
 	{ id: "notifications.enabled", label: "Notifications", type: "boolean", tab: "advanced", description: "Enable run notifications." },
 ];
@@ -124,6 +125,7 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"notifierIntervalMs": 5000,
 	"reliability.autoRetry": false,
 	"reliability.autoRecover": false,
+	"reliability.cleanupOrphanedTempDirs": true,
 	"telemetry.enabled": false,
 	"notifications.enabled": false,
 };

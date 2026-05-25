@@ -6,7 +6,11 @@
 // file for backwards compat — existing `import { CrewUiConfig } from "../config/config.ts"`
 // continues to work.
 
-export type PiTeamsAutonomyProfile = "manual" | "suggested" | "assisted" | "aggressive";
+export type PiTeamsAutonomyProfile =
+	| "manual"
+	| "suggested"
+	| "assisted"
+	| "aggressive";
 
 export interface PiTeamsAutonomousConfig {
 	profile?: PiTeamsAutonomyProfile;
@@ -28,7 +32,11 @@ export interface CrewLimitsConfig {
 	heartbeatStaleMs?: number;
 }
 
-export type CrewRuntimeMode = "auto" | "scaffold" | "child-process" | "live-session";
+export type CrewRuntimeMode =
+	| "auto"
+	| "scaffold"
+	| "child-process"
+	| "live-session";
 
 export type CompletionMutationGuardMode = "off" | "warn" | "fail";
 export type EffectivenessGuardMode = "off" | "warn" | "block" | "fail";
@@ -46,7 +54,11 @@ export interface CrewRuntimeConfig {
 	requirePlanApproval?: boolean;
 	completionMutationGuard?: CompletionMutationGuardMode;
 	effectivenessGuard?: EffectivenessGuardMode;
-	yield?: { enabled?: boolean; maxReminders?: number; reminderPrompt?: string };
+	yield?: {
+		enabled?: boolean;
+		maxReminders?: number;
+		reminderPrompt?: string;
+	};
 	/** Policy for per-role runtime selection. Not sensitive — safe to keep in project config. */
 	isolationPolicy?: {
 		/** Roles that should use child-process for crash isolation. Default: no roles. */
@@ -82,7 +94,16 @@ export interface CrewUiConfig {
 	showTools?: boolean;
 	transcriptTailBytes?: number;
 	mascotStyle?: "cat" | "armin";
-	mascotEffect?: "random" | "none" | "typewriter" | "scanline" | "rain" | "fade" | "crt" | "glitch" | "dissolve";
+	mascotEffect?:
+		| "random"
+		| "none"
+		| "typewriter"
+		| "scanline"
+		| "rain"
+		| "fade"
+		| "crt"
+		| "glitch"
+		| "dissolve";
 }
 
 export interface AgentOverrideConfig {
@@ -114,7 +135,11 @@ export interface CrewPolicyConfig {
 	disabledCapabilities?: string[];
 }
 
-export type CrewNotificationSeverity = "info" | "warning" | "error" | "critical";
+export type CrewNotificationSeverity =
+	| "info"
+	| "warning"
+	| "error"
+	| "critical";
 
 export interface CrewNotificationsConfig {
 	enabled?: boolean;
@@ -146,6 +171,8 @@ export interface CrewReliabilityConfig {
 	deadletterThreshold?: number;
 	/** Interval (ms) for periodic stale-run auto-repair. Default 60_000 (60s). Set to 0 to disable. */
 	autoRepairIntervalMs?: number;
+	/** Remove /tmp/pi-crew-* directories after their orphaned runs are reconciled. Default: true. */
+	cleanupOrphanedTempDirs?: boolean;
 }
 
 export interface CrewOtlpConfig {

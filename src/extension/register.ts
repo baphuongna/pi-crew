@@ -443,7 +443,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			tempReconcileTimer = setInterval(() => {
 				if (cleanedUp) return;
 				try {
-					reconcileOrphanedTempWorkspaces();
+					reconcileOrphanedTempWorkspaces(Date.now(), {
+						cleanupOrphanedTempDirs:
+							config.reliability?.cleanupOrphanedTempDirs,
+					});
 				} catch (error) {
 					logInternalError("register.tempAutoRepair", error);
 				}
