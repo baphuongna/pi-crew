@@ -1,6 +1,6 @@
 ---
 name: event-log-tracing
-description: Structured event logging system for worker lifecycle, live agents, and crash recovery. Use when debugging worker crashes, tracing agent lifecycle, or investigating stale runs.
+description: "Structured event logging for worker lifecycle, live agents, crash recovery. Use when debugging crashes, tracing agent lifecycle, investigating stale runs. Triggers: event log, trace events, worker crashed, agent died, stale run, events.jsonl."
 ---
 
 # event-log-tracing

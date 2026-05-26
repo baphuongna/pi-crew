@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: Multi-phase orchestration skill for pi-crew planners and executors. Use when decomposing complex tasks into parallel phases, dispatching workers, verifying gates, and iterating until closure.
+description: "Multi-phase orchestration for planners and executors. Use when decomposing complex tasks into parallel phases, dispatching workers, verifying gates, and iterating to closure. Triggers: orchestrate this, coordinate these tasks, run this multi-phase, dispatch workers, coordinate team."
 ---
 
 # orchestration

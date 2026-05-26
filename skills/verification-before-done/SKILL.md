@@ -1,6 +1,6 @@
 ---
 name: verification-before-done
-description: Use when about to claim work is complete, fixed, passing, reviewed, committed, or ready to hand off.
+description: "Evidence before claims. Use before claiming work is complete, fixed, passing, reviewed, committed, or ready to hand off. Triggers: done, fixed, complete, ready to merge, can I close, is it working, verify this, check if it passes, all good, LGTM, ready to ship."
 ---
 
 # verification-before-done

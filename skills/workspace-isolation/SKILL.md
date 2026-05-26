@@ -1,6 +1,6 @@
 ---
 name: workspace-isolation
-description: Workspace isolation boundaries in pi-crew. Use when ensuring agents from workspace A cannot access workspace B, or when implementing worktree-based parallel execution.
+description: "Workspace isolation boundaries. Use when ensuring agents from workspace A cannot access workspace B, or worktree-based parallel execution. Triggers: workspace isolation, cross-workspace access, escape boundary, worktree safety."
 ---
 
 # workspace-isolation

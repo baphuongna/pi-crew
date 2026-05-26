@@ -1,6 +1,6 @@
 ---
 name: multi-perspective-review
-description: Use when reviewing a plan, diff, implementation, worker output, release candidate, or external review feedback.
+description: "Multi-perspective code review with simpler-alternative pass. Use when reviewing a plan, diff, implementation, worker output, release candidate, or external feedback. Triggers: review this, look at this, LGTM check, sanity check, audit this, get a second opinion, check this PR, examine this code."
 ---
 
 # multi-perspective-review
@@ -8,6 +8,22 @@ description: Use when reviewing a plan, diff, implementation, worker output, rel
 Core principle: review early, review often, and separate concerns. Reviewer output is evidence to evaluate, not an instruction to obey blindly.
 
 Distilled from detailed reads of requesting-code-review, receiving-code-review, subagent review checkpoints, differential review, and specialized review-agent patterns.
+
+## Pre-review: Simpler Alternative Pass (Mandatory)
+
+Before running any review passes, ask:
+
+1. **Is there a simpler, smaller, or more elegant way to achieve the same goal?**
+   - Doing nothing (is the problem real and load-bearing?)
+   - Using something that already exists in the codebase
+   - A smaller change that solves 90% of the goal with 10% of the risk
+   - Solving it at a different layer (config vs code, framework vs app)
+2. If a better alternative exists, surface it BEFORE the line-by-line review.
+3. Skip only if the user explicitly says "don't question scope."
+
+This is the most valuable finding you can produce — surfacing unnecessary complexity before reviewing its details.
+
+---
 
 ## Review Passes
 
