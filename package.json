@@ -32,7 +32,7 @@
     "agents/",
     "teams/",
     "workflows/",
-    "skills/**/*",
+    "skills/**/SKILL.md",
     "README.md",
     "AGENTS.md",
     "docs/",

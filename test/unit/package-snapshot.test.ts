@@ -14,7 +14,7 @@ test("package snapshot keeps Phase 6 runtime docs, skills, and jiti loader depen
 	const files = pkg.files as string[];
 	assert.ok(files.includes("src/**/*.ts"));
 	assert.ok(files.includes("docs/"));
-	assert.ok(files.includes("skills/**/*"));
+	assert.ok(files.includes("skills/**/SKILL.md"));
 	assert.ok(files.includes("schema.json"));
 
 	const dependencies = pkg.dependencies as Record<string, string>;
