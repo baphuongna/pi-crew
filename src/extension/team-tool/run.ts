@@ -1,4 +1,5 @@
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
+import { ensureCrewDirectory } from "../../state/crew-init.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import { loadConfig } from "../../config/config.ts";
@@ -73,6 +74,9 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const goal = params.goal ?? params.task;
 	if (!goal) return result("Run requires goal or task.", { action: "run", status: "error" }, true);
 	const intentPrefix = goal.length > 60 ? `${goal.slice(0, 57)}...` : goal;
+
+	// P0: Ensure .crew directory structure exists before creating any manifests.
+	await ensureCrewDirectory(ctx.cwd);
 
 	const teams = allTeams(discoverTeams(ctx.cwd));
 	const workflows = allWorkflows(discoverWorkflows(ctx.cwd));
