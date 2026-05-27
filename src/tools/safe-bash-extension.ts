@@ -8,10 +8,9 @@
  * 3. Or set env var: PI_CREW_SAFE_BASH=true
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { createBashTool } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createBashTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import * as path from "node:path";
 
 // Dangerous command patterns to block
 const DANGEROUS_PATTERNS = [
@@ -59,7 +58,7 @@ function isDangerous(command: string): string | null {
 }
 
 export default function safeBashExtension(pi: ExtensionAPI): void {
-	const cwd = pi.context?.cwd || process.cwd();
+	const cwd = process.cwd();
 	const bashTool = createBashTool(cwd);
 
 	pi.registerTool({
@@ -76,10 +75,11 @@ export default function safeBashExtension(pi: ExtensionAPI): void {
 				Type.String({ description: "Description of what this command does (optional)" }),
 			),
 		}),
-		async execute(toolCallId, params, signal, onUpdate) {
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const danger = isDangerous(params.command);
 			if (danger) {
 				return {
+					details: {},
 					content: [
 						{
 							type: "text" as const,

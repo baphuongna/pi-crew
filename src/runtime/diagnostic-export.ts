@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import type { MetricSnapshot } from "../observability/metrics-primitives.ts";
 import * as fs from "node:fs";

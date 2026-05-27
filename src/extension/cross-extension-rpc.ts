@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 // Lazy-loaded to avoid pulling team-tool.ts (and its entire runtime chain) into module load.
 import type { handleTeamTool as HandleTeamToolFn } from "./team-tool.ts";

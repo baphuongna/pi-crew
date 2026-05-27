@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { TeamToolParams, type TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { CrewWidgetState } from "../../ui/crew-widget.ts";

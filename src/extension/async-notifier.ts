@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendEvent, readEvents, type TeamEvent } from "../state/event-log.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/state-store.ts";

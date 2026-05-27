@@ -11,7 +11,7 @@ import {
 	type Theme,
 	type Component,
 } from "../../src/ui/tool-render.ts";
-import { Container, Text } from "@mariozechner/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 
 // Mock theme for testing
 const mockTheme: Theme = {

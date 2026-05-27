@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 
 export function parseRunArgs(args: string): TeamToolParamsValue {

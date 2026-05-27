@@ -8,6 +8,11 @@ export interface PiSpawnCommand {
 	args: string[];
 }
 
+const PI_PACKAGE_NAMES = [
+	"@earendil-works/pi-coding-agent",
+	"@mariozechner/pi-coding-agent",
+];
+
 function isRunnableNodeScript(filePath: string): boolean {
 	return fs.existsSync(filePath) && /\.(?:mjs|cjs|js)$/i.test(filePath);
 }
@@ -26,11 +31,18 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 	try {
 		const execDir = path.dirname(fs.realpathSync.native(process.execPath));
 		allowedPrefixes.push(execDir.toLowerCase());
+		allowedPrefixes.push(path.join(path.dirname(execDir), "lib", "node_modules").toLowerCase());
 	} catch { /* ignore */ }
 
 	// npm global bin via APPDATA
 	if (process.env.APPDATA) {
 		allowedPrefixes.push(path.join(process.env.APPDATA, "npm").toLowerCase());
+	}
+
+	const npmPrefix = process.env.npm_config_prefix ?? process.env.NPM_CONFIG_PREFIX;
+	if (npmPrefix) {
+		allowedPrefixes.push(path.resolve(npmPrefix).toLowerCase());
+		allowedPrefixes.push(path.join(path.resolve(npmPrefix), "lib", "node_modules").toLowerCase());
 	}
 
 	// Project-local node_modules/.bin
@@ -62,7 +74,7 @@ function resolvePiPackageRoot(): string | undefined {
 		while (dir !== path.dirname(dir)) {
 			try {
 				const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8")) as { name?: string };
-				if (pkg.name === "@mariozechner/pi-coding-agent") return dir;
+				if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return dir;
 			} catch {
 				// Continue walking upward.
 			}
@@ -92,12 +104,15 @@ function findPiPackageJsonFrom(startDir: string): string | undefined {
 		const direct = path.join(dir, "package.json");
 		try {
 			const pkg = JSON.parse(fs.readFileSync(direct, "utf-8")) as { name?: string };
-			if (pkg.name === "@mariozechner/pi-coding-agent") return direct;
+			if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return direct;
 		} catch {
 			// Continue searching upward and in node_modules.
 		}
-		const dependency = path.join(dir, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
-		if (fs.existsSync(dependency)) return dependency;
+		for (const pkgName of PI_PACKAGE_NAMES) {
+			const [scope, name] = pkgName.replace("@", "").split("/");
+			const dependency = path.join(dir, "node_modules", `@${scope}`, name, "package.json");
+			if (fs.existsSync(dependency)) return dependency;
+		}
 		dir = path.dirname(dir);
 	}
 	return undefined;
@@ -112,6 +127,7 @@ function resolvePiCliScript(): string | undefined {
 
 	const roots = [
 		resolvePiPackageRoot(),
+		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@earendil-works", "pi-coding-agent") : undefined,
 		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@mariozechner", "pi-coding-agent") : undefined,
 		path.dirname(fileURLToPath(import.meta.url)),
 		process.cwd(),

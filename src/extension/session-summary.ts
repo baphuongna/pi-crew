@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import { listRuns } from "./run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";

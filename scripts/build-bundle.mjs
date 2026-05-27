@@ -40,10 +40,10 @@ const result = await build({
 	logLevel: "info",
 	// Keep peer deps external so consumers' Pi versions resolve naturally.
 	external: [
-		"@mariozechner/pi-coding-agent",
-		"@mariozechner/pi-ai",
-		"@mariozechner/pi-agent-core",
-		"@mariozechner/pi-tui",
+		"@earendil-works/pi-coding-agent",
+		"@earendil-works/pi-ai",
+		"@earendil-works/pi-agent-core",
+		"@earendil-works/pi-tui",
 		// Direct deps as well — bundling their full graph would inflate the
 		// output and override consumer-installed versions.
 		"cli-highlight",

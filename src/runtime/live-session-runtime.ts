@@ -336,7 +336,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	const availability = await isLiveSessionRuntimeAvailable();
 	if (!availability.available) return { available: true, exitCode: 1, stdout: "", stderr: availability.reason ?? "Live-session runtime unavailable.", jsonEvents: 0, error: availability.reason };
 	// LAZY: optional peer dependency — only loaded when live-session runtime is chosen.
-	const mod = await import("@mariozechner/pi-coding-agent") as LiveSessionModule;
+	const mod = await import("@earendil-works/pi-coding-agent") as unknown as LiveSessionModule;
 	if (typeof mod.createAgentSession !== "function") return { available: true, exitCode: 1, stdout: "", stderr: "createAgentSession export is unavailable.", jsonEvents: 0, error: "createAgentSession export is unavailable." };
 	let session: LiveSessionLike | undefined;
 	let unsubscribe: (() => void) | undefined;

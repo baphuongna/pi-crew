@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerPiTeams } from "./src/extension/register.ts";
 export { waitForRun } from "./src/runtime/run-tracker.ts";
 

@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TeamToolDetails } from "./team-tool-types.ts";
 
 export type PiTeamsToolResult<TDetails = TeamToolDetails> = AgentToolResult<TDetails> & { isError?: boolean };
