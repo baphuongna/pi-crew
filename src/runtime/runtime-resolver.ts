@@ -38,7 +38,7 @@ export async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env: NodeJ
 	const probe = async (): Promise<{ available: boolean; reason?: string }> => {
 		try {
 			// LAZY: optional peer dependency — probe at runtime to avoid hard dependency.
-			const mod = await import("@mariozechner/pi-coding-agent");
+			const mod = await import("@earendil-works/pi-coding-agent");
 			const api = mod as Record<string, unknown>;
 			const required = ["createAgentSession", "DefaultResourceLoader", "SessionManager", "SettingsManager"];
 			const missing = required.filter((name) => typeof api[name] === "undefined");

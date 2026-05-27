@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config/config.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings, saveCrewSettings } from "../runtime/settings-store.ts";
 // 2.7: Lazy-load LiveRunSidebar — only constructed when the user actually opens

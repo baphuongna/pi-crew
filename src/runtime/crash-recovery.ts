@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { appendEvent, scanSequence } from "../state/event-log.ts";

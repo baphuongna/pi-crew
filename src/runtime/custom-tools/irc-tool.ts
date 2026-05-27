@@ -12,7 +12,7 @@
  * for routing messages between in-process workers.
  */
 
-import { defineTool, type ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 import { listLiveAgents, sendIrcMessage, broadcastIrcMessage } from "../live-agent-manager.ts";
 import type { IrcMessage } from "../live-irc.ts";

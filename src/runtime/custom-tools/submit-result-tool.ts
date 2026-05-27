@@ -9,7 +9,7 @@
  * and TypeBox schemas for validation.
  */
 
-import { defineTool, type ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 import type { YieldResult } from "../yield-handler.ts";
 

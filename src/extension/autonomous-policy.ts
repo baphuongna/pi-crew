@@ -1,4 +1,4 @@
-import type { BeforeAgentStartEvent, ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { effectiveAutonomousConfig, loadConfig, type PiTeamsAutonomousConfig } from "../config/config.ts";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";

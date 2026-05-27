@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { savePersistedSubagentRecord, type SubagentRecord, type SubagentSpawnOptions } from "../../subagents/manager.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

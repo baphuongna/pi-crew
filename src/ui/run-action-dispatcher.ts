@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 // Lazy-loaded: team-tool.ts pulls in entire runtime chain.
 import type { handleTeamTool as HandleTeamToolFn } from "../extension/team-tool.ts";

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 // Lazy-loaded: team-tool.ts pulls in entire runtime chain.

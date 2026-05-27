@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 // Lazy-loaded: team-tool.ts pulls in entire runtime chain (1.4s+).
 import type { handleTeamTool as HandleTeamToolFn } from "../team-tool.ts";

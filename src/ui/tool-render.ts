@@ -1,9 +1,9 @@
 /**
  * Shared rendering for pi-crew's tool TUI display.
  * Ports logic from pi-subagent4 adapted for pi-crew's data model.
- * Uses @mariozechner/pi-tui Components (Container, Text, Spacer) directly.
+ * Uses @earendil-works/pi-tui Components (Container, Text, Spacer) directly.
  */
-import { Container, Spacer, Text, visibleWidth } from "@mariozechner/pi-tui";
+import { Container, Spacer, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
