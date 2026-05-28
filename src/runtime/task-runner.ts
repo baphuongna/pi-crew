@@ -897,6 +897,16 @@ export async function runTeamTask(
 				})
 			: undefined;
 
+		// Capture unified patches from edit tool results
+		const patchArtifact = parsedOutput?.patches?.length
+			? writeArtifact(manifest.artifactsRoot, {
+					kind: "patch",
+					relativePath: `patches/${task.id}.patch`,
+					content: parsedOutput.patches.join("\n---\n"),
+					producer: task.id,
+				})
+			: undefined;
+
 		const mutationGuardMode =
 			input.runtimeConfig?.completionMutationGuard ?? "warn";
 		const mutationGuard =
@@ -1106,6 +1116,7 @@ export async function runTeamTask(
 				...(transcriptArtifact ? [transcriptArtifact] : []),
 				...(diffArtifact ? [diffArtifact] : []),
 				...(diffStatArtifact ? [diffStatArtifact] : []),
+				...(patchArtifact ? [patchArtifact] : []),
 			],
 		};
 		saveRunManifest(manifest);

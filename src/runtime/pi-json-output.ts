@@ -12,6 +12,8 @@ export interface ParsedPiJsonOutput {
 	textEvents: string[];
 	finalText?: string;
 	usage?: ParsedPiUsage;
+	/** Unified patches extracted from tool_result events (edit tool patch field) */
+	patches?: string[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -87,6 +89,7 @@ function extractText(value: unknown): string[] {
 export function parsePiJsonOutput(stdout: string): ParsedPiJsonOutput {
 	let jsonEvents = 0;
 	const textEvents: string[] = [];
+	const patches: string[] = [];
 	let usage: ParsedPiUsage | undefined;
 	for (const line of stdout.split("\n")) {
 		const trimmed = line.trim();
@@ -99,6 +102,8 @@ export function parsePiJsonOutput(stdout: string): ParsedPiJsonOutput {
 		}
 		jsonEvents++;
 		textEvents.push(...extractText(event));
+		// Extract unified patches from tool_result events
+		extractPatch(event, patches);
 		const eventUsage = extractUsage(event);
 		if (eventUsage) usage = mergeUsage(usage ?? {}, eventUsage);
 	}
@@ -107,5 +112,31 @@ export function parsePiJsonOutput(stdout: string): ParsedPiJsonOutput {
 		textEvents,
 		finalText: textEvents.length > 0 ? textEvents[textEvents.length - 1] : undefined,
 		usage,
+		patches: patches.length > 0 ? patches : undefined,
 	};
+}
+
+/**
+ * Extract unified patches from a tool_result event.
+ * pi's edit tool now includes a `patch` field (standard unified diff format).
+ * We detect it by looking for lines starting with "---" or "+++" which indicate
+ * unified diff format.
+ */
+function extractPatch(event: unknown, patches: string[]): void {
+	const obj = asRecord(event);
+	if (!obj || obj.type !== "tool_result") return;
+
+	const content = obj.content;
+	if (!Array.isArray(content)) return;
+
+	for (const item of content) {
+		const part = asRecord(item);
+		if (!part || part.type !== "text") continue;
+		const text = typeof part.text === "string" ? part.text : "";
+
+		// Check if this looks like a unified patch (starts with "---" or "+++")
+		if (text.includes("--- a/") || text.includes("diff ---")) {
+			patches.push(text);
+		}
+	}
 }
