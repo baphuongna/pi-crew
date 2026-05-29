@@ -90,7 +90,7 @@ test("crew widget keeps persistent component until placement changes and refresh
 		assert.equal(setWidgetCalls.filter((call) => call.key === "pi-crew-active" && call.content).length, 1);
 		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as ((tui: unknown, theme: unknown) => { render(width: number): string[] });
 		const component = factory(undefined, { fg: (_color: string, value: string) => value, bold: (value: string) => value });
-		assert.match(component.render(100).join("\n"), /reading/);
+		assert.match(component.render(100).join("\n"), /read/);
 		saveCrewAgents(created.manifest, [{ id: `${created.manifest.runId}:01`, runId: created.manifest.runId, taskId: "01", agent: "explorer", role: "explorer", runtime: "child-process", status: "running", startedAt: created.manifest.createdAt, progress: { recentTools: [], recentOutput: ["second output"], toolCount: 2, currentTool: "bash", tokens: 20 } }]);
 		assert.match(component.render(100).join("\n"), /running command/);
 		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" });

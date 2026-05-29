@@ -33,6 +33,7 @@ test("run event cursor returns only events after sinceSeq", () => {
 test("observability API supports event cursors, agent output tail, and dashboard summary", async () => {
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-phase5-"));

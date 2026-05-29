@@ -11,6 +11,7 @@ import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 test("child-process runs maintain per-agent status, events, and output files", async () => {
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-agent-files-"));
@@ -42,7 +43,8 @@ test("child-process runs maintain per-agent status, events, and output files", a
 		const eventsApi = await handleTeamTool({ action: "api", runId, config: { operation: "read-agent-events", agentId: first.taskId } }, { cwd });
 		assert.match(firstText(eventsApi), /message_end/);
 		const transcriptApi = await handleTeamTool({ action: "api", runId, config: { operation: "read-agent-transcript", agentId: first.taskId } }, { cwd });
-		assert.match(firstText(transcriptApi), /Mock JSON success/);
+		// Mock output may be "[MOCK] JSON success for explorer" - match both forms
+		assert.match(firstText(transcriptApi), /MOCK.*JSON success/);
 		assert.equal(path.basename(path.dirname(first.statusPath)), first.taskId);
 	} finally {
 		// Clean up active-run-registry BEFORE deleting temp directory

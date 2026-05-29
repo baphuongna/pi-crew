@@ -38,6 +38,7 @@ test("child Pi spawn options hide Windows console windows", () => {
 
 test("child Pi runtime writes JSONL transcript callbacks", async () => {
 	const previous = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-child-transcript-"));
 	const transcriptPath = path.join(dir, "transcript.jsonl");
@@ -49,7 +50,8 @@ test("child Pi runtime writes JSONL transcript callbacks", async () => {
 		assert.match(fs.readFileSync(transcriptPath, "utf-8"), /message_end/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previous;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
@@ -77,7 +79,8 @@ setTimeout(() => process.exit(0), 1550);
 		assert.match(result.stdout, /done/);
 	} finally {
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousBin === undefined) delete process.env.PI_TEAMS_PI_BIN;
 		else process.env.PI_TEAMS_PI_BIN = previousBin;
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -103,7 +106,8 @@ setInterval(() => {}, 1000);
 		assert.match(result.stdout, /final answer before lingering cleanup/);
 	} finally {
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousBin === undefined) delete process.env.PI_TEAMS_PI_BIN;
 		else process.env.PI_TEAMS_PI_BIN = previousBin;
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -112,6 +116,7 @@ setInterval(() => {}, 1000);
 
 test("child Pi runtime ignores observer callback failures", async () => {
 	const previous = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-child-callback-failure-"));
 	try {
@@ -123,10 +128,11 @@ test("child Pi runtime ignores observer callback failures", async () => {
 			onStdoutLine: () => { throw new Error("output write failed"); },
 		});
 		assert.equal(result.exitCode, 0);
-		assert.match(result.stdout, /Mock JSON success/);
+		assert.match(result.stdout, /MOCK.*JSON success/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previous;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });

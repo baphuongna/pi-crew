@@ -19,6 +19,7 @@ test("direct agent run creates a single task for requested agent", async () => {
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const run = await handleTeamTool({ action: "run", agent: "explorer", goal: "Explore directly" }, { cwd });
@@ -45,6 +46,7 @@ test("direct agent run persists model override for reconstruction", async () => 
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const run = await handleTeamTool({ action: "run", agent: "reviewer", goal: "Review with model", model: "openai-codex/gpt-5.5" }, { cwd });
@@ -92,13 +94,15 @@ test("direct agent runs can resume from generated team/workflow metadata", async
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "hard-failure";
 	try {
 		const run = await handleTeamTool({ action: "run", agent: "reviewer", goal: "Review directly" }, { cwd });
 		const loaded = loadRunManifestById(cwd, run.details.runId!);
 		assert.ok(loaded);
 		assert.equal(loaded.manifest.status, "failed");
-		process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+		process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 		const resumed = await handleTeamTool({ action: "resume", runId: loaded.manifest.runId }, { cwd });
 		assert.equal(resumed.isError, false);
 		const after = loadRunManifestById(cwd, loaded.manifest.runId);

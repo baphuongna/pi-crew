@@ -69,6 +69,7 @@ test("implementation workflow produces runnable result with mock child-pi", asyn
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 		let run;
 	try {
@@ -94,6 +95,7 @@ test("implementation workflow with PI_CREW_ADAPTIVE_REPAIR=0 behaves consistentl
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousRepair = process.env.PI_CREW_ADAPTIVE_REPAIR;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	process.env.PI_CREW_ADAPTIVE_REPAIR = "0";
 		let run;
@@ -137,6 +139,7 @@ test("requirePlanApproval blocks mutating adaptive tasks until approved", async 
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousRole = process.env.PI_CREW_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const team = allTeams(discoverTeams(cwd)).find((item) => item.name === "implementation")!;
@@ -216,6 +219,7 @@ test("adaptive workflow steps reconstruct from persisted tasks on resume", async
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const team = allTeams(discoverTeams(cwd)).find((item) => item.name === "implementation")!;

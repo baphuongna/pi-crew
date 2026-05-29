@@ -67,6 +67,7 @@ test("recursive child worker at max depth is blocked before provider execution",
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_CREW_DEPTH = "2";
 	process.env.PI_CREW_MAX_DEPTH = "2";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "success";
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-subagent-depth-"));
 	try {

@@ -47,6 +47,7 @@ test("crew depth guard blocks child workers at max depth before mock execution",
 	const previousDepth = process.env.PI_CREW_DEPTH;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_CREW_DEPTH = "2";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "success";
 	try {
 		assert.deepEqual(checkCrewDepth(2), { depth: 2, maxDepth: 2, blocked: true });

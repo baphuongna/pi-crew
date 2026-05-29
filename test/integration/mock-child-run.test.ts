@@ -12,6 +12,7 @@ test("executeWorkers can use mocked child Pi and record model attempts", async (
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "success";
 	try {
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Mock execute" }, { cwd });
@@ -26,7 +27,8 @@ test("executeWorkers can use mocked child Pi and record model attempts", async (
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
 		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

@@ -33,15 +33,15 @@ function makeManifest(runId: string): TeamRunManifest {
   } as unknown as TeamRunManifest;
 }
 
-function makeTask(id: string, dependsOn: string[] = []): TeamTaskState {
+function makeTask(id: string, role: string, dependsOn: string[] = []): TeamTaskState {
   return {
     id,
     runId: "test_run",
-    role: "explorer",
+    role,
     status: "completed",
     dependsOn,
     cwd: os.tmpdir(),
-    agent: "explorer",
+    agent: role,
     title: `Task ${id}`,
   } as unknown as TeamTaskState;
 }
@@ -61,9 +61,9 @@ test("buildRunGraph: creates run node", () => {
 test("buildRunGraph: creates task nodes with edges", () => {
   const manifest = makeManifest("test_run_123");
   const tasks: TeamTaskState[] = [
-    makeTask("01_explore"),
-    makeTask("02_plan", ["01_explore"]),
-    makeTask("03_execute", ["02_plan"]),
+    makeTask("01_explore", "explorer"),
+    makeTask("02_plan", "planner", ["01_explore"]),
+    makeTask("03_execute", "executor", ["02_plan"]),
   ];
 
   const graph = buildRunGraph(manifest, tasks);
@@ -85,20 +85,23 @@ test("buildRunGraph: creates task nodes with edges", () => {
 test("buildRunGraph: creates layers from phases", () => {
   const manifest = makeManifest("test_phases");
   const tasks: TeamTaskState[] = [
-    makeTask("01_explore"),
-    makeTask("02_plan", ["01_explore"]),
-    makeTask("03_execute", ["02_plan"]),
+    makeTask("01_explore", "explorer"),
+    makeTask("02_plan", "planner"),
+    makeTask("03_execute", "executor"),
   ];
 
   const graph = buildRunGraph(manifest, tasks);
 
-  assert.ok(graph.layers.length >= 2);
+  // Should create 3 layers: explorer, planner, executor
+  assert.ok(graph.layers.length >= 3, `Expected at least 3 layers, got ${graph.layers.length}`);
+  assert.deepEqual(graph.layers.map(l => l.name), ["explorer", "planner", "executor"]);
 });
 
 test("saveRunGraph + loadRunGraph: roundtrip", () => {
   const tmp = os.tmpdir();
+  fs.mkdirSync(path.join(tmp, ".crew", "graphs"), { recursive: true });
   const manifest = makeManifest("test_save_load");
-  const tasks: TeamTaskState[] = [makeTask("01")];
+  const tasks: TeamTaskState[] = [makeTask("01", "explorer")];
 
   const graph = buildRunGraph(manifest, tasks);
   const savedPath = saveRunGraph(graph, tmp);
@@ -143,7 +146,7 @@ test("listRunGraphs: returns saved graph IDs", () => {
 
 test("buildRunGraph: includes agent nodes when agentModel is present", () => {
   const manifest = makeManifest("test_agent");
-  const tasks: TeamTaskState[] = [makeTask("01")];
+  const tasks: TeamTaskState[] = [makeTask("01", "explorer")];
 
   const graph = buildRunGraph(manifest, tasks);
 

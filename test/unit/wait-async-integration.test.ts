@@ -29,9 +29,11 @@ test("wait returns completed for child-process mock run", async () => {
 	const prevMockLive = process.env.PI_CREW_MOCK_LIVE_SESSION;
 	const prevDepth = process.env.PI_CREW_DEPTH;
 	const prevMockChild = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const prevAllowMock = process.env.PI_CREW_ALLOW_MOCK;
 
 	process.env.PI_CREW_MOCK_LIVE_SESSION = "success";
 	process.env.PI_CREW_DEPTH = "0";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "success";
 
 	const cwd = createTrackedTempDir("pi-crew-wait-async-");
@@ -60,6 +62,7 @@ test("wait returns completed for child-process mock run", async () => {
 	} finally {
 		restoreEnv("PI_CREW_MOCK_LIVE_SESSION", prevMockLive);
 		restoreEnv("PI_CREW_DEPTH", prevDepth);
+		restoreEnv("PI_CREW_ALLOW_MOCK", prevAllowMock);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", prevMockChild);
 		removeTrackedTempDir(cwd);
 	}

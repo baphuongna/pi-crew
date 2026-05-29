@@ -13,6 +13,7 @@ const agent = { name: "a", description: "", source: "test", filePath: "a", syste
 test("runTeamTask refreshes worker heartbeat while child JSON events stream", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-task-heartbeat-"));
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
@@ -26,7 +27,8 @@ test("runTeamTask refreshes worker heartbeat while child JSON events stream", as
 		assert.notEqual(updated.lastSeenAt, staleHeartbeat.lastSeenAt);
 	} finally {
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

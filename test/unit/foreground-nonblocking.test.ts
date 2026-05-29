@@ -13,6 +13,7 @@ test("foreground run with scheduler waits for completion and returns results", a
 	let scheduled = false;
 	// Use mock child-pi to simulate fast agent completion without real LLM calls
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const toolResult = await handleTeamTool({ action: "run", team: "fast-fix", goal: "test" }, {
@@ -40,7 +41,8 @@ test("foreground run with scheduler waits for completion and returns results", a
 		if (previousMock === undefined) {
 			delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 		} else {
-			process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+			process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		}
 		clearRunPromisesForTest();
 		fs.rmSync(cwd, { recursive: true, force: true });

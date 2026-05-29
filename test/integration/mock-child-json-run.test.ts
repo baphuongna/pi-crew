@@ -12,6 +12,7 @@ test("mocked JSON child Pi output records usage and json event count", async () 
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	try {
 		const run = await handleTeamTool({ action: "run", team: "fast-fix", goal: "JSON execute" }, { cwd });
@@ -25,7 +26,8 @@ test("mocked JSON child Pi output records usage and json event count", async () 
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
 		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
-		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		else process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
