@@ -81,7 +81,7 @@ describe("projectPiCrewJsonPath", () => {
 		}
 	}));
 
-	it("loadConfig allows .pi/pi-crew.json to override agent model profiles", () => withIsolatedGlobalConfig(() => {
+	it("loadConfig sanitizes .pi/pi-crew.json agent overrides for security", () => withIsolatedGlobalConfig(() => {
 		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-test-"));
 		try {
 			const piDir = path.join(tmpDir, ".pi");
@@ -94,10 +94,12 @@ describe("projectPiCrewJsonPath", () => {
 			}));
 
 			const loaded = loadConfig(tmpDir);
-			assert.equal(loaded.config.agents?.overrides?.explorer?.model, "test-model");
-			assert.equal(loaded.config.agents?.overrides?.explorer?.thinking, "low");
+			// SECURITY: agents.overrides should be stripped from project config
+			assert.equal(loaded.config.agents?.overrides, undefined);
+			// UI settings should still be loaded (not sensitive)
 			assert.equal(loaded.config.ui?.powerbar, true);
-			assert.equal(loaded.warnings?.some((w) => w.includes("agents.overrides")), undefined);
+			// SECURITY WARNING: agents.overrides should trigger a warning
+			assert.ok(loaded.warnings?.some((w) => w.includes("agents.overrides")));
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

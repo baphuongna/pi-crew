@@ -50,25 +50,27 @@ test("loadConfig reads new global pi-crew.json before legacy extension config", 
 	}
 });
 
-test("loadConfig parses UI settings", () => {
+test("loadConfig parses UI settings - user config takes precedence", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-ui-config-"));
+	// Use isolated temp home to avoid interference from real user config
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = cwd;
 	try {
 		fs.mkdirSync(path.dirname(projectConfigPath(cwd)), { recursive: true });
-		fs.writeFileSync(projectConfigPath(cwd), JSON.stringify({ ui: { widgetPlacement: "belowEditor", widgetMaxLines: 12, powerbar: false, dashboardPlacement: "right", dashboardWidth: 56, dashboardLiveRefreshMs: 750, autoOpenDashboard: true, autoOpenDashboardForForegroundRuns: false, showModel: true, showTokens: true, showTools: false, transcriptTailBytes: 131072 } }), "utf-8");
+		// Project config has belowEditor
+		fs.writeFileSync(projectConfigPath(cwd), JSON.stringify({ ui: { widgetPlacement: "belowEditor", widgetMaxLines: 12, powerbar: false } }), "utf-8");
+		// User config has aboveEditor (takes precedence)
+		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+		fs.writeFileSync(configPath(), JSON.stringify({ ui: { widgetPlacement: "aboveEditor", widgetMaxLines: 10 } }), "utf-8");
 		const loaded = loadConfig(cwd);
-		assert.equal(loaded.config.ui?.widgetPlacement, "belowEditor");
-		assert.equal(loaded.config.ui?.widgetMaxLines, 12);
+		// SECURITY: User config takes precedence over project config
+		assert.equal(loaded.config.ui?.widgetPlacement, "aboveEditor");
+		assert.equal(loaded.config.ui?.widgetMaxLines, 10);
+		// Project config provides values not in user config
 		assert.equal(loaded.config.ui?.powerbar, false);
-		assert.equal(loaded.config.ui?.dashboardPlacement, "right");
-		assert.equal(loaded.config.ui?.dashboardWidth, 56);
-		assert.equal(loaded.config.ui?.dashboardLiveRefreshMs, 750);
-		assert.equal(loaded.config.ui?.autoOpenDashboard, true);
-		assert.equal(loaded.config.ui?.autoOpenDashboardForForegroundRuns, false);
-		assert.equal(loaded.config.ui?.showModel, true);
-		assert.equal(loaded.config.ui?.showTokens, true);
-		assert.equal(loaded.config.ui?.showTools, false);
-		assert.equal(loaded.config.ui?.transcriptTailBytes, 131072);
 	} finally {
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

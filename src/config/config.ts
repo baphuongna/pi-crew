@@ -1171,6 +1171,10 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 	if (cwd) {
 		const projectPath = projectConfigPath(cwd);
 		const projectConfig = readOptionalConfig(projectPath);
+		// SECURITY FIX: Merge project config FIRST, then user config on top.
+		// This ensures user preferences always take precedence over project settings.
+		// Sensitive fields have already been sanitized by sanitizeProjectConfig.
+		let effectiveConfig = {};
 		if (projectConfig.exists) {
 			const projectSafeConfig = sanitizeProjectConfig(
 				projectPath,
@@ -1181,16 +1185,29 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 				...projectConfig.warnings,
 				...projectSafeConfig.warnings,
 			);
-			config = mergeConfig(config, projectSafeConfig.config);
+			effectiveConfig = mergeConfig(effectiveConfig, projectSafeConfig.config);
 		}
-		// `.pi/pi-crew.json` is the project-owned override file. If present and valid,
-		// it may override all pi-crew config fields, including agents.overrides.
-		// If missing or invalid, it is ignored and defaults/user config remain effective.
+		// User config always takes precedence over project config
+		effectiveConfig = mergeConfig(effectiveConfig, config);
+		config = effectiveConfig;
+
+
+		// `.pi/pi-crew.json` is the project-owned config file.
+		// SECURITY FIX: User config takes precedence over project-level `.pi/pi-crew.json`.
+		// This prevents malicious project configs from overriding user preferences.
 		const piCrewJsonPath = projectPiCrewJsonPath(cwd);
 		const piCrewJsonConfig = readOptionalConfig(piCrewJsonPath);
 		if (piCrewJsonConfig.exists) {
 			warnings.push(...piCrewJsonConfig.warnings);
-			config = mergeConfig(config, piCrewJsonConfig.config);
+			// Merge project config first, then user config on top
+			const projectPart = sanitizeProjectConfig(
+				piCrewJsonPath,
+				config,
+				piCrewJsonConfig.config,
+			);
+			warnings.push(...projectPart.warnings);
+			const mergedProject = mergeConfig(projectPart.config, config);
+			config = mergedProject;
 			paths.push(piCrewJsonPath);
 		}
 	}
