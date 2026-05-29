@@ -107,17 +107,12 @@ export function appendEntry(runId: string, entry: RolloutEntry): RolloutEntry {
 	// Get existing entries to compute coherence
 	const ledger = getLedger(runId);
 
-	// Compute coherence and update the last entry directly
-	// No need to call appendEntry first - overrideLastEntry handles everything
+	// Compute coherence
 	const coherenceMark = computeCoherence(entry, ledger);
 	const entryWithCoherence: RolloutEntry = {
 		...entry,
 		coherenceMark,
 	};
-
-	// Update the last entry with the new coherence mark
-	const lastIndex = ledger.length - 1;
-	ledger[lastIndex] = entryWithCoherence;
 
 	// Append to JSONL file
 	const line = JSON.stringify(entryWithCoherence) + "\n";
