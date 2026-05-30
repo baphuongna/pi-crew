@@ -16,10 +16,10 @@ test("loadConfig merges project config but ignores sensitive project trust-bound
 	try {
 		const userConfig = path.join(tmp, ".pi", "agent", "extensions", "pi-crew", "config.json");
 		fs.mkdirSync(path.dirname(userConfig), { recursive: true });
-		fs.writeFileSync(userConfig, JSON.stringify({ asyncByDefault: true, autonomous: { profile: "suggested", preferAsyncForLongTasks: false }, runtime: { isolationPolicy: { isolatedRoles: ["executor"], defaultRuntime: "child-process" } } }), "utf-8");
+		fs.writeFileSync(userConfig, JSON.stringify({ asyncByDefault: true, autonomous: { profile: "suggested", preferAsyncForLongTasks: false }, runtime: { isolationPolicy: { isolatedRoles: ["executor"], defaultRuntime: "child-process" }, childEnvAllowList: ["CUSTOM_PROVIDER_API_KEY"] } }), "utf-8");
 		const projectConfig = projectConfigPath(tmp);
 		fs.mkdirSync(path.dirname(projectConfig), { recursive: true });
-		fs.writeFileSync(projectConfig, JSON.stringify({ executeWorkers: true, autonomous: { profile: "manual" }, runtime: { isolationPolicy: { isolatedRoles: [], defaultRuntime: "live-session" } } }), "utf-8");
+		fs.writeFileSync(projectConfig, JSON.stringify({ executeWorkers: true, autonomous: { profile: "manual" }, runtime: { isolationPolicy: { isolatedRoles: [], defaultRuntime: "live-session" }, childEnvAllowList: ["PROJECT_SECRET"] } }), "utf-8");
 
 		const loaded = loadConfig(tmp);
 		assert.equal(loaded.config.asyncByDefault, true);
@@ -29,7 +29,9 @@ test("loadConfig merges project config but ignores sensitive project trust-bound
 		assert.ok(loaded.warnings?.some((warning) => warning.includes("autonomous.profile")));
 		assert.equal(loaded.config.autonomous?.preferAsyncForLongTasks, false);
 		assert.deepEqual(loaded.config.runtime?.isolationPolicy, { isolatedRoles: ["executor"], defaultRuntime: "child-process" });
+		assert.deepEqual(loaded.config.runtime?.childEnvAllowList, ["CUSTOM_PROVIDER_API_KEY"]);
 		assert.ok(loaded.warnings?.some((warning) => warning.includes("runtime.isolationPolicy")));
+		assert.ok(loaded.warnings?.some((warning) => warning.includes("runtime.childEnvAllowList")));
 		assert.ok(loaded.paths.includes(projectConfig));
 	} finally {
 		if (oldHome === undefined) delete process.env.HOME;

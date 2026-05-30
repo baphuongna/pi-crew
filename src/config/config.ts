@@ -181,6 +181,7 @@ function sanitizeProjectConfig(
 			"allowChildProcessFallback",
 			"inheritContext",
 			"isolationPolicy",
+			"childEnvAllowList",
 		] as const) {
 			if (runtime[key] !== undefined) {
 				delete runtime[key];
@@ -742,6 +743,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 			obj.effectivenessGuard,
 		),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
+		childEnvAllowList: parseStringList(obj.childEnvAllowList),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined)
 		? runtime

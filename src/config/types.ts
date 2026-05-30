@@ -68,6 +68,8 @@ export interface CrewRuntimeConfig {
 		/** Default runtime for roles not in isolatedRoles. Default: "live-session" (uses live-session). */
 		defaultRuntime?: "live-session" | "child-process";
 	};
+	/** Additional environment variable names/globs to pass to child Pi workers. Sensitive: user config only. */
+	childEnvAllowList?: string[];
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
 	excludeContextBash?: boolean;
 }

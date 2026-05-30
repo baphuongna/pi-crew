@@ -30,6 +30,40 @@ const workflow: WorkflowConfig = {
 	],
 };
 
+test("child Pi spawn options preserve configured extra env vars", () => {
+	const options = buildChildPiSpawnOptions(
+		"/tmp/project",
+		{
+			PATH: process.env.PATH ?? "",
+			CUSTOM_PROVIDER_API_KEY: "provider-secret",
+			AWS_PROFILE: "nsx",
+			UNRELATED_SECRET: "drop-me",
+		},
+		["CUSTOM_PROVIDER_API_KEY", "AWS_PROFILE"],
+	);
+	const env = options.env as Record<string, string>;
+	assert.equal(env.CUSTOM_PROVIDER_API_KEY, "provider-secret");
+	assert.equal(env.AWS_PROFILE, "nsx");
+	assert.equal(env.UNRELATED_SECRET, undefined);
+});
+
+test("child Pi spawn options preserve configured env var globs", () => {
+	const options = buildChildPiSpawnOptions(
+		"/tmp/project",
+		{
+			PATH: process.env.PATH ?? "",
+			MYPROXY_TOKEN: "token-secret",
+			MYPROXY_ENDPOINT: "https://proxy.example",
+			OTHER_TOKEN: "drop-me",
+		},
+		["MYPROXY_*"],
+	);
+	const env = options.env as Record<string, string>;
+	assert.equal(env.MYPROXY_TOKEN, "token-secret");
+	assert.equal(env.MYPROXY_ENDPOINT, "https://proxy.example");
+	assert.equal(env.OTHER_TOKEN, undefined);
+});
+
 test("child Pi spawn options hide Windows console windows", () => {
 	const options = buildChildPiSpawnOptions("/tmp/project", { PATH: process.env.PATH ?? "" });
 	assert.equal(options.windowsHide, true);
