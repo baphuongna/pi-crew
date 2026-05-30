@@ -1,3 +1,48 @@
+// HandoffManager defaults
+const DEFAULT_SUMMARIZE_THRESHOLD = 5000;
+const DEFAULT_HANDOVER_TIMEOUT_MS = 300000; // 5 minutes
+const DEFAULT_CLEANUP_INTERVAL_MS = 60000; // 1 minute
+const MAX_PENDING_HANDOFFS = 1000; // Prevent unbounded growth
+
+/**
+ * Type guard for HandoffSummary structure validation.
+ */
+export function isValidHandoffSummary(value: unknown): value is HandoffSummary {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	const obj = value as Record<string, unknown>;
+
+	// Check required fields
+	if (typeof obj.taskId !== 'string' || !obj.taskId) return false;
+	if (typeof obj.runId !== 'string' || !obj.runId) return false;
+	if (typeof obj.timestamp !== 'number') return false;
+	if (typeof obj.task !== 'string' || !obj.task) return false;
+	if (typeof obj.outcome !== 'string') return false;
+	if (!['success', 'failure', 'partial'].includes(obj.outcome)) return false;
+
+	// Check arrays
+	if (!Array.isArray(obj.filesCreated)) return false;
+	if (!Array.isArray(obj.filesModified)) return false;
+	if (!Array.isArray(obj.filesDeleted)) return false;
+	if (!Array.isArray(obj.decisions)) return false;
+	if (!Array.isArray(obj.blockers)) return false;
+	if (!Array.isArray(obj.nextSteps)) return false;
+
+	// Check metrics object
+	if (!obj.metrics || typeof obj.metrics !== 'object') return false;
+	const metrics = obj.metrics as Record<string, unknown>;
+	if (typeof metrics.tokensUsed !== 'number') return false;
+	if (typeof metrics.duration !== 'number') return false;
+	if (typeof metrics.iterations !== 'number') return false;
+	if (!Array.isArray(metrics.toolsUsed)) return false;
+
+	// Check contextSnapshot
+	if (typeof obj.contextSnapshot !== 'string') return false;
+
+	return true;
+}
+
 /**
  * HandoffManager - Generates structured summaries for agent handoffs.
  * 
@@ -100,6 +145,10 @@ export interface HandoffManagerOptions {
 	enableContextCollapse?: boolean;
 	/** Custom event emitter for handoff events */
 	eventEmitter?: HandoffEventEmitter;
+	/** Timeout for pending handoffs in ms (default: 300000 = 5 minutes) */
+	handoffTimeoutMs?: number;
+	/** Interval for cleanup of old pending handoffs in ms (default: 60000 = 1 minute) */
+	cleanupIntervalMs?: number;
 }
 
 export interface HandoffEventEmitter {
@@ -118,13 +167,70 @@ export interface SummarizeDecision {
 /**
  * HandoffManager generates structured summaries when agents complete tasks,
  * enabling efficient context passing to subsequent agents.
+ * 
+ * H1: Includes memory management to prevent unbounded growth of pendingHandoffs Map.
  */
 export class HandoffManager {
 	private pendingHandoffs = new Map<string, HandoffSummary>();
 	private options: HandoffManagerOptions;
+	private handoffTimestamps = new Map<string, number>(); // Track when handoffs were added
+	private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+	private disposed = false;
 
 	constructor(options: HandoffManagerOptions = {}) {
-		this.options = options;
+		this.options = {
+			defaultSummarizeThreshold: DEFAULT_SUMMARIZE_THRESHOLD,
+			handoffTimeoutMs: DEFAULT_HANDOVER_TIMEOUT_MS,
+			cleanupIntervalMs: DEFAULT_CLEANUP_INTERVAL_MS,
+			...options,
+		};
+
+		// Start cleanup timer
+		this.startCleanupTimer();
+	}
+
+	/**
+	 * Start the periodic cleanup timer for stale pending handoffs.
+	 * H1: Prevents memory leak by clearing old entries.
+	 */
+	private startCleanupTimer(): void {
+		if (this.cleanupTimer) {
+			return;
+		}
+		this.cleanupTimer = setInterval(() => {
+			this.cleanupStaleHandoffs();
+		}, this.options.cleanupIntervalMs);
+	}
+
+	/**
+	 * Clean up stale pending handoffs that have exceeded the timeout.
+	 * H1: Prevents memory leak by removing old entries.
+	 */
+	private cleanupStaleHandoffs(): void {
+		if (this.disposed) return;
+
+		const now = Date.now();
+		const timeout = this.options.handoffTimeoutMs ?? DEFAULT_HANDOVER_TIMEOUT_MS;
+		const cutoff = now - timeout;
+
+		for (const [sessionId, timestamp] of this.handoffTimestamps.entries()) {
+			if (timestamp < cutoff) {
+				this.pendingHandoffs.delete(sessionId);
+				this.handoffTimestamps.delete(sessionId);
+			}
+		}
+
+		// Also enforce max handoffs limit
+		if (this.pendingHandoffs.size > MAX_PENDING_HANDOFFS) {
+			// Remove oldest entries
+			const sortedEntries = [...this.handoffTimestamps.entries()]
+				.sort((a, b) => a[1] - b[1]);
+			const toRemove = sortedEntries.slice(0, sortedEntries.length - MAX_PENDING_HANDOFFS);
+			for (const [sessionId] of toRemove) {
+				this.pendingHandoffs.delete(sessionId);
+				this.handoffTimestamps.delete(sessionId);
+			}
+		}
 	}
 
 	/**
@@ -135,6 +241,10 @@ export class HandoffManager {
 	 * @param result - The task result
 	 */
 	async onAgentEnd(packet: TaskPacket, result: TaskResult): Promise<HandoffSummary | null> {
+		if (this.disposed) {
+			return null;
+		}
+
 		// Check if summarization is needed
 		if (!this.shouldSummarize(packet, result).shouldSummarize) {
 			return null;
@@ -143,9 +253,19 @@ export class HandoffManager {
 		// Generate handoff summary
 		const summary = await this.generateSummary(packet, result);
 
+		// H7: Validate generated summary structure
+		if (!isValidHandoffSummary(summary)) {
+			this.options.eventEmitter?.emit("handoff:validation_failed", {
+				packet,
+				error: "Generated summary failed structure validation",
+			});
+			return null;
+		}
+
 		// Store pending handoff for tree navigation
 		if (packet.sessionId) {
 			this.pendingHandoffs.set(packet.sessionId, summary);
+			this.handoffTimestamps.set(packet.sessionId, Date.now());
 		}
 
 		// Emit handoff event
@@ -168,11 +288,16 @@ export class HandoffManager {
 	 * @param targetId - The target tree node ID
 	 */
 	async onBeforeTreeNavigation(sessionId: string, targetId: string): Promise<HandoffSummary | null> {
+		if (this.disposed) {
+			return null;
+		}
+
 		const pendingHandoff = this.pendingHandoffs.get(sessionId);
 
 		if (pendingHandoff) {
 			// Clear the pending handoff after injection
 			this.pendingHandoffs.delete(sessionId);
+			this.handoffTimestamps.delete(sessionId);
 			return pendingHandoff;
 		}
 
@@ -181,9 +306,28 @@ export class HandoffManager {
 
 	/**
 	 * Check if summarization should be performed.
+	 * H7: Validates input parameters before generating summary.
 	 */
 	shouldSummarize(packet: TaskPacket, result: TaskResult): SummarizeDecision {
-		const threshold = packet.summarizeThreshold ?? this.options.defaultSummarizeThreshold ?? 5000;
+		// H7: Validate packet structure
+		if (!packet || typeof packet.taskId !== 'string' || !packet.taskId) {
+			return {
+				shouldSummarize: false,
+				reason: 'Invalid task packet structure',
+				tokenCount: 0,
+			};
+		}
+
+		// H7: Validate result structure
+		if (!result || typeof result.outcome !== 'string') {
+			return {
+				shouldSummarize: false,
+				reason: 'Invalid task result structure',
+				tokenCount: 0,
+			};
+		}
+
+		const threshold = packet.summarizeThreshold ?? this.options.defaultSummarizeThreshold ?? DEFAULT_SUMMARIZE_THRESHOLD;
 		const tokenCount = result.usage?.totalTokens ?? 0;
 
 		// Summarize if:
@@ -316,6 +460,24 @@ export class HandoffManager {
 	 */
 	clearPendingHandoff(sessionId: string): void {
 		this.pendingHandoffs.delete(sessionId);
+		this.handoffTimestamps.delete(sessionId);
+	}
+
+	/**
+	 * Clear all pending handoffs.
+	 * H1: Manual cleanup method for memory management.
+	 */
+	clearAllPendingHandoffs(): void {
+		this.pendingHandoffs.clear();
+		this.handoffTimestamps.clear();
+	}
+
+	/**
+	 * Get the count of pending handoffs.
+	 * Useful for monitoring and debugging.
+	 */
+	getPendingCount(): number {
+		return this.pendingHandoffs.size;
 	}
 
 	/**
@@ -383,6 +545,29 @@ export class HandoffManager {
 		}
 
 		return parts.join("\n");
+	}
+
+	/**
+	 * H8: Dispose of resources. Call when manager is no longer needed.
+	 * Clears all pending handoffs and stops cleanup timer.
+	 */
+	dispose(): void {
+		this.disposed = true;
+
+		if (this.cleanupTimer) {
+			clearInterval(this.cleanupTimer);
+			this.cleanupTimer = null;
+		}
+
+		this.pendingHandoffs.clear();
+		this.handoffTimestamps.clear();
+	}
+
+	/**
+	 * Check if the manager has been disposed.
+	 */
+	isDisposed(): boolean {
+		return this.disposed;
 	}
 }
 

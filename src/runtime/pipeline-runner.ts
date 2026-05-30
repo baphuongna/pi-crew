@@ -135,7 +135,7 @@ export class PipelineRunner {
 					runId,
 				};
 
-			// Resolve inputs
+				// Resolve inputs
 				const inputs = this.resolveInputs(stage.inputs, previousResults, context);
 
 				// Execute stage (handle fan-out if enabled)
@@ -283,6 +283,8 @@ export class PipelineRunner {
 	 * - ${previous[0]} -> previousResults[0]
 	 * - ${context.key} -> context.key
 	 * - ${args.x} -> context.args.x
+	 * 
+	 * C5: Validates template inputs to prevent injection.
 	 */
 	private resolveInputs(
 		inputs: unknown,
@@ -291,7 +293,10 @@ export class PipelineRunner {
 	): unknown {
 		// If inputs is an array, resolve each element
 		if (Array.isArray(inputs)) {
-			return inputs.map((input) => this.resolveInputs(input, previousResults, context));
+			// H4: Type safety - limit array size to prevent memory issues
+			const maxItems = 10000;
+			const limitedInputs = inputs.length > maxItems ? inputs.slice(0, maxItems) : inputs;
+			return limitedInputs.map((input) => this.resolveInputs(input, previousResults, context));
 		}
 
 		// If inputs is a string, check for template patterns
@@ -303,7 +308,10 @@ export class PipelineRunner {
 		if (typeof inputs === "object" && inputs !== null) {
 			const resolved: Record<string, unknown> = {};
 			for (const [key, value] of Object.entries(inputs)) {
-				resolved[key] = this.resolveInputs(value as string | string[] | Record<string, unknown>, previousResults, context);
+				// C5: Validate key to prevent prototype pollution
+				if (this.isValidObjectKey(key)) {
+					resolved[key] = this.resolveInputs(value as string | string[] | Record<string, unknown>, previousResults, context);
+				}
 			}
 			return resolved;
 		}
@@ -313,45 +321,112 @@ export class PipelineRunner {
 	}
 
 	/**
+	 * C5: Validate object key to prevent prototype pollution and injection.
+	 */
+	private isValidObjectKey(key: string): boolean {
+		// Reject dangerous keys
+		const dangerousKeys = [
+			'__proto__',
+			'constructor',
+			'prototype',
+			'__defineGetter__',
+			'__defineSetter__',
+			'__lookupGetter__',
+			'__lookupSetter__',
+		];
+		if (dangerousKeys.includes(key)) {
+			return false;
+		}
+		// Reject keys with null bytes or control characters
+		if (/[\x00-\x1F\x7F]/.test(key)) {
+			return false;
+		}
+		// Reject overly long keys
+		if (key.length > 256) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * C5: Validate nested path (e.g., "nested.deep.value") to prevent injection.
+	 * Each part is validated individually.
+	 */
+	private isValidNestedPath(path: string): boolean {
+		// Reject empty paths
+		if (!path || path.length === 0) {
+			return false;
+		}
+		// Reject overly long paths
+		if (path.length > 512) {
+			return false;
+		}
+		// Reject paths with empty segments
+		if (path.includes('..')) {
+			return false;
+		}
+		// Validate each path segment
+		const parts = path.split('.');
+		for (const part of parts) {
+			if (!this.isValidObjectKey(part)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
 	 * Resolve a single template string.
+	 * C5: Validates template inputs to prevent injection.
 	 */
 	private resolveTemplate(
 		template: string,
 		previousResults: unknown[],
 		context: Record<string, unknown>,
 	): unknown {
+		// C5: Validate template length to prevent DoS
+		if (template.length > 10000) {
+			return template;
+		}
+
 		// Check for ${previous} pattern
 		const previousMatch = template.match(/^\$\{previous\}$/);
 		if (previousMatch) {
 			return previousResults;
 		}
 
-		// Check for ${previous[N]} pattern
+		// Check for ${previous[N]} pattern with bounds checking
 		const previousIndexMatch = template.match(/^\$\{previous\[(\d+)\]\}$/);
 		if (previousIndexMatch) {
 			const index = parseInt(previousIndexMatch[1], 10);
-			// Handle both array and single-value previousResults
-			if (Array.isArray(previousResults)) {
+			// H4: Type safety - validate index bounds
+			if (index >= 0 && index < previousResults.length) {
 				return previousResults[index];
-			} else if (index === 0) {
-				return previousResults;
 			}
 			return undefined;
 		}
 
-		// Check for ${context.key} pattern
-		const contextMatch = template.match(/^\$\{context\.([^}]+)\}$/);
+		// Check for ${context.key} pattern with sanitized key extraction
+		const contextMatch = template.match(/^\$\{context\.([a-zA-Z_][a-zA-Z0-9_.]*)\}$/);
 		if (contextMatch) {
 			const key = contextMatch[1];
-			return this.getNestedValue(context, key);
+			// C5: Validate the full path (each part validated in getNestedValue)
+			if (this.isValidNestedPath(key)) {
+				return this.getNestedValue(context, key);
+			}
+			return undefined;
 		}
 
-		// Check for ${args.key} pattern
-		const argsMatch = template.match(/^\$\{args\.([^}]+)\}$/);
+		// Check for ${args.key} pattern with sanitized key extraction
+		const argsMatch = template.match(/^\$\{args\.([a-zA-Z_][a-zA-Z0-9_.]*)\}$/);
 		if (argsMatch) {
 			const key = argsMatch[1];
-			const args = (context.args as Record<string, unknown>) ?? {};
-			return this.getNestedValue(args, key);
+			// C5: Validate the full path (each part validated in getNestedValue)
+			if (this.isValidNestedPath(key)) {
+				const args = (context.args as Record<string, unknown>) ?? {};
+				return this.getNestedValue(args, key);
+			}
+			return undefined;
 		}
 
 		// No pattern matched - return template as-is
@@ -360,12 +435,17 @@ export class PipelineRunner {
 
 	/**
 	 * Get nested value from object using dot notation.
+	 * H4: Type safety - validates path and prevents prototype pollution.
 	 */
 	private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 		const parts = path.split(".");
 		let current: unknown = obj;
 
 		for (const part of parts) {
+			// H4: Validate each path part
+			if (!this.isValidObjectKey(part)) {
+				return undefined;
+			}
 			if (current === null || current === undefined) {
 				return undefined;
 			}

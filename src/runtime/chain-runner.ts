@@ -98,6 +98,9 @@ export interface ChainTaskRunner {
  * ChainRunner executes sequential chains with context passing.
  */
 export class ChainRunner {
+	/** Maximum number of chain history entries to prevent memory leaks */
+	private static readonly MAX_CHAIN_HISTORY_SIZE = 100;
+
 	constructor(
 		private taskRunner: ChainTaskRunner,
 		private handoffManager: HandoffManager,
@@ -260,54 +263,65 @@ export class ChainRunner {
 
 	/**
 	 * Parse a single step from the chain string.
+	 * Includes type safety checks for ChainStep parsing (H3).
 	 */
 	private parseStep(step: string, index: number): ChainStep {
 		// Parse team reference: @teamName
-		const teamMatch = step.match(/^@(\w+)/);
+		const teamMatch = step.match(/^@([a-zA-Z][a-zA-Z0-9_]*)/);
 
 		// Parse workflow reference: workflow:name
-		const workflowMatch = step.match(/^workflow:(\w+)/);
+		const workflowMatch = step.match(/^workflow:([a-zA-Z][a-zA-Z0-9_]*)/);
 
 		// Parse template reference: template:name
-		const templateMatch = step.match(/^template:(\w+)/);
+		const templateMatch = step.match(/^template:([a-zA-Z][a-zA-Z0-9_]*)/);
 
 		// Parse inline goal: "goal description" (can follow other patterns)
-		const inlineMatch = step.match(/"([^"]+)"/);
+		const inlineMatch = step.match(/"([^"]{1,10000})"/);
 
-		const name = step.split(/\s+/)[0] || `step-${index}`;
+		const nameParts = step.split(/\s+/);
+		const name = (nameParts[0] && nameParts[0].length > 0 && nameParts[0].length <= 100)
+			? nameParts[0]
+			: `step-${index}`;
 
 		const parsed: ChainStep = {
 			name,
 		};
 
-		// Set step type based on matching pattern
-		// Multiple patterns can match (e.g., @team with inline goal)
-		if (teamMatch) {
-			parsed.team = teamMatch[1];
+		// Set step type based on matching pattern with type safety
+		if (teamMatch && teamMatch[1]) {
+			parsed.team = this.sanitizeIdentifier(teamMatch[1]);
 		}
-		if (workflowMatch) {
-			parsed.workflow = workflowMatch[1];
+		if (workflowMatch && workflowMatch[1]) {
+			parsed.workflow = this.sanitizeIdentifier(workflowMatch[1]);
 		}
-		if (templateMatch) {
-			parsed.template = templateMatch[1];
+		if (templateMatch && templateMatch[1]) {
+			parsed.template = this.sanitizeIdentifier(templateMatch[1]);
 		}
-		if (inlineMatch) {
-			parsed.inlineGoal = inlineMatch[1];
+		if (inlineMatch && inlineMatch[1]) {
+			parsed.inlineGoal = this.sanitizeInlineGoal(inlineMatch[1]);
 		}
 
-		// Parse per-step overrides
-		parsed.model = this.extractFlag(step, "model");
-		parsed.skill = this.extractFlag(step, "skill");
+		// Parse per-step overrides with type safety
+		const modelVal = this.extractFlag(step, "model");
+		if (modelVal && this.isValidModelName(modelVal)) {
+			parsed.model = modelVal;
+		}
+
+		const skillVal = this.extractFlag(step, "skill");
+		if (skillVal && this.isValidIdentifier(skillVal)) {
+			parsed.skill = skillVal;
+		}
+
 		const thinkingVal = this.extractFlag(step, "thinking");
-		if (thinkingVal && ["fast", "standard", "deep"].includes(thinkingVal)) {
-			parsed.thinking = thinkingVal as "fast" | "standard" | "deep";
+		if (thinkingVal && this.isValidThinkingMode(thinkingVal)) {
+			parsed.thinking = thinkingVal;
 		}
 
 		// Parse step timeout
 		const timeoutStr = this.extractFlag(step, "timeout");
 		if (timeoutStr) {
 			const timeoutMs = parseInt(timeoutStr, 10);
-			if (!isNaN(timeoutMs)) {
+			if (!isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs <= 86400000) {
 				parsed.timeout = timeoutMs * 1000; // Convert seconds to ms
 			}
 		}
@@ -321,24 +335,65 @@ export class ChainRunner {
 	}
 
 	/**
+	 * Sanitize identifier to prevent injection.
+	 */
+	private sanitizeIdentifier(value: string): string {
+		return value.replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 100);
+	}
+
+	/**
+	 * Sanitize inline goal to prevent injection.
+	 */
+	private sanitizeInlineGoal(value: string): string {
+		// Remove control characters and limit length
+		return value.replace(/[\x00-\x1F\x7F]/g, '').substring(0, 10000);
+	}
+
+	/**
+	 * Validate model name format.
+	 */
+	private isValidModelName(value: string): boolean {
+		return /^[a-zA-Z][a-zA-Z0-9_-]{0,50}$/.test(value);
+	}
+
+	/**
+	 * Validate identifier format.
+	 */
+	private isValidIdentifier(value: string): boolean {
+		return /^[a-zA-Z][a-zA-Z0-9_]{0,50}$/.test(value);
+	}
+
+	/**
+	 * Validate thinking mode value.
+	 */
+	private isValidThinkingMode(value: string): value is "fast" | "standard" | "deep" {
+		return ["fast", "standard", "deep"].includes(value);
+	}
+
+	/**
 	 * Extract a flag from step string.
+	 * Uses escaped flag name to prevent regex injection.
 	 */
 	private extractFlag(input: string, flag: string): string | undefined {
-		const match = input.match(new RegExp(`--${flag}\\s+(\\S+)`));
+		// Escape regex special characters in flag name to prevent injection
+		const escapedFlag = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const match = input.match(new RegExp(`--${escapedFlag}\\s+(\\S+)`));
 		return match?.[1];
 	}
 
 	/**
 	 * Extract a global flag from the chain string.
 	 * Global flags can appear anywhere in the chain string.
+	 * Uses escaped flag name to prevent regex injection.
 	 */
 	private extractGlobalFlag(input: string, flag: string): string | undefined {
-		// Use explicit regex construction with string concatenation
-		const patternEq = '--' + flag + '=\\s*(\\S+)';
+		// Escape regex special characters in flag name to prevent injection
+		const escapedFlag = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const patternEq = '--' + escapedFlag + '=\\s*(\\S+)';
 		const match = input.match(new RegExp(patternEq, 'i'));
 		if (match) return match[1];
 
-		const patternNoEq = '--' + flag + '\\s+(\\S+)';
+		const patternNoEq = '--' + escapedFlag + '\\s+(\\S+)';
 		const matchNoEq = input.match(new RegExp(patternNoEq, 'i'));
 		if (matchNoEq) return matchNoEq[1];
 
@@ -359,6 +414,7 @@ export class ChainRunner {
 
 	/**
 	 * Enrich context with previous handoffs.
+	 * Limits history size to prevent memory leaks.
 	 */
 	private enrichContextFromHandoffs(
 		context: Record<string, unknown>,
@@ -372,9 +428,12 @@ export class ChainRunner {
 			return context;
 		}
 
+		// Limit history size to prevent memory leak (H2)
+		const limitedHandoffs = handoffs.slice(-ChainRunner.MAX_CHAIN_HISTORY_SIZE);
+
 		return {
 			...context,
-			__chainHistory: handoffs.map(h => ({
+			__chainHistory: limitedHandoffs.map(h => ({
 				step: h.taskId,
 				outcome: h.outcome,
 				filesCreated: h.filesCreated,

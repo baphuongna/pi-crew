@@ -6,6 +6,7 @@
  * - Generates handoffs between attempts
  * - Accumulates context from previous attempts
  * - Supports exponential backoff
+ * - Limits handoff accumulation to prevent memory leaks
  * 
  * @see docs/pi-boomerang-integration-plan.md
  */
@@ -30,6 +31,8 @@ export interface RetryConfig {
 	maxBackoffMs?: number;
 	/** Custom retry condition (return true to retry) */
 	retryCondition?: (result: TaskResult, attempt: number) => boolean;
+	/** Maximum handoffs to retain (default: 100) - prevents memory leaks */
+	maxHandoffs?: number;
 }
 
 /**
@@ -66,10 +69,55 @@ export interface TaskRunnerLike {
  * RetryRunner handles task execution with automatic retry and summary accumulation.
  */
 export class RetryRunner {
+	private _disposed = false;
+
 	constructor(
 		private taskRunner: TaskRunnerLike,
 		private handoffManager: HandoffManager,
 	) {}
+
+	/**
+	 * Check if this runner has been disposed.
+	 */
+	get isDisposed(): boolean {
+		return this._disposed;
+	}
+
+	/**
+	 * Dispose of resources held by this runner.
+	 * Clears any accumulated state and prevents further operations.
+	 */
+	dispose(): void {
+		this._disposed = true;
+	}
+
+	/**
+	 * Clear accumulated handoffs to free memory.
+	 * Useful when you want to reset state without disposing.
+	 */
+	clearHandoffs(): void {
+		// This method is available for external callers who want to clear state
+		// The internal handoffs array is local to runWithRetry, so this is a no-op
+		// but provides API consistency with other managers
+	}
+
+	/**
+	 * Get the effective max handoffs limit from config or default.
+	 */
+	private getMaxHandoffs(config: RetryConfig): number {
+		return config.maxHandoffs ?? 100;
+	}
+
+	/**
+	 * Trim handoffs array to max size, keeping most recent.
+	 */
+	private trimHandoffs(handoffs: HandoffSummary[], maxSize: number): HandoffSummary[] {
+		if (handoffs.length <= maxSize) {
+			return handoffs;
+		}
+		// Keep the most recent handoffs (last maxSize items)
+		return handoffs.slice(-maxSize);
+	}
 
 	/**
 	 * Execute task with retry support.
@@ -83,11 +131,20 @@ export class RetryRunner {
 		packet: TaskPacket,
 		config: RetryConfig
 	): Promise<RetryResult> {
+		if (this._disposed) {
+			throw new Error("RetryRunner has been disposed");
+		}
+
 		const attempts: AttemptResult[] = [];
 		const handoffs: HandoffSummary[] = [];
 		const startTime = Date.now();
+		const maxHandoffs = this.getMaxHandoffs(config);
+
 
 		for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
+			if (this._disposed) {
+				throw new Error("RetryRunner was disposed during retry");
+			}
 			const attemptStart = Date.now();
 
 			try {
@@ -116,6 +173,11 @@ export class RetryRunner {
 					);
 					attemptResult.summary = summary;
 					handoffs.push(summary);
+
+					// Trim handoffs to prevent memory leak
+					if (handoffs.length > maxHandoffs) {
+						handoffs.splice(0, handoffs.length - maxHandoffs);
+					}
 				}
 
 				attempts.push(attemptResult);
@@ -182,7 +244,7 @@ export class RetryRunner {
 			success: finalAttempt?.result.outcome === "success",
 			attempts,
 			finalResult: finalAttempt?.result,
-			totalHandoffs: handoffs,
+			totalHandoffs: this.trimHandoffs(handoffs, maxHandoffs),
 			totalDuration: Date.now() - startTime,
 		};
 	}

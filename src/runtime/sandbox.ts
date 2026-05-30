@@ -1,5 +1,44 @@
 import * as vm from "node:vm";
 
+/**
+ * Forbidden patterns for sandbox security (C4).
+ * These are checked during script compilation/validation.
+ */
+const FORBIDDEN_PATTERNS = [
+	// ESM patterns
+	/import\s*\(/,                    // Dynamic import()
+	/import\s+.*from\s+/,            // Static import
+	/export\s+(default\s+)?/,         // Export statements
+	/import\.meta/,                   // import.meta
+	// Module patterns
+	/require\s*\(/,                   // CommonJS require
+	/module\./,                        // module.exports, module.id, etc.
+	/__dirname/,                       // __dirname reference
+	/__filename/,                      // __filename reference
+	/\bdefine\s*\(/,                  // AMD define
+] as const;
+
+/**
+ * Whitelist of allowed identifiers for strict mode.
+ * Only these identifiers can be used in sandboxed code.
+ */
+const ALLOWED_IDENTIFIERS = new Set([
+	// Built-in constructors
+	"Array", "Boolean", "Date", "Error", "Function", "JSON", "Map", "Number", "Object", "Promise", "RegExp", "Set", "String", "Symbol",
+	// Static methods
+	"ArrayBuffer", "Uint8Array", "parseInt", "parseFloat", "isNaN", "isFinite",
+	// URI encoding
+	"encodeURI", "decodeURI", "encodeURIComponent", "decodeURIComponent",
+	// Math (read-only)
+	"Math",
+	// Console (safe methods only)
+	"console",
+	// Process (limited)
+	"process",
+]);
+
+Object.freeze(FORBIDDEN_PATTERNS);
+
 export interface SandboxOptions {
 	timeout?: number;
 	globals?: Record<string, unknown>;
@@ -23,15 +62,16 @@ export class WorkflowSandbox {
 	}
 
 	private createSafeContext(globals: Record<string, unknown>, options: SandboxOptions): vm.Context {
-		// Frozen process object - limited access to process internals
+		// C4: Frozen process object - limited access to process internals
 		const frozenProcess = {
 			cwd: () => process.cwd(),
 			platform: process.platform,
 			arch: process.arch,
 			version: process.version,
 			env: { ...process.env }, // Copy, not reference
-			// Explicitly excluded: exit, kill, hrtime, memoryUsage, cpuUsage, etc.
+			// Explicitly excluded: exit, kill, hrtime, memoryUsage, cpuUsage, binding, dlopen, _tickCallback
 		};
+		Object.freeze(frozenProcess);
 
 		// Safe console implementation
 		const safeConsole = {
@@ -44,8 +84,19 @@ export class WorkflowSandbox {
 			dir: (data: unknown) => (options.onLog ?? console.log)(JSON.stringify(data, null, 2)),
 		};
 
-		return vm.createContext({
-			...globals,
+		// C4: Ensure globals don't include process, global, or globalThis references
+		const safeGlobals: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(globals)) {
+			// Filter out dangerous global references
+			if (key === "process" || key === "global" || key === "globalThis" || key === "GLOBAL") {
+				continue; // Skip - these are handled by frozenProcess or intentionally omitted
+			}
+			safeGlobals[key] = value;
+		}
+
+		// Context isolation - explicitly list allowed globals
+		const contextGlobals: Record<string, unknown> = {
+			...safeGlobals,
 			process: frozenProcess,
 			console: safeConsole,
 			// Safe Math (static methods only)
@@ -87,6 +138,32 @@ export class WorkflowSandbox {
 			// Safe typed arrays (read-only buffer views)
 			ArrayBuffer: ArrayBuffer,
 			Uint8Array: Uint8Array,
+		};
+
+		return vm.createContext(contextGlobals);
+	}
+
+	/**
+	 * C4: Validate code before execution - check for forbidden patterns and
+	 * ensure compilation is safe.
+	 */
+	private validateScript(code: string): void {
+		// Check for ESM/module patterns
+		for (const pattern of FORBIDDEN_PATTERNS) {
+			if (pattern.test(code)) {
+				throw new Error(`Forbidden pattern detected: ${pattern.source}`);
+			}
+		}
+
+		// Check for import.meta specifically (C4)
+		if (/import\.meta/.test(code)) {
+			throw new Error("import.meta is not allowed in sandboxed code");
+		}
+
+		// Verify compilation succeeds (C4)
+		const wrappedCode = `(function(){ ${code} })()`;
+		new vm.Script(wrappedCode, {
+			filename: "sandbox-validate.js",
 		});
 	}
 
@@ -95,8 +172,12 @@ export class WorkflowSandbox {
 	 * @param code - The JavaScript code to execute
 	 * @param timeout - Optional timeout override in milliseconds
 	 * @returns The result of the script execution
+	 * @throws Error if code contains forbidden patterns or fails compilation
 	 */
 	execute(code: string, timeout?: number): unknown {
+		// C4: Validate script before execution
+		this.validateScript(code);
+
 		const effectiveTimeout = timeout ?? this.timeout;
 		// Wrap code in an IIFE to allow return statements
 		const wrappedCode = `(function(){ ${code} })()`;

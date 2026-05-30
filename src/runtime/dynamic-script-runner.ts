@@ -1,4 +1,5 @@
 import * as vm from "node:vm";
+import * as acorn from "acorn";
 import { WorkflowSandbox, type SandboxOptions } from "./sandbox.ts";
 
 /**
@@ -70,6 +71,8 @@ export interface DynamicScriptOptions {
 	allowAwait?: boolean;
 	allowAsync?: boolean;
 	strictMode?: boolean;
+	/** Enable strict AST whitelist mode (C2) - reject dynamic property access, call expressions */
+	strictAstWhitelist?: boolean;
 }
 
 export interface ScriptExecutionResult {
@@ -101,18 +104,21 @@ export class DynamicScriptRunner {
 	}
 
 	/**
-	 * Validate script before execution.
-	 * Performs basic pattern checking for forbidden globals.
-	 * Note: Full AST parsing requires acorn dependency.
+	 * Validate script before execution using full AST parsing (C1).
+	 * Uses acorn for comprehensive syntax tree analysis.
 	 */
 	validate(code: string): ScriptValidationResult {
 		const errors: ScriptValidationError[] = [];
 		const warnings: ScriptValidationWarning[] = [];
 
-		// Check for parse errors by attempting to execute with a return wrapper
+		// C1: Full AST parsing with acorn for complete validation
+		let ast: acorn.Node | null = null;
 		try {
-			new vm.Script(`(function(){ ${code} })()`, {
-				filename: "validation.js",
+			ast = acorn.parse(code, {
+				ecmaVersion: "latest",
+				sourceType: "script",
+				allowReturnOutsideFunction: true,
+				allowAwaitOutsideFunction: this.options.allowAwait ?? false,
 			});
 		} catch (parseError) {
 			errors.push({
@@ -122,7 +128,15 @@ export class DynamicScriptRunner {
 			return { valid: false, errors, warnings };
 		}
 
-		// Check for forbidden globals using regex patterns
+		// C2: Strict AST whitelist mode - reject dynamic property access and call expressions
+		if (this.options.strictAstWhitelist) {
+			this.validateAstWhitelist(ast, errors);
+		}
+
+		// C4: Bytecode compilation verification - verify script compiles correctly
+		this.verifyCompilation(code, errors);
+
+		// Check for forbidden globals using regex patterns (fallback)
 		this.checkForForbiddenGlobals(code, errors);
 
 		// Check for forbidden syntax patterns
@@ -136,6 +150,107 @@ export class DynamicScriptRunner {
 			errors,
 			warnings,
 		};
+	}
+
+	/**
+	 * C2: Validate AST against strict whitelist - reject dynamic property access,
+	 * call expressions, and other potentially dangerous patterns.
+	 */
+	private validateAstWhitelist(
+		ast: acorn.Node,
+		errors: ScriptValidationError[],
+	): void {
+		const walkNode = (node: acorn.Node): void => {
+			const n = node as acorn.Node & { type: string };
+
+			// Reject MemberExpression (e.g., obj.prop, obj[key])
+			if (n.type === "MemberExpression") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "Dynamic property access is not allowed in strict whitelist mode",
+				});
+			}
+
+			// Reject CallExpression (e.g., fn(), obj.method())
+			if (n.type === "CallExpression") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "Call expressions are not allowed in strict whitelist mode",
+				});
+			}
+
+			// Reject NewExpression (e.g., new Foo())
+			if (n.type === "NewExpression") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "Constructor calls are not allowed in strict whitelist mode",
+				});
+			}
+
+			// Reject UpdateExpression (++a, a--, etc.)
+			if (n.type === "UpdateExpression") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "Update expressions are not allowed in strict whitelist mode",
+				});
+			}
+
+			// Reject AssignmentExpression (a = b, a += b, etc.)
+			if (n.type === "AssignmentExpression") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "Assignment expressions are not allowed in strict whitelist mode",
+				});
+			}
+
+			// Reject ForInStatement and ForOfStatement
+			if (n.type === "ForInStatement" || n.type === "ForOfStatement") {
+				errors.push({
+					type: "forbidden_syntax",
+					message: "For-in/for-of loops are not allowed in strict whitelist mode",
+				});
+			}
+
+			// Recurse into children
+			for (const key of Object.keys(n as object)) {
+				const value = (n as unknown as Record<string, unknown>)[key];
+				if (value && typeof value === "object") {
+					if (Array.isArray(value)) {
+						for (const child of value) {
+							if (child && typeof child === "object" && "type" in child) {
+								walkNode(child as acorn.Node);
+							}
+						}
+					} else if ("type" in value) {
+						walkNode(value as acorn.Node);
+					}
+				}
+			}
+		};
+
+		// Cast to access body property (Program node)
+		const programNode = ast as unknown as { body: acorn.Node[] };
+		for (const node of programNode.body) {
+			walkNode(node);
+		}
+	}
+
+	/**
+	 * C4: Verify script compiles to bytecode correctly. If compilation fails,
+	 * the script cannot be executed safely.
+	 */
+	private verifyCompilation(code: string, errors: ScriptValidationError[]): void {
+		try {
+			const wrappedCode = `(function(){ ${code} })()`;
+			new vm.Script(wrappedCode, {
+				filename: "compile-check.js",
+			});
+		} catch (compileError) {
+			errors.push({
+				type: "parse_error",
+				message: `Compilation verification failed: ${compileError instanceof Error ? compileError.message : String(compileError)}`,
+			});
+		}
 	}
 
 	private checkForForbiddenGlobals(code: string, errors: ScriptValidationError[]): void {

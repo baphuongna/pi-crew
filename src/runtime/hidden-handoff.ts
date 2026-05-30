@@ -106,6 +106,10 @@ export class HiddenHandoffService {
 	private eventEmitter: HiddenHandoffEventEmitter | null = null;
 	private getParentAgentIdFn: (() => string) | null = null;
 	private enabled = true;
+	// C7: Track rate limiting per recipient
+	private sendTimestamps = new Map<string, number[]>();
+	private readonly RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+	private readonly RATE_LIMIT_MAX_SENDS = 10; // Max handoffs per window
 
 	constructor(options: HiddenHandoffServiceOptions = {}) {
 		if (options.mailbox) {
@@ -170,13 +174,31 @@ export class HiddenHandoffService {
 
 		const priority = options.priority ?? this.inferPriority(summary);
 		const content = this.buildContent(summary);
-		const recipient = options.to ?? this.getParentAgentId();
+		let recipient = options.to ?? this.getParentAgentId();
 
 		if (!recipient) {
 			// No parent to send to, but we still emit the event
 			this.eventEmitter?.emit("handoff:sent_no_recipient", {
 				summary,
 				priority,
+			});
+			return;
+		}
+
+		// C7: Validate recipient is a reasonable agent ID
+		if (!this.isValidRecipient(recipient)) {
+			this.eventEmitter?.emit("handoff:invalid_recipient", {
+				recipient,
+				summary,
+			});
+			return;
+		}
+
+		// C7: Check rate limit
+		if (this.isRateLimited(recipient)) {
+			this.eventEmitter?.emit("handoff:rate_limited", {
+				recipient,
+				summary,
 			});
 			return;
 		}
@@ -196,6 +218,9 @@ export class HiddenHandoffService {
 		if (this.mailbox) {
 			this.mailbox.send(recipient, message);
 		}
+
+		// C7: Record send for rate limiting
+		this.recordSend(recipient);
 
 		this.eventEmitter?.emit("handoff:sent", {
 			summary,
@@ -305,6 +330,56 @@ export class HiddenHandoffService {
 			return (ctx as Record<string, unknown>).parentAgentId as string | undefined;
 		}
 		return undefined;
+	}
+
+	/**
+	 * C7: Validate recipient is a reasonable agent ID.
+	 */
+	private isValidRecipient(recipient: string): boolean {
+		if (!recipient || typeof recipient !== "string") {
+			return false;
+		}
+		// Reasonable length for an agent ID
+		if (recipient.length < 1 || recipient.length > 256) {
+			return false;
+		}
+		// Only allow alphanumeric, hyphen, underscore, colon, and period
+		// This prevents injection in mailbox routing
+		if (!/^[a-zA-Z0-9_:.-]+$/.test(recipient)) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * C7: Check if recipient is rate limited.
+	 */
+	private isRateLimited(recipient: string): boolean {
+		const now = Date.now();
+		const timestamps = this.sendTimestamps.get(recipient) ?? [];
+
+		// Filter out old timestamps outside the window
+		const recentTimestamps = timestamps.filter(
+			(t) => now - t < this.RATE_LIMIT_WINDOW_MS,
+		);
+
+		return recentTimestamps.length >= this.RATE_LIMIT_MAX_SENDS;
+	}
+
+	/**
+	 * C7: Record a send for rate limiting.
+	 */
+	private recordSend(recipient: string): void {
+		const now = Date.now();
+		const timestamps = this.sendTimestamps.get(recipient) ?? [];
+		timestamps.push(now);
+
+		// Keep only recent timestamps (last 5 minutes)
+		const recentTimestamps = timestamps.filter(
+			(t) => now - t < 300000,
+		);
+
+		this.sendTimestamps.set(recipient, recentTimestamps);
 	}
 }
 

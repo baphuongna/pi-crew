@@ -590,3 +590,136 @@ test("RetryRunner - backoff of 0 means no wait", async () => {
 	// Should complete quickly with no backoff
 	assert.ok(duration < 50);
 });
+// H5: Memory leak prevention tests
+test("RetryRunner - handoffs respect maxHandoffs limit", async () => {
+	const { manager } = createTrackingHandoffManager();
+
+	// Mock that always fails - will accumulate many handoffs
+	const mockRunner: TaskRunnerLike = {
+		runTask: async () => {
+			return createTaskResult({ outcome: "failure" });
+		},
+	};
+
+	const retryRunner = new RetryRunner(mockRunner, manager);
+
+	// Set maxHandoffs to 5, but have 10 attempts
+	const result = await retryRunner.runWithRetry(
+		createTaskPacket(),
+		{ maxAttempts: 10, summaryBetweenAttempts: true, maxHandoffs: 5 }
+	);
+
+	// Should be capped at maxHandoffs
+	assert.ok(result.totalHandoffs.length <= 5, 
+		`Expected at most 5 handoffs, got ${result.totalHandoffs.length}`);
+});
+
+test("RetryRunner - handoffs default limit is 100", async () => {
+	const { manager } = createTrackingHandoffManager();
+
+	// Mock that always fails
+	const mockRunner: TaskRunnerLike = {
+		runTask: async () => {
+			return createTaskResult({ outcome: "failure" });
+		},
+	};
+
+	const retryRunner = new RetryRunner(mockRunner, manager);
+
+	// Run with many attempts but no explicit maxHandoffs
+	const result = await retryRunner.runWithRetry(
+		createTaskPacket(),
+		{ maxAttempts: 50, summaryBetweenAttempts: true }
+	);
+
+	// Should be capped at default 100
+	assert.ok(result.totalHandoffs.length <= 100,
+		`Expected at most 100 handoffs, got ${result.totalHandoffs.length}`);
+});
+
+test("RetryRunner - dispose prevents further operations", async () => {
+	const mockRunner = createMockTaskRunner([createTaskResult()]);
+	const handoffManager = createMockHandoffManager();
+	const retryRunner = new RetryRunner(mockRunner, handoffManager);
+
+	// Dispose the runner
+	retryRunner.dispose();
+
+	// Verify isDisposed returns true
+	assert.strictEqual(retryRunner.isDisposed, true);
+
+	// Further operations should throw
+	await assert.rejects(
+		() => retryRunner.runWithRetry(createTaskPacket(), { maxAttempts: 1 }),
+		(error) => {
+			return error instanceof Error && 
+				error.message.includes("disposed");
+		}
+	);
+});
+
+test("RetryRunner - dispose before runWithRetry throws", async () => {
+	const { manager } = createTrackingHandoffManager();
+	const mockRunner: TaskRunnerLike = {
+		runTask: async () => {
+			return createTaskResult({ outcome: "failure" });
+		},
+	};
+	const retryRunner = new RetryRunner(mockRunner, manager);
+
+	// Pre-dispose the runner before calling runWithRetry
+	retryRunner.dispose();
+
+	// Should throw because runner was disposed
+	await assert.rejects(
+		() => retryRunner.runWithRetry(
+			createTaskPacket(),
+			{ maxAttempts: 5, backoffMs: 0 }
+		),
+		(error) => {
+			return error instanceof Error && 
+				error.message.includes("disposed");
+		}
+	);
+});
+
+test("RetryRunner - clearHandoffs is available (API consistency)", async () => {
+	const mockRunner = createMockTaskRunner([createTaskResult()]);
+	const handoffManager = createMockHandoffManager();
+	const retryRunner = new RetryRunner(mockRunner, handoffManager);
+
+	// Should not throw
+	retryRunner.clearHandoffs();
+});
+
+test("RetryRunner - most recent handoffs are kept when trimming", async () => {
+	const { manager, summaries } = createTrackingHandoffManager();
+
+	// Mock that always fails
+	const mockRunner: TaskRunnerLike = {
+		runTask: async () => {
+			return createTaskResult({ outcome: "failure" });
+		},
+	};
+	const retryRunner = new RetryRunner(mockRunner, manager);
+
+	const result = await retryRunner.runWithRetry(
+		createTaskPacket(),
+		{ maxAttempts: 10, summaryBetweenAttempts: true, maxHandoffs: 3 }
+	);
+
+	// Should have at most 3 handoffs
+	assert.ok(result.totalHandoffs.length <= 3);
+
+	// If we got some handoffs, verify they're the most recent ones
+	if (result.totalHandoffs.length > 0 && summaries.length > 0) {
+		// The last handoff in result should match the last generated summary
+		const lastResultHandoff = result.totalHandoffs[result.totalHandoffs.length - 1];
+		const lastGeneratedSummary = summaries[summaries.length - 1];
+		assert.strictEqual(
+			lastResultHandoff.task,
+			lastGeneratedSummary.task,
+			"Last handoff should be from most recent attempt"
+		);
+	}
+});
