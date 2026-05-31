@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
+import { resolveContainedPath } from "../utils/safe-paths.ts";
 // Lazy-loaded to avoid pulling team-tool.ts (and its entire runtime chain) into module load.
 import type { handleTeamTool as HandleTeamToolFn } from "./team-tool.ts";
 let _cachedHandleTeamTool: typeof HandleTeamToolFn | undefined;
@@ -69,7 +70,6 @@ function isAllowedRpcRunParams(params: TeamToolParamsValue): { ok: boolean; erro
 	// SECURITY: Validate cwd is within the project directory if provided.
 	if (params.cwd && typeof params.cwd === "string") {
 		try {
-			const { resolveContainedPath } = require("../utils/safe-paths.ts");
 			resolveContainedPath(params.cwd, ".");
 		} catch {
 			return { ok: false, error: "RPC run config.cwd must be within the project directory" };

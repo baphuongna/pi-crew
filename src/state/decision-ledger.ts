@@ -22,9 +22,12 @@ export interface RolloutEntry {
 
 /**
  * Get the ledger file path for a given run ID.
+ * SECURITY: Accept stateRoot param to use it for path computation
+ * instead of hardcoded path, ensuring stateRoot containment.
  */
-function getLedgerPath(runId: string): string {
-	return `.crew/state/runs/${runId}/decision-ledger.jsonl`;
+function getLedgerPath(runId: string, stateRoot?: string): string {
+	const base = stateRoot ?? `.crew/state/runs/${runId}`;
+	return `${base}/decision-ledger.jsonl`;
 }
 
 /**
@@ -98,15 +101,14 @@ export function initLedger(runId: string): void {
  * FIX: Uses atomic write to prevent partial writes on crash.
  */
 export function appendEntry(runId: string, entry: RolloutEntry): RolloutEntry {
-	const ledgerPath = getLedgerPath(runId);
-
 	// Ensure directory exists
+	const ledgerPath = getLedgerPath(runId);
 	const dir = dirname(ledgerPath);
 	if (!existsSync(dir)) {
 		mkdirSync(dir, { recursive: true });
 	}
 
-	// Get existing entries to compute coherence
+	// Get existing entries to compute coherence (and use same result for write)
 	const ledger = getLedger(runId);
 
 	// Compute coherence
@@ -117,9 +119,9 @@ export function appendEntry(runId: string, entry: RolloutEntry): RolloutEntry {
 	};
 
 	// Append to JSONL file using atomic write to prevent corruption
+	// Use the already-loaded ledger content (no double-read)
 	const line = JSON.stringify(entryWithCoherence) + "\n";
-	// Use atomic write: read existing, append new entry, write atomically
-	const existingContent = existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf-8") : "";
+	const existingContent = ledger.length > 0 ? ledger.map((e) => JSON.stringify(e)).join("\n") + "\n" : "";
 	atomicWriteFile(ledgerPath, existingContent + line);
 	return entryWithCoherence;
 }

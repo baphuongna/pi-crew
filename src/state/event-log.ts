@@ -293,7 +293,7 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		}
 		return fullEvent;
 	});
-	asyncQueues.set(queueKey, next.catch((error) => logInternalError("event-log.async-queue", error, eventsPath)));
+	asyncQueues.set(queueKey, next.catch((error) => { logInternalError("event-log.async-queue", error, eventsPath); asyncQueues.delete(queueKey); }));
 	return next;
 }
 

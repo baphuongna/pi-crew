@@ -55,10 +55,27 @@ export class NotificationRouter {
 	private readonly seen = new Map<string, number>();
 	private batch: NotificationDescriptor[] = [];
 	private timer: ReturnType<typeof setTimeout> | undefined;
+	private seenCleanupCounter = 0;
+	private static readonly SEEN_MAP_MAX_SIZE = 10000;
 
 	constructor(opts: NotificationRouterOptions = {}, deliver: (notification: NotificationDescriptor) => void) {
 		this.opts = opts;
 		this.deliver = deliver;
+	}
+
+	/**
+	 * Evict oldest entries from seen Map if it exceeds MAX_SIZE.
+	 * This prevents unbounded memory growth from notifications without TTL.
+	 */
+	private evictSeenIfNeeded(): void {
+		if (this.seen.size > NotificationRouter.SEEN_MAP_MAX_SIZE) {
+			// Sort by timestamp (oldest first) and keep only half
+			const entries = [...this.seen.entries()].sort((a, b) => a[1] - b[1]);
+			const keepCount = Math.floor(NotificationRouter.SEEN_MAP_MAX_SIZE / 2);
+			for (const [key] of entries.slice(0, entries.length - keepCount)) {
+				this.seen.delete(key);
+			}
+		}
 	}
 
 	enqueue(notification: NotificationDescriptor): boolean {
@@ -77,6 +94,7 @@ export class NotificationRouter {
 		const previous = this.seen.get(key);
 		if (previous !== undefined && now - previous < dedupWindow) return false;
 		this.seen.set(key, now);
+		this.evictSeenIfNeeded();
 		const batchWindow = this.opts.batchWindowMs ?? 0;
 		if (batchWindow <= 0) {
 			this.deliver(withTime);

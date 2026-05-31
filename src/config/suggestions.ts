@@ -1,9 +1,17 @@
 /**
  * Fuzzy config key suggestions — Levenshtein-based typo correction for pi-crew config keys.
+ *
+ * SECURITY NOTE: The levenshtein() function processes user-supplied input and compares
+ * against a known list. While the timing variance across edit distances is minimal
+ * and the input is typically config key names (not secrets), there is a theoretical
+ * timing attack risk if an attacker could measure response times for different inputs.
+ * Risk level: LOW — mitigated by the small alphabet (config key names only) and
+ * the fixed-size DP array used in this implementation.
  */
 
 /**
  * Classic Levenshtein edit distance between two strings.
+ * See security note above regarding timing attack considerations.
  */
 export function levenshtein(a: string, b: string): number {
 	const la = a.length;

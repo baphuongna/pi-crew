@@ -28,11 +28,10 @@ export class DeliveryCoordinator {
 	private flushing = false;
 	private readonly deps: DeliveryCoordinatorDeps;
 	private ttlTimer: ReturnType<typeof setInterval> | undefined;
+	private timerStarted = false;
 
 	constructor(deps: DeliveryCoordinatorDeps) {
 		this.deps = deps;
-		this.ttlTimer = setInterval(() => this.evictExpired(), 60_000);
-		this.ttlTimer.unref();
 	}
 
 	activate(sessionId: string): void {
@@ -164,6 +163,12 @@ export class DeliveryCoordinator {
 	}
 
 	private enqueue(delivery: PendingDelivery): void {
+		// Lazily start the TTL timer on first enqueue (only if never started)
+		if (!this.timerStarted) {
+			this.timerStarted = true;
+			this.ttlTimer = setInterval(() => this.evictExpired(), 60_000);
+			this.ttlTimer.unref();
+		}
 		this.pending.push({ ...delivery, generation: this.generation });
 	}
 

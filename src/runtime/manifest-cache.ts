@@ -154,8 +154,8 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		listTimer = setTimeout(() => {
 			listTimer = undefined;
 			listCache.clear();
+			listTimer?.unref();
 		}, ttlMs);
-		listTimer.unref();
 	}
 
 	function loadManifest(runId: string, rootsToCheck: string[]): CachedManifest | undefined {

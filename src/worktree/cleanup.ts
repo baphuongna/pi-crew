@@ -59,7 +59,12 @@ export function cleanupRunWorktrees(manifest: TeamRunManifest, options: { force?
 			// Commit changes to a branch instead of just preserving the worktree
 			try {
 				execFileSync("git", ["add", "-A"], { cwd: worktreePath, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LANG: "C", LC_ALL: "C" }, windowsHide: true });
-				const safeDesc = entry.name.slice(0, 200);
+				let safeDesc = entry.name.slice(0, 200);
+				// SECURITY: Strip any newlines that could be injected via a malicious worktree name
+				// to prevent newline injection in git commit messages
+				if (safeDesc.includes("\n")) {
+					safeDesc = safeDesc.replace(/[\r\n]+/g, " ");
+				}
 				execFileSync("git", ["commit", "-m", `pi-crew: ${safeDesc}`], { cwd: worktreePath, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LANG: "C", LC_ALL: "C" }, windowsHide: true });
 				// Create branch in the main repo pointing to this worktree's HEAD
 				try {

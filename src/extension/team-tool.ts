@@ -717,7 +717,12 @@ export function handleSteer(
 			true,
 		);
 	if (!task.pendingSteers) task.pendingSteers = [];
-	task.pendingSteers.push(message);
+		// HIGH-04: Cap pendingSteers array to prevent unbounded memory growth
+		const MAX_PENDING_STEERS = 100;
+		if (task.pendingSteers.length >= MAX_PENDING_STEERS) {
+			task.pendingSteers = task.pendingSteers.slice(-(MAX_PENDING_STEERS - 1));
+		}
+		task.pendingSteers.push(message);
 	saveRunTasks(loaded.manifest, loaded.tasks);
 	appendEvent(loaded.manifest.eventsPath, {
 		type: "task.steer_queued",
