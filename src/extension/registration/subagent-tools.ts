@@ -56,7 +56,7 @@ export function registerSubagentTools(pi: ExtensionAPI, subagentManager: Subagen
 		async execute(_id, params, signal, onUpdate, ctx) {
 			// Diagnostic: detect pre-aborted signal before spawn
 			if (signal?.aborted) {
-				logInternalError("subagent-tools.pre-aborted-signal", undefined, `params=${JSON.stringify(params).slice(0, 200)}`);
+				logInternalError("subagent-tools.pre-aborted-signal", undefined, `aborted=true paramsKeys=${Object.keys(params as object).join(",")}`);
 				return subagentToolResult("Agent tool signal was already aborted before execution started. This usually means Pi cancelled the tool call before it ran.", { action: "agent", status: "error" }, true);
 			}
 			const currentRole = currentCrewRole();

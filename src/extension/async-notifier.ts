@@ -12,6 +12,7 @@ export interface AsyncNotifierState {
 	interval?: ReturnType<typeof setInterval>;
 	generation?: number;
 	lastStoppedAtMs?: number;
+	lastListRunsMs?: number;
 }
 
 export interface AsyncNotifierOptions {
@@ -80,6 +81,8 @@ export function markDeadAsyncRunIfNeeded(run: TeamRunManifest, now = Date.now(),
 	});
 }
 
+const LIST_RUNS_DEBOUNCE_MS = 30_000;
+
 export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifierState, intervalMs = 5000, options: AsyncNotifierOptions = {}): void {
 	if (state.interval) clearInterval(state.interval);
 	const generation = options.generation ?? ((state.generation ?? 0) + 1);
@@ -93,10 +96,16 @@ export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifie
 		const updatedAtMs = timeMs(run.updatedAt) ?? 0;
 		if (isFinished(run.status) && updatedAtMs < staleBeforeMs) state.seenFinishedRunIds.add(run.runId);
 	}
+	let cachedRuns: TeamRunManifest[] | undefined;
 	state.interval = setInterval(() => {
 		try {
 			if (options.isCurrent && !options.isCurrent(generation)) return;
-			for (const run of listRuns(ctx.cwd).slice(0, 20)) {
+			const nowMs = Date.now();
+			if (cachedRuns === undefined || nowMs - (state.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
+				cachedRuns = listRuns(ctx.cwd).slice(0, 20);
+				state.lastListRunsMs = nowMs;
+			}
+			for (const run of cachedRuns) {
 				const current = markDeadAsyncRunIfNeeded(run) ?? run;
 				if (!isFinished(current.status) || state.seenFinishedRunIds.has(current.runId)) continue;
 				state.seenFinishedRunIds.add(current.runId);

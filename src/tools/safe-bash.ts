@@ -1,49 +1,143 @@
 /**
  * Safe Bash Tool for pi-crew
  * Wraps bash with dangerous command blocking
+ * Uses linear-time scanning to prevent ReDoS attacks
  */
 
 import { Type } from "@sinclair/typebox";
 
-// Dangerous command patterns to block
+// Backward-compatible pattern array (kept for getPatterns API)
+// IMPORTANT: Line 8 (rm pattern with nested quantifiers) has been replaced
+// with linear-time checking in isDangerous() to prevent ReDoS attacks.
 const DANGEROUS_PATTERNS = [
-	// rm -rf / or rm -rf ~ (catastrophic root/home deletion)
-	/\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s*)+(\/|~)(\s*$)/,
-	/\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s*)+(\/|~)($|\s)/,
-	// Privilege escalation
+	// NOTE: rm patterns handled by matchesDangerousRm() for linear-time safety
 	/\bsudo\b/,
 	/\bsu\s+root\b/,
-	// Filesystem destruction
 	/\bmkfs\b/,
 	/\bdd\s+if=/,
-	// Fork bomb
 	/^:\s*\(\s*\)\s*\{.*\|.*&.*\}\s*;.*$/,
-	// Device writing
 	/>\s*\/dev\/[sh]d[a-z]/,
 	/\bchmod\s+(-[a-zA-Z]+\s+)?777\s+\//,
 	/\bchown\s+(-[a-zA-Z]+\s+)?root/,
-	// Pipe to shell (download and execute)
 	/\bcurl\s.*\|\s*(ba)?sh/i,
 	/\bwget\s.*\|\s*(ba)?sh/i,
-	// System shutdown/reboot
 	/\bshutdown\b/,
 	/\breboot\b/,
 	/\binit\s+0\b/,
-	// Kill critical processes
 	/\bkill\s+-9\s+1\b/,
 	/\bkillall\b/,
-	// Encoded commands
 	/\|\s*base64\s+-d/,
 	/\|\s*python.*-c/,
 	/\|\s*perl.*-e/,
 	/\|\s*ruby.*-e/,
-	// Network to shell
-	/\bbash\s+-i\s+>\s*\&/,
+	/\bbash\s+-i\s*>\s*\&/,
 	/\bexec\s+.*bash/,
-	// /etc/passwd manipulation
 	/\becho\s+.*>\s*\/etc\/passwd/,
 	/\bcat\s+.*>\s*\/etc\/passwd/,
 ];
+
+/**
+ * Linear-time check if command contains a dangerous rm pattern like "rm -rf /" or "rm -rf ~"
+ * Replaces O(n²) regex backtracking with O(n) string scanning
+ */
+function matchesDangerousRm(command: string): boolean {
+	let pos = 0;
+	const len = command.length;
+	// Find "rm" at word boundary
+	while (pos < len) {
+		const rmIdx = command.indexOf("rm", pos);
+		if (rmIdx === -1) return false;
+		// Check word boundary before "rm"
+		if (rmIdx > 0 && /\w/.test(command[rmIdx - 1])) {
+			pos = rmIdx + 1;
+			continue;
+		}
+		// Must be followed by whitespace
+		const afterRm = rmIdx + 2;
+		if (afterRm >= len || /\s/.test(command[afterRm])) {
+			// Found "rm " - now check for -rf flags followed by / or ~
+			let p = afterRm + 1;
+			while (p < len) {
+				// Skip whitespace
+				while (p < len && /\s/.test(command[p])) p++;
+				if (p >= len) break;
+				// Check for flag
+				if (command[p] !== "-") break;
+				p++;
+				let hasR = false, hasF = false;
+				while (p < len && /[a-zA-Z]/.test(command[p])) {
+					if (command[p] === "r" || command[p] === "R") hasR = true;
+					if (command[p] === "f" || command[p] === "F") hasF = true;
+					p++;
+				}
+				if (!hasR && !hasF) break; // Flag must have r or f
+				// Skip whitespace after flag
+				while (p < len && /\s/.test(command[p])) p++;
+			}
+			// Now check if followed by / or ~ (end or whitespace)
+			if (p < len && (command[p] === "/" || command[p] === "~")) {
+				const afterSlash = p + 1;
+				if (afterSlash >= len || /\s/.test(command[afterSlash]) || command[afterSlash] === ";") {
+					return true; // Dangerous!
+				}
+			}
+		}
+		pos = rmIdx + 1;
+	}
+	return false;
+}
+
+/**
+ * Linear-time check for fork bomb pattern: :() { ... | ... & ... } ; ...
+ */
+function matchesForkBomb(command: string): boolean {
+	// Must start with :
+	const trimmed = command.trimStart();
+	if (!trimmed.startsWith(":")) return false;
+	// Find () after :
+	const parenIdx = trimmed.indexOf("()");
+	if (parenIdx === -1 || parenIdx > 10) return false; // : must be close to ()
+	// Find { after ()
+	const braceIdx = trimmed.indexOf("{", parenIdx);
+	if (braceIdx === -1 || braceIdx > parenIdx + 5) return false;
+	// Find } closing brace
+	const closeBrace = trimmed.indexOf("}", braceIdx);
+	if (closeBrace === -1) return false;
+	// Check content between braces for | and &
+	const content = trimmed.slice(braceIdx + 1, closeBrace);
+	if (content.includes("|") && content.includes("&")) return true;
+	return false;
+}
+
+/**
+ * Check for encoded command patterns (pipe to shell)
+ */
+function matchesEncodedPipe(command: string): boolean {
+	const lower = command.toLowerCase();
+	const pipeIdx = lower.indexOf("|");
+	if (pipeIdx === -1) return false;
+	const afterPipe = lower.slice(pipeIdx + 1).trimStart();
+	if (afterPipe.startsWith("base64") || afterPipe.startsWith("python") || afterPipe.startsWith("perl") || afterPipe.startsWith("ruby")) {
+		// Check if followed by -d or -c or -e
+		const rest = afterPipe.slice(6).trimStart();
+		if (rest.startsWith("-d") || rest.startsWith("-c") || rest.startsWith("-e")) return true;
+	}
+	return false;
+}
+
+/**
+ * Check if command contains a specific dangerous substring
+ */
+function containsDangerous(command: string, pattern: string): boolean {
+	return command.indexOf(pattern) !== -1;
+}
+
+/**
+ * Check if command starts with dangerous prefix
+ */
+function startsWithDangerous(command: string, pattern: string): boolean {
+	return command.trimStart().startsWith(pattern);
+}
 
 export interface SafeBashOptions {
 	/** Enable/disable safe mode. Default: true */
@@ -75,15 +169,25 @@ export function isDangerous(command: string, options: SafeBashOptions = {}): str
 		}
 	}
 
-	// Check dangerous patterns
-	const allPatterns = [...DANGEROUS_PATTERNS, ...additionalPatterns];
-	for (const pattern of allPatterns) {
+	// Use linear-time scanning functions for critical patterns
+	if (matchesDangerousRm(normalized)) {
+		return "Command blocked by safe_bash: dangerous rm pattern detected";
+	}
+	if (matchesForkBomb(normalized)) {
+		return "Command blocked by safe_bash: fork bomb pattern detected";
+	}
+	if (matchesEncodedPipe(normalized)) {
+		return "Command blocked by safe_bash: encoded pipe to shell detected";
+	}
+
+	// Check remaining patterns using regex (these are safe from ReDoS)
+	for (const pattern of DANGEROUS_PATTERNS) {
 		if (pattern.test(normalized)) {
 			return `Command blocked by safe_bash: matches dangerous pattern \`${pattern}\``;
 		}
 	}
 
-	// Additional shell injection checks
+	// Additional shell injection checks using regex for non-critical patterns
 	// Block command substitution $(...)
 	if (/\$\([^)]*\)/.test(command)) {
 		return "Command blocked by safe_bash: command substitution $(...) is not allowed";
@@ -102,6 +206,13 @@ export function isDangerous(command: string, options: SafeBashOptions = {}): str
 	const varMatch = command.match(varExpRe);
 	if (varMatch && /[|&;<>]/.test(varMatch[1])) {
 		return "Command blocked by safe_bash: variable expansion with shell metacharacters is not allowed";
+	}
+
+	// Check additional patterns (user-provided regex)
+	for (const pattern of additionalPatterns) {
+		if (pattern.test(normalized)) {
+			return `Command blocked by safe_bash: matches dangerous pattern \`${pattern}\``;
+		}
 	}
 
 	return null;
@@ -163,8 +274,8 @@ export function createSafeBash(options: SafeBashOptions = {}) {
  * These can be used in allowPatterns for specific use cases
  */
 export const COMMON_SAFE_PATTERNS = {
-	// Safe rm with specific paths
-	safeRm: /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?((?![\/~])\/)?(tmp|cache|node_modules|dist|build)\//,
+	// Safe rm with specific paths - uses simple contains check
+	safeRm: /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?((?![\/~])\/)?(tmp|cache|node_modules|dist|build)\//,
 	// Safe git operations
 	safeGit: /\bgit\s+(clone|pull|push|commit|add|status|diff|log|branch|checkout|merge|rebase)/,
 	// Safe npm/yarn/pnpm

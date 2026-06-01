@@ -289,6 +289,16 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 
 function writeDeliveryState(manifest: TeamRunManifest, state: MailboxDeliveryState): void {
 	ensureRunMailbox(manifest);
+	// Prune oldest entries if capped
+	const MAX_DELIVERY_MESSAGES = 10000;
+	if (Object.keys(state.messages).length > MAX_DELIVERY_MESSAGES) {
+		const sorted = Object.entries(state.messages).sort(([, a], [, b]) => {
+			const order = { queued: 0, delivered: 1, acknowledged: 2 };
+			return (order[a] ?? 3) - (order[b] ?? 3);
+		});
+		const trimmed = sorted.slice(0, MAX_DELIVERY_MESSAGES);
+		state.messages = Object.fromEntries(trimmed);
+	}
 	atomicWriteFile(deliveryFile(manifest, true), `${JSON.stringify(redactSecrets(state), null, 2)}\n`);
 }
 
