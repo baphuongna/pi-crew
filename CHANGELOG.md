@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.13] — Round 18 Audit Fixes (2026-06-02)
+
+### Phase 1: Switch to execFileSync (HIGH security)
+- `src/benchmark/benchmark-runner.ts` — Replaced `execSync` with `execFileSync(program, args)`. This prevents shell parsing of command strings, even if `validateCommand` is bypassed.
+- `validateCommand` retained as defense-in-depth (blocks shell metacharacters).
+- New `splitCommand()` helper safely splits validated commands.
+
+### Phase 2: Precompute document frequency (MEDIUM performance)
+- `src/utils/bm25-search.ts` — `BM25Search.df()` is now precomputed once in the constructor via `precomputeDocumentFrequencies()`. Lookup is O(1) via `dfCache: Map<term, number>`.
+- Per-search complexity: O(Q * N) instead of O(Q² * N²).
+
+### Phase 3+4: Test coverage for 3 untested modules
+- 15 tests in `test/unit/bm25-search.test.ts`
+- 15 tests in `test/unit/scan-cache.test.ts`
+- 20 tests in `test/unit/benchmark.test.ts`
+- **Total: 50 new tests**
+
+### Tests
+- 2352/2352 pass (was 2313 in v0.5.12; +39 net)
+- 50 new tests across 3 new test files
+- TypeScript: 0 errors
+
 ## [0.5.12] — Round 17 Audit Fixes (2026-06-02)
 
 ### Phase 1: Signal Handler Stacking (HIGH)
