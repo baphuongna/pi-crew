@@ -6,6 +6,7 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { readCrewAgents, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { withRunLockSync } from "../state/locks.ts";
 import { listRuns } from "./run-index.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 export interface AsyncNotifierState {
 	seenFinishedRunIds: Set<string>;
@@ -121,7 +122,7 @@ export function startAsyncRunNotifier(ctx: ExtensionContext, state: AsyncNotifie
 				// Stopping here creates a race: old notifier dies before new one starts.
 				return;
 			}
-			console.error(`[pi-crew] async notifier error: ${message}`);
+			logInternalError("async-notifier", error, `interval=${intervalMs}`);
 		}
 	}, intervalMs);
 }

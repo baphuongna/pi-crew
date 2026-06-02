@@ -22,6 +22,8 @@
  * ```
  */
 
+import { logInternalError } from "../utils/internal-error.ts";
+
 /** Valid hook event types in the crew lifecycle. */
 export type CrewHookEventType =
 	| 'task_started'
@@ -164,12 +166,12 @@ export class HookRegistry {
 				if (result instanceof Promise) {
 					// Attach a silent catch to prevent unhandled rejection warnings
 					result.catch((err) => {
-						console.error(`[crew-hooks] Async hook error for ${event.type}:`, err);
+						logInternalError("crew-hooks.async", err, `event.type=${event.type}`);
 					});
 				}
 			} catch (err) {
 				// Catch synchronous errors but don't let them block other hooks
-				console.error(`[crew-hooks] Hook error for ${event.type}:`, err);
+				logInternalError("crew-hooks.sync", err, `event.type=${event.type}`);
 			}
 		}
 	}

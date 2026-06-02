@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { logInternalError } from "../utils/internal-error.ts";
 // NOTE: globalProgressTracker import kept for documentation but not directly used
 // since we don't have agent IDs to untrack. Actual progress clearing should be
 // handled by the progress tracker itself on shutdown.
@@ -8,6 +9,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * Registers cleanup handlers for graceful shutdown.
  * Handles session_shutdown and SIGTERM/SIGHUP signals.
  */
+
+// Module-level flag to ensure signal handlers are registered only once,
+// even if registerCleanupHandler is called multiple times (e.g., on extension
+// reload or during dev hot-reload). Without this, listeners stack up and
+// cleanupChildProcesses fires N times on shutdown.
+let signalHandlersRegistered = false;
 
 interface ChildProcessInfo {
 	pid: number;
@@ -56,18 +63,30 @@ export function registerCleanupHandler(pi: ExtensionAPI): void {
 
 			console.log("[pi-crew] Cleanup complete");
 		} catch (error) {
-			console.error("[pi-crew] Cleanup error:", error);
+			logInternalError("crew-cleanup.shutdown", error);
 		}
 	});
 
-	// Handle SIGTERM/SIGHUP signals
-	const handleSignal = async (signal: string): Promise<void> => {
-		console.log(`[pi-crew] Received ${signal} - starting cleanup`);
-		await cleanupChildProcesses();
-	};
-
-	process.on("SIGTERM", () => { void handleSignal("SIGTERM"); });
-	process.on("SIGHUP", () => { void handleSignal("SIGHUP"); });
+	// Register signal handlers exactly once, even if registerCleanupHandler
+	// is called multiple times. This prevents listener stacking on extension
+	// reload and avoids double-cleanup on shutdown.
+	if (!signalHandlersRegistered) {
+		signalHandlersRegistered = true;
+		const handleSignal = async (signal: string): Promise<void> => {
+			console.log(`[pi-crew] Received ${signal} - starting cleanup`);
+			await cleanupChildProcesses();
+		};
+		process.on("SIGTERM", () => {
+			handleSignal("SIGTERM").catch((error) => {
+				logInternalError("crew-cleanup.SIGTERM", error);
+			});
+		});
+		process.on("SIGHUP", () => {
+			handleSignal("SIGHUP").catch((error) => {
+				logInternalError("crew-cleanup.SIGHUP", error);
+			});
+		});
+	}
 }
 
 async function cleanupChildProcesses(): Promise<void> {
@@ -81,7 +100,7 @@ async function cleanupChildProcesses(): Promise<void> {
 			// Process may already be dead or not exist
 			const err = error as NodeJS.ErrnoException;
 			if (err.code !== "ESRCH" && err.code !== "ENOENT") {
-				console.error(`[pi-crew] Error killing process ${pid}:`, err.message);
+				logInternalError("crew-cleanup.kill", error, `pid=${pid}`);
 			}
 		}
 		childProcessRegistry.unregister(pid);
@@ -100,7 +119,7 @@ async function cleanupTempDirectories(): Promise<void> {
 	try {
 		console.log(`[pi-crew] Temp directory cleanup deferred to run-graph`);
 	} catch (error) {
-		console.error("[pi-crew] Temp cleanup error:", error);
+		logInternalError("crew-cleanup.temp", error);
 	}
 }
 

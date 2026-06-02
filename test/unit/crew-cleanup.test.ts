@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { childProcessRegistry, registerChildProcess, unregisterChildProcess } from "../../src/extension/crew-cleanup.ts";
+import { childProcessRegistry, registerChildProcess, unregisterChildProcess, registerCleanupHandler } from "../../src/extension/crew-cleanup.ts";
 
 test("ChildProcessRegistry registers processes", () => {
 	childProcessRegistry.clear();
@@ -62,4 +62,30 @@ test("ChildProcessRegistry clears all processes", () => {
 	childProcessRegistry.clear();
 
 	assert.equal(childProcessRegistry.getAllPids().length, 0);
+});
+
+test("process.on SIGTERM/SIGHUP listeners are registered only once (no stacking)", () => {
+	// Count listeners on process before and after multiple registerCleanupHandler calls.
+	// If the implementation is correct, the count should stay the same.
+	// We use a minimal ExtensionAPI stub since registerCleanupHandler only uses
+	// the .on method to register the session_shutdown handler.
+	const beforeSIGTERM = process.listenerCount("SIGTERM");
+	const beforeSIGHUP = process.listenerCount("SIGHUP");
+
+	// Re-import the module to test its idempotency. In a production runtime,
+	// registerCleanupHandler is called once per extension load. The implementation
+	// should guard against re-registration with a module-level flag.
+	// We test indirectly: after we add a listener, calling registerCleanupHandler
+	// should not increase the count.
+	const fakeApi = { on: () => {} } as never;
+	for (let i = 0; i < 5; i++) {
+		registerCleanupHandler(fakeApi);
+	}
+
+	const afterSIGTERM = process.listenerCount("SIGTERM");
+	const afterSIGHUP = process.listenerCount("SIGHUP");
+
+	// Listener count should be at most 1 (or before count, if test ran first)
+	assert.ok(afterSIGTERM - beforeSIGTERM <= 1, `SIGTERM listener stacked: ${afterSIGTERM - beforeSIGTERM} new listeners`);
+	assert.ok(afterSIGHUP - beforeSIGHUP <= 1, `SIGHUP listener stacked: ${afterSIGHUP - beforeSIGHUP} new listeners`);
 });

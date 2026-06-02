@@ -10,6 +10,7 @@
  */
 
 import type { HandoffSummary } from "./handoff-manager.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 /**
  * Type of hidden handoff message.
@@ -241,7 +242,7 @@ export class HiddenHandoffService {
 			this.sendHandoff(summary, options);
 		} catch (error) {
 			// Log but don't throw
-			console.error("Hidden handoff failed:", error);
+			logInternalError("hidden-handoff.async", error, `taskId=${summary.taskId} runId=${summary.runId}`);
 		}
 	}
 

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { logInternalError } from "../utils/internal-error.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 
@@ -163,7 +164,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	} as unknown as Parameters<typeof spawn>[2];
 	const child = spawn(process.execPath, command.args, spawnOpts);
 	child.on("error", (error: Error) => {
-		console.error(`[pi-crew] async spawn failed: ${error.message}`);
+		logInternalError("async-runner.spawn", error, `pid=${child.pid ?? "unknown"}`);
 	});
 	child.unref();
 
