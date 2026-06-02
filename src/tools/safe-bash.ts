@@ -144,7 +144,11 @@ export interface SafeBashOptions {
 	enabled?: boolean;
 	/** Additional patterns to block */
 	additionalPatterns?: RegExp[];
-	/** Patterns to allow (overrides blocked) */
+	// Patterns to allow (overrides blocked). SECURITY WARNING: an overly
+	// broad allow pattern (e.g. /.*/) bypasses ALL safety checks including
+	// matchesDangerousRm, fork bomb detection, and command-substitution
+	// blocking. Callers that accept allowPatterns from user input or
+	// project config should validate that patterns are specific enough.
 	allowPatterns?: RegExp[];
 }
 

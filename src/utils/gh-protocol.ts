@@ -21,14 +21,16 @@
  * Requirements: GitHub CLI (`gh`) installed and authenticated.
  * Repo resolution: git remote get-url origin from cwd.
  */
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 
 /** Resolve the default repo from `git remote get-url origin` in cwd. */
 export function resolveDefaultRepo(cwd: string): string {
 	try {
-		const remoteUrl = execSync("git remote get-url origin", {
+		// FIX (Round 14): Use execFileSync (args as array) instead of execSync
+		// (single string) so the command is not interpreted by a shell.
+		const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
 			cwd,
 			encoding: "utf-8",
 			timeout: 10_000,

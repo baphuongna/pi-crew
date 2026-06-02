@@ -17,7 +17,12 @@ export type Component = Container | Text;
 
 export interface TeamToolResultDetails {
 	action?: string; status?: string; runId?: string; goal?: string;
-	team?: string; workflow?: string; error?: string; agentRecords?: CrewAgentRecord[];
+	team?: string; workflow?: string; error?: string;
+	agentRecords?: CrewAgentRecord[];
+	// FIX (Round 14): `results` is the legacy key used by some subagent
+	// responses. Add it here so renderers can read either field without
+	// bypassing type checks.
+	results?: CrewAgentRecord[];
 }
 export interface AgentToolResultDetails {
 	results?: Array<{ agentId?: string; status?: string; output?: string; error?: string }>;
@@ -199,38 +204,56 @@ export function renderAgentProgress(
 
 // ── Tool Result Renderers ──────────────────────────────────────────────
 
+/**
+ * FIX (Round 14, M1): Properly typed shape for team-tool result details
+ * that may be nested in `result.details` or flattened at the root level.
+ * Replaces the prior `as any` casts that bypassed type checking.
+ */
+interface TeamToolFlattenedDetails {
+	action?: string;
+	status?: string;
+	runId?: string;
+	goal?: string;
+	error?: string;
+	team?: string;
+	workflow?: string;
+	agentRecords?: unknown[];
+	results?: unknown[];
+}
+
 /** team tool result: 'run' shows agent progress rows, else compact summary */
 export function renderTeamToolResult(
 	result: { details?: TeamToolResultDetails; content?: unknown[] } & Record<string, unknown>,
 	_options: unknown, theme: Theme, _context: unknown,
 ): Component {
 	// Handle both nested details (result.details) and flattened result shape (details at root level)
-	const d = (result as any).details;
+	const d = (result as { details?: TeamToolResultDetails }).details;
 
 	// If details is explicitly undefined/null, check if result itself looks like details (flattened)
 	// This handles cases where the result object has details properties at root level
 	if (d === undefined || d === null) {
 		// Check if result has detail-like properties to treat as flattened details
 		if ("action" in result || "status" in result || "runId" in result || "agentRecords" in result) {
-			// Use result as the details object
+			// Use result as the details object (cast through unknown for safety)
+			const flat = result as unknown as TeamToolFlattenedDetails;
 			const c = new Container();
-			const records = (result as any).agentRecords ?? (result as any).results;
-			if ((result as any).action === "run" && records?.length) {
+			const records = (flat.agentRecords ?? flat.results) as CrewAgentRecord[] | undefined;
+			if (flat.action === "run" && records?.length) {
 				for (const r of records) c.addChild(renderAgentProgress(r, theme, false, 116));
 				return c;
 			}
 			// For 'run' action without records: show goal prominently with status badge
-			if ((result as any).action === "run") {
-				const goalText = (result as any).goal || "";
-				const statusBadge = (result as any).status ? theme.fg((result as any).status === "completed" ? "success" : (result as any).status === "failed" ? "error" : "warning", `[${(result as any).status}]`) + " " : "";
+			if (flat.action === "run") {
+				const goalText = flat.goal || "";
+				const statusBadge = flat.status ? theme.fg(flat.status === "completed" ? "success" : flat.status === "failed" ? "error" : "warning", `[${flat.status}]`) + " " : "";
 				return new Text(statusBadge + theme.fg("text", truncLine(goalText, 116)), 0, 0);
 			}
 			// For other actions: compact info line
 			const parts: string[] = [];
-			if ((result as any).status) parts.push(`status=${(result as any).status}`);
-			if ((result as any).runId) parts.push(`runId=${(result as any).runId}`);
-			if ((result as any).error) parts.push(theme.fg("error", `error`));
-			if ((result as any).goal && parts.length === 0) parts.push(theme.fg("dim", truncLine((result as any).goal, 116)));
+			if (flat.status) parts.push(`status=${flat.status}`);
+			if (flat.runId) parts.push(`runId=${flat.runId}`);
+			if (flat.error) parts.push(theme.fg("error", `error`));
+			if (flat.goal && parts.length === 0) parts.push(theme.fg("dim", truncLine(flat.goal, 116)));
 			return new Text(parts.join("  ·  "), 0, 0);
 		}
 		// No details found, fall back to content
@@ -240,7 +263,7 @@ export function renderTeamToolResult(
 
 	const c = new Container();
 	// Support both 'results' array from subagents and direct agentRecords
-	const records = d.agentRecords ?? d.results;
+	const records = (d.agentRecords ?? d.results) as CrewAgentRecord[] | undefined;
 	if (d.action === "run" && records?.length) {
 		for (const r of records) c.addChild(renderAgentProgress(r, theme, false, 116));
 		return c;
