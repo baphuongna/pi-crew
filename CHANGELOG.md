@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.5.7] — 11 Issue Fixes Across 5 Phases (2026-06-01)
+
+### Phase 1: Schema/Type Fixes
+
+- **`invalidate` schema divergence** (Critical) — `src/schema/team-tool-schema.ts`: added `"invalidate"` to TypeBox union. Previously TS interface had it but TypeBox schema did not, causing silent `-32602` failure.
+- **OTLP header key validation** (Low) — `src/config/config.ts`: hardened `parseOtlpConfig` with case-insensitive check for 12 dangerous keys (`__proto__`, `hasOwnProperty`, `toString`, etc.) and format validation `/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/`.
+
+### Phase 2: Security Hardening
+
+- **OTLP endpoint unsanitized** (Critical) — `src/config/config.ts`: project config can no longer override `otlp.endpoint` (would have allowed credential exfiltration via attacker URL).
+- **Wildcard env leakage** (High) — `src/runtime/child-pi.ts`: replaced broad wildcards (`LC_*`, `XDG_*`, `NVM_*`, `NODE_*`, `npm_*`) with specific names. Previously `NPM_TOKEN`, `NODE_ENV=production`, `NVM_RC_VERSION` all leaked.
+
+### Phase 3: Correctness Fixes
+
+- **AbortSignal not propagated** (High) — `src/runtime/task-runner.ts`: check signal before `persistSingleTaskUpdate`. Cancelled tasks now return early with cancelled status instead of writing stale state.
+- **MAILBOX_ARCHIVE_THRESHOLD 10MB/task** (High) — `src/state/mailbox.ts` + `src/config/defaults.ts`: added `DEFAULT_MAILBOX.maxArchivesPerDirection=10` cap and `pruneOldMailboxArchives()` to prevent unbounded growth (1GB+ for 100 tasks).
+- **`safeRm` regex bypass** (Medium) — `src/tools/safe-bash.ts`: stricter regex requires path to be exactly `tmp/`, `cache/`, `node_modules/`, `dist/`, or `build/` with optional `./` prefix. Rejects path traversal like `./../../../etc`.
+- **`writeEntries` silent drop** (Medium) — `src/state/active-run-registry.ts`: emit `logInternalError` warning when entries overflow cap.
+
+### Phase 4: Performance Optimization
+
+- **`nextAgentEventSeq` O(n) cold cache** (Medium) — `src/runtime/crew-agent-records.ts`: added `.seq` sidecar file for O(1) lookup. Fall back to O(n) scan only when sidecar is missing.
+- **`nextSequence` O(n) cold cache** (Medium) — `src/state/event-log.ts`: trust sidecar seq file when present. Fall back to `scanSequence` only when sidecar missing or file shrunk.
+
+### Phase 5: Deferred (Low severity)
+
+- **Issue #12: `acquireLockWithRetry` race** — defer (race window small, retry loop handles).
+- **Issue #13: `loadRunManifestById` TOCTOU** — defer (cache TTL 30s, race window small).
+- **Issue #14: `cleanupOldArtifacts` N stat calls** — defer (typical artifact dirs small).
+- **Issue #15: `validateMailbox` full load** — defer (10MB cap, bounded).
+- **Issue #16: `updateMailboxMessageReply` full rewrite** — defer (10MB cap, bounded).
+
+### Tests
+
+- 2282 tests pass / 0 failures (`npm test`).
+- New tests: `invalidate`/`anchor`/`auto-summarize`/`auto_boomerang` schema, OTLP header key validation, OTLP endpoint sanitization, wildcard env leakage, sidecar seq lookup.
+
 ## [0.5.6] — Documentation Sync + Type-Only Import Fix (2026-06-01)
 
 ### Documentation
