@@ -224,13 +224,15 @@ test("withRunLock writes kind=run in the lock file (Round 21 forward compat)", (
 		goal: "kind",
 	});
 
-	let captured: { kind?: string; pid?: number; token?: string } | null = null;
+	const captured: { kind?: string; pid?: number; token?: string } = { kind: undefined, pid: 0, token: "" };
 	withRunLockSync(manifest, () => {
 		const lockFile = path.join(cwd, ".crew", "state", "runs", manifest.runId, "run.lock");
-		captured = JSON.parse(fs.readFileSync(lockFile, "utf-8"));
+		const parsed = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as { kind?: string; pid?: number; token?: string };
+		captured.kind = parsed.kind;
+		captured.pid = parsed.pid;
+		captured.token = parsed.token;
 	});
-	assert.ok(captured, "lock file should have existed during critical section");
-	assert.equal(captured!.kind, "run", "withRunLock should write kind='run'");
+	assert.equal(captured.kind, "run", "withRunLock should write kind='run'");
 
 	fs.rmSync(cwd, { recursive: true, force: true });
 });
@@ -239,13 +241,13 @@ test("withFileLockSync writes kind=file in the lock file (Round 21 forward compa
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-file-kind-"));
 	const protectedPath = path.join(cwd, "data.json");
 
-	let captured: { kind?: string } | null = null;
+	const captured: { kind?: string } = { kind: undefined };
 	withFileLockSync(protectedPath, () => {
 		const lockFile = `${protectedPath}.lock`;
-		captured = JSON.parse(fs.readFileSync(lockFile, "utf-8"));
+		const parsed = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as { kind?: string };
+		captured.kind = parsed.kind;
 	});
-	assert.ok(captured, "lock file should have existed during critical section");
-	assert.equal(captured!.kind, "file", "withFileLockSync should write kind='file'");
+	assert.equal(captured.kind, "file", "withFileLockSync should write kind='file'");
 
 	fs.rmSync(cwd, { recursive: true, force: true });
 });

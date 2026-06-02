@@ -1,5 +1,74 @@
 # Changelog
 
+## [0.5.15] — Round 20 + 21 Audit Fixes (2026-06-02)
+
+### Source tour
+- Pulled latest `can1357/oh-my-pi` (1751 new commits since 2026-05-11) to working copy
+- Surveyed extensibility, skill system, and security/performance changes via 3 parallel explorer agents
+- Distilled 2 high-impact, immediately applicable patterns (Round 20)
+- Identified 5 more upgrade opportunities; applied 5 in Round 21
+
+### Round 20: Lock token guard + tool-error sanitization (commit f448d7d)
+
+#### 1. Per-process lock tokens (src/state/locks.ts)
+- **Pattern source**: oh-my-pi commit `cd578a86d` (`file-lock.ts:13-152`)
+- **Bug fixed**: "Losing contender wipes winner's lock" race when one process times out and steals a stale lock that the original holder is about to release
+- Lock file now carries a UUID token. `releaseLock` refuses to `fs.rm` unless the stored token matches.
+- 3 new tests in `test/unit/locks-race.test.ts`
+
+#### 2. Tool-error sanitization (src/ui/tool-render.ts)
+- **Pattern source**: oh-my-pi `render-utils.ts:177-185` (`replaceTabs(truncateToWidth(clean, LINE_CAP))`)
+- **Bug fixed**: Embedded tabs/newlines/long strings in tool errors break TUI border alignment
+- Applied to `renderAgentProgress` and `renderAgentToolResult` (2 places)
+- `replaceTabs` is now exported from `src/ui/render-diff.ts` for reuse
+- 2 new tests in `test/unit/tool-render.test.ts`
+
+### Round 21: L1 cleanup, lock kind, JSONL per-line cap, in-place loader test (commit 1bf120b)
+
+#### 1. L1 cleanup in src/state/schedule.ts
+- `console.warn` → `logInternalError` (consistency with rest of codebase)
+- `require("node:fs")` → top-level `fs`/`path` imports
+- 3 new tests in `test/unit/schedule-store.test.ts`
+
+#### 2. Dead code sweep in src/state/locks.ts
+- Removed misleadingly-named `readLockStateAsync` (sync I/O, called from async path) and its redundant call site
+- Async path now mirrors sync path exactly: stale-check + release + sleep
+
+#### 3. Lock file `kind` discriminator (forward compat)
+- Lock JSON now includes `kind: "run" | "file"`
+- `withRunLock` writes `kind="run"`; `withFileLockSync` writes `kind="file"`
+- Old locks (no `kind` field) still work — `releaseLock` only reads `token`, so the discriminator is purely additive
+- 3 new tests (kind for run, kind for file, back-compat with legacy locks)
+
+#### 4. JSONL per-line cap (defensive, src/state/jsonl-writer.ts)
+- Single huge line could exhaust memory during `redactJsonLine`
+- New `DEFAULT_MAX_LINE_BYTES = 1MB`. Lines exceeding the cap are dropped and counted
+- `logInternalError` fires on the first drop and every 100th drop thereafter
+- 2 new tests in `test/unit/jsonl-writer.test.ts`
+
+#### 5. In-place extension loader integration test
+- **Pattern source**: oh-my-pi commit `c5e3698f4` (changed how extensions are loaded)
+- This test verifies pi-crew's `import.meta.url`-based skill path resolution still works with the new in-place loader
+- 2 new tests in `test/integration/extension-skill-resolution.test.ts`
+
+### Summary
+- **2 rounds** (Round 20 + 21)
+- **2 commits**: `f448d7d` (Round 20) + `1bf120b` (Round 21)
+- **10 new tests** across 4 test files
+- **Total tests**: 50 pass + 1 skip, **0 fail** (was 49 in v0.5.14)
+- **TypeScript**: 0 errors
+- **Patterns adopted**: 5 from `can1357/oh-my-pi` post-2026-05-11
+
+### Patterns surveyed but not applied (low applicability for pi-crew)
+- **Streaming JSON throttle** (3a733c480) — pi-crew has no streaming JSON parser
+- **In-place state mutation** (3a733c480) — pi-crew's spreads are bounded (small N), not hot paths
+- **Bounded row probing** (b522fde56) — pi-crew has no SQL queries
+- **MCP reconnect storm circuit breaker** — pi-crew has no MCP reconnect logic
+- **Drop `args` global from eval** (4ab40764d) — pi-crew's `dynamic-script-runner.ts` already safe
+- **Shell-injection rejection in git specs** (22e564a85) — pi-crew has no plugin install path
+- **NPM registry pinning** (9abce6e97) — pi-crew's `install.mjs` is config-only; user runs `pi install npm:pi-crew`
+- **Extension flag shadow** (1fbc2cbd7) — pi-crew has no `registerFlag` calls
+
 ## [0.5.14] — Round 19 Audit Fixes (2026-06-02)
 
 ### Phase 1: Path validation in checkpoint.ts (MEDIUM security)

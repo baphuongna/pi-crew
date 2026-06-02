@@ -9,7 +9,7 @@ npm: pi-crew
 repo: https://github.com/baphuongna/pi-crew
 ```
 
-**v0.5.14**: See [CHANGELOG.md](CHANGELOG.md).
+**v0.5.15**: See [CHANGELOG.md](CHANGELOG.md).
 
 ### Security highlights (v0.5.5)
 
