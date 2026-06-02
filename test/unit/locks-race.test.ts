@@ -4,7 +4,7 @@ import * as path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRunManifest } from "../../src/state/state-store.ts";
-import { withRunLock, withRunLockSync } from "../../src/state/locks.ts";
+import { withFileLockSync, withRunLock, withRunLockSync } from "../../src/state/locks.ts";
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -210,6 +210,68 @@ test("withRunLock auto-recovers when prior holder's lock has a different token (
 	const result = withRunLockSync(manifest, () => "ok");
 	assert.equal(result, "ok");
 	assert.equal(fs.existsSync(lockFile), false, "new holder should have cleaned up the lock on release");
+
+	fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test("withRunLock writes kind=run in the lock file (Round 21 forward compat)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lock-kind-"));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+	const { manifest } = createRunManifest({
+		cwd,
+		team: { name: "kind-team", description: "kind", source: "builtin", filePath: "", roles: [{ name: "explorer", agent: "explorer" }] },
+		workflow: { name: "kind", description: "", source: "builtin", filePath: "", steps: [] },
+		goal: "kind",
+	});
+
+	let captured: { kind?: string; pid?: number; token?: string } | null = null;
+	withRunLockSync(manifest, () => {
+		const lockFile = path.join(cwd, ".crew", "state", "runs", manifest.runId, "run.lock");
+		captured = JSON.parse(fs.readFileSync(lockFile, "utf-8"));
+	});
+	assert.ok(captured, "lock file should have existed during critical section");
+	assert.equal(captured!.kind, "run", "withRunLock should write kind='run'");
+
+	fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test("withFileLockSync writes kind=file in the lock file (Round 21 forward compat)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-file-kind-"));
+	const protectedPath = path.join(cwd, "data.json");
+
+	let captured: { kind?: string } | null = null;
+	withFileLockSync(protectedPath, () => {
+		const lockFile = `${protectedPath}.lock`;
+		captured = JSON.parse(fs.readFileSync(lockFile, "utf-8"));
+	});
+	assert.ok(captured, "lock file should have existed during critical section");
+	assert.equal(captured!.kind, "file", "withFileLockSync should write kind='file'");
+
+	fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test("locks from older versions (no kind field) still work — treated as 'file' (Round 21 back-compat)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lock-legacy-"));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+	const { manifest } = createRunManifest({
+		cwd,
+		team: { name: "legacy-team", description: "legacy", source: "builtin", filePath: "", roles: [{ name: "explorer", agent: "explorer" }] },
+		workflow: { name: "legacy", description: "", source: "builtin", filePath: "", steps: [] },
+		goal: "legacy",
+	});
+
+	const lockFile = path.join(cwd, ".crew", "state", "runs", manifest.runId, "run.lock");
+	fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+
+	// Legacy lock: no `kind` field (e.g. v0.5.14 or earlier format). The
+	// releaseLock function reads only the `token` field, so missing `kind`
+	// is fine — the lock is treated as kind="file" by default. Steal path
+	// should still recover.
+	fs.writeFileSync(lockFile, JSON.stringify({ pid: 99997, createdAt: new Date(Date.now() - 100_000).toISOString(), token: "legacy-no-kind-token" }), "utf-8");
+
+	const result = withRunLockSync(manifest, () => "ok");
+	assert.equal(result, "ok");
+	assert.equal(fs.existsSync(lockFile), false, "legacy lock should be stolen and cleaned up");
 
 	fs.rmSync(cwd, { recursive: true, force: true });
 });

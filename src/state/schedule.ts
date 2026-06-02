@@ -7,6 +7,9 @@
  *   - parseRelativeTime(): "+10m" → ISO timestamp
  *   - parseInterval(): "5m" → milliseconds
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { logInternalError } from "../utils/internal-error.ts";
 
 import type { ScheduleStoreData, ScheduledTask } from "./types.ts";
 
@@ -88,8 +91,8 @@ export class ScheduleStore {
 		this.path = path;
 		this.data = { version: 1, jobs: [] };
 		try {
-			if (require("node:fs").existsSync(path)) {
-				const content = require("node:fs").readFileSync(path, "utf-8");
+			if (fs.existsSync(path)) {
+				const content = fs.readFileSync(path, "utf-8");
 				const parsed = JSON.parse(content);
 				if (parsed && typeof parsed === "object" && "version" in parsed && "jobs" in parsed) {
 					this.data = parsed as ScheduleStoreData;
@@ -102,10 +105,15 @@ export class ScheduleStore {
 
 	private save(): void {
 		try {
-			require("node:fs").mkdirSync(require("node:path").dirname(this.path), { recursive: true });
-			require("node:fs").writeFileSync(this.path, JSON.stringify(this.data, null, 2), "utf-8");
+			fs.mkdirSync(path.dirname(this.path), { recursive: true });
+			fs.writeFileSync(this.path, JSON.stringify(this.data, null, 2), "utf-8");
 		} catch (error) {
-			console.warn(`[pi-crew] Failed to save schedule store: ${error instanceof Error ? error.message : String(error)}`);
+			// FIX (Round 21, L1): Use logInternalError for consistency with
+			// the rest of the codebase. Previously console.warn may not be
+			// visible in all environments (e.g. JSON-RPC mode, redirected
+			// stderr). Also import the dependency properly at the top of
+			// the file (this method used the legacy require() pattern).
+			logInternalError("schedule.save", error, `path=${this.path}`);
 		}
 	}
 

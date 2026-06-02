@@ -85,3 +85,36 @@ test("close() is safe idempotent", async () => {
 	await writer.close();
 	assert.equal(stream.ended, true);
 });
+
+test("drops a single line that exceeds maxLineBytes (Round 21 per-line cap)", () => {
+	const source = new MockSource();
+	const stream = new MockStream();
+	const writer = createJsonlWriter("/tmp/out.jsonl", source, {
+		createWriteStream: () => stream,
+		maxLineBytes: 16,
+	});
+	// 16 bytes cap. The redactJsonLine output is a JSON string with the secret
+	// fields preserved as plain text. Build a payload whose redacted form is
+	// longer than 16 bytes (e.g. a large `data` field).
+	const huge = JSON.stringify({ type: "x", data: "a".repeat(50) });
+	writer.writeLine(huge);
+	assert.equal(stream.writes.length, 0, "oversize line should be dropped, not written");
+	// A normal-sized line should still go through.
+	writer.writeLine('{"type":"ok"}');
+	assert.equal(stream.writes.length, 1);
+	assert.equal(stream.writes[0], "{\"type\":\"ok\"}\n");
+});
+
+test("per-line cap is independent of total maxBytes (Round 21)", () => {
+	const source = new MockSource();
+	const stream = new MockStream();
+	const writer = createJsonlWriter("/tmp/out.jsonl", source, {
+		createWriteStream: () => stream,
+		maxBytes: 10_000_000, // huge total
+		maxLineBytes: 8, // tiny per-line
+	});
+	writer.writeLine('{"type":"a"}');
+	writer.writeLine('{"type":"b"}');
+	// Both lines exceed 8 bytes after redaction + newline; both should drop.
+	assert.equal(stream.writes.length, 0);
+});

@@ -60,10 +60,21 @@ function isLockHolderAlive(filePath: string): boolean {
 	}
 }
 
-function writeLockFile(filePath: string, token: string): void {
+/**
+ * Lock file kinds. Discriminator written to the lock file payload so that:
+ *   - Debugging tools (e.g. a future `pi-crew locks` command) can identify
+ *     what a lock is protecting.
+ *   - Cross-kind ambiguity is prevented if two locks somehow resolve to the
+ *     same path (defense in depth).
+ *   - Forward compat: new lock types can be added without changing the
+ *     on-disk format (the `kind` field is the only discriminator).
+ */
+export type LockKind = "run" | "file";
+
+function writeLockFile(filePath: string, token: string, kind: LockKind = "file"): void {
 	const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
 	try {
-		fs.writeSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString(), token }));
+		fs.writeSync(fd, JSON.stringify({ kind, pid: process.pid, createdAt: new Date().toISOString(), token }));
 	} finally {
 		fs.closeSync(fd);
 	}
@@ -106,13 +117,13 @@ function releaseLock(filePath: string, token: string): void {
 	// (probably stale and overtaken). Do not touch it — the new holder owns it.
 }
 
-function acquireLockWithRetry(filePath: string, staleMs: number): string {
+function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind = "file"): string {
 	let attempt = 0;
 	const deadline = Date.now() + staleMs * 2;
 	while (true) {
 		const token = randomUUID();
 		try {
-			writeLockFile(filePath, token);
+			writeLockFile(filePath, token, kind);
 			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
@@ -144,21 +155,13 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function readLockStateAsync(filePath: string, staleMs: number): void {
-	try {
-		if (isLockStale(filePath, staleMs)) fs.rmSync(filePath, { force: true });
-	} catch {
-		// Ignore stale-check races.
-	}
-}
-
-async function acquireLockWithRetryAsync(filePath: string, staleMs: number): Promise<string> {
+async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind: LockKind = "file"): Promise<string> {
 	let attempt = 0;
 	const deadline = Date.now() + staleMs * 2;
 	while (true) {
 		const token = randomUUID();
 		try {
-			writeLockFile(filePath, token);
+			writeLockFile(filePath, token, kind);
 			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
@@ -179,7 +182,6 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number): Pro
 			try {
 				fs.rmSync(filePath, { force: true });
 			} catch { /* race — let loop retry */ }
-			await readLockStateAsync(filePath, staleMs);
 			const delay = Math.min(250, 25 * 2 ** attempt);
 			await sleep(delay);
 			attempt++;
@@ -199,7 +201,7 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	const lockFile = `${filePath}.lock`;
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
 	fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-	const token = acquireLockWithRetry(lockFile, staleMs);
+	const token = acquireLockWithRetry(lockFile, staleMs, "file");
 	try {
 		return fn();
 	} finally {
@@ -212,7 +214,7 @@ export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, optio
 	const filePath = lockPath(manifest);
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	const token = acquireLockWithRetry(filePath, staleMs);
+	const token = acquireLockWithRetry(filePath, staleMs, "run");
 	try {
 		return fn();
 	} finally {
@@ -224,7 +226,7 @@ export async function withRunLock<T>(manifest: TeamRunManifest, fn: () => Promis
 	const filePath = lockPath(manifest);
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	const token = await acquireLockWithRetryAsync(filePath, staleMs);
+	const token = await acquireLockWithRetryAsync(filePath, staleMs, "run");
 	try {
 		return await fn();
 	} finally {
