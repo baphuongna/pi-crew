@@ -19,6 +19,7 @@ export interface OverflowRecoveryCallbacks {
 
 const PHASE_TIMEOUT_MS = 120_000; // 120 seconds per phase
 const TERMINAL_STATE_TTL_MS = 5 * 60_000;
+const MAX_TRACKED_STATES = 5000; // Defensive cap to prevent unbounded growth
 
 export class OverflowRecoveryTracker {
 	private states = new Map<string, OverflowRecoveryState>();
@@ -89,6 +90,13 @@ export class OverflowRecoveryTracker {
 		this.states.set(key, state);
 		this.resetTimeout(key);
 
+		// Defensive cap: if states Map exceeds MAX_TRACKED_STATES, evict the
+		// oldest terminal-state entry. Live states are protected because they
+		// have not yet reached a terminal phase.
+		if (this.states.size > MAX_TRACKED_STATES) {
+			this.evictOldestTerminalState();
+		}
+
 		if (previousPhase !== phase && this.callbacks.onPhaseChange) {
 			try {
 				this.callbacks.onPhaseChange(state, previousPhase);
@@ -114,6 +122,27 @@ export class OverflowRecoveryTracker {
 			? [this.keyFor(taskId, runId)]
 			: [...this.states.entries()].filter(([, state]) => state.taskId === taskId).map(([key]) => key);
 		for (const key of keys) this.removeKey(key);
+	}
+
+	/**
+	 * Evict the oldest terminal-state entry (phase is "recovered", "failed",
+	 * or "none"). Used as a defensive cap when states.size exceeds
+	 * MAX_TRACKED_STATES. Live states in "compaction"/"retrying" phases are
+	 * never evicted by this method — they have their own TTL-driven cleanup.
+	 */
+	private evictOldestTerminalState(): void {
+		let oldestKey: string | undefined;
+		let oldestTimestamp = Infinity;
+		for (const [key, state] of this.states) {
+			const isTerminal = state.phase === "recovered" || state.phase === "failed" || state.phase === "none";
+			if (isTerminal && state.lastEventAt < oldestTimestamp) {
+				oldestTimestamp = state.lastEventAt;
+				oldestKey = key;
+			}
+		}
+		if (oldestKey !== undefined) {
+			this.removeKey(oldestKey);
+		}
 	}
 
 	dispose(): void {

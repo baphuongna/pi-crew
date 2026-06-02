@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { logInternalError } from "./utils/internal-error.ts";
 
 type Params = Record<string, string | number>;
 
@@ -103,7 +104,7 @@ function warnOnce(key: string): void {
 	const tag = `${currentLocale}:${key}`;
 	if (warnedMissing.has(tag)) return;
 	warnedMissing.add(tag);
-	process.stderr.write(`[pi-crew] i18n: missing "${key}" in locale "${currentLocale}" — using English\n`);
+	logInternalError("i18n.missing", new Error(`Missing translation`), `key="${key}" locale="${currentLocale}"`);
 }
 
 // --- Public API ---

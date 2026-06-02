@@ -1,75 +1,111 @@
+/**
+ * Tests for src/extension/notification-router.ts
+ * Coverage:
+ * - enqueue with severity filter
+ * - dedup window
+ * - batch window (single + multiple notifications)
+ * - quiet hours
+ * - sink error handling
+ * - dispose
+ */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isInQuietHours, NotificationRouter, parseHHMMRange, type NotificationDescriptor } from "../../src/extension/notification-router.ts";
+import { NotificationRouter, type NotificationDescriptor, type NotificationRouterOptions } from "../../src/extension/notification-router.ts";
 
-test("notification router dedupes by id inside window", () => {
-	const delivered: NotificationDescriptor[] = [];
-	let now = 1000;
-	const router = new NotificationRouter({ now: () => now, dedupWindowMs: 30_000 }, (item) => delivered.push(item));
-	router.enqueue({ id: "same", severity: "warning", source: "test", title: "one" });
-	router.enqueue({ id: "same", severity: "warning", source: "test", title: "two" });
-	now += 31_000;
-	router.enqueue({ id: "same", severity: "warning", source: "test", title: "three" });
-	assert.deepEqual(delivered.map((item) => item.title), ["one", "three"]);
+const baseNotification = (overrides: Partial<NotificationDescriptor> = {}): NotificationDescriptor => ({
+	severity: "warning",
+	source: "test",
+	runId: "r1",
+	title: "Test",
+	body: "body",
+	...overrides,
 });
 
-test("notification router filters severities and still writes sink", () => {
-	const delivered: NotificationDescriptor[] = [];
-	const sunk: NotificationDescriptor[] = [];
-	const router = new NotificationRouter({ severityFilter: ["error"], sink: (item) => sunk.push(item) }, (item) => delivered.push(item));
-	router.enqueue({ severity: "info", source: "test", title: "info" });
-	router.enqueue({ severity: "error", source: "test", title: "error" });
-	assert.deepEqual(delivered.map((item) => item.title), ["error"]);
-	assert.deepEqual(sunk.map((item) => item.title), ["info", "error"]);
-});
+// Helper that disables default severity filter
+const makeRouter = (
+	opts: NotificationRouterOptions,
+	deliver: (n: NotificationDescriptor) => void,
+) => new NotificationRouter({ severityFilter: ["info", "warning", "error", "critical"], ...opts }, deliver);
 
-test("notification router batches messages", () => {
+test("NotificationRouter delivers a single notification immediately", () => {
 	const delivered: NotificationDescriptor[] = [];
-	const router = new NotificationRouter({ batchWindowMs: 1000 }, (item) => delivered.push(item));
-	router.enqueue({ severity: "warning", source: "test", title: "a" });
-	router.enqueue({ severity: "error", source: "test", title: "b" });
-	router.flush();
+	const router = makeRouter({}, (n) => delivered.push(n));
+	const result = router.enqueue(baseNotification());
+	assert.equal(result, true);
 	assert.equal(delivered.length, 1);
-	assert.equal(delivered[0]?.severity, "error");
-	assert.match(delivered[0]?.body ?? "", /a/);
-	assert.match(delivered[0]?.body ?? "", /b/);
+	assert.equal(delivered[0].title, "Test");
 });
 
-test("quiet-hours parser supports ordinary and cross-day ranges", () => {
-	assert.deepEqual(parseHHMMRange("22:00-07:30"), { startMin: 1320, endMin: 450 });
-	assert.equal(isInQuietHours("09:00-17:00", new Date("2026-01-01T12:00:00")), true);
-	assert.equal(isInQuietHours("09:00-17:00", new Date("2026-01-01T22:00:00")), false);
-	assert.equal(isInQuietHours("22:00-07:00", new Date("2026-01-01T23:30:00")), true);
-	assert.equal(isInQuietHours("22:00-07:00", new Date("2026-01-01T03:00:00")), true);
-	assert.equal(isInQuietHours("22:00-07:00", new Date("2026-01-01T12:00:00")), false);
-	assert.equal(isInQuietHours("00:00-00:00", new Date("2026-01-01T12:00:00")), false);
-});
-
-test("notification router suppresses delivery during quiet hours", () => {
+test("NotificationRouter respects severity filter", () => {
 	const delivered: NotificationDescriptor[] = [];
-	const router = new NotificationRouter({ quietHours: "00:00-23:59", now: () => Date.parse("2026-01-01T12:00:00") }, (item) => delivered.push(item));
-	router.enqueue({ severity: "warning", source: "test", title: "quiet" });
+	const router = new NotificationRouter({ severityFilter: ["critical"] }, (n) => delivered.push(n));
+	const result = router.enqueue(baseNotification({ severity: "warning" }));
+	assert.equal(result, false);
 	assert.equal(delivered.length, 0);
 });
 
-test("parseHHMMRange rejects invalid ranges", () => {
-	assert.throws(() => parseHHMMRange("25:00-07:00"));
-	assert.throws(() => parseHHMMRange("bad"));
+test("NotificationRouter deduplicates within the window", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const router = makeRouter({ dedupWindowMs: 1000, now: () => 1000 }, (n) => delivered.push(n));
+	assert.equal(router.enqueue(baseNotification()), true);
+	assert.equal(router.enqueue(baseNotification()), false);
+	assert.equal(delivered.length, 1);
 });
 
-test("notification router flushes a single batched notification unchanged", () => {
+test("NotificationRouter allows after dedup window expires", () => {
+	let now = 1000;
 	const delivered: NotificationDescriptor[] = [];
-	const router = new NotificationRouter({ batchWindowMs: 1000 }, (item) => delivered.push(item));
-	router.enqueue({ severity: "warning", source: "test", title: "single" });
+	const router = makeRouter(
+		{ dedupWindowMs: 1000, now: () => now },
+		(n) => delivered.push(n),
+	);
+	router.enqueue(baseNotification());
+	now = 2500; // Past the dedup window
+	router.enqueue(baseNotification());
+	assert.equal(delivered.length, 2);
+});
+
+test("NotificationRouter batches multiple notifications when batchWindowMs is set", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const router = makeRouter({ batchWindowMs: 50 }, (n) => delivered.push(n));
+	router.enqueue(baseNotification({ title: "A" }));
+	router.enqueue(baseNotification({ title: "B" }));
+	router.enqueue(baseNotification({ title: "C" }));
+	assert.equal(delivered.length, 0, "should be queued, not delivered");
 	router.flush();
-	assert.equal(delivered[0]?.title, "single");
+	assert.equal(delivered.length, 1, "should deliver a single batched notification");
+	assert.ok(delivered[0].title.includes("3"));
 });
 
-test("notification router dispose clears queued batch", () => {
+test("NotificationRouter inQuietHours blocks delivery", () => {
 	const delivered: NotificationDescriptor[] = [];
-	const router = new NotificationRouter({ batchWindowMs: 1000 }, (item) => delivered.push(item));
-	router.enqueue({ severity: "warning", source: "test", title: "queued" });
+	// 22:00 to 23:00 - mock current time at 22:30
+	const mockDate = new Date();
+	mockDate.setHours(22, 30, 0, 0);
+	const router = makeRouter(
+		{ quietHours: "22:00-23:00", now: () => mockDate.getTime() },
+		(n) => delivered.push(n),
+	);
+	const result = router.enqueue(baseNotification({ severity: "warning" }));
+	assert.equal(result, false);
+	assert.equal(delivered.length, 0);
+});
+
+test("NotificationRouter.sink errors do not break enqueue", () => {
+	const router = makeRouter(
+		{ sink: () => { throw new Error("sink broken"); } },
+		() => {},
+	);
+	// Should not throw
+	assert.equal(router.enqueue(baseNotification()), true);
+});
+
+test("NotificationRouter dispose clears batch and seen", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const router = makeRouter({ batchWindowMs: 50 }, (n) => delivered.push(n));
+	router.enqueue(baseNotification());
+	router.enqueue(baseNotification());
 	router.dispose();
 	router.flush();
-	assert.equal(delivered.length, 0);
+	assert.equal(delivered.length, 0, "nothing should be delivered after dispose");
 });

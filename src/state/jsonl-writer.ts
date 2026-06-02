@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { redactJsonLine } from "../utils/redaction.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 export interface DrainableSource {
 	pause(): void;
@@ -68,7 +69,7 @@ export function createJsonlWriter(filePath: string | undefined, source: Drainabl
 				}
 			} catch (writeError) {
 				// Log the error — silently dropping events is dangerous.
-				process.stderr.write(`[pi-crew] jsonl-writer: write failed ${filePath}: ${writeError instanceof Error ? writeError.message : String(writeError)}\n`);
+				logInternalError("jsonl-writer.write", writeError, `file=${filePath}`);
 			}
 		},
 		async close() {

@@ -1,4 +1,5 @@
 import { Counter, Gauge, Histogram, type Metric, type MetricSnapshot } from "./metrics-primitives.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 const METRIC_NAME_PATTERN = /^crew\.[a-z]+\.[a-z][a-z_]*$/;
 
@@ -37,7 +38,7 @@ export class MetricRegistry {
 		const existing = this.metrics.get(name);
 		if (existing instanceof Counter) {
 			if (existing.description !== description) {
-				process.stderr.write(`[pi-crew] metric-registry: counter '${name}' description changed; using original: '${existing.description}'\n`);
+				logInternalError("metric-registry.counter", new Error("description mismatch"), `name='${name}' original='${existing.description}'`);
 			}
 			return existing;
 		}
@@ -49,7 +50,7 @@ export class MetricRegistry {
 		const existing = this.metrics.get(name);
 		if (existing instanceof Gauge) {
 			if (existing.description !== description) {
-				process.stderr.write(`[pi-crew] metric-registry: gauge '${name}' description changed; using original: '${existing.description}'\n`);
+				logInternalError("metric-registry.gauge", new Error("description mismatch"), `name='${name}' original='${existing.description}'`);
 			}
 			return existing;
 		}
@@ -61,7 +62,7 @@ export class MetricRegistry {
 		const existing = this.metrics.get(name);
 		if (existing instanceof Histogram) {
 			if (existing.description !== description) {
-				process.stderr.write(`[pi-crew] metric-registry: histogram '${name}' description changed; using original: '${existing.description}'\n`);
+				logInternalError("metric-registry.histogram", new Error("description mismatch"), `name='${name}' original='${existing.description}'`);
 			}
 			return existing;
 		}

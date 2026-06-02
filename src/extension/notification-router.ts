@@ -1,3 +1,5 @@
+import { logInternalError } from "../utils/internal-error.ts";
+
 export type Severity = "info" | "warning" | "error" | "critical";
 
 export interface NotificationDescriptor {
@@ -55,7 +57,6 @@ export class NotificationRouter {
 	private readonly seen = new Map<string, number>();
 	private batch: NotificationDescriptor[] = [];
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	private seenCleanupCounter = 0;
 	private static readonly SEEN_MAP_MAX_SIZE = 10000;
 
 	constructor(opts: NotificationRouterOptions = {}, deliver: (notification: NotificationDescriptor) => void) {
@@ -84,7 +85,7 @@ export class NotificationRouter {
 		try {
 			this.opts.sink?.(withTime);
 		} catch (sinkError) {
-			process.stderr.write(`[pi-crew] notification-sink: ${sinkError instanceof Error ? sinkError.message : String(sinkError)}\n`);
+			logInternalError("notification-sink", sinkError);
 		}
 		const filter = this.opts.severityFilter ?? DEFAULT_SEVERITY_FILTER;
 		if (!filter.includes(withTime.severity)) return false;

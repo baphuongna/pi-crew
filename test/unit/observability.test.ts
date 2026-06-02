@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MetricRegistry } from "../../src/observability/metric-registry.ts";
 import { convertToOTLP } from "../../src/observability/exporters/otlp-exporter.ts";
-import { withCorrelation, getCurrentContext } from "../../src/observability/correlation.ts";
+import { withCorrelation, getCurrentContext, type CorrelationContext } from "../../src/observability/correlation.ts";
 
 test("MetricRegistry registers a counter and increments it", () => {
 	const registry = new MetricRegistry();
@@ -40,13 +40,13 @@ test("MetricRegistry gauge supports set and reset", () => {
 });
 
 test("correlation context is propagated through withCorrelation", () => {
-	let captured: { runId: string; taskId?: string } | undefined;
-	withCorrelation({ runId: "corr-123", taskId: "t1" }, () => {
+	let captured: CorrelationContext | undefined;
+	withCorrelation({ traceId: "corr-123", spanId: "span-1" }, () => {
 		captured = getCurrentContext();
 	});
 	assert.ok(captured);
-	assert.equal(captured?.runId, "corr-123");
-	assert.equal(captured?.taskId, "t1");
+	assert.equal(captured?.traceId, "corr-123");
+	assert.equal(captured?.spanId, "span-1");
 });
 
 test("correlation context returns undefined outside withCorrelation", () => {
