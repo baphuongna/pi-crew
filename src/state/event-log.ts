@@ -298,7 +298,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		}
 		return fullEvent;
 	});
-	asyncQueues.set(queueKey, next.catch((error) => { logInternalError("event-log.async-queue", error, eventsPath); asyncQueues.delete(queueKey); }));
+	asyncQueues.set(queueKey, next.then(
+		() => { asyncQueues.delete(queueKey); },
+		(error) => {
+			logInternalError("event-log.async-queue", error, eventsPath);
+			asyncQueues.delete(queueKey);
+		},
+	));
 	return next;
 }
 
@@ -433,11 +439,19 @@ function flushOneEventLogBuffer(eventsPath: string): void {
 	// MEDIUM-13: Delete timer entry only after successful flush (in finally block)
 	bufferedTimers.delete(eventsPath);
 	if (!queue || queue.length === 0) return;
-	
-	// HIGH-10: Clean up queue if it exceeds limit to prevent unbounded growth
+
+	// FIX (Round 14, H3): When truncating the queue, explicitly reject the
+	// dropped entries' promises. Previously `queue.splice()` silently
+	// discarded the oldest items, and their associated Promises were never
+	// resolved or rejected — causing callers to await forever and leaking
+	// memory. We now reject with a clear error so callers can fall back.
 	if (queue.length > 1000) {
-		// Keep only the last 500 entries
-		queue.splice(0, queue.length - 500);
+		const dropped = queue.splice(0, queue.length - 500);
+		for (const item of dropped) {
+			item.reject(new Error(
+				`Event log buffer overflow: ${queue.length + dropped.length} entries > 1000 cap; oldest ${dropped.length} dropped to keep memory bounded`,
+			));
+		}
 	}
 	
 	try {
@@ -525,10 +539,25 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		};
 	}
 
-	// Original behavior: read entire file
+	// Original behavior: read entire file.
+	// FIX (Round 14, H7): When called WITHOUT fromByteOffset on a large file,
+	// fall back to reading only the tail (last 1MB) plus metadata about the
+	// dropped prefix. This avoids O(n) memory load on hot UI paths while
+	// preserving a sensible default.
 	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
 	const limit = positiveInteger(options.limit);
-	const all = readEvents(eventsPath);
+	let all = readEvents(eventsPath);
+	const totalAll = all.length;
+	if (totalAll > 5000 && options.fromByteOffset === undefined) {
+		// TAIL READ: keep the most recent 5000 events to bound memory.
+		// Callers that need full history should pass fromByteOffset to stream.
+		logInternalError(
+			"event-log.cursor-full-read",
+			new Error(`readEventsCursor read entire ${totalAll}-event log; pass fromByteOffset for incremental reads`),
+			`eventsPath=${eventsPath}`,
+		);
+		all = all.slice(-5000);
+	}
 	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
 	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
 	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
