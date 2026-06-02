@@ -124,8 +124,18 @@ export class OTLPExporter implements MetricExporter {
 		}
 	}
 
-	dispose(): void {
+	/**
+	 * FIX (Round 23, resource cleanup): Make dispose() async and await the
+	 * in-flight push so it completes (or aborts) before we return. The push
+	 * itself is bounded by the 10s fetch timeout, so this won't hang
+	 * indefinitely. Without this, dispose() would orphan an in-flight
+	 * network request whose result is then discarded.
+	 */
+	async dispose(): Promise<void> {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
+		if (this.inFlight) {
+			try { await this.inFlight; } catch { /* swallow — push() already logs errors */ }
+		}
 	}
 }
