@@ -127,10 +127,10 @@ test("SharedScanCache readAndCache re-reads on file change", () => {
 		fs.writeFileSync(filePath, JSON.stringify({ v: 1 }));
 		const cache = new SharedScanCache();
 		const first = cache.readAndCache("b", "k", filePath);
-		// Modify file - wait for mtime to change
-		const futureMtime = new Date(Date.now() + 1000);
-		fs.utimesSync(filePath, futureMtime, futureMtime);
+		// Modify file - write first, then force mtime forward for cache invalidation
 		fs.writeFileSync(filePath, JSON.stringify({ v: 2 }));
+		const futureMtime = new Date(Date.now() + 2000);
+		fs.utimesSync(filePath, futureMtime, futureMtime);
 		const second = cache.readAndCache("b", "k", filePath);
 		assert.notStrictEqual(first, second, "should re-read on mtime change");
 		assert.deepEqual(second?.raw, { v: 2 });
