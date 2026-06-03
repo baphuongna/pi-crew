@@ -20,7 +20,6 @@
  * merely start with `<` or `=` never match.
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
 
 const OURS_PREFIX = "<<<<<<<";
 const BASE_PREFIX = "|||||||";

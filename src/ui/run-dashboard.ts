@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
-import { getLiveAgentContextPercent, listLiveAgents } from "../runtime/live-agent-manager.ts";
+import { getLiveAgentContextPercent } from "../runtime/live-agent-manager.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
@@ -11,7 +11,6 @@ import { applyStatusColor, iconForStatus, type RunStatus } from "./status-colors
 import { pad, truncate, sanitizeLine } from "../utils/visual.ts";
 import { Box, Text } from "./layout-primitives.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
-import { CrewFooter } from "./crew-footer.ts";
 import { aggregateUsage } from "../state/usage.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";

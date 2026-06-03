@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadRunManifestById } from "./state-store.ts";
-import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
 import { atomicWriteJson, readJsonFile } from "./atomic-write.ts";
-import { DEFAULT_PATHS } from "../config/defaults.ts";
 
 /**
  * Run metrics snapshot captured after a run completes (or on demand).

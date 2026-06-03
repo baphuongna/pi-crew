@@ -3,7 +3,6 @@ import type { PiTeamsToolResult } from "../tool-result.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { result, type TeamContext } from "./context.ts";
 import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduler.ts";
-import { loadConfig } from "../../config/config.ts";
 import { loadCrewSettings, saveCrewSettings } from "../../runtime/settings-store.ts";
 
 // Global key for cross-module scheduler access.

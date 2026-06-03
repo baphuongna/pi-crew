@@ -8,7 +8,6 @@ import { listRuns } from "../run-index.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import {
 	isActiveRunStatus,
-	isFinishedRunStatus,
 	hasStaleAsyncProcess,
 	isLikelyOrphanedActiveRun,
 } from "../../runtime/process-status.ts";

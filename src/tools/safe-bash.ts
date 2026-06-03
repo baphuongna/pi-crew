@@ -4,7 +4,6 @@
  * Uses linear-time scanning to prevent ReDoS attacks
  */
 
-import { Type } from "@sinclair/typebox";
 
 // Backward-compatible pattern array (kept for getPatterns API)
 // IMPORTANT: Line 8 (rm pattern with nested quantifiers) has been replaced

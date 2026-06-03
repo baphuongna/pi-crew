@@ -24,7 +24,6 @@ import { buildExtensionBridge } from "./live-extension-bridge.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 // prose-compressor imported for custom tool descriptions below;
 // tool description compression for SDK-managed tools awaits SDK support.
-import { compressToolDescription } from "./prose-compressor.ts";
 import { buildSensitivePathConstraint } from "./sensitive-paths.ts";
 import { collectLiveSessionHealth, formatLiveSessionDiagnostics, type LiveSessionHealth } from "./live-session-health.ts";
 import { listLiveAgents } from "./live-agent-manager.ts";

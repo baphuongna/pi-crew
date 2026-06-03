@@ -8,7 +8,7 @@ import { registerActiveRun, unregisterActiveRun } from "../../state/active-run-r
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { validateWorkflowForTeam } from "../../workflows/validate-workflow.ts";
-import { PipelineRunner, type PipelineWorkflow, type PipelineStage } from "../../runtime/pipeline-runner.ts";
+import { PipelineRunner, type PipelineWorkflow } from "../../runtime/pipeline-runner.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
@@ -24,7 +24,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 	return _cachedExecuteTeamRun(...args);
 }
 import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
-import { appendEvent, appendEventAsync, readEvents } from "../../state/event-log.ts";
+import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtime-resolver.ts";
 import { normalizeSkillOverride } from "../../runtime/skill-instructions.ts";
 import { expandParallelResearchWorkflow } from "../../runtime/parallel-research.ts";

@@ -22,8 +22,6 @@
  * Repo resolution: git remote get-url origin from cwd.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import * as path from "node:path";
 
 /** Resolve the default repo from `git remote get-url origin` in cwd. */
 export function resolveDefaultRepo(cwd: string): string {

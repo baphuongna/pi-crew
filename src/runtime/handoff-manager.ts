@@ -55,7 +55,6 @@ export function isValidHandoffSummary(value: unknown): value is HandoffSummary {
  */
 
 import type { TeamEvent } from "../state/event-log.ts";
-import { appendEventAsync } from "../state/event-log.ts";
 
 /**
  * Represents a key decision made during task execution.

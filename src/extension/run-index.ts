@@ -7,7 +7,7 @@ import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { activeRunEntries } from "../state/active-run-registry.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { sharedScanCache } from "../utils/scan-cache.ts";
-import { CancellationToken, createCancellationToken } from "../runtime/cancellation-token.ts";
+import { createCancellationToken } from "../runtime/cancellation-token.ts";
 
 function readManifest(filePath: string): TeamRunManifest | undefined {
 	const cached = sharedScanCache.readAndCache("manifests", filePath, filePath);

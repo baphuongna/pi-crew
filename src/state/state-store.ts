@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
-import { canTransitionRunStatus, isTerminalRunStatus } from "./contracts.ts";
+import { canTransitionRunStatus } from "./contracts.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
 import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, readJsonFile } from "./atomic-write.ts";
 import { appendEvent } from "./event-log.ts";

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig, ResourceSource, RoutingMetadata } from "../agents/agent-config.ts";
 import { serializeAgent } from "../agents/agent-serializer.ts";
-import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
+import { discoverAgents } from "../agents/discover-agents.ts";
 import type { TeamToolDetails } from "./team-tool-types.ts";
 import { toolResult, type PiTeamsToolResult } from "./tool-result.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";

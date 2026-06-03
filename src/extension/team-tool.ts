@@ -4,7 +4,6 @@ import type { AgentConfig } from "../agents/agent-config.ts";
 import {
 	allAgents,
 	discoverAgents,
-	invalidateAgentDiscoveryCache,
 	listDynamicAgents,
 	registerDynamicAgent,
 	unregisterDynamicAgent,
@@ -19,8 +18,8 @@ import {
 import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent, readEvents } from "../state/event-log.ts";
-import { withRunLock, withRunLockSync } from "../state/locks.ts";
+import { appendEvent } from "../state/event-log.ts";
+import { withRunLock } from "../state/locks.ts";
 import { replayPendingMailboxMessages } from "../state/mailbox.ts";
 import {
 	loadRunManifestById,
@@ -33,22 +32,15 @@ import type {
 	TeamRunManifest,
 	TeamTaskState,
 } from "../state/types.ts";
-import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import {
 	allWorkflows,
 	discoverWorkflows,
 } from "../workflows/discover-workflows.ts";
-import { validateWorkflowForTeam } from "../workflows/validate-workflow.ts";
-import { cleanupRunWorktrees } from "../worktree/cleanup.ts";
 import { piTeamsHelp } from "./help.ts";
-import { listImportedRuns } from "./import-index.ts";
 import { handleCreate, handleDelete, handleUpdate } from "./management.ts";
 import { initializeProject } from "./project-init.ts";
-import { exportRunBundle } from "./run-export.ts";
-import { importRunBundle } from "./run-import.ts";
 import { listRuns } from "./run-index.ts";
-import { pruneFinishedRuns } from "./run-maintenance.ts";
 import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
 import { handleSettings } from "./team-tool/handle-settings.ts";
 import type { PiTeamsToolResult } from "./tool-result.ts";
@@ -70,31 +62,12 @@ async function executeTeamRun(
 	return _cachedExecuteTeamRun(...args);
 }
 
-import {
-	applyAttentionState,
-	formatActivityAge,
-	resolveCrewControlConfig,
-} from "../runtime/agent-control.ts";
-import {
-	readCrewAgents,
-	recordFromTask,
-	saveCrewAgents,
-} from "../runtime/crew-agent-records.ts";
 import { directTeamAndWorkflowFromRun } from "../runtime/direct-run.ts";
-import { writeForegroundInterruptRequest } from "../runtime/foreground-control.ts";
 import { parsePiJsonOutput } from "../runtime/pi-json-output.ts";
-import {
-	checkProcessLiveness,
-	isActiveRunStatus,
-} from "../runtime/process-status.ts";
 import {
 	resolveCrewRuntime,
 	runtimeResolutionState,
 } from "../runtime/runtime-resolver.ts";
-import {
-	formatTaskGraphLines,
-	waitingReason,
-} from "../runtime/task-display.ts";
 import { handleApi } from "./team-tool/api.ts";
 import {
 	autonomousPatchFromConfig,
@@ -128,7 +101,6 @@ async function handleRun(
 
 import { waitForRun } from "../runtime/run-tracker.ts";
 import { normalizeSkillOverride } from "../runtime/skill-instructions.ts";
-import { logInternalError } from "../utils/internal-error.ts";
 import { searchAgents, searchTeams } from "../utils/bm25-search.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import {

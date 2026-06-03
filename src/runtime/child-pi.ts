@@ -8,7 +8,7 @@ import { getPiSpawnCommand } from "./pi-spawn.ts";
 import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
-import { redactJsonLine, isSecretKey } from "../utils/redaction.ts";
+import { redactJsonLine } from "../utils/redaction.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
 

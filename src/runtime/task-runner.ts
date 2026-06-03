@@ -11,7 +11,7 @@ import type {
 } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent, appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
 import { saveRunManifest } from "../state/state-store.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import {

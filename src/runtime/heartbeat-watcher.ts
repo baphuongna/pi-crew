@@ -6,7 +6,7 @@ import { loadRunManifestById } from "../state/state-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { ManifestCache } from "./manifest-cache.ts";
-import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS, heartbeatAgeMs, type GradientThresholds, type HeartbeatLevel } from "./heartbeat-gradient.ts";
+import { DEFAULT_GRADIENT_THRESHOLDS, heartbeatAgeMs, type GradientThresholds, type HeartbeatLevel } from "./heartbeat-gradient.ts";
 
 export interface HeartbeatWatcherRouter {
 	enqueue(notification: NotificationDescriptor): boolean;

@@ -8,7 +8,6 @@
  * Distilled from pi-autoresearch's dual-gate loop pattern.
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type { TeamTaskState } from "../state/types.ts";
 
 /**

@@ -8,7 +8,7 @@ import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
 import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.ts";
-import { verifyTaskCompletion, formatOutputPreview } from "../../runtime/completion-guard.ts";
+import { verifyTaskCompletion } from "../../runtime/completion-guard.ts";
 import { evaluateRunEffectiveness } from "../../runtime/effectiveness.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { locateRunCwd } from "../team-tool.ts";

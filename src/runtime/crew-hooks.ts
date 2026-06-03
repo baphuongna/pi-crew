@@ -146,7 +146,7 @@ export class HookRegistry {
 	emit(event: CrewHookEvent): void {
 		// Validate event type using type guard
 		if (!isValidEventType(event.type)) {
-			console.warn(`[crew-hooks] Unknown event type: ${event.type}`);
+			logInternalError("crew-hooks.unknown-event-type", new Error(`Unknown event type: ${event.type}`));
 			return;
 		}
 

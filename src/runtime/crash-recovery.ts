@@ -11,7 +11,7 @@ import type { ManifestCache } from "./manifest-cache.ts";
 import { checkProcessLiveness } from "./process-status.ts";
 import { reconcileStaleRun, type ReconcileResult } from "./stale-reconciler.ts";
 import { executeHook, appendHookEvent } from "../hooks/registry.ts";
-import { activeRunEntries, unregisterActiveRun, readActiveRunRegistry } from "../state/active-run-registry.ts";
+import { unregisterActiveRun, readActiveRunRegistry } from "../state/active-run-registry.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { terminateLiveAgentsForRun } from "./live-agent-manager.ts";

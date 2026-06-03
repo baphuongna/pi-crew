@@ -2,7 +2,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { loadConfig } from "../../config/config.ts";
-import { listLiveAgents, type LiveAgentHandle } from "../../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
 import { LiveConversationOverlay } from "../../ui/live-conversation-overlay.ts";
 import { asCrewTheme } from "../../ui/theme-adapter.ts";
 // Lazy-loaded: DurableTranscriptViewer is 658ms — only needed for /crew transcript command

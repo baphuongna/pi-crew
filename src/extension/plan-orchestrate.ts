@@ -6,7 +6,6 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 
 /**
  * Tag → Agent chain mapping from ECC recommendations.

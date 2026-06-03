@@ -6,7 +6,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config/config.ts";
-import { applyCrewSettingsToConfig, loadCrewSettings, saveCrewSettings } from "../runtime/settings-store.ts";
+import { applyCrewSettingsToConfig, loadCrewSettings } from "../runtime/settings-store.ts";
 // 2.7: Lazy-load LiveRunSidebar — only constructed when the user actually opens
 // a live run sidebar overlay. The class pulls in transcript-viewer and other
 // heavy UI modules.
@@ -47,12 +47,9 @@ import {
 	createMetricFileSink,
 	type MetricSink,
 } from "../observability/metric-sink.ts";
-import { killProcessPid } from "../runtime/child-pi.ts";
 import { listLiveAgents } from "../runtime/live-agent-manager.ts";
 import { createManifestCache } from "../runtime/manifest-cache.ts";
-import { checkProcessLiveness } from "../runtime/process-status.ts";
 import { CrewScheduler } from "../runtime/scheduler.ts";
-import { appendEvent } from "../state/event-log.ts";
 import { loadRunManifestById, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { SubagentManager } from "../subagents/manager.ts";
@@ -128,9 +125,6 @@ import type {
 // deferred cleanup and cleanupRuntime. Each function is awaited inside an
 // async context that already runs after registration completes.
 import {
-	cancelOrphanedRuns,
-	detectInterruptedRuns,
-	purgeStaleActiveRunIndex,
 	reconcileAllStaleRuns,
 } from "../runtime/crash-recovery.ts";
 import { appendDeadletter } from "../runtime/deadletter.ts";

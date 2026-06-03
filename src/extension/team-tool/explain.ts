@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { toolResult } from "../tool-result.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 

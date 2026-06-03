@@ -3,7 +3,6 @@ import type { AgentConfig } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
 import {
-	appendEvent,
 	appendEventFireAndForget,
 } from "../../state/event-log.ts";
 import type {
@@ -11,7 +10,7 @@ import type {
 	TeamRunManifest,
 	TeamTaskState,
 } from "../../state/types.ts";
-import { loadRunManifestById, saveRunTasks } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/state-store.ts";
 import { persistSingleTaskUpdate } from "./state-helpers.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { appendCrewAgentEvent, appendCrewAgentOutput, emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";

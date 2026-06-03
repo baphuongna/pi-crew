@@ -2,8 +2,7 @@ import type { TeamTaskState } from "../state/types.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { AgentConfig } from "../agents/agent-config.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent, appendEventAsync } from "../state/event-log.ts";
+import { appendEventAsync } from "../state/event-log.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 
 /**
