@@ -201,22 +201,23 @@ export function isDangerous(command: string, options: SafeBashOptions = {}): str
 	}
 
 	// Additional shell injection checks using regex for non-critical patterns
-	// Block command substitution $(...)
-	if (/\$\([^)]*\)/.test(command)) {
+	// Block command substitution $(...)  — use normalized to prevent $\n(evil) bypass
+	// Also match $<space>(...) which is the normalized form of $\n(evil)
+	if (/\$\s*\([^)]*\)/.test(normalized)) {
 		return "Command blocked by safe_bash: command substitution $(...) is not allowed";
 	}
 	// Block backtick substitution
 	const backtickRe = /`[^`]*`/;
-	if (backtickRe.test(command)) {
+	if (backtickRe.test(normalized)) {
 		return "Command blocked by safe_bash: backtick substitution is not allowed";
 	}
 	// Block here-docs <<
-	if (/<<\s*['"]?[\w-]+['"]?/.test(command) || /\$<<\s*['"]?[\w-]+['"]?/.test(command)) {
+	if (/<<\s*['"]?[\w-]+['"]?/.test(normalized) || /\$<<\s*['"]?[\w-]+['"]?/.test(normalized)) {
 		return "Command blocked by safe_bash: here-doc is not allowed";
 	}
-	// Block ${...} variable expansion containing shell metacharacters (pipes, redirects, &&/||)
+	// Block ${...} variable expansion containing shell metacharacters
 	const varExpRe = /\$\{([^}]*)\}/;
-	const varMatch = command.match(varExpRe);
+	const varMatch = normalized.match(varExpRe);
 	if (varMatch && /[|&;<>]/.test(varMatch[1])) {
 		return "Command blocked by safe_bash: variable expansion with shell metacharacters is not allowed";
 	}

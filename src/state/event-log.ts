@@ -149,12 +149,18 @@ function parseSequence(raw: string): number | undefined {
 export function scanSequence(eventsPath: string): number {
 	if (!fs.existsSync(eventsPath)) return 0;
 	let max = 0;
+	let skipped = 0;
 	for (const line of fs.readFileSync(eventsPath, "utf-8").split("\n")) {
 		if (!line.trim()) continue;
 		try {
 			const event = JSON.parse(line) as TeamEvent;
 			max = Math.max(max, event.metadata?.seq ?? 0);
-		} catch { /* skip corrupt lines without incrementing sequence */ }
+		} catch {
+			skipped++;
+		}
+	}
+	if (skipped > 0) {
+		logInternalError("event-log.scanSequence.corrupt_lines", undefined, `${eventsPath}: skipped ${skipped} corrupt line(s)`);
 	}
 	return max;
 }

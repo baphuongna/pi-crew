@@ -145,3 +145,20 @@ test("specific allowPatterns are accepted", () => {
 	const safe = createSafeBash({ allowPatterns: [/\brm\s+\/tmp/] });
 	assert.ok(typeof safe.check === "function");
 });
+test("line-continuation bypass is blocked: $\\n(evil)", () => {
+	const safe = createSafeBash();
+	// bash interprets $\<newline>(evil) as $(evil) command substitution
+	// Template literal with actual newline after backslash
+	const cmd = `echo \
+\$
+(evil)`;
+	const result = safe.check(cmd);
+	assert.ok(result !== null, "Expected line-continuation $\\n(evil) to be blocked");
+	assert.ok(result!.includes("command substitution"), `Expected substitution message, got: ${result}`);
+});
+
+test("line-continuation bypass is blocked: backtick", () => {
+	const safe = createSafeBash();
+	const result = safe.check("echo `\\\nwhoami`");
+	assert.ok(result !== null, "Expected line-continuation backtick to be blocked");
+});

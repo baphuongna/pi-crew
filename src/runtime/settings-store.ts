@@ -57,6 +57,10 @@ function sanitizeSettings(raw: unknown): CrewSettings {
 	if (typeof r.notifierIntervalMs === "number" && r.notifierIntervalMs >= 1000) {
 		out.notifierIntervalMs = r.notifierIntervalMs;
 	}
+	// Pass through scheduledJobs as opaque array (validated by crewScheduler.add)
+	if (Array.isArray(r.scheduledJobs)) {
+		out.scheduledJobs = r.scheduledJobs;
+	}
 	return out;
 }
 

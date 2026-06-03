@@ -34,7 +34,17 @@ function readIfSmall(filePath: string, maxBytes = 24_000, baseDir?: string): str
 	try {
 		const safePath = baseDir ? resolveRealContainedPath(baseDir, filePath) : filePath;
 		const stat = fs.statSync(safePath);
-		if (stat.size > maxBytes) return `${fs.readFileSync(safePath, "utf-8").slice(0, maxBytes)}\n\n...(truncated ${stat.size - maxBytes} bytes)`;
+		if (stat.size > maxBytes) {
+			// Use bounded read to avoid loading entire file into memory
+			const buf = Buffer.alloc(maxBytes);
+			const fd = fs.openSync(safePath, "r");
+			try {
+				fs.readSync(fd, buf, 0, maxBytes, 0);
+			} finally {
+				fs.closeSync(fd);
+			}
+			return `${buf.toString("utf-8")}\n\n...(truncated ${stat.size - maxBytes} bytes)`;
+		}
 		return fs.readFileSync(safePath, "utf-8");
 	} catch {
 		return undefined;
