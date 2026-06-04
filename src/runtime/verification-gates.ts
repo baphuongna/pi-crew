@@ -57,7 +57,9 @@ export const CARGO_RUST_GATES: Array<{ name: string; command: string; critical: 
  * Execute a single command and capture output.
  */
 /** Characters/patterns that indicate dangerous shell metacharacters. */
-const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\b(eval|exec)\b|>|>>|<)/;
+const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\b(eval|exec)\b|>>|<[^&])/;
+// Note: single `>` is NOT blocked here because `2>&1` is a safe redirect used by built-in gates.
+// `>>` (append) is still blocked. `<` without `&` (input redirect) is still blocked.
 
 /**
  * Validate a verification gate command is safe to execute.

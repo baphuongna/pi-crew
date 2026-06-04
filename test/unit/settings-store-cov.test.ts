@@ -81,7 +81,7 @@ describe("saveCrewSettings / loadCrewSettings", () => {
 	it("preserves scheduledJobs array", () => {
 		const tmp = createTrackedTempDir("pi-crew-settings-");
 		try {
-			const jobs = [{ cron: "*/5 * * * *", workflow: "test" }];
+			const jobs = [{ id: "job-1", scheduleType: "cron", enabled: true, cron: "*/5 * * * *", workflow: "test" }];
 			saveCrewSettings({ scheduledJobs: jobs } as never, tmp);
 			const loaded = loadCrewSettings(tmp);
 			assert.ok(Array.isArray(loaded.scheduledJobs));

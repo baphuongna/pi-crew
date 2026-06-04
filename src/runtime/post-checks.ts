@@ -5,6 +5,7 @@
  * Distilled from pi-autoresearch's post-check / backpressure pattern.
  */
 import { execFileSync } from "node:child_process";
+import * as path from "node:path";
 import { resolveShellForScript } from "../utils/resolve-shell.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 
@@ -56,9 +57,8 @@ function resolveScriptPath(config: PostCheckConfig): string | undefined {
  * If no script path is available (neither config nor env var), the check
  * passes by default with a note.
  *
- * **Security note:** The script path is user-configurable (config or env var)
- * and executed with minimal environment (PATH, HOME, USER, LANG). Only use with trusted script
- * paths. No path containment validation is performed.
+ * **Security note:** The script path is validated to stay within `cwd`.
+ * Scripts that escape the working directory are rejected.
  *
  * @param config - Post-check configuration (script path and timeout)
  * @param cwd - Working directory for script execution
@@ -75,6 +75,13 @@ export async function runPostCheck(config: PostCheckConfig, cwd: string): Promis
 			durationMs: 0,
 			timedOut: false,
 		};
+	}
+
+	// M1: Validate that the script path is contained within cwd to prevent arbitrary file execution
+	const resolved = path.resolve(cwd, scriptPath);
+	const resolvedCwd = path.resolve(cwd);
+	if (!resolved.startsWith(resolvedCwd + path.sep) && resolved !== resolvedCwd) {
+		throw new Error(`Security: PI_CREW_POST_CHECK_SCRIPT escapes cwd: ${scriptPath}`);
 	}
 
 	const startTime = Date.now();

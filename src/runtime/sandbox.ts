@@ -21,26 +21,8 @@ const FORBIDDEN_PATTERNS = [
 	// Global escape vectors
 	/\bglobalThis\b/,                 // globalThis reference
 	/\bglobal\b/,                      // global reference (Node.js)
+	/\bconstructor\b/,                 // Block constructor chain escape: [].constructor.constructor("return process")()
 ] as const;
-
-/**
- * Whitelist of allowed identifiers for strict mode.
- * Only these identifiers can be used in sandboxed code.
- */
-const ALLOWED_IDENTIFIERS = new Set([
-	// Built-in constructors
-	"Array", "Boolean", "Date", "Error", "Function", "JSON", "Map", "Number", "Object", "Promise", "RegExp", "Set", "String", "Symbol",
-	// Static methods
-	"ArrayBuffer", "Uint8Array", "parseInt", "parseFloat", "isNaN", "isFinite",
-	// URI encoding
-	"encodeURI", "decodeURI", "encodeURIComponent", "decodeURIComponent",
-	// Math (read-only)
-	"Math",
-	// Console (safe methods only)
-	"console",
-	// Process (limited)
-	"process",
-]);
 
 Object.freeze(FORBIDDEN_PATTERNS);
 

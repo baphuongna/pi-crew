@@ -216,7 +216,7 @@ test("DynamicScriptRunner returns validation errors in execution result", () => 
 test("DynamicScriptRunner executeUnchecked bypasses validation", () => {
 	const runner = new DynamicScriptRunner();
 	// executeUnchecked bypasses validation, even for dangerous code
-	const result = __test_executeUnchecked(runner, "eval('1 + 1')");
+	const result = __test_executeUnchecked!(runner, "eval('1 + 1')");
 	// Note: executeUnchecked doesn't validate, so it should succeed
 	// (the sandbox still restricts execution, but validation is skipped)
 	assert.equal(result.success, true);

@@ -20,6 +20,18 @@ const MAX_TURNS_CEILING = 10_000;
 const GRACE_TURNS_CEILING = 1_000;
 const VALID_JOIN_MODES = new Set<JoinMode>(["async", "group", "smart"]);
 
+/**
+ * M2: Validate that a scheduled job object has required fields before passing to scheduler.
+ * Prevents opaque unknown[] from reaching CrewScheduler.add() without validation.
+ */
+function validateScheduledJob(job: unknown): boolean {
+	if (!job || typeof job !== "object") return false;
+	const obj = job as Record<string, unknown>;
+	return typeof obj.id === "string" && obj.id.length > 0
+		&& typeof obj.scheduleType === "string"
+		&& typeof obj.enabled === "boolean";
+}
+
 function sanitizeSettings(raw: unknown): CrewSettings {
 	if (!raw || typeof raw !== "object") return {};
 	const r = raw as Record<string, unknown>;
@@ -57,9 +69,9 @@ function sanitizeSettings(raw: unknown): CrewSettings {
 	if (typeof r.notifierIntervalMs === "number" && r.notifierIntervalMs >= 1000) {
 		out.notifierIntervalMs = r.notifierIntervalMs;
 	}
-	// Pass through scheduledJobs as opaque array (validated by crewScheduler.add)
+	// Pass through scheduledJobs after basic validation
 	if (Array.isArray(r.scheduledJobs)) {
-		out.scheduledJobs = r.scheduledJobs;
+		out.scheduledJobs = (r.scheduledJobs as unknown[]).filter(validateScheduledJob);
 	}
 	return out;
 }

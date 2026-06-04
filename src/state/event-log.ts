@@ -223,6 +223,11 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 // --- Async write queue (non-blocking alternative to withEventLogLockSync) ---
 const asyncQueues = new Map<string, Promise<unknown>>();
 
+/** Reset event log mode (for testing only). */
+export function resetEventLogMode(): void {
+	asyncQueues.clear();
+}
+
 /**
  * Append an event to the event log using non-blocking async I/O.
  *

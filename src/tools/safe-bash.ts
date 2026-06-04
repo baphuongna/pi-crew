@@ -39,7 +39,8 @@ const DANGEROUS_PATTERNS = [
 
 /**
  * Linear-time check if command contains a dangerous rm pattern like "rm -rf /" or "rm -rf ~"
- * Replaces O(n²) regex backtracking with O(n) string scanning
+ * Replaces O(n²) regex backtracking with O(n) string scanning.
+ * Expanded to also block: rm -rf /etc/*, rm --recursive --force /, rm -rf ~/.ssh, etc.
  */
 function matchesDangerousRm(command: string): boolean {
 	let pos = 0;
@@ -56,32 +57,75 @@ function matchesDangerousRm(command: string): boolean {
 		// Must be followed by whitespace
 		const afterRm = rmIdx + 2;
 		if (afterRm >= len || /\s/.test(command[afterRm])) {
-			// Found "rm " - now check for -rf flags followed by / or ~
+			// Found "rm " - now check for recursive/force flags
 			let p = afterRm + 1;
+			let hasR = false;
+			let hasF = false;
 			while (p < len) {
 				// Skip whitespace
 				while (p < len && /\s/.test(command[p])) p++;
 				if (p >= len) break;
-				// Check for flag
-				if (command[p] !== "-") break;
-				p++;
-				let hasR = false, hasF = false;
-				while (p < len && /[a-zA-Z]/.test(command[p])) {
-					if (command[p] === "r" || command[p] === "R") hasR = true;
-					if (command[p] === "f" || command[p] === "F") hasF = true;
+				// Check for short flags (-r, -f, -rf, -R, -F, etc.)
+				if (command[p] === "-" && p + 1 < len && /[a-zA-Z]/.test(command[p + 1]) && command[p + 1] !== "-") {
 					p++;
+					while (p < len && /[a-zA-Z]/.test(command[p])) {
+						if (command[p] === "r" || command[p] === "R") hasR = true;
+						if (command[p] === "f" || command[p] === "F") hasF = true;
+						p++;
+					}
+					// Skip whitespace after flag
+					while (p < len && /\s/.test(command[p])) p++;
+					continue;
 				}
-				if (!hasR && !hasF) break; // Flag must have r or f
-				// Skip whitespace after flag
-				while (p < len && /\s/.test(command[p])) p++;
-			}
-			// Now check if followed by / or ~ (end or whitespace)
-			if (p < len && (command[p] === "/" || command[p] === "~")) {
-				const afterSlash = p + 1;
-				if (afterSlash >= len || /\s/.test(command[afterSlash]) || command[afterSlash] === ";") {
-					return true; // Dangerous!
+				// Check for long flags (--recursive, --force)
+				if (command[p] === "-" && p + 1 < len && command[p + 1] === "-") {
+					p += 2;
+					const flagStart = p;
+					while (p < len && /[a-zA-Z]/.test(command[p])) p++;
+					const flagName = command.slice(flagStart, p);
+					if (flagName === "recursive") hasR = true;
+					if (flagName === "force") hasF = true;
+					// Skip whitespace after flag
+					while (p < len && /\s/.test(command[p])) p++;
+					continue;
 				}
+				// Not a flag — stop parsing flags
+				break;
 			}
+			// Must have both -r and -f (or equivalents) to be dangerous
+			if (!hasR || !hasF) {
+				pos = rmIdx + 1;
+				continue;
+			}
+			// Now check if followed by dangerous targets
+			if (p >= len) {
+				pos = rmIdx + 1;
+				continue;
+			}
+			// Block: ~ (home directory references)
+			const charAtP = command[p];
+			if (charAtP === "~") return true; // Home directory reference
+			// Block: / (root or dangerous system paths)
+			if (charAtP === "/") {
+				// Exact root '/' with nothing after
+				if (p + 1 >= len || /\s/.test(command[p + 1]) || command[p + 1] === ";") return true;
+				// Block dangerous system paths
+				const rest = command.slice(p);
+				if (/^\/etc[\/\s;]/.test(rest) || rest === "/etc") return true;
+				if ((/^\/var\/(?!tmp)/.test(rest)) || rest === "/var") return true;
+				if (/^\/usr[\/\s;]/.test(rest) || rest === "/usr") return true;
+				if (/^\/boot[\/\s;]/.test(rest) || rest === "/boot") return true;
+				if (/^\/sys[\/\s;]/.test(rest) || rest === "/sys") return true;
+				if (/^\/proc[\/\s;]/.test(rest) || rest === "/proc") return true;
+				if (/^\/dev[\/\s;]/.test(rest) || rest === "/dev") return true;
+				if (/^\/root[\/\s;]/.test(rest) || rest === "/root") return true;
+				if (/^\/home[\/\s;]/.test(rest) || rest === "/home") return true;
+				// /tmp/ and other non-system absolute paths are allowed
+			}
+			// Check for sensitive relative paths: .ssh, .gnupg
+			const rest = command.slice(p);
+			if (/^\.ssh[\/\\\s;]/.test(rest)) return true;
+			if (/^\.gnupg[\/\\\s;]/.test(rest)) return true;
 		}
 		pos = rmIdx + 1;
 	}

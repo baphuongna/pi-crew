@@ -8,11 +8,22 @@ import { readEvents, type TeamEvent } from "../state/event-log.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 
 /** Replace absolute paths containing home directory with ~/ */
+/** Escape special regex characters in a string */
+function escapeRegex(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Only redact home directory at path boundaries to avoid corrupting substrings */
+function redactHomePathInString(str: string, home: string): string {
+	return str.replace(new RegExp(`(^|(?<=[:=/]))${escapeRegex(home)}`, "g"), "$1~");
+}
+
+/** Replace absolute paths containing home directory with ~/ at path boundaries only */
 function redactHomePaths<T>(obj: T): T {
 	const home = os.homedir();
 	if (!home) return redactSecrets(obj) as T;
 	const json = JSON.stringify(obj);
-	const safe = json.split(home).join("~");
+	const safe = redactHomePathInString(json, home);
 	return redactSecrets(JSON.parse(safe)) as T;
 }
 

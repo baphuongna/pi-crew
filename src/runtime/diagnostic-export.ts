@@ -9,9 +9,9 @@ import { loadRunManifestById } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { summarizeHeartbeats, type HeartbeatSummary } from "../ui/heartbeat-aggregator.ts";
 import type { RunUiSnapshot } from "../ui/snapshot-types.ts";
-import { redactSecrets } from "../utils/redaction.ts";
+import { redactSecrets, isSecretKey } from "../utils/redaction.ts";
 import { buildRecoveryLedger, type RecoveryLedgerEntry } from "./recovery-recipes.ts";
-export { redactSecrets } from "../utils/redaction.ts";
+export { redactSecrets, isSecretKey } from "../utils/redaction.ts";
 
 export interface DiagnosticReport {
 	schemaVersion?: number;
@@ -37,13 +37,12 @@ export interface DiagnosticReport {
 	recoveryLedger: RecoveryLedgerEntry[];
 }
 
-const SECRET_KEY_PATTERN = /(token|key|password|secret|credential|auth)/i;
 const ENV_DEBUG_ALLOWLIST = /^(PI_CREW_|PI_TEAMS_|PI_.*HOME|NODE_ENV|NODE_VERSION|OS|PROCESSOR|TERM|LANG|HOME|USERPROFILE|APPDATA|PLATFORM|ARCH|WIN32|DOCKER|CI|VERBOSE|DEBUG|NO_COLOR|FORCE_COLOR|NPM_CONFIG|npm_)/i;
 
 function envRedacted(): Record<string, string> {
 	const output: Record<string, string> = {};
 	for (const [key, value] of Object.entries(process.env)) {
-		if (SECRET_KEY_PATTERN.test(key)) output[key] = "***";
+		if (isSecretKey(key)) output[key] = "***";
 		else if (typeof value === "string" && ENV_DEBUG_ALLOWLIST.test(key)) output[key] = value;
 		// All other env vars are omitted to prevent leaking sensitive paths or system topology.
 	}

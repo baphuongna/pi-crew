@@ -128,14 +128,14 @@ describe("DynamicScriptRunner — execute", () => {
 describe("DynamicScriptRunner — executeUnchecked (test helper)", () => {
 	it("executes code directly without validation", () => {
 		const runner = new DynamicScriptRunner();
-		const result = __test_executeUnchecked(runner, "return 2 + 3");
+		const result = __test_executeUnchecked!(runner, "return 2 + 3");
 		assert.equal(result.success, true);
 		assert.equal(result.value, 5);
 	});
 
 	it("returns error for runtime failures", () => {
 		const runner = new DynamicScriptRunner();
-		const result = __test_executeUnchecked(runner, "throw new Error('test')");
+		const result = __test_executeUnchecked!(runner, "throw new Error('test')");
 		assert.equal(result.success, false);
 		assert.ok(result.error);
 	});

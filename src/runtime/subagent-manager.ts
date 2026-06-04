@@ -88,10 +88,28 @@ export function savePersistedSubagentRecord(cwd: string, record: SubagentRecord)
 	}
 }
 
+const ALLOWED_RECORD_FIELDS = new Set([
+	"agentId", "agentName", "subagentType", "status", "spawnedAt",
+	"completedAt", "model", "runId", "cwd", "taskId", "taskId",
+]);
+
+function sanitizePersistedRecord(raw: unknown): SubagentRecord | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.agentId !== "string" || !obj.agentId) return undefined;
+	const clean: Record<string, unknown> = { agentId: obj.agentId };
+	for (const key of Object.keys(obj)) {
+		if (ALLOWED_RECORD_FIELDS.has(key) && (typeof obj[key] === "string" || typeof obj[key] === "number" || typeof obj[key] === "boolean")) {
+			clean[key] = obj[key];
+		}
+	}
+	return clean as unknown as SubagentRecord;
+}
+
 export function readPersistedSubagentRecord(cwd: string, id: string): SubagentRecord | undefined {
 	try {
-		const parsed = JSON.parse(fs.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as SubagentRecord : undefined;
+		const raw = JSON.parse(fs.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
+		return sanitizePersistedRecord(raw);
 	} catch {
 		return undefined;
 	}
