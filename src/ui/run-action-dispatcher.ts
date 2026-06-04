@@ -111,7 +111,8 @@ export async function dispatchDiagnosticExport(ctx: ExtensionContext, runId: str
 	}
 }
 
-export function defaultNudgeAgentId(ctx: Pick<ExtensionContext, "cwd">, runId: string): string | undefined {
+/** @internal */
+function defaultNudgeAgentId(ctx: Pick<ExtensionContext, "cwd">, runId: string): string | undefined {
 	const loaded = loadRunManifestById(ctx.cwd, runId);
 	if (!loaded) return undefined;
 	return readCrewAgents(loaded.manifest).find((agent) => agent.status === "running" || agent.status === "queued")?.taskId;

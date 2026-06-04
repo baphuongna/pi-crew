@@ -1258,7 +1258,8 @@ export function registerCrewGlobalRegistry(registry: CrewRegistry): void {
 		registry;
 }
 
-export function getCrewGlobalRegistry(): CrewRegistry | undefined {
+/** @internal */
+function getCrewGlobalRegistry(): CrewRegistry | undefined {
 	return (globalThis as Record<symbol | string, unknown>)[
 		CREW_REGISTRY_KEY
 	] as CrewRegistry | undefined;

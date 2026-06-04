@@ -4,13 +4,15 @@
 
 import type { RunMetrics } from "../state/run-metrics.ts";
 
-export interface FeedbackLoopStats {
+/** @internal */
+interface FeedbackLoopStats {
 	runsObserved: number;
 	avgSuccessRate: number;
 	recommendations: string[];
 }
 
-export class FeedbackLoop {
+/** @internal */
+class FeedbackLoop {
 	private runs: RunMetrics[] = [];
 	private static readonly MAX_RUNS = 1000;
 

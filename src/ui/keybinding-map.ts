@@ -21,7 +21,8 @@ export const DASHBOARD_KEYS = {
 	notification: { dismissAll: ["H"] },
 } as const;
 
-export const KEY_RESERVED = new Set<string>([
+/** @internal */
+const KEY_RESERVED = new Set<string>([
 	...DASHBOARD_KEYS.close,
 	...DASHBOARD_KEYS.select,
 	...Object.values(DASHBOARD_KEYS.root).flat(),

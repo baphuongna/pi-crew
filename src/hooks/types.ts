@@ -20,9 +20,9 @@ export type HookName =
  * - 1 = warn (non-blocking error, continue)
  * - 2 = block (blocking error, stop)
  */
-export const HOOK_EXIT_SUCCESS = 0 as const;
-export const HOOK_EXIT_WARN = 1 as const;
-export const HOOK_EXIT_BLOCK = 2 as const;
+/** @internal */ const HOOK_EXIT_SUCCESS = 0 as const;
+/** @internal */ const HOOK_EXIT_WARN = 1 as const;
+/** @internal */ const HOOK_EXIT_BLOCK = 2 as const;
 
 export type HookMode = "blocking" | "non_blocking";
 export type HookOutcome = "allow" | "block" | "modify" | "diagnostic";

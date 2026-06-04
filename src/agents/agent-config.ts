@@ -69,7 +69,8 @@ export function getAgentSessionOptions(role: string): {
  * @param agent - The agent configuration
  * @param role - The role name to use for tool restrictions (defaults to agent.name)
  */
-export function buildAgentSessionOptions(
+/** @internal */
+function buildAgentSessionOptions(
 	agent: AgentConfig,
 	role?: string,
 ): {
