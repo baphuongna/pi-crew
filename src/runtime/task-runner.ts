@@ -267,6 +267,25 @@ export async function runTeamTask(
 		const skillNames = input.skillNames ?? renderedSkills?.names;
 		const skillPaths = input.skillPaths ?? renderedSkills?.paths;
 
+		// Deterministic pre-step: run script, inject stdout into worker prompt
+		let preStepOutput: string | undefined;
+		if (input.step.preStepScript) {
+			const scriptTimeout = input.step.preStepTimeout ?? 30_000;
+			const scriptArgs = input.step.preStepArgs ?? [];
+			try {
+				const { execFileSync } = await import("node:child_process");
+				preStepOutput = execFileSync(input.step.preStepScript, scriptArgs, {
+					timeout: scriptTimeout,
+					encoding: "utf-8",
+					cwd: manifest.cwd,
+					maxBuffer: 1024 * 1024, // 1MB cap
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				throw new Error(`preStepScript failed: ${input.step.preStepScript}: ${msg}`);
+			}
+		}
+
 		const promptResult = await renderTaskPrompt(
 			manifest,
 			input.step,
@@ -274,7 +293,12 @@ export async function runTeamTask(
 			input.agent,
 			skillBlock,
 		);
-		const prompt = promptResult.full;
+		let prompt = promptResult.full;
+
+		// Inject deterministic pre-step output into prompt
+		if (preStepOutput) {
+			prompt += "\n\n---\n## Pre-Step Script Output\n\nThe following data was produced by a pre-step script. Use it as context for your task:\n\n<output>\n" + preStepOutput + "\n</output>\n";
+		}
 		const promptArtifact = writeArtifact(manifest.artifactsRoot, {
 			kind: "prompt",
 			relativePath: `prompts/${task.id}.md`,
@@ -1211,6 +1235,11 @@ export async function runTeamTask(
 			taskId: task.id,
 			message: error,
 		});
+
+		// Execute after_task_complete lifecycle hook (non-blocking)
+		const afterTaskReport = await executeHook("after_task_complete", { runId: manifest.runId, taskId: task.id, cwd: manifest.cwd, status: error ? "failed" : noYield ? "needs_attention" : "completed" });
+		appendHookEvent(manifest, afterTaskReport);
+
 		return { manifest, tasks };
 	} finally {
 		streamBridge?.dispose();

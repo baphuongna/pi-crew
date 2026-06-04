@@ -36,6 +36,8 @@ export interface AgentConfig {
 	contextMode?: "fresh" | "fork";
 	/** Maximum turns for this agent. Overrides runtime config if set. */
 	maxTurns?: number;
+	/** Effort level for this agent. Controls how much work the agent puts in. */
+	effort?: "low" | "medium" | "high";
 	/** Tools to explicitly forbid for this agent. Takes precedence over allowedTools. */
 	disallowedTools?: string[];
 	disabled?: boolean;

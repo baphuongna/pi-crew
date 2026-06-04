@@ -1,6 +1,8 @@
 export type HookName =
 	| "before_run_start"
+	| "after_run_complete"
 	| "before_task_start"
+	| "after_task_complete"
 	| "task_result"
 	| "before_cancel"
 	| "before_retry"
@@ -8,7 +10,19 @@ export type HookName =
 	| "before_cleanup"
 	| "before_publish"
 	| "session_before_switch"
+	| "session_after_connect"
+	| "session_after_disconnect"
 	| "run_recovery";
+
+/**
+ * Hook exit codes inspired by claude-mem's lifecycle architecture:
+ * - 0 = allow (success)
+ * - 1 = warn (non-blocking error, continue)
+ * - 2 = block (blocking error, stop)
+ */
+export const HOOK_EXIT_SUCCESS = 0 as const;
+export const HOOK_EXIT_WARN = 1 as const;
+export const HOOK_EXIT_BLOCK = 2 as const;
 
 export type HookMode = "blocking" | "non_blocking";
 export type HookOutcome = "allow" | "block" | "modify" | "diagnostic";

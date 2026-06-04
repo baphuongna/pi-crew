@@ -376,6 +376,7 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 		defaultTools: frontmatter.defaultTools !== undefined ? parseCsv(frontmatter.defaultTools) ?? null : undefined,
 		contextMode: parseContextMode(frontmatter.contextMode),
 		maxTurns: (() => { const n = Number.parseInt(frontmatter.maxTurns, 10); return Number.isFinite(n) && n > 0 ? n : undefined; })(),
+		effort: frontmatter.effort === "low" || frontmatter.effort === "medium" || frontmatter.effort === "high" ? frontmatter.effort : undefined,
 		disabled: frontmatter.disabled === "true" || frontmatter.enabled === "false",
 		routing: triggers || useWhen || avoidWhen || cost || category ? { triggers, useWhen, avoidWhen, cost, category } : undefined,
 		};

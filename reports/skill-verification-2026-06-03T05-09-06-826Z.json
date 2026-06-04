@@ -1,0 +1,261 @@
+{
+  "total": 36,
+  "passed": 36,
+  "failed": 0,
+  "warningsOnly": 0,
+  "skills": [
+    {
+      "name": "artifact-analysis-loop",
+      "path": "skills/artifact-analysis-loop/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "async-worker-recovery",
+      "path": "skills/async-worker-recovery/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "child-pi-spawning",
+      "path": "skills/child-pi-spawning/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "context-artifact-hygiene",
+      "path": "skills/context-artifact-hygiene/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "delegation-patterns",
+      "path": "skills/delegation-patterns/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "detection-pipeline-design",
+      "path": "skills/detection-pipeline-design/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "event-log-tracing",
+      "path": "skills/event-log-tracing/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "git-master",
+      "path": "skills/git-master/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "hunting-investigation-loop",
+      "path": "skills/hunting-investigation-loop/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "incident-playbook-construction",
+      "path": "skills/incident-playbook-construction/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "iterative-audit",
+      "path": "skills/iterative-audit/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "live-agent-lifecycle",
+      "path": "skills/live-agent-lifecycle/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "mailbox-interactive",
+      "path": "skills/mailbox-interactive/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "model-routing-context",
+      "path": "skills/model-routing-context/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "multi-perspective-review",
+      "path": "skills/multi-perspective-review/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "observability-reliability",
+      "path": "skills/observability-reliability/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "orchestration",
+      "path": "skills/orchestration/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "ownership-session-security",
+      "path": "skills/ownership-session-security/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "pi-extension-lifecycle",
+      "path": "skills/pi-extension-lifecycle/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "post-mortem",
+      "path": "skills/post-mortem/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "read-only-explorer",
+      "path": "skills/read-only-explorer/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "requirements-to-task-packet",
+      "path": "skills/requirements-to-task-packet/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "resource-discovery-config",
+      "path": "skills/resource-discovery-config/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "runtime-state-reader",
+      "path": "skills/runtime-state-reader/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "safe-bash",
+      "path": "skills/safe-bash/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "scrutinize",
+      "path": "skills/scrutinize/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "secure-agent-orchestration-review",
+      "path": "skills/secure-agent-orchestration-review/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "security-review",
+      "path": "skills/security-review/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "state-mutation-locking",
+      "path": "skills/state-mutation-locking/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "systematic-debugging",
+      "path": "skills/systematic-debugging/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "threat-hypothesis-framework",
+      "path": "skills/threat-hypothesis-framework/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "ui-render-performance",
+      "path": "skills/ui-render-performance/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "verification-before-done",
+      "path": "skills/verification-before-done/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "widget-rendering",
+      "path": "skills/widget-rendering/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "workspace-isolation",
+      "path": "skills/workspace-isolation/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "name": "worktree-isolation",
+      "path": "skills/worktree-isolation/SKILL.md",
+      "status": "pass",
+      "warnings": [],
+      "errors": []
+    }
+  ],
+  "timestamp": "2026-06-03T05:09:03.122Z"
+}

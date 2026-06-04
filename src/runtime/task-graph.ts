@@ -215,3 +215,82 @@ export function detectCycles(tasks: TaskNode[]): string[][] {
 
 	return cycles;
 }
+
+/**
+ * Find tasks that are blocked (not completed, have incomplete dependencies).
+ *
+ * Pattern origin: pi-blueprint dependency-graph.ts findBlockedTasks()
+ *
+ * @param tasks - All task nodes
+ * @param completedIds - Set of completed task IDs
+ * @returns Array of blocked task IDs
+ */
+export function findBlockedTasks(tasks: TaskNode[], completedIds: Set<string>): string[] {
+	return tasks
+		.filter((t) => !completedIds.has(t.id))
+		.filter((t) => t.dependsOn.some((dep) => !completedIds.has(dep)))
+		.map((t) => t.id);
+}
+
+/**
+ * Get specific incomplete dependencies blocking a task.
+ *
+ * Pattern origin: pi-blueprint dependency-graph.ts getBlockingTasks()
+ *
+ * @param tasks - All task nodes
+ * @param taskId - The task to check
+ * @param completedIds - Set of completed task IDs
+ * @returns Array of blocking task IDs
+ */
+export function getBlockingTasks(tasks: TaskNode[], taskId: string, completedIds: Set<string>): string[] {
+	const task = tasks.find((t) => t.id === taskId);
+	if (!task) return [];
+	return task.dependsOn.filter((dep) => !completedIds.has(dep));
+}
+
+/**
+ * Topological sort using Kahn's BFS algorithm.
+ *
+ * Pattern origin: pi-blueprint dependency-graph.ts topologicalSort()
+ *
+ * @param tasks - All task nodes
+ * @returns Ordered array of task IDs (dependencies first)
+ */
+export function topologicalSort(tasks: TaskNode[]): string[] {
+	if (tasks.length === 0) return [];
+
+	const idSet = new Set(tasks.map((t) => t.id));
+	const inDegree = new Map<string, number>();
+	const adjacency = new Map<string, string[]>();
+
+	for (const task of tasks) {
+		inDegree.set(task.id, 0);
+		adjacency.set(task.id, []);
+	}
+
+	for (const task of tasks) {
+		for (const dep of task.dependsOn) {
+			if (!idSet.has(dep)) continue;
+			adjacency.get(dep)!.push(task.id);
+			inDegree.set(task.id, (inDegree.get(task.id) ?? 0) + 1);
+		}
+	}
+
+	const queue: string[] = [];
+	for (const [id, deg] of inDegree) {
+		if (deg === 0) queue.push(id);
+	}
+
+	const result: string[] = [];
+	while (queue.length > 0) {
+		const id = queue.shift()!;
+		result.push(id);
+		for (const dependent of adjacency.get(id) ?? []) {
+			const deg = inDegree.get(dependent)! - 1;
+			inDegree.set(dependent, deg);
+			if (deg === 0) queue.push(dependent);
+		}
+	}
+
+	return result;
+}

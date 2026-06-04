@@ -324,6 +324,13 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// Emit run completion hook (100% reliable, fire-and-forget)
 		crewHooks.emit({ type: "run_completed", timestamp: new Date().toISOString(), runId: manifest.runId, data: { status: result.manifest.status, taskCount: result.tasks.length } });
 
+		// Execute after_run_complete lifecycle hook (non-blocking)
+		const afterRunReport = await executeHook("after_run_complete", { runId: manifest.runId, cwd: manifest.cwd, status: result.manifest.status });
+		appendHookEvent(manifest, afterRunReport);
+		if (afterRunReport.outcome === "block") {
+			logInternalError("team-runner.after_run_complete.blocked", new Error(afterRunReport.reason ?? "after_run_complete hook blocked"), `runId=${manifest.runId}`);
+		}
+
 		return result;
 	} catch (error) {
 		// P1: Catch unhandled errors — ensure manifest/tasks/agents are terminal so they don't stay "running" forever.
