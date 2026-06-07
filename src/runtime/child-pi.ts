@@ -145,6 +145,8 @@ export interface ChildPiRunInput {
 	maxTurns?: number;
 	/** Extra turns after soft limit before hard abort. Default: 5. */
 	graceTurns?: number;
+	/** Additional env var names/globs to preserve for this child Pi process. */
+	childEnvAllowList?: string[];
 	/** Parent conversation context to inherit when inheritContext is true. */
 	parentContext?: string;
 	/** When true, prepend parentContext to the task prompt. */
@@ -173,7 +175,7 @@ export interface ChildPiRunResult {
 	steered?: boolean;
 }
 
-export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv): SpawnOptions {
+export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, extraAllowList: string[] = []): SpawnOptions {
 	// Filter out env vars whose keys match secret patterns to avoid leaking credentials to child processes.
 	// IMPORTANT: preserve model provider API keys — they are needed by the child Pi to call the LLM.
 	// Also preserve essential non-secret vars (PATH, HOME, USER, etc.) so the child process can function.
@@ -242,6 +244,7 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv): S
 			"PI_*",
 			"PI_CREW_*",
 			"PI_TEAMS_*",
+			...extraAllowList,
 		],
 	});
 	// Block execution control vars from leaking to child processes
@@ -445,7 +448,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	const spawnSpec = getPiSpawnCommand(built.args);
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
-			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, { ...process.env, ...built.env }));
+			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, { ...process.env, ...built.env }, input.childEnvAllowList));
 			if (child.pid) {
 				activeChildProcesses.set(child.pid, child);
 				input.onSpawn?.(child.pid);

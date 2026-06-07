@@ -223,6 +223,7 @@ Requirements:
 |---------|------|---------|
 | **Runtime** | `mode`: `auto` \| `child-process` \| `scaffold` \| `live-session` | `auto` |
 | | `maxTurns`, `graceTurns`, `groupJoin`, `requirePlanApproval` | various |
+| | `childEnvAllowList` (user config only) | `[]` |
 | **Concurrency** | `limits.maxConcurrentWorkers` | workflow-dependent |
 | | `limits.maxTaskDepth`, `limits.maxChildrenPerTask` | 2, 5 |
 | **Async** | `asyncByDefault` | `false` |
@@ -235,7 +236,7 @@ Requirements:
 | **Observability** | `prometheus.enabled`, `otlp.enabled`, `heartbeatStaleMs` | opt-in |
 | **Worktree** | `worktree.enabled` | disabled by default |
 
-> ⚠️ **Trust boundary**: project config cannot override sensitive execution controls (workers, runtime mode, autonomy, agent overrides). Set those in **user config** only.
+> ⚠️ **Trust boundary**: project config cannot override sensitive execution controls (workers, runtime mode, autonomy, agent overrides, or child env allow-lists). Set those in **user config** only.
 
 📖 Full config reference: [docs/commands-reference.md#team-settings--config-management](docs/commands-reference.md) and [schema.json](schema.json)
 
@@ -373,6 +374,26 @@ Your system prompt here.
 | `PI_TEAMS_MOCK_CHILD_PI=success` | Mock child worker for testing |
 | `PI_TEAMS_PI_BIN=<path>` | Explicit Pi CLI path |
 | `PI_TEAMS_HOME=<path>` | Override home for tests |
+
+Child-process workers receive a sanitized environment by default. The built-in allow-list preserves common model provider variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, AWS static credential vars, etc.) and essential runtime variables (`PATH`, `HOME`, `PI_*`).
+
+If your provider uses a non-standard env var (for example a custom provider variable like `CUSTOM_PROVIDER_API_KEY`) or a profile-based credential chain (for example `AWS_PROFILE` for Bedrock SSO), add explicit pass-through entries in **user config**:
+
+```json
+{
+  "runtime": {
+    "childEnvAllowList": [
+      "CUSTOM_PROVIDER_API_KEY",
+      "AWS_PROFILE",
+      "AWS_SESSION_TOKEN",
+      "AWS_CONFIG_FILE",
+      "AWS_SHARED_CREDENTIALS_FILE"
+    ]
+  }
+}
+```
+
+`childEnvAllowList` supports exact names and trailing globs like `MY_PROVIDER_*`. Project config values are ignored so a repository cannot opt child workers into inheriting secrets without user consent.
 
 ---
 

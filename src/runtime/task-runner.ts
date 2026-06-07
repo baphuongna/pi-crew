@@ -468,6 +468,7 @@ export async function runTeamTask(
 					inheritContext: input.runtimeConfig?.inheritContext,
 					parentContext: input.parentContext,
 					excludeContextBash: input.runtimeConfig?.excludeContextBash,
+					childEnvAllowList: input.runtimeConfig?.childEnvAllowList,
 					sessionId: manifest.sessionId,
 					role: task.role,
 					runId: manifest.runId,

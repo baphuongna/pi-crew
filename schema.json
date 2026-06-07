@@ -72,7 +72,12 @@
         "groupJoinAckTimeoutMs": { "type": "integer", "minimum": 1 },
         "requirePlanApproval": { "type": "boolean" },
         "completionMutationGuard": { "type": "string", "enum": ["off", "warn", "fail"] },
-        "effectivenessGuard": { "type": "string", "enum": ["off", "warn", "block", "fail"] }
+        "effectivenessGuard": { "type": "string", "enum": ["off", "warn", "block", "fail"] },
+        "childEnvAllowList": {
+          "type": "array",
+          "description": "Additional env var names/globs to preserve for child Pi workers. Sensitive: user config only; project config values are ignored.",
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "control": {
