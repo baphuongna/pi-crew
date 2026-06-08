@@ -60,7 +60,7 @@ export function resolveContainedPath(baseDir: string, targetPath: string): strin
  *
  * NOTE: There is a race condition window between validation and use where an
  * attacker could create a directory component after validation but before the
- * file is created. Callers should ideally create parent directories atomically
+ * file is created. Callers MUST create parent directories atomically
  * (e.g., mkdirSync with { recursive: true }) or use O_CREAT with O_NOFOLLOW
  * flags in the actual file operation to minimize this window.
  */

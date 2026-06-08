@@ -189,6 +189,10 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	const runtimeCleanupStoreKey = Symbol("__piCrewRuntimeCleanup");
 	const previousRuntimeCleanup = globalStore[runtimeCleanupStoreKey];
 	time("register:init");
+	// Best-effort cleanup of the previous runtime instance. Errors are logged but
+	// do not halt new registration — a failing cleanup from a prior instance is
+	// preferable to leaving pi-crew unregistered, and any stale state from the
+	// previous instance will be reconciled when the new instance initializes.
 	if (typeof previousRuntimeCleanup === "function") {
 		try {
 			previousRuntimeCleanup();

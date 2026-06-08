@@ -25,6 +25,17 @@ const RETRYABLE_RENAME_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
  * verification is weaker on non-Unix platforms. Consider using
  * platform-specific ownership verification (e.g., icacls on Windows)
  * for stronger guarantees on those platforms.
+ *
+ * Design note: Ownership verification (getuid/getgid) is only performed
+ * when a path component is itself a symlink. For paths where all
+ * components are regular directories, no ownership verification occurs.
+ * This is intentional: an attacker who can create directories within
+ * baseDir could exploit this, but this is mitigated by the boundary
+ * check (realDir.startsWith(baseDir + path.sep)). In the pi-crew
+ * context, baseDir is always within the user's own pi-crew state
+ * directory tree (userPiRoot), so this is a low-risk design choice.
+ * Callers must ensure baseDir is always inside a protected user
+ * directory and never in a shared or world-writable location.
  */
 export function isSymlinkSafePath(filePath: string): boolean {
 	try {

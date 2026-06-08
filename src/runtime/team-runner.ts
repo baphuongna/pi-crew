@@ -123,6 +123,17 @@ function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
 	return status === "queued" || status === "running" || status === "waiting";
 }
 
+/**
+ * Returns the finishedAt timestamp as a number, or Infinity for invalid/malformed dates.
+ * This makes comparison logic in shouldMergeTaskUpdate more readable by abstracting
+ * the NaN handling into a single well-named function.
+ */
+function safeFinishedAt(task: TeamTaskState): number {
+	if (!task.finishedAt) return -Infinity;
+	const ms = new Date(task.finishedAt).getTime();
+	return Number.isNaN(ms) ? Infinity : ms;
+}
+
 function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): boolean {
 	// Parallel workers receive the same input snapshot. A later result may still
 	// contain stale queued/running copies of tasks that another worker already
@@ -136,17 +147,14 @@ function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): 
 	if (current.status === "failed" && updated.status === "completed") return false;
 	// Prevent a stale completed task from overwriting a fresher one.
 	if (current.finishedAt && updated.finishedAt) {
-		const currentFinished = new Date(current.finishedAt).getTime();
-		const updatedFinished = new Date(updated.finishedAt).getTime();
-		// FIX: Handle NaN currentFinished (malformed date). Log warning and treat as
-		// invalid state that should be replaced rather than persisting corruption.
-		if (Number.isNaN(currentFinished)) {
+		const currentTime = safeFinishedAt(current);
+		const updatedTime = safeFinishedAt(updated);
+		// Malformed finishedAt (NaN) is treated as Infinity — invalid state should be
+		// replaced rather than persisting corruption. Log warning for visibility.
+		if (!Number.isFinite(currentTime) && Number.isFinite(updatedTime)) {
 			console.warn(`[team-runner] Task ${current.id} has malformed finishedAt, treating as invalid state: ${current.finishedAt}`);
-			// FIX: If current is NaN but updated is valid, always accept the update
-			if (!Number.isNaN(updatedFinished)) return true;
+			return true;
 		}
-		const currentTime = Number.isNaN(currentFinished) ? Infinity : currentFinished;
-		const updatedTime = Number.isNaN(updatedFinished) ? -Infinity : updatedFinished;
 		if (updatedTime < currentTime) return false;
 	}
 	// FIX: An update with no completion time should not overwrite one that has a

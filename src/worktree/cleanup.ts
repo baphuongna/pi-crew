@@ -50,7 +50,8 @@ function captureDiff(worktreePath: string): string {
 }
 
 export function cleanupRunWorktrees(manifest: TeamRunManifest, options: { force?: boolean; signal?: AbortSignal } = {}): WorktreeCleanupResult {
-	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, manifest.runId);
+	const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
+	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
 	const result: WorktreeCleanupResult = { removed: [], preserved: [], artifactPaths: [], committedBranches: [] };
 	if (!fs.existsSync(worktreeRoot)) return result;
 

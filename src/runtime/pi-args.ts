@@ -413,11 +413,10 @@ export function cleanupOrphanTempDirs(
 					continue;
 				}
 				if (!preRmlstat || preRmlstat.isSymbolicLink()) continue;
-				// Reuse lstat (captured at line 375) — already verified non-symlink at line 380.
+				// Reuse preRmlstat (captured at line 408) — already verified non-symlink at line 415.
 				// Avoid calling lstatSync again to eliminate the TOCTOU window between
-				// preRmlstat lstatSync (line 393) and this stat lstatSync (old line 399).
-				const stat = lstat;
-				if (now - stat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
+				// preRmlstat lstatSync (line 408) and this mtime check.
+				if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
 					fs.rmSync(dir, { recursive: true, force: true });
 					createdTempDirs.delete(dir);
 					cleaned++;
@@ -499,11 +498,10 @@ export function cleanupLegacyOrphanTempDirs(
 					continue;
 				}
 				if (preRmlstat.isSymbolicLink()) continue;
-				// Reuse lstat (captured at line 455) — already verified non-symlink at line 460.
+				// Reuse preRmlstat (captured at line 494) — already verified non-symlink at line 501.
 				// Avoid calling lstatSync again to eliminate the TOCTOU window between
-				// preRmlstat lstatSync (line 476) and this stat lstatSync (old line 482).
-				const stat = lstat;
-				if (now - stat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
+				// preRmlstat lstatSync (line 494) and this mtime check.
+				if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
 					fs.rmSync(dir, { recursive: true, force: true });
 					cleaned++;
 				}

@@ -75,6 +75,21 @@ function isLockHolderAlive(filePath: string): boolean {
 export type LockKind = "run" | "file";
 
 function writeLockFile(filePath: string, token: string, kind: LockKind = "file"): void {
+	// Reject a pre-existing symlink at the lock path before O_CREAT|O_EXCL.
+	// O_EXCL fails with EEXIST if the path exists (including as a symlink),
+	// but the failure mode is confusing — an explicit lstatSync gives a
+	// clean, distinguishable error instead.
+	try {
+		const stat = fs.lstatSync(filePath);
+		if (stat.isSymbolicLink()) {
+			throw new Error(`Refusing to create lock file over symlink: ${filePath}`);
+		}
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		// ENOENT means the path doesn't exist yet — that's fine, proceed.
+		// Anything else (EACCES, EPERM, etc.) should surface immediately.
+		if (code !== "ENOENT") throw error;
+	}
 	const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
 	try {
 		fs.writeSync(fd, JSON.stringify({ kind, pid: process.pid, createdAt: new Date().toISOString(), token }));

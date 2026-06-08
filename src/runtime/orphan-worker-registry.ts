@@ -140,17 +140,26 @@ function readRegistry(): OrphanWorkerEntry[] {
 
 function writeRegistry(entries: OrphanWorkerEntry[]): void {
 	const p = getRegistryPath();
+	const dir = path.dirname(p);
+	// Issue 1 fix: Validate the full ancestor chain BEFORE creating any parent
+	// directories. This closes the TOCTOU window between mkdirSync and the
+	// isSymlinkSafePath check. If an attacker could plant a symlink at an
+	// ancestor of the registry directory (e.g. userPiRoot/state -> /tmp/evil),
+	// we must detect that BEFORE mkdirSync creates anything.
+	if (!isSymlinkSafePath(dir)) {
+		logInternalError("orphan-worker-registry.write", new Error("Refusing to write: parent directory is a symlink or inside untrusted directory"), `dir=${dir}`);
+		return;
+	}
 	// Ensure parent directory exists before acquiring lock.
 	// The lock serializes writes, but mkdir outside the lock could race with
 	// another process creating the same directory simultaneously. By ensuring
 	// the directory exists here first (with recursive: true), we minimize the
 	// window for TOCTOU between directory creation and file write.
-	const dir = path.dirname(p);
 	if (!fs.existsSync(dir)) {
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 	}
 	withFileLockSync(getRegistryPath(), () => {
-		// Issue 2 fix: Guard against symlink attacks on the registry file.
+		// Guard against symlink attacks on the registry file.
 		// isSymlinkSafePath walks the ancestor chain to detect any symlinks,
 		// preventing attacks where an intermediate ancestor is a symlink.
 		if (!isSymlinkSafePath(p)) {
@@ -326,6 +335,11 @@ export function cleanupOrphanWorkers(
 				if (now - entry.registeredAt > STALE_REGISTRATION_MS) {
 					// Stale orphan — SIGKILL because background-runner
 					// intentionally ignores SIGTERM (BUG #17 fix).
+					// Issue 2 fix: Add a small random delay before SIGKILL to reduce
+					// the probability of PID recycling within the TOCTOU window.
+					const delay = Math.random() * 10;
+					const startDelay = Date.now();
+					while (Date.now() - startDelay < delay) { /* spin */ }
 					try {
 						process.kill(entry.pid, "SIGKILL");
 						killed++;
@@ -337,6 +351,11 @@ export function cleanupOrphanWorkers(
 					// Fresh but outside grace period — parent dead and worker
 					// is not doing useful work (same session died > 5 min ago).
 					// SIGKILL to avoid wasting resources.
+					// Issue 2 fix: Add a small random delay before SIGKILL to reduce
+					// the probability of PID recycling within the TOCTOU window.
+					const delay = Math.random() * 10;
+					const startDelay = Date.now();
+					while (Date.now() - startDelay < delay) { /* spin */ }
 					try {
 						process.kill(entry.pid, "SIGKILL");
 						killed++;
