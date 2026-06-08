@@ -72,7 +72,10 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 		realTarget = fs.realpathSync.native(resolved);
 	} catch (targetError) {
 		if ((targetError as NodeJS.ErrnoException).code === "ENOENT") {
-			throw new Error(`Path does not exist: ${resolved}`);
+			// Target doesn't exist yet — this is OK for write operations.
+			// Return the resolved path so the caller can create the file.
+			// We already validated all ancestors are not symlinks above.
+			return resolved;
 		}
 		throw new Error(`Cannot resolve real path of ${resolved}: ${targetError instanceof Error ? targetError.message : String(targetError)}`);
 	}
