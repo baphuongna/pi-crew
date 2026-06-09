@@ -30,7 +30,12 @@ export class AtomicWriter {
     } finally {
       fs.closeSync(fd);
     }
-    fs.renameSync(tmpPath, targetPath);
+    try {
+      fs.renameSync(tmpPath, targetPath);
+    } catch (err) {
+      try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+      throw err;
+    }
   }
 
   async writeAsync(targetPath: string, content: string): Promise<void> {
@@ -43,7 +48,12 @@ export class AtomicWriter {
     } finally {
       await fd.close();
     }
-    await fs.promises.rename(tmpPath, targetPath);
+    try {
+      await fs.promises.rename(tmpPath, targetPath);
+    } catch (err) {
+      try { await fs.promises.unlink(tmpPath); } catch { /* best-effort cleanup */ }
+      throw err;
+    }
   }
 
   writeJsonSync<T>(targetPath: string, value: T): void {
