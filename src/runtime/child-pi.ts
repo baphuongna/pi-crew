@@ -479,6 +479,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			const responseTimeoutMs = envInRange ? responseTimeoutEnv : input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS;
 			let responseTimeoutHit = false;
 			let forcedFinalDrain = false;
+			let finalAssistantEventObserved = false;
+			let childExitSignal: NodeJS.Signals | null = null;
 			let abortRequested = input.signal?.aborted === true;
 			let hardKilled = false;
 			const cleanupErrors: string[] = [];
@@ -572,7 +574,9 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						throw err;
 					}
 					input.onJsonEvent?.(event);
-					if (!isFinalAssistantEvent(event) || childExited || settled || finalDrainTimer) return;
+					if (!isFinalAssistantEvent(event)) return;
+					finalAssistantEventObserved = true;
+					if (childExited || settled || finalDrainTimer) return;
 					finalDrainTimer = setTimeout(() => {
 						if (settled || childExited) return;
 						forcedFinalDrain = true;
@@ -706,6 +710,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				settle({ exitCode: null, stdout, stderr, error: processError.message });
 			});
 			child.on("exit", (code, signal) => {
+				childExitSignal = signal;
 				if (child.pid) {
 					activeChildProcesses.delete(child.pid);
 					clearHardKillTimer(child.pid);
@@ -751,16 +756,22 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					logInternalError("child-pi.on-lifecycle-event", err, `event=close, pid=${child.pid}`);
 				}
 				const timeoutError = responseTimeoutHit && !stderr.trim() ? { error: `Child Pi produced no new output for ${responseTimeoutMs}ms; process was terminated as unresponsive.` } : responseTimeoutHit && stderr.trim() ? { error: `Child Pi timed out after ${responseTimeoutMs}ms with stderr: ${stderr.slice(-500)}` } : undefined;
-				// M6 fix: log when forced final drain converts non-zero exit to 0.
-			// This is expected in normal operation (child finished cleanly but linger was killed),
-			// but the telemetry helps detect regressions where crashes are hidden.
-			if (forcedFinalDrain && !timeoutError && exitCode !== 0) {
-				logInternalError("child-pi.final-drain-zero-exit", new Error(`Child exit code overridden to 0 after forced final drain (original=${exitCode})`), `pid=${child.pid}, finalDrainMs=${finalDrainMs}`);
-			}
-			const finalExitCode = forcedFinalDrain && !timeoutError ? 0 : exitCode;
+				const originalExitCode = exitCode;
+				const normalizedBy = forcedFinalDrain && !timeoutError
+					? "final_drain"
+					: finalAssistantEventObserved && exitCode === 143 && !timeoutError && !abortRequested && !hardKilled
+						? "final_assistant_event_sigterm"
+						: undefined;
+				// M6 fix: log when final-output handling converts non-zero exit to 0.
+				// This is expected in normal operation (child finished cleanly but linger was killed),
+				// but the telemetry helps detect regressions where crashes are hidden.
+				if (normalizedBy && exitCode !== 0) {
+					logInternalError("child-pi.final-output-zero-exit", new Error(`Child exit code overridden to 0 after ${normalizedBy} (original=${exitCode})`), `pid=${child.pid}, finalDrainMs=${finalDrainMs}`);
+				}
+				const finalExitCode = normalizedBy ? 0 : exitCode;
 				const wasGraceAborted = softLimitReached && turnCount >= (maxTurns ?? 0) + (graceTurns ?? 5);
 				const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
-				settle({ exitCode: finalExitCode, stdout, stderr, ...(timeoutError ? { error: timeoutError.error } : {}), aborted: wasGraceAborted || wasParentAborted, steered: softLimitReached && !wasGraceAborted, exitStatus: { exitCode: finalExitCode, cancelled: abortRequested, timedOut: responseTimeoutHit, killed: hardKilled, cleanupErrors, finalDrainMs } });
+				settle({ exitCode: finalExitCode, stdout, stderr, ...(timeoutError ? { error: timeoutError.error } : {}), aborted: wasGraceAborted || wasParentAborted, steered: softLimitReached && !wasGraceAborted, exitStatus: { exitCode: finalExitCode, originalExitCode, cancelled: abortRequested, timedOut: responseTimeoutHit, killed: hardKilled, signal: childExitSignal ?? undefined, normalizedBy, cleanupErrors, finalDrainMs } });
 			});
 		});
 	} finally {

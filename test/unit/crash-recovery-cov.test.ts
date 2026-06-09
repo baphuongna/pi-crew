@@ -53,4 +53,28 @@ describe("detectInterruptedRuns", () => {
 			removeTrackedTempDir(dir);
 		}
 	});
+
+	it("does not recover runs blocked for plan approval", () => {
+		const dir = createTrackedTempDir("pi-crew-cr-");
+		try {
+			const now = new Date().toISOString();
+			const cache = {
+				list: () => [{
+					runId: "r-plan",
+					status: "blocked",
+					async: { pid: 99999125 },
+					planApproval: {
+						required: true,
+						status: "pending",
+						requestedAt: now,
+						updatedAt: now,
+					},
+				}],
+			};
+			const plans = detectInterruptedRuns(dir, cache as any);
+			assert.deepStrictEqual(plans, []);
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
 });

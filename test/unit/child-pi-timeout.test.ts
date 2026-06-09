@@ -51,6 +51,33 @@ test("buildPiWorkerArgs creates temp file for system prompt", () => {
 	assert.ok(!fs.existsSync(result.tempDir), "tempDir should be cleaned up");
 });
 
+test("buildPiWorkerArgs accepts symlinked TMPDIR after resolving canonical base", () => {
+	if (process.platform === "win32") return;
+	const previousTmpDir = process.env.TMPDIR;
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-symlink-tmp-root-"));
+	const realBase = path.join(root, "real-tmp");
+	const linkBase = path.join(root, "tmp-link");
+	fs.mkdirSync(realBase);
+	try {
+		fs.symlinkSync(realBase, linkBase, "dir");
+	} catch {
+		fs.rmSync(root, { recursive: true, force: true });
+		return;
+	}
+	try {
+		process.env.TMPDIR = linkBase;
+		const agentWithPrompt: AgentConfig = { ...minimalAgent, systemPrompt: "safe temp" };
+		const result = buildPiWorkerArgs({ task: "test", agent: agentWithPrompt });
+		assert.ok(result.tempDir, "expected tempDir to be created");
+		assert.ok(fs.realpathSync(result.tempDir).startsWith(fs.realpathSync(realBase)));
+		cleanupTempDir(result.tempDir);
+	} finally {
+		if (previousTmpDir === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = previousTmpDir;
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("buildPiWorkerArgs increments depth in env vars", () => {
 	const env = { PI_CREW_DEPTH: "1", PI_TEAMS_DEPTH: "1" } as NodeJS.ProcessEnv;
 	const result = buildPiWorkerArgs({ task: "test", agent: minimalAgent, env });
