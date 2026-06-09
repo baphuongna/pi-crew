@@ -62,7 +62,9 @@ test("child Pi response timeout treats filtered stdout JSON as activity", async 
 	delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-child-filtered-activity-"));
 	try {
-		const fakePi = path.join(process.cwd(), "node_modules", ".bin", "fake-pi-phase3.js");
+		const binDir = path.join(process.cwd(), "node_modules", ".bin");
+		fs.mkdirSync(binDir, { recursive: true });
+		const fakePi = path.join(binDir, "fake-pi-phase3.js");
 		fs.writeFileSync(fakePi, `
 console.log(JSON.stringify({ type: "message_update", message: { content: [{ type: "thinking", text: "still working" }] } }));
 setTimeout(() => console.log(JSON.stringify({ type: "message_update", message: { content: [{ type: "thinking", text: "still working" }] } })), 600);
@@ -93,7 +95,9 @@ test("child Pi final-drain termination after final assistant output is treated a
 	delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-child-final-drain-"));
 	try {
-		const fakePi = path.join(process.cwd(), "node_modules", ".bin", "fake-pi-phase3-drain.js");
+		const binDir = path.join(process.cwd(), "node_modules", ".bin");
+		fs.mkdirSync(binDir, { recursive: true });
+		const fakePi = path.join(binDir, "fake-pi-phase3-drain.js");
 		fs.writeFileSync(fakePi, `
 console.log(JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "final answer before lingering cleanup" }] } }));
 console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } }));
@@ -108,6 +112,40 @@ setInterval(() => {}, 1000);
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 		else process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		if (previousBin === undefined) delete process.env.PI_TEAMS_PI_BIN;
+		else process.env.PI_TEAMS_PI_BIN = previousBin;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("child Pi exit 143 after final assistant event is treated as completed", async () => {
+	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const previousBin = process.env.PI_TEAMS_PI_BIN;
+	delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-child-final-143-"));
+	try {
+		const binDir = path.join(process.cwd(), "node_modules", ".bin");
+		fs.mkdirSync(binDir, { recursive: true });
+		const fakePi = path.join(binDir, "fake-pi-phase3-final-143.js");
+		fs.writeFileSync(fakePi, `
+console.log(JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "final answer before external termination" }] } }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } }));
+setTimeout(() => process.exit(143), 20);
+setInterval(() => {}, 1000);
+`, "utf-8");
+		process.env.PI_TEAMS_PI_BIN = fakePi;
+		const result = await runChildPi({ cwd: dir, task: "hello", agent: { name: "mock", description: "mock", source: "builtin", filePath: "mock.md", systemPrompt: "mock" }, finalDrainMs: 10_000, hardKillMs: 100, responseTimeoutMs: 1000 });
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.error, undefined);
+		assert.equal(result.exitStatus?.originalExitCode, 143);
+		assert.equal(result.exitStatus?.normalizedBy, "final_assistant_event_sigterm");
+		assert.match(result.stdout, /final answer before external termination/);
+	} finally {
+		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else {
+			process.env.PI_CREW_ALLOW_MOCK = "1";
+			process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		}
 		if (previousBin === undefined) delete process.env.PI_TEAMS_PI_BIN;
 		else process.env.PI_TEAMS_PI_BIN = previousBin;
 		fs.rmSync(dir, { recursive: true, force: true });

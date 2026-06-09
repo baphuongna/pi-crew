@@ -16,6 +16,7 @@ export interface ReconcileResult {
 	/** What was found and what action was taken */
 	verdict:
 		| "healthy"
+		| "blocked_awaiting_approval"
 		| "result_exists"
 		| "pid_dead"
 		| "pid_alive_stale"
@@ -26,6 +27,12 @@ export interface ReconcileResult {
 	detail: string;
 	/** Repaired task state, returned to a locked caller for persistence. */
 	repairedTasks?: TeamTaskState[];
+}
+
+export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
+	return manifest.status === "blocked" &&
+		manifest.planApproval?.required === true &&
+		manifest.planApproval.status === "pending";
 }
 
 const STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -258,6 +265,15 @@ export function reconcileStaleRun(
 	now = Date.now(),
 ): ReconcileResult {
 	const runId = manifest.runId;
+
+	if (isPlanApprovalPending(manifest)) {
+		return {
+			runId,
+			verdict: "blocked_awaiting_approval",
+			repaired: false,
+			detail: "Plan approval is pending; blocked run is intentionally waiting and must not be stale-repaired",
+		};
+	}
 
 	// Phase 1: Check if results already exist
 	const phase1 = checkResultFile(manifest, tasks);

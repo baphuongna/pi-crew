@@ -63,29 +63,32 @@ export function checkCrewDepth(inputMaxDepth?: number, env: NodeJS.ProcessEnv = 
 
 /**
  * Create a safe temp directory with symlink protection.
- * 1. mkdtempSync to create the directory
- * 2. lstatSync to verify it is not a symlink (TOCTOU safety)
- * 3. realpathSync to resolve the canonical path
+ *
+ * macOS commonly exposes `/tmp` as a symlink to `/private/tmp`. Refusing every
+ * symlinked temp base breaks otherwise-safe child workers. Resolve the base to
+ * its canonical directory before creation, then verify the created directory is
+ * not itself a symlink and remains contained by the canonical base.
  */
 function createSafeTempDir(base: string, prefix: string): string {
 	if (!fs.existsSync(base)) fs.mkdirSync(base, { recursive: true });
-	// Verify base dir is not a symlink (TOCTOU safety)
-	const baseStat = fs.lstatSync(base);
-	if (baseStat.isSymbolicLink()) throw new Error("Refusing to create temp dir in symlinked base: " + base);
-	// Resolve base to canonical path before joining
 	const resolvedBase = fs.realpathSync(base);
 	const rawTempDir = fs.mkdtempSync(path.join(resolvedBase, prefix));
 	try {
 		const stat = fs.lstatSync(rawTempDir);
 		if (stat.isSymbolicLink()) throw new Error("temp dir is a symlink");
+		const realTempDir = fs.realpathSync(rawTempDir);
+		const relative = path.relative(resolvedBase, realTempDir);
+		if (relative.startsWith("..") || path.isAbsolute(relative)) {
+			throw new Error("temp dir escapes resolved base");
+		}
+		return realTempDir;
 	} catch (e) {
+		fs.rmSync(rawTempDir, { recursive: true, force: true });
 		if (e instanceof Error && e.message.includes("symlink")) {
-			fs.rmSync(rawTempDir, { recursive: true, force: true });
 			throw new Error("Refusing to use symlinked temp directory.");
 		}
 		throw e;
 	}
-	return fs.realpathSync(rawTempDir);
 }
 
 export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerArgsResult {

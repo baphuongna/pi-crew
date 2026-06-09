@@ -110,10 +110,14 @@ export interface RuntimeResolutionState {
 
 export interface WorkerExitStatus {
 	exitCode: number | null;
+	/** Raw process exit code before any final-output normalization. */
+	originalExitCode?: number | null;
 	cancelled: boolean;
 	timedOut: boolean;
 	killed: boolean;
 	signal?: string;
+	/** Why a non-zero process exit was normalized after final output. */
+	normalizedBy?: "final_drain" | "final_assistant_event_sigterm";
 	cleanupErrors: string[];
 	finalDrainMs: number;
 }

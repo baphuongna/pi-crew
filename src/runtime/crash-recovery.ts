@@ -9,7 +9,7 @@ import type { TeamTaskState } from "../state/types.ts";
 import { isWorkerHeartbeatStale } from "./worker-heartbeat.ts";
 import type { ManifestCache } from "./manifest-cache.ts";
 import { checkProcessLiveness } from "./process-status.ts";
-import { reconcileStaleRun, type ReconcileResult } from "./stale-reconciler.ts";
+import { isPlanApprovalPending, reconcileStaleRun, type ReconcileResult } from "./stale-reconciler.ts";
 import { executeHook, appendHookEvent } from "../hooks/registry.ts";
 import { unregisterActiveRun, readActiveRunRegistry } from "../state/active-run-registry.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -38,6 +38,7 @@ export function detectInterruptedRuns(cwd: string, manifestCache: ManifestCache,
 	const plans: RecoveryPlan[] = [];
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
+		if (isPlanApprovalPending(manifest)) continue;
 		if (manifest.async?.pid !== undefined && checkProcessLiveness(manifest.async.pid).alive) continue;
 		const loaded = loadRunManifestById(cwd, manifest.runId);
 		if (!loaded) continue;
@@ -106,6 +107,10 @@ export function cancelOrphanedRuns(
 	// Phase 1: Scan project-level manifests via manifestCache
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
+		if (isPlanApprovalPending(manifest)) {
+			skipped.push(manifest.runId);
+			continue;
+		}
 
 		// Only consider runs owned by a different session
 		const ownerId = manifest.ownerSessionId;
@@ -322,6 +327,15 @@ export function reconcileAllStaleRuns(cwd: string, manifestCache: ManifestCache,
 	const results: ReconcileResult[] = [];
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
+		if (isPlanApprovalPending(manifest)) {
+			results.push({
+				runId: manifest.runId,
+				verdict: "blocked_awaiting_approval",
+				repaired: false,
+				detail: "Plan approval is pending; stale reconciliation skipped",
+			});
+			continue;
+		}
 		const loaded = loadRunManifestById(cwd, manifest.runId);
 		if (!loaded) continue;
 		// Use lock to prevent race with cancel/status handlers modifying the same run
@@ -329,6 +343,7 @@ export function reconcileAllStaleRuns(cwd: string, manifestCache: ManifestCache,
 			// Re-read inside lock to get freshest data
 			const fresh = loadRunManifestById(cwd, manifest.runId);
 			if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
+			if (isPlanApprovalPending(fresh.manifest)) return;
 			const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
 			if (result.repaired || result.verdict === "result_exists") {
 				if (result.repairedTasks) {

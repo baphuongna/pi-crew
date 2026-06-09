@@ -122,6 +122,32 @@ describe("reconcileStaleRun", () => {
 		assert.equal(result.repaired, true);
 	});
 
+	it("preserves plan-approval blocked runs even when async PID is dead", () => {
+		const now = new Date().toISOString();
+		const manifest: TeamRunManifest = {
+			...baseManifest,
+			status: "blocked",
+			async: {
+				pid: 99999124,
+				logPath: "/tmp/log",
+				spawnedAt: now,
+			},
+			planApproval: {
+				required: true,
+				status: "pending",
+				requestedAt: now,
+				updatedAt: now,
+				planTaskId: "01_plan",
+			},
+		};
+
+		const result = reconcileStaleRun(manifest, [runningTask], Date.now());
+
+		assert.equal(result.verdict, "blocked_awaiting_approval");
+		assert.equal(result.repaired, false);
+		assert.equal(result.repairedTasks, undefined);
+	});
+
 	it("returns healthy for alive PID with recent updatedAt even with running tasks", () => {
 		const manifest = {
 			...baseManifest,
