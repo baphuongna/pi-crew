@@ -180,8 +180,9 @@ function readRegistry(): OrphanWorkerEntry[] {
 				typeof e.sessionId === "string" &&
 				typeof e.runId === "string" &&
 				typeof e.registeredAt === "number" &&
-				typeof (e as { parentPid?: unknown }).parentPid === "number" &&
-				typeof (e as { startTime?: unknown }).startTime === "number",
+				typeof (e as OrphanWorkerEntry).parentPid === "number" &&
+				typeof (e as OrphanWorkerEntry).parentPidStartTime === "number" &&
+				typeof (e as OrphanWorkerEntry).startTime === "number",
 		);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {

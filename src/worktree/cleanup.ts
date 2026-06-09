@@ -30,7 +30,12 @@ function sanitizeFilename(value: string): string {
 }
 
 function git(cwd: string, args: string[]): string {
-	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: GIT_SAFE_ENV, windowsHide: true }).trim();
+	try {
+		return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: GIT_SAFE_ENV, windowsHide: true }).trim();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`git ${args.join(" ")} failed: ${message}`);
+	}
 }
 
 function isDirty(worktreePath: string): boolean | "error" {
