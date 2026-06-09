@@ -15,6 +15,7 @@ import { errors } from "../errors.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { toPiSessionId } from "../utils/session-utils.ts";
+import { HealthStore } from "./health-store.ts";
 
 export interface RunPaths {
 	runId: string;
@@ -427,6 +428,16 @@ export function updateRunStatus(manifest: TeamRunManifest, status: TeamRunManife
 	// Note: "blocked" is excluded because blocked runs can be unblocked later.
 	if (status === "completed" || status === "failed" || status === "cancelled") {
 		try { unregisterActiveRun(updated.runId); } catch { /* non-critical */ }
+		// Save health snapshot on run completion
+		try {
+			const tasks = readJsonFile<TeamTaskState[]>(updated.tasksPath) ?? [];
+			const healthStore = new HealthStore(updated.stateRoot);
+			healthStore.saveSnapshot({
+				runId: updated.runId,
+				tasks: tasks.map((t) => ({ id: t.id, status: t.status })),
+				createdAt: updated.createdAt,
+			});
+		} catch { /* non-critical */ }
 	}
 	appendEvent(updated.eventsPath, {
 		type: `run.${status}`,

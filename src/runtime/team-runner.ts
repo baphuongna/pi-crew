@@ -41,6 +41,7 @@ import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffecti
 import { logInternalError } from "../utils/internal-error.ts";
 import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitestPlugin, VitePlugin } from "../plugins/plugins/index.ts";
+import { HealthStore } from "../state/health-store.ts";
 
 // Built-in plugin registry for framework awareness
 const builtInRegistry = new PluginRegistry();
@@ -920,5 +921,12 @@ tasks = mergeResult.resultTasks;
 		await saveRunTasksAsync(finalManifest, tasks);
 	});
 	manifest = finalManifest;
+	// Save health snapshot on run completion
+	const healthStore = new HealthStore(finalManifest.stateRoot);
+	healthStore.saveSnapshot({
+		runId: finalManifest.runId,
+		tasks: tasks.map((t) => ({ id: t.id, status: t.status })),
+		createdAt: finalManifest.createdAt,
+	});
 	return { manifest, tasks };
 }
