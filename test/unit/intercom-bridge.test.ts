@@ -52,11 +52,18 @@ describe("intercom-bridge: IntercomQueue", () => {
 		const queue = new IntercomQueue();
 		const msg = makeMessage({ timeout: 50 }); // 50ms timeout
 
-		const promise = queue.enqueue(msg);
-		const response = await promise;
-
-		assert.equal(response.source, "timeout");
-		assert.ok(response.answer.includes("timeout"));
+		// Keep event loop alive while unref'd timer fires. Without this, Node's
+		// test runner sees the event loop as resolved and cancels the pending
+		// promise before the 50ms timeout fires.
+		const keepAlive = setInterval(() => {}, 25);
+		try {
+			const promise = queue.enqueue(msg);
+			const response = await promise;
+			assert.equal(response.source, "timeout");
+			assert.ok(response.answer.includes("timeout"));
+		} finally {
+			clearInterval(keepAlive);
+		}
 	});
 
 	it("returns false when responding to unknown message ID", () => {

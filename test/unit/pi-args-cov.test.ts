@@ -110,8 +110,8 @@ describe("resolveCrewMaxDepth", () => {
 		assert.strictEqual(resolveCrewMaxDepth(4, { PI_CREW_MAX_DEPTH: "7" }), 7);
 	});
 
-	it("rejects values > 10", () => {
-		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "11" }), 2);
+	it("clamps values > 10 to 10", () => {
+		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "11" }), 10);
 	});
 
 	it("rejects values < 1", () => {

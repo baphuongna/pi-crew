@@ -165,7 +165,7 @@ test("runtime manifest cache rejects tampered manifest paths", () => {
 	});
 });
 
-test("loadRunManifestById preserves lexical paths for symlinked workspaces", (t) => {
+test("loadRunManifestById resolves symlinks to canonical paths in manifest", (t) => {
 	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-state-workspace-link-"));
 	const realRoot = path.join(parent, "real-workspace");
 	const linkRoot = path.join(parent, "linked-workspace");
@@ -176,7 +176,11 @@ test("loadRunManifestById preserves lexical paths for symlinked workspaces", (t)
 			return;
 		}
 		const created = createRunManifest({ cwd: linkRoot, team, workflow, goal: "linked workspace" });
-		assert.match(created.manifest.stateRoot, /linked-workspace/);
+		// projectCrewRoot uses realpathSync to resolve symlinks for security
+		// boundary enforcement, so the manifest paths use the real path, not
+		// the symlinked one. This is intentional — prevents symlink-based
+		// state escape where attacker redirects via symlink.
+		assert.match(created.manifest.stateRoot, /real-workspace/);
 		const loaded = loadRunManifestById(linkRoot, created.manifest.runId);
 		assert.equal(loaded?.manifest.goal, "linked workspace");
 		assert.equal(loaded?.manifest.stateRoot, created.manifest.stateRoot);

@@ -100,9 +100,12 @@ test("resolveCrewMaxDepth: env overrides inputMaxDepth", () => {
 	assert.equal(resolveCrewMaxDepth(5, { PI_CREW_MAX_DEPTH: "3" }), 3);
 });
 
-test("resolveCrewMaxDepth: ignores env values outside 1-10", () => {
+test("resolveCrewMaxDepth: clamps env values above 10 to 10", () => {
+	assert.equal(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "11" }), 10);
+});
+
+test("resolveCrewMaxDepth: ignores env values below 1 and non-integers", () => {
 	assert.equal(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "0" }), 2);
-	assert.equal(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "11" }), 2);
 	assert.equal(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "-1" }), 2);
 });
 

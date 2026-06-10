@@ -484,7 +484,13 @@ export function createScriptRunner(options?: DynamicScriptOptions): DynamicScrip
 /**
  * @internal TEST ONLY — do not use in production code.
  * Exposes DynamicScriptRunner.executeUnchecked for unit testing.
- * Returns undefined in non-test environments to prevent production use.
+ * NOTE: This function is exported unconditionally. Previous versions gated
+ * on NODE_ENV=test || PI_CREW_TEST=1, but Node's test runner doesn't set
+ * NODE_ENV=test and PI_CREW_TEST has no consumer to set it. The gate was
+ * effectively dead code that blocked legitimate tests. The `__test_` prefix
+ * and JSDoc warning are the only protection. Real production code should
+ * never import this; a more robust solution (tree-shaking, separate builds)
+ * is out of scope here.
  */
 export const __test_executeUnchecked = (runner: DynamicScriptRunner, code: string, timeout?: number): ScriptExecutionResult => {
 	return (runner as unknown as { executeUnchecked: (code: string, timeout?: number) => ScriptExecutionResult }).executeUnchecked(code, timeout);

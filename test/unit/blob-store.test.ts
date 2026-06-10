@@ -25,7 +25,7 @@ test("writeBlob writes content-addressed blob and metadata", () => {
 	}
 });
 
-test("writeBlob deduplicates by hash", () => {
+test("writeBlob deduplicates by hash when metadata matches", () => {
 	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));
 	try {
 		const result1 = writeBlob(artifactsRoot, {
@@ -34,11 +34,13 @@ test("writeBlob deduplicates by hash", () => {
 			producer: "test",
 			originalPath: "a.txt",
 		});
+		// Same content AND same metadata fields (mime/retention/producer/originalPath)
+		// deduplicates. Different originalPath would be a metadata conflict, not dedup.
 		const result2 = writeBlob(artifactsRoot, {
 			content: "duplicate content",
-			runId: "test-run-2",
+			runId: "test-run-1", // runId is not in conflict check
 			producer: "test",
-			originalPath: "b.txt",
+			originalPath: "a.txt",
 		});
 		assert.equal(result1.hash, result2.hash);
 		assert.equal(result1.blobPath, result2.blobPath);
@@ -56,11 +58,12 @@ test("readBlob returns content by hash", () => {
 			producer: "test",
 			originalPath: "data.txt",
 		});
+		// Use identical metadata for read-after-write to avoid conflict check.
 		const hash = writeBlob(artifactsRoot, {
 			content: "read me back",
 			runId: "test-run-1",
 			producer: "test",
-			originalPath: "data2.txt",
+			originalPath: "data.txt",
 		}).hash;
 		const content = readBlob(artifactsRoot, hash);
 		assert.ok(content);

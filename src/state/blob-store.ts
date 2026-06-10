@@ -157,14 +157,20 @@ export function writeBlob(artifactsRoot: string, input: {
 		withMetadataLock(metadataPath, () => {
 			try {
 				const existingMeta = JSON.parse(fs.readFileSync(metadataPath, "utf-8")) as BlobMetadata;
-				// Content-addressed deduplication: if metadata already exists for this
-				// hash, the blob is already stored. The metadata may differ (different
-				// runId, originalPath) because multiple callers can independently produce
-				// the same content. This is deduplication, not a conflict. Keep existing
-				// metadata (first-writer-wins) and return success. The blob content is
-				// identical (same hash), so which metadata we keep doesn't affect correctness.
-				metadataWritten = true; // Skip write, existing metadata is fine
-				return; // Exit lock callback - metadata already present
+				// Compare fields that indicate concurrent write with different metadata.
+				// Note: taskId is intentionally NOT part of the conflict check because
+				// it represents which task produced the blob and may legitimately differ
+				// across processes (last-write-wins for taskId). If concurrent writes
+				// have identical mime/retention/producer/originalPath but different
+				// taskId, the conflict check passes and both writes succeed — the
+				// final taskId reflects whichever write completed last.
+				// Callers should not rely on taskId for correctness-critical decisions.
+				if (existingMeta.mime !== metadata.mime ||
+					existingMeta.retention !== metadata.retention ||
+					existingMeta.producer !== metadata.producer ||
+					existingMeta.originalPath !== metadata.originalPath) {
+					throw new Error(`Concurrent metadata write conflict for blob ${hash}: different metadata values detected. Existing: ${JSON.stringify(existingMeta)}, New: ${JSON.stringify(metadata)}`);
+				}
 			} catch (err) {
 				if (err instanceof Error && err.message.includes("ENOENT")) {
 					// OK - metadata doesn't exist yet, proceed to write

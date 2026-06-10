@@ -111,22 +111,23 @@ function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunM
 	const artifactsParent = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
 	const expectedArtifactsRoot = resolveContainedRelativePath(artifactsParent, runId, "runId");
 	if (manifest.artifactsRoot !== expectedArtifactsRoot) return false;
-	// FIX: Only validate artifactsRoot existence if the manifest has at least
-	// one artifact entry. Runs that haven't written artifacts yet have a valid
-	// manifest but no artifacts directory - we should not reject them.
-	if (manifest.artifacts && manifest.artifacts.length > 0) {
-		if (fs.existsSync(expectedArtifactsRoot)) {
-			try {
-				if (fs.lstatSync(expectedArtifactsRoot).isSymbolicLink()) return false;
-				resolveRealContainedPath(artifactsParent, runId);
-			} catch {
-				return false;
-			}
-		} else {
-			// Has artifacts but directory doesn't exist yet - this is a
-			// benign state for runs still in progress.
-			return true;
+	// Always validate artifactsRoot is not a symlink, even when manifest has
+	// no artifacts entries. A symlinked artifactsRoot pointing outside the
+	// artifacts parent is a security violation (could write to attacker-
+	// controlled locations). This check catches the case where the run was
+	// created legitimately but the artifactsRoot was later replaced with a
+	// symlink between manifest creation and load.
+	if (fs.existsSync(expectedArtifactsRoot)) {
+		try {
+			if (fs.lstatSync(expectedArtifactsRoot).isSymbolicLink()) return false;
+			resolveRealContainedPath(artifactsParent, runId);
+		} catch {
+			return false;
 		}
+	} else if (manifest.artifacts && manifest.artifacts.length > 0) {
+		// Has artifacts entries but directory doesn't exist - benign state for
+		// runs still in progress.
+		return true;
 	}
 	return true;
 }
