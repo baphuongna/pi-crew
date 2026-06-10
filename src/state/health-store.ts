@@ -16,7 +16,10 @@ export interface HealthSnapshot {
 }
 
 export class HealthStore {
-  constructor(private crewRoot: string) {}
+  private readonly crewRoot: string;
+  constructor(crewRoot: string) {
+    this.crewRoot = crewRoot;
+  }
 
   private healthDir(): string {
     return path.join(this.crewRoot, HEALTH_DIR);

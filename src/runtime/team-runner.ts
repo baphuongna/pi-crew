@@ -43,24 +43,15 @@ import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitestPlugin, VitePlugin } from "../plugins/plugins/index.ts";
 import { HealthStore } from "../state/health-store.ts";
 
-// Built-in plugin registry for framework awareness
+// Built-in plugin registry for framework awareness.
+// NOTE: This registry is registered here for future use. The integration
+// point (reading package.json deps, computing active plugin context, and
+// passing it into RunConfig / task-runner) is not yet implemented; see
+// `getPluginContext` in src/plugins/plugin-context.ts (planned).
 const builtInRegistry = new PluginRegistry();
 builtInRegistry.register(NextJsPlugin);
 builtInRegistry.register(VitestPlugin);
 builtInRegistry.register(VitePlugin);
-
-/**
- * Returns plugin context (active plugin names, entry patterns, path aliases)
- * for the given list of package dependencies.
- */
-function getPluginContext(packageJsonDeps: string[]) {
-	const activePlugins = builtInRegistry.activePlugins(packageJsonDeps);
-	return {
-		plugins: activePlugins.map((p) => p.name),
-		entryPatterns: activePlugins.flatMap((p) => p.entryPatterns ?? []),
-		pathAliases: Object.fromEntries(activePlugins.flatMap((p) => p.pathAliases ?? [])),
-	};
-}
 
 /**
  * Start a periodic heartbeat for the team-level run.
@@ -428,13 +419,6 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	};
 
 	try {
-		// Plugin context integration point:
-		// When package.json dependencies are available (e.g., read from manifest.cwd),
-		// compute plugin context via getPluginContext() and include it in the run
-		// config or pass it to task-runner for framework-aware routing:
-		//   const deps = JSON.parse(fs.readFileSync(path.join(manifest.cwd, "package.json"), "utf-8")).dependencies ?? {};
-		//   const pluginCtx = getPluginContext(Object.keys(deps));
-		//   // -> pluginCtx.plugins, pluginCtx.entryPatterns, pluginCtx.pathAliases
 		const result = await executeTeamRunCore(input, manifest, workflow);
 		stopTeamHeartbeat();
 		resolveRunPromise(manifest.runId, result);

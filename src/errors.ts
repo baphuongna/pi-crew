@@ -2,14 +2,19 @@
  * Error code taxonomy for pi-crew.
  * Maps to semantic categories matching fallow's E001-E004 pattern.
  */
-export enum ErrorCode {
-  FileReadError = "E001",           // Cannot read a file
-  FileWriteError = "E002",          // Cannot write a file
-  TaskNotFound = "E003",            // Referenced task ID does not exist
-  InvalidStatusTransition = "E004", // Run/task status cannot legally transition
-  ConfigError = "E005",             // Malformed config or missing required field
-  ResourceNotFound = "E006",        // Agent/team/workflow not found in discovery paths
-}
+// Implemented as const object + type alias (not `enum`) so that Node's
+// `--experimental-strip-types` can load this module. TypeScript `enum`
+// syntax is not supported in strip-only mode.
+export const ErrorCode = {
+  FileReadError: "E001",            // Cannot read a file
+  FileWriteError: "E002",           // Cannot write a file
+  TaskNotFound: "E003",             // Referenced task ID does not exist
+  InvalidStatusTransition: "E004",  // Run/task status cannot legally transition
+  ConfigError: "E005",              // Malformed config or missing required field
+  ResourceNotFound: "E006",         // Agent/team/workflow not found in discovery paths
+} as const;
+
+export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 const DEFAULT_HELP: Record<ErrorCode, string | undefined> = {
   [ErrorCode.FileReadError]: "Check that the file exists and that the process has read permission.",
