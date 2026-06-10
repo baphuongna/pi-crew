@@ -116,8 +116,15 @@ function resolveInside(baseDir: string, relativePath: string): string {
 }
 
 export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptions): ArtifactDescriptor {
-	const filePath = resolveInside(artifactsRoot, options.relativePath);
+	// FIX: Create the artifactsRoot BEFORE calling resolveInside/resolveRealContainedPath,
+	// which open() the path to validate symlinks (fails with ENOENT if not yet created).
+	// Also reject symlinks in baseDir at this point (catches both pre-existing symlinks
+	// and the case where baseDir was created by mkdirSync as a regular dir).
 	fs.mkdirSync(artifactsRoot, { recursive: true });
+	if (fs.lstatSync(artifactsRoot).isSymbolicLink()) {
+		throw new Error(`Artifacts root is a symbolic link — not allowed: ${artifactsRoot}`);
+	}
+	const filePath = resolveInside(artifactsRoot, options.relativePath);
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	resolveRealContainedPath(artifactsRoot, path.dirname(filePath));
 	const content = redactSecretString(options.content);

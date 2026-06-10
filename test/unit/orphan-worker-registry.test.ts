@@ -194,13 +194,15 @@ setInterval(() => {}, 1000);`,
 				runId: "run-1",
 				parentPid: 999_998, // dead
 				registeredAt: past,
+				parentPidStartTime: 0,
+				startTime: 0,
 			},
 		];
 		fs.writeFileSync(REGISTRY_FILE, JSON.stringify(entries));
 
 		const result = cleanupOrphanWorkers("session-NEW");
 		assert.equal(result.scanned, 1);
-		assert.equal(result.killed, 1, "stale worker killed (SIGKILL)");
+		assert.equal(result.killed, 1, "stale worker killed (SIGKILL)");;
 
 		// Give the OS a moment to deliver the signal.
 		await new Promise((r) => setTimeout(r, 100));
@@ -238,6 +240,8 @@ test("cleanupOrphanWorkers keeps workers with alive parentPid (concurrent sessio
 				runId: "run-1",
 				parentPid: process.pid, // alive!
 				registeredAt: past,
+				parentPidStartTime: 0,
+				startTime: 0,
 			},
 		];
 		fs.writeFileSync(REGISTRY_FILE, JSON.stringify(entries));
@@ -263,10 +267,10 @@ test("cleanupOrphanWorkers tolerates corrupt registry file", () => {
 test("cleanupOrphanWorkers prunes registry entries that no longer match the schema", () => {
 	// Mix of valid and invalid entries
 	const mixed = [
-		{ pid: 999_999_999, sessionId: "s", runId: "r", registeredAt: 1 }, // missing parentPid
+		{ pid: 999_999_999, sessionId: "s", runId: "r", registeredAt: 1, parentPidStartTime: 0, startTime: 0 }, // missing parentPid → pruned as schema-invalid
 		null,
 		"string",
-		{ pid: 100, sessionId: "s", runId: "r", parentPid: 50, registeredAt: Date.now() }, // valid + live (we'll kill it)
+		{ pid: 100, sessionId: "s", runId: "r", parentPid: 50, registeredAt: Date.now(), parentPidStartTime: 0, startTime: 0 }, // valid + live (we'll kill it)
 	];
 	fs.writeFileSync(REGISTRY_FILE, JSON.stringify(mixed));
 
@@ -301,6 +305,7 @@ test("cleanupOrphanWorkers prunes (not kills) when startTime mismatches (PID rec
 				parentPid: 999_998, // dead parent
 				registeredAt: past,
 				startTime: 999999999, // Clearly fake — won't match the real startTime
+				parentPidStartTime: 0,
 			},
 		];
 		fs.writeFileSync(REGISTRY_FILE, JSON.stringify(entries));

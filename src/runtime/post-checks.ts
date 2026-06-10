@@ -94,7 +94,7 @@ export async function runPostCheck(config: PostCheckConfig, cwd: string): Promis
 				timeout: timeoutMs,
 				encoding: "utf-8",
 				maxBuffer: 10 * 1024 * 1024, // 10 MB
-				env: { ...sanitizeEnvSecrets(process.env, { allowList: ["PATH", "HOME", "USER", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "ComSpec", "SystemRoot", "PI_*"] }), PI_CREW_POST_CHECK: "1" },
+				env: { ...sanitizeEnvSecrets(process.env, { allowList: ["PATH", "HOME", "USER", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "ComSpec", "SystemRoot", "PI_CREW_*"] }), PI_CREW_POST_CHECK: "1" },
 			});
 
 			const durationMs = Date.now() - startTime;

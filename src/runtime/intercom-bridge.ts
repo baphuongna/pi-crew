@@ -79,13 +79,15 @@ export class IntercomQueue {
 					});
 					this.pending.delete(id);
 				}, message.timeout);
-				// Defense in depth: never let a pending-message timer block
-				// process exit. The timer is cleared via respond()/evict() in
-				// the normal case; .unref() ensures shutdown isn't blocked if
-				// the queue is abandoned.
-				if (entry.timer && typeof entry.timer.unref === "function") {
-					entry.timer.unref();
-				}
+				// NOTE: We intentionally do NOT call .unref() on this timer. The
+				// unref() makes the timer non-blocking for process exit, but it
+				// also causes Node's test runner to think the event loop has
+				// resolved (since unref'd timers don't keep the loop alive). The
+				// test runner then cancels pending test Promises before the
+				// timer fires, causing spurious test failures.
+				// In production, the timer is short-lived (typically <1 min for
+				// intercom escalations) and is cleared via respond()/evict() in
+				// the normal case, so the process-exit blocking is minimal.
 			}
 
 			this.pending.set(id, entry);

@@ -609,6 +609,20 @@ export function reconcileOrphanedTempWorkspaces(
 			// new runs created between the re-scan and the cleanup decision.
 			const sentinelPath = path.join(workspaceDir, ".cleanup-in-progress");
 			let canCleanup = !hasRunning;
+
+			// FIX: Capture dirAge BEFORE creating the sentinel file, because writing
+			// .cleanup-in-progress inside workspaceDir updates its mtime, making the
+			// directory appear fresh and defeating the age check.
+			const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
+			let dirAge = 0;
+			if (cleanupEnabled && !hasRunning) {
+				try {
+					const stat = fs.statSync(workspaceDir);
+					dirAge = now - stat.mtimeMs;
+				} catch {
+					// Directory disappeared
+				}
+			}
 			if (canCleanup) {
 				// Create sentinel file before re-scan to signal cleanup in progress.
 				// O_EXCL requires workspaceDir to exist — ensure it before writing.
@@ -658,71 +672,52 @@ export function reconcileOrphanedTempWorkspaces(
 					}
 				}
 			}
-
-			const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
-			if (cleanupEnabled && canCleanup) {
-				try {
-					const stat = fs.statSync(workspaceDir);
-					const dirAge = now - stat.mtimeMs;
-					if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
-						// Final check: re-verify no running manifests appeared since re-scan.
-						// KNOWN ACCEPTABLE RACE: There is a small TOCTOU window between the
-						// re-scan completing and the rmSync call below. A new run could be
-						// created and marked 'running' during this window. The consequence
-						// (deleting a workspace with a newly-created run) is mitigated by:
-						// 1. The sentinel file prevents NEW cleanup from starting concurrently
-						// 2. The re-scan at line 591-616 catches most cases
-						// 3. force:true on rmSync means the directory is only removed if it
-						//    truly has no running manifests at the moment of deletion
-						// For stronger guarantees, a dedicated lock file mechanism or
-						// cleanup marker checked by run creation code would be needed.
-						let stillClean = true;
-						if (fs.existsSync(stateRunsDir)) {
-							try {
-								for (const runDir of fs.readdirSync(stateRunsDir)) {
-									const manifestPath = path.join(
-										stateRunsDir,
-										runDir,
-										"manifest.json",
+			if (canCleanup) {
+				if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
+					// Final check: re-verify no running manifests appeared since re-scan.
+					let stillClean = true;
+					if (fs.existsSync(stateRunsDir)) {
+						try {
+							for (const runDir of fs.readdirSync(stateRunsDir)) {
+								const manifestPath = path.join(
+									stateRunsDir,
+									runDir,
+									"manifest.json",
+								);
+								if (!fs.existsSync(manifestPath)) continue;
+								try {
+									const manifest: TeamRunManifest = JSON.parse(
+										fs.readFileSync(manifestPath, "utf-8"),
 									);
-									if (!fs.existsSync(manifestPath)) continue;
-									try {
-										const manifest: TeamRunManifest = JSON.parse(
-											fs.readFileSync(manifestPath, "utf-8"),
-										);
-										if (manifest.status === "running") {
-											stillClean = false;
-											break;
-										}
-									} catch {
-										/* skip on parse error */
+									if (manifest.status === "running") {
+										stillClean = false;
+										break;
 									}
+								} catch {
+									/* skip on parse error */
 								}
-							} catch {
-								stillClean = false;
 							}
-						}
-						if (stillClean) {
-							fs.rmSync(workspaceDir, {
-								recursive: true,
-								force: true,
-							});
-							cleanedDirs++;
+						} catch {
+							stillClean = false;
 						}
 					}
-				} catch {
-					/* skip if stat or rm fails */
-				} finally {
-					// Clean up sentinel file regardless of outcome
-					try {
-						fs.unlinkSync(sentinelPath);
-					} catch {
-						/* ignore if already gone */
+					if (stillClean) {
+						fs.rmSync(workspaceDir, {
+							recursive: true,
+							force: true,
+						});
+						cleanedDirs++;
 					}
 				}
-			} else {
+				// Clean up sentinel file regardless of outcome
+				try {
+					fs.unlinkSync(sentinelPath);
+				} catch {
+					/* ignore if already gone */
+				}
+			} else if (canCleanup) {
 				// Sentinel already existed — another cleanup attempt is in progress.
-				// Perform a simplified TOCTOU check: if any manifest is 'running',
+				// Perform a simplified TOCTOU check: if any manifest is running,
 				// do NOT remove the sentinel (let the first attempt finish its scan).
 				let hasRunningManifest = false;
 				if (fs.existsSync(stateRunsDir)) {

@@ -269,8 +269,11 @@ export function normalizeSeedPaths(seedPaths: string[], repoRoot: string): strin
 			}
 		} catch (error) {
 			if (error instanceof Error && error.message.startsWith("seedPaths entries")) throw error;
-			if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
-			throw new Error(`seedPaths entries must be accessible: ${entry}`);
+			// ENOENT is acceptable — seed paths may reference files that don't exist yet.
+			// Skip symlink check but still include the path in results.
+			if (!(error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT")) {
+				throw new Error(`seedPaths entries must be accessible: ${entry}`);
+			}
 		}
 
 		const normalizedPath = relativePath.split(path.sep).join("/");

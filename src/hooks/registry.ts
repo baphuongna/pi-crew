@@ -50,14 +50,22 @@ export function getHooks(name: HookName): HookDefinition[] {
 export async function executeHook(name: HookName, ctx: HookContext): Promise<HookExecutionReport> {
 	const hooks = getHooks(name);
 	if (hooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
-	// SECURITY: If ctx contains a workspaceId, filter hooks to only those scoped to
-	// this workspace. This prevents globally-registered hooks from operating on runs
-	// they weren't designed for.
-	// SECURITY: Hooks without workspaceId match ALL workspaces. This is intentional
-	// for globally-applicable hooks (e.g., logging, metrics). For multi-tenant
-	// environments, all hooks should set workspaceId to prevent cross-workspace access.
-	// TODO: Add a linter rule to detect hooks registered without workspaceId in multi-tenant deployments.
-	const scopedHooks = hooks.filter((h) => (h.workspaceId !== undefined || ctx.includeGlobalHooks) && (h.workspaceId === null || h.workspaceId === ctx.workspaceId));
+	// SECURITY: Filter hooks by workspace scope.
+	//   - Global hooks (no workspaceId) match all contexts UNLESS ctx explicitly
+	//     opts out via `includeGlobalHooks: false`. This is the documented
+	//     behavior: "Hooks without workspaceId match ALL workspaces".
+	//   - Scoped hooks (workspaceId set) require an exact match with ctx.workspaceId.
+	//   - If ctx has no workspaceId, scoped hooks are excluded (they can't match).
+	//   - `includeGlobalHooks: true` on ctx forces inclusion of global hooks even
+	//     when ctx has a workspaceId.
+	const scopedHooks = hooks.filter((h) => {
+		// Scoped hook: must match ctx.workspaceId exactly
+		if (h.workspaceId !== undefined) {
+			return h.workspaceId === ctx.workspaceId;
+		}
+		// Global hook (no workspaceId): include unless ctx explicitly excludes
+		return ctx.includeGlobalHooks !== false;
+	});
 	if (scopedHooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
 	const POLLUTED_KEYS = new Set(["__proto__", "constructor", "prototype", "hasOwnProperty", "toString", "valueOf", "isPrototypeOf", "propertyIsEnumerable", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"].map((k) => k.toLowerCase().normalize("NFKC")));
 	function sanitizeMergeData(data: Record<string, unknown>): Record<string, unknown> {

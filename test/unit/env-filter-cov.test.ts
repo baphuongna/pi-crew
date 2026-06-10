@@ -65,23 +65,23 @@ describe("sanitizeEnvSecrets (allow-list mode)", () => {
 	it("supports glob patterns with trailing *", () => {
 		const result = sanitizeEnvSecrets(
 			{
-				PI_HOME: "/pi",
+				PI_CREW_HOME: "/pi",
 				PI_CREW_DIR: "/crew",
 				OTHER_VAR: "no",
-				PIA: "no-match",
+				PIAGENT: "no-match",
 			},
-			{ allowList: ["PI_*"] },
+			{ allowList: ["PI_CREW_*"] },
 		);
-		assert.equal(result.PI_HOME, "/pi");
+		assert.equal(result.PI_CREW_HOME, "/pi");
 		assert.equal(result.PI_CREW_DIR, "/crew");
 		assert.equal(result.OTHER_VAR, undefined);
-		assert.equal(result.PIA, undefined); // "PIA" does not start with "PI_"
+		assert.equal(result.PIAGENT, undefined); // "PIAGENT" does not start with "PI_CREW_"
 	});
 
 	it("returns empty object when no keys match", () => {
 		const result = sanitizeEnvSecrets(
 			{ PATH: "/bin", HOME: "/h" },
-			{ allowList: ["NONEXISTENT_*"] },
+			{ allowList: ["PI_CREW_NONEXISTENT_*"] }, // safe controlled namespace, no matches
 		);
 		assert.deepEqual(result, {});
 	});

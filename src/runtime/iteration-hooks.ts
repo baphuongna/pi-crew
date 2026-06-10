@@ -171,7 +171,7 @@ export async function runIterationHook(
 		const { command, args } = resolveShellForScript(resolvedScript);
 		const child = spawn(command, args, {
 			cwd: payload.cwd,
-			env: { ...sanitizeEnvSecrets(process.env, { allowList: ["PATH", "HOME", "USER", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "ComSpec", "SystemRoot", "PI_*"] }), PI_CREW_HOOK: "1" },
+			env: { ...sanitizeEnvSecrets(process.env, { allowList: ["PATH", "HOME", "USER", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "ComSpec", "SystemRoot", "PI_CREW_*"] }), PI_CREW_HOOK: "1" },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 

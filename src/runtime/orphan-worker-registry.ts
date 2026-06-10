@@ -208,36 +208,35 @@ function writeRegistry(entries: OrphanWorkerEntry[]): void {
 			return;
 		}
 	}
-	withFileLockSync(getRegistryPath(), () => {
-		// Guard against symlink attacks on the registry file.
-		// isSymlinkSafePath walks the ancestor chain to detect any symlinks,
-		// preventing attacks where an intermediate ancestor is a symlink.
-		if (!isSymlinkSafePath(p)) {
-			logInternalError("orphan-worker-registry.write", new Error("Refusing to write: target is a symlink or inside untrusted directory"), `path=${p}`);
-			return;
-		}
-		// Issue 2 fix: Check parent directory safety immediately before creating it.
-		// This check is inside the lock to ensure the validation and creation are
-		// atomic with respect to the lock, closing the TOCTOU window.
-		if (!isSymlinkSafePath(dir)) {
-			logInternalError("orphan-worker-registry.write", new Error("Refusing to create: parent directory is a symlink or inside untrusted directory"), `dir=${dir}`);
-			return;
-		}
-		// Ensure parent directory exists inside the lock to serialize directory
-		// creation with registry file writes and prevent TOCTOU races.
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-		}
-		try {
-			fs.writeFileSync(p, JSON.stringify(entries, null, 2), { mode: 0o600 });
-		} catch (error) {
-			logInternalError(
-				"orphan-worker-registry.write",
-				error,
-				`path=${p} entries=${entries.length}`,
-			);
-		}
-	});
+	// NOTE: No withFileLockSync here — all callers (registerWorker, unregisterWorker,
+	// cleanupOrphanWorkers) already hold the lock. Nesting withFileLockSync on the same
+	// path causes self-deadlock (the lock file is not reentrant).
+	// Guard against symlink attacks on the registry file.
+	// isSymlinkSafePath walks the ancestor chain to detect any symlinks,
+	// preventing attacks where an intermediate ancestor is a symlink.
+	if (!isSymlinkSafePath(p)) {
+		logInternalError("orphan-worker-registry.write", new Error("Refusing to write: target is a symlink or inside untrusted directory"), `path=${p}`);
+		return;
+	}
+	// Issue 2 fix: Check parent directory safety immediately before creating it.
+	if (!isSymlinkSafePath(dir)) {
+		logInternalError("orphan-worker-registry.write", new Error("Refusing to create: parent directory is a symlink or inside untrusted directory"), `dir=${dir}`);
+		return;
+	}
+	// Ensure parent directory exists to serialize directory
+	// creation with registry file writes and prevent TOCTOU races.
+	if (!fs.existsSync(dir)) {
+		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+	}
+	try {
+		fs.writeFileSync(p, JSON.stringify(entries, null, 2), { mode: 0o600 });
+	} catch (error) {
+		logInternalError(
+			"orphan-worker-registry.write",
+			error,
+			`path=${p} entries=${entries.length}`,
+		);
+	}
 }
 
 /**

@@ -800,7 +800,9 @@ export function locateRunCwd(
 	baseCwd: string,
 ): string | undefined {
 	// Fast path: run is in the current CWD
-	if (loadRunManifestById(baseCwd, runId)) // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency return baseCwd;
+	if (loadRunManifestById(baseCwd, runId)) {
+		return baseCwd;
+	}
 
 	// Scan immediate child directories, but with defensive bounds.
 	try {
@@ -820,7 +822,9 @@ export function locateRunCwd(
 				) continue;
 			}
 			const candidate = path.join(baseCwd, entry.name);
-			if (loadRunManifestById(candidate, runId)) return candidate; // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+			if (loadRunManifestById(candidate, runId)) {
+				return candidate;
+			}
 		}
 	} catch {
 		/* ignore unreadable dirs */

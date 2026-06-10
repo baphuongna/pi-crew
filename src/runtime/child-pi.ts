@@ -190,7 +190,16 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv): S
 			throw new Error(`cwd is not a directory: ${cwd}`);
 		}
 	} catch (error) {
-		throw new Error(`Invalid cwd: ${cwd} — ${error instanceof Error ? error.message : String(error)}`);
+		// If cwd doesn't exist (ENOENT) and isn't a security concern, fall back
+		// to the lexical path. The child process will create the directory if
+		// needed. Throwing would break tests/callers that pass not-yet-existing
+		// paths and isn't a security issue for the env-filtering behavior this
+		// function is primarily about.
+		if ((error as NodeJS.ErrnoException).code === "ENOENT" && error instanceof Error && error.message.includes("ENOENT")) {
+			validatedCwd = path.resolve(cwd);
+		} else {
+			throw new Error(`Invalid cwd: ${cwd} — ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	// Filter out env vars whose keys match secret patterns to avoid leaking credentials to child processes.

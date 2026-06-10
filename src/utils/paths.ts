@@ -92,8 +92,20 @@ function hasProjectMarker(dir: string): boolean {
 
 export function findRepoRoot(cwd: string): string | undefined {
 	// Resolve symlinks before walking to prevent malicious symlinks from bypassing
-	// home/temp boundary checks.
-	const startKey = fs.realpathSync(cwd);
+	// home/temp boundary checks. If the path doesn't exist (e.g., caller passed
+	// a non-existent CWD like /tmp/no-such-dir), fall back to the lexical path
+	// and let computeRepoRoot handle the rest. ENOENT here is common for
+	// newly-created test directories and shouldn't propagate as a crash.
+	let startKey: string;
+	try {
+		startKey = fs.realpathSync(cwd);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			startKey = path.resolve(cwd);
+		} else {
+			throw error;
+		}
+	}
 	const cached = projectRootCache.get(startKey);
 	if (cached && Date.now() - cached.cachedAt < PROJECT_ROOT_CACHE_TTL_MS) {
 		// Re-insert to refresh LRU position.

@@ -257,7 +257,6 @@ test("child Pi does not leak NPM_TOKEN or NODE_ENV through wildcards", async () 
 		// These SHOULD be preserved
 		XDG_CONFIG_HOME: "/home/user/.config",
 		LC_CTYPE: "en_US.UTF-8",
-		NODE_PATH: "/usr/lib/node_modules",
 		NPM_CONFIG_REGISTRY: "https://registry.npmjs.org",
 	});
 	const env = options.env as Record<string, string>;
@@ -266,10 +265,11 @@ test("child Pi does not leak NPM_TOKEN or NODE_ENV through wildcards", async () 
 	assert.equal(env.NODE_ENV, undefined, "NODE_ENV must not leak");
 	assert.equal(env.NODE_OPTIONS, undefined, "NODE_OPTIONS must not leak");
 	assert.equal(env.NVM_RC_VERSION, undefined, "NVM_RC_VERSION must not leak");
+	// NODE_PATH is intentionally NOT preserved — it can reveal user env info.
+	assert.equal(env.NODE_PATH, undefined, "NODE_PATH must not leak");
 	// Specific entries should be preserved
 	assert.equal(env.LC_ALL, "en_US.UTF-8");
 	assert.equal(env.LC_CTYPE, "en_US.UTF-8");
 	assert.equal(env.XDG_CONFIG_HOME, "/home/user/.config");
-	assert.equal(env.NODE_PATH, "/usr/lib/node_modules");
 	assert.equal(env.NPM_CONFIG_REGISTRY, "https://registry.npmjs.org");
 });

@@ -11,11 +11,19 @@ const SECRET_SUFFIXES = ["token", "api", "key", "password", "passwd", "secret", 
 /**
  * Check if a glob pattern could match secret env vars.
  * A pattern like "PI_*" is dangerous because it could match PI_TOKEN, PI_API_KEY, etc.
+ *
+ * Exception: `PI_CREW_*` is a controlled namespace — the pi-crew codebase owns
+ * every PI_CREW_* env var (PI_CREW_PARENT_PID, PI_CREW_ADAPTIVE_REPAIR, etc.)
+ * and none of them are secrets. Allowing the glob here lets child Pi processes
+ * inherit our config without needing a per-var allowlist.
  */
 function isDangerousGlob(pattern: string): boolean {
 	if (!pattern.endsWith("*")) return false;
 	const prefix = pattern.slice(0, -1); // Remove trailing *
 	if (prefix === "") return true; // Single "*" matches everything
+	// PI_CREW_* is the pi-crew controlled namespace — no secrets live here.
+	// This covers PI_CREW_*, PI_CREW_TEAMS_*, PI_CREW_AGENT_*, etc.
+	if (prefix.startsWith("PI_CREW_") || prefix === "PI_CREW") return false;
 	// Check if combining the prefix with any secret suffix would create a secret key
 	for (const suffix of SECRET_SUFFIXES) {
 		if (isSecretKey(prefix + suffix)) {

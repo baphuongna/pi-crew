@@ -31,16 +31,16 @@ test("sanitizeEnvSecrets supports glob patterns in allowList", () => {
 	const env = {
 		PATH: "/usr/bin",
 		PI_CREW_RUN_ID: "run-123",
-		PI_CUSTOM_VAR: "custom",
+		PI_CREW_VAR: "custom",
 		OTHER_VAR: "other",
 		API_KEY: "secret",
 	};
 	const sanitized = sanitizeEnvSecrets(env as Record<string, string>, {
-		allowList: ["PATH", "PI_*"],
+		allowList: ["PATH", "PI_CREW_*"],
 	});
 	assert.equal(sanitized.PATH, "/usr/bin");
 	assert.equal(sanitized.PI_CREW_RUN_ID, "run-123");
-	assert.equal(sanitized.PI_CUSTOM_VAR, "custom");
+	assert.equal(sanitized.PI_CREW_VAR, "custom");
 	assert.equal(sanitized.OTHER_VAR, undefined);
 	assert.equal(sanitized.API_KEY, undefined);
 });
