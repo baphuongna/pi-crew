@@ -18,53 +18,48 @@ export function resolveContainedPath(baseDir: string, targetPath: string): strin
 	const resolved = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(base, targetPath);
 	// On Windows, paths are case-insensitive and short-name (8.3) aliases may
 	// differ from long-name forms (e.g. C:\Users\RUNNER~1 vs C:\Users\runneradmin).
-	// Use realpathSync.native to normalize both paths to their canonical form
-	// before comparison. On non-Windows, path.resolve is sufficient.
-	const baseNorm = process.platform === "win32" ? tryRealPath(base) : base;
-	const resolvedNorm = process.platform === "win32" ? tryRealPath(resolved) : resolved;
-	const baseCompare = process.platform === "win32" ? baseNorm.toLowerCase() : baseNorm;
-	const resolvedCompare = process.platform === "win32" ? resolvedNorm.toLowerCase() : resolvedNorm;
+	// We normalize both paths to their canonical form by resolving through
+	// realpathSync, walking up ancestors for non-existent paths.
+	const baseNorm = process.platform === "win32" ? resolveWindowsCanonical(base) : base;
+	const resolvedNorm = process.platform === "win32" ? resolveWindowsCanonical(resolved) : resolved;
 	const relative = process.platform === "win32"
-		? path.relative(baseCompare, resolvedCompare)
+		? path.relative(baseNorm.toLowerCase(), resolvedNorm.toLowerCase())
 		: path.relative(base, resolved);
-	if (relative.startsWith("..") || path.isAbsolute(relative)) {
-		if (process.platform === "win32") {
-			console.error(`[safe-paths] DEBUG resolveContainedPath: baseCompare=${baseCompare} resolvedCompare=${resolvedCompare} relative=${relative}`);
-		}
-		throw new Error(`Path is outside ${baseDir}: ${targetPath}`);
-	}
+	if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Path is outside ${baseDir}: ${targetPath}`);
 	return resolved;
 }
 
-/** Best-effort realpathSync — returns the original path on failure. */
-function tryRealPath(p: string): string {
+/**
+ * On Windows, resolve a path to its canonical (long-name) form.
+ * Walks up ancestors until finding one that exists, then joins back down.
+ * This handles paths where intermediate directories don't exist yet but
+ * their ancestors do (and may use short-name aliases).
+ */
+function resolveWindowsCanonical(p: string): string {
 	try {
 		let real = fs.realpathSync.native(p);
-		// On Windows, realpathSync.native may return an extended-length path
-		// prefixed with \\?\ (e.g. \\?\C:\Users\...). path.relative does NOT
-		// handle these correctly — it returns "../\\?\..." instead of the
-		// expected relative path. Strip the \\?\ prefix for comparison.
-		if (process.platform === "win32" && real.startsWith("\\\\?\\")) {
-			real = real.slice(4);
-		}
+		if (real.startsWith("\\\\?\\")) real = real.slice(4);
 		return real;
 	} catch {
-		// Path doesn't exist yet. Try to resolve the parent and append the
-		// last component. This handles the common case where a target file
-		// hasn't been created yet but its parent directory exists (and may
-		// have a different canonical form due to short-name/long-name aliases).
-		const parent = path.dirname(p);
-		const base = path.basename(p);
-		if (parent === p) return p; // root — nothing to resolve
-		try {
-			let realParent = fs.realpathSync.native(parent);
-			if (process.platform === "win32" && realParent.startsWith("\\\\?\\")) {
-				realParent = realParent.slice(4);
+		// Walk up to find the deepest existing ancestor
+		const parts: string[] = [];
+		let current = p;
+		while (current !== path.dirname(current)) {
+			try {
+				let real = fs.realpathSync.native(current);
+				if (real.startsWith("\\\\?\\")) real = real.slice(4);
+				// Found existing ancestor — join with remaining parts
+				for (const part of parts.reverse()) {
+					real = path.join(real, part);
+				}
+				return real;
+			} catch {
+				parts.push(path.basename(current));
+				current = path.dirname(current);
 			}
-			return path.join(realParent, base);
-		} catch {
-			return p;
 		}
+		// Couldn't resolve any ancestor — return original
+		return p;
 	}
 }
 
