@@ -117,7 +117,7 @@ export class HeartbeatWatcher {
 				// a long time generating a response (>5 min) without tool calls.
 				// A truly dead process will eventually be detected by exit handlers.
 				let isProcessAlive = false;
-				const workerPid = task.heartbeat?.pid;
+				const workerPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
 				if (workerPid && workerPid > 0) {
 					try {
 						process.kill(workerPid, 0);
