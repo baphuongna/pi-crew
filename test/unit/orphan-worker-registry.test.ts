@@ -161,7 +161,9 @@ test("cleanupOrphanWorkers keeps current session's workers (concurrent session s
 		assert.equal(result.killed, 0);
 
 		// Cleanup: kill the sleep process
-		child.kill();
+		child.kill("SIGKILL");
+		// Wait for process to actually exit
+		try { child.unref(); process.kill(livePid, 0); } catch { /* already dead */ }
 	} finally {
 		rmrf(tmp);
 	}

@@ -43,7 +43,24 @@ function tryRealPath(p: string): string {
 			real = real.slice(4);
 		}
 		return real;
-	} catch { return p; }
+	} catch {
+		// Path doesn't exist yet. Try to resolve the parent and append the
+		// last component. This handles the common case where a target file
+		// hasn't been created yet but its parent directory exists (and may
+		// have a different canonical form due to short-name/long-name aliases).
+		const parent = path.dirname(p);
+		const base = path.basename(p);
+		if (parent === p) return p; // root — nothing to resolve
+		try {
+			let realParent = fs.realpathSync.native(parent);
+			if (process.platform === "win32" && realParent.startsWith("\\\\?\\")) {
+				realParent = realParent.slice(4);
+			}
+			return path.join(realParent, base);
+		} catch {
+			return p;
+		}
+	}
 }
 
 /**
