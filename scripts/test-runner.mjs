@@ -3,7 +3,8 @@
  * Test runner wrapper that enforces non-zero exit code on failures.
  *
  * Problem: `tsx --test` always exits 0 even when tests fail.
- * Fix: Parse output for "# fail N", exit 1 if N > 0.
+ * Fix: Use stdio: 'inherit' so output streams directly (avoids pipe buffer
+ * deadlocks on large test suites), and rely on the child's exit code.
  *
  * Always passes --test-force-exit so the child process cannot hang the
  * parent (pi) on shutdown. Defensive: prevents the "pi froze" failure
@@ -31,31 +32,18 @@ const result = spawnSync(
 	process.execPath,
 	["--import", "tsx/esm", "--test", ...finalArgs],
 	{
-		stdio: ["inherit", "pipe", "inherit"],
-		encoding: "utf-8",
+		stdio: "inherit",
 		env: { ...process.env, NODE_ENV: "test" },
-		maxBuffer: 200 * 1024 * 1024, // 200MB for large test output
+		timeout: 600_000, // 10 minute overall timeout
 	},
 );
-
-if (result.stdout) {
-	process.stdout.write(result.stdout);
-}
-
-// Parse final "# fail N" line from test reporter
-const failMatches = [...result.stdout.matchAll(/^# fail (\d+)/gm)];
-const failCount = failMatches.length > 0
-	? parseInt(failMatches[failMatches.length - 1][1], 10)
-	: 0;
-
-if (failCount > 0) {
-	console.error(`\n❌ ${failCount} test(s) failed — exiting with code 1`);
-	process.exit(1);
-}
 
 if (result.error) {
 	console.error("Test runner error:", result.error.message);
 	process.exit(1);
 }
 
+// The Node.js test runner exits with non-zero when tests fail.
+// With --test-force-exit, it may exit with code 1 if force-exited
+// while tests were still running (which shouldn't happen normally).
 process.exit(result.status ?? 0);
