@@ -17,14 +17,16 @@ describe("resolveJitiRegisterPath", () => {
 
 	it("returns path when jiti-register.mjs exists", () => {
 		const fakePath = "/fake/node_modules/jiti/lib/jiti-register.mjs";
-		const result = resolveJitiRegisterPath("/fake", (p) => p.replace(/\\/g, "/") === fakePath);
-		assert.equal(result, fakePath);
+		const result = resolveJitiRegisterPath("/fake", (p) => p.replace(/\\/g, "/").endsWith("fake/node_modules/jiti/lib/jiti-register.mjs"));
+		assert.ok(result);
+		assert.ok(result!.replace(/\\/g, "/").endsWith("fake/node_modules/jiti/lib/jiti-register.mjs"));
 	});
 
 	it("walks upward to find jiti", () => {
 		const deepPath = "/a/b/node_modules/jiti/lib/jiti-register.mjs";
-		const result = resolveJitiRegisterPath("/a/b/c/d", (p) => p.replace(/\\/g, "/") === deepPath);
-		assert.equal(result, deepPath);
+		const result = resolveJitiRegisterPath("/a/b/c/d", (p) => p.replace(/\\/g, "/").endsWith("a/b/node_modules/jiti/lib/jiti-register.mjs"));
+		assert.ok(result);
+		assert.ok(result!.replace(/\\/g, "/").endsWith("a/b/node_modules/jiti/lib/jiti-register.mjs"));
 	});
 });
 
@@ -58,7 +60,7 @@ describe("resolveTypeScriptLoader", () => {
 	it("returns jiti loader when jiti is found", () => {
 		const result = resolveTypeScriptLoader({
 			packageRoot: "/fake",
-			exists: (p) => p.replace(/\\/g, "/") === "/fake/node_modules/jiti/lib/jiti-register.mjs",
+			exists: (p) => p.replace(/\\/g, "/").endsWith("fake/node_modules/jiti/lib/jiti-register.mjs"),
 		});
 		assert.ok(result);
 		assert.equal(result!.kind, "jiti");

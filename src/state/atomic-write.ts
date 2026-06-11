@@ -91,7 +91,15 @@ export function isSymlinkSafePath(filePath: string): boolean {
 						// (e.g. /private/var/folders is an ancestor of /private/var/folders/.../T/)
 						const isInsideTmp = dirNorm.startsWith(tmpNorm) || realDirLower.startsWith(systemTmp);
 						const isAncestorOfTmp = tmpNorm.startsWith(dirNorm) || realSystemTmp.startsWith(realDirLower);
-						if (!isInsideTmp && !isAncestorOfTmp) {
+						// Also accept canonical system temp paths:
+						// - /tmp → /private/tmp (macOS)
+						// - /var/folders → /private/var/folders (macOS)
+						const isSystemTmp = process.platform === "darwin" && (
+							realDirLower === "/tmp" || realDirLower === "/private/tmp" ||
+							realDirLower === "/var/folders" || realDirLower === "/private/var/folders" ||
+							realDirLower.startsWith("/var/folders/") || realDirLower.startsWith("/private/var/folders/")
+						);
+						if (!isInsideTmp && !isAncestorOfTmp && !isSystemTmp) {
 							return false;
 						}
 					}

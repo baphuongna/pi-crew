@@ -115,7 +115,13 @@ describe("findGitRoot", () => {
 		try {
 			initGitRepo(repo);
 			const root = findGitRoot(repo);
-			assert.equal(fs.realpathSync(root), fs.realpathSync(repo));
+			// On Windows, findGitRoot returns long-name form from git while
+			// createTrackedTempDir may return short-name form. Compare insensitively.
+			if (process.platform === "win32") {
+				assert.equal(root.toLowerCase(), repo.toLowerCase());
+			} else {
+				assert.equal(root, repo);
+			}
 		} finally {
 			removeTrackedTempDir(repo);
 		}
@@ -128,7 +134,11 @@ describe("findGitRoot", () => {
 			const sub = path.join(repo, "src", "deep");
 			fs.mkdirSync(sub, { recursive: true });
 			const root = findGitRoot(sub);
-			assert.equal(fs.realpathSync.native(root), fs.realpathSync.native(repo));
+			if (process.platform === "win32") {
+				assert.equal(root.toLowerCase(), repo.toLowerCase());
+			} else {
+				assert.equal(root, repo);
+			}
 		} finally {
 			removeTrackedTempDir(repo);
 		}
