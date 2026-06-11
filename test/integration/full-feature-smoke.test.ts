@@ -71,8 +71,8 @@ function getText(res: Awaited<ReturnType<typeof handleTeamTool>>): string {
 	const c = res.content;
 	if (typeof c === "string") return c;
 	if (Array.isArray(c)) {
-		const block = c.find((b: any) => b.type === "text");
-		return block?.text ?? JSON.stringify(c);
+		const block = c.find((b: { type?: string }) => b.type === "text");
+		return block && "text" in block ? (block as { text: string }).text : JSON.stringify(c);
 	}
 	return JSON.stringify(c);
 }
@@ -329,7 +329,7 @@ test("G4: retry re-runs a task", async () => {
 		const failedTask = loaded?.tasks.find(t => t.status === "failed" || t.status === "needs_attention");
 		if (failedTask) {
 			process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
-			const res = await tool({ action: "retry", runId, taskId: failedTask.taskId });
+			const res = await tool({ action: "retry", runId, taskId: failedTask.id });
 			assert.ok(res, "retry returned something");
 		}
 	} finally { teardown(); }
