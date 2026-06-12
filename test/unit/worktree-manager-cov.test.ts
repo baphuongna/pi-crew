@@ -4,9 +4,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
-/** Resolve through realpathSync for consistent path comparison across platforms. */
+/** Resolve through realpathSync.native for consistent long-name path comparison.
+ *  On Windows CI, regular realpathSync preserves short-name form (RUNNER~1)
+ *  while .native returns long-name form (runneradmin). */
 function tryRealpath(p: string): string {
-	try { return fs.realpathSync(p); } catch { return p; }
+	try {
+		const r = fs.realpathSync.native(p);
+		return r.startsWith("\\\\?\\") ? r.slice(4) : r;
+	} catch {
+		try { return fs.realpathSync(p); } catch { return p; }
+	}
 }
 import {
 	normalizeSeedPaths,
