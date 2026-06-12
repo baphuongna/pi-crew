@@ -69,7 +69,24 @@ function mailboxDir(manifest: TeamRunManifest): string {
 
 function safeMailboxDir(manifest: TeamRunManifest, create = false): string {
 	const dir = mailboxDir(manifest);
-	if (create) fs.mkdirSync(dir, { recursive: true });
+	if (create) {
+		try {
+			fs.mkdirSync(dir, { recursive: true });
+		} catch (error) {
+			// Windows EPERM: can occur when dir uses long-name form (runneradmin)
+			// but filesystem parent only exists in short-name form (RUNNER~1).
+			// Retry with realpathSync-resolved form.
+			if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") {
+				try {
+					const realDir = fs.realpathSync(path.dirname(dir));
+					const correctedDir = path.join(realDir, path.basename(dir));
+					fs.mkdirSync(correctedDir, { recursive: true });
+				} catch { throw error; }
+			} else {
+				throw error;
+			}
+		}
+	}
 	// SECURITY: When create=true, dir now exists and must be validated via
 	// resolveRealContainedPath. When create=false, missing dir must throw —
 	// never return an unvalidated bare path (bypasses containment checks).

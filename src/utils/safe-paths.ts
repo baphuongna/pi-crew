@@ -37,7 +37,7 @@ export function resolveContainedPath(baseDir: string, targetPath: string): strin
  */
 function resolveWindowsCanonical(p: string): string {
 	try {
-		let real = fs.realpathSync.native(p);
+		let real = fs.realpathSync(p);
 		if (real.startsWith("\\\\?\\")) real = real.slice(4);
 		// Guard against NTFS internal paths (e.g. C:\$Extend\$Deleted)
 		if (real.includes("$Extend") || real.includes("$Deleted")) throw new Error("NTFS internal path");
@@ -53,7 +53,7 @@ function resolveWindowsCanonical(p: string): string {
 		let current = p;
 		while (current !== path.dirname(current)) {
 			try {
-				let real = fs.realpathSync.native(current);
+				let real = fs.realpathSync(current);
 				if (real.startsWith("\\\\?\\")) real = real.slice(4);
 				// Guard against NTFS internal paths
 				if (real.includes("$Extend") || real.includes("$Deleted")) throw new Error("NTFS internal path");
@@ -170,7 +170,7 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 		// Use realpathSync.native on the path - we've already validated with O_NOFOLLOW
 		// that no symlinks exist in the path at open time. Any TOCTOU race would cause
 		// the O_NOFOLLOW open to fail before we reach this point.
-		realBase = fs.realpathSync.native(baseDir);
+		realBase = fs.realpathSync(baseDir);
 		// Strip Windows extended-length prefix (\\?\) for path.relative compatibility.
 		if (process.platform === "win32" && realBase.startsWith("\\\\?\\")) {
 			realBase = realBase.slice(4);
@@ -249,7 +249,7 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 		// Use realpathSync.native on the path - we've already validated with O_NOFOLLOW
 		// that no symlinks exist in the path at open time. Any TOCTOU race would cause
 		// the O_NOFOLLOW open to fail before we reach this point.
-		realTarget = fs.realpathSync.native(resolved);
+		realTarget = fs.realpathSync(resolved);
 		// Strip Windows extended-length prefix (\\?\) for path.relative compatibility.
 		if (process.platform === "win32" && realTarget.startsWith("\\\\?\\")) {
 			realTarget = realTarget.slice(4);
@@ -317,11 +317,11 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 		let compBase = realBase;
 		let compTarget = realTarget;
 		try {
-			const rb = fs.realpathSync.native(realBase);
+			const rb = fs.realpathSync(realBase);
 			compBase = rb.startsWith("\\\\?\\") ? rb.slice(4) : rb;
 		} catch { /* use realBase as-is */ }
 		try {
-			const rt = fs.realpathSync.native(realTarget);
+			const rt = fs.realpathSync(realTarget);
 			compTarget = rt.startsWith("\\\\?\\") ? rt.slice(4) : rt;
 		} catch { /* use realTarget as-is */ }
 		const normBase = compBase.replace(/\\/g, "/").toLowerCase();
