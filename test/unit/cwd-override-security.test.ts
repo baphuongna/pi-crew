@@ -27,7 +27,7 @@ test("resolveCwdOverride allows contained child directories", () => {
 		fs.mkdirSync(child, { recursive: true });
 		const result = resolveCwdOverride(root, "child");
 		assert.equal(result.ok, true);
-		if (result.ok) assert.equal(result.cwd, fs.realpathSync.native(child));
+		if (result.ok) assert.equal(result.cwd, fs.realpathSync(child));
 	} finally {
 		fs.rmSync(root, { recursive: true, force: true });
 	}

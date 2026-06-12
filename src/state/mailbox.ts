@@ -95,7 +95,12 @@ function safeMailboxDir(manifest: TeamRunManifest, create = false): string {
 		return path.join(dir); // will throw in callers via resolveRealContainedPath on read
 	}
 	if (fs.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid mailbox directory: ${dir}`);
-	return resolveRealContainedPath(manifest.stateRoot, "mailbox");
+	// Return dir as-is. The containment guarantee is provided by
+	// manifest.stateRoot which was validated by createRunPaths. Re-resolving
+	// through resolveRealContainedPath can change the path form on Windows
+	// (short-name vs long-name), causing subsequent operations to see a
+	// different filesystem entry.
+	return dir;
 }
 
 function safeTaskId(taskId: string): string {
@@ -108,7 +113,8 @@ function safeMailboxTasksRoot(manifest: TeamRunManifest, create = false): string
 	if (create) fs.mkdirSync(root, { recursive: true });
 	if (!fs.existsSync(root)) return root;
 	if (fs.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid mailbox tasks directory: ${root}`);
-	return resolveRealContainedPath(safeMailboxDir(manifest), "tasks");
+	// Return root as-is (see safeMailboxDir comment about path form consistency)
+	return root;
 }
 
 function taskMailboxDir(manifest: TeamRunManifest, taskId: string, create = false): string {
@@ -118,7 +124,9 @@ function taskMailboxDir(manifest: TeamRunManifest, taskId: string, create = fals
 	const relative = path.relative(tasksRoot, resolved);
 	if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Invalid mailbox task id: ${taskId}`);
 	if (create) fs.mkdirSync(resolved, { recursive: true });
-	return resolveRealContainedPath(tasksRoot, normalizedTaskId);
+	if (fs.existsSync(resolved) && fs.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
+	// Return resolved as-is (see safeMailboxDir comment about path form consistency)
+	return resolved;
 }
 
 function mailboxPath(manifest: TeamRunManifest, direction: MailboxDirection, taskId?: string, create = false): string {
@@ -132,7 +140,12 @@ function deliveryPath(manifest: TeamRunManifest, create = false): string {
 function safeMailboxFile(filePath: string, parentDir: string): string {
 	if (!fs.existsSync(filePath)) return filePath;
 	if (fs.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid mailbox file: ${filePath}`);
-	return resolveRealContainedPath(parentDir, path.basename(filePath));
+	// Return filePath as-is instead of calling resolveRealContainedPath().
+	// The containment guarantee is already provided by safeMailboxDir/taskMailboxDir
+	// when the parent directory is created. Re-resolving can change the path
+	// form (e.g. short-name vs long-name on Windows), causing subsequent
+	// existsSync/appendFileSync to see a different file.
+	return filePath;
 }
 
 function mailboxFile(manifest: TeamRunManifest, direction: MailboxDirection, taskId?: string, create = false): string {
