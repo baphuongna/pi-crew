@@ -333,12 +333,16 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 	const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
 	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
 	fs.mkdirSync(worktreeRoot, { recursive: true });
-	// Resolve through realpathSync (non-native) to preserve path form.
-	// On Windows CI, .native returns long-name (runneradmin) while non-native
-	// returns short-name (RUNNER~1). Using non-native here matches the rest
-	// of the code path which uses non-native for consistency.
+	// Resolve through realpathSync.native to get long-name form on Windows.
+	// git worktree uses long-name paths, so we must match. If .native fails,
+	// fall back to non-native (preserves input form).
 	let resolvedWorktreeRoot = worktreeRoot;
-	try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ }
+	try {
+		const r = fs.realpathSync.native(worktreeRoot);
+		resolvedWorktreeRoot = r.startsWith("\\\\?\\") ? r.slice(4) : r;
+	} catch {
+		try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ }
+	}
 	const sanitizedTaskId = sanitizeBranchPart(task.id);
 	const worktreePath = path.join(resolvedWorktreeRoot, sanitizedTaskId);
 	const branch = `pi-crew/${sanitizeBranchPart(manifest.runId)}/${sanitizeBranchPart(task.id)}`;
