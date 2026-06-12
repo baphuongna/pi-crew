@@ -19,8 +19,8 @@ export interface ToolRenderContext {
 }
 
 export interface ToolRenderer {
-	renderCall(args: Record<string, unknown>, theme: CrewTheme, ctx: ToolRenderContext): Container | Text;
-	renderResult(result: Record<string, unknown>, theme: CrewTheme, ctx: ToolRenderContext): Container | Text;
+	renderCall(args: Record<string, unknown>, theme: CrewTheme, ctx: ToolRenderContext): Component;
+	renderResult(result: Record<string, unknown>, options: unknown, theme: CrewTheme, ctx: ToolRenderContext): Component;
 }
 
 export type Component = Container | Text;
@@ -51,7 +51,7 @@ export const teamToolRenderer: ToolRenderer = {
 		return c;
 	},
 
-	renderResult(result, theme, ctx) {
+	renderResult(result, _options, theme, ctx) {
 		const d = (result.details ?? result) as Record<string, unknown>;
 		const records = (d.agentRecords ?? d.results) as CrewAgentRecord[] | undefined;
 		const action = typeof d.action === "string" ? d.action : "";
@@ -104,7 +104,7 @@ export const agentToolRenderer: ToolRenderer = {
 		);
 	},
 
-	renderResult(result, theme, ctx) {
+	renderResult(result, _options, theme, ctx) {
 		const d = (result.details ?? result) as Record<string, unknown>;
 		const results = d.results as Array<Record<string, unknown>> | undefined;
 		const w = ctx.width ?? 116;
