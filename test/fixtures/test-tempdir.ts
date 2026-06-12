@@ -50,3 +50,15 @@ test.after(() => {
 	}
 	tracked.clear();
 });
+
+/** Resolve a temp directory to its canonical long-name path.
+ *  Handles macOS /var → /private/var symlink and Windows
+ *  RUNNER~1 → runneradmin short-name alias. */
+export function resolveCanonicalDir(dir: string): string {
+	try {
+		const resolved = fs.realpathSync.native(dir);
+		return resolved.startsWith("\\\\?\\") ? resolved.slice(4) : resolved;
+	} catch {
+		try { return fs.realpathSync(dir); } catch { return dir; }
+	}
+}

@@ -286,8 +286,20 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 			const fd = fs.openSync(ancestor, O_RDONLY | O_NOFOLLOW);
 			fs.closeSync(fd);
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ELOOP") throw new Error("Refusing to resolve: TOCTOU race detected, path became a symlink: " + ancestor);
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			const errCode = (error as NodeJS.ErrnoException).code;
+			if (errCode === "ELOOP") throw new Error("Refusing to resolve: TOCTOU race detected, path became a symlink: " + ancestor);
+			// Windows: EPERM can occur when opening system directories (e.g. C:\)
+			// or NTFS internal paths ($Extend/$Deleted). Skip and continue walking.
+			if (process.platform === "win32" && errCode === "EPERM") {
+				if (ancestor.includes("$Extend") || ancestor.includes("$Deleted")) {
+					// NTFS internal path — stop walking, we've reached the filesystem root
+					break;
+				}
+				// System directory — continue walking up
+				ancestor = path.dirname(ancestor);
+				continue;
+			}
+			if (errCode !== "ENOENT") throw error;
 			// ENOENT on an ancestor of realTarget after realpathSync is concerning
 			// — the path existed when we validated it but now doesn't. This could
 			// indicate a race or attack. For safety, treat this as an error.
