@@ -333,16 +333,12 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 	const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
 	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
 	fs.mkdirSync(worktreeRoot, { recursive: true });
-	// Resolve through realpath to handle Windows short-name vs long-name alias.
-	// git worktree uses long-name paths on Windows, so we must match.
+	// Resolve through realpathSync (non-native) to preserve path form.
+	// On Windows CI, .native returns long-name (runneradmin) while non-native
+	// returns short-name (RUNNER~1). Using non-native here matches the rest
+	// of the code path which uses non-native for consistency.
 	let resolvedWorktreeRoot = worktreeRoot;
-	try {
-		resolvedWorktreeRoot = fs.realpathSync.native(worktreeRoot);
-		// Strip Windows extended-length prefix (\\?\) for path.join compatibility
-		if (resolvedWorktreeRoot.startsWith("\\\\?\\")) resolvedWorktreeRoot = resolvedWorktreeRoot.slice(4);
-	} catch {
-		try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ }
-	}
+	try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ }
 	const sanitizedTaskId = sanitizeBranchPart(task.id);
 	const worktreePath = path.join(resolvedWorktreeRoot, sanitizedTaskId);
 	const branch = `pi-crew/${sanitizeBranchPart(manifest.runId)}/${sanitizeBranchPart(task.id)}`;
@@ -354,8 +350,9 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		// `git worktree list --porcelain` outputs "worktree /path" per entry.
 		// We must compare against the path part (after "worktree ").
 		// On Windows, git may return forward-slash long-name paths while
-		// worktreePath uses short-name backslash form. Normalize both.
-		const normalizedWtPath = process.platform === "win32" ? worktreePath.replace(/\\/g, "/").toLowerCase() : worktreePath;
+		// worktreePath uses short-name backslash form. Resolve both through
+		// realpathSync for consistent form, then normalize separators.
+		const normalizedWtPath = process.platform === "win32" ? (() => { try { return fs.realpathSync(worktreePath); } catch { return worktreePath; } })().replace(/\\/g, "/").toLowerCase() : worktreePath;
 		worktreeExists = worktreeList.split("\n").some((line) => {
 			const trimmed = line.trim();
 			const matchPath = trimmed.startsWith("worktree ") ? trimmed.slice(9) : trimmed;
