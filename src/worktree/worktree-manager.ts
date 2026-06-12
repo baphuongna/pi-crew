@@ -336,7 +336,7 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 	// Resolve through realpath to handle Windows short-name vs long-name alias.
 	// git worktree uses long-name paths on Windows, so we must match.
 	let resolvedWorktreeRoot = worktreeRoot;
-	try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ }
+	try { resolvedWorktreeRoot = fs.realpathSync.native(worktreeRoot); } catch { try { resolvedWorktreeRoot = fs.realpathSync(worktreeRoot); } catch { /* keep as-is */ } }
 	const sanitizedTaskId = sanitizeBranchPart(task.id);
 	const worktreePath = path.join(resolvedWorktreeRoot, sanitizedTaskId);
 	const branch = `pi-crew/${sanitizeBranchPart(manifest.runId)}/${sanitizeBranchPart(task.id)}`;
@@ -347,9 +347,16 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		const worktreeList = git(repoRoot, ["worktree", "list", "--porcelain"]);
 		// `git worktree list --porcelain` outputs "worktree /path" per entry.
 		// We must compare against the path part (after "worktree ").
+		// On Windows, git may return forward-slash long-name paths while
+		// worktreePath uses short-name backslash form. Normalize both.
+		const normalizedWtPath = process.platform === "win32" ? worktreePath.replace(/\\/g, "/").toLowerCase() : worktreePath;
 		worktreeExists = worktreeList.split("\n").some((line) => {
 			const trimmed = line.trim();
-			return trimmed === worktreePath || trimmed === `worktree ${worktreePath}`;
+			const matchPath = trimmed.startsWith("worktree ") ? trimmed.slice(9) : trimmed;
+			if (process.platform === "win32") {
+				return matchPath.replace(/\\/g, "/").toLowerCase() === normalizedWtPath;
+			}
+			return matchPath === worktreePath;
 		});
 	} catch { worktreeExists = false; }
 	if (worktreeExists) {

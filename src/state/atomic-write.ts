@@ -176,20 +176,34 @@ function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): vo
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
-			// First try to unlink any existing file at destination (hard links don't follow symlinks)
-			try { fs.unlinkSync(filePath); } catch { /* destination may not exist */ }
-			// Create hard link - does NOT follow symlinks at filePath
-			fs.linkSync(tempPath, filePath);
-			// Successfully linked - now unlink the temp file
-			fs.unlinkSync(tempPath);
-			return;
+			// Windows: hard links fail with ENOENT when short-name and long-name
+			// path aliases are mixed (e.g. RUNNER~1 vs runneradmin). Use
+			// renameSync which handles this correctly via MoveFileEx.
+			if (process.platform === "win32") {
+				try { fs.unlinkSync(filePath); } catch { /* destination may not exist */ }
+				try {
+					fs.renameSync(tempPath, filePath);
+					return;
+				} catch (renameError) {
+					lastError = renameError;
+					if (!isRetryableLinkError(renameError) || attempt === retries) break;
+				}
+			} else {
+				// First try to unlink any existing file at destination (hard links don't follow symlinks)
+				try { fs.unlinkSync(filePath); } catch { /* destination may not exist */ }
+				// Create hard link - does NOT follow symlinks at filePath
+				fs.linkSync(tempPath, filePath);
+				// Successfully linked - now unlink the temp file
+				fs.unlinkSync(tempPath);
+				return;
+			}
 		} catch (error) {
 			lastError = error;
 			if (!isRetryableLinkError(error) || attempt === retries) break;
-			const base = Math.min(500, 10 * 2 ** attempt);
-			const jitter = base * 0.2 * (Math.random() * 2 - 1);
-			sleepSync(Math.max(1, Math.round(base + jitter)));
 		}
+		const base = Math.min(500, 10 * 2 ** attempt);
+		const jitter = base * 0.2 * (Math.random() * 2 - 1);
+		sleepSync(Math.max(1, Math.round(base + jitter)));
 	}
 	throw lastError;
 }
@@ -198,17 +212,28 @@ async function renameWithLinkAsync(tempPath: string, filePath: string, retries =
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
-			try { await fs.promises.unlink(filePath); } catch { /* destination may not exist */ }
-			await fs.promises.link(tempPath, filePath);
-			await fs.promises.unlink(tempPath);
-			return;
+			if (process.platform === "win32") {
+				try { await fs.promises.unlink(filePath); } catch { /* destination may not exist */ }
+				try {
+					await fs.promises.rename(tempPath, filePath);
+					return;
+				} catch (renameError) {
+					lastError = renameError;
+					if (!isRetryableLinkError(renameError) || attempt === retries) break;
+				}
+			} else {
+				try { await fs.promises.unlink(filePath); } catch { /* destination may not exist */ }
+				await fs.promises.link(tempPath, filePath);
+				await fs.promises.unlink(tempPath);
+				return;
+			}
 		} catch (error) {
 			lastError = error;
 			if (!isRetryableLinkError(error) || attempt === retries) break;
-			const base = Math.min(500, 10 * 2 ** attempt);
-			const jitter = base * 0.2 * (Math.random() * 2 - 1);
-			await sleep(Math.max(1, Math.round(base + jitter)));
 		}
+		const base = Math.min(500, 10 * 2 ** attempt);
+		const jitter = base * 0.2 * (Math.random() * 2 - 1);
+		await sleep(Math.max(1, Math.round(base + jitter)));
 	}
 	throw lastError;
 }

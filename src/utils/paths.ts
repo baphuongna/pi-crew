@@ -146,17 +146,23 @@ export function projectPiRoot(cwd: string): string {
 	return piDir;
 }
 
+/** On Windows, use realpathSync.native which returns long-name paths (e.g. C:\Users\runneradmin\...)
+ *  instead of short-name 8.3 paths (C:\Users\RUNNER~1\...). */
+function resolveRealPath(p: string): string {
+	try { return fs.realpathSync.native(p); } catch { return fs.realpathSync(p); }
+}
+
 export function projectCrewRoot(cwd: string): string {
 	const repoRoot = findRepoRoot(cwd) ?? cwd;
 	const crewDir = path.join(repoRoot, ".crew");
 	// Keep an existing .crew/ stable even when .pi/ exists for project config.
 	// Use realpathSync to resolve any symlinks before returning to prevent
 	// state/artifacts from being written outside expected boundaries.
-	if (fs.existsSync(crewDir)) return fs.realpathSync(crewDir);
+	if (fs.existsSync(crewDir)) return resolveRealPath(crewDir);
 	// Legacy reuse: if .pi/ already exists for the project, namespace under .pi/teams/
 	// to avoid creating a parallel .crew/ alongside an existing pi project layout.
 	const piDir = path.join(repoRoot, ".pi");
-	if (fs.existsSync(piDir)) return path.join(fs.realpathSync(piDir), "teams");
+	if (fs.existsSync(piDir)) return path.join(resolveRealPath(piDir), "teams");
 	return crewDir;
 }
 
