@@ -37,8 +37,11 @@ export function resolveContainedPath(baseDir: string, targetPath: string): strin
  */
 function resolveWindowsCanonical(p: string): string {
 	try {
-		let real = fs.realpathSync.native(p);
-		if (real.startsWith("\\\\?\\")) real = real.slice(4);
+		// Use regular realpathSync (not .native) to preserve the input path form.
+		// On Windows CI, .native always returns long-name (runneradmin) while
+		// non-native preserves short-name (RUNNER~1). Using non-native ensures
+		// the returned form matches what os.tmpdir() and mkdtempSync produce.
+		let real = fs.realpathSync(p);
 		// Guard against NTFS internal paths (e.g. C:\$Extend\$Deleted)
 		if (real.includes("$Extend") || real.includes("$Deleted")) throw new Error("NTFS internal path");
 		return real;
@@ -53,8 +56,8 @@ function resolveWindowsCanonical(p: string): string {
 		let current = p;
 		while (current !== path.dirname(current)) {
 			try {
-				let real = fs.realpathSync.native(current);
-				if (real.startsWith("\\\\?\\")) real = real.slice(4);
+				// Use non-native to preserve input path form
+				let real = fs.realpathSync(current);
 				// Guard against NTFS internal paths
 				if (real.includes("$Extend") || real.includes("$Deleted")) throw new Error("NTFS internal path");
 				// Found existing ancestor — join with remaining parts in reverse order
@@ -63,18 +66,9 @@ function resolveWindowsCanonical(p: string): string {
 					real = path.join(real, parts[i]);
 				}
 				return real;
-			} catch {
-				// Also try non-native for ancestor
-				try {
-					let real = fs.realpathSync(current);
-					for (let i = parts.length - 1; i >= 0; i--) {
-						real = path.join(real, parts[i]);
-					}
-					return real;
-				} catch { /* keep walking */ }
-				parts.push(path.basename(current));
-				current = path.dirname(current);
-			}
+			} catch { /* keep walking */ }
+			parts.push(path.basename(current));
+			current = path.dirname(current);
 		}
 		// Couldn't resolve any ancestor — return original
 		return p;
@@ -168,14 +162,11 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 	try {
 		const stat = fs.fstatSync(baseFd);
 		if (!stat.isDirectory()) throw new Error(`baseDir ${baseDir} is not a directory`);
-		// Use realpathSync.native on the path - we've already validated with O_NOFOLLOW
-		// that no symlinks exist in the path at open time. Any TOCTOU race would cause
-		// the O_NOFOLLOW open to fail before we reach this point.
-		realBase = fs.realpathSync.native(baseDir);
-		// Strip Windows extended-length prefix (\\?\) for path.relative compatibility.
-		if (process.platform === "win32" && realBase.startsWith("\\\\?\\")) {
-			realBase = realBase.slice(4);
-		}
+		// Use regular realpathSync (not .native) to preserve input path form.
+		// On Windows CI, .native always returns long-name form (runneradmin)
+		// while non-native preserves short-name (RUNNER~1). Using non-native
+		// ensures the result matches what the caller passed in.
+		realBase = fs.realpathSync(baseDir);
 	} catch (error) {
 		// baseDir MUST exist and be resolvable for the containment guarantee to hold.
 		// Callers creating new directories must create baseDir atomically (e.g.,
@@ -247,14 +238,8 @@ export function resolveRealContainedPath(baseDir: string, targetPath: string): s
 
 	let realTarget: string;
 	try {
-		// Use realpathSync.native on the path - we've already validated with O_NOFOLLOW
-		// that no symlinks exist in the path at open time. Any TOCTOU race would cause
-		// the O_NOFOLLOW open to fail before we reach this point.
-		realTarget = fs.realpathSync.native(resolved);
-		// Strip Windows extended-length prefix (\\?\) for path.relative compatibility.
-		if (process.platform === "win32" && realTarget.startsWith("\\\\?\\")) {
-			realTarget = realTarget.slice(4);
-		}
+		// Use regular realpathSync (not .native) to preserve input path form.
+		realTarget = fs.realpathSync(resolved);
 	} catch (targetError) {
 		if ((targetError as NodeJS.ErrnoException).code === "ENOENT") {
 			// Target doesn't exist yet — this is OK for write operations.
