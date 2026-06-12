@@ -98,12 +98,19 @@ export function findRepoRoot(cwd: string): string | undefined {
 	// newly-created test directories and shouldn't propagate as a crash.
 	let startKey: string;
 	try {
-		startKey = fs.realpathSync(cwd);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			startKey = path.resolve(cwd);
-		} else {
-			throw error;
+		// Use realpathSync.native to get long-name form on Windows.
+		// Falls back to regular realpathSync if .native fails.
+		const r = fs.realpathSync.native(cwd);
+		startKey = r.startsWith("\\\\?\\") ? r.slice(4) : r;
+	} catch (nativeError) {
+		try {
+			startKey = fs.realpathSync(cwd);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				startKey = path.resolve(cwd);
+			} else {
+				throw error;
+			}
 		}
 	}
 	const cached = projectRootCache.get(startKey);
@@ -140,23 +147,38 @@ function computeRepoRoot(start: string): string | undefined {
 export function projectPiRoot(cwd: string): string {
 	const repoRoot = findRepoRoot(cwd) ?? cwd;
 	const piDir = path.join(repoRoot, ".pi");
-	// Use realpathSync to resolve any symlinks before returning to prevent
+	// Use realpathSync.native to resolve any symlinks before returning to prevent
 	// config from being read from unexpected locations.
-	if (fs.existsSync(piDir)) return fs.realpathSync(piDir);
+	if (fs.existsSync(piDir)) return canonicalizePath(piDir);
 	return piDir;
+}
+
+/** On Windows, resolve a path to its canonical long-name form.
+ *  Uses realpathSync.native to get the \\?\ long-name path, then strips
+ *  the prefix for path.relative compatibility. This is critical for
+ *  Windows CI where os.tmpdir() returns short-name (RUNNER~1) but
+ *  other operations resolve to long-name (runneradmin). */
+function canonicalizePath(p: string): string {
+	try {
+		const r = fs.realpathSync.native(p);
+		return r.startsWith("\\\\?\\") ? r.slice(4) : r;
+	} catch {
+		try { return fs.realpathSync(p); } catch { return p; }
+	}
 }
 
 export function projectCrewRoot(cwd: string): string {
 	const repoRoot = findRepoRoot(cwd) ?? cwd;
 	const crewDir = path.join(repoRoot, ".crew");
 	// Keep an existing .crew/ stable even when .pi/ exists for project config.
-	// Use realpathSync to resolve any symlinks before returning to prevent
-	// state/artifacts from being written outside expected boundaries.
-	if (fs.existsSync(crewDir)) return fs.realpathSync(crewDir);
+	// Use realpathSync.native (with \\?\ stripping) to resolve any symlinks
+	// before returning to prevent state/artifacts from being written outside
+	// expected boundaries. This also ensures consistent long-name form on Windows.
+	if (fs.existsSync(crewDir)) return canonicalizePath(crewDir);
 	// Legacy reuse: if .pi/ already exists for the project, namespace under .pi/teams/
 	// to avoid creating a parallel .crew/ alongside an existing pi project layout.
 	const piDir = path.join(repoRoot, ".pi");
-	if (fs.existsSync(piDir)) return path.join(fs.realpathSync(piDir), "teams");
+	if (fs.existsSync(piDir)) return path.join(canonicalizePath(piDir), "teams");
 	return crewDir;
 }
 
