@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+
+/** Resolve through realpathSync for consistent path comparison across platforms. */
+function tryRealpath(p: string): string {
+	try { return fs.realpathSync(p); } catch { return p; }
+}
 import {
 	normalizeSeedPaths,
 	overlaySeedPaths,
@@ -115,14 +120,12 @@ describe("findGitRoot", () => {
 		try {
 			initGitRepo(repo);
 			const root = findGitRoot(repo);
-			// On Windows, findGitRoot returns long-name form from git while
-			// createTrackedTempDir may return short-name form. Compare insensitively
-			// and normalize path separators.
-			if (process.platform === "win32") {
-				assert.equal(root.replace(/\\/g, "/").toLowerCase(), repo.replace(/\\/g, "/").toLowerCase());
-			} else {
-				assert.equal(root, repo);
-			}
+			// Resolve both through realpathSync for consistent comparison.
+			// On Windows CI, git returns long-name (runneradmin) but tmpdir
+			// uses short-name (RUNNER~1). realpathSync normalizes both.
+			const canonicalRoot = tryRealpath(root);
+			const canonicalRepo = tryRealpath(repo);
+			assert.equal(canonicalRoot, canonicalRepo);
 		} finally {
 			removeTrackedTempDir(repo);
 		}
@@ -135,11 +138,7 @@ describe("findGitRoot", () => {
 			const sub = path.join(repo, "src", "deep");
 			fs.mkdirSync(sub, { recursive: true });
 			const root = findGitRoot(sub);
-			if (process.platform === "win32") {
-				assert.equal(root.replace(/\\/g, "/").toLowerCase(), repo.replace(/\\/g, "/").toLowerCase());
-			} else {
-				assert.equal(root, repo);
-			}
+			assert.equal(tryRealpath(root), tryRealpath(repo));
 		} finally {
 			removeTrackedTempDir(repo);
 		}

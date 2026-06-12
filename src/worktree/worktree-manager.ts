@@ -38,9 +38,7 @@ function sanitizeBranchPart(value: string): string {
 }
 
 export function findGitRoot(cwd: string): string {
-	const gitRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
-	// Normalize through realpathSync for consistent path form
-	try { return fs.realpathSync(gitRoot); } catch { return gitRoot; }
+	return git(cwd, ["rev-parse", "--show-toplevel"]);
 }
 
 export function assertCleanLeader(repoRoot: string): void {
