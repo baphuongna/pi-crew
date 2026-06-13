@@ -148,11 +148,6 @@ export const teamToolRenderer: ToolRenderer = {
 	renderResult(result, _options, theme, ctx) {
 		try {
 			const text = renderTeamResult(result, _options, theme, ctx);
-			// Reuse lastComponent to prevent stacked frames during streaming
-			if (ctx.lastComponent instanceof Text) {
-				(ctx.lastComponent as any).text = text;
-				return ctx.lastComponent;
-			}
 			return new Text(text, 0, 0);
 		} catch {
 			return new Text(statusIcon("completed", theme) + " done", 0, 0);
@@ -274,10 +269,6 @@ export const agentToolRenderer: ToolRenderer = {
 	renderResult(result, _options, theme, ctx) {
 		try {
 			const text = renderAgentResult(result, _options, theme, ctx);
-			if (ctx.lastComponent instanceof Text) {
-				(ctx.lastComponent as any).text = text;
-				return ctx.lastComponent;
-			}
 			return new Text(text, 0, 0);
 		} catch {
 			return new Text(statusIcon("completed", theme) + " agent done", 0, 0);
