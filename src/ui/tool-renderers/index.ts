@@ -142,7 +142,7 @@ export const teamToolRenderer: ToolRenderer = {
 			contentLines.push(padVisual(` ${theme.fg("dim", previewText)}`, innerW));
 		}
 
-		return buildFrame(contentLines, w, theme, "borderAccent");
+		return new Text(buildFrame(contentLines, w, theme, "borderAccent"), 0, 0);
 	},
 
 	renderResult(result, _options, theme, ctx) {
@@ -263,7 +263,7 @@ export const agentToolRenderer: ToolRenderer = {
 			contentLines.push(padVisual(` ${theme.fg("dim", previewText)}`, innerW));
 		}
 
-		return buildFrame(contentLines, w, theme, "borderAccent");
+		return new Text(buildFrame(contentLines, w, theme, "borderAccent"), 0, 0);
 	},
 
 	renderResult(result, _options, theme, ctx) {
