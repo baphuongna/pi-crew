@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { statSync, appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { TeamToolParams, type TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -128,9 +128,12 @@ interface TeamToolProgressBinder {
 }
 
 function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolProgressBinder {
+	const dbg = (msg: string) => { try { appendFileSync('/tmp/pi-crew-prog2.log', `[${new Date().toISOString()}] ${msg}\n`); } catch {} };
 	if (!onUpdate) {
+		dbg('no onUpdate');
 		return { attach: () => {}, stop: () => {} };
 	}
+	dbg('binder created');
 	const startedAt = Date.now();
 	let cwd: string | undefined;
 	let runId: string | undefined;
@@ -139,16 +142,20 @@ function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolPr
 			if (!cwd || !runId) {
 				const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
 				const msg = `team status=starting elapsed=${elapsed}s`;
+				dbg(`TICK no-attach: ${msg}`);
 				onUpdate({ content: [{ type: "text", text: msg }] });
 				return;
 			}
+			dbg(`TICK attached: cwd=${cwd} runId=${runId}`);
 			const loaded = loadRunManifestById(cwd, runId);
 			if (!loaded) {
 				const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
 				const msg = `team run=${runId} elapsed=${elapsed}s (manifest pending)`;
+				dbg(`TICK no-manifest`);
 				onUpdate({ content: [{ type: "text", text: msg }] });
 				return;
 			}
+			dbg(`TICK manifest: status=${loaded.manifest.status} tasks=${loaded.tasks?.length ?? 0}`);
 			let agents;
 			try { agents = readCrewAgents(loaded.manifest); } catch { /* ignore */ }
 			const text = formatCompactToolProgress({
@@ -160,8 +167,10 @@ function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolPr
 				tasks: loaded.tasks,
 				agents,
 			});
+			dbg(`TICK progress: ${text.slice(0, 120)}`);
 			onUpdate({ content: [{ type: "text", text }] });
 		} catch (error) {
+			dbg(`TICK error: ${error}`);
 			logInternalError("team-tool.progress", error, `runId=${runId ?? ""}`);
 		}
 	};
@@ -169,7 +178,7 @@ function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolPr
 	const timer = setInterval(tick, TEAM_TOOL_PROGRESS_TICK_MS);
 	if (typeof timer.unref === "function") timer.unref();
 	return {
-		attach: (boundCwd, boundRunId) => { cwd = boundCwd; runId = boundRunId; tick(); },
-		stop: () => clearInterval(timer),
+		attach: (boundCwd, boundRunId) => { dbg(`ATTACH: cwd=${boundCwd} runId=${boundRunId}`); cwd = boundCwd; runId = boundRunId; tick(); },
+		stop: () => { dbg('STOP'); clearInterval(timer); },
 	};
 }
