@@ -109,8 +109,6 @@ export interface CrewUiConfig {
 		| "crt"
 		| "glitch"
 		| "dissolve";
-	/** Override the Shiki syntax-highlighting theme (e.g. "dracula", "nord"). */
-	shikiTheme?: string;
 }
 
 export interface AgentOverrideConfig {

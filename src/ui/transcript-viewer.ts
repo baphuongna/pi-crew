@@ -4,7 +4,7 @@ import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.t
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
 import { renderDiff } from "./render-diff.ts";
-import { highlightCode, highlightJson, scheduleShikiUpgrade, shikiCacheGet } from "./syntax-highlight.ts";
+import { highlightCode, highlightJson } from "./syntax-highlight.ts";
 import { pad, truncate, truncateToVisualLines } from "../utils/visual.ts";
 import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
 import { DEFAULT_TRANSCRIPT_TAIL_BYTES, getTranscriptCacheEntry, readTranscriptLinesCached } from "./transcript-cache.ts";
@@ -40,14 +40,6 @@ function isLikelyDiff(text: string): boolean {
 	return matched >= 2 && (text.includes("-") || text.includes("+"));
 }
 
-// Render-time hook: when a viewer is rendering, it registers a requestRender
-// callback here so that async Shiki upgrades can trigger a redraw. Set/cleared
-// around each render pass by DurableTranscriptViewer/DurableTextViewer.
-let _renderUpgradeHook: (() => void) | undefined;
-export function _setRenderUpgradeHook(hook: (() => void) | undefined): void {
-	_renderUpgradeHook = hook;
-}
-
 function highlightCodeBlocks(input: string, theme: TranscriptTheme): string[] {
 	const codeBlockRegex = /```(\S+)?\n([\s\S]*?)```/g;
 	const lines: string[] = [];
@@ -60,11 +52,6 @@ function highlightCodeBlocks(input: string, theme: TranscriptTheme): string[] {
 		const highlighted = highlightCode(block, lang, theme);
 		if (highlighted) {
 			lines.push(...highlighted.split(/\r?\n/));
-			// Kick off an async Shiki upgrade so the next re-render picks up the
-			// richer coloring (highlightCode checks the Shiki cache first).
-			if (lang && _renderUpgradeHook && shikiCacheGet(block, lang) === undefined) {
-				scheduleShikiUpgrade(block, lang, _renderUpgradeHook);
-			}
 		}
 		index = match.index + match[0].length;
 	}
@@ -285,15 +272,13 @@ export class DurableTranscriptViewer implements Component {
 	private fullTranscript = false;
 	private maxTailBytes: number;
 	private readonly unsubscribeTheme: () => void;
-	private readonly requestRender?: () => void;
 
-	constructor(manifest: TeamRunManifest, theme: unknown, done: (result: undefined) => void, taskId?: string, options: { maxTailBytes?: number; requestRender?: () => void } = {}) {
+	constructor(manifest: TeamRunManifest, theme: unknown, done: (result: undefined) => void, taskId?: string, options: { maxTailBytes?: number } = {}) {
 		this.manifest = manifest;
 		this.theme = asCrewTheme(theme);
 		this.done = done;
 		this.taskId = taskId;
 		this.maxTailBytes = options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES;
-		this.requestRender = options.requestRender;
 		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidate());
 	}
 
@@ -339,19 +324,12 @@ export class DurableTranscriptViewer implements Component {
 
 	render(width: number): string[] {
 		const data = readRunTranscript(this.manifest, this.taskId, { full: this.fullTranscript, maxTailBytes: this.maxTailBytes });
-		// Register the upgrade hook for this render pass so highlightCodeBlocks
-		// can schedule async Shiki upgrades that trigger a redraw on completion.
-		_setRenderUpgradeHook(this.requestRender);
-		try {
-			return renderViewerBase(
-				{ theme: this.theme, autoScroll: this.autoScroll, lastHeight: this.lastHeight, scroll: this.scroll },
-				width,
-				data.lines,
-				"pi-crew transcript",
-				`${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`,
-			);
-		} finally {
-			_setRenderUpgradeHook(undefined);
-		}
+		return renderViewerBase(
+			{ theme: this.theme, autoScroll: this.autoScroll, lastHeight: this.lastHeight, scroll: this.scroll },
+			width,
+			data.lines,
+			"pi-crew transcript",
+			`${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`,
+		);
 	}
 }

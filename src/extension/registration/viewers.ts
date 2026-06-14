@@ -43,7 +43,7 @@ export async function openTranscriptViewer(ctx: ExtensionCommandContext, initial
 	if (!loaded) return false;
 	const uiConfig = loadConfig(ctx.cwd).config.ui;
 	const DurableTranscriptViewer = await getViewer();
-	await ctx.ui.custom<undefined>((tui, theme, _keybindings, done) => new DurableTranscriptViewer(loaded.manifest, theme, done, taskId, { maxTailBytes: uiConfig?.transcriptTailBytes, requestRender: typeof tui?.requestRender === "function" ? () => tui.requestRender() : undefined }), {
+	await ctx.ui.custom<undefined>((_tui, theme, _keybindings, done) => new DurableTranscriptViewer(loaded.manifest, theme, done, taskId, { maxTailBytes: uiConfig?.transcriptTailBytes }), {
 		overlay: true,
 		overlayOptions: { width: "90%", maxHeight: "85%", anchor: "center" },
 	});

@@ -5,7 +5,7 @@
  */
 import type { CrewTheme } from "./theme-adapter.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
-import { discoverPiThemes, getActivePiTheme, listShikiThemeNames } from "./theme-discovery.ts";
+import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,7 +83,6 @@ const SETTINGS: SettingDef[] = [
 	{ id: "ui.widgetPlacement", label: "Widget Placement", type: "enum", values: ["bottom", "hidden"], tab: "ui", description: "Where to place the crew widget." },
 	// ── Themes tab ──
 	{ id: "__piTheme__", label: "Pi UI Theme", type: "action", action: "piTheme", values: discoverPiThemes().map((t) => t.name), tab: "themes", description: "Overall terminal theme. Switches live (no restart). Currently: " + (getActivePiTheme() ?? "dark (default)") },
-	{ id: "ui.shikiTheme", label: "Shiki Code Theme", type: "enum", values: listShikiThemeNames(), tab: "themes", description: "Syntax-highlight theme for code blocks. Empty = auto-resolve from Pi theme. (Esc when blank to keep default.)" },
 	// Autonomous
 	{ id: "autonomous.enabled", label: "Enabled", type: "boolean", tab: "autonomous", description: "Enable autonomous pi-crew delegation." },
 	{ id: "autonomous.injectPolicy", label: "Inject Policy", type: "boolean", tab: "autonomous", description: "Inject delegation policy into agent context." },

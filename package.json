@@ -79,14 +79,12 @@
     "@earendil-works/pi-tui": "*"
   },
   "dependencies": {
-    "@shikijs/cli": "^4.2.0",
     "@sinclair/typebox": "^0.34.49",
     "acorn": "^8.16.0",
     "ajv": "^8.20.0",
     "cli-highlight": "^2.1.11",
     "diff": "^5.2.0",
     "jiti": "^2.7.0",
-    "shiki": "^4.2.0",
     "typebox": "^1.1.38"
   },
   "devDependencies": {

@@ -1,21 +1,13 @@
 /**
- * Theme discovery and selection.
+ * Pi UI theme discovery and selection.
  *
  * Exposes:
  *  - Pi UI theme discovery (builtins + custom ~/.pi/agent/themes/*.json)
- *  - Shiki code-highlight theme listing (grouped dark/light/other)
- *  - The active Pi theme + resolved Shiki theme
+ *  - The active Pi theme
  *  - setPiTheme() to persist a choice in ~/.pi/agent/settings.json
  *
- * Wired into the `team-settings themes` / `theme` / `shiki` subcommands.
+ * Wired into the `team-settings themes` / `theme` subcommands.
  */
-
-import { bundledThemes } from "shiki";
-import { THEME_ALIASES, DEFAULT_SHIKI_THEME, isValidShikiTheme } from "./syntax-highlight.ts";
-
-// ---------------------------------------------------------------------------
-// Pi UI themes
-// ---------------------------------------------------------------------------
 
 export interface PiThemeInfo {
 	/** Theme name (filename stem or builtin id). */
@@ -117,58 +109,16 @@ export function setPiTheme(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Shiki code-highlight themes
-// ---------------------------------------------------------------------------
-
-export interface ShikiThemeGroup {
-	label: string;
-	themes: string[];
-}
-
-/** All Shiki bundled theme names, grouped for display. */
-export function listShikiThemesGrouped(): ShikiThemeGroup[] {
-	const names = Object.keys(bundledThemes);
-	const isLight = (t: string) => /light|day|one-light|snazzy|latte|dawn|lotus/.test(t);
-	const isDark = (t: string) =>
-		/dark|night|midnight|dracula|nord|pro|dim|synthwave|rose-pine|mocha|macchiato|frappe|wave|dragon|horizon|poimandres|vesper|plastic|red$|ochin|black$|aurora|laserwave|andromeeda|monokai|material|ocean|houston|mirage|plus|solarized-d|gruvbox-d|everforest-d|slack-d|min-d|vitesse-d/.test(
-			t,
-		);
-	const dark = names.filter((t) => isDark(t) && !isLight(t)).sort();
-	const light = names.filter((t) => isLight(t)).sort();
-	const other = names.filter((t) => !dark.includes(t) && !light.includes(t)).sort();
-	return [
-		{ label: "Dark", themes: dark },
-		{ label: "Light", themes: light },
-		{ label: "Other / Colorful", themes: other },
-	];
-}
-
-/** All Shiki bundled theme names, sorted. Flat list for use in pickers. */
-export function listShikiThemeNames(): string[] {
-	return Object.keys(bundledThemes).sort();
-}
-
-/** Map a Pi theme name to the Shiki theme it resolves to (via alias map). */
-export function resolveShikiForPiTheme(piTheme: string | undefined): string {
-	if (!piTheme) return DEFAULT_SHIKI_THEME;
-	const aliased = THEME_ALIASES[piTheme.toLowerCase()];
-	if (aliased && isValidShikiTheme(aliased)) return aliased;
-	if (isValidShikiTheme(piTheme)) return piTheme;
-	return DEFAULT_SHIKI_THEME;
-}
-
-// ---------------------------------------------------------------------------
 // Formatted listing for `team-settings themes`
 // ---------------------------------------------------------------------------
 
 /**
- * Build the full formatted listing of all themes for display.
- * Shows Pi UI themes, Shiki code themes, the active selection, and switching instructions.
+ * Build the full formatted listing of Pi UI themes for display.
+ * Shows available themes, the active selection, and switching instructions.
  */
 export function formatThemesListing(): string {
 	const piThemes = discoverPiThemes();
 	const activePi = getActivePiTheme();
-	const shikiGroups = listShikiThemesGrouped();
 	const lines: string[] = [];
 
 	lines.push("═══ Theme Gallery ═══");
@@ -185,51 +135,14 @@ export function formatThemesListing(): string {
 		lines.push(`  ${isActive ? "●" : "○"} ${t.name}${src}${disp}${tag}`);
 	}
 	lines.push("");
-	lines.push("  Switch: team-settings theme <name>");
-	lines.push("         (e.g. team-settings theme crew-dark)");
+	lines.push("  Switch (live, no restart): team-settings theme <name>");
+	lines.push("  Browse interactively:      /team-settings → Themes tab");
 	lines.push("");
-
-	// ── Shiki resolution ──
-	const resolvedShiki = resolveShikiForPiTheme(activePi);
-	lines.push("Shiki code-highlight theme (syntax colors in code blocks):");
-	lines.push("");
-	if (activePi) {
-		lines.push(`  Current: Pi "${activePi}" → Shiki "${resolvedShiki}"`);
-		const isAliased = THEME_ALIASES[activePi.toLowerCase()] !== undefined;
-		if (!isAliased && activePi !== "dark" && activePi !== "light") {
-			lines.push(`  (mapped via default fallback)`);
-		}
-	} else {
-		lines.push(`  Current: default → Shiki "${resolvedShiki}"`);
-	}
-	lines.push("");
-	lines.push("  Override: team-settings shiki <theme-name>");
-	lines.push("");
-
-	// ── Shiki theme list (grouped) ──
-	for (const group of shikiGroups) {
-		if (group.themes.length === 0) continue;
-		lines.push(`  ${group.label} (${group.themes.length}):`);
-		// Wrap into columns; long names wrap naturally to avoid padding overflow.
-		const colWidth = 26;
-		let line = "    ";
-		for (let i = 0; i < group.themes.length; i++) {
-			const t = group.themes[i];
-			if (line.trimEnd().length - 4 + t.length > 76) {
-				lines.push(line.trimEnd());
-				line = "    ";
-			}
-			line += t.padEnd(colWidth);
-		}
-		if (line.trim().length) lines.push(line.trimEnd());
-		lines.push("");
-	}
 
 	lines.push("Notes:");
-	lines.push("  • Pi themes switch the whole TUI — restart Pi to apply.");
-	lines.push("  • Shiki themes only affect code-block syntax colors.");
-	lines.push("  • Shiki auto-resolves from your Pi theme; override only if desired.");
-	lines.push(`  • Shiki bundle: ${shikiGroups.reduce((n, g) => n + g.themes.length, 0)} themes available.`);
+	lines.push("  • Switching applies live via ctx.ui.setTheme() (Pi redraws immediately).");
+	lines.push("  • Custom themes live in ~/.pi/agent/themes/<name>.json.");
+	lines.push(`  • ${piThemes.length} themes available.`);
 
 	return lines.join("\n");
 }

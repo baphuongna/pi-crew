@@ -1,205 +1,15 @@
 /**
  * Syntax highlighting for pi-crew UI.
  *
- * Dual-strategy rendering (ported from pi-pretty's fire-and-forget pattern):
- *   1. SYNC: render plain text immediately (theme.fg on every line)
- *   2. ASYNC: Shiki highlights in background, invokes onHighlighted() to upgrade
- *
- * This gives users instant content, then it gets prettier — without blocking the
- * render call (Shiki's WASM highlighter is async and ~200-500ms cold start).
- *
- * Falls back to cli-highlight (sync) if Shiki is unavailable, and to plain text
- * if neither can handle the language.
- *
- * Contrast normalization (normalizeShikiContrast) rescues dark-on-dark Shiki
- * output: any fg color with luminance < 72 (perceptual) is replaced with a
- * muted gray so highlights stay readable on dark terminal backgrounds.
+ * Uses cli-highlight (sync) with the active Pi theme's syntax colors.
+ * Falls back to plain text (theme.fg on every line) if the language is
+ * unsupported or highlighting fails.
  */
 import { supportsLanguage, highlight } from "cli-highlight";
-import { bundledThemes } from "shiki";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme } from "./theme-adapter.ts";
 
-// ── Optional Shiki integration (async, fire-and-forget) ─────────────────
-// Loaded lazily so pi-crew works without @shikijs/cli installed.
-
-type CodeToAnsiFn = (code: string, lang: string, theme: string) => Promise<string>;
-
-let _codeToANSI: CodeToAnsiFn | null | undefined;
-let _shikiLoadFailed = false;
-
-async function loadShiki(): Promise<CodeToAnsiFn | null> {
-	if (_shikiLoadFailed) return null;
-	if (_codeToANSI !== undefined) return _codeToANSI;
-	try {
-		const mod = await import("@shikijs/cli");
-		_codeToANSI = (mod as unknown as { codeToANSI?: CodeToAnsiFn }).codeToANSI ?? null;
-		return _codeToANSI;
-	} catch {
-		_shikiLoadFailed = true;
-		_codeToANSI = null;
-		return null;
-	}
-}
-
-// Pre-warm Shiki at module load so the first real highlight is fast.
-void loadShiki();
-
-// ── Theme resolution ────────────────────────────────────────────────────
-// Pi theme names (e.g. "crew-dark", "catppuccin-mocha") are NOT the same as
-// Shiki theme names (e.g. "github-dark", "catppuccin-mocha"). We validate
-// against Shiki's bundledThemes registry and fall back to a sensible default
-// so highlighting always works regardless of which Pi theme is active.
-
-const DEFAULT_SHIKI_THEME = "github-dark";
-export { DEFAULT_SHIKI_THEME };
-const FG_MUTED_FALLBACK = "\x1b[38;2;139;148;158m";
-
-/** Map common Pi/theme names to Shiki bundled theme names. */
-export const THEME_ALIASES: Record<string, string> = {
-	"dark": "github-dark",
-	"light": "github-light",
-	"crew-dark": "github-dark",
-	"github-dark": "github-dark",
-	"github-light": "github-light",
-	"catppuccin-mocha": "catppuccin-mocha",
-	"catppuccin-macchiato": "catppuccin-macchiato",
-	"catppuccin-frappe": "catppuccin-frappe",
-	"catppuccin-latte": "catppuccin-latte",
-	"dracula": "dracula",
-	"nord": "nord",
-	"tokyo-night": "tokyo-night",
-	"one-dark": "one-dark-pro",
-	"material": "material-theme",
-	"solarized": "solarized-dark",
-};
-
-/** Validate that a theme name is a real Shiki bundled theme. */
-export function isValidShikiTheme(name: string): boolean {
-	return Object.prototype.hasOwnProperty.call(bundledThemes, name);
-}
-
-function resolveShikiTheme(): string {
-	// 1. Explicit override via env var (highest priority).
-	const env = process.env.CREW_SHIKI_THEME;
-	if (env) {
-		return isValidShikiTheme(env) ? env : DEFAULT_SHIKI_THEME;
-	}
-	// 2. pi-crew config `ui.shikiTheme` override.
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const pathMod = require("node:path");
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const fsMod = require("node:fs");
-		// Resolve pi-crew config: try CWD then home.
-		const { loadConfig } = require("../config/config.ts");
-		const cwd = process.cwd();
-		const loaded = loadConfig(cwd);
-		const uiConfig = (loaded.config as { ui?: { shikiTheme?: string } }).ui;
-		const cfgTheme = uiConfig?.shikiTheme;
-		if (cfgTheme && isValidShikiTheme(cfgTheme)) return cfgTheme;
-		void fsMod; void pathMod;
-	} catch {
-		// config not loadable in this context — fall through
-	}
-	// 3. Read Pi's settings.json theme, map to Shiki if possible.
-	try {
-		const home = process.env.HOME;
-		if (!home) return DEFAULT_SHIKI_THEME;
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const fs = require("node:fs");
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const path = require("node:path");
-		const settings = JSON.parse(fs.readFileSync(path.join(home, ".pi/agent/settings.json"), "utf8"));
-		const piTheme = settings.theme as string | undefined;
-		if (!piTheme) return DEFAULT_SHIKI_THEME;
-		// Try alias map first, then direct validation, then fallback.
-		const aliased = THEME_ALIASES[piTheme.toLowerCase()];
-		if (aliased && isValidShikiTheme(aliased)) return aliased;
-		if (isValidShikiTheme(piTheme)) return piTheme;
-		return DEFAULT_SHIKI_THEME;
-	} catch {
-		return DEFAULT_SHIKI_THEME;
-	}
-}
-
-// Resolve the active Shiki theme lazily and cache briefly so config changes
-// (e.g. `team-settings shiki dracula`) take effect without a module reload.
-// The cache TTL is short (5s) so env/config edits propagate promptly.
-const SHIKI_THEME_CACHE_TTL_MS = 5_000;
-let _cachedShikiTheme: string | undefined;
-let _cachedShikiThemeAt = 0;
-
-function activeShikiTheme(): string {
-	const now = Date.now();
-	if (_cachedShikiTheme === undefined || now - _cachedShikiThemeAt > SHIKI_THEME_CACHE_TTL_MS) {
-		_cachedShikiTheme = resolveShikiTheme();
-		_cachedShikiThemeAt = now;
-	}
-	return _cachedShikiTheme;
-}
-
-// ── Contrast normalization (ported from pi-pretty) ──────────────────────
-// Shiki themes designed for white backgrounds (e.g. "github-light") produce
-// dark fg colors that vanish on dark terminals. Detect by perceptual luminance
-// and replace with a muted gray.
-
-const ESC = "\u001b";
-const ANSI_CAPTURE_RE = new RegExp(`${ESC}\\[([0-9;]*)m`, "g");
-
-export function isLowContrastShikiFg(params: string): boolean {
-	if (params === "30" || params === "90") return true; // black / bright black
-	if (params === "38;5;0" || params === "38;5;8") return true;
-	if (!params.startsWith("38;2;")) return false;
-	const parts = params.split(";").map(Number);
-	if (parts.length !== 5 || parts.some((n) => !Number.isFinite(n))) return false;
-	const [, , r, g, b] = parts;
-	// ITU-R BT.709 luminance — matches human perception for sRGB.
-	const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-	return luminance < 72;
-}
-
-export function normalizeShikiContrast(ansi: string): string {
-	return ansi.replace(ANSI_CAPTURE_RE, (seq, params: string) =>
-		isLowContrastShikiFg(params) ? FG_MUTED_FALLBACK : seq,
-	);
-}
-
-// ── Shiki cache (LRU) ───────────────────────────────────────────────────
-
-const SHIKI_CACHE_LIMIT = 64;
-const MAX_SHIKI_CHARS = 20_000; // skip huge files (slow + memory)
-const _shikiCache = new Map<string, string>();
-
-function touchShikiCache(key: string, val: string): string {
-	_shikiCache.delete(key);
-	_shikiCache.set(key, val);
-	while (_shikiCache.size > SHIKI_CACHE_LIMIT) {
-		const first = _shikiCache.keys().next().value;
-		if (first === undefined) break;
-		_shikiCache.delete(first);
-	}
-	return val;
-}
-
-async function hlShiki(code: string, language: string): Promise<string | null> {
-	if (!code || code.length > MAX_SHIKI_CHARS) return null;
-	const fn = await loadShiki();
-	if (!fn) return null;
-	const theme = activeShikiTheme();
-	const key = `${theme}\0${language}\0${code}`;
-	const hit = _shikiCache.get(key);
-	if (hit !== undefined) return hit;
-	try {
-		const ansi = normalizeShikiContrast(await fn(code, language, theme));
-		const out = ansi.endsWith("\n") ? ansi.slice(0, -1) : ansi;
-		return touchShikiCache(key, out);
-	} catch {
-		return null;
-	}
-}
-
-// ── cli-highlight fallback (sync) ───────────────────────────────────────
+// ── cli-highlight theme bridge ──────────────────────────────────────────
 
 function buildCliTheme(theme: CrewTheme): Record<string, (text: string) => string> {
 	return {
@@ -244,13 +54,6 @@ function hlCliSync(code: string, language: string | undefined, theme: CrewTheme)
 
 // ── Language detection ──────────────────────────────────────────────────
 
-/** @internal */
-function detectLanguageFromPath(filePath: string): string | undefined {
-	const ext = filePath.split(".").pop()?.toLowerCase();
-	if (!ext) return undefined;
-	return languageMap[ext];
-}
-
 export const languageMap: Record<string, string> = {
 	ts: "typescript",
 	tsx: "typescript",
@@ -291,19 +94,18 @@ export const languageMap: Record<string, string> = {
 	php: "php",
 };
 
-// ── Public API (sync) ───────────────────────────────────────────────────
-// These return immediately with sync-rendered content (cli-highlight or plain).
-// Callers that want the async Shiki upgrade should use highlightCodeAsync().
+/** @internal */
+function detectLanguageFromPath(filePath: string): string | undefined {
+	const ext = filePath.split(".").pop()?.toLowerCase();
+	if (!ext) return undefined;
+	return languageMap[ext];
+}
+
+// ── Public API ──────────────────────────────────────────────────────────
 
 export function highlightCode(code: string, language: string | undefined, themeLike: unknown = undefined): string {
 	const theme = asCrewTheme(themeLike);
 	const validLanguage = language && supportsLanguage(language) ? language : undefined;
-	// Shiki cache hit: use the richer Shiki coloring (already computed from a
-	// prior async upgrade). Falls through to cli-highlight otherwise.
-	if (validLanguage) {
-		const cached = shikiCacheGet(code, validLanguage);
-		if (cached !== undefined) return cached;
-	}
 	return hlCliSync(code, validLanguage, theme);
 }
 
@@ -331,98 +133,4 @@ export function highlightJson(payload: string, themeLike: unknown = undefined): 
 	}
 }
 
-// ── Public API (async with Shiki upgrade) ───────────────────────────────
-
-export interface HighlightOptions {
-	/** Path or filename to detect language from extension. */
-	filePath?: string;
-	/** Explicit language (overrides filePath detection). */
-	language?: string;
-	/** Called once with sync-rendered content (immediate). */
-	onSync?: (text: string) => void;
-	/** Called later with Shiki-highlighted content (async upgrade), if available. */
-	onHighlighted?: (text: string) => void;
-}
-
-/**
- * Highlight code with a two-phase strategy:
- *   1. Immediately invoke onSync() with cli-highlight (or plain) output.
- *   2. Kick off Shiki in the background; if it succeeds, invoke onHighlighted()
- *      with the upgraded output. If Shiki is unavailable or fails, the sync
- *      output stands.
- *
- * Both callbacks receive the FULL highlighted text. Callers should use the
- * returned sync text for initial render, then swap in onHighlighted's text
- * when it arrives (e.g. via component.setText()).
- */
-export async function highlightCodeAsync(
-	code: string,
-	options: HighlightOptions = {},
-	themeLike: unknown = undefined,
-): Promise<string> {
-	const theme = asCrewTheme(themeLike);
-	const language =
-		options.language ??
-		(options.filePath ? detectLanguageFromPath(options.filePath) : undefined);
-
-	// Phase 1: sync render (cli-highlight or plain).
-	const syncText = hlCliSync(code, language, theme);
-	options.onSync?.(syncText);
-
-	// Phase 2: async Shiki upgrade (fire-and-forget, but we also return it).
-	if (language) {
-		const shikiText = await hlShiki(code, language);
-		if (shikiText !== null) {
-			options.onHighlighted?.(shikiText);
-			return shikiText;
-		}
-	}
-
-	return syncText;
-}
-
-// ── Re-exports for callers that want raw Shiki access ────────────────────
-
 export { detectLanguageFromPath };
-
-// ── Sync-aware Shiki helpers ─────────────────────────────────────────────
-// These let a sync renderer (e.g. transcript viewer) benefit from Shiki:
-//   - shikiCacheGet(): returns an already-computed Shiki result (or undefined)
-//   - scheduleShikiUpgrade(): fire-and-forget Shiki; fills the cache + invokes
-//     onRequestRender when done so the component re-renders and picks up the
-//     cached result on the next render pass.
-
-/** Read an already-computed Shiki result from the cache, or undefined. */
-export function shikiCacheGet(code: string, language: string): string | undefined {
-	if (!code || code.length > MAX_SHIKI_CHARS) return undefined;
-	const theme = activeShikiTheme();
-	return _shikiCache.get(`${theme}\0${language}\0${code}`);
-}
-
-/** Fire-and-forget Shiki highlight. On success, the result is stored in the
- *  cache and `onRequestRender()` is invoked (so callers can trigger a redraw,
- *  after which highlightCode() will pick up the cached Shiki text). */
-export function scheduleShikiUpgrade(
-	code: string,
-	language: string | undefined,
-	onRequestRender?: () => void,
-): void {
-	const lang = language && supportsLanguage(language) ? language : undefined;
-	if (!code || code.length > MAX_SHIKI_CHARS || !lang) return;
-	// Already cached or already in-flight? Check cache to avoid redundant work.
-	if (shikiCacheGet(code, lang) !== undefined) return;
-	// Mark in-flight to dedupe concurrent upgrades for the same block.
-	_inflight.add(`${activeShikiTheme()}\0${lang}\0${code}`);
-	hlShiki(code, lang)
-		.then((result) => {
-			if (result !== null) onRequestRender?.();
-		})
-		.catch(() => {
-			// Swallow — Shiki is best-effort; cli-highlight output stands.
-		})
-		.finally(() => {
-			_inflight.delete(`${activeShikiTheme()}\0${lang}\0${code}`);
-		});
-}
-
-const _inflight = new Set<string>();

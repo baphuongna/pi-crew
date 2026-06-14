@@ -88,7 +88,6 @@ export const DEFAULT_UI = {
 	transcriptTailBytes: 1024 * 1024,
 	mascotStyle: "cat" as const,
 	mascotEffect: "random" as const,
-	shikiTheme: undefined as unknown as string | undefined,
 };
 
 export const DEFAULT_NOTIFICATIONS = {
