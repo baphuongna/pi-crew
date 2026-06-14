@@ -9,7 +9,18 @@ npm: pi-crew
 repo: https://github.com/baphuongna/pi-crew
 ```
 
-**v0.6.3**: See [CHANGELOG.md](CHANGELOG.md).
+**v0.6.4**: See [CHANGELOG.md](CHANGELOG.md).
+
+### Highlights (v0.6.3 → v0.6.4)
+
+- **Visually rich tool rendering** — `team` and `Agent` tool calls now render as framed cards in the Pi TUI with box-drawing borders, colored status badges, and structured layouts
+- **Merged call+result into ONE connected frame** — the call header and result body now form a single seamless frame instead of two disconnected boxes
+- **Animated live progress bar during runs** — real-time `████░░░░ N/M` task progress with elapsed time, rendered DURING the run; indeterminate "starting" phase uses an animated scanning bar
+- **Compact completion summary** — collapsed cards show `✓ crew run  3/3 done · 1m2s · 26k tok · $0.068` with expand hint and per-agent briefs
+- **Critical crash fix on session resume** — `renderCall` was returning a `string` instead of a `Text` component, causing `TypeError: child.render is not a function` when Pi re-rendered stored tool calls
+- **Disabled brief tool overrides** — reverted the experimental brief mode that replaced Pi's superior native renderers (syntax highlighting, diff views, full content)
+- **Flaky test fix** — `AnimatedMascot` timing tests made CI-load-robust via polling loops
+- **CI green** — 0 failures on Ubuntu, macOS, and Windows
 
 ### Highlights (v0.6.2 → v0.6.3)
 

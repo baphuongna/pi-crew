@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.4] — Visually Rich Tool Rendering: Merged Frames, Live Progress Bars (2026-06-14)
+
+### Highlights
+- **Visually rich team & agent tool rendering** — framed cards with box-drawing borders, colored status badges, and structured layouts for `team` and `Agent` tool calls in the Pi TUI
+- **Merged call+result into ONE connected frame** — previously `renderCall` and `renderResult` each drew a complete box, producing two disconnected frames. Now they split a single frame (top border + header from `renderCall`, content + bottom border from `renderResult`) that merge seamlessly in Pi's `Box(1,1)` container
+- **Animated live progress bar during runs** — real-time task progress (`tasks completed=N/M`) parsed from streaming updates and rendered as a `████░░░░ N/M` bar with elapsed time, DURING the run (not after completion). Indeterminate "starting" phase uses an animated scanning bar
+- **Compact summary after completion** — collapsed cards show `✓ crew run  3/3 done · 1m2s · 26k tok · $0.068` with expand hint (`⌘E`) and agent briefs (`✓ explorer · 45.0s · 8.0k tok`)
+- **Crash fix on session resume** — `renderCall` was returning a `string` (from `buildFrame`), causing `TypeError: child.render is not a function` when Pi re-rendered stored tool calls on resume. Now wraps in `new Text(...)`
+
+### Bug Fixes
+- **`5613ecc`** — **Critical crash fix**: `teamToolRenderer.renderCall` and `agentToolRenderer.renderCall` returned `buildFrame(...)` (a string), not a Component. Pi's `addChild(string)` stored the string in `children[]`, then `Box.render()` called `child.render(width)` on the string → crash. Only surfaced on resume because fast-completing tools got their `Text` result frame painted before the string call frame was rendered. Fixed by wrapping both renderers in `new Text(..., 0, 0)`.
+- **`58ba6e5`** — Elapsed time miscalculation: Pi's `ctx.executionStarted` is a **boolean** flag (not a timestamp), so `Date.now() - true` produced ~56-year durations. Now timing is tracked via `ctx.state.briefStartedAt`.
+- **`1c2cf71`** — Reverted `lastComponent` reuse: returning `ctx.lastComponent` and mutating its private `.text` field crashed on session resume (deserialized components lose prototype methods). Pi already calls `renderContainer.clear()` before each `updateDisplay()`, so single-frame streaming is guaranteed without reuse.
+- **`7d01ebb`** — Typecheck fix: `agentToolRenderer.renderCall` had parameter named `_ctx` (unused convention) but `borderFromContext(ctx)` referenced `ctx` (`error TS2552`).
+
+### Reverts
+- **`0763e67`** — **Disabled brief tool overrides**. Re-registering built-in tools (read/bash/edit/write/find/grep/ls) replaced Pi's superior native renderers (syntax highlighting, diff views, full file content) with inferior custom `fullRender()` output, and caused `renderCall`/`renderResult` to duplicate path/command info. The file is retained for reference; re-enable by uncommenting one line in `register.ts`.
+
+### Test Fixes
+- **`39d1dc7`** — `AnimatedMascot` timing tests were flaky under CI load. The animation advances via `setInterval(20ms)` which is `unref()`'d; under `--test-concurrency=4` the unref'd timers get delayed, so a fixed 70ms wait wasn't always enough for one tick. Replaced fixed waits with polling loops (retry until the frame advances, up to 600ms). Applied to both cat and armin animation tests. Robust: finishes fast normally (~40ms), tolerates heavy load.
+
+### Features (UI)
+- **`a7b703b`** — `parseStreamingProgress()` parses `tasks completed=N running=M` and `N/M done` formats from streaming progress text; `renderScanBar()` renders an animated bouncing bar for the indeterminate "starting" phase.
+- **`9b1de38`** — `onRunStarted` now called in the async path of `run.ts` (was only in foreground path), so background runs attach the progress binder and show real-time progress instead of stuck "starting".
+- **`5741d73`** — `formatCompactToolProgress` always includes the `tasks N/M done status=X` line even when an active agent is present (was skipped via `else if` bug).
+- **`22d8132`** — `extractContentText` returns only the LAST text block (was `.join("\n")` on all blocks, causing stacked progress frames during streaming).
+- **`3777fbc`** — `buildFrameTop()` / `buildFrameBottom()` split rendering so `renderCall` + `renderResult` merge into one connected frame; `borderFromContext(ctx)` keeps top and bottom border colors consistent (accent while running, green on success, red on error).
+- **`9fa5153`** — Cost display in collapsed cards (`computeTotalCost()`), `⌘E` expand hint, agent briefs with duration/tokens, `shortenPath()` (`$HOME` → `~`), OSC 8 clickable paths (`linkPath()`).
+- **`f9c9803`** — Frame width auto-adjusts to terminal via `process.stdout.columns`.
+
+### Stats
+- 9 commits since v0.6.3
+- CI green on Ubuntu, macOS, and Windows
+
 ## [0.6.3] — Cross-Platform CI, 87 Test Fixes, Worktree Validation, Heartbeat & Crash Fixes (2026-06-12)
 
 ### Highlights
