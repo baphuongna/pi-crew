@@ -63,6 +63,7 @@ import {
 	updateCrewWidget,
 } from "../ui/widget/index.ts";
 import { summarizeHeartbeats } from "../ui/heartbeat-aggregator.ts";
+import { deployBundledThemes } from "../ui/deploy-bundled-themes.ts";
 import {
 	requestRender,
 	setExtensionWidget,
@@ -188,6 +189,9 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	const disposeI18n = initI18n(pi);
 	resetTimings();
 	time("register:start");
+	// Deploy bundled themes (crew-dark, crew-dracula, etc.) to ~/.pi/agent/themes/
+	// so Pi's theme loader discovers them. Best-effort, idempotent.
+	deployBundledThemes();
 	const globalStore = globalThis as Record<string | symbol, unknown>;
 	const runtimeCleanupStoreKey = Symbol("__piCrewRuntimeCleanup");
 	const previousRuntimeCleanup = globalStore[runtimeCleanupStoreKey];

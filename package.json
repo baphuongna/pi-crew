@@ -33,6 +33,7 @@
     "teams/",
     "workflows/",
     "skills/**/SKILL.md",
+    "themes/",
     "README.md",
     "AGENTS.md",
     "docs/",
