@@ -16,7 +16,6 @@
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KeyId } from "@earendil-works/pi-tui";
-import { openTeamSettingsOverlay } from "./registration/commands.ts";
 
 type ShortcutHandler = (ctx: ExtensionContext) => Promise<void> | void;
 
@@ -31,7 +30,13 @@ const CREW_SHORTCUTS: ReadonlyArray<ShortcutRegistration> = [
 	{
 		key: "alt+s",
 		description: "pi-crew: open settings (config + theme picker)",
-		handler: (ctx) => openTeamSettingsOverlay(ctx),
+		// Lazy-import the overlay so this module stays lightweight at load time
+		// (avoids pulling the full commands.ts dependency tree into every
+		// process that imports this module, e.g. the unit test).
+		handler: async (ctx) => {
+			const { openTeamSettingsOverlay } = await import("./registration/commands.ts");
+			await openTeamSettingsOverlay(ctx);
+		},
 	},
 ];
 

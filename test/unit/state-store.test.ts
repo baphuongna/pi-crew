@@ -218,6 +218,7 @@ test("loadRunManifestById resolves symlinks to canonical paths in manifest", (t)
 });
 
 test("loadRunManifestById cache invalidates after task save", () => {
+	__test__clearManifestCache();
 	const cwd = makeResolvedTempDir("pi-crew-state-cache-");
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
@@ -234,6 +235,7 @@ test("loadRunManifestById cache invalidates after task save", () => {
 });
 
 test("async save helpers persist run manifest and tasks", async () => {
+	__test__clearManifestCache();
 	const cwd = makeResolvedTempDir("pi-crew-state-async-");
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
