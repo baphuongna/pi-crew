@@ -184,13 +184,17 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// connecting PipelineRunner to the actual team execution system
 		const stageInfo = pipelineWorkflow.stages.map((s) => `- ${s.name} (${s.team})`).join("\n");
 		return result([
-			`Pipeline workflow: ${workflow.name}`,
+			`Pipeline workflow '${workflow.name}' is not yet wired into the team execution system.`,
 			`Goal: ${goal}`,
-			`Stages (${pipelineWorkflow.stages.length}):`,
+			`Defined stages (${pipelineWorkflow.stages.length}):`,
 			stageInfo,
 			"",
-			"Pipeline execution is available via the PipelineRunner API.",
-			"Full CLI integration requires connecting to the team execution system.",
+			"To actually run work right now, use a supported workflow instead:",
+			"  - action='run' workflow='default'  (explore → plan → execute → verify)",
+			"  - action='run' workflow='implementation'  (adaptive, parallel specialists)",
+			"  - action='run' workflow='research'  (explore → analyze → write)",
+			"",
+			"Run action='list' resource='workflow' to see all available workflows.",
 		].join("\n"), { action: "run", status: "ok" }, false);
 	}
 

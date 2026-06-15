@@ -31,7 +31,7 @@ test("run surfaces config.warning event when config is malformed", async () => {
 			{ action: "run", team: "default", config: { runtime: { mode: "scaffold" } }, goal: "test F4 config warning surfacing" },
 			{ cwd },
 		);
-		assert.equal(run.isError, false, `run should not hard-fail on a config warning; got: ${run.text}`);
+		assert.equal(run.isError, false, `run should not hard-fail on a config warning; got: ${JSON.stringify(run.content)}`);
 		assert.ok(run.details.runId, "run should produce a runId");
 
 		const loaded = loadRunManifestById(cwd, run.details.runId!);
@@ -46,7 +46,7 @@ test("run surfaces config.warning event when config is malformed", async () => {
 		const hasIssues = Boolean(loadedConfig.error) || (loadedConfig.warnings?.length ?? 0) > 0;
 		if (hasIssues) {
 			assert.ok(warnings.length > 0, "loadConfig reported issues → a config.warning event must be emitted");
-			assert.match(warnings[0].message, /config/i);
+			assert.match(warnings[0]!.message ?? "", /config/i);
 		}
 	} finally {
 		for (let attempt = 0; attempt < 5; attempt++) {
