@@ -152,6 +152,29 @@ function evictOldestSequenceCacheEntries(): void {
 	}
 }
 
+/** @internal — exported for sequence-cache LRU testing (Round 19). */
+export function __test__sequenceCacheSize(): number {
+	return sequenceCache.size;
+}
+
+/** @internal — seed an entry into the sequence cache for testing. */
+export function __test__seedSequenceCache(eventsPath: string, lastAccessMs: number): void {
+	sequenceCache.set(eventsPath, { size: 1, mtimeMs: 0, seq: 0, lastAccessMs });
+}
+
+/** @internal — expose eviction for testing. */
+export function __test__evictOldestSequenceCacheEntries(): void {
+	evictOldestSequenceCacheEntries();
+}
+
+/** @internal — clear the sequence cache. */
+export function __test__clearSequenceCache(): void {
+	sequenceCache.clear();
+}
+
+/** @internal — the max sequence cache entries bound. */
+export const MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
+
 export function sequencePath(eventsPath: string): string {
 	return `${eventsPath}.seq`;
 }
