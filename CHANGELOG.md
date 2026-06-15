@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.4] — Editor autocomplete + settings shortcut (2026-06-15)
+
+Round 13 UX quick wins round-out: the remaining two Pi extension API integrations plus a hard-won CI reliability fix after the state-store test flake re-emerged on Windows and macOS.
+
+### Features (UX)
+
+- **Editor autocomplete provider** — registered via Pi's `addAutocompleteProvider`. As you type `crew <prefix>` or `team <prefix>` at the start of the input line, Pi's popup now suggests natural-language crew phrases and shows the slash command they map to (e.g. `crew status → /team-status`, `team dashboard → /team-dashboard`). `crew` and `team` are interchangeable keywords, driven by a single `CREW_PHRASES` source of truth shared with the input router.
+- **Keyboard shortcut** — `alt+s` opens the pi-crew settings overlay (config + theme picker). `openTeamSettingsOverlay(ctx)` was extracted from the settings command handler so the shortcut reuses the exact same overlay (DRY). `alt+s` was chosen to avoid Pi's built-in keymap (Pi only binds `alt+v` and `alt+arrow`/`alt+enter` among alt+letter keys).
+
+### Bug Fixes
+
+- **createRunManifest swallowed the real write error** — `saveManifestAndTasksAtomicSync` returns `error: String(err)`, but `createRunManifest` passed it to `errors.fileWrite` as a fake `ErrnoException`; `.code` was `undefined` → every write failure showed `": unknown"`, hiding the actual cause. Now surfaces the real error string in the thrown context, so CI logs and production callers see *why* the write failed.
+- **`atomicWriteFile` Windows path-form correctness** — must NEVER rewrite the write target to a different realpath form. Callers build `filePath` via `canonicalizePath` (`realpathSync.native`) and later stat/read it at that exact path; rewriting it (even to a "canonical" form) made the file land on a divergent path that Windows treated as separate → `existsSync`/`readFileSync` failed after a "successful" write. `canonicalize()` is now used ONLY as an mkdir fallback on Windows `EPERM`, never to change the write target.
+
+### Tests / CI
+
+- **Cap `--test-concurrency` at 2 on all CI platforms.** After the Round 13/14 test additions pushed every GitHub Actions runner past its filesystem-contention threshold, `state-store.test.ts` write-then-stat tests flaked on Windows (Windows Defender locks fresh temp files → rename `EPERM` exhausts atomic-write retries) and macOS (`/var/folders` tmp contention under load). `scripts/test-runner.mjs` now clamps the CI-requested concurrency (`4 → 2`) so the FS has room to flush; local dev is unaffected. Green on all 3 platforms (run 27556451997). 8× concurrent local runs reproduced nothing — pure CI infra contention, not a deterministic bug.
+- +20 tests for the new features (crew-autocomplete: 16, crew-shortcuts: 4).
+
 ## [0.7.3] — Reliability hardening + UX quick wins (2026-06-15)
 
 This release fixes 4 critical data-loss bugs found by the Round 12 reliability audit and adds three UX quick wins from the Round 13 UX research (+125 tests from the Round 14 coverage sprint).
