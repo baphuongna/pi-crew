@@ -213,8 +213,14 @@ export function createRunManifest(params: {
 	// throw to ensure manifest and tasks are always consistent.
 	const result = saveManifestAndTasksAtomicSync(manifest, tasks);
 	if (!result.manifestWritten || !result.tasksWritten) {
-		throw errors.fileWrite(paths.stateRoot, result.error as unknown as NodeJS.ErrnoException)
-			.withContext(`saveManifestAndTasksAtomicSync: manifestWritten=${result.manifestWritten}, tasksWritten=${result.tasksWritten}`);
+		// Surface the underlying error message (result.error is String(err) from
+		// saveManifestAndTasksAtomicSync). Passing it through errors.fileWrite as a
+		// fake ErrnoException loses the message (reads .code → undefined →
+		// "unknown"). Include it explicitly in the thrown message so CI logs and
+		// production callers can see WHY the write failed instead of ": unknown".
+		const cause = result.error ? `: ${result.error}` : "";
+		throw errors.fileWrite(paths.stateRoot, { code: "EWRITEFAIL" } as NodeJS.ErrnoException)
+			.withContext(`saveManifestAndTasksAtomicSync: manifestWritten=${result.manifestWritten}, tasksWritten=${result.tasksWritten}${cause}`);
 	}
 	appendEvent(paths.eventsPath, {
 		type: "run.created",
