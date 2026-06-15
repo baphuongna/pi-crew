@@ -109,6 +109,8 @@ import {
 	sendFollowUp,
 } from "./registration/subagent-helpers.ts";
 import { registerSubagentTools } from "./registration/subagent-tools.ts";
+import { registerCrewMessageRenderers } from "./message-renderers.ts";
+import { registerCrewInputRouter } from "./crew-input-router.ts";
 import { registerTeamTool } from "./registration/team-tool.ts";
 import { handleTeamTool } from "./team-tool.ts";
 import { persistScheduledJobUpdate } from "./team-tool/handle-schedule.ts";
@@ -2035,4 +2037,15 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			}
 		},
 	});
+
+	// Round 13 UX: render pi-crew lifecycle entries (crew:run-started,
+	// crew:run-completed, crew:resume-directive) with a branded look instead
+	// of raw JSON. No-op on Pi versions without registerMessageRenderer.
+	registerCrewMessageRenderers(pi);
+
+	// Round 13 UX: natural-language crew input routing. Lets users type
+	// "crew status" instead of remembering /team-status. Only transforms
+	// interactive input that starts with a crew/team keyword phrase; never
+	// shadows explicit slash commands.
+	registerCrewInputRouter(pi);
 }
