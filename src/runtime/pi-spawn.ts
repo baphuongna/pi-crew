@@ -167,6 +167,28 @@ function validateExplicitBin(explicit: string): string | undefined {
 	return resolved;
 }
 
+function resolveWindowsPiCmd(): string | undefined {
+	// On Windows, 'pi' is installed as 'pi.cmd' in the npm global bin directory.
+	// Node.js child_process.spawn does NOT auto-append .cmd/.bat from PATHEXT
+	// (unlike execSync/exec), so we must resolve the full path ourselves.
+	// See: https://github.com/baphuongna/pi-crew/issues/33
+	const appdata = process.env.APPDATA;
+	if (!appdata) return undefined;
+
+	// Check npm global bin for pi.cmd
+	const npmGlobalBin = path.join(appdata, "npm");
+	const piCmd = path.join(npmGlobalBin, "pi.cmd");
+	if (fs.existsSync(piCmd)) return piCmd;
+
+	// Fallback: resolve the pi-coding-agent package's cli.js directly
+	const cliJs = path.join(
+		npmGlobalBin, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js",
+	);
+	if (fs.existsSync(cliJs)) return cliJs;
+
+	return undefined;
+}
+
 export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
 	const explicit = process.env.PI_TEAMS_PI_BIN?.trim();
 	if (explicit) {
@@ -176,15 +198,28 @@ export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
 			return { command: validated, args };
 		}
 	}
-	if (process.platform === "win32") {
-		// Windows: resolve via resolvePiCliScript to find the bundled .js entry point
-		const script = resolvePiCliScript();
-		if (script) return { command: process.execPath, args: [script, ...args] };
-	}
-	// Linux/macOS: also resolve the full path so child processes can find 'pi' even if
-	// PATH is minimal (e.g. in detached background-runner processes). Fall back to "pi"
-	// only if resolution fails.
+	// Always try resolvePiCliScript first (works when argv1 points into the pi package)
 	const script = resolvePiCliScript();
 	if (script) return { command: process.execPath, args: [script, ...args] };
+
+	// Windows fallback: resolve pi.cmd or cli.js directly.
+	// Never fall back to bare "pi" on Windows — spawn("pi") fails with ENOENT
+	// because Node.js spawn does not resolve PATHEXT (.cmd/.bat) on Windows.
+	if (process.platform === "win32") {
+		const winCmd = resolveWindowsPiCmd();
+		if (winCmd) {
+			// .cmd files cannot be spawned directly by Node.js; use the underlying cli.js
+			if (winCmd.endsWith(".cmd")) {
+				const cliJs = path.join(
+					path.dirname(winCmd), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js",
+				);
+				if (fs.existsSync(cliJs)) return { command: process.execPath, args: [cliJs, ...args] };
+			}
+			return { command: process.execPath, args: [winCmd, ...args] };
+		}
+	}
+
+	// Linux/macOS fallback: bare "pi" works because the shell script has a shebang
+	// and spawn with the inherited PATH can find it.
 	return { command: "pi", args };
 }
