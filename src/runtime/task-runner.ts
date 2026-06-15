@@ -383,6 +383,7 @@ export async function runTeamTask(
 			let lastAgentRecordPersistedAt = 0;
 			let lastHeartbeatPersistedAt = 0;
 			let lastRunProgressPersistedAt = 0;
+			let lastTaskProgressPersistedAt = 0;
 			let lastRunProgressSummary: ProgressEventSummary | undefined;
 			const persistHeartbeat = (force = false): void => {
 				const now = Date.now();
@@ -573,26 +574,23 @@ export async function runTeamTask(
 								const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
 								fs.appendFileSync(bgLogPath, `${eventLine}\n`);
 							}
-							// Apply agentProgress update first, then persist, then update in-memory array.
-							// This ensures disk state is always >= in-memory state, preventing
-							// fresher in-memory state from being lost on crash.
-							tasks = persistSingleTaskUpdate(manifest, tasks, {
-								...task,
-								agentProgress: applyAgentProgressEvent(
-									task.agentProgress ?? emptyCrewAgentProgress(),
-									event,
-									task.startedAt,
-								),
-							});
-							task = {
-								...task,
-								agentProgress: applyAgentProgressEvent(
-									task.agentProgress ?? emptyCrewAgentProgress(),
-									event,
-									task.startedAt,
-								),
-							};
+							// Always keep in-memory agentProgress fresh (cheap) so the UI/events see
+							// the latest progress, but THROTTLE the disk persist. Previously this
+							// did a full locked read-parse-write of tasks.json on EVERY child JSON
+							// event — a 200-event task produced 200 such cycles (Round 15 P1).
+							// Final state is force-flushed on task completion (persistHeartbeat(true)).
+							const nextProgress = applyAgentProgressEvent(
+								task.agentProgress ?? emptyCrewAgentProgress(),
+								event,
+								task.startedAt,
+							);
+							task = { ...task, agentProgress: nextProgress };
 							tasks = updateTask(tasks, task);
+							const progressNow = Date.now();
+							if (progressNow - lastTaskProgressPersistedAt >= 500) {
+								tasks = persistSingleTaskUpdate(manifest, tasks, task);
+								lastTaskProgressPersistedAt = progressNow;
+							}
 							// Bridge event to UI event bus for near-instant updates
 							const bridgeEvent = bridgeEventFromJsonEvent(
 								manifest.runId,
@@ -723,6 +721,15 @@ export async function runTeamTask(
 				const nextModel = attemptModels[i + 1];
 				if (!nextModel || !isRetryableModelFailure(error)) break;
 				logs.push(formatModelAttemptNote(attempt, nextModel), "");
+			}
+			// E2 (Round 15): when the fallback chain was used and STILL failed, surface
+			// that explicitly. Without this the task error only shows the last
+			// attempt's raw failure, so users can't tell whether to fix an API key,
+			// upgrade a plan, or change the model config. Include the chain tried +
+			// the final reason.
+			if (error && modelAttempts.length > 1) {
+				const chain = modelAttempts.map((a) => a.model).join(" → ");
+				error = `All ${modelAttempts.length} model candidates exhausted (tried: ${chain}). Last failure: ${error}`;
 			}
 			// NEW-8 fix: register all attempt transcripts as artifacts, not just the used one.
 			// Earlier failed attempts' transcripts exist on disk but were invisible to the artifact system.

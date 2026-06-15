@@ -252,7 +252,7 @@ function applyLineCap(
 	return { lines: kept, elided: removable.length };
 }
 
-// ── Public API ─────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────
 
 const emptyResult = (rootPath: string): WorkspaceTree => ({
 	rootPath,
@@ -261,11 +261,35 @@ const emptyResult = (rootPath: string): WorkspaceTree => ({
 	totalLines: 0,
 });
 
+/**
+ * Per-cwd TTL cache for the rendered workspace tree. Workers in the same run
+ * share a cwd, so the recursive walk was previously repeated once per task
+ * (Round 15 P4). The tree is informational context for the worker; short-lived
+ * staleness is acceptable, so a 30s TTL is safe and keeps prompts fresh during
+ * long active runs while eliminating redundant walks.
+ */
+const TREE_CACHE_TTL_MS = 30_000;
+interface CachedTree {
+	tree: WorkspaceTree;
+	expiresAt: number;
+}
+const treeCache = new Map<string, CachedTree>();
+
+function treeCacheKey(cwd: string, options?: WorkspaceTreeOptions): string {
+	// Cache is keyed on the inputs that affect the walk output.
+	return `${path.resolve(cwd)}|${options?.maxDepth ?? ""}|${options?.dirLimit ?? ""}|${options?.lineCap ?? ""}`;
+}
+
 export async function buildWorkspaceTree(
 	cwd: string,
 	options?: WorkspaceTreeOptions,
 ): Promise<WorkspaceTree> {
 	const rootPath = path.resolve(cwd);
+	const cacheKey = treeCacheKey(cwd, options);
+	const cached = treeCache.get(cacheKey);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.tree;
+	}
 	try {
 		const maxDepth = options?.maxDepth ?? DEFAULT_MAX_DEPTH;
 		const dirLimit = options?.dirLimit ?? DEFAULT_DIR_LIMIT;
@@ -286,12 +310,14 @@ export async function buildWorkspaceTree(
 		const { lines: capped, elided } = applyLineCap(lines, lineCap);
 		const rendered = capped.map((l) => l.text).join("\n");
 
-		return {
+		const result: WorkspaceTree = {
 			rootPath,
 			rendered,
 			truncated: dirTruncated || elided > 0,
 			totalLines: capped.length,
 		};
+		treeCache.set(cacheKey, { tree: result, expiresAt: Date.now() + TREE_CACHE_TTL_MS });
+		return result;
 	} catch {
 		return emptyResult(rootPath);
 	}

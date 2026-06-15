@@ -29,16 +29,44 @@ export function knowledgePath(cwd: string): string {
 export function readKnowledge(cwd: string): string {
 	try {
 		const p = knowledgePath(cwd);
-		if (!fs.existsSync(p)) return "";
+		const stat = tryStat(p);
+		if (!stat) {
+			knowledgeCache.delete(p);
+			return "";
+		}
+		// P5 (Round 15): mtime+size cache. readKnowledge fires on every agent
+		// start (main session + every worker), re-reading the file each time.
+		// For a run with N workers this is N redundant readFileSync of the same
+		// file. Cache by (mtimeMs, size) and only re-read when the file changes.
+		const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+		const cached = knowledgeCache.get(p);
+		if (cached && cached.key === cacheKey) return cached.content;
 		let content = fs.readFileSync(p, "utf8").trim();
 		if (content.length > MAX_KNOWLEDGE_BYTES) {
 			content = `${content.slice(0, MAX_KNOWLEDGE_BYTES)}\n\n<!-- knowledge.md truncated at ${MAX_KNOWLEDGE_BYTES} bytes -->`;
 		}
+		knowledgeCache.set(p, { key: cacheKey, content });
 		return content;
 	} catch {
 		return "";
 	}
 }
+
+/** Stat helper returning undefined on error (file missing, perms, etc.). */
+function tryStat(p: string): { mtimeMs: number; size: number } | undefined {
+	try {
+		const s = fs.statSync(p);
+		return { mtimeMs: s.mtimeMs, size: s.size };
+	} catch {
+		return undefined;
+	}
+}
+
+interface CachedKnowledge {
+	key: string;
+	content: string;
+}
+const knowledgeCache = new Map<string, CachedKnowledge>();
 
 /** Build the injected prompt fragment (empty if no knowledge). */
 export function buildKnowledgeFragment(cwd: string): string {

@@ -272,6 +272,22 @@ function getRunningTaskStaleness(
 /**
  * Repair a stale run by marking it as failed and cancelling running tasks.
  */
+/**
+ * E3 (Round 15): Build a human-actionable error string for a stale-reconciled
+ * task. Explains WHY the run was marked stale (the detected reason) and gives
+ * concrete remediation, instead of the bare 'Stale run reconciled: <reason>'.
+ */
+function formatStaleReconcileError(task: TeamTaskState, reason: string): string {
+	const heartbeatAge = task.heartbeat?.lastSeenAt ? Math.round((Date.now() - new Date(task.heartbeat.lastSeenAt).getTime()) / 1000) : undefined;
+	const ageHint = heartbeatAge !== undefined ? ` Last heartbeat was ${heartbeatAge}s ago.` : "";
+	return [
+		`Stale run reconciled (reason=${reason}).${ageHint}`,
+		"The worker process stopped updating its heartbeat and was treated as dead/zombie.",
+		"Remediation: re-run the team (action='run' with resume, or a fresh run); if this repeats,",
+		"check `runtime.executeWorkers` / system load, or raise the stale threshold in config.",
+	].join(" ");
+}
+
 function repairStaleRun(
 	manifest: TeamRunManifest,
 	tasks: TeamTaskState[],
@@ -288,7 +304,10 @@ function repairStaleRun(
 				...task,
 				status: "cancelled" as const,
 				finishedAt: now,
-				error: `Stale run reconciled: ${reason}`,
+				// E3 (Round 15): richer stale-reconcile error. The previous 'Stale run
+				// reconciled: <reason>' gave no clue what 'stale' means or how to
+				// recover. Explain the heartbeat mechanism + concrete remediation.
+				error: formatStaleReconcileError(task, reason),
 			};
 		}
 		return task;
