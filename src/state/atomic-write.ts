@@ -284,31 +284,41 @@ export const __test__renameWithRetryAsync = renameWithRetryAsync;
 
 export function atomicWriteFile(filePath: string, content: string, expectedHash?: string): void {
 	if (!isSymlinkSafePath(filePath)) throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
-	// On Windows, resolve parent dir through realpathSync to handle short-name
+	// On Windows, resolve parent dir through realpath to handle short-name
 	// vs long-name path alias (e.g. RUNNER~1 vs runneradmin). Without this,
 	// mkdirSync may succeed but openSync fails with ENOENT because the OS
 	// sees the paths as different locations.
+	//
+	// IMPORTANT: use realpathSync.NATIVE (Win32 GetFinalPathNameByHandle) and
+	// strip the \?\\\\-prefix, matching canonicalizePath() in paths.ts. The
+	// libuv binding (fs.realpathSync) can return a different short/long-name
+	// form than .native, which causes the written file to land on a path that
+	// diverges from the caller's path (built via canonicalizePath). This made
+	// existsSync(callerPath) return false after a successful write under
+	// concurrency on Windows CI (intermittent state-store test failures).
+	const canonicalize = (p: string): string => {
+		try {
+			const r = fs.realpathSync.native(p);
+			return r.startsWith("\\\\?\\") ? r.slice(4) : r;
+		} catch {
+			try { return fs.realpathSync(p); } catch { return p; }
+		}
+	};
 	let dirPath = path.dirname(filePath);
 	if (process.platform === "win32") {
-		try {
-			const realDir = fs.realpathSync(dirPath);
-			if (realDir !== dirPath) dirPath = realDir;
-		} catch {
-			// dirPath may not exist yet — mkdirSync will create it
-		}
+		const realDir = canonicalize(dirPath);
+		if (realDir !== dirPath) dirPath = realDir;
 		filePath = path.join(dirPath, path.basename(filePath));
 	}
 	try {
 		fs.mkdirSync(dirPath, { recursive: true });
 	} catch (error) {
 		if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") {
-			try {
-				const realDir = fs.realpathSync(dirPath);
-				if (realDir !== dirPath) {
-					fs.mkdirSync(realDir, { recursive: true });
-					dirPath = realDir;
-				}
-			} catch { /* ignore – will fail at write time with better error */ }
+			const realDir = canonicalize(dirPath);
+			if (realDir !== dirPath) {
+				fs.mkdirSync(realDir, { recursive: true });
+				dirPath = realDir;
+			}
 		} else {
 			throw error;
 		}
