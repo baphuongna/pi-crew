@@ -3,6 +3,7 @@ import { iconForStatus } from "../status-colors.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 import { spinnerFrame } from "../spinner.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
+import { formatCost } from "../../state/usage.ts";
 import { listLiveAgents, listLiveAgentsByWorkspace, type LiveAgentHandle } from "../../runtime/live-agent-manager.ts";
 
 /**
@@ -82,12 +83,17 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 			: agent.status === "failed" ? (agent.error ?? "failed")
 			: "done";
 
-		// Stats: tokens + duration only
+		// Stats: tokens + cost + duration
 		const stats: string[] = [];
 		const tokenTotal = (agent.usage?.input ?? 0) + (agent.usage?.output ?? 0) + (agent.usage?.cacheRead ?? 0) + (agent.usage?.cacheWrite ?? 0);
 		if (tokenTotal > 0) {
 			const tok = tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : `${tokenTotal}`;
 			stats.push(tok);
+		}
+		// Per-agent cost (Round 17 BS-1): the data is already on task.usage.cost;
+		// surface it live so the user sees $ burn per agent during a run.
+		if (agent.usage?.cost && agent.usage.cost > 0) {
+			stats.push(formatCost(agent.usage.cost));
 		}
 		if (liveHandle) {
 			const ms = (liveHandle.activity.completedAtMs ?? Date.now()) - liveHandle.activity.startedAtMs;

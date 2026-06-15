@@ -3,7 +3,7 @@ import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent, readEvents } from "../../state/event-log.ts";
 import { readDeliveryState, readMailbox } from "../../state/mailbox.ts";
 import { loadRunManifestById, updateRunStatus, saveRunTasks } from "../../state/state-store.ts";
-import { aggregateUsage, formatUsage } from "../../state/usage.ts";
+import { aggregateUsage, formatUsage, formatCost } from "../../state/usage.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../../runtime/agent-control.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
@@ -70,7 +70,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const activeAgents = crewAgents.filter((agent) => agent.status === "running");
 	const completedAgents = crewAgents.filter((agent) => agent.status !== "running");
 	const waitingTasks = tasks.filter((task) => task.status === "queued" || task.status === "waiting");
-	const agentLine = (agent: typeof crewAgents[number]): string => `- ${agent.id} [${agent.status}] ${agent.role} -> ${agent.agent} runtime=${agent.runtime}${agent.model ? ` model=${agent.model}` : ""}${agent.usage ? ` usage=${formatUsage(agent.usage)}` : ""}${agent.progress?.activityState ? ` activityState=${agent.progress.activityState}` : ""}${formatActivityAge(agent) ? ` activity=${formatActivityAge(agent)}` : ""}${agent.progress?.currentTool ? ` tool=${agent.progress.currentTool}` : ""}${agent.toolUses ? ` tools=${agent.toolUses}` : ""}${!agent.usage && agent.progress?.tokens ? ` tokens=${agent.progress.tokens}` : ""}${agent.progress?.turns ? ` turns=${agent.progress.turns}` : ""}${agent.jsonEvents !== undefined ? ` jsonEvents=${agent.jsonEvents}` : ""}${agent.outputPath ? ` output=${agent.outputPath}` : ""}${agent.transcriptPath ? ` transcript=${agent.transcriptPath}` : ""}${agent.statusPath ? ` status=${agent.statusPath}` : ""}${agent.error ? ` error=${agent.error}` : ""}`;
+	const agentLine = (agent: typeof crewAgents[number]): string => `- ${agent.id} [${agent.status}] ${agent.role} -> ${agent.agent} runtime=${agent.runtime}${agent.model ? ` model=${agent.model}` : ""}${agent.usage ? ` usage=${formatUsage(agent.usage)}` : ""}${agent.usage?.cost ? ` cost=${formatCost(agent.usage.cost)}` : ""}${agent.progress?.activityState ? ` activityState=${agent.progress.activityState}` : ""}${formatActivityAge(agent) ? ` activity=${formatActivityAge(agent)}` : ""}${agent.progress?.currentTool ? ` tool=${agent.progress.currentTool}` : ""}${agent.toolUses ? ` tools=${agent.toolUses}` : ""}${!agent.usage && agent.progress?.tokens ? ` tokens=${agent.progress.tokens}` : ""}${agent.progress?.turns ? ` turns=${agent.progress.turns}` : ""}${agent.jsonEvents !== undefined ? ` jsonEvents=${agent.jsonEvents}` : ""}${agent.outputPath ? ` output=${agent.outputPath}` : ""}${agent.transcriptPath ? ` transcript=${agent.transcriptPath}` : ""}${agent.statusPath ? ` status=${agent.statusPath}` : ""}${agent.error ? ` error=${agent.error}` : ""}`;
 	const lines = [
 		`Run: ${manifest.runId}`,
 		`Team: ${manifest.team}`,
