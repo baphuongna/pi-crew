@@ -1,6 +1,24 @@
+// pi-crew structured error module — taxonomy mapping E001–E006.
 /**
- * Error code taxonomy for pi-crew.
- * Maps to semantic categories matching fallow's E001-E004 pattern.
+ * @fileoverview Error types and structured error handling for pi-crew.
+ *
+ * This module defines pi-crew's error taxonomy, mapping to semantic categories
+ * matching fallow's E001-E004 pattern. It exports three main constructs:
+ *
+ * - {@link ErrorCode} — a `const` object and string-literal union type alias
+ *   enumerating machine-readable error codes (E001–E006). Implemented as a
+ *   `const` object rather than a TypeScript `enum` so that Node's
+ *   `--experimental-strip-types` can load this module (enum syntax is not
+ *   supported in strip-only mode).
+ *
+ * - {@link CrewError} — a structured `Error` subclass that carries an
+ *   {@link ErrorCode}, an optional human-readable `help` hint, and an optional
+ *   `context` string. Its `toString()` renders the display format:
+ *   `error[E001]: Failed to read manifest.json: not found`.
+ *
+ * - {@link errors} — a factory object exposing convenience constructors
+ *   (e.g. `errors.fileRead`, `errors.taskNotFound`) that build `CrewError`
+ *   instances with sensible defaults and pre-attached context.
  */
 // Implemented as const object + type alias (not `enum`) so that Node's
 // `--experimental-strip-types` can load this module. TypeScript `enum`

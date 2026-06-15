@@ -394,7 +394,7 @@ function hasPendingMutatingAdaptiveTask(tasks: TeamTaskState[]): boolean {
  * Fires when there are pending mutating tasks whose prerequisites (read-only
  * tasks) have completed — i.e. the plan→execute boundary.
  */
-function hasPendingMutatingTaskAtBoundary(tasks: TeamTaskState[]): boolean {
+export function hasPendingMutatingTaskAtBoundary(tasks: TeamTaskState[]): boolean {
 	const hasCompletedReadOnly = tasks.some((t) => t.status === "completed" && !isMutatingTask(t));
 	const hasPendingMutating = tasks.some((t) => t.status === "queued" && isMutatingTask(t));
 	return hasCompletedReadOnly && hasPendingMutating;
@@ -832,7 +832,7 @@ tasks = mergeResult.resultTasks;
 		if (injectedAfterBatch.injected) {
 			manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? ensurePlanApprovalRequested(manifest, tasks) : manifest;
 			queueIndex = buildTaskGraphIndex(tasks);
-		} else if (requiresPlanApproval(workflow, input.runtimeConfig) && hasPendingMutatingAdaptiveTask(tasks)) {
+		} else if (requiresPlanApproval(workflow, input.runtimeConfig) && (hasPendingMutatingAdaptiveTask(tasks) || hasPendingMutatingTaskAtBoundary(tasks))) {
 			manifest = ensurePlanApprovalRequested(manifest, tasks);
 		}
 		if (manifest.planApproval?.status === "cancelled") {
