@@ -17,6 +17,7 @@ import {
 	stopAsyncRunNotifier,
 } from "./async-notifier.ts";
 import { registerAutonomousPolicy } from "./autonomous-policy.ts";
+import { registerKnowledgeInjection } from "./knowledge-injection.ts";
 import { registerCleanupHandler } from "./crew-cleanup.ts";
 import type { ScheduledJob } from "../runtime/scheduler.ts";
 import { clearHooksScoped } from "../hooks/registry.ts";
@@ -985,6 +986,8 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	};
 	time("register.policy");
 	registerAutonomousPolicy(pi);
+	registerKnowledgeInjection(pi);
+	time("register.knowledge");
 	time("register.rpc");
 	function getPiEvents():
 		| Parameters<typeof registerPiCrewRpc>[0]
