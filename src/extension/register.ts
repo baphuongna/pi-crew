@@ -113,6 +113,7 @@ import { registerCrewMessageRenderers } from "./message-renderers.ts";
 import { registerCrewInputRouter } from "./crew-input-router.ts";
 import { registerCrewAutocomplete } from "./crew-autocomplete.ts";
 import { registerCrewShortcuts } from "./crew-shortcuts.ts";
+import { registerContextStatusInjection } from "./context-status-injection.ts";
 import { registerTeamTool } from "./registration/team-tool.ts";
 import { handleTeamTool } from "./team-tool.ts";
 import { persistScheduledJobUpdate } from "./team-tool/handle-schedule.ts";
@@ -2065,4 +2066,13 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	// (The crew autocomplete provider is registered from session_start once
 	// a UI context is available — see the session_start handler below.)
 	registerCrewShortcuts(pi);
+
+	// GAP-2 (Round 11): ambient crew-status injection. Registers a `context`
+	// event handler that appends a compact in-flight-runs note to the agent
+	// context on every LLM call, so the agent never "forgets" active runs.
+	// Transient per-call (does not pollute history), and a no-op when no runs
+	// are in-flight. Toggle via runtime.reliability.ambientStatusInjection.
+	registerContextStatusInjection(pi, {
+		enabled: loadConfig(process.cwd()).config.reliability?.ambientStatusInjection !== false,
+	});
 }

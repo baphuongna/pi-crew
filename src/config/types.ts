@@ -178,6 +178,8 @@ export interface CrewReliabilityConfig {
 	autoRepairIntervalMs?: number;
 	/** Remove /tmp/pi-crew-* directories after their orphaned runs are reconciled. Default: true. */
 	cleanupOrphanedTempDirs?: boolean;
+	/** Inject a compact ambient crew-status note into the agent's context on every LLM call while crew runs are in-flight, so the agent stays continuously aware of active runs without calling the `team` tool. No-op when no runs are active. Default: true. */
+	ambientStatusInjection?: boolean;
 }
 
 export interface CrewOtlpConfig {
