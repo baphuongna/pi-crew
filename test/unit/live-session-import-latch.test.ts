@@ -30,7 +30,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 
 // Resolve the source file relative to THIS test file's directory
@@ -40,10 +40,14 @@ import { describe, it } from "node:test";
 const SRC = fileURLToPath(
 	new URL("../../src/runtime/live-session-runtime.ts", import.meta.url),
 );
+// dynamic import() requires a file:// URL on Windows (a bare D:\ path is
+// rejected as ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL handles that
+// cross-platform; on POSIX it round-trips to the same path.
+const SRC_URL = pathToFileURL(SRC).href;
 
 describe("live-session import latch (module-scoped memoization)", () => {
 	it("the live-session-runtime module loads cleanly and exports runLiveSessionTask", async () => {
-		const mod = await import(SRC);
+		const mod = await import(SRC_URL);
 		assert.ok(typeof mod === "object" && mod !== null, "module loads cleanly");
 		assert.equal(typeof mod.runLiveSessionTask, "function", "exports runLiveSessionTask");
 	});
