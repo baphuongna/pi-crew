@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { listRecentRuns } from "../run-index.ts";
+import { extractSessionId } from "../../utils/session-utils.ts";
 import type { ArtifactDescriptor, TeamRunManifest } from "../../state/types.ts";
 
 export interface RegisterCompactionGuardOptions {
@@ -71,11 +72,25 @@ function formatCrewArtifactIndex(entries: CrewArtifactIndexEntry[]): string {
 /**
  * Collect in-flight (non-terminal) crew runs that must be resumable after
  * compaction. These are runs the agent was actively working on or awaiting.
+ *
+ * @param cwd - project working directory (shared, per-project state root).
+ * @param currentSessionId - if provided, restrict to runs OWNED BY THIS
+ *   session (`run.ownerSessionId === currentSessionId`). The state store is
+ *   per-PROJECT, not per-SESSION — multiple sessions share `.crew/state/runs/`.
+ *   Without this filter, Session B's compaction would pick up Session A's
+ *   in-flight runs and wrongly resume them. Legacy runs with no
+ *   `ownerSessionId` are excluded under filtering (strict): a run with no
+ *   declared owner must not be auto-resumed by an arbitrary session; true
+ *   orphans are handled separately by crash-recovery. When omitted, returns
+ *   ALL in-flight runs (back-compat for callers that deliberately want the
+ *   cross-session view, e.g. diagnostics).
  */
-export function collectInFlightRuns(cwd: string): TeamRunManifest[] {
-	return listRecentRuns(cwd, MAX_ARTIFACT_INDEX_RUNS).filter((run) =>
-		IN_FLIGHT_RUN_STATUSES.has(run.status),
-	);
+export function collectInFlightRuns(cwd: string, currentSessionId?: string): TeamRunManifest[] {
+	return listRecentRuns(cwd, MAX_ARTIFACT_INDEX_RUNS).filter((run) => {
+		if (!IN_FLIGHT_RUN_STATUSES.has(run.status)) return false;
+		if (currentSessionId === undefined) return true; // no filter → back-compat
+		return run.ownerSessionId === currentSessionId; // strict: legacy ownerless runs excluded
+	});
 }
 
 /**
@@ -130,29 +145,43 @@ export function buildContinuationPrompt(runs: TeamRunManifest[]): string {
  * Trigger automatic agent continuation after compaction. Fire-and-forget the
  * promise — never block the compaction flow. The sendUserMessage type is
  * declared `void` but the runtime returns a Promise (it triggers an agent turn).
+ *
+ * During compaction the agent may still be mid-processing, so Pi can reject
+ * the queued message with "Agent is already processing a prompt...". This is
+ * BENIGN — the in-flight worker continues independently regardless — so we
+ * detect that specific race and downgrade it to a silent debug log instead of
+ * surfacing a scary warning to the user. Other errors still notify.
  */
 export function triggerContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): void {
 	if (!runs.length) return;
 	const prompt = buildContinuationPrompt(runs);
+	const isBenignProcessingRace = (err: unknown): boolean => {
+		const msg = err instanceof Error ? err.message : String(err ?? "");
+		return /already processing a prompt/i.test(msg) || /use steer\(\) or followUp\(\)/i.test(msg);
+	};
 	try {
 		const result = pi.sendUserMessage(prompt) as unknown;
-		Promise.resolve(result).catch(() => {
-			// best-effort: if continuation fails, at least notify
+		Promise.resolve(result).catch((err: unknown) => {
+			// Benign race: the worker keeps running independently — no need to alarm.
+			if (isBenignProcessingRace(err)) return;
+			// Real failure: surface a hint so the user can resume manually.
 			try {
 				ctx.ui.notify("pi-crew: auto-continuation after compaction failed — use team status to resume manually.", "warning");
 			} catch {
 				// swallow
 			}
 		});
-	} catch {
+	} catch (err: unknown) {
+		// Synchronous throw — same benign-race handling.
+		if (isBenignProcessingRace(err)) return;
 		// best-effort
 	}
 }
 
 /** Combined customInstructions injected into proactive compaction summaries. */
-function buildCompactionInstructions(cwd: string): string {
+function buildCompactionInstructions(cwd: string, currentSessionId?: string): string {
 	const artifactIndex = collectCrewArtifactIndex(cwd);
-	const inFlight = collectInFlightRuns(cwd);
+	const inFlight = collectInFlightRuns(cwd, currentSessionId);
 	const parts = [
 		"Prioritize keeping pi-crew run state, task results, artifact references, run IDs, and next actions. Keep completed-task detail concise.",
 	];
@@ -168,10 +197,11 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 	const startCompact = (ctx: ExtensionContext, reason: string): void => {
 		if (compactionInProgress) return;
 		compactionInProgress = true;
-		const customInstructions = buildCompactionInstructions(ctx.cwd);
+		const sessionId = extractSessionId(ctx);
+		const customInstructions = buildCompactionInstructions(ctx.cwd, sessionId);
 		// Append a durable resume entry so it appears in the post-compaction
 		// context regardless of how summarization treats customInstructions.
-		const inFlight = collectInFlightRuns(ctx.cwd);
+		const inFlight = collectInFlightRuns(ctx.cwd, sessionId);
 		if (inFlight.length > 0) {
 			pi.appendEntry("crew:resume-directive", {
 				reason,
@@ -192,7 +222,7 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 				// O10 FIX: Pi's threshold compaction does NOT auto-retry — it
 				// stops and waits for user input. Trigger automatic
 				// continuation so the agent resumes the in-flight crew task.
-				const runs = collectInFlightRuns(ctx.cwd);
+				const runs = collectInFlightRuns(ctx.cwd, extractSessionId(ctx));
 				triggerContinuation(pi, ctx, runs);
 				ctx.ui.notify(reason === "deferred" ? "Deferred compaction completed" : "Auto-compacted context during team run", "info");
 			},
@@ -219,7 +249,8 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 	// our proactive startCompact path.
 	pi.on("session_compact", (_event, ctx) => {
 		try {
-			const inFlight = collectInFlightRuns(ctx.cwd);
+			const sessionId = extractSessionId(ctx);
+			const inFlight = collectInFlightRuns(ctx.cwd, sessionId);
 			if (inFlight.length === 0) return;
 			// Re-append the resume directive entry for durable record.
 			pi.appendEntry("crew:resume-directive", {

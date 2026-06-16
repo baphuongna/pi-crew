@@ -35,6 +35,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ContextEvent } from "@earendil-works/pi-coding-agent";
 import { collectInFlightRuns } from "./registration/compaction-guard.ts";
+import { extractSessionId } from "../utils/session-utils.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 
 /** Sentinel that marks an injected ambient-status user message. */
@@ -133,10 +134,10 @@ export interface AmbientContextResult {
  *
  * Exported for unit testing.
  */
-export function handleContextEvent(event: ContextEvent, cwd: string): AmbientContextResult | undefined {
+export function handleContextEvent(event: ContextEvent, cwd: string, sessionId?: string): AmbientContextResult | undefined {
 	let runs: TeamRunManifest[] = [];
 	try {
-		runs = collectInFlightRuns(cwd);
+		runs = collectInFlightRuns(cwd, sessionId);
 	} catch {
 		// State read failure → don't inject, don't crash. Pi catches handler
 		// errors anyway, but we avoid noisy error emission for a best-effort
@@ -167,8 +168,16 @@ export function registerContextStatusInjection(
 	opts: { enabled?: boolean } = {},
 ): void {
 	if (opts.enabled === false) return;
-	pi.on("context", (event: ContextEvent): AmbientContextResult | undefined => {
-		const cwd = typeof process.cwd === "function" ? process.cwd() : ".";
-		return handleContextEvent(event, cwd);
+	pi.on("context", (event: ContextEvent, ctx: unknown): AmbientContextResult | undefined => {
+		// crew state is per-project; use the session ctx cwd when available,
+		// falling back to process.cwd(). Thread the session id so ambient
+		// status only reflects runs owned by THIS session (the state store is
+		// per-project, shared across sessions).
+		const cwd =
+			typeof ctx === "object" && ctx !== null && typeof (ctx as { cwd?: unknown }).cwd === "string"
+				? (ctx as { cwd: string }).cwd
+				: typeof process.cwd === "function" ? process.cwd() : ".";
+		const sessionId = extractSessionId(ctx);
+		return handleContextEvent(event, cwd, sessionId);
 	});
 }

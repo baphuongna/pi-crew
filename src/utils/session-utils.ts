@@ -50,3 +50,33 @@ export function safeToPiSessionId(runId: string): string | undefined {
 		return undefined;
 	}
 }
+
+/**
+ * Extract the current Pi session id from an ExtensionContext.
+ *
+ * `ExtensionContext` does not declare `sessionId` in its type, but the runtime
+ * attaches it as an own property. We read it via `getOwnPropertyDescriptor`
+ * to safely bypass any Proxy traps, then validate it as a non-empty string.
+ *
+ * This is the canonical accessor — every site that filters the SHARED
+ * per-project `.crew/state/` tree down to the current session MUST use this,
+ * otherwise cross-session state leaks (e.g. compaction-guard resuming another
+ * session's runs, ambient-status injecting another session's runs).
+ *
+ * Returns undefined when the session id is absent or unparseable — callers
+ * must decide whether to treat that as "no filter" (back-compat) or "no runs".
+ */
+export function extractSessionId(ctx: unknown): string | undefined {
+	if (typeof ctx !== "object" || ctx === null) return undefined;
+	let raw: unknown;
+	try {
+		raw = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+	} catch {
+		// Defensive: a hostile Proxy or exotic object may trap descriptor
+		// access. Real Pi ExtensionContext objects are plain, so this is
+		// only hit by adversarial/degenerate inputs — treat as no session id.
+		return undefined;
+	}
+	if (typeof raw !== "string" || raw.length === 0) return undefined;
+	return raw;
+}

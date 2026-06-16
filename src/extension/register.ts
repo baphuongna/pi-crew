@@ -91,6 +91,7 @@ import {
 	userCrewRoot,
 } from "../utils/paths.ts";
 import { resolveContainedPath } from "../utils/safe-paths.ts";
+import { extractSessionId } from "../utils/session-utils.ts";
 import { resetTimings, time } from "../utils/timings.ts";
 import {
 	type PiCrewRpcHandle,
@@ -1242,24 +1243,9 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		notifyActiveRuns(ctx);
 
 		// Auto-cancel orphaned runs from dead sessions
-		// Extract sessionId from context — use Object.getOwnPropertyDescriptor
-		// to safely access property without triggering Proxy traps, then validate.
-		const rawSessionId =
-			typeof ctx === "object" && ctx !== null
-				? Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value
-				: undefined;
-		const currentSessionId =
-			typeof rawSessionId === "string" && rawSessionId.length > 0
-				? rawSessionId
-				: undefined;
-		if (rawSessionId !== undefined && currentSessionId === undefined) {
-			logInternalError(
-				"register.sessionId.invalid",
-				new Error(
-					`Invalid session ID: expected non-empty string, got ${typeof rawSessionId}`,
-				),
-			);
-		}
+		// Extract sessionId from context via the shared safe accessor (handles
+		// untyped runtime property + defensive against exotic objects).
+		const currentSessionId = extractSessionId(ctx);
 
 		// Defer ALL heavy cleanup to after the session_start handler returns.
 		// These operations involve synchronous directory scanning (readdirSync, readFileSync)
