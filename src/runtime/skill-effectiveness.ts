@@ -163,6 +163,40 @@ export function adjustConfidence(current: number, passed: boolean): number {
 }
 
 /**
+ * Compute the rolling confidence to RECORD for a new activation of `skillId`,
+ * given the existing activations for that skill in the run.
+ *
+ * Bug fixed (T7, v0.8.2): the `task_completed`/`task_failed` hooks used to
+ * hardcode `confidence: computeInitialConfidence(1)` (= 0.3) on every write,
+ * which made `adjustConfidence` dead code — every skill stayed stuck at ~0.3
+ * regardless of how often it succeeded or failed. The whole confidence
+ * system was effectively inert.
+ *
+ * Now the recorded confidence is the PRIOR rolling confidence for that skill
+ * adjusted by this outcome (+0.05 success / -0.1 failure), so the stored
+ * value evolves over the run. First activation seeds from the observation
+ * count (which is 0 prior + this one = 1 observation -> initial 0.3). This
+ * preserves the existing `adjustConfidence` clamp range [0.1, 0.95] and the
+ * existing tests (which assert on the stored numeric values).
+ */
+export function computeNextActivationConfidence(
+	skillId: string,
+	activations: SkillActivation[],
+	passed: boolean,
+): number {
+	const prior = activations.filter((a) => a.skillId === skillId);
+	if (prior.length === 0) {
+		// First activation of this skill in the run: seed by observation count.
+		// (computeInitialConfidence(1) = 0.3 — the tentative floor.)
+		return computeInitialConfidence(1);
+	}
+	// Rolling confidence = last recorded confidence for this skill, adjusted.
+	const lastConfidence = prior[prior.length - 1]?.confidence
+		?? computeInitialConfidence(prior.length);
+	return adjustConfidence(lastConfidence, passed);
+}
+
+/**
  * Apply decay to confidence for skills not observed recently.
  */
 export function applyDecay(current: number, lastActivation?: string): number {
@@ -424,7 +458,13 @@ export function registerSkillEffectivenessHooks(): void {
 	if (hooksRegistered) return;
 	hooksRegistered = true;
 
-	// Track task completion for skill effectiveness
+	// Track task completion for skill effectiveness.
+	// T7 (v0.8.2): record the ROLLING adjusted confidence, not a hardcoded
+	// 0.3. computeNextActivationConfidence seeds the first activation and
+	// applies adjustConfidence (+0.05 success / -0.1 failure) on subsequent
+	// ones, so the stored confidence evolves across the run. Before this fix
+	// every activation was written with confidence 0.3, which made
+	// adjustConfidence dead code and left every skill stuck at ~0.3.
 	crewHooks.register("task_completed", (event) => {
 		const { taskId, runId, data } = event;
 		if (!taskId || !runId) return;
@@ -433,8 +473,19 @@ export function registerSkillEffectivenessHooks(): void {
 		const skillNames = (data?.skills as string[]) ?? [];
 		const success = (data?.status as string) === "completed";
 
-		// Record each skill activation
+		// cwd comes from the event payload (set by callers) so that the
+		// activation lands in the correct .pi/teams/ or .crew/state/runs/
+		// (see issue #29).
+		const eventCwd = (data?.cwd as string) ?? process.cwd();
+		const existingActivations = getSkillActivations(eventCwd, runId);
+
+		// Record each skill activation with its rolling confidence
 		for (const skillId of skillNames) {
+			const confidence = computeNextActivationConfidence(
+				skillId,
+				existingActivations,
+				success,
+			);
 			const activation: SkillActivation = {
 				id: `act-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				skillId,
@@ -443,23 +494,46 @@ export function registerSkillEffectivenessHooks(): void {
 				taskId,
 				timestamp: new Date().toISOString(),
 				passed: success,
-				confidence: computeInitialConfidence(1),
+				confidence,
 			};
-			// cwd comes from the event payload (set by callers) so that the
-			// activation lands in the correct .pi/teams/ or .crew/state/runs/
-			// (see issue #29).
-			const eventCwd = (data?.cwd as string) ?? process.cwd();
 			recordSkillActivation(eventCwd, activation);
 		}
 	});
 
-	// Track task failures
+	// Track task failures.
+	// T7 (v0.8.2): this used to be a no-op ("handled by computeSkillMetrics"),
+	// but computeSkillMetrics derives passRate from recorded activations —
+	// and since failed tasks recorded NOTHING, the failure never fed back
+	// into the confidence/decay loop. Now we record a `passed:false`
+	// activation for each skill tied to the failed task, which both lowers
+	// passRate AND triggers the -0.1 contradicting delta via
+	// computeNextActivationConfidence on the next recorded activation.
 	crewHooks.register("task_failed", (event) => {
 		const { taskId, runId, data } = event;
 		if (!taskId || !runId) return;
 
-		// Downgrade confidence for skills associated with failed tasks
-		// This is handled by computeSkillMetrics when processing activations
+		const skillNames = (data?.skills as string[]) ?? [];
+		const eventCwd = (data?.cwd as string) ?? process.cwd();
+		const existingActivations = getSkillActivations(eventCwd, runId);
+
+		for (const skillId of skillNames) {
+			const confidence = computeNextActivationConfidence(
+				skillId,
+				existingActivations,
+				false,
+			);
+			const activation: SkillActivation = {
+				id: `act-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+				skillId,
+				role: (data?.role as string) ?? "unknown",
+				runId,
+				taskId,
+				timestamp: new Date().toISOString(),
+				passed: false,
+				confidence,
+			};
+			recordSkillActivation(eventCwd, activation);
+		}
 	});
 }
 

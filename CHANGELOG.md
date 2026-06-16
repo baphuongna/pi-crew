@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.8.2] — Skill confidence dead-code fix (T7) (2026-06-16)
+
+Fixes a **real correctness bug** surfaced by the pi-extensions deep-dive
+(pi-continuous-learning's tiered confidence model): pi-crew's skill
+confidence system was effectively **inert**.
+
+### Bug fixed
+
+`registerSkillEffectivenessHooks` had two defects that left every skill's
+confidence stuck at ~0.3 regardless of outcomes:
+
+1. **`adjustConfidence()` was dead code.** The `task_completed` handler
+   hardcoded `confidence: computeInitialConfidence(1)` (= 0.3) on every
+   activation write. The function was defined and unit-tested in isolation,
+   but **never called in the recording path** — so every stored activation
+   had confidence 0.3, and `computeSkillMetrics.currentConfidence` (derived
+   from the last stored value + decay) never moved.
+2. **`task_failed` was a no-op.** Its comment claimed failures were "handled
+   by computeSkillMetrics", but `computeSkillMetrics` derives `passRate`
+   from *recorded* activations — and failed tasks recorded **nothing**, so a
+   failure never fed back into the confidence/decay loop.
+
+Net effect: the entire confidence-weighted skill system was decorative.
+Pass-rate, trend, and promotion-gate decisions were computed from a flat
+0.3 baseline.
+
+### Fix
+
+New `computeNextActivationConfidence(skillId, activations, passed)` helper
+computes the **rolling** confidence: it seeds the first activation of a
+skill at 0.3, then applies `adjustConfidence` (+0.05 success / -0.1
+   failure, clamped [0.1, 0.95]) on the skill's last recorded confidence.
+
+Both hooks now record activations with the rolling confidence:
+- `task_completed` → records `passed:true` activations at the rolled-forward
+  confidence.
+- `task_failed` → now records `passed:false` activations (was a no-op),
+  which lowers passRate AND triggers the -0.1 contradicting delta on the
+  next recorded activation.
+
+This unblocks the confidence-weighted skill selection (`getWeightedSkillsForRole`)
+and the promotion gate (`evaluatePromotionGate`) — they now reflect real
+outcome history. Existing `adjustConfidence`/`computeInitialConfidence`/
+`computeSkillMetrics` tests are preserved unchanged (they asserted on the
+intended contract; the recording path now honors it).
+
+### Files
+- `src/runtime/skill-effectiveness.ts` — `computeNextActivationConfidence`
+  helper; both hooks rewired to record rolling-confidence activations.
+- NEW `test/unit/t7-confidence-deadcode-fix.test.ts` (7 tests): rolling
+  confidence evolves across activations; failures feed back; `adjustConfidence`
+  is no longer dead.
+
+typecheck clean; skill-effectiveness suite 44/44 pass. (One unrelated
+`event-log-async` flake under local load passes 3/3 in isolation — clean on CI.)
+
 ## [0.8.1] — Subagent cold-start race fix (module-scoped import latch) (2026-06-16)
 
 Fixes a flaky, load-dependent crash that surfaced when launching multiple
