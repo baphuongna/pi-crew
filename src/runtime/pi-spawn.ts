@@ -170,21 +170,25 @@ function validateExplicitBin(explicit: string): string | undefined {
 function resolveWindowsPiCmd(): string | undefined {
 	// On Windows, 'pi' is installed as 'pi.cmd' in the npm global bin directory.
 	// Node.js child_process.spawn does NOT auto-append .cmd/.bat from PATHEXT
-	// (unlike execSync/exec), so we must resolve the full path ourselves.
+	// (unlike execSync/exec), and spawning .cmd files directly fails with EINVAL.
+	// So we always resolve to the underlying cli.js entry point.
 	// See: https://github.com/baphuongna/pi-crew/issues/33
 	const appdata = process.env.APPDATA;
 	if (!appdata) return undefined;
 
-	// Check npm global bin for pi.cmd
 	const npmGlobalBin = path.join(appdata, "npm");
-	const piCmd = path.join(npmGlobalBin, "pi.cmd");
-	if (fs.existsSync(piCmd)) return piCmd;
 
-	// Fallback: resolve the pi-coding-agent package's cli.js directly
+	// Always resolve the pi-coding-agent cli.js directly
 	const cliJs = path.join(
 		npmGlobalBin, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js",
 	);
 	if (fs.existsSync(cliJs)) return cliJs;
+
+	// Fallback: try @mariozechner scope
+	const cliJs2 = path.join(
+		npmGlobalBin, "node_modules", "@mariozechner", "pi-coding-agent", "dist", "cli.js",
+	);
+	if (fs.existsSync(cliJs2)) return cliJs2;
 
 	return undefined;
 }
@@ -198,28 +202,19 @@ export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
 			return { command: validated, args };
 		}
 	}
-	// Always try resolvePiCliScript first (works when argv1 points into the pi package)
+
+	// On Windows, always resolve via APPDATA first — resolvePiCliScript may fail
+	// when pi-crew is loaded as an extension (argv1 doesn't point into pi package).
+	if (process.platform === "win32") {
+		const winCmd = resolveWindowsPiCmd();
+		if (winCmd) return { command: process.execPath, args: [winCmd, ...args] };
+	}
+
+	// Linux/macOS (or Windows fallback if APPDATA resolution failed):
+	// try resolvePiCliScript, which works when argv1 points into the pi package.
 	const script = resolvePiCliScript();
 	if (script) return { command: process.execPath, args: [script, ...args] };
 
-	// Windows fallback: resolve pi.cmd or cli.js directly.
-	// Never fall back to bare "pi" on Windows â€” spawn("pi") fails with ENOENT
-	// because Node.js spawn does not resolve PATHEXT (.cmd/.bat) on Windows.
-	if (process.platform === "win32") {
-		const winCmd = resolveWindowsPiCmd();
-		if (winCmd) {
-			// .cmd files cannot be spawned directly by Node.js; use the underlying cli.js
-			if (winCmd.endsWith(".cmd")) {
-				const cliJs = path.join(
-					path.dirname(winCmd), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js",
-				);
-				if (fs.existsSync(cliJs)) return { command: process.execPath, args: [cliJs, ...args] };
-			}
-			return { command: process.execPath, args: [winCmd, ...args] };
-		}
-	}
-
-	// Linux/macOS fallback: bare "pi" works because the shell script has a shebang
-	// and spawn with the inherited PATH can find it.
+	// Final fallback: bare "pi" (works on Linux/macOS with shebang; will fail on Windows).
 	return { command: "pi", args };
 }
