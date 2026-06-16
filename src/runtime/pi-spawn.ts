@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
@@ -118,6 +119,63 @@ function findPiPackageJsonFrom(startDir: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * Discover the real npm global node_modules directory at runtime.
+ *
+ * Why this exists (Issue #33): on Windows, pi may be installed somewhere
+ * other than %APPDATA%\npm — e.g. nvm-windows puts the global node_modules
+ * under %NVM_HOME%/<version>/node_modules, Volta under
+ * %LOCALAPPDATA%\Volta, fnm under %LOCALAPPDATA%\fnm_multishells. The static
+ * %APPDATA%\npm paths in resolvePiCliScript() miss all of those, and the
+ * fallback spawn("pi") then fails with ENOENT because child_process.spawn does
+ * NOT do PATHEXT resolution on Windows (only exec/execSync via cmd.exe do).
+ *
+ * `npm root -g` is the canonical way to find the global node_modules dir and
+ * works across every npm-based install layout. We run it via execSync, which
+ * DOES resolve `npm.cmd` through PATHEXT. Capped at 5s; any failure (npm not
+ * on PATH, slow start, etc.) just falls through to the other resolution roots.
+ *
+ * Memoized: the npm global root does not change during a process lifetime, so
+ * this is a one-time ~200ms cost rather than per-worker.
+ *
+ * @internal — exported for unit-test injection via __setNpmGlobalRootForTest.
+ */
+let cachedNpmGlobalRoot: string | undefined | null = null;
+export function resolveNpmGlobalRoot(): string | undefined {
+	if (cachedNpmGlobalRoot !== null) {
+		return cachedNpmGlobalRoot ?? undefined;
+	}
+	let resolved: string | undefined;
+	try {
+		const out = execSync("npm root -g", {
+			encoding: "utf-8",
+			timeout: 5000,
+			stdio: ["pipe", "pipe", "pipe"], // suppress npm's stderr chatter
+			windowsHide: true,
+		}).trim();
+		resolved = out.length > 0 ? out : undefined;
+	} catch {
+		resolved = undefined;
+	}
+	cachedNpmGlobalRoot = resolved ?? null;
+	return resolved;
+}
+
+/**
+ * Given an npm global node_modules root, derive the candidate package dirs for
+ * each supported pi scope. Pure + exported so the mapping is unit-testable
+ * without spawning npm.
+ * @internal
+ */
+export function buildNpmGlobalPackageDirs(npmGlobalRoot: string): string[] {
+	return PI_PACKAGE_NAMES.map((pkgName) => path.join(npmGlobalRoot, ...pkgName.split("/")));
+}
+
+/** @internal — test hook: inject a fake global root (or undefined) and reset the memo. */
+export function __setNpmGlobalRootForTest(root: string | undefined): void {
+	cachedNpmGlobalRoot = root ?? null;
+}
+
 function resolvePiCliScript(): string | undefined {
 	const argv1 = process.argv[1];
 	if (argv1) {
@@ -125,8 +183,16 @@ function resolvePiCliScript(): string | undefined {
 		if (isRunnableNodeScript(argvPath)) return argvPath;
 	}
 
+	// npm-global package dirs derived from `npm root -g` — placed BEFORE the
+	// %APPDATA%\npm static paths and the cwd/import.meta fallbacks so that a pi
+	// install under nvm-windows / Volta / fnm is found even when %APPDATA%\npm
+	// doesn't contain it. Covers Issue #33.
+	const npmGlobalRoot = resolveNpmGlobalRoot();
+	const npmGlobalDirs = npmGlobalRoot ? buildNpmGlobalPackageDirs(npmGlobalRoot) : [];
+
 	const roots = [
 		resolvePiPackageRoot(),
+		...npmGlobalDirs,
 		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@earendil-works", "pi-coding-agent") : undefined,
 		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@mariozechner", "pi-coding-agent") : undefined,
 		path.dirname(fileURLToPath(import.meta.url)),
