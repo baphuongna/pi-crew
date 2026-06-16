@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig, ResourceSource } from "./agent-config.ts";
+import { parseToolsField } from "./agent-config.ts";
 import { loadConfig, type LoadedPiTeamsConfig } from "../config/config.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
+import { packageRoot, projectCrewRoot, userPiRoot, findRepoRoot } from "../utils/paths.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SEC-001 Fix: Protected Agent Names Blocklist
@@ -225,7 +226,23 @@ function checkProjectAgentShadowsBuiltin(name: string): void {
 export interface AgentDiscoveryResult {
 	builtin: AgentConfig[];
 	user: AgentConfig[];
+	/**
+	 * Project agents from the pi-crew legacy directory (`.crew/agents/`, or
+	 * `.pi/teams/agents/` fallback). F1 (v0.7.9): the `.pi/agents/` Pi-standard
+	 * project directory is read into `projectPi` (the 4th tier) so users who
+	 * author agents under either convention find them.
+	 */
 	project: AgentConfig[];
+	/**
+	 * F1 (v0.7.9): project agents read from `<repoRoot>/.pi/agents/` (Pi
+	 * standard). Merged into the same priority order as `project` (project
+	 * overrides user, but `.crew/agents/` and `.pi/agents/` are peers
+	 * within the project tier — first hit per `name` wins, with a
+	 * warning logged on shadow). Optional in the result shape so existing
+	 * test fixtures that construct `AgentDiscoveryResult` literally don't
+	 * have to add an empty array (treated as `[]` by `allAgents`).
+	 */
+	projectPi?: AgentConfig[];
 }
 
 function parseCost(value: string | undefined): "free" | "cheap" | "expensive" | undefined {
@@ -365,8 +382,9 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 			model: frontmatter.model === "false" ? undefined : frontmatter.model || undefined,
 			fallbackModels: parseCsv(frontmatter.fallbackModels),
 			thinking: frontmatter.thinking === "false" ? undefined : frontmatter.thinking || undefined,
-			tools: parseCsv(frontmatter.tools),
+			tools: parseToolsField(frontmatter.tools),
 			extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
+			excludeExtensions: parseCsv(frontmatter.excludeExtensions ?? frontmatter.exclude_extensions),
 			skills: parseCsv(frontmatter.skills ?? frontmatter.skill),
 			systemPromptMode: frontmatter.systemPromptMode === "append" ? "append" : "replace",
 			inheritProjectContext: frontmatter.inheritProjectContext === "true",
@@ -471,7 +489,14 @@ export function discoverAgents(cwd: string): AgentDiscoveryResult {
 	const result: AgentDiscoveryResult = {
 		builtin: applyAgentOverrides(readAgentDir(path.join(packageRoot(), "agents"), "builtin"), cwd, loaded),
 		user: applyAgentOverrides(readAgentDir(path.join(userPiRoot(), "agents"), "user"), cwd, loaded),
+		// F1 (v0.7.9): two project roots — the legacy pi-crew `.crew/agents/`
+		// (or `.pi/teams/agents/` fallback) AND the Pi-standard `.pi/agents/`.
+		// Both are read; `allAgents` merges them in priority order (project
+		// first, then project-pi) so a project can override a global agent
+		// from either location. Same-name shadows within the project tier
+		// log a warning (SEC-001).
 		project: applyAgentOverrides(readAgentDir(path.join(projectCrewRoot(cwd), "agents"), "project"), cwd, loaded),
+		projectPi: applyAgentOverrides(readAgentDir(path.join(findRepoRoot(cwd) ?? cwd, ".pi", "agents"), "project-pi"), cwd, loaded),
 	};
 	// SEC-005: Store with current version stamp
 	discoveryCache.set(cwd, { result, expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS, cacheVersion: currentVersion });
@@ -520,7 +545,13 @@ export function allAgents(discovery: AgentDiscoveryResult | undefined): AgentCon
 	// Priority for disambiguation (security): project < builtin < user.
 	// Project config cannot override trusted builtins (security-hardening).
 	// Later entries in the loop overwrite earlier ones, so user wins.
-	for (const agent of [...discovery.project, ...discovery.builtin, ...discovery.user]) {
+	// F1 (v0.7.9): `projectPi` is appended AFTER `project` so a `.pi/agents/foo.md`
+	// is a fallback to `.crew/agents/foo.md` within the project tier (the
+	// legacy pi-crew directory takes precedence when both exist). This
+	// matches `applyAgentOverrides` semantics and keeps the SECURITY warning
+	// gate on the same source. `projectPi` is optional in the result type
+	// (older test fixtures may omit it) — fall back to an empty array.
+	for (const agent of [...discovery.project, ...(discovery.projectPi ?? []), ...discovery.builtin, ...discovery.user]) {
 		byName.set(agent.name.toLowerCase(), agent);
 	}
 	// Dynamic agents only fill gaps — they cannot override builtin/user agents.

@@ -21,6 +21,8 @@ const PACKAGE_SKILLS_DIR = path.resolve(
 	"..",
 	"skills",
 );
+import * as os from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 const MAX_SKILL_CHARS = 1500;
 const MAX_TOTAL_CHARS = 6000;
 const MAX_SKILL_NAME_CHARS = 80;
@@ -139,16 +141,24 @@ export function resolveTaskSkillNames(input: ResolveTaskSkillsInput): string[] {
 
 function candidateSkillDirs(
 	cwd: string,
-): Array<{ root: string; source: "project" | "package" }> {
+): Array<{ root: string; source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents" }> {
 	return [
 		{ root: PACKAGE_SKILLS_DIR, source: "package" }, // ✓ Trusted first
-		{ root: path.resolve(cwd, "skills"), source: "project" }, // ⚠️ Override second
+		// F6 (v0.7.9): same five roots as discover-skills, in the same precedence
+		// order. The first hit wins, so a project `.pi/skills/foo/SKILL.md`
+		// overrides both the bundled `foo` and any legacy `<cwd>/skills/foo`.
+		{ root: path.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+		{ root: path.resolve(cwd, ".agents", "skills"), source: "project-agents" },
+		{ root: path.resolve(cwd, "skills"), source: "project" },
+		{ root: path.join(getAgentDir(), "skills"), source: "user-pi" },
+		{ root: path.join(os.homedir(), ".agents", "skills"), source: "user-agents" },
+		{ root: path.join(os.homedir(), ".pi", "skills"), source: "user-pi" },
 	];
 }
 
 interface CachedSkillMarkdown {
 	path: string;
-	source: "project" | "package";
+	source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents";
 	content: string;
 	mtimeMs: number;
 	size: number;
@@ -187,7 +197,7 @@ function readSkillMarkdown(
 	cwd: string,
 	name: string,
 ):
-	| { path: string; source: "project" | "package"; content: string }
+	| { path: string; source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents"; content: string }
 	| undefined {
 	if (!isValidSkillName(name)) return undefined;
 	const cacheKey = `${path.resolve(cwd)}:${name}`;

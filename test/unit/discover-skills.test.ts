@@ -13,7 +13,15 @@ describe("discoverSkills", () => {
 			assert.ok(Array.isArray(skills));
 			// Package skills should always exist (pi-crew ships with skills/)
 			assert.ok(skills.length > 0, "should find at least one package skill");
-			assert.ok(skills.every((s) => s.source === "package" || s.source === "project"));
+			// F6 (v0.7.9): skills may now come from any of the expanded source
+			// set (project-pi, project-agents, project, user-pi, user-agents,
+			// package). The test cwd is fresh but user-skill-roots from
+			// $HOME can still leak in on a developer machine — accept any
+			// valid source rather than asserting the old 2-source set.
+			const validSources = new Set([
+				"project", "package", "project-pi", "user-pi", "project-agents", "user-agents",
+			]);
+			assert.ok(skills.every((s) => validSources.has(s.source)));
 			// All should have SKILL.md path
 			for (const skill of skills) {
 				assert.ok(fs.existsSync(skill.path), `skill path should exist: ${skill.path}`);

@@ -65,7 +65,7 @@ export interface AgentOverlayState {
 export function createAgentOverlayState(entries: AgentEntry[], maxVisible = 20): AgentOverlayState {
 	return {
 		entries: entries.sort((a, b) => {
-			const order: Record<ResourceSource, number> = { project: 0, user: 1, git: 2, builtin: 3, dynamic: 4 };
+			const order: Record<ResourceSource, number> = { project: 0, "project-pi": 1, user: 2, git: 3, builtin: 4, dynamic: 5 };
 			const diff = (order[a.source] ?? 4) - (order[b.source] ?? 4);
 			return diff !== 0 ? diff : a.name.localeCompare(b.name);
 		}),

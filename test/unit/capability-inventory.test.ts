@@ -21,7 +21,10 @@ test("capability inventory includes builtin teams, workflows, and agents", () =>
 			assert.ok(item.id);
 			assert.ok(item.name);
 			assert.ok(item.source);
-			assert.ok(["active", "disabled"].includes(item.state));
+			// F6 (v0.7.9): accept the full CapabilityState set. Shadowed /
+			// missing states can now appear because user-skill-roots
+			// (`user-pi`, `user-agents`) can shadow bundled `package` skills.
+			assert.ok(["active", "disabled", "shadowed", "missing"].includes(item.state));
 		}
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });

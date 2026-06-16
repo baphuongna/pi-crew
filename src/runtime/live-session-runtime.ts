@@ -414,6 +414,13 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	try {
 		const agentDir = typeof mod.getAgentDir === "function" ? mod.getAgentDir() : undefined;
 		let resourceLoader: unknown;
+		// F1 (v0.7.9) NOTE: `agent.excludeExtensions` is applied on the
+		// child-pi path (see `pi-args.ts`). The live-session path loads
+		// extensions via pi's `DefaultResourceLoader`, which has no explicit
+		// per-extension allow/deny API at the point we hand off. For
+		// v0.7.9, the denylist is honored on the default async path only;
+		// the live-session path (opt-in via `runtime.preferLiveSession`)
+		// ignores it. This is a documented limitation, not a silent bug.
 		if (mod.DefaultResourceLoader && agentDir) {
 			resourceLoader = new mod.DefaultResourceLoader({
 				cwd: input.task.cwd,

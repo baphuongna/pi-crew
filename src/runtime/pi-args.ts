@@ -268,7 +268,15 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	// User extensions in ~/.pi/agent/extensions/ may fail due to missing dependencies.
 	args.push("--no-extensions");
 	if (input.agent.extensions !== undefined) {
-		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...input.agent.extensions]) args.push("--extension", extension);
+		// F1 (v0.7.9): apply `excludeExtensions` denylist (case-insensitive
+		// basename match) BEFORE the trusted PROMPT_RUNTIME_EXTENSION_PATH is
+		// prepended. The prompt-runtime is a pi-crew internal and is never
+		// excludable. Unknown names in the denylist are tolerated (logged
+		// would be nice but this path is sync and minimal — keeping parity
+		// with the rest of the agent loader's best-effort semantics).
+		const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
+		const allowed = input.agent.extensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
+		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
 	} else {
 		args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
 	}

@@ -1,5 +1,81 @@
 # Changelog
 
+## [0.7.9] — Interop & agent granularity (4 grouped items, 2026-06-16)
+
+One grouped release for four related, surgical interop / agent-granularity
+items (all additive, no behavior change for existing configs):
+
+### F6 — Agent Skills spec skill-roots (interop)
+- Skill discovery now reads 5 roots (was 2), matching pi-subagents'
+  `skill-loader` so skills authored under either convention are found:
+  - `<cwd>/.pi/skills` (project, Pi standard) — new
+  - `<cwd>/.agents/skills` (project, Agent Skills spec / agentskills.io) — new
+  - `<cwd>/skills` (project, legacy pi-crew) — kept
+  - `~/.pi/agent/skills` (user, Pi standard) — new
+  - `~/.agents/skills` (user, Agent Skills spec) — new
+  - `~/.pi/skills` (user, legacy) — new
+  - `PACKAGE_SKILLS_DIR` (bundled) — kept
+- Affects both `discover-skills.ts` (capability inventory) and
+  `skill-instructions.ts` (actual prompt rendering). New `source` values
+  (`project-pi`, `project-agents`, `user-pi`, `user-agents`) extend
+  `CapabilitySource`; first hit per name wins, project overrides user.
+
+### F1 sub-gap — `.pi/agents/` project agent discovery (interop)
+- Project agent discovery now reads BOTH the legacy pi-crew
+  `.crew/agents/` (or `.pi/teams/agents/` fallback) AND the Pi-standard
+  `.pi/agents/` as separate tiers. New `projectPi` field in
+  `AgentDiscoveryResult` (optional in the type for back-compat with
+  existing test fixtures; treated as `[]` when omitted). `allAgents`
+  merges them in priority order (project first, then project-pi so a
+  `.pi/agents/foo.md` is a fallback to `.crew/agents/foo.md` within
+  the project tier). `ResourceSource` extended with `"project-pi"`.
+
+### F1 — frontmatter `tools:` wildcards
+- New `BUILTIN_TOOL_NAMES` constant + `parseToolsField` helper in
+  `agent-config.ts` (matching pi-subagents' `parseToolsField`):
+  - omitted → `undefined` (back-compat: use the runtime default)
+  - `*` or `all` (case-insensitive) → full `BUILTIN_TOOL_NAMES` list
+  - `none` / `[]` / empty → `[]` (zero built-ins)
+  - CSV → parsed entries (trimmed, empty dropped)
+- `parseAgentFile` now uses `parseToolsField` instead of `parseCsv`,
+  so existing agent files keep working with no edits. The
+  `ext:<extension>/<tool>` selector from pi-subagents is a documented
+  future gap (deferred — would require pi SDK introspection).
+
+### F1 — frontmatter `excludeExtensions` denylist
+- New `excludeExtensions?: string[]` field on `AgentConfig`, parsed
+  from frontmatter `exclude_extensions: foo, bar`. Applied on the
+  **child-pi path** in `pi-args.ts` as a case-insensitive basename
+  denylist (an excluded extension is removed from the `--extension`
+  list; the trusted `PROMPT_RUNTIME_EXTENSION_PATH` is never
+  excludable). **Documented limitation**: the live-session path
+  (opt-in via `runtime.preferLiveSession`) ignores it for v0.7.9 —
+  pi's `DefaultResourceLoader` has no per-extension deny hook at the
+  point we hand off. Users who need the denylist on live-session
+  should stay on the child-pi runtime, or revisit when the SDK
+  exposes the hook.
+
+### Files
+- `src/skills/discover-skills.ts` — F6 (5 roots, new source values)
+- `src/runtime/skill-instructions.ts` — F6 (5 roots, type updates)
+- `src/runtime/capability-inventory.ts` — F6 (CapabilitySource extended)
+- `src/agents/agent-config.ts` — F1 (BUILTIN_TOOL_NAMES, parseToolsField,
+  excludeExtensions field, ResourceSource +project-pi)
+- `src/agents/discover-agents.ts` — F1 (projectPi tier, tools/excludeExtensions
+  parsing, allAgents merge)
+- `src/runtime/pi-args.ts` — F1 (excludeExtensions denylist applied to
+  `--extension` args)
+- `src/runtime/live-session-runtime.ts` — F1 (doc comment for the
+  live-session limitation)
+- `src/ui/agent-management-overlay.ts` — F1 (ResourceSource order includes
+  project-pi)
+- NEW `test/unit/v0-7-9-interop-granularity.test.ts` (15 tests)
+- `test/unit/capability-inventory.test.ts` — accept expanded state set
+  (shadowed/missing now possible from user-skill-roots shadowing bundles)
+- `test/unit/discover-skills.test.ts` — accept expanded source set
+
+typecheck clean; 4980+ tests pass / 0 fail. CI green on win/ubuntu/macos.
+
 ## [0.7.8] — F7 model-scope enforcement + cross-session leak fix (2026-06-16)
 
 Two features/fixes from the same session: one new opt-in capability, one

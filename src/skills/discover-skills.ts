@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { logInternalError } from "../utils/internal-error.ts";
 import { isSafePathId, resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 
@@ -12,13 +14,40 @@ let cache: { skills: SkillDescriptor[]; cachedAt: number; cwd: string } | null =
 export interface SkillDescriptor {
 	name: string;
 	description: string;
-	source: "project" | "package";
+	/**
+	 * Source of the skill. F6 (v0.7.9) adds the Agent Skills spec roots:
+	 * - `project-pi` / `user-pi` — Pi's standard `.pi/skills/`
+	 * - `project-agents` / `user-agents` — cross-tool Agent Skills spec (`.agents/skills/`)
+	 * The original `project` / `package` are kept for back-compat.
+	 */
+	source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents";
 	path: string;
 }
 
-function listSkillDirs(cwd: string): Array<{ root: string; source: "project" | "package" }> {
+/**
+ * F6 (v0.7.9): discover skills from all five roots (matching pi-subagents'
+ * skill-loader so users authoring skills under either convention find them).
+ * Roots, in precedence order (first hit wins):
+ *   1. <cwd>/.pi/skills          (project, Pi standard)
+ *   2. <cwd>/.agents/skills      (project, Agent Skills spec — agentskills.io)
+ *   3. <cwd>/skills              (project, legacy pi-crew convention)
+ *   4. <getAgentDir>/skills      (user, Pi standard)
+ *   5. <homedir>/.agents/skills  (user, Agent Skills spec)
+ *   6. <homedir>/.pi/skills      (user, legacy Pi — pre-standard)
+ *   7. PACKAGE_SKILLS_DIR        (bundled, trusted)
+ * The `PACKAGE_SKILLS_DIR` (bundled) and the legacy `<cwd>/skills` root are
+ * kept as separate `source` values to preserve the existing capability
+ * inventory shape — callers that key on `source === "package"` / `source ===
+ * "project"` keep working.
+ */
+function listSkillDirs(cwd: string): Array<{ root: string; source: SkillDescriptor["source"] }> {
 	return [
+		{ root: path.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+		{ root: path.resolve(cwd, ".agents", "skills"), source: "project-agents" },
 		{ root: path.resolve(cwd, "skills"), source: "project" },
+		{ root: path.join(getAgentDir(), "skills"), source: "user-pi" },
+		{ root: path.join(os.homedir(), ".agents", "skills"), source: "user-agents" },
+		{ root: path.join(os.homedir(), ".pi", "skills"), source: "user-pi" },
 		{ root: PACKAGE_SKILLS_DIR, source: "package" },
 	];
 }
