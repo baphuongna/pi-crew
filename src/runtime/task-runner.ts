@@ -40,6 +40,7 @@ import {
 	type ParsedPiJsonOutput,
 } from "./pi-json-output.ts";
 import { runChildPi, type ChildPiLifecycleEvent } from "./child-pi.ts";
+import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
 import { buildTaskPacket } from "./task-packet.ts";
 import { executeHook, appendHookEvent } from "../hooks/registry.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
@@ -155,6 +156,10 @@ export interface TaskRunnerInput {
 export async function runTeamTask(
 	input: TaskRunnerInput,
 ): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	// Cold-start race fix: ensure the hot module graph is warm before touching
+	// any module. Under tsx, concurrent first-imports race module-record
+	// instantiation; awaiting the registration-time warmup eliminates the window.
+	await awaitRuntimeWarmup();
 	let manifest = input.manifest;
 	// H4: registerStreamBridge inside try so dispose() in finally is safe
 	let streamBridge: ReturnType<typeof registerStreamBridge> | undefined;

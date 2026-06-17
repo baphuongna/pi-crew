@@ -83,6 +83,7 @@ import { RenderScheduler } from "../ui/render-scheduler.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
 import { createTerminalStatusController, type TerminalStatusController } from "../ui/terminal-status.ts";
 import { extractPathFromInput, validateWrittenFile, buildValidationBlocker } from "../runtime/per-write-validator.ts";
+import { startRuntimeWarmup } from "../runtime/runtime-warmup.ts";
 import { createRunSnapshotCache } from "../ui/run-snapshot-cache.ts";
 import { closeWatcher } from "../utils/fs-watch.ts";
 import { RunWatcherRegistry } from "../utils/run-watcher-registry.ts";
@@ -198,6 +199,14 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	const disposeI18n = initI18n(pi);
 	resetTimings();
 	time("register:start");
+	// Cold-start race fix (general): pre-warm the hot module graph NOW, during
+	// single-threaded registration, before any concurrent subagent can spawn.
+	// Under the tsx loader, concurrent first-imports race module-record
+	// instantiation → `Cannot read properties of undefined (reading '<X>')` for
+	// ANY named import (observed: existsSync, validateWorkflowForTeam).
+	// Warming the graph here + awaiting it at spawn boundaries eliminates the
+	// race window. See src/runtime/runtime-warmup.ts.
+	startRuntimeWarmup();
 	// Deploy bundled themes (crew-dark, crew-dracula, etc.) to ~/.pi/agent/themes/
 	// so Pi's theme loader discovers them. Best-effort, idempotent.
 	deployBundledThemes();

@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.8.6] — General cold-start race fix (runtime module-graph warmup) (2026-06-17)
+
+Fixes the `validateWorkflowForTeam` cold-start crash that v0.8.1 did NOT
+actually fix (honest correction — v0.8.1's per-import latch covered only the
+peer-dep namespace `existsSync` variant, not this pi-crew-internal variant).
+
+### Corrected root cause
+
+Under the **tsx loader**, a named import `import { X } from "mod"` compiles to
+`mod_1.X` — a namespace-property access at runtime. If `mod_1` is observed
+mid-instantiation as `undefined` during concurrent cold-start, the access
+throws `Cannot read properties of undefined (reading 'X')`. **ANY module in
+the graph is vulnerable**, not just the peer dep. v0.8.1's per-import latch
+can't scale to every named import in `src/`.
+
+### Fix — general, not per-import
+
+1. **Pre-warm at registration.** `startRuntimeWarmup()` fires eager `import()`
+   of the hot module graph ROOTS during single-threaded `registerPiTeams()` —
+   before any subagent can spawn. ESM transitively instantiates their entire
+   import graph, so one import per path warms the full subgraph.
+2. **Await at spawn boundaries.** `awaitRuntimeWarmup()` is awaited at the top
+   of `runLiveSessionTask` and `runTeamTask` — the two spawn entry points — so
+   the graph is guaranteed warm before any module is touched, regardless of
+   which binding would otherwise race.
+
+The warmup runs in milliseconds (module loading only). The await is
+belt-and-suspenders for the pathological case where a spawn races the warmup
+promise. Errors are swallowed — a failed warmup (e.g. peer dep absent) never
+blocks the extension; worst case the old race returns (no worse than before).
+
+### Files
+- NEW `src/runtime/runtime-warmup.ts` — `startRuntimeWarmup()` (idempotent
+  fire-and-forget) + `awaitRuntimeWarmup()` (gate) + test seams.
+- `src/extension/register.ts` — `startRuntimeWarmup()` early in
+  `registerPiTeams`.
+- `src/runtime/live-session-runtime.ts` — `await awaitRuntimeWarmup()` at top
+  of `runLiveSessionTask`.
+- `src/runtime/task-runner.ts` — `await awaitRuntimeWarmup()` at top of
+  `runTeamTask`.
+- NEW `test/unit/runtime-warmup.test.ts` (6 tests): idempotency, no-hang,
+  back-compat (no-op when not started), hot-module specifiers resolve,
+  integration (graph actually warms).
+- Updated `.github/issues/2026-06-16-validateworkflowf-team-cold-start-race.md`
+  — marked RESOLVED with the fix applied.
+
+typecheck clean; full suite 0 real failures (2 timer flakes under local load
+pass 3/3 in isolation — clean on CI).
+
 ## [0.8.5] — Per-write validator (T5) + validateWorkflowForTeam race note (2026-06-16)
 
 Third APPLIED technique from the pi-ecosystem distillation (pi-lens /

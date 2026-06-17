@@ -18,6 +18,7 @@ import { buildConfiguredModelRouting } from "./model-fallback.ts";
 import { readEnabledModelsPatterns } from "./model-scope.ts";
 import { resolveToolPolicy } from "../agents/agent-config.ts";
 import { loadConfig } from "../config/config.ts";
+import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
 import { DEFAULT_LIVE_SESSION } from "../config/defaults.ts";
 import { buildYieldReminder, hasYieldInOutput, isYieldEvent, extractYieldResult, validateYieldData, DEFAULT_YIELD_CONFIG, type YieldResult } from "./yield-handler.ts";
 import { buildMcpProxyFromSession } from "./mcp-proxy.ts";
@@ -396,6 +397,10 @@ export async function probeLiveSessionRuntime(): Promise<LiveSessionUnavailableR
 }
 
 export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<LiveSessionRunResult> {
+	// Cold-start race fix: ensure the hot module graph is warm before touching
+	// any module. Under tsx, concurrent first-imports race module-record
+	// instantiation; awaiting the registration-time warmup eliminates the window.
+	await awaitRuntimeWarmup();
 	const isCurrent = input.isCurrent ?? (() => true);
 	let streamOut: StreamingOutputHandle | undefined;
 

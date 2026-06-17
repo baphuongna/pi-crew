@@ -1,7 +1,7 @@
 # validateWorkflowForTeam cold-start race — STILL PRESENT after v0.8.1
 
 **Date**: 2026-06-16
-**Status**: OPEN — noted to fix later. v0.8.1 was a PARTIAL fix.
+**Status**: RESOLVED (v0.8.6) — general runtime-warmup fix applied.
 **Severity**: Medium (flaky, load-dependent — only under concurrent in-process subagent launch)
 
 ## Symptom (still firing)
