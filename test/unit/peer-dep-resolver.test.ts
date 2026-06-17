@@ -80,9 +80,13 @@ describe("peer-dep resolver", () => {
 	});
 
 	it("resolutionBases puts the env hint FIRST", () => {
-		process.env[PEER_DEP_DIR_ENV] = "/tmp/hint-first";
+		const hint = path.join(os.tmpdir(), "hint-first");
+		process.env[PEER_DEP_DIR_ENV] = hint;
 		const bases = peerDepResolutionBases();
-		assert.equal(bases[0], "/tmp/hint-first");
+		// Compare resolved paths — the resolver runs path.resolve() on the env
+		// hint, which on Windows turns "/tmp/x" into "C:\tmp\x". Raw-string
+		// comparison would falsely fail cross-platform.
+		assert.equal(bases[0], path.resolve(hint));
 	});
 
 	it("primePeerDep loads the ESM module and getAgentDir reads the REAL function", async () => {
