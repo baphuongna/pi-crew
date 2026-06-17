@@ -103,8 +103,16 @@ class CrewWidgetComponent implements WidgetComponent {
 		const runningGlyph = spinnerFrame("widget-header");
 
 		if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
-			this.cachedBaseLines = buildWidgetLines(this.model.cwd, 0, this.model.maxLines, runs, this.model.notificationCount ?? 0).map((line, index) => {
-				if (index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
+			const headerStyle = this.model.config?.headerStyle ?? "default";
+			this.cachedBaseLines = buildWidgetLines(
+				this.model.cwd,
+				0,
+				this.model.maxLines,
+				runs,
+				this.model.notificationCount ?? 0,
+				{ theme: this.theme, width, headerStyle },
+			).map((line, index) => {
+				if (index === 0 && line.length > 0 && headerStyle !== "powerline") return `${runningGlyph}${line.slice(1)}`;
 				return line;
 			});
 			this.cachedLines = this.colorize(this.cachedBaseLines, width);
@@ -119,7 +127,11 @@ class CrewWidgetComponent implements WidgetComponent {
 		}
 
 		const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
-		this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+		// Powerline header is a single pre-styled unit — don't re-slice it.
+		const headerStyle = this.model.config?.headerStyle ?? "default";
+		if (headerStyle !== "powerline") {
+			this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+		}
 		return this.cachedLines.map((line) => truncate(line, width));
 	}
 }
@@ -177,7 +189,7 @@ export function updateCrewWidget(
 
 	const needsWidgetInstall = state.lastVisibility !== "visible" || state.lastPlacement !== placement || state.lastKey !== WIDGET_KEY || state.lastMaxLines !== maxLines || state.lastCwd !== ctx.cwd || !state.model;
 
-	if (!state.model) state.model = { cwd: ctx.cwd, frame: state.frame, maxLines, notificationCount: state.notificationCount ?? 0, manifestCache, snapshotCache, preloadManifests: preloadedManifests };
+	if (!state.model) state.model = { cwd: ctx.cwd, frame: state.frame, maxLines, notificationCount: state.notificationCount ?? 0, manifestCache, snapshotCache, preloadManifests: preloadedManifests, config };
 	else {
 		state.model.cwd = ctx.cwd;
 		state.model.frame = state.frame;
@@ -186,6 +198,7 @@ export function updateCrewWidget(
 		state.model.manifestCache = manifestCache;
 		state.model.snapshotCache = snapshotCache;
 		state.model.preloadManifests = preloadedManifests;
+		state.model.config = config;
 	}
 
 	if (needsWidgetInstall) {

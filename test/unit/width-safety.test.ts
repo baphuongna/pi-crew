@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRunManifest } from "../../src/state/state-store.ts";
-import { buildCrewWidgetLines } from "../../src/ui/crew-widget.ts";
+import { buildCrewWidgetLines } from "../../src/ui/widget/index.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 function createTestRun(cwd: string, teamName = "width-test"): TeamRunManifest {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { notificationBadge, widgetHeader } from "../../src/ui/crew-widget.ts";
+import { notificationBadge, widgetHeader } from "../../src/ui/widget/index.ts";
 
 test("notificationBadge hides zero and renders emoji by default", () => {
 	assert.equal(notificationBadge(0), "");

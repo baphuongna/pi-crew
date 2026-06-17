@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { powerlineWidgetHeader } from "../../src/ui/crew-widget.ts";
+import { powerlineWidgetHeader } from "../../src/ui/widget/widget-renderer.ts";
 import type { CrewTheme } from "../../src/ui/theme-adapter.ts";
 import type { CrewAgentRecord } from "../../src/runtime/crew-agent-runtime.ts";
 
