@@ -57,22 +57,24 @@ describe("powerline-segments — T3 renderSegment (pi-bar port)", () => {
 		assert.equal(theme.calls[0], "fg:success");
 	});
 
-	it("uses the NEXT segment's bg as the trailing separator's fg (chains to next)", () => {
+	it("uses the segment's OWN bg as the trailing separator fg (pi-bar variant)", () => {
 		const theme = recordingTheme();
 		const out = renderSegment(
 			theme,
 			{ bg: "success", fg: "text", text: "X" },
 			{ nextBg: "error" },
 		);
-		// Trailing separator should be painted in nextBg (error), linking forward.
-		assert.ok(theme.calls.includes("fg:error"), "trailing sep fg must be nextBg");
+		// pi-bar variant (verified ansi.ts:31-46): trailing sep fg = THIS segment's
+		// bg (success), NOT nextBg. Both transitions are RESET-terminated so the
+		// next segment's leading sep overlays cleanly. nextBg is ignored.
+		assert.ok(theme.calls.includes("fg:success"), "trailing sep fg = this.bg (success)");
 		assert.ok(out.includes(DEFAULT_POWERLINE_SEPARATORS.trailing), "trailing glyph present");
 	});
 
-	it("falls back to the segment's own bg for the trailing sep when no nextBg", () => {
+	it("trailing separator always uses this segment's own bg (nextBg ignored)", () => {
 		const theme = recordingTheme();
 		renderSegment(theme, { bg: "success", fg: "text", text: "X" }, {});
-		// Last fg call is the trailing separator; with no nextBg it = this.bg.
+		// Last fg call is the trailing separator; it = this.bg (success) always.
 		const lastFg = [...theme.calls].reverse().find((c) => c.startsWith("fg:"));
 		assert.equal(lastFg, "fg:success");
 	});
@@ -87,7 +89,7 @@ describe("powerline-segments — T3 renderSegment (pi-bar port)", () => {
 		assert.ok(!out.includes("\x1b[bg="), "must not attempt bg fill on a bg-less theme");
 	});
 
-	it("renderSegmentChain links each segment's trailing sep to the next segment's bg", () => {
+	it("renderSegmentChain: each segment's trailing sep uses its OWN bg (pi-bar)", () => {
 		const theme = recordingTheme();
 		theme.calls.length = 0;
 		const out = renderSegmentChain(theme, [
@@ -95,10 +97,11 @@ describe("powerline-segments — T3 renderSegment (pi-bar port)", () => {
 			{ bg: "warning", fg: "text", text: "B" },
 			{ bg: "error", fg: "text", text: "C" },
 		]);
-		// Segment A's trailing sep must be painted in B's bg (warning).
-		assert.ok(theme.calls.includes("fg:warning"), "A→B link: A's trailing sep fg = warning (B's bg)");
-		// Segment B's trailing sep must be painted in C's bg (error).
-		assert.ok(theme.calls.includes("fg:error"), "B→C link: B's trailing sep fg = error (C's bg)");
+		// pi-bar variant: each segment's trailing sep is painted in its OWN bg.
+		// A's trailing = success, B's trailing = warning, C's trailing = error.
+		assert.ok(theme.calls.includes("fg:success"), "A trailing fg = success (A's own bg)");
+		assert.ok(theme.calls.includes("fg:warning"), "B trailing fg = warning (B's own bg)");
+		assert.ok(theme.calls.includes("fg:error"), "C trailing fg = error (C's own bg)");
 		// All three texts survive.
 		assert.ok(out.includes("A") && out.includes("B") && out.includes("C"));
 	});

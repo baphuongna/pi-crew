@@ -57,14 +57,20 @@ const RESET = "\x1b[0m";
  *
  * If `theme.bg` is unavailable, degrades to a fg-only segment with a plain
  * separator — readable but not powerline-styled.
+ *
+ * NOTE (pi-bar variant, verified ansi.ts:31-46): the trailing separator's fg
+ * is THIS segment's own bg, NOT the next segment's bg. Both the leading and
+ * trailing transitions are RESET-terminated, so the next segment's leading
+ * sep (painted in ITS own bg) overlays cleanly on top. This is simpler and
+ * more robust than the next-bg handoff variant.
  */
 export function renderSegment(
 	theme: CrewTheme,
 	segment: PowerlineSegment,
 	options: {
-		/** Previous segment's bg color slot (for the leading separator fg). */
+		/** Previous segment's bg color slot (reserved for future handoff styles). */
 		prevBg?: string;
-		/** Next segment's bg color slot (for the trailing separator fg). */
+		/** Next segment's bg color slot (reserved for future handoff styles). */
 		nextBg?: string;
 		separators?: PowerlineSeparators;
 	},
@@ -75,9 +81,9 @@ export function renderSegment(
 		const fgText = theme.fg(segment.fg as never, segment.text);
 		return `${sep.leading}${fgText}${sep.trailing}`;
 	}
-	// Full powerline fill. Each phase is RESET-terminated so adjacent segments
-	// never bleed SGR state into each other.
-	//   leading-sep(fg = this.bg) → bg-fill + fg-text → trailing-sep(fg = next.bg)
+	// Full powerline fill (pi-bar 10-step): leading sep fg=this.bg, trailing
+	// sep fg=this.bg (NOT next), all RESET-terminated so transitions overlay.
+	//   leading-sep(fg = this.bg) → bg-fill + fg-text → trailing-sep(fg = this.bg)
 	//
 	// Segment color slots are loose strings because a segment may use EITHER a
 	// CrewThemeColor or CrewThemeBg slot; the Pi theme API resolves slot names at
@@ -86,7 +92,7 @@ export function renderSegment(
 	const bgAny = theme.bg as unknown as (color: string, text: string) => string;
 	const leadingFg = fgAny(segment.bg, sep.leading);
 	const filled = bgAny(segment.bg, fgAny(segment.fg, segment.text));
-	const trailingFg = fgAny(options.nextBg ?? segment.bg, sep.trailing);
+	const trailingFg = fgAny(segment.bg, sep.trailing);
 	return `${RESET}${leadingFg}${RESET}${filled}${RESET}${trailingFg}${RESET}`;
 }
 
