@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.8.5] — Per-write validator (T5) + validateWorkflowForTeam race note (2026-06-16)
+
+Third APPLIED technique from the pi-ecosystem distillation (pi-lens /
+apmantza — the "inline channel"). Adds real-time feedback on file
+writes/edits: a CHEAP synchronous validator runs on every `write`/`edit`
+tool result and appends a `🔴` blocker to the tool result on failure, so
+malformed files are caught the moment they're written — not at the next
+load.
+
+### Latency-safe v1 design (deliberate scope)
+
+pi-lens runs LSP servers + linters per write. That is expensive and would
+cause latency storms if naively ported (seconds of spawn per edit, firing in
+the main session AND every worker). This v1 ships ONLY zero-cost, zero-spawn,
+synchronous validators:
+
+- **`json` → `JSON.parse`** (nanoseconds, built-in, no process spawn).
+
+The registry is extensible — process-spawning validators (`.js` → `node
+--check`, `.sh` → `bash -n`, `.py` → `py_compile`) are a FUTURE opt-in
+(never default-on), and will need to be async + debounced (pi-lens's
+`inFlightPipelines` / debounce-window pattern) when added.
+
+### Contract guarantees
+- Synchronous. No `await`, no `spawn`, no disk write.
+- One disk READ per validated file (after a cheap extension check, so
+  non-validated files cost nothing).
+- Dedup by content: the same path+content is validated at most once per
+  process.
+- Silent on success; appends exactly one TextContent block on failure.
+- Best-effort: any internal error is swallowed (never breaks a write).
+- Toggle: `runtime.reliability.perWriteValidation` (default `true` → opt-out).
+
+### Files
+- NEW `src/runtime/per-write-validator.ts` — `validateJson`, the extensible
+  `PerWriteValidator` registry, dedup cache, `validateWrittenFile`, and
+  `buildValidationBlocker`. Test seams: `setPerWriteValidatorsForTest`,
+  `resetPerWriteValidatorCache`.
+- `src/config/types.ts` — `reliability.perWriteValidation?: boolean`.
+- `src/extension/register.ts` — `pi.on("tool_result", ...)` handler for
+  `write`/`edit` (pi-crew previously subscribed only to `tool_call`).
+- NEW `test/unit/t5-per-write-validator.test.ts` (15 tests).
+- NEW `.github/issues/2026-06-16-validateworkflowf-team-cold-start-race.md` —
+  honest note that the `validateWorkflowForTeam` cold-start error (same
+  class as v0.8.1's `existsSync`) was NOT actually fixed by v0.8.1's latch
+  (that covered only the peer-dep namespace). Documents the corrected
+  root cause (tsx makes every named import a runtime namespace access) and
+  4 candidate fixes for the later pass.
+
+typecheck clean; full suite 0 failures.
+
 ## [0.8.4] — cold-verifier agent (T9) (2026-06-16)
 
 Second APPLIED technique from the pi-ecosystem distillation (piolium /

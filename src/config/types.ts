@@ -181,6 +181,15 @@ export interface CrewReliabilityConfig {
 	/** Inject a compact ambient crew-status note into the agent's context on every LLM call while crew runs are in-flight, so the agent stays continuously aware of active runs without calling the `team` tool. No-op when no runs are active. Default: true. */
 	ambientStatusInjection?: boolean;
 	/**
+	 * Per-write validation (T5). On every `write`/`edit` tool result, run a
+	 * zero-cost synchronous validator for the file type and append a `🔴`
+	 * blocker to the tool result on failure (e.g. malformed JSON). v1 ships
+	 * JSON only (`JSON.parse` — instant, no process spawn); process-spawning
+	 * validators (.js/.sh/.py) are a future opt-in. Default: true (opt-out).
+	 * Set to `false` to disable.
+	 */
+	perWriteValidation?: boolean;
+	/**
 	 * Opt-in model scope enforcement (F7). When true, subagent model choices
 	 * that fall outside the user's pi `enabledModels` allowlist are flagged:
 	 * caller-supplied out-of-scope → hard error before spawn; frontmatter-
