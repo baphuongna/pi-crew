@@ -1,5 +1,144 @@
 # Changelog
 
+## [0.8.11] — Split-scope install fix + transient-provider fallback (2026-06-17)
+
+Bundle of two independent fixes that were triaged from real user reports on
+2026-06-17. Both are robustness fixes for failure modes that previously
+killed team runs silently.
+
+### 1. `Cannot find module '@earendil-works/pi-coding-agent'` on Windows / global installs
+
+**Symptom:** every `team` action (run / parallel / plan) crashed ~1 minute
+after spawn, leaving all tasks permanently `queued`. The detached
+background team-runner child threw:
+```
+Error: Cannot find module '@earendil-works/pi-coding-agent'
+Require stack:
+- .../.pi/agent/npm/node_modules/pi-crew/src/runtime/skill-instructions.ts
+```
+
+**Root cause:** pi-crew (an extension) is installed under
+`~/.pi/agent/npm/node_modules/<ext>/`, but pi itself (the
+`@earendil-works/pi-coding-agent` package extensions import from) lives in a
+**separate** node_modules tree (nvm / `%APPDATA%\npm` / Volta / fnm /
+pnpm-global). Node's resolver only walks UP ancestor `node_modules`, so a
+static `import { getAgentDir } from "@earendil-works/pi-coding-agent"` in a
+file loaded by the spawned child crashes. This is the **default** layout for
+anyone who installs pi-crew via `pi install` — not a user misconfiguration.
+
+**Additional constraint:** pi-coding-agent ships as **ESM-only**
+(`type:module`, exports map with only an `import` condition). CJS
+`createRequire(dir)(name)` / `require.resolve("<pkg>/package.json")` both
+fail with `ERR_PACKAGE_PATH_NOT_EXPORTED` under node AND jiti/tsx (verified).
+The ONLY working load mechanism is a dynamic `import()` of the resolved ESM
+entry file URL.
+
+**Fix — NEW `src/runtime/peer-dep.ts`:**
+- `resolvePeerDep()` (sync): walks `node_modules` **manually** (bypasses the
+  restrictive exports map) across 6 strategies — env hint
+  (`PI_CREW_PEER_DEP_DIR`), this file, `process.argv[1]`, the node binary's
+  global node_modules (covers nvm/Volta/fnm), `npm root -g`, and
+  `%APPDATA%\npm`. Memoized.
+- `primePeerDep()` (async): dynamic `import(fileURL)` the resolved ESM entry,
+  cache the module namespace. Memoized + retryable on failure.
+- `getAgentDir()` (sync): reads the REAL fork-aware `getAgentDir` from the
+  primed cache; falls back to a computed default (`~/.pi/agent`, respecting
+  `PI_CODING_AGENT_DIR`) if not primed — **NEVER throws**.
+
+**Rewired:**
+- `skill-instructions.ts`, `discover-skills.ts` — static peer-dep import →
+  lazy `getAgentDir()` from `peer-dep.ts` (this is the crash site).
+- `background-runner.ts` — `primePeerDep()` before importing `team-runner`
+  (child process).
+- `register.ts` — `primePeerDep()` at extension entry (main process).
+- `async-runner.ts` — propagate `PI_CREW_PEER_DEP_DIR` to children so they
+  skip the ~200ms `npm root -g` probe.
+
+**Tests:** NEW `test/unit/peer-dep-resolver.test.ts` (9 cases) — env-hint
+resolution, manual node_modules walk past exports map, ESM dynamic-import
+loading, memoization, graceful fallback, `PI_CODING_AGENT_DIR` override,
+loadable fileURL under the child's loader.
+
+### 2. `500 api_error "unknown error, 999 (1000)"` aborted the run instead of falling back
+
+**Symptom:** when the model provider went hard-down with
+`500 {"type":"error","error":{"type":"api_error","message":"unknown
+error, 999 (1000)"}}`, the run died even when the user had configured a
+fallback model that would have worked.
+
+**Root cause:** pi has two safety layers. (1) pi-core provider-retry retries
+3× with exponential backoff — its regex already matches `500`. (2) pi-crew's
+`model-fallback` layer is the last safety net: when all 3 retries fail, it
+tries the next configured model. But `isRetryableModelFailure`'s pattern
+list covered 429 / rate-limit / 502-504 / overloaded / timeout and **MISSED**
+generic `500`, `api_error`, `unknown error`, and internal/server-error
+phrasings. So a transient provider outage was retried 3× then **aborted**
+instead of failing over.
+
+**Fix:** added to `RETRYABLE_MODEL_FAILURE_PATTERNS` —
+`\b500\b`, `\b501\b`, `api_error`, `unknown error`,
+`internal(?:_server)?[ _]error`, `server error`, `bad gateway`.
+
+`NON_RETRYABLE` (auth/billing/key) still wins — checked first in
+`isRetryableModelFailure` — so a transient-looking 500 wrapping an auth
+failure won't loop the chain.
+
+**Tests:** 4 regression tests in `test/unit/model-fallback.test.ts` covering
+the exact reported error, generic 5xx, auth-still-blocked, and undefined/empty.
+
+### Verification
+
+typecheck clean; peer-dep suite 9/9; model-* suite 57/57; full suite 0 real
+failures (1 known `result-watcher` fs.watch 10s timeout flake passes 7/7 in
+isolation — unrelated).
+
+## [0.8.10] — Pre-warm 3 repro-observed cold-start crash-variant modules (2026-06-17)
+
+The post-v0.8.9-restart 6-subagent repro surfaced 3 cold-start crash variants
+in one batch: `existsSync` (peer-dep, latched v0.8.1 + warmup v0.8.6),
+`effectiveRunConfig` (`team-tool/config-patch.ts`), `CREW_README`
+(`state/crew-init.ts`, latched v0.8.9). v0.8.6's warmup covered `team-tool.ts`
+transitively but not these specific modules explicitly — static-graph
+reachability isn't reliable under tsx/jiti interop + concurrent fanout (the
+`handleRun` latch serializes the CALL but not module-body instantiation of
+`run.ts`'s static deps).
+
+**Fix:** add the 3 repro-observed modules to `HOT_MODULE_SPECIFIERS` so their
+module bodies instantiate at single-threaded registration:
+`team-tool/run.ts`, `team-tool/config-patch.ts`, `workflows/validate-workflow.ts`.
+
+Repro verification: 6/6 subagents clean (was 1/6) under loaded code.
+
+## [0.8.9] — crew-init dynamic-import latch (kills CREW_README TDZ race) (2026-06-17)
+
+Module-scoped `loadCrewInit()` latch in `team-tool/run.ts` — concurrent `team`
+tool calls share ONE in-flight import promise. Added `crew-init.ts` to
+`HOT_MODULE_SPECIFIERS`. Targets the `CREW_README` TDZ variant observed in the
+post-v0.8.8 repro.
+
+## [0.8.8] — Cross-project leak cwd-scope barrier (2026-06-17)
+
+`collectInFlightRuns` filtered by STATUS only (queued/planning/running), not
+by project scope. Multiple Pi sessions in the same project shared
+`.crew/state/runs/`, so Session B's compaction picked up Session A's runs in
+OTHER projects and injected them into Session B's continuation prompt.
+
+The v0.8.8 (4bd6f5b) `ownerSessionId` filter was **unreliable** —
+`ctx.sessionId` is absent on pi 0.79.6 `ExtensionContext`.
+
+**Fix:** `isInProjectScope(run, queryCwd)` in `collectInFlightRuns` — keeps a
+run only if `findRepoRoot(run.cwd) === findRepoRoot(queryCwd)`. Reliable,
+version-independent. Filter at the consumption site, NOT in
+`listRecentRuns`/`collectActiveRuns` (the cross-project dashboard view stays
+unfiltered — 2 run-index tests pin that). Empirically verified: ambient
+status shows only current-project runs, zero foreign-project bleed.
+
+## [0.8.7] — Doctor runtime-warmup status (2026-06-17)
+
+`getRuntimeWarmupStatus()` diagnostic + a "Runtime warmup" section in
+`team doctor` showing started/completed/duration/error. "Not started" is NOT
+a doctor error (normal for direct unit-test calls).
+
 ## [0.8.6] — General cold-start race fix (runtime module-graph warmup) (2026-06-17)
 
 Fixes the `validateWorkflowForTeam` cold-start crash that v0.8.1 did NOT

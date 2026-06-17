@@ -9,50 +9,48 @@ npm: pi-crew
 repo: https://github.com/baphuongna/pi-crew
 ```
 
-**v0.6.4**: See [CHANGELOG.md](CHANGELOG.md).
+**v0.8.11**: See [CHANGELOG.md](CHANGELOG.md).
 
-### Highlights (v0.6.4 → v0.7.0)
+### Highlights (v0.6.4 → v0.8.11)
 
-This release implements **Phase 0 + Phase 1** of the long-term roadmap (synthesized from a 10-round research process), plus the **single-agent cliff hedge**. Principle: *build trust and cliff-resilience, stay lean, delete before adding.*
+A long arc of **trust, cliff-resilience, and robustness** work. Principle: *build
+trust and cliff-resilience, stay lean, delete before adding.*
 
-- **🛡️ Compaction resilience (O10)** — the #1 user pain ("after auto-compact, the task stops midway") is fixed. In-flight crew runs are detected, a resume directive is injected into the compaction summary, and tasks re-attach after compaction.
-- **💰 Cost visibility (O1)** — `team summary <runId>` now shows a full cost report with per-role attribution and token breakdown (`$0.77 — executor 79%, reviewer 14%...`).
-- **✋ Plan-level HITL for any workflow (O5)** — set `runtime.requirePlanApproval = true` to gate any workflow at the plan→execute boundary; approve via `team api op=approve-plan`.
-- **🧠 Cross-run memory (O4)** — `.crew/knowledge.md` is auto-injected into every run's system prompt. pi-crew remembers project context across runs.
-- **🎯 Single-agent cliff hedge** — `team plan singleAgent=true` composes any workflow into one sequential prompt, so pi-crew's mission survives even if multi-agent is obsoleted by large-context models.
-- **🧹 2,335 LOC of dead code removed** + **Pi-api seam** centralizing the coupling surface.
+#### v0.8.x — hardening & reliability (2026-06-17)
+- **🛠️ Split-scope install fix (v0.8.11)** — `team` runs no longer crash with
+  `Cannot find module '@earendil-works/pi-coding-agent'` when pi-crew and pi
+  live in separate node_modules trees (the default for `pi install`). New
+  `src/runtime/peer-dep.ts` resolves the ESM-only peer dep across 6 strategies.
+- **🔄 Model fallback on transient 5xx (v0.8.11)** — a hard-down provider
+  (`500 api_error "unknown error"`) now triggers the configured fallback
+  model instead of aborting the run. `isRetryableModelFailure` extended.
+- **🧊 Cold-start race eliminated (v0.8.6 → v0.8.10)** — under tsx, concurrent
+  subagent spawns raced module instantiation (`existsSync` / `CREW_README` /
+  `effectiveRunConfig` / `validateWorkflowForTeam`). Fixed graph-wide: warm at
+  registration + gate at spawn boundaries + per-site latches. 6/6 repro clean.
+- **🔒 Cross-project leak fixed (v0.8.8)** — ambient status / compaction no
+  longer bleed foreign-project runs into the current session. Cwd-scope
+  barrier (`isInProjectScope`), version-independent.
+- **🩺 Doctor runtime-warmup status (v0.8.7)** — `team doctor` shows whether
+  the module-graph warmup fired.
+- **🔍 Cold-verifier agent (v0.8.4)** — adversarial cross-check that re-derives
+  claims WITHOUT trusting prior analysis, catching confirmation bias.
+- **⚡ Per-write validator (v0.8.5)** — zero-cost `JSON.parse` on every
+  `write`/`edit`, appends a `🔴` blocker on malformed files.
+- **🎨 Terminal status (v0.8.3)** — tab title + Ghostty native progress bar.
+- **🧠 Skill confidence revived (v0.8.2)** — `adjustConfidence()` was dead
+  code; the effectiveness system now actually learns.
+- **🔧 Tool-restriction unification (v0.8.0)** — single `resolveToolPolicy`
+  across both spawn paths.
+- **🎯 F6/F1 interop granularity (v0.7.9)** — 7 skill roots, `.pi/agents/`
+  tier, tool wildcards, `excludeExtensions` denylist.
 
-### Highlights (v0.6.3 → v0.6.4)
-
-- **Visually rich tool rendering** — `team` and `Agent` tool calls now render as framed cards in the Pi TUI with box-drawing borders, colored status badges, and structured layouts
-- **Merged call+result into ONE connected frame** — the call header and result body now form a single seamless frame instead of two disconnected boxes
-- **Animated live progress bar during runs** — real-time `████░░░░ N/M` task progress with elapsed time, rendered DURING the run; indeterminate "starting" phase uses an animated scanning bar
-- **Compact completion summary** — collapsed cards show `✓ crew run  3/3 done · 1m2s · 26k tok · $0.068` with expand hint and per-agent briefs
-- **Critical crash fix on session resume** — `renderCall` was returning a `string` instead of a `Text` component, causing `TypeError: child.render is not a function` when Pi re-rendered stored tool calls
-- **Disabled brief tool overrides** — reverted the experimental brief mode that replaced Pi's superior native renderers (syntax highlighting, diff views, full content)
-- **Flaky test fix** — `AnimatedMascot` timing tests made CI-load-robust via polling loops
-- **CI green** — 0 failures on Ubuntu, macOS, and Windows
-
-### Highlights (v0.6.2 → v0.6.3)
-
-- **137 commits** since v0.6.1 — 200 files changed (+16,955 / −2,057 lines)
-- **4,792 tests**, 506 test files — **0 failures** across the entire suite
-- **Cross-platform CI green** — 0 failures on Ubuntu, macOS, and Windows
-- **366 source files**, ~70K lines of TypeScript
-- **Worktree precondition validation** — friendly errors instead of crashes when cwd is not a git repo or repo is dirty
-- **Cross-platform path handling** — `canonicalizePath` with `realpathSync.native` for Windows short-name/long-name aliasing; macOS symlink resolution
-- **Scheduled job lifecycle** — spawned runs are tracked, cancelling a job kills its runs
-- **Heartbeat false-positive fix** — PID liveness gate prevents dead detection during long LLM responses
-- **ENOENT crash fix** — prune/forget race no longer crashes pi when persisting to deleted runs
-- **Pipe buffer deadlock fix** — test runner no longer deadlocks when OS pipe buffer fills
-- **Plugin registry** — extensible framework context injection for Next.js, Vite, Vitest
-- **Health score system** — penalty-based scoring with time-series snapshots
-- **CrewError taxonomy** — E001–E006 structured error codes replacing raw throws
-- **Atomic write v2** — fsync + rename pattern for crash-safe state persistence
-- **Pre-push review**: 56 unpushed commits reviewed, 1 release blocker found and fixed
-- **Security**: sandbox constructor escape strengthened; env-filter provider key handling fixed
-- **State-store race fix** — manifest/tasks mtime false positive eliminated
-- **Orphan worker/temp cleanup** — 4-layer defense with session-scoped tracking
+#### v0.7.0 — Phase 0 + Phase 1 roadmap
+- **🛡️ Compaction resilience (O10)** — in-flight runs survive auto-compact.
+- **💰 Cost visibility (O1)** — per-role token + cost attribution.
+- **✋ Plan-level HITL (O5)** — `requirePlanApproval` gates any workflow.
+- **🧠 Cross-run memory (O4)** — `.crew/knowledge.md` injected every run.
+- **🎯 Single-agent cliff hedge** — `team plan singleAgent=true`.
 
 ---
 
@@ -98,6 +96,17 @@ Post-install config bootstrap:
 pi-crew          # after npm install
 node ./pi-crew/install.mjs   # from local clone
 ```
+
+> **Split-scope install note (v0.8.11+):** pi installs extensions under
+> `~/.pi/agent/npm/node_modules/<ext>/`, separate from pi's own
+> node_modules tree (nvm / `%APPDATA%\npm` / Volta / fnm). Since v0.8.11
+> pi-crew resolves the `@earendil-works/pi-coding-agent` peer dep robustly
+> across these layouts — no symlink/NODE_PATH workaround needed. If you ever
+> do hit `Cannot find module '@earendil-works/pi-coding-agent'`, set
+> `PI_CREW_PEER_DEP_DIR=<path to the pi-coding-agent package dir>` as a
+> one-line workaround (or install pi-crew in pi's own scope:
+> `npm install -g @earendil-works/pi-crew`).
+
 
 ---
 
