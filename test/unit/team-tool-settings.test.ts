@@ -257,29 +257,3 @@ describe("handleSettings unknown subcommand", () => {
 		}
 	});
 });
-
-// --- headerStyle discoverability (must appear in settings UI + schema) ---
-
-describe("headerStyle discoverability", () => {
-	it("team-settings schema lists ui.headerStyle (discoverable, not hidden)", () => {
-		const tmp = createTrackedTempDir("settings-headerstyle-");
-		try {
-			const out = handleSettings(makeConfig("schema"), makeCtx(tmp));
-			const text = textFromToolResult(out);
-			assert.ok(text.includes("ui.headerStyle"), `schema must list ui.headerStyle so users can discover it, got:\n${text}`);
-		} finally {
-			removeTrackedTempDir(tmp);
-		}
-	});
-
-	it("team-settings get ui.headerStyle returns the default", () => {
-		const tmp = createTrackedTempDir("settings-headerstyle-get-");
-		try {
-			const out = handleSettings(makeConfig("get ui.headerStyle"), makeCtx(tmp));
-			const text = textFromToolResult(out);
-			assert.ok(text.includes("default"), `default value must be 'default', got:\n${text}`);
-		} finally {
-			removeTrackedTempDir(tmp);
-		}
-	});
-});

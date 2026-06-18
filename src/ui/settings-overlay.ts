@@ -81,7 +81,6 @@ const SETTINGS: SettingDef[] = [
 	{ id: "ui.dashboardWidth", label: "Dashboard Width", type: "number", tab: "ui", description: "Dashboard width as percentage or pixels." },
 	{ id: "ui.autoOpenDashboard", label: "Auto Open Dashboard", type: "boolean", tab: "ui", description: "Auto-open dashboard when a run starts." },
 	{ id: "ui.widgetPlacement", label: "Widget Placement", type: "enum", values: ["bottom", "hidden"], tab: "ui", description: "Where to place the crew widget." },
-	{ id: "ui.headerStyle", label: "Header Style", type: "enum", values: ["default", "powerline"], tab: "ui", description: "Crew widget + sidebar header style. 'powerline' = filled-bg segments that degrade on narrow terminals (needs a bg-capable theme; falls back to text)." },
 	// ── Themes tab ──
 	{ id: "__piTheme__", label: "Pi UI Theme", type: "action", action: "piTheme", values: discoverPiThemes().map((t) => t.name), tab: "themes", description: "Overall terminal theme. Switches live (no restart). Currently: " + (getActivePiTheme() ?? "dark (default)") },
 	// Autonomous
@@ -125,7 +124,6 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"ui.dashboardPlacement": "center",
 	"ui.dashboardWidth": 72,
 	"ui.autoOpenDashboard": false,
-	"ui.headerStyle": "default",
 	"ui.widgetPlacement": "aboveEditor",
 	"autonomous.enabled": true,
 	"autonomous.injectPolicy": true,

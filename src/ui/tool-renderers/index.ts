@@ -13,7 +13,6 @@ import { truncLine, formatTokens, formatDuration } from "../tool-render.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { isBrief, briefToolResult } from "./brief-mode.ts";
 import { truncateToWidth } from "../../utils/visual.ts";
-import { renderToolMetrics } from "../ansi-box.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -162,25 +161,6 @@ function buildFrameBottom(contentLines: string[], totalWidth: number, theme: Cre
 	}
 	lines.push(bottom);
 	return lines.join("\n");
-}
-
-// ── Card structural primitives (ansi-box integration) ───────────────────
-
-/**
- * Build a metrics footer line (pi-pretty renderToolMetrics): "· 1.2s · 4.2k".
- * Returns "" when no metrics, so callers can skip pushing it. Renders in dim.
- */
-export function cardMetricsLine(theme: CrewTheme, metrics: { elapsedMs?: number; charCount?: number; tokens?: number }): string {
-	const parts: string[] = [];
-	const m = renderToolMetrics({ elapsedMs: metrics.elapsedMs, charCount: metrics.charCount });
-	if (m) parts.push(m);
-	if (metrics.tokens && metrics.tokens > 0) {
-		// Consistent with renderToolMetrics charCount: one decimal for k/M ranges
-		// (4.2k tok, not 4k) so token + char counts read the same way.
-		parts.push(metrics.tokens >= 1_000_000 ? `${(metrics.tokens / 1_000_000).toFixed(1)}M tok` : metrics.tokens >= 1000 ? `${(metrics.tokens / 1000).toFixed(1)}k tok` : `${metrics.tokens} tok`);
-	}
-	if (!parts.length) return "";
-	return theme.fg("dim", ` ${parts.join(" · ")}`);
 }
 
 /** Derive border color from context so renderCall's top matches renderResult's bottom. */
@@ -426,17 +406,6 @@ function renderAgentResult(result: Record<string, unknown>, options: unknown, th
 			if (text) contentLines.push(padVisual(` ${theme.fg("dim", truncLine(text, innerW - 4))}`, innerW));
 		}
 	}
-
-	// pi-pretty-style metrics footer (ansi-box renderToolMetrics): "· 1.2s · 4.2k tok".
-	// Extracted defensively from the team-style d.metrics or summed from results.
-	const metrics = d.metrics as { totalTokens?: number; durationMs?: number } | undefined;
-	let tokens = metrics?.totalTokens;
-	if (!tokens && results?.length) {
-		const sum = results.reduce((acc, r) => acc + (Number((r as Record<string, unknown>).tokens) || 0), 0);
-		if (sum > 0) tokens = sum;
-	}
-	const metricsLine = cardMetricsLine(theme, { elapsedMs: metrics?.durationMs, tokens });
-	if (metricsLine) contentLines.push(padVisual(metricsLine, innerW));
 
 	return buildFrameBottom(contentLines, w, theme, bColor, bColor);
 }

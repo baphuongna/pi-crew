@@ -86,7 +86,6 @@ export const DEFAULT_UI = {
 	showTokens: true,
 	showTools: true,
 	transcriptTailBytes: 1024 * 1024,
-	headerStyle: "default" as const,
 	mascotStyle: "cat" as const,
 	mascotEffect: "random" as const,
 };

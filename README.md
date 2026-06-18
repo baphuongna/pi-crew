@@ -298,7 +298,6 @@ If preconditions are not met, a friendly error message is returned instead of cr
 | | `autonomous.injectPolicy`, `preferAsyncForLongTasks` | true, false |
 | **UI** | `widgetPlacement`, `dashboardPlacement` | compact widget |
 | | `showModel`, `showTokens` | display controls |
-| | `headerStyle: "powerline"` | filled-bg segments that degrade on narrow terminals (opt-in; needs bg-capable theme) |
 | **Reliability** | `autoRetry`, `autoRecover`, `deadletterThreshold` | opt-in |
 | **Observability** | `observability.enabled`, `observability.pollIntervalMs`, `otlp.enabled`/`otlp.endpoint` | opt-in |
 | **Worktree** | `worktree.setupHook`, `worktree.linkNodeModules`, `worktree.seedPaths` (mode is set via `workspaceMode: "worktree"` at run time) | disabled by default |

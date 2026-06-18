@@ -9,8 +9,8 @@ import type { TeamTaskState } from "../state/types.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { pad, truncate } from "../utils/visual.ts";
 import { iconForStatus } from "./status-colors.ts";
-import { asCrewTheme, subscribeThemeChange, type CrewTheme } from "./theme-adapter.ts";
-import { renderRunStatusSegments } from "./powerbar-publisher.ts";
+import type { CrewTheme } from "./theme-adapter.ts";
+import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
 import { Box, Text } from "./layout-primitives.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
@@ -138,20 +138,10 @@ export class LiveRunSidebar {
 		const waiting = tasks.filter((task) => task.status === "queued");
 		const signature = this.buildSignature(run.updatedAt, tasks, agents, waiting.length, snapshot);
 		if (signature !== this.cachedSignature || w !== this.cachedWidth) {
-			// Powerline status strip (opt-in via config.ui.headerStyle="powerline"):
-			// renders runId · status · phase as filled-bg segments. Returns "" when
-			// the theme lacks bg support or the style is off → fallback to text line.
-			const powerlineStrip = this.config?.headerStyle === "powerline" && typeof this.theme.bg === "function"
-				? renderRunStatusSegments(this.theme, [
-					{ text: run.runId.slice(-12), color: "accent" },
-					{ text: run.status, color: run.status === "completed" ? "success" : run.status === "failed" ? "error" : "warning" },
-					{ text: `${active.length}/${agents.length} agents`, color: active.length ? "accent" : "success" },
-				  ])
-				: "";
 			const lines: string[] = [
 				border("╭", "─", "╮", w),
 				line(`${this.theme.fg("accent", "▐")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-				powerlineStrip ? line(powerlineStrip, w) : line(`${run.runId.slice(-12)} · ${run.status} · right default`, w),
+				line(`${run.runId.slice(-12)} · ${run.status} · right default`, w),
 				line(`${run.team}/${run.workflow ?? "none"} · ${shortUsage(tasks)}`, w),
 				border("├", "─", "┤", w),
 				line(`Active agents (${active.length})`, w),

@@ -14,8 +14,6 @@ import { spinnerFrame } from "../spinner.ts";
 import { agentActivity, agentStats, notificationBadge } from "./widget-formatters.ts";
 import { shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
-import { layoutSegments, segmentVisibleWidth, type LayoutSegment } from "../status-layout.ts";
-import { renderSegmentChain, type PowerlineSegment } from "../powerline-segments.ts";
 
 const MAX_AGENTS_DISPLAY = 3;
 const FINISHED_LINGER_MAX_AGE = 1;
@@ -37,75 +35,14 @@ export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines =
 	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")} · /team-dashboard`;
 }
 
-/**
- * Powerline-styled widget header (opt-in via config.ui.headerStyle="powerline").
- * Builds the same data as widgetHeader but renders it as filled-bg powerline
- * segments that degrade by tiered 3-state collapse on narrow terminals.
- * Returns "" when the theme lacks bg support (caller falls back to text).
- */
-export function powerlineWidgetHeader(
-	runs: WidgetRun[],
-	runningGlyph: string,
-	notificationCount: number,
-	theme: CrewTheme,
-	width: number,
-): string {
-	if (typeof theme.bg !== "function") return "";
-	const agents = runs.flatMap((item) => item.agents);
-	const running = agents.filter((a) => a.status === "running").length;
-	const queued = agents.filter((a) => a.status === "queued").length;
-	const waiting = agents.filter((a) => a.status === "waiting").length;
-	const completed = agents.filter((a) => a.status === "completed").length;
-
-	const segs: Array<{ text: string; bg: string; full: string; collapsed?: string; order: number }> = [];
-	const lead = `${runningGlyph} Crew${notificationBadge(notificationCount)}`;
-	segs.push({ text: lead, bg: "selectedBg", full: lead, order: 0 });
-	if (running > 0) segs.push({ text: `${running} running`, bg: "selectedBg", full: `${running} running`, collapsed: `${running} run`, order: 2 });
-	if (queued > 0 || waiting > 0) {
-		const q = queued + waiting;
-		segs.push({ text: `${q} queued`, bg: "toolPendingBg", full: `${q} queued`, collapsed: `${q}q`, order: 3 });
-	}
-	if (agents.length > 0) {
-		const full = `${completed}/${agents.length} done`;
-		const collapsed = `${completed}/${agents.length}`;
-		const bg = completed === agents.length ? "toolSuccessBg" : "selectedBg";
-		segs.push({ text: full, bg, full, collapsed, order: 1 });
-	}
-	segs.push({ text: "/team-dashboard", bg: "selectedBg", full: "/team-dashboard", order: 4 });
-
-	const layoutInput: LayoutSegment[] = segs.map((s) => ({
-		full: s.full,
-		fullWidth: segmentVisibleWidth(s.full),
-		collapsed: s.collapsed,
-		collapsedWidth: s.collapsed ? segmentVisibleWidth(s.collapsed) : undefined,
-		collapseOrder: s.order,
-	}));
-	const resolved = layoutSegments(layoutInput, width);
-	const chain: PowerlineSegment[] = [];
-	let si = 0;
-	for (const r of resolved) {
-		if (r.state === "hidden" || r.text === undefined) { si++; continue; }
-		const seg = segs[si]!;
-		chain.push({ bg: seg.bg, fg: "text", text: ` ${r.text} ` });
-		si++;
-	}
-	if (chain.length === 0) return "";
-	return renderSegmentChain(theme, chain);
-}
-
 // ── Line builder ──────────────────────────────────────────────────────
 
-export function buildWidgetLines(cwd: string, frame = 0, maxLines = 8, providedRuns?: WidgetRun[], notificationCount = 0, options?: { theme?: CrewTheme; width?: number; headerStyle?: "default" | "powerline" }): string[] {
+export function buildWidgetLines(cwd: string, frame = 0, maxLines = 8, providedRuns?: WidgetRun[], notificationCount = 0): string[] {
 	const runs = providedRuns ?? [];
 	if (!runs.length) return [];
 
 	const runningGlyph = spinnerFrame("widget-header");
-	let header = widgetHeader(runs, runningGlyph, maxLines, notificationCount);
-	if (options?.headerStyle === "powerline" && options?.theme && options.width) {
-		const pl = powerlineWidgetHeader(runs, runningGlyph, notificationCount, options.theme, options.width);
-		if (pl) header = pl;
-	}
-	const lines: string[] = [header];
+	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
 
 	for (const { run, agents, snapshot } of runs) {
 		const activeAgents = agents.filter((a) => a.status === "running" || a.status === "queued" || a.status === "waiting");

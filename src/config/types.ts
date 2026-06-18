@@ -94,12 +94,6 @@ export interface CrewUiConfig {
 	autoOpenDashboard?: boolean;
 	autoOpenDashboardForForegroundRuns?: boolean;
 	autoCloseDashboardMs?: number;
-	/** Widget header rendering style.
-	 * - "default" (default): plain text joined by "·" (original look).
-	 * - "powerline": filled-bg powerline segments that degrade by tiered 3-state
-	 *   collapse (Full→Collapsed→Hidden) on narrow terminals. Requires a theme
-	 *   with bg support; degrades to default-style text otherwise. */
-	headerStyle?: "default" | "powerline";
 	showModel?: boolean;
 	showTokens?: boolean;
 	showTools?: boolean;

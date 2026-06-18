@@ -52,8 +52,7 @@ Supported fields:
     "autoOpenDashboardForForegroundRuns": false,
     "showModel": true,
     "showTokens": true,
-    "showTools": true,
-    "headerStyle": "default"
+    "showTools": true
   },
   "limits": {
     "maxConcurrentWorkers": 4

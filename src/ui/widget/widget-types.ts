@@ -6,7 +6,6 @@ import type { TeamRunManifest } from "../../state/types.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "../snapshot-types.ts";
-import type { CrewUiConfig } from "../../config/config.ts";
 
 export interface WidgetRun {
 	run: TeamRunManifest;
@@ -22,8 +21,6 @@ export interface CrewWidgetModel {
 	manifestCache?: ManifestCache;
 	snapshotCache?: RunSnapshotCache;
 	preloadManifests?: TeamRunManifest[];
-	/** UI config (for headerStyle etc.). Optional; defaults applied when absent. */
-	config?: CrewUiConfig;
 }
 
 export interface CrewWidgetState {
