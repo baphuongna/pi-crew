@@ -381,6 +381,25 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 		},
 	});
 
+	pi.registerCommand("team-goal", {
+		description: "Autonomous goal loop control: [start|status|pause|resume|stop|step|clear] [goalId] [--objective=...] [--evaluatorModel=...] [--maxTurns=N]",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const knownSubs = new Set(["start", "status", "pause", "resume", "stop", "step", "clear", "cancel", "reset"]);
+			const subAction = tokens[0] && knownSubs.has(tokens[0]) ? tokens[0] : "status";
+			const positional = tokens.filter((token) => !token.includes("=") && !token.startsWith("--") && token !== subAction);
+			const goalId = positional[0];
+			const config: Record<string, unknown> = { subAction };
+			if (goalId) config.goalId = goalId;
+			for (const token of tokens.filter((item) => item.includes("="))) {
+				const [key, ...rest] = token.split("=");
+				if (key) config[key.replace(/^--/, "")] = parseScalar(rest.join("="));
+			}
+			const result = await handleTeamTool({ action: "goal", config }, teamCommandContext(ctx));
+			await notifyCommandResult(ctx, commandText(result));
+		},
+	});
+
 	pi.registerCommand("team-metrics", { description: "Show pi-crew metrics snapshot: [filter]", handler: async (args: string, ctx: ExtensionCommandContext) => {
 		const filter = args.trim() || undefined;
 		const result = await handleTeamTool({ action: "api", config: { operation: "metrics-snapshot", filter } }, { ...teamCommandContext(ctx), metricRegistry: deps.getMetricRegistry?.() });

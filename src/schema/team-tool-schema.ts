@@ -325,7 +325,8 @@ export interface TeamToolParamsValue {
 		| "search"
 		| "orchestrate"
 		| "schedule"
-		| "scheduled";
+		| "scheduled"
+		| "goal";
 	resource?: "agent" | "team" | "workflow";
 	team?: string;
 	workflow?: string;

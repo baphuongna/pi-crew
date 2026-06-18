@@ -125,6 +125,7 @@ import {
 	handleAutoSummarizeOn,
 	handleAutoSummarizeStatus,
 } from "./team-tool/auto-summarize.ts";
+import { handleGoal } from "./team-tool/goal.ts";
 import {
 	type CacheControlDeps,
 	invalidateSnapshot,
@@ -1237,6 +1238,8 @@ export async function handleTeamTool(
 					return handleAnchorStatus(params, ctx);
 			}
 		}
+		case "goal":
+			return handleGoal(params, ctx);
 		case "auto-summarize":
 		case "auto_boomerang": {
 			const subAction =

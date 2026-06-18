@@ -43,6 +43,11 @@ export function piTeamsHelp(): string {
 		"- /team-validate",
 		"- /team-help",
 		"",
+		"Goal loops (P0/P1 — autonomous goal loop):",
+		"- team action='goal' config.subAction='start' config.objective='...' config.evaluatorModel='...' [config.maxTurns=20] [budgetTotal=N]",
+		"- team action='goal' config.subAction='status' [config.goalId=<id>]",
+		"- team action='goal' config.subAction='pause|resume|stop|step|clear' config.goalId=<id>",
+		"",
 		"Real child workers are enabled by default. Use runtime.mode=scaffold or executeWorkers=false only for dry runs.",
 	].join("\n");
 }

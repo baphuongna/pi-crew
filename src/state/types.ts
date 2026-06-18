@@ -198,6 +198,65 @@ export interface UsageState {
 	turns?: number;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Goal loop types (P0/P1 — autonomous goal loop, Claude-Code-style /goal).
+// Spec: research-findings/goal-workflow/00-SPEC.md §2.3; plan 07-PLAN.md v3 §0b G2 + §0c.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Outer-state lifecycle of a goal loop. Inner per-turn state lives on each turn's TeamRunManifest. */
+export type GoalLoopStatus =
+	| "running"
+	| "paused"
+	| "achieved"
+	| "max_turns"
+	| "budget_exceeded"
+	| "blocked"
+	| "cancelled";
+
+/** One evaluation by the goal-judge model after a turn. */
+export interface GoalVerdict {
+	turn: number;
+	achieved: boolean;
+	/** "achieved: all tests pass" | "not-achieved: 2/8 tests failing" | "BLOCKED: <reason>" (BLOCKED: prefix → status='blocked'). */
+	reason: string;
+	evidenceRefs?: string[];
+	evaluatorModel: string;
+	evaluatedAt: string;
+}
+
+/** Persisted at <crewRoot>/state/goals/<goalId>.json by GoalStore. Survives session restart. */
+export interface GoalLoopState {
+	goalId: string;
+	ownerSessionId: string;
+	objective: string;
+	scope?: string;
+	/** Acceptance conditions as shell commands (exit 0 = pass). Reuses VerificationContract semantics. */
+	verification?: { commands: string[]; allowManualEvidence?: boolean };
+	state: GoalLoopStatus;
+	maxTurns: number;
+	turnsUsed: number;
+	budgetTotal?: number;
+	budgetWarning?: number;
+	budgetAbort?: number;
+	budgetUsed: number;
+	evaluatorModel: string;
+	workerModel?: string;
+	/** subagent_type / agent name for worker turns (default "executor"). */
+	workerAgent?: string;
+	team?: string;
+	cwd: string;
+	/** Feedback from turn N's verdict, prepended into turn N+1's manifest.goal (G1). */
+	nextTurnFeedback?: string;
+	/** The team-run of the current in-flight turn (for cancel/steer). */
+	currentRunId?: string;
+	verdicts: GoalVerdict[];
+	history: { runId: string; outcome: string; learnedAt: string; turn: number }[];
+	createdAt: string;
+	updatedAt: string;
+	/** Mirror of manifest.async for PID-liveness checks (cf. AsyncRunState). */
+	async?: { pid: number; logPath: string; spawnedAt: string };
+}
+
 export interface ModelAttemptState {
 	model: string;
 	success: boolean;

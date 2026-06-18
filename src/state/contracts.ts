@@ -77,6 +77,14 @@ const TEAM_EVENT_TYPES = [
 	"phase.completed",
 	"phase.skipped",
 	"phase.failed",
+	// Goal loop events (P0/P1) — autonomous goal-loop coordinator.
+	"goal.loop_start",
+	"goal.turn_start",
+	"goal.turn_evaluated",
+	"goal.budget_warning",
+	"goal.loop_end",
+	"goal.feedback_steered",
+	"goal.state_changed",
 ] as const;
 export type TeamEventType = typeof TEAM_EVENT_TYPES[number];
 

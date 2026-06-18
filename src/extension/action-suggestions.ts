@@ -28,7 +28,7 @@ export const KNOWN_TEAM_ACTIONS = [
 	"config", "init", "recommend", "autonomy", "api", "settings", "steer",
 	"invalidate", "health", "graph", "onboard", "explain", "cache",
 	"checkpoint", "search", "orchestrate", "schedule", "scheduled", "anchor",
-	"auto-summarize", "auto_boomerang",
+	"auto-summarize", "auto_boomerang", "goal",
 ] as const;
 
 /**

@@ -12,7 +12,9 @@ export type HookName =
 	| "session_before_switch"
 	| "session_after_connect"
 	| "session_after_disconnect"
-	| "run_recovery";
+	| "run_recovery"
+	| "before_goal_step"
+	| "before_goal_abort";
 
 /**
  * Hook exit codes inspired by claude-mem's lifecycle architecture:
