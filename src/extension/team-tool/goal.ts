@@ -179,7 +179,10 @@ function assertGoalOwnership(goal: GoalLoopState, ctx: TeamContext, action: stri
 	// status (read-only) is allowed for any session; mutating actions require ownership or force.
 	const owner = goal.ownerSessionId;
 	const current = ctx.sessionId;
-	if (owner && current && owner !== current && goal.state === "running") {
+	// Fix round-7: ownership check must fire for running AND paused goals (paused still has
+	// an in-flight turn potentially). Previously only 'running' was gated — a paused goal
+	// with an active currentRunId could be stop/cancelled by a foreign session without force.
+	if (owner && current && owner !== current && (goal.state === "running" || goal.state === "paused")) {
 		return result(`Goal '${goal.goalId}' belongs to session '${owner}' (you are '${current}') and is still running. Use force:true to override.`, { action, status: "error", data: { goalId: goal.goalId, ownerSessionId: owner } }, true);
 	}
 	return undefined;
@@ -245,8 +248,9 @@ export async function handleGoal(params: TeamToolParamsValue, ctx: TeamContext):
 		case "pause":
 			return handleStateFlip(input, "paused", "paused");
 		case "resume":
-			// P0: resume is a status-only stub — full re-spawn wiring lands with background integration.
-			return handleStatus(input);
+			// P0 stub: resume is not yet implemented — warn the user explicitly instead of
+			// silently returning status (round-7 F3: silent no-op misleads users).
+			return result("goal resume is not yet implemented (P1.5). A paused goal's background loop has exited; use 'goal start' with the same objective to re-run, or 'goal stop' to abandon.", { action: "goal", status: "error", data: { subAction: "resume", implemented: false } }, true);
 		case "stop":
 		case "cancel":
 		case "reset":

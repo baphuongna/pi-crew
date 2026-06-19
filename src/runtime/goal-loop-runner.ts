@@ -25,6 +25,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { logInternalError } from "../utils/internal-error.ts";
 import type {
 	GoalLoopState,
+	GoalLoopStatus,
 	GoalVerdict,
 	TeamRunManifest,
 	TeamTaskState,
@@ -87,7 +88,22 @@ export const realGoalEvaluator = async (
 	signal: AbortSignal,
 ): Promise<GoalVerdict> => {
 	const transcriptPath = deriveTranscriptPath(turnManifest.artifactsRoot, turnTasks);
-	const evidence = bundleEvidence(transcriptPath, undefined);
+	// Fix round-7 F1: execute verification commands (if configured) so the judge has real evidence.
+	// Previously bundleEvidence received `undefined` — the judge was told commands "MUST pass"
+	// but had no results, making the acceptance gate a dead letter.
+	let verificationResults: import("./goal-evaluator.ts").GoalEvidence["verificationResults"];
+	if (goal.verification?.commands?.length) {
+		try {
+			const { executeVerificationCommands } = await import("./verification-gates.ts");
+			const contract = { requiredGreenLevel: "none" as const, commands: goal.verification.commands, allowManualEvidence: goal.verification.allowManualEvidence ?? false };
+			const cmdResults = await executeVerificationCommands(contract, goal.cwd, turnRunId, "goal-verify", turnManifest.artifactsRoot, signal);
+			verificationResults = cmdResults.map((r) => ({ command: r.cmd, exitCode: r.exitCode ?? null, passed: r.status === "passed" }));
+		} catch (error) {
+			logInternalError("goal-loop.verification", error, `goalId=${goal.goalId}`);
+			verificationResults = [];
+		}
+	}
+	const evidence = bundleEvidence(transcriptPath, verificationResults);
 	return evaluateGoal({
 		objective: goal.objective,
 		scope: goal.scope,
@@ -163,6 +179,17 @@ async function yieldBetweenTurns(goal: GoalLoopState, signal: AbortSignal, ms = 
 		if (goal.state !== "running") return;
 		await new Promise((r) => setTimeout(r, Math.min(50, ms - (Date.now() - start))));
 	}
+}
+
+/** Fix round-7: re-read disk before applying terminal state. If an external actor
+ * (goal stop/pause) already changed the state, don't overwrite — external cancel wins. */
+function safeSetStatus(store: GoalStore, goalId: string, proposed: GoalLoopStatus, fallback: GoalLoopState, eventsPath: string): GoalLoopState {
+	const current = store.load(goalId);
+	if (current && current.state !== "running") {
+		// External actor already set a terminal/paused state — respect it.
+		return current;
+	}
+	return store.setStatus(goalId, proposed, eventsPath) ?? { ...fallback, state: proposed };
 }
 
 /** Derive the worker transcript path from the turn's tasks (Fix P0-2). Falls back to dir scan.
@@ -292,17 +319,17 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				appendEvent(eventsPath, { type: "goal.feedback_steered", runId: manifest.runId, data: { goalId: goal.goalId, turn: turnIndex, feedback: goal.nextTurnFeedback } });
 			}
 
-			// ── STOP CONDITIONS ───────────────────────────────────────────────────────
+			// ── STOP CONDITIONS (round-7: re-read disk before applying — external cancel/pause wins) ─
 			if (verdict.achieved) {
-				goal = store.setStatus(goal.goalId, "achieved", eventsPath) ?? { ...goal, state: "achieved" };
+				goal = safeSetStatus(store, goal.goalId, "achieved", goal, eventsPath);
 				break;
 			}
 			if (verdict.reason.startsWith("BLOCKED:")) {
-				goal = store.setStatus(goal.goalId, "blocked", eventsPath) ?? { ...goal, state: "blocked" };
+				goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
 				break;
 			}
 			if (goal.turnsUsed >= goal.maxTurns) {
-				goal = store.setStatus(goal.goalId, "max_turns", eventsPath) ?? { ...goal, state: "max_turns" };
+				goal = safeSetStatus(store, goal.goalId, "max_turns", goal, eventsPath);
 				break;
 			}
 
@@ -311,7 +338,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 
 		// Loop exited without explicit terminal (e.g. cancelled via signal mid-yield).
 		if (goal.state === "running") {
-			goal = store.setStatus(goal.goalId, signal.aborted ? "cancelled" : "max_turns", eventsPath) ?? goal;
+			goal = safeSetStatus(store, goal.goalId, signal.aborted ? "cancelled" : "max_turns", goal, eventsPath);
 		}
 	} catch (error) {
 		logInternalError("goal-loop.run", error, `goalId=${goal.goalId}`);
