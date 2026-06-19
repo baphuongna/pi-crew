@@ -20,6 +20,7 @@ import { collectRunMetrics } from "../state/run-metrics.ts";
 import { registerActiveRun, unregisterActiveRun } from "../state/active-run-registry.ts";
 import { executeTeamRun } from "./team-runner.ts";
 import { GoalStore } from "./goal-state-store.ts";
+import { evaluateGoal, bundleEvidence } from "./goal-evaluator.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type {
 	GoalLoopState,
@@ -52,8 +53,8 @@ export interface RunGoalLoopResult {
 
 /**
  * The placeholder evaluator for P0: always returns {achieved:false}.
- * P1 replaces this with the real LLM judge (goal-evaluator.ts).
- * Exported so P1 can swap it in without touching the loop body.
+ * Kept for unit tests of the loop's max_turns exit path. The production loop
+ * uses `realGoalEvaluator` (P1) which calls the LLM judge.
  */
 export const stubGoalEvaluator = async (goal: GoalLoopState, _turnRunId: string): Promise<GoalVerdict> => ({
 	turn: goal.turnsUsed,
@@ -63,11 +64,30 @@ export const stubGoalEvaluator = async (goal: GoalLoopState, _turnRunId: string)
 	evaluatedAt: new Date().toISOString(),
 });
 
+export type GoalEvaluatorFn = (goal: GoalLoopState, turnRunId: string, turnManifest: import("../state/types.ts").TeamRunManifest) => Promise<GoalVerdict>;
+
 /**
- * The evaluator hook. P0 uses stubGoalEvaluator; P1 sets this to the real LLM judge.
- * Re-exported from goal-evaluator.ts in P1.
+ * Production evaluator (P1): bundles turn evidence + calls the LLM judge.
+ * Reads the worker transcript from `<artifactsRoot>/transcripts/<taskId>.attempt-0.jsonl`.
  */
-export type GoalEvaluatorFn = (goal: GoalLoopState, turnRunId: string) => Promise<GoalVerdict>;
+export const realGoalEvaluator = async (
+	goal: GoalLoopState,
+	turnRunId: string,
+	turnManifest: import("../state/types.ts").TeamRunManifest,
+): Promise<GoalVerdict> => {
+	const transcriptPath = `${turnManifest.artifactsRoot}/transcripts/work.attempt-0.jsonl`;
+	const evidence = bundleEvidence(transcriptPath, undefined);
+	return evaluateGoal({
+		objective: goal.objective,
+		scope: goal.scope,
+		verification: goal.verification,
+		evidence,
+		model: goal.evaluatorModel,
+		turn: goal.turnsUsed,
+		cwd: goal.cwd,
+		artifactsRoot: turnManifest.artifactsRoot,
+	});
+};
 
 /** Build the per-turn 1-step workflow (G1): the only step references {goal}. */
 function buildTurnWorkflow(): WorkflowConfig {
@@ -143,7 +163,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 	const { manifest, signal } = input;
 	let goal = input.goalState;
 	const store = new GoalStore(goal.cwd);
-	const evaluator: GoalEvaluatorFn = stubGoalEvaluator;
+	const evaluator: GoalEvaluatorFn = realGoalEvaluator; // P1: real LLM judge (P0 used stubGoalEvaluator).
 	const eventsPath = manifest.eventsPath;
 	const team = buildGoalTeam(goal);
 	const workflow = buildTurnWorkflow();
@@ -213,8 +233,8 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			// ── BUDGET accumulation (§0c C2: collectRunMetrics) ──────────────────────
 			const updatedBudget = accumulateBudget(goal, created.manifest.runId);
 
-			// ── EVALUATE (P0: stub; P1: real LLM judge) ───────────────────────────────
-			const verdict = await evaluator({ ...goal, budgetUsed: updatedBudget }, created.manifest.runId);
+			// ── EVALUATE (P1: real LLM judge; pass turn manifest for transcript lookup) ───────
+			const verdict = await evaluator({ ...goal, budgetUsed: updatedBudget }, created.manifest.runId, turnResult.manifest);
 			const historyEntry = { runId: created.manifest.runId, outcome: verdict.achieved ? "achieved" : "not-achieved", learnedAt: new Date().toISOString(), turn: turnIndex };
 			goal = store.patch(goal.goalId, {
 				budgetUsed: updatedBudget,

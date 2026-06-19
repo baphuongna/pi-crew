@@ -20,9 +20,10 @@ import { GoalStore } from "../../src/runtime/goal-state-store.ts";
 import { discoverAgents, allAgents } from "../../src/agents/discover-agents.ts";
 import type { GoalLoopState } from "../../src/state/types.ts";
 
-test("runGoalLoop runs N turns with stub evaluator and exits max_turns (PI_TEAMS_MOCK_CHILD_PI)", async () => {
-	// Skip if the mock env var isn't honored in this environment (child-pi.ts:502).
-	// We set it explicitly here to make the test self-contained.
+test("runGoalLoop (P1 real evaluator) exits blocked when judge is unreachable or worker unavailable", async () => {
+	// P1: loop uses realGoalEvaluator (runChildPi judge). Without PI_CREW_ALLOW_MOCK=1,
+	// the mock short-circuits with exit 1 → judge returns BLOCKED → loop exits blocked.
+	// This verifies the loop's error containment (P0 tested the max_turns path via stub).
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goal-loop-smoke-"));
@@ -86,17 +87,14 @@ test("runGoalLoop runs N turns with stub evaluator and exits max_turns (PI_TEAMS
 
 		const hasExecutor = agents.some((a) => a.name === "executor");
 		if (hasExecutor) {
-			// Happy path: turns ran, stub never achieved → max_turns.
-			assert.equal(result.goalState.state, "max_turns", "loop should exit max_turns when stub never achieves");
-			assert.equal(result.goalState.turnsUsed, 2, "exactly maxTurns=2 turns");
-			assert.equal(result.goalState.verdicts.length, 2, "one verdict per turn");
-			assert.equal(result.goalState.history.length, 2, "one history entry per turn");
-			const runIds = new Set(result.goalState.history.map((h) => h.runId));
-			assert.equal(runIds.size, 2, "each turn gets a fresh manifest/runId (G2)");
+			// Worker ran, but P1 judge mock (json-success) returns non-verdict text → BLOCKED.
+			assert.equal(result.goalState.state, "blocked", "P1 mock judge returns non-verdict → BLOCKED");
+			assert.ok(result.goalState.turnsUsed >= 1, "at least one turn ran before judging");
+			assert.ok(result.goalState.verdicts.length >= 1, "at least one verdict recorded");
+			assert.match(result.goalState.verdicts[0].reason, /BLOCKED:/);
 		} else {
-			// No executor available in this test env → loop catches and goes blocked.
+			// No executor available → loop catches and goes blocked.
 			assert.equal(result.goalState.state, "blocked", "loop should go blocked when worker agent is unavailable");
-			assert.ok(result.goalState.turnsUsed >= 0);
 		}
 	} finally {
 		delete process.env.PI_TEAMS_MOCK_CHILD_PI;

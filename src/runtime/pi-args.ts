@@ -269,8 +269,16 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	const explicitTools = policy.tools;
 	const excludeTools = policy.excludeTools;
 
-	if (explicitTools?.length) args.push("--tools", explicitTools.join(","));
-	if (excludeTools?.length) args.push("--exclude-tools", excludeTools.join(","));
+	// §0c C6: agent.disableTools (Pi `--no-tools`) fully disables all tools. Used by
+	// capability-locked agents (e.g. the goal-judge) that must have NO agency.
+	// MUST come before any --tools/--exclude-tools so it wins (Pi applies last-wins).
+	// An empty `tools:[]` is INSUFFICIENT because the length-check below skips it.
+	if (input.agent.disableTools === true) {
+		args.push("--no-tools");
+	} else {
+		if (explicitTools?.length) args.push("--tools", explicitTools.join(","));
+		if (excludeTools?.length) args.push("--exclude-tools", excludeTools.join(","));
+	}
 	// Always add --no-extensions before --extension to prevent user extensions from being auto-loaded.
 	// User extensions in ~/.pi/agent/extensions/ may fail due to missing dependencies.
 	args.push("--no-extensions");

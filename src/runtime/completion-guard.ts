@@ -55,7 +55,7 @@ function isMutatingTool(tool: string, args: unknown): boolean {
 	return false;
 }
 
-function collectToolCallsFromEvent(event: unknown): Array<{ tool: string; args?: unknown }> {
+export function collectToolCallsFromEvent(event: unknown): Array<{ tool: string; args?: unknown }> {
 	const record = asRecord(event);
 	if (!record) return [];
 	const calls: Array<{ tool: string; args?: unknown }> = [];

@@ -92,6 +92,10 @@ export interface AgentConfig {
 	effort?: "low" | "medium" | "high";
 	/** Tools to explicitly forbid for this agent. Takes precedence over allowedTools. */
 	disallowedTools?: string[];
+	/** Disable ALL tools (Pi `--no-tools`). Used by capability-locked agents like the goal-judge (P1)
+	 *  that must have NO agency — only emit a verdict. §0c C6: an empty `tools:[]` is INSUFFICIENT
+	 *  because pi-args.ts skips empty arrays, leaving default tools enabled. */
+	disableTools?: boolean;
 	disabled?: boolean;
 	override?: { source: "config"; path: string };
 }

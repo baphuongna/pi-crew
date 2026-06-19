@@ -105,15 +105,16 @@ test("GoalStore.setStatus() transitions state and persists", () => {
 	}
 });
 
-test("GoalStore.list() returns goals newest-first by updatedAt", () => {
+test("GoalStore.list() returns goals (stable order by updatedAt then goalId)", async () => {
 	const cwd = makeTmpCwd();
 	try {
 		const store = new GoalStore(cwd);
 		const id1 = store.createGoalId();
 		const id2 = store.createGoalId();
 		store.save(sampleGoal(cwd, id1));
-		// Bump id2's updatedAt by patching after id1.
+		// Bump id1's updatedAt by patching AFTER id2 is saved, with a small delay to avoid timestamp ties.
 		store.save(sampleGoal(cwd, id2));
+		await new Promise((r) => setTimeout(r, 1100)); // >1s so ISO timestamps differ
 		store.patch(id1, { turnsUsed: 1 });
 
 		const list = store.list();
