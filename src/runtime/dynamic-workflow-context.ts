@@ -26,8 +26,11 @@ import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { extractStructuredResult } from "./result-extractor.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 import { Semaphore } from "./semaphore.ts";
+import { executeWithRetry } from "./retry-executor.ts";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { appendMailboxMessage, readMailbox } from "../state/mailbox.ts";
+import { renderPlanTemplate } from "./plan-templates.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { randomBytes } from "node:crypto";
 import type { AgentConfig } from "../agents/agent-config.ts";
@@ -69,6 +72,18 @@ export interface WorkflowCtx {
 	agent(opts: AgentCallOpts): Promise<AgentResult>;
 	/** Bounded fan-out preserving order (wraps mapConcurrent). */
 	fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]>;
+	/** Run a reviewer agent over an artifact; parse {outcome, feedback}. §3.2. */
+	review(taskId: string, reviewerRole?: string): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }>;
+	/** Re-run a task with feedback (wraps executeWithRetry). */
+	retry(taskId: string, opts?: { feedback?: string }): Promise<AgentResult>;
+	/** Send a mailbox message to another agent/leader. */
+	mail(to: string, body: string, opts?: { kind?: string; taskId?: string; replyTo?: string; replyDeadline?: number }): string;
+	/** Block until N mailbox replies arrive or deadline. ~10 LOC net-new (report 05 §G.4). */
+	gatherReplies(messageIds: string[], deadlineMs: number): Promise<unknown[]>;
+	/** Render a built-in plan template (full-implementation / standard-review). */
+	renderTemplate(name: string, vars: Record<string, string>): unknown;
+	/** Persistent variables (revived intermediate-store). */
+	vars: Record<string, unknown>;
 	/** Mark the final result. ONLY this artifact reaches the main context. */
 	setResult(artifactPath: string, meta?: Record<string, unknown>): void;
 	semaphore: Semaphore;
@@ -199,6 +214,58 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		async fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]> {
 			return mapConcurrent(items, Math.max(1, limit), fn);
 		},
+		async review(taskId: string, reviewerRole = "reviewer"): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }> {
+			const res = await ctx.agent({
+				role: reviewerRole,
+				prompt: `Review the work for task '${taskId}'. Respond with ONLY JSON: {"outcome":"accept|reject|changes_requested","feedback":"..."}`,
+				maxTurns: 2,
+			});
+			const extracted = res.structured as { outcome?: string; feedback?: string } | undefined;
+			if (extracted && typeof extracted.outcome === "string" && typeof extracted.feedback === "string") {
+				const outcome = (extracted.outcome === "accept" || extracted.outcome === "reject" || extracted.outcome === "changes_requested")
+					? extracted.outcome
+					: "changes_requested";
+				return { outcome, feedback: extracted.feedback };
+			}
+			return { outcome: "changes_requested", feedback: res.text || "(reviewer produced no parseable verdict)" };
+		},
+		async retry(taskId: string, retryOpts?: { feedback?: string }): Promise<AgentResult> {
+			return executeWithRetry(
+				async () => ctx.agent({
+					role: "executor",
+					prompt: `Re-do task '${taskId}'.${retryOpts?.feedback ? ` Feedback: ${retryOpts.feedback}` : ""}`,
+				}),
+				{ maxAttempts: 3, backoffMs: 0, jitterRatio: 0, exponentialFactor: 1 },
+			);
+		},
+		mail(to: string, body: string, mailOpts?: { kind?: string; taskId?: string; replyTo?: string; replyDeadline?: number }): string {
+			const msg = appendMailboxMessage(manifest, {
+				direction: "outbox",
+				from: "dynamic-workflow",
+				to,
+				body,
+				kind: (mailOpts?.kind as never) ?? "message",
+				taskId: mailOpts?.taskId,
+				replyTo: mailOpts?.replyTo,
+				replyDeadline: mailOpts?.replyDeadline,
+			});
+			return msg.id;
+		},
+		async gatherReplies(messageIds: string[], deadlineMs: number): Promise<unknown[]> {
+			const deadline = Date.now() + deadlineMs;
+			while (Date.now() < deadline) {
+				const inbox = readMailbox(manifest, "inbox");
+				const got = inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
+				if (got.length >= messageIds.length) return got;
+				await new Promise((r) => setTimeout(r, 500));
+				if (opts.signal.aborted) return inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
+			}
+			return readMailbox(manifest, "inbox").filter((m) => m.replyTo && messageIds.includes(m.replyTo));
+		},
+		renderTemplate(name: string, vars: Record<string, string>): unknown {
+			return renderPlanTemplate(name, vars);
+		},
+		vars: {} as Record<string, unknown>,
 		setResult(artifactPath: string, meta?: Record<string, unknown>): void {
 			finalResult = { artifactPath, meta };
 		},

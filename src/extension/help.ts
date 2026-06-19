@@ -48,6 +48,15 @@ export function piTeamsHelp(): string {
 		"- team action='goal' config.subAction='status' [config.goalId=<id>]",
 		"- team action='goal' config.subAction='pause|resume|stop|step|clear' config.goalId=<id>",
 		"",
+		"Dynamic workflows (P2/P3 — JS-script orchestration):",
+		"- Place a .dwf.ts under .crew/workflows/ then: team action='run' workflow='<name>' goal='...'",
+		"- team action='workflow-list'",
+		"- team action='workflow-get' config.name='<name>'",
+		"- team action='workflow-create' confirm=true config.name='<name>' config.script='<.dwf.ts source>'  (USER-initiated only; ACE-gated)",
+		"- team action='workflow-save' config.name='<name>' config.script='<source>'",
+		"- team action='workflow-delete' confirm=true config.name='<name>'",
+		"- /workflows — list dynamic workflows",
+		"",
 		"Real child workers are enabled by default. Use runtime.mode=scaffold or executeWorkers=false only for dry runs.",
 	].join("\n");
 }

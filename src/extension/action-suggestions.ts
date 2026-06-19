@@ -29,6 +29,7 @@ export const KNOWN_TEAM_ACTIONS = [
 	"invalidate", "health", "graph", "onboard", "explain", "cache",
 	"checkpoint", "search", "orchestrate", "schedule", "scheduled", "anchor",
 	"auto-summarize", "auto_boomerang", "goal",
+	"workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete",
 ] as const;
 
 /**

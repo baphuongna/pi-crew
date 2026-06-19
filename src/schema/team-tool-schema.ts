@@ -326,7 +326,12 @@ export interface TeamToolParamsValue {
 		| "orchestrate"
 		| "schedule"
 		| "scheduled"
-		| "goal";
+		| "goal"
+		| "workflow-create"
+		| "workflow-get"
+		| "workflow-list"
+		| "workflow-save"
+		| "workflow-delete";
 	resource?: "agent" | "team" | "workflow";
 	team?: string;
 	workflow?: string;

@@ -20,7 +20,7 @@
  *  5. Otherwise → blocked with a reason telling the user what to pass.
  */
 
-export const DESTRUCTIVE_TEAM_ACTIONS = new Set(["delete", "forget", "prune", "cleanup"]);
+export const DESTRUCTIVE_TEAM_ACTIONS = new Set(["delete", "forget", "prune", "cleanup", "workflow-create", "workflow-delete"]);
 
 export interface TeamToolInputLike {
 	action?: unknown;

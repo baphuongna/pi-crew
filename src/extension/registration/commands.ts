@@ -400,6 +400,14 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 		},
 	});
 
+	pi.registerCommand("workflows", {
+		description: "List all workflows (static + dynamic .dwf.ts)",
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			const result = await handleTeamTool({ action: "workflow-list" }, teamCommandContext(ctx));
+			await notifyCommandResult(ctx, commandText(result));
+		},
+	});
+
 	pi.registerCommand("team-metrics", { description: "Show pi-crew metrics snapshot: [filter]", handler: async (args: string, ctx: ExtensionCommandContext) => {
 		const filter = args.trim() || undefined;
 		const result = await handleTeamTool({ action: "api", config: { operation: "metrics-snapshot", filter } }, { ...teamCommandContext(ctx), metricRegistry: deps.getMetricRegistry?.() });

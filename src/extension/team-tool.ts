@@ -127,6 +127,13 @@ import {
 } from "./team-tool/auto-summarize.ts";
 import { handleGoal } from "./team-tool/goal.ts";
 import {
+	handleWorkflowCreate,
+	handleWorkflowGet,
+	handleWorkflowList,
+	handleWorkflowSave,
+	handleWorkflowDelete,
+} from "./team-tool/workflow-manage.ts";
+import {
 	type CacheControlDeps,
 	invalidateSnapshot,
 } from "./team-tool/cache-control.ts";
@@ -1240,6 +1247,16 @@ export async function handleTeamTool(
 		}
 		case "goal":
 			return handleGoal(params, ctx);
+		case "workflow-create":
+			return handleWorkflowCreate(params, ctx);
+		case "workflow-get":
+			return handleWorkflowGet(params, ctx);
+		case "workflow-list":
+			return handleWorkflowList(params, ctx);
+		case "workflow-save":
+			return handleWorkflowSave(params, ctx);
+		case "workflow-delete":
+			return handleWorkflowDelete(params, ctx);
 		case "auto-summarize":
 		case "auto_boomerang": {
 			const subAction =

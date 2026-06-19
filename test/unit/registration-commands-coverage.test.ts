@@ -52,5 +52,6 @@ test("registration commands module registers the public slash command set", () =
 		"team-validate",
 		"team-worktrees",
 		"teams",
+		"workflows",
 	].sort());
 });
