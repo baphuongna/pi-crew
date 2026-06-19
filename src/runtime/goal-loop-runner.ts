@@ -21,6 +21,7 @@ import { registerActiveRun, unregisterActiveRun } from "../state/active-run-regi
 import { executeTeamRun } from "./team-runner.ts";
 import { GoalStore } from "./goal-state-store.ts";
 import { evaluateGoal, bundleEvidence } from "./goal-evaluator.ts";
+import { existsSync, readdirSync } from "node:fs";
 import { logInternalError } from "../utils/internal-error.ts";
 import type {
 	GoalLoopState,
@@ -64,18 +65,26 @@ export const stubGoalEvaluator = async (goal: GoalLoopState, _turnRunId: string)
 	evaluatedAt: new Date().toISOString(),
 });
 
-export type GoalEvaluatorFn = (goal: GoalLoopState, turnRunId: string, turnManifest: import("../state/types.ts").TeamRunManifest) => Promise<GoalVerdict>;
+export type GoalEvaluatorFn = (
+	goal: GoalLoopState,
+	turnRunId: string,
+	turnManifest: import("../state/types.ts").TeamRunManifest,
+	turnTasks: import("../state/types.ts").TeamTaskState[],
+) => Promise<GoalVerdict>;
 
 /**
  * Production evaluator (P1): bundles turn evidence + calls the LLM judge.
- * Reads the worker transcript from `<artifactsRoot>/transcripts/<taskId>.attempt-0.jsonl`.
+ * Derives the worker transcript path from the turn's task id (Fix P0-2 — was
+ * hardcoded to `work.attempt-0.jsonl`, but createTaskId prefixes the index so the
+ * real file is `01_work.attempt-0.jsonl`). If no task is found, scans the transcripts dir.
  */
 export const realGoalEvaluator = async (
 	goal: GoalLoopState,
 	turnRunId: string,
 	turnManifest: import("../state/types.ts").TeamRunManifest,
+	turnTasks: import("../state/types.ts").TeamTaskState[],
 ): Promise<GoalVerdict> => {
-	const transcriptPath = `${turnManifest.artifactsRoot}/transcripts/work.attempt-0.jsonl`;
+	const transcriptPath = deriveTranscriptPath(turnManifest.artifactsRoot, turnTasks);
 	const evidence = bundleEvidence(transcriptPath, undefined);
 	return evaluateGoal({
 		objective: goal.objective,
@@ -151,6 +160,31 @@ async function yieldBetweenTurns(goal: GoalLoopState, signal: AbortSignal, ms = 
 		if (goal.state !== "running") return;
 		await new Promise((r) => setTimeout(r, Math.min(50, ms - (Date.now() - start))));
 	}
+}
+
+/** Derive the worker transcript path from the turn's tasks (Fix P0-2). Falls back to dir scan.
+ *  Exported for unit testing the path-derivation fix. */
+export function deriveTranscriptPath(artifactsRoot: string, tasks: import("../state/types.ts").TeamTaskState[]): string | undefined {
+	const transcriptsDir = `${artifactsRoot}/transcripts`;
+	// Primary: use the first task's id + attempt-0 (task-runner writes ${task.id}.attempt-${i}.jsonl).
+	const firstTask = tasks[0];
+	if (firstTask) {
+		const primary = `${transcriptsDir}/${firstTask.id}.attempt-0.jsonl`;
+		if (existsSync(primary)) return primary;
+		// Try any attempt for this task.
+		try {
+			const matches = readdirSync(transcriptsDir).filter((f) => f.startsWith(`${firstTask.id}.attempt-`));
+			if (matches.length) return `${transcriptsDir}/${matches.sort().pop()}`;
+		} catch { /* dir missing — fall through */ }
+	}
+	// Fallback: any transcript in the dir (newest).
+	try {
+		const all = readdirSync(transcriptsDir).filter((f) => f.endsWith(".jsonl"));
+		if (all.length) return `${transcriptsDir}/${all.sort().pop()}`;
+	} catch (error) {
+		logInternalError("goal-loop.deriveTranscriptPath", error, `transcriptsDir=${transcriptsDir}`);
+	}
+	return undefined;
 }
 
 /**
@@ -233,8 +267,8 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			// ── BUDGET accumulation (§0c C2: collectRunMetrics) ──────────────────────
 			const updatedBudget = accumulateBudget(goal, created.manifest.runId);
 
-			// ── EVALUATE (P1: real LLM judge; pass turn manifest for transcript lookup) ───────
-			const verdict = await evaluator({ ...goal, budgetUsed: updatedBudget }, created.manifest.runId, turnResult.manifest);
+			// ── EVALUATE (P1: real LLM judge; pass turn manifest + tasks for transcript lookup) ──
+			const verdict = await evaluator({ ...goal, budgetUsed: updatedBudget }, created.manifest.runId, turnResult.manifest, turnResult.tasks);
 			const historyEntry = { runId: created.manifest.runId, outcome: verdict.achieved ? "achieved" : "not-achieved", learnedAt: new Date().toISOString(), turn: turnIndex };
 			goal = store.patch(goal.goalId, {
 				budgetUsed: updatedBudget,

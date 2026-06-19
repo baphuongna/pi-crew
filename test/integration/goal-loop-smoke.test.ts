@@ -15,7 +15,7 @@ import * as path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRunManifest } from "../../src/state/state-store.ts";
-import { runGoalLoop, stubGoalEvaluator } from "../../src/runtime/goal-loop-runner.ts";
+import { runGoalLoop, stubGoalEvaluator, deriveTranscriptPath } from "../../src/runtime/goal-loop-runner.ts";
 import { GoalStore } from "../../src/runtime/goal-state-store.ts";
 import { discoverAgents, allAgents } from "../../src/agents/discover-agents.ts";
 import type { GoalLoopState } from "../../src/state/types.ts";
@@ -123,4 +123,25 @@ test("stubGoalEvaluator always returns {achieved:false} with a descriptive reaso
 	assert.ok(verdict.reason.includes("stub"), "stub reason should identify itself");
 	assert.equal(verdict.evaluatorModel, "stub");
 	assert.equal(verdict.turn, 1);
+});
+
+test("deriveTranscriptPath uses the REAL task id (Fix P0-2 regression — was hardcoded 'work')", () => {
+	// Regression for the review finding P0-2: createTaskId prefixes the index,
+	// so step "work" → task id "01_work" → transcript "01_work.attempt-0.jsonl".
+	// The old code hardcoded "work.attempt-0.jsonl" and always missed the file.
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goal-transcript-"));
+	try {
+		const transcriptsDir = path.join(cwd, "artifacts", "transcripts");
+		fs.mkdirSync(transcriptsDir, { recursive: true });
+		const realTaskId = "01_work"; // what createTaskId("work", 0) produces
+		fs.writeFileSync(path.join(transcriptsDir, `${realTaskId}.attempt-0.jsonl`), '{"type":"message"}\n');
+
+		const tasks = [{ id: realTaskId }] as never;
+		const derived = deriveTranscriptPath(`${cwd}/artifacts`, tasks);
+		assert.ok(derived, "transcript path should be derived");
+		assert.ok(derived!.includes("01_work"), "must use the real task id, not 'work'");
+		assert.ok(fs.existsSync(derived!), "derived path must exist on disk");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });

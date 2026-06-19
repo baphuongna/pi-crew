@@ -617,11 +617,27 @@ async function main(): Promise<void> {
 		try {
 			switch (manifest.runKind ?? "team-run") {
 				case "goal-loop": {
-					// P0/P1: dispatched to runGoalLoop({ goalState, manifest, signal }).
-					// Stub until goal-loop-runner.ts lands — P0a stays self-contained (regression-safe).
-					throw new Error(
-						`runKind="goal-loop" dispatch not yet implemented (planned P0). runId=${manifest.runId}`,
-					);
+					// P0/P1: dispatched to runGoalLoop. The GoalLoopState is persisted at
+					// <crewRoot>/state/goals/<goalId>.json by handleStart; we locate it via the
+					// manifest's runId (the goal-loop manifest's runId IS the goalId by convention
+					// set in handleStart — see team-tool/goal.ts).
+					const { runGoalLoop } = await import("./goal-loop-runner.ts");
+					const { GoalStore } = await import("./goal-state-store.ts");
+					const { discoverAgents, allAgents } = await import("../agents/discover-agents.ts");
+					const store = new GoalStore(manifest.cwd);
+					// The goal-loop manifest's runId is the goalId (handleStart sets manifest.runId = goalId).
+					const goalState = store.load(manifest.runId);
+					if (!goalState) {
+						throw new Error(`runKind="goal-loop" but GoalLoopState '${manifest.runId}' not found (cwd=${manifest.cwd})`);
+					}
+					const goalResult = await runGoalLoop({
+						goalState,
+						manifest,
+						signal: abortController.signal,
+						deps: { discoverAgents: (cwd: string) => allAgents(discoverAgents(cwd)) },
+					});
+					result = { manifest: goalResult.manifest, tasks: goalResult.tasks };
+					break;
 				}
 				case "dynamic-workflow": {
 					// P2: dispatched to runDynamicWorkflow({ manifest, workflow, signal }).

@@ -15,6 +15,9 @@
  */
 
 import { result, type TeamContext } from "./context.ts";
+import { createRunManifest, saveRunManifest } from "../../state/state-store.ts";
+import { appendEvent } from "../../state/event-log.ts";
+import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import { GoalStore } from "../../runtime/goal-state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { GoalLoopState, GoalLoopStatus } from "../../state/types.ts";
@@ -65,7 +68,7 @@ function formatGoalStatus(goal: GoalLoopState): string {
 }
 
 /** `goal start` — create state + spawn background process (P0: writes state; spawn wiring TBD per host). */
-function handleStart(input: GoalSubActionInput): ReturnType<typeof result> {
+async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof result>> {
 	const { params, ctx, store } = input;
 	try {
 		const objective = readObjective(params);
@@ -101,15 +104,54 @@ function handleStart(input: GoalSubActionInput): ReturnType<typeof result> {
 			updatedAt: now,
 		};
 		store.save(goalState);
-		// The actual background spawn is performed by the host (register.ts / run.ts) which
-		// constructs a goal-loop manifest and calls spawnBackgroundTeamRun. This handler
-		// returns the goalId + initial state; the loop picks up via runGoalLoop on the next tick.
-		// (Full spawn wiring lands with the background-runner goal-loop arm integration in P0 finalize.)
-		return result(
-			`Goal loop started.\n${formatGoalStatus(goalState)}\n\nNext: \`team action='goal' config.subAction='status'\` to track progress. The background loop will run up to ${maxTurns} turns, judging each against the objective.`,
-			{ action: "goal", status: "ok", data: { goalId, state: goalState.state, maxTurns } },
-			false,
-		);
+
+		// ── Spawn the background goal-loop process (Fix P0-1) ──────────────────
+		// Convention: the goal-loop manifest's runId IS the goalId, so background-runner's
+		// `case "goal-loop"` can load GoalLoopState via `store.load(manifest.runId)`.
+		// We create a minimal manifest with runKind:"goal-loop" and spawn it detached.
+		const created = createRunManifest({
+			cwd,
+			team: {
+				name: `goal-${goalId}`,
+				description: `Goal loop ${goalId}`,
+				source: "dynamic",
+				filePath: "<goal-loop>",
+				roles: [{ name: "worker", agent: goalState.workerAgent ?? "executor" }],
+				workspaceMode: "single",
+			},
+			workflow: {
+				name: "goal-loop",
+				description: "Goal loop outer coordinator",
+				source: "dynamic",
+				filePath: "<goal-loop>",
+				steps: [],
+			},
+			goal: objective,
+			workspaceMode: "single",
+			ownerSessionId: ownerSessionId,
+			runKind: "goal-loop",
+		});
+		// Force the manifest runId to equal the goalId so background-runner can locate the state.
+		const goalLoopManifest = { ...created.manifest, runId: goalId, runKind: "goal-loop" as const, goal: objective };
+		saveRunManifest(goalLoopManifest);
+		const eventsPath = goalLoopManifest.eventsPath;
+		appendEvent(eventsPath, { type: "goal.loop_start", runId: goalId, data: { goalId, objective, maxTurns, statePath: `${cwd}/.crew/state/goals/${goalId}.json` } });
+
+		try {
+			const spawned = await spawnBackgroundTeamRun(goalLoopManifest);
+			const pid = spawned.pid ?? 0;
+			const withAsync = { ...goalState, async: { pid, logPath: spawned.logPath, spawnedAt: new Date().toISOString() } };
+			store.save(withAsync);
+			return result(
+				`Goal loop started (background pid=${pid}).\n${formatGoalStatus(withAsync)}\n\nNext: \`team action='goal' config.subAction='status' config.goalId='${goalId}'\`. The loop runs up to ${maxTurns} turns, judging each against the objective. Log: ${spawned.logPath}`,
+				{ action: "goal", status: "ok", data: { goalId, state: goalState.state, maxTurns, pid } },
+				false,
+			);
+		} catch (spawnError) {
+			const message = spawnError instanceof Error ? spawnError.message : String(spawnError);
+			store.setStatus(goalId, "blocked", eventsPath);
+			return result(`goal start: state saved but background spawn failed: ${message}`, { action: "goal", status: "error", data: { goalId } }, true);
+		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return result(`goal start failed: ${message}`, { action: "goal", status: "error" }, true);
@@ -144,7 +186,7 @@ function handleStateFlip(input: GoalSubActionInput, nextState: GoalLoopStatus, l
 }
 
 /** `team action='goal'` dispatch. */
-export function handleGoal(params: TeamToolParamsValue, ctx: TeamContext): ReturnType<typeof result> {
+export async function handleGoal(params: TeamToolParamsValue, ctx: TeamContext): Promise<ReturnType<typeof result>> {
 	const store = new GoalStore(ctx.cwd);
 	const subAction = typeof params.config?.subAction === "string" ? params.config.subAction : "status";
 	const input: GoalSubActionInput = { params, ctx, store };
