@@ -289,6 +289,18 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 						: "changes_requested";
 					return { outcome, feedback: judged.feedback };
 				}
+				// Tier-3 fallback (round-11): when the judge ALSO ignores JSON (common with
+				// MiniMax-M3, GLM), classify the outcome from the reviewer's prose sentiment.
+				// This keeps outcome ACCURATE (accept vs reject vs changes_requested) even when
+				// no JSON is ever produced. Without this, outcome was always the hardcoded
+				// 'changes_requested' default — e.g. correct code got 'changes_requested'.
+				if (judge.text.trim()) {
+					return { outcome: classifyReviewOutcome(judge.text), feedback: judge.text };
+				}
+			}
+			// Tier-4 fallback: classify directly from the reviewer's prose when no judge ran.
+			if (res.text.trim()) {
+				return { outcome: classifyReviewOutcome(res.text), feedback: res.text };
 			}
 			return { outcome: "changes_requested", feedback: res.text || "(reviewer produced no parseable verdict)" };
 		},
@@ -353,6 +365,41 @@ function composeAgentTask(call: AgentCallOpts): string {
 	if (!call.inputs?.length) return call.prompt;
 	const block = call.inputs.map((p) => `- ${p}`).join("\n");
 	return `${call.prompt}\n\n## Inputs (artifact paths)\n${block}`;
+}
+
+/**
+ * Classify a review outcome from prose when no JSON was produced (round-11 tier-3/4 fallback).
+ * Scans the reviewer's prose for sentiment signals to decide accept / reject / changes_requested.
+ * This keeps the outcome ACCURATE for models that ignore JSON-output instructions.
+ *
+ * Decision order: reject (critical issues) → accept (explicit approval) → changes_requested (default).
+ * reject is checked first because a review can mention both "correctly" (describing existing code)
+ * AND "critical bug" (the verdict) — the verdict signal must win.
+ */
+export function classifyReviewOutcome(prose: string): "accept" | "reject" | "changes_requested" {
+	const text = prose.toLowerCase();
+	// Strong negative signals → reject. These indicate fundamental/critical problems.
+	const rejectSignals = [
+		"\breject\b", "fundamentally", "completely broken", "totally broken",
+		"critical bug", "critical issue", "critical flaw", "security vulnerability",
+		"does not work", "doesn't work", "will not work", "fails to",
+		"unacceptable", "must not be merged", "do not merge", "wrong approach",
+		"logically incorrect", "incorrectly implements", "returns the opposite",
+		"subtraction instead of addition", "opposite of its intended",
+	];
+	// Acceptance signals → accept. These indicate explicit approval with no real issues.
+	const acceptSignals = [
+		"\baccept\b", "looks good", "well done", "no issues", "no real issues",
+		"no problems", "no concerns", "nothing to change", "ready to merge",
+		"lgtm", "ship it", "correctly implements", "correctly returns",
+		"works as expected", "works correctly", "no bugs", "no defects",
+		"meets all requirements", "all requirements met", "passes all",
+	];
+	const hasReject = rejectSignals.some((sig) => new RegExp(sig).test(text));
+	const hasAccept = acceptSignals.some((sig) => new RegExp(sig).test(text));
+	if (hasReject) return "reject";
+	if (hasAccept) return "accept";
+	return "changes_requested";
 }
 
 /**

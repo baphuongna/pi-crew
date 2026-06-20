@@ -126,6 +126,32 @@ test("ctx.agent() returns ok:false on spawn failure (mock without PI_CREW_ALLOW_
 // --- review() round-11 fix tests (disableTools, systemPrompt, 2-step fallback) ---
 // These mock ctx.agent to verify review()'s verdict logic without spawning real pi.
 
+test("classifyReviewOutcome: reject on critical-bug signals", () => {
+	const { classifyReviewOutcome } = require("../../src/runtime/dynamic-workflow-context.ts") as typeof import("../../src/runtime/dynamic-workflow-context.ts");
+	assert.equal(classifyReviewOutcome("The function has a critical bug: it subtracts instead of adds."), "reject");
+	assert.equal(classifyReviewOutcome("This is fundamentally wrong and will not work."), "reject");
+	assert.equal(classifyReviewOutcome("Security vulnerability found. Do not merge."), "reject");
+});
+
+test("classifyReviewOutcome: accept on explicit approval signals", () => {
+	const { classifyReviewOutcome } = require("../../src/runtime/dynamic-workflow-context.ts") as typeof import("../../src/runtime/dynamic-workflow-context.ts");
+	assert.equal(classifyReviewOutcome("The function correctly returns the sum and looks good."), "accept");
+	assert.equal(classifyReviewOutcome("No issues found. Ready to merge."), "accept");
+	assert.equal(classifyReviewOutcome("Works as expected, meets all requirements."), "accept");
+});
+
+test("classifyReviewOutcome: changes_requested as neutral default", () => {
+	const { classifyReviewOutcome } = require("../../src/runtime/dynamic-workflow-context.ts") as typeof import("../../src/runtime/dynamic-workflow-context.ts");
+	assert.equal(classifyReviewOutcome("The code could use some refactoring and additional comments."), "changes_requested");
+	assert.equal(classifyReviewOutcome("Consider adding more test coverage."), "changes_requested");
+});
+
+test("classifyReviewOutcome: reject wins over accept (verdict signal dominates)", () => {
+	const { classifyReviewOutcome } = require("../../src/runtime/dynamic-workflow-context.ts") as typeof import("../../src/runtime/dynamic-workflow-context.ts");
+	// Reviewer describes existing code as "correctly returns" but verdict is critical bug.
+	assert.equal(classifyReviewOutcome("It correctly returns a value, but there is a critical bug in the logic."), "reject");
+});
+
 test("review(): returns verdict directly when reviewer emits JSON (1-step)", async () => {
 	const cwd = tmpCwd();
 	try {
