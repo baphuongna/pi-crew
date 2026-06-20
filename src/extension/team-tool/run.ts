@@ -272,13 +272,28 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		};
 		atomicWriteJson(paths.manifestPath, dwfManifest);
 		try {
-			const dwfResult = await runDynamicWorkflow({
-				manifest: dwfManifest,
-				workflow: workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig,
-				team: dwfTeam,
-				signal: ctx.signal ?? AbortSignal.timeout(3_600_000),
-				modelOverride: params.model,
-			});
+			let dwfResult: import("../../runtime/dynamic-workflow-runner.ts").RunDynamicWorkflowResult | undefined;
+			try {
+				dwfResult = await runDynamicWorkflow({
+					manifest: dwfManifest,
+					workflow: workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig,
+					team: dwfTeam,
+					signal: ctx.signal ?? AbortSignal.timeout(3_600_000),
+					modelOverride: params.model,
+				});
+			} catch (runnerError) {
+				// Round-11 runtime fix: persist manifest with status=failed when runner throws
+				// (e.g., script timeout, script syntax error, async failure). Previously the
+				// manifest stayed at 'queued' indefinitely, leaving an orphan state file.
+				const failureReason = runnerError instanceof Error ? runnerError.message : String(runnerError);
+				const failedManifest = { ...dwfManifest, status: "failed" as const, summary: `Dynamic workflow '${workflow.name}' failed: ${failureReason}`.slice(0, 2000), updatedAt: new Date().toISOString() };
+				atomicWriteJson(paths.manifestPath, failedManifest);
+				return result(
+					`Dynamic workflow '${workflow.name}' failed: ${failureReason}`,
+					{ action: "run", status: "error", runId: failedManifest.runId, artifactsRoot: failedManifest.artifactsRoot },
+					true,
+				);
+			}
 			// Round-10 runtime-test fix: persist the updated manifest with status=completed
 			// so status queries / cancel / cleanup see the real state. Previously run.ts
 			// returned the result without atomicWriteJson, leaving manifest at 'queued' forever.

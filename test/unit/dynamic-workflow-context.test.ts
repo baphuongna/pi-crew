@@ -122,3 +122,89 @@ test("ctx.agent() returns ok:false on spawn failure (mock without PI_CREW_ALLOW_
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+// --- review() round-11 fix tests (disableTools, systemPrompt, 2-step fallback) ---
+// These mock ctx.agent to verify review()'s verdict logic without spawning real pi.
+
+test("review(): returns verdict directly when reviewer emits JSON (1-step)", async () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal, concurrency: 1 });
+		const calls: { disableTools?: boolean; systemPrompt?: string }[] = [];
+		ctx.agent = (async (call: { disableTools?: boolean; systemPrompt?: string; prompt: string }) => {
+			calls.push({ disableTools: call.disableTools, systemPrompt: call.systemPrompt });
+			return { ok: true, text: '{"outcome":"accept","feedback":"looks good"}', structured: { outcome: "accept", feedback: "looks good" } };
+		}) as typeof ctx.agent;
+		const r = await ctx.review("task-1", "reviewer", { content: "work here" });
+		assert.equal(r.outcome, "accept");
+		assert.equal(r.feedback, "looks good");
+		assert.equal(calls.length, 1, "1-step: no judge fallback when reviewer emits JSON");
+		assert.equal(calls[0].disableTools, true, "review defaults disableTools=true");
+		assert.ok(calls[0].systemPrompt, "review passes a JSON-verdict systemPrompt");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("review(): 2-step fallback converts prose review → JSON verdict when model ignores JSON", async () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal, concurrency: 1 });
+		let callNo = 0;
+		ctx.agent = (async (call: { prompt: string }) => {
+			callNo += 1;
+			if (callNo === 1) {
+				// Reviewer ignores JSON instruction, returns prose (real MiniMax-M3 behavior).
+				return { ok: true, text: "The add function subtracts instead of adds. Critical bug.", structured: undefined };
+			}
+			// Call 2 = judge fallback: converts prose → JSON verdict.
+			assert.match(call.prompt, /Convert the following code review/, "2nd call is the judge fallback");
+			return { ok: true, text: '{"outcome":"reject","feedback":"subtracts instead of adds"}', structured: { outcome: "reject", feedback: "subtracts instead of adds" } };
+		}) as typeof ctx.agent;
+		const r = await ctx.review("task-add", "reviewer", { content: "function add(a,b){return a-b;}" });
+		assert.equal(callNo, 2, "2-step fallback ran exactly one extra judge call");
+		assert.equal(r.outcome, "reject", "judge verdict propagated");
+		assert.equal(r.feedback, "subtracts instead of adds");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("review(): when reviewer produces NO text (killed), skips judge + returns fallback", async () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal, concurrency: 1 });
+		let callNo = 0;
+		ctx.agent = (async () => {
+			callNo += 1;
+			// Reviewer killed (exit 143) → empty text, like the unfixed bug.
+			return { ok: false, text: "", error: "exit 143" };
+		}) as typeof ctx.agent;
+		const r = await ctx.review("task-empty");
+		assert.equal(callNo, 1, "judge fallback SKIPPED when reviewer text is empty");
+		assert.equal(r.outcome, "changes_requested");
+		assert.equal(r.feedback, "(reviewer produced no parseable verdict)");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("review(): content option is injected into the reviewer prompt", async () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal, concurrency: 1 });
+		let capturedPrompt = "";
+		ctx.agent = (async (call: { prompt: string }) => {
+			capturedPrompt = call.prompt;
+			return { ok: true, text: '{"outcome":"accept","feedback":"ok"}', structured: { outcome: "accept", feedback: "ok" } };
+		}) as typeof ctx.agent;
+		await ctx.review("task-x", "reviewer", { content: "UNIQUE_WORK_MARKER_42" });
+		assert.match(capturedPrompt, /UNIQUE_WORK_MARKER_42/, "content is passed to the reviewer");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

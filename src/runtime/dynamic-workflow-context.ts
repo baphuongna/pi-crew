@@ -51,6 +51,16 @@ export interface AgentCallOpts {
 	graceTurns?: number;
 	/** Dependency artifact paths injected into the agent prompt. */
 	inputs?: string[];
+	/** Disable ALL tools for this call (Pi `--no-tools`, §0c C6). Use for pure-judgment /
+	 *  verdict steps where the agent must answer directly without exploring, e.g.
+	 *  `ctx.review()`'s JSON-verdict call. Without this, role-based tools (read/grep/bash)
+	 *  apply and the model may loop exploring instead of answering. */
+	disableTools?: boolean;
+	/** Override the resolved agent's system prompt. Use when the call needs a different
+	 *  persona/output-format than the role's defined agent — e.g. `ctx.review()` needs a
+	 *  JSON-verdict judge, but the user's reviewer.md agent is a markdown code-reviewer.
+	 *  When set, the resolved agent's systemPrompt is replaced entirely. */
+	systemPrompt?: string;
 }
 
 export interface AgentResult {
@@ -74,7 +84,7 @@ export interface WorkflowCtx {
 	/** Bounded fan-out preserving order (wraps mapConcurrent). */
 	fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]>;
 	/** Run a reviewer agent over an artifact; parse {outcome, feedback}. §3.2. */
-	review(taskId: string, reviewerRole?: string): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }>;
+	review(taskId: string, reviewerRole?: string, opts?: { content?: string; artifactPath?: string; disableTools?: boolean }): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }>;
 	/** Re-run a task with feedback (wraps executeWithRetry). */
 	retry(taskId: string, opts?: { feedback?: string }): Promise<AgentResult>;
 	/** Send a mailbox message to another agent/leader. */
@@ -169,11 +179,20 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					team: opts.team,
 					cwd: manifest.cwd,
 				});
+				// §0c C6: per-call disableTools override. When set, force Pi `--no-tools` so the
+				// agent answers directly without exploring. Applied AFTER role resolution so it
+				// wins over any role-defined tools.
+				let effectiveAgent = call.disableTools === true ? { ...agentConfig, disableTools: true, tools: [] } : agentConfig;
+				// Per-call systemPrompt override (replaces the resolved agent's persona/output-format).
+				// Used by ctx.review() to force a JSON-verdict judge instead of the role's markdown reviewer.
+				if (call.systemPrompt !== undefined) {
+					effectiveAgent = { ...effectiveAgent, systemPrompt: call.systemPrompt };
+				}
 				const task = composeAgentTask(call);
 				const childResult = await runChildPi({
 					cwd: manifest.cwd,
 					task,
-					agent: agentConfig,
+					agent: effectiveAgent,
 					model: call.model ?? opts.modelOverride ?? agentConfig.model,
 					skillPaths: undefined, // skills resolved via agent config + team-role plumbing
 					maxTurns: call.maxTurns,
@@ -187,7 +206,14 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					return { ok: false, text: "", error: childResult.error ?? `exit ${childResult.exitCode}`, durationMs: Date.now() - started };
 				}
 				const parsed = parsePiJsonOutput(childResult.stdout);
-				const text = parsed.finalText ?? "";
+				let text = parsed.finalText ?? "";
+				// Round-11 test fix: parsePiJsonOutput only extracts text from pi event stream
+				// ({type:"message_end", message:{role:"assistant", content:[...]}}). When the
+				// agent emits plain JSON, plain text, or a different format, finalText is empty.
+				// Fallback to a more permissive extraction that handles multiple output shapes.
+				if (!text.trim()) {
+					text = extractTextFallback(childResult.stdout);
+				}
 				const extracted = extractStructuredResult(text);
 				// Write a side artifact for audit/isolation (§0b G3).
 				const rel = `wf/${Date.now()}-${randomBytes(4).toString("hex")}.md`;
@@ -215,11 +241,25 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		async fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]> {
 			return mapConcurrent(items, Math.max(1, limit), fn);
 		},
-		async review(taskId: string, reviewerRole = "reviewer"): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }> {
+		async review(taskId: string, reviewerRole = "reviewer", reviewOpts?: { content?: string; artifactPath?: string; disableTools?: boolean }): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }> {
+			// review() is a VERDICT step: it must produce a parseable JSON {outcome, feedback}, not a
+			// free-form markdown review. The resolved reviewer agent (e.g. ~/.pi/agent/agents/reviewer.md)
+			// has tools (read/grep/bash) + a markdown-output system prompt. Without disableTools, the
+			// reviewer explores the repo looking for the task's work, loops, and gets killed (exit 143)
+			// before producing JSON — leaving text="" and the fallback verdict. Default: disableTools so
+			// the reviewer judges the provided content (or taskId context) directly.
+			const disableTools = reviewOpts?.disableTools !== false; // default true
+			const workContext = reviewOpts?.content
+				? `\n\nWork to review:\n"""\n${reviewOpts.content}\n"""`
+				: reviewOpts?.artifactPath
+					? `\n\nRead the work from artifact: ${reviewOpts.artifactPath}`
+					: "";
 			const res = await ctx.agent({
 				role: reviewerRole,
-				prompt: `Review the work for task '${taskId}'. Respond with ONLY JSON: {"outcome":"accept|reject|changes_requested","feedback":"..."}`,
-				maxTurns: 2,
+				prompt: `You are reviewing the work for task '${taskId}'.${workContext}\n\nEvaluate the work and respond with ONLY a single JSON object, no prose, no markdown:\n{"outcome":"accept|reject|changes_requested","feedback":"<one-paragraph explanation>"}\n\n- "accept": work is complete and correct.\n- "reject": work is fundamentally wrong.\n- "changes_requested": work needs revision (explain what in feedback).`,
+				maxTurns: 3,
+				disableTools,
+				systemPrompt: "You are a JSON verdict judge. You output ONLY a single JSON object with keys \"outcome\" (one of accept/reject/changes_requested) and \"feedback\" (a concise explanation). Never output prose, markdown, or code fences. Begin your response with { and end with }.",
 			});
 			const extracted = res.structured as { outcome?: string; feedback?: string } | undefined;
 			if (extracted && typeof extracted.outcome === "string" && typeof extracted.feedback === "string") {
@@ -227,6 +267,28 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					? extracted.outcome
 					: "changes_requested";
 				return { outcome, feedback: extracted.feedback };
+			}
+			// Fallback (round-11 runtime): many models (e.g. MiniMax-M3) ignore JSON-output
+			// instructions and produce a prose review instead. Rather than report an
+			// unparseable verdict, run a tiny judge call that converts the prose review into a
+			// JSON verdict. This guarantees ctx.review() always returns a structured verdict
+			// regardless of the reviewer's output format. Skipped when the reviewer produced
+			// no text at all (genuine failure).
+			if (res.text.trim()) {
+				const judge = await ctx.agent({
+					role: reviewerRole,
+					prompt: `Convert the following code review into a verdict JSON. Read the review and decide the outcome.\n\nREVIEW:\n"""\n${res.text.slice(0, 4000)}\n"""\n\nRespond with ONLY a JSON object:\n{"outcome":"accept|reject|changes_requested","feedback":"<concise summary>"}\n- accept: review found no real issues.\n- reject: review found critical/fundamental problems.\n- changes_requested: review found issues that need fixing.`,
+					maxTurns: 1,
+					disableTools: true,
+					systemPrompt: "You output ONLY a single JSON object with keys outcome and feedback. Begin with { and end with }. Never output prose.",
+				});
+				const judged = judge.structured as { outcome?: string; feedback?: string } | undefined;
+				if (judged && typeof judged.outcome === "string" && typeof judged.feedback === "string") {
+					const outcome = (judged.outcome === "accept" || judged.outcome === "reject" || judged.outcome === "changes_requested")
+						? judged.outcome
+						: "changes_requested";
+					return { outcome, feedback: judged.feedback };
+				}
 			}
 			return { outcome: "changes_requested", feedback: res.text || "(reviewer produced no parseable verdict)" };
 		},
@@ -291,4 +353,50 @@ function composeAgentTask(call: AgentCallOpts): string {
 	if (!call.inputs?.length) return call.prompt;
 	const block = call.inputs.map((p) => `- ${p}`).join("\n");
 	return `${call.prompt}\n\n## Inputs (artifact paths)\n${block}`;
+}
+
+/**
+ * Round-11 test fix: permissive text extraction for ctx.agent().
+ * parsePiJsonOutput only handles the canonical pi event stream. When the child emits
+ * a different shape, finalText is empty. This fallback walks the JSON tree looking
+ * for any text-shaped string at any depth, then returns the longest one (typically
+ * the final assistant response).
+ */
+export function extractTextFallback(stdout: string): string {
+	const trimmed = stdout.trim();
+	if (!trimmed) return "";
+	const candidates: string[] = [];
+	const collect = (value: unknown): void => {
+		if (typeof value === "string") {
+			const t = value.trim();
+			// Skip very short strings and JSON-ish strings
+			if (t.length >= 2 && !t.startsWith("{") && !t.startsWith("[") && !/^[\d.]+$/.test(t)) {
+				candidates.push(t);
+			}
+		} else if (Array.isArray(value)) {
+			for (const item of value) collect(item);
+		} else if (value && typeof value === "object") {
+			for (const v of Object.values(value as Record<string, unknown>)) collect(v);
+		}
+	};
+	// 1. Try parsing each line as JSON, walk tree
+	for (const line of trimmed.split("\n")) {
+		const lineTrim = line.trim();
+		if (!lineTrim.startsWith("{")) continue;
+		try {
+			const obj = JSON.parse(lineTrim);
+			collect(obj);
+		} catch { /* skip */ }
+	}
+	// 2. If nothing from JSON, try plain text (longest non-empty line that's not JSON)
+	if (candidates.length === 0) {
+		for (const line of trimmed.split("\n")) {
+			const l = line.trim();
+			if (l.length >= 3 && !l.startsWith("{") && !l.startsWith("[") && !l.startsWith("=")) candidates.push(l);
+		}
+	}
+	// 3. Return the longest candidate (typically the final answer)
+	if (candidates.length === 0) return "";
+	candidates.sort((a, b) => b.length - a.length);
+	return candidates[0];
 }

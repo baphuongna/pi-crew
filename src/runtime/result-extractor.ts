@@ -41,6 +41,14 @@ export function extractStructuredResult(raw: string, _schema?: Record<string, un
 		return { structured: true, data: markerResult, rawText: raw };
 	}
 
+	// Strategy 4: Scan for the first JSON object/array anywhere in text.
+	// Models often add prose preamble/epilogue ("Here's my review:", "Let me analyze...")
+	// around the JSON. This catches JSON embedded in sentences, lists, or prose.
+	const scannedResult = tryScanJson(trimmed);
+	if (scannedResult !== undefined) {
+		return { structured: true, data: scannedResult, rawText: raw };
+	}
+
 	return { structured: false, data: null, rawText: raw };
 }
 
@@ -61,6 +69,30 @@ function tryFencedJson(text: string): unknown | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Strategy 4: Scan for the first balanced JSON object/array anywhere in text.
+ * Robust against prose preamble/epilogue that models add around JSON output.
+ * Returns the first valid JSON value found, or undefined.
+ */
+function tryScanJson(text: string): unknown | undefined {
+	// Find the first '{' or '[' in the text.
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (ch !== "{" && ch !== "[") continue;
+		const rest = text.slice(i);
+		const end = findMatchingBracket(rest);
+		if (end <= 0) continue;
+		const candidate = rest.slice(0, end);
+		try {
+			return JSON.parse(candidate);
+		} catch {
+			// Not valid JSON at this position; keep scanning for the next '{'/'['.
+			continue;
+		}
+	}
+	return undefined;
 }
 
 function tryMarkerExtraction(text: string): unknown | undefined {

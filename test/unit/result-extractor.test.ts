@@ -122,3 +122,58 @@ test("## Output marker extraction", () => {
 	assert.equal(result.structured, true);
 	assert.deepEqual(result.data, { items: [1, 2] });
 });
+
+// --- Strategy 4: embedded JSON in prose (preamble/epilogue without markers) ---
+// This is the real-world case that motivated Strategy 4. Models (MiniMax-M3,
+// GLM, etc.) frequently emit prose like "Here's my review:" before the JSON,
+// without fences or RESULT:/OUTPUT: markers.
+
+test("Strategy 4: JSON after prose preamble", () => {
+	const text = 'Here is my review of the work:\n{"outcome":"accept","feedback":"looks good"}';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { outcome: "accept", feedback: "looks good" });
+});
+
+test("Strategy 4: JSON surrounded by prose on both sides", () => {
+	const text = 'Let me analyze. {"verdict": true} That concludes my review.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { verdict: true });
+});
+
+test("Strategy 4: JSON in a sentence", () => {
+	const text = 'The result is {"score": 42} as requested.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { score: 42 });
+});
+
+test("Strategy 4: JSON array embedded in prose", () => {
+	const text = 'Items found: [1, 2, 3] done.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, [1, 2, 3]);
+});
+
+test("Strategy 4: nested JSON object in prose", () => {
+	const text = 'Review complete. {"outer": {"inner": [1, 2]}} Thank you.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { outer: { inner: [1, 2] } });
+});
+
+test("Strategy 4: malformed brace is skipped, valid JSON found later", () => {
+	// Prose has a stray '{' that isn't valid JSON, followed by real JSON.
+	const text = 'Set of {things} here. {"real": "data"} done.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { real: "data" });
+});
+
+test("Strategy 4: brace inside string literal does not break matching", () => {
+	const text = 'Review: {"msg": "contains } and { chars"} end.';
+	const result = extractStructuredResult(text);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { msg: "contains } and { chars" });
+});
