@@ -408,9 +408,19 @@ export function hasPendingMutatingTaskAtBoundary(tasks: TeamTaskState[]): boolea
 function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): string[] | null {
 	const hasExplicitDeps = tasks.some((t) => t.dependsOn.length > 0);
 	if (!hasExplicitDeps) return null;
+	// FIX (goal-wrap runtime test): task.dependsOn stores STEP IDs (e.g. "execute"), not
+	// task IDs (e.g. "02_execute"). The DAG scheduler compares deps against completedIds
+	// (which are task IDs), so step-ID deps would never match → dependent tasks stuck blocked
+	// forever. Map step IDs -> task IDs first (mirror dependencySatisfied in
+	// task-graph-scheduler.ts which handles this via stepToTaskId). buildDagExecutionPlan +
+	// getDagReadyTasks then work on consistent task IDs.
+	const stepToTaskId = new Map<string, string>();
+	for (const t of tasks) {
+		if (t.stepId) stepToTaskId.set(t.stepId, t.id);
+	}
 	const nodes: TaskNode[] = tasks.map((t) => ({
 		id: t.id,
-		dependsOn: t.dependsOn,
+		dependsOn: t.dependsOn.map((dep) => stepToTaskId.get(dep) ?? dep),
 		phase: t.adaptive?.phase ?? t.stepId,
 	}));
 	const plan = buildDagExecutionPlan(nodes);

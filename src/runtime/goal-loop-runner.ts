@@ -26,6 +26,9 @@ import { acquireWorkspaceLock, type WorkspaceLockHandle } from "./workspace-lock
 import { existsSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { logInternalError } from "../utils/internal-error.ts";
+import { loadConfig } from "../config/config.ts";
+import { effectiveRunConfig } from "../extension/team-tool/config-patch.ts";
+import { resolveCrewRuntime } from "./runtime-resolver.ts";
 import { snapshotManifests, compareSnapshot } from "./verification-integrity.ts";
 import type {
 	GoalLoopState,
@@ -468,6 +471,14 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				// P1g (RFC v0.5 §P1g): route the worker turn through the GLOBAL worker cap so that
 				// many concurrent goals / dynamic-workflows / fanOuts cannot fork-storm. The JUDGE is
 				// EXEMPT (RFC MAJ#3) — it is spawned separately in evaluateGoal below without a slot.
+				//
+				// Goal-wrap runtime fix: pass limits/runtimeConfig/reliability (loaded from config) so
+				// multi-step workflows (fast-fix, implementation) work correctly. Without these, the
+				// team-runner's DAG scheduler / runtime resolution can throw unhandled rejections on
+				// the second batch, which the background-runner's rejection guard catches → silent exit.
+				const turnConfig = loadConfig(goal.cwd);
+				const turnExecutedConfig = effectiveRunConfig(turnConfig.config, {});
+				const turnRuntime = await resolveCrewRuntime(turnExecutedConfig);
 				turnResult = await withWorkerSlot(() => executeTeamRun({
 					manifest: created.manifest,
 					tasks: created.tasks,
@@ -475,6 +486,10 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					workflow,
 					agents,
 					executeWorkers: true,
+					limits: turnExecutedConfig.limits,
+					runtime: turnRuntime,
+					runtimeConfig: turnExecutedConfig.runtime,
+					reliability: turnExecutedConfig.reliability,
 					workspaceId: goal.ownerSessionId ?? goal.cwd,
 					signal,
 				}));
