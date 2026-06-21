@@ -4,6 +4,30 @@
 
 Two new features, both built on a shared `runKind` background-dispatch discriminator.
 
+### Resolution: multi-step goal-wrap crash (3/3 tasks now complete end-to-end)
+
+The silent crash at `atomicWriteFileAsync` of the inner turn's `manifest.json`
+(size=7417) — which caused `team action='run' workflow='fast-fix'` (and other
+multi-step builtins) to hang at "1/3" forever — is **resolved** as a side
+effect of commit `d52cb81` ("fix(goal-wrap): persist async.pid on OUTER
+goal-loop manifest"). The extra `atomicWriteJson(manifestPath, asyncGoalManifest)`
+call in `startGoalWrappedRun` after `spawnBackgroundTeamRun` shifts timing
+enough to avoid the underlying race condition.
+
+Verified end-to-end with 3 consecutive runs of goal-wrapped fast-fix
+(`fix test.js so npm test passes`): all completed 3/3 tasks in ~120s with
+`npm test` PASS. The original deep-dive investigation (commit `a9f6e09`) is
+preserved as a reference; the proximate crash trigger is a Node.js / V8 /
+filesystem-level race that is not reliably reproducible in either direction.
+
+The user-facing symptom (must kill pi to recover from 1/3 hang) is also
+resolved: even if a future regression reintroduces the crash, async-notifier
+will detect the dead background-runner within ~30s and emit `async.died` —
+the user sees "Goal failed: Background runner died unexpectedly" instead of
+an infinite "running" state.
+
+
+
 ### `goal` — autonomous goal loop (P0a + P0 + P1)
 
 - `team action='goal' config.subAction='start|status|pause|resume|stop|step|clear'`.
