@@ -14,6 +14,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import {
 	GOAL_WRAP_ELIGIBLE_BUILTINS,
+	GOAL_WRAP_MAX_STEPS,
 	isGoalWrapEnabled,
 	persistAsyncOnGoalLoopManifest,
 	validateGoalWrapConfig,
@@ -149,4 +150,94 @@ test("FIX: startGoalWrappedRun calls persistAsyncOnGoalLoopManifest after spawn"
 	);
 	assert.match(source, /persistAsyncOnGoalLoopManifest\(/, "startGoalWrappedRun must call persistAsyncOnGoalLoopManifest");
 	assert.match(source, /async:\s*\{\s*pid:\s*spawned\.pid/, "manifest.async.pid must come from spawn result");
+});
+
+test("GOAL_WRAP_MAX_STEPS is 1 (single-step only — multi-step crashes non-deterministically)", () => {
+	assert.equal(GOAL_WRAP_MAX_STEPS, 1, "GOAL_WRAP_MAX_STEPS must be 1; multi-step workflows crash in background goal-loop");
+});
+
+test("SAFETY: startGoalWrappedRun refuses multi-step workflows with helpful alternatives", async () => {
+	const cwd = tmpCwd();
+	try {
+		writeConfig(cwd, {
+			goalWrap: {
+				"fast-fix": {
+					enabled: true,
+					maxTurns: 1,
+					evaluatorModel: "minimax/MiniMax-M3",
+					verification: { commands: ["npm test"] },
+					budgetUnlimited: true,
+				},
+			},
+		});
+
+		// Load the real fast-fix workflow (3 steps: explore, execute, verify).
+		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dw = dwMod.default ?? dwMod;
+		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
+		if (!wf) {
+			// fast-fix not bundled → skip
+			return;
+		}
+		assert.ok(wf.steps.length > 1, `fast-fix must be multi-step for this test; got ${wf.steps.length} steps`);
+
+		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gw = gwMod.default ?? gwMod;
+		const res = await gw.startGoalWrappedRun(
+			{ action: "run", goal: "test", workflow: "fast-fix" } as never,
+			{ cwd, sessionId: "test" } as never,
+			wf,
+			"test",
+		);
+		const payload = res as unknown as { isError?: boolean; details?: { data?: { goalWrapRefused?: boolean } }; content?: { text?: string }[] };
+		assert.equal(payload.isError, true, "multi-step goal-wrap must be refused (isError=true)");
+		assert.equal(payload.details?.data?.goalWrapRefused, true, "refusal must set goalWrapRefused=true in data");
+		const text = payload.content?.[0]?.text ?? "";
+		assert.match(text, /refused/i, "refusal message must say 'refused'");
+		assert.match(text, /team action=.run. workflow=fast-fix/, "refusal must suggest one-shot alternative");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("SAFETY: startGoalWrappedRun ACCEPTS single-step workflows (e.g. implementation with adaptive assess)", async () => {
+	const cwd = tmpCwd();
+	try {
+		writeConfig(cwd, {
+			goalWrap: {
+				"implementation": {
+					enabled: true,
+					maxTurns: 1,
+					evaluatorModel: "minimax/MiniMax-M3",
+					verification: { commands: ["npm test"] },
+					budgetUnlimited: true,
+				},
+			},
+		});
+
+		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dw = dwMod.default ?? dwMod;
+		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "implementation");
+		if (!wf) {
+			return; // skip if not bundled
+		}
+		assert.equal(wf.steps.length, 1, `implementation must be 1-step (adaptive assess); got ${wf.steps.length}`);
+
+		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gw = gwMod.default ?? gwMod;
+		const res = await gw.startGoalWrappedRun(
+			{ action: "run", goal: "test", workflow: "implementation" } as never,
+			{ cwd, sessionId: "test" } as never,
+			wf,
+			"test",
+		);
+		const payload = res as unknown as { isError?: boolean; details?: { data?: { goalWrapRefused?: boolean } } };
+		assert.notEqual(payload.isError, true, "single-step goal-wrap must NOT be refused");
+		assert.notEqual(payload.details?.data?.goalWrapRefused, true, "single-step must not set goalWrapRefused");
+		// Cleanup: kill the spawned bg-runner if any
+		const pid = (payload.details as { data?: { pid?: number } } | undefined)?.data?.pid;
+		if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });

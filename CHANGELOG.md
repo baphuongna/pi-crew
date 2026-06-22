@@ -4,6 +4,25 @@
 
 Two new features, both built on a shared `runKind` background-dispatch discriminator.
 
+### SAFETY: goal-wrap refuses multi-step workflows (no hidden crashes)
+
+`startGoalWrappedRun` now REFUSES to goal-wrap any workflow with more than
+`GOAL_WRAP_MAX_STEPS = 1` step. Multi-step workflows (default: 4 steps,
+fast-fix: 3 steps) crash non-deterministically when run as goal-wrap worker
+turns in the background goal-loop process — V8/libuv race during event-loop
+yields in team-runner batch transition (see commit a9f6e09, RFC 15). Sync
+fs workarounds regress; worker-thread isolation doesn't help.
+
+Rather than ship a feature that silently hangs users at "1/N tasks", goal-wrap
+now refuses with a helpful error pointing to alternatives:
+- `team action='run' workflow=<multi-step>` for one-shot execution
+- single-step workflow like `implementation` (only the adaptive `assess` step)
+- break the goal into smaller single-step goals
+
+Single-step workflows (e.g. `implementation`) continue to work end-to-end.
+Three new unit tests cover: GOAL_WRAP_MAX_STEPS value, refusal for fast-fix,
+acceptance for implementation.
+
 ### Phase 1.5: worker-thread atomic writer (opt-in, infrastructure)
 
 `PI_CREW_WORKER_ATOMIC_WRITER=1` routes `atomicWriteFileAsync` and
