@@ -129,6 +129,42 @@ export function persistAsyncOnGoalLoopManifest(
 	};
 	atomicWriteJson(manifestPath, asyncGoalManifest);
 }
+/**
+ * Decide whether a workflow should be goal-wrapped.
+ *
+ * Returns one of:
+ *   { enabled: true }                          — goal-wrap is enabled AND safe
+ *   { enabled: false, reason: "config-off" }     — goal-wrap not enabled in config
+ *   { enabled: false, reason: "multi-step" }     — enabled but refused (multi-step
+ *                                                workflows crash non-deterministically
+ *                                                in the background goal-loop process
+ *                                                due to V8/libuv race; see GOAL_WRAP_MAX_STEPS)
+ *   { enabled: false, reason: "invalid-config" } — config present but invalid
+ *
+ * Use this in run.ts to decide whether to route to startGoalWrappedRun or fall
+ * through to the normal team-run path. NEVER refuse with an error — when
+ * goal-wrap is unsafe for a given workflow, silently fall back so the user
+ * still gets the workflow run they asked for.
+ */
+export function shouldGoalWrap(cwd: string, workflow: WorkflowConfig): { enabled: true } | { enabled: false; reason: "config-off" | "multi-step" | "invalid-config"; message?: string } {
+	const wc = readGoalWrapConfig(cwd, workflow.name);
+	if (!wc || wc.enabled !== true) {
+		return { enabled: false, reason: "config-off" };
+	}
+	const validationError = validateGoalWrapConfig(wc);
+	if (validationError) {
+		return { enabled: false, reason: "invalid-config", message: validationError };
+	}
+	if (workflow.steps.length > GOAL_WRAP_MAX_STEPS) {
+		return {
+			enabled: false,
+			reason: "multi-step",
+			message: `goal-wrap disabled for '${workflow.name}' (${workflow.steps.length} steps): multi-step workflows crash non-deterministically in the background goal-loop (V8/libuv race). Running as a normal one-shot team run instead.`,
+		};
+	}
+	return { enabled: true };
+}
+
 export async function startGoalWrappedRun(
 	params: TeamToolParamsValue,
 	ctx: TeamContext,
@@ -143,28 +179,6 @@ export async function startGoalWrappedRun(
 	const validationError = validateGoalWrapConfig(wc);
 	if (validationError) {
 		return result(`Invalid goalWrap config for '${workflow.name}': ${validationError}`, { action: "run", status: "error" }, true);
-	}
-	// SAFETY: refuse goal-wrap for multi-step workflows. They crash
-	// non-deterministically in the background goal-loop process due to a
-	// V8/libuv-level race during event-loop yields in the team-runner batch
-	// transition (see GOAL_WRAP_MAX_STEPS doc + commit a9f6e09 + RFC 15).
-	// Single-step workflows (e.g. implementation with only the adaptive
-	// `assess` step) work reliably. Refuse here with a helpful message
-	// rather than ship a feature that silently hangs the user at "1/N tasks".
-	if (workflow.steps.length > GOAL_WRAP_MAX_STEPS) {
-		return result(
-			[
-				`goal-wrap refused for '${workflow.name}': this workflow has ${workflow.steps.length} steps (${workflow.steps.map((s) => s.id).join(", ")}).`,
-				`Multi-step workflows crash non-deterministically when run as goal-wrap worker turns in the background (V8/libuv race in team-runner batch transition).`,
-				``,
-				`Alternatives:`,
-				`  1. Use 'team action=\'run\' workflow=${workflow.name}' for one-shot multi-step execution (no goal loop).`,
-				`  2. Use a single-step workflow for goal-wrap (e.g. 'implementation', which has only the adaptive assess step).`,
-				`  3. Break your goal into smaller single-step goals.`,
-			].join("\n"),
-			{ action: "run", status: "error", data: { goalWrapRefused: true, workflow: workflow.name, stepCount: workflow.steps.length, maxSteps: GOAL_WRAP_MAX_STEPS } },
-			true,
-		);
 	}
 
 	try {

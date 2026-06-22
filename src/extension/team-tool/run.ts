@@ -62,7 +62,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
-import { isGoalWrapEnabled, startGoalWrappedRun } from "./goal-wrap.ts";
+import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 
 function tailFile(filePath: string, maxBytes = 4096): string | undefined {
@@ -193,8 +193,24 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	// route to a goal loop where this workflow runs as the worker turn (judge → feedback → redo
 	// until achieved). Only for eligible builtins (implementation, fast-fix, default). Per-workflow
 	// toggle; OFF by default. See goal-wrap.ts.
+	//
+	// SAFETY (commit b57bad3): multi-step workflows crash non-deterministically
+	// in the background goal-loop process (V8/libuv race in team-runner batch
+	// transition). When goal-wrap is unsafe for this workflow, we do NOT error
+	// out — we fall through to the normal team-run path so the user still gets
+	// the run they asked for. The disabled reason is logged for traceability.
 	if (!directAgent && workflow.source === "builtin" && isGoalWrapEnabled(resolvedCtx.cwd, workflow.name)) {
-		return await startGoalWrappedRun(params, ctx, workflow, goal);
+		const decision = shouldGoalWrap(resolvedCtx.cwd, workflow);
+		if (decision.enabled) {
+			return await startGoalWrappedRun(params, ctx, workflow, goal);
+		}
+		// goal-wrap disabled for this workflow — fall through silently to normal
+		// team-run path. Log the reason so it's discoverable in events.jsonl and
+		// debug logs. This preserves the trace of WHY goal-wrap was bypassed for
+		// a given run (vs. just disappearing without explanation).
+		if (decision.message) {
+			logInternalError("team-tool.run.goalWrapBypassed", new Error(decision.message), `workflow=${workflow.name} reason=${decision.reason}`);
+		}
 	}
 
 	// Check if this is a pipeline workflow - special handling for multi-stage execution

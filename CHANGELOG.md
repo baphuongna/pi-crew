@@ -4,24 +4,37 @@
 
 Two new features, both built on a shared `runKind` background-dispatch discriminator.
 
-### SAFETY: goal-wrap refuses multi-step workflows (no hidden crashes)
+### SAFETY: goal-wrap auto-downgrades multi-step workflows (no hidden crashes)
 
-`startGoalWrappedRun` now REFUSES to goal-wrap any workflow with more than
-`GOAL_WRAP_MAX_STEPS = 1` step. Multi-step workflows (default: 4 steps,
-fast-fix: 3 steps) crash non-deterministically when run as goal-wrap worker
-turns in the background goal-loop process — V8/libuv race during event-loop
-yields in team-runner batch transition (see commit a9f6e09, RFC 15). Sync
-fs workarounds regress; worker-thread isolation doesn't help.
+Multi-step workflows (default: 4 steps, fast-fix: 3 steps) crash
+non-deterministically when run as goal-wrap worker turns in the background
+goal-loop process — V8/libuv race during event-loop yields in team-runner
+batch transition (see commit a9f6e09, RFC 15). Sync fs workarounds regress;
+worker-thread isolation doesn't help.
 
-Rather than ship a feature that silently hangs users at "1/N tasks", goal-wrap
-now refuses with a helpful error pointing to alternatives:
-- `team action='run' workflow=<multi-step>` for one-shot execution
-- single-step workflow like `implementation` (only the adaptive `assess` step)
-- break the goal into smaller single-step goals
+When a user has goal-wrap enabled in config but the workflow is multi-step,
+the team-run handler now **auto-downgrades**: skips the goal-wrap layer and
+runs the workflow via the normal team-run path (foreground `executeTeamRun`
+or background `spawnBackgroundTeamRun`, depending on `async`). The user gets
+the run they asked for — no error, no hang, no need to remove config.
 
-Single-step workflows (e.g. `implementation`) continue to work end-to-end.
-Three new unit tests cover: GOAL_WRAP_MAX_STEPS value, refusal for fast-fix,
-acceptance for implementation.
+The bypass reason is logged via `logInternalError("team-tool.run.goalWrapBypassed", ...)`
+for traceability (findable in debug logs / `internal-error.json`).
+
+Single-step workflows (e.g. `implementation`, only the adaptive `assess`
+step) continue to be goal-wrapped end-to-end.
+
+Implementation:
+- `shouldGoalWrap(cwd, workflow)` — pure decision function returning
+  `{enabled: true}` or `{enabled: false, reason, message}`. Reasons:
+  `config-off` (not enabled), `invalid-config` (malformed), `multi-step`
+  (more than `GOAL_WRAP_MAX_STEPS = 1` step).
+- `run.ts` calls `shouldGoalWrap` after `isGoalWrapEnabled`; if disabled,
+  falls through to normal team-run path. The original `isGoalWrapEnabled`
+  fast path (config check only) is kept as a cheap pre-filter.
+- 5 new unit tests in `test/unit/goal-wrap.test.ts` cover all 4 decisions
+  (config-off / invalid-config / multi-step refuse / single-step accept)
+  + the GOAL_WRAP_MAX_STEPS value invariant.
 
 ### Phase 1.5: worker-thread atomic writer (opt-in, infrastructure)
 

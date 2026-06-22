@@ -156,7 +156,7 @@ test("GOAL_WRAP_MAX_STEPS is 1 (single-step only — multi-step crashes non-dete
 	assert.equal(GOAL_WRAP_MAX_STEPS, 1, "GOAL_WRAP_MAX_STEPS must be 1; multi-step workflows crash in background goal-loop");
 });
 
-test("SAFETY: startGoalWrappedRun refuses multi-step workflows with helpful alternatives", async () => {
+test("SAFETY: shouldGoalWrap returns {enabled:false, reason:'multi-step'} for multi-step workflows", async () => {
 	const cwd = tmpCwd();
 	try {
 		writeConfig(cwd, {
@@ -183,24 +183,16 @@ test("SAFETY: startGoalWrappedRun refuses multi-step workflows with helpful alte
 
 		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
-		const res = await gw.startGoalWrappedRun(
-			{ action: "run", goal: "test", workflow: "fast-fix" } as never,
-			{ cwd, sessionId: "test" } as never,
-			wf,
-			"test",
-		);
-		const payload = res as unknown as { isError?: boolean; details?: { data?: { goalWrapRefused?: boolean } }; content?: { text?: string }[] };
-		assert.equal(payload.isError, true, "multi-step goal-wrap must be refused (isError=true)");
-		assert.equal(payload.details?.data?.goalWrapRefused, true, "refusal must set goalWrapRefused=true in data");
-		const text = payload.content?.[0]?.text ?? "";
-		assert.match(text, /refused/i, "refusal message must say 'refused'");
-		assert.match(text, /team action=.run. workflow=fast-fix/, "refusal must suggest one-shot alternative");
+		const decision = gw.shouldGoalWrap(cwd, wf);
+		assert.equal(decision.enabled, false, "multi-step goal-wrap must be bypassed (enabled=false)");
+		assert.equal(decision.reason, "multi-step", "refusal reason must be 'multi-step'");
+		assert.match((decision as { message?: string }).message ?? "", /multi-step/i, "message must explain multi-step crash");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
 
-test("SAFETY: startGoalWrappedRun ACCEPTS single-step workflows (e.g. implementation with adaptive assess)", async () => {
+test("SAFETY: shouldGoalWrap returns {enabled:true} for single-step workflows (implementation)", async () => {
 	const cwd = tmpCwd();
 	try {
 		writeConfig(cwd, {
@@ -225,18 +217,48 @@ test("SAFETY: startGoalWrappedRun ACCEPTS single-step workflows (e.g. implementa
 
 		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
-		const res = await gw.startGoalWrappedRun(
-			{ action: "run", goal: "test", workflow: "implementation" } as never,
-			{ cwd, sessionId: "test" } as never,
-			wf,
-			"test",
-		);
-		const payload = res as unknown as { isError?: boolean; details?: { data?: { goalWrapRefused?: boolean } } };
-		assert.notEqual(payload.isError, true, "single-step goal-wrap must NOT be refused");
-		assert.notEqual(payload.details?.data?.goalWrapRefused, true, "single-step must not set goalWrapRefused");
-		// Cleanup: kill the spawned bg-runner if any
-		const pid = (payload.details as { data?: { pid?: number } } | undefined)?.data?.pid;
-		if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
+		const decision = gw.shouldGoalWrap(cwd, wf);
+		assert.equal(decision.enabled, true, "single-step goal-wrap must be accepted");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("shouldGoalWrap returns {enabled:false, reason:'config-off'} when goal-wrap not configured", async () => {
+	const cwd = tmpCwd();
+	try {
+		// No config.json — goal-wrap is OFF by default.
+		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dw = dwMod.default ?? dwMod;
+		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
+		if (!wf) return;
+		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gw = gwMod.default ?? gwMod;
+		const decision = gw.shouldGoalWrap(cwd, wf);
+		assert.equal(decision.enabled, false);
+		assert.equal(decision.reason, "config-off");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("shouldGoalWrap returns {enabled:false, reason:'invalid-config'} for malformed config", async () => {
+	const cwd = tmpCwd();
+	try {
+		// Missing evaluatorModel + missing budget → invalid config.
+		writeConfig(cwd, {
+			goalWrap: { "fast-fix": { enabled: true } },
+		});
+		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dw = dwMod.default ?? dwMod;
+		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
+		if (!wf) return;
+		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gw = gwMod.default ?? gwMod;
+		const decision = gw.shouldGoalWrap(cwd, wf);
+		assert.equal(decision.enabled, false);
+		assert.equal(decision.reason, "invalid-config");
+		assert.ok((decision as { message?: string }).message, "invalid-config must carry a message");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
