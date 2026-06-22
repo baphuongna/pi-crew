@@ -201,6 +201,11 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 			// Phase 1.5: worker-thread atomic writer opt-in (RFC 15).
 			"PI_CREW_WORKER_ATOMIC_WRITER",
 			"PI_TEAMS_WORKER_ATOMIC_WRITER",
+			// Phase 1.5 #1: verification env sanitization opt-in (RFC 13 §6).
+			"PI_CREW_VERIFICATION_SANITIZE_ENV",
+			"PI_TEAMS_VERIFICATION_SANITIZE_ENV",
+			"PI_CREW_VERIFICATION_PRESERVE_ENV",
+			"PI_TEAMS_VERIFICATION_PRESERVE_ENV",
 		],
 	});
 	// FIX: removed delete workarounds — with explicit allowlist, these vars

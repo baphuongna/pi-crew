@@ -14,7 +14,71 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { redactSecretString } from "../utils/redaction.ts";
+import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import type { VerificationContract, VerificationCommandResult, GreenLevel, ArtifactDescriptor } from "../state/types.ts";
+
+/**
+ * Phase 1.5 #1 (RFC 13 §6 info-disclosure mitigation): sanitize the env passed
+ * to verification commands so worker-induced output cannot leak model-provider
+ * secrets. P1f redaction at artifact-write + judge-bound is regex-best-effort
+ * against adversarial workers; this kills the leak at the source by never
+ * giving the verification process the secret in the first place.
+ *
+ * Opt-in via `PI_CREW_VERIFICATION_SANITIZE_ENV=1` to avoid breaking existing
+ * flows whose tests legitimately need API access. Escape hatch:
+ * `PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2,...` lets users explicitly opt
+ * specific secrets back in (audited via the allowlist validator).
+ */
+const VERIFICATION_ENV_ALLOWLIST: readonly string[] = [
+	// Essential non-secret vars only — NO model-provider keys by default.
+	"PATH",
+	"HOME",
+	"USER",
+	"SHELL",
+	"TERM",
+	"LANG",
+	"LC_ALL",
+	"LC_COLLATE",
+	"LC_CTYPE",
+	"LC_MESSAGES",
+	"LC_MONETARY",
+	"LC_NUMERIC",
+	"LC_TIME",
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_CACHE_HOME",
+	"XDG_RUNTIME_DIR",
+	"NVM_BIN",
+	"NVM_DIR",
+	"NVM_INC",
+	"NODE_PATH",
+	"NODE_DISABLE_COLORS",
+	"NODE_EXTRA_CA_CERTS",
+	"NPM_CONFIG_REGISTRY",
+	"NPM_CONFIG_USERCONFIG",
+	"NPM_CONFIG_GLOBALCONFIG",
+];
+
+/** Whether env sanitization for verification is enabled (env var opt-in). */
+export function isVerificationEnvSanitizeEnabled(): boolean {
+	return process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "1" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "1";
+}
+
+/**
+ * Build the env dict for a verification command. When sanitization is enabled,
+ * strips everything except VERIFICATION_ENV_ALLOWLIST + any explicitly-preserved
+ * keys (PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2). Always adds FORCE_COLOR=0
+ * to keep output plain-text (matches pre-existing behavior).
+ */
+function buildVerificationEnv(): Record<string, string> {
+	if (!isVerificationEnvSanitizeEnabled()) {
+		return { ...process.env, FORCE_COLOR: "0" };
+	}
+	const preserveRaw = process.env.PI_CREW_VERIFICATION_PRESERVE_ENV ?? process.env.PI_TEAMS_VERIFICATION_PRESERVE_ENV ?? "";
+	const preserve = preserveRaw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+	const allowList = [...VERIFICATION_ENV_ALLOWLIST, ...preserve];
+	return { ...sanitizeEnvSecrets(process.env, { allowList }), FORCE_COLOR: "0" };
+}
 
 export interface PhaseGateResult {
 	phase: number;
@@ -117,7 +181,7 @@ async function executeCommand(
 		const shell = spawn("sh", ["-c", command], {
 			cwd,
 			timeout: timeoutMs,
-			env: { ...process.env, FORCE_COLOR: "0" },
+			env: buildVerificationEnv(),
 		});
 
 		shell.stdout?.on("data", (data) => {

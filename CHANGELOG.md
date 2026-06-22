@@ -4,6 +4,27 @@
 
 Two new features, both built on a shared `runKind` background-dispatch discriminator.
 
+### Phase 1.5 #1: sanitized-env verification (opt-in info-disclosure mitigation)
+
+`PI_CREW_VERIFICATION_SANITIZE_ENV=1` strips model-provider secrets (and
+everything else not in the essential-vars allowlist) from the env passed to
+verification commands (`npm test`, `pytest`, etc.). Closes the info-disclosure
+residual at the SOURCE — P1f redaction at artifact-write + judge-bound is
+regex-best-effort against adversarial workers; this never gives the
+verification process the secret in the first place.
+
+Escape hatch: `PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2,...` lets users
+explicitly opt specific env vars back in (audited via the env-filter.ts
+allowlist validator). Essential non-secret vars (PATH, HOME, USER, SHELL,
+LANG, XDG_*, NPM_CONFIG_*, etc.) are always preserved.
+
+AllowList: 25 essential vars. NO model-provider keys by default.
+Inherited by bg-runner via async-runner.ts env allowlist.
+
+Tests: 7 new unit tests in test/unit/verification-env-sanitize.test.ts
+(3 flag checks + 4 integration tests spawning real `printenv` subprocesses).
+All pass. 5188 unit + 115 integration tests; no regression.
+
 ### SAFETY: goal-wrap auto-downgrades multi-step workflows (no hidden crashes)
 
 Multi-step workflows (default: 4 steps, fast-fix: 3 steps) crash
