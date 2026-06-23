@@ -30,6 +30,7 @@ import { Semaphore } from "./semaphore.ts";
 import { executeWithRetry } from "./retry-executor.ts";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { appendEvent } from "../state/event-log.ts";
 import { appendMailboxMessage, readMailbox } from "../state/mailbox.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -97,6 +98,12 @@ export interface WorkflowCtx {
 	vars: Record<string, unknown>;
 	/** Mark the final result. ONLY this artifact reaches the main context. */
 	setResult(artifactPath: string, meta?: Record<string, unknown>): void;
+	/** Mark the start of a named workflow phase. Emits a `dwf.phase_started` event
+	 *  (and a `dwf.phase_completed` for the previous phase, if any) to the run's
+	 *  events.jsonl. Idempotent on the same title — calling twice with the same
+	 *  title is a no-op. Phase titles are in-memory only; the events log is the
+	 *  durable source of truth for phase boundaries. */
+	phase(title: string): void;
 	semaphore: Semaphore;
 	/** Abort signal (cancel/stop). */
 	signal: AbortSignal;
@@ -163,6 +170,10 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
 	const semaphore = new Semaphore(concurrency);
 	let finalResult: { artifactPath: string; meta?: Record<string, unknown> } | undefined;
+	// round-12 P0-1: in-memory phase state, exposed via non-enumerable getter like __finalResult.
+	// The events log is the durable source of truth for phase boundaries.
+	let phaseState: { currentPhase: string | undefined; phases: string[] } = { currentPhase: undefined, phases: [] };
+	let phaseCapWarned = false;
 
 	const ctx: WorkflowCtx = {
 		cwd: manifest.cwd,
@@ -343,6 +354,40 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		setResult(artifactPath: string, meta?: Record<string, unknown>): void {
 			finalResult = { artifactPath, meta };
 		},
+		phase(title: string): void {
+			if (typeof title !== "string" || title.length === 0) {
+				throw new TypeError("ctx.phase(title) requires a non-empty string title.");
+			}
+			// Idempotency: same phase title → no event, no state change.
+			if (title === phaseState.currentPhase) return;
+			// Close out the previous open phase BEFORE the new one opens.
+			if (phaseState.currentPhase !== undefined) {
+				appendEvent(manifest.eventsPath, {
+					type: "dwf.phase_completed",
+					runId: manifest.runId,
+					data: { phase: phaseState.currentPhase },
+				});
+			}
+			phaseState.currentPhase = title;
+			// Dedup append with hard cap to bound memory; events still flow.
+			if (!phaseState.phases.includes(title)) {
+				if (phaseState.phases.length < 100) {
+					phaseState.phases.push(title);
+				} else if (!phaseCapWarned) {
+					phaseCapWarned = true;
+					logInternalError(
+						"dynamic-workflow-context.phase-cap",
+						new Error("Phase list cap of 100 reached; further phases still emit events but are not added to the in-memory phases[] list. Use the events log as the durable source of truth."),
+						`runId=${manifest.runId}`,
+					);
+				}
+			}
+			appendEvent(manifest.eventsPath, {
+				type: "dwf.phase_started",
+				runId: manifest.runId,
+				data: { phase: title },
+			});
+		},
 	};
 
 	// Attach the final-result slot via a non-enumerable getter so the runner can read it
@@ -351,12 +396,23 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		get: () => finalResult,
 		enumerable: false,
 	});
+	// round-12 P0-1: phase state is read-only from the runner; the script can only mutate
+	// it via ctx.phase(title), which is the documented public surface.
+	Object.defineProperty(ctx, "__phaseState", {
+		get: () => phaseState,
+		enumerable: false,
+	});
 	return ctx;
 }
 
 /** Read the final result set by the script (runner-only; not part of the public ctx surface). */
 export function getWorkflowFinalResult(ctx: WorkflowCtx): { artifactPath: string; meta?: Record<string, unknown> } | undefined {
 	return (ctx as unknown as { __finalResult?: { artifactPath: string; meta?: Record<string, unknown> } }).__finalResult;
+}
+
+/** Read the in-memory phase state set by the script (runner-only; not part of the public ctx surface). */
+export function getWorkflowPhaseState(ctx: WorkflowCtx): { currentPhase: string | undefined; phases: string[] } | undefined {
+	return (ctx as unknown as { __phaseState?: { currentPhase: string | undefined; phases: string[] } }).__phaseState;
 }
 
 /** Compose the agent task: prompt + optional dependency-input context block. */

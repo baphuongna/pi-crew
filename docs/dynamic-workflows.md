@@ -15,15 +15,22 @@ and intermediate data out of the main context window.
 export default async function (ctx) {
   const endpoints = [/* ... */];
   const shards = chunk(endpoints, 3);
+
+  ctx.phase("Scan");  // round-12: mark the start of a logical phase
   const reports = await ctx.fanOut(shards, 3, (s) =>
     ctx.agent({ role: "explorer", prompt: `Audit ${s.join(",")} for auth + input validation` })
   );
+
+  ctx.phase("Synthesize");
   const synth = await ctx.agent({ role: "analyst", prompt: "Merge + dedupe findings", inputs: reports.map(r => r.artifactPath) });
+
+  ctx.phase("Review");
   for (let i = 0; i < 3; i++) {
     const review = await ctx.review(synth.taskId, "reviewer");
     if (review.outcome === "accept") break;
     await ctx.retry(synth.taskId, { feedback: review.feedback });
   }
+
   ctx.setResult(synth.artifactPath, { summary: "security audit complete" });
 }
 ```
@@ -50,11 +57,26 @@ Slash command: `/workflows` lists all workflows (static + dynamic).
 | `ctx.gatherReplies(ids, deadlineMs)` | Block until N replies arrive or deadline. |
 | `ctx.renderTemplate(name, vars)` | Render a built-in plan template. |
 | `ctx.vars` | Script-local variables. |
+| `ctx.phase(title)` | Mark the start of a named workflow phase. Emits `dwf.phase_started` (and `dwf.phase_completed` for the previous phase, if any) to the run's events.jsonl. Idempotent on the same title. Phase events let downstream consumers (UI, log readers) group agents by logical phase. |
 | `ctx.setResult(artifactPath, meta?)` | Mark the final result. ONLY this reaches the main context. |
 
 `ctx.agent({role})` resolves the role to an `AgentConfig` via 4-tier precedence:
 explicit `agent` name → `team.roles[].agent` → `discoverAgents` by name → synthesize
 minimal (`source:'dynamic'`).
+
+### Phases (round-12)
+
+`ctx.phase(title)` lets the script mark logical phases. Each call:
+
+- Emits a `dwf.phase_started` event with `{phase: title}` to the run's `events.jsonl`.
+- If a previous phase is still open, emits a `dwf.phase_completed` event for it
+  **before** opening the new one (so consumers never see two open phases at once).
+- Is idempotent: calling `ctx.phase("Scan")` twice does not emit a duplicate event.
+- Validates the title (non-empty string, otherwise `TypeError`).
+- Caps the in-memory `phases[]` list at 100 distinct titles (events still flow past
+  the cap; the events log is the durable source of truth).
+- The runner auto-closes the last open phase when the script returns, so
+  `dwf.completed` is always preceded by a matching `dwf.phase_completed`.
 
 ## Security model (IMPORTANT)
 

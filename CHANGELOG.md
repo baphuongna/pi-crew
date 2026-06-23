@@ -1,5 +1,89 @@
 # Changelog
 
+## [v0.9.7] — round-12: DWF phases + structured-clone guard (2026-06-23)
+
+Two additive P0 features for dynamic-workflow (DWF) scripts, both fully
+backward-compatible (existing scripts continue to work unchanged). Researched
+and adopted from the public `pi-dynamic-workflows` (Michaelliv/v1.0.1)
+package — full comparison and adoption plan in
+`.crew/artifacts/team_20260623095016_b693d3f967f88048/shared/06_synthesize.md`.
+
+### Feature 1: `ctx.phase(title)` runtime phase API (P0-1)
+
+`WorkflowCtx` gains a new `phase(title: string): void` method. The orphan
+`dwf.phase_started` / `dwf.phase_completed` event types — declared in
+`src/state/contracts.ts:89-93` since v0.9.0 but never produced by any
+producer — finally have a producer. Use cases:
+
+- Group `ctx.agent()` calls under logical phases (e.g. "Scan", "Audit",
+  "Review") so downstream UI and log readers can group by phase.
+- Emit a clear phase boundary to the run's `events.jsonl` without writing
+  custom event-log code.
+- Drive live progress reporting from the script itself.
+
+Semantics:
+
+- Validates `title` is a non-empty string (throws `TypeError` otherwise).
+- Idempotent: calling `ctx.phase("Scan")` twice does not emit a duplicate
+  event or change state.
+- When a previous phase is still open, emits `dwf.phase_completed` for it
+  **before** emitting `dwf.phase_started` for the new one (consumers never
+  see two open phases at once).
+- The in-memory `phases[]` list (read-only via `getWorkflowPhaseState`,
+  mirrors the `__finalResult` non-enumerable getter pattern) is deduped and
+  capped at **100 distinct titles** to bound memory. Events still flow
+  past the cap — the events log is the durable source of truth.
+- The runner **auto-closes the last open phase** before emitting
+  `dwf.completed`, so a script that ends mid-phase still produces a
+  well-formed event sequence.
+
+**Files changed:**
+- `src/runtime/dynamic-workflow-context.ts` — interface, implementation,
+  `__phaseState` getter, `getWorkflowPhaseState` helper
+- `src/runtime/dynamic-workflow-runner.ts` — auto-close on completion
+
+### Feature 2: structured-clone guard at the runner boundary (P0-4)
+
+Defensive `assertStructuredCloneable(value, name)` helper applied to the
+final artifact content and `manifest.summary` before they reach
+`writeArtifact` and the run-event-bus emitter. Today this is mostly
+future-proofing (the artifact file is read as a string, and strings are
+always structured-cloneable), but the guard surfaces a clear, actionable
+error pointing at the most common cause — forgetting `await` on
+`ctx.agent()` / `ctx.review()` — instead of letting a cryptic
+`DataCloneError` leak from deep inside the artifact store.
+
+**Files changed:**
+- `src/runtime/dynamic-workflow-runner.ts` — `assertStructuredCloneable`
+  helper, applied to `finalText` and `summaryText` (slice)
+
+### Tests
+
+- 7 new unit tests in `test/unit/dynamic-workflow-context.test.ts`
+  (emission, idempotency, validation, sequence, helper, dedup, 100-cap).
+- 1 new integration test in `test/integration/dwf-setresult.test.ts`
+  (end-to-end phase event sequence, including runner auto-close).
+- All 23 existing DWF unit tests still pass; both pre-existing integration
+  tests still pass.
+
+### Docs
+
+- `docs/dynamic-workflows.md` — updated WorkflowCtx example to use
+  `ctx.phase("Scan")` / `ctx.phase("Audit")`; added a `ctx.phase` row to
+  the API table; added a "Phases (round-12)" subsection explaining
+  semantics, idempotency, and the 100-cap.
+
+### Out of scope (planned for future rounds)
+
+- AST determinism check (P0-2)
+- Structured output helper (P0-3)
+- Abort listener cleanup pattern (P0-5)
+- Authoring types / IDE IntelliSense (P1-1)
+- Token budget (P1-2)
+- Phase UI in `progress-pane` (P1-4)
+- Pipeline primitive (P2-1)
+- `isolated-vm` sandbox (P2-2, planned for v1.5)
+
 ## [v0.9.5] — fix "team run hangs forever at 25%" (2026-06-23)
 
 Two coupled runtime bugs caused the recurring "run stuck at 25% (1/4)" failure

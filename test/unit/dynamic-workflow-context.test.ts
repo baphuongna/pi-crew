@@ -15,6 +15,7 @@ import {
 	synthesizeAgentConfig,
 	makeWorkflowCtx,
 	getWorkflowFinalResult,
+	getWorkflowPhaseState,
 	classifyReviewOutcome,
 } from "../../src/runtime/dynamic-workflow-context.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
@@ -239,6 +240,129 @@ test("review(): content option is injected into the reviewer prompt", async () =
 		}) as typeof ctx.agent;
 		await ctx.review("task-x", "reviewer", { content: "UNIQUE_WORK_MARKER_42" });
 		assert.match(capturedPrompt, /UNIQUE_WORK_MARKER_42/, "content is passed to the reviewer");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// ---------------------------------------------------------------------------
+// round-12 P0-1: ctx.phase(title) — runtime phase API
+// ---------------------------------------------------------------------------
+
+/** Read all events from a run's events.jsonl (JSONL format). */
+function readEvents(eventsPath: string): Array<{ type: string; data?: Record<string, unknown> }> {
+	if (!fs.existsSync(eventsPath)) return [];
+	return fs
+		.readFileSync(eventsPath, "utf-8")
+		.split("\n")
+		.filter((line) => line.trim().length > 0)
+		.map((line) => JSON.parse(line));
+}
+
+test("round-12 ctx.phase(title): emits dwf.phase_started event with phase in data", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		ctx.phase("Scan");
+		const events = readEvents(manifest.eventsPath);
+		const phaseStarted = events.find((e) => e.type === "dwf.phase_started");
+		assert.ok(phaseStarted, "dwf.phase_started event should be emitted");
+		assert.equal(phaseStarted?.data?.phase, "Scan");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 ctx.phase(title): idempotent on same title — no duplicate events", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		ctx.phase("Scan");
+		ctx.phase("Scan");
+		ctx.phase("Scan");
+		const events = readEvents(manifest.eventsPath);
+		const phaseStarted = events.filter((e) => e.type === "dwf.phase_started");
+		assert.equal(phaseStarted.length, 1, "duplicate phase titles should not emit extra events");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 ctx.phase(title): empty string throws TypeError", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		assert.throws(() => ctx.phase(""), /non-empty string/);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 ctx.phase(title): non-string throws TypeError", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		assert.throws(() => ctx.phase(123 as unknown as string), /non-empty string/);
+		assert.throws(() => ctx.phase(null as unknown as string), /non-empty string/);
+		assert.throws(() => ctx.phase(undefined as unknown as string), /non-empty string/);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 ctx.phase(title): sequence phase('A') → phase('B') emits phase_completed(A) then phase_started(B)", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		ctx.phase("A");
+		ctx.phase("B");
+		const events = readEvents(manifest.eventsPath);
+		const phaseEvents = events
+			.filter((e) => e.type === "dwf.phase_started" || e.type === "dwf.phase_completed")
+			.map((e) => `${e.type}:${(e.data as { phase: string }).phase}`);
+		assert.deepEqual(phaseEvents, ["dwf.phase_started:A", "dwf.phase_completed:A", "dwf.phase_started:B"]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 getWorkflowPhaseState: returns currentPhase and deduped phases[]", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		assert.deepEqual(getWorkflowPhaseState(ctx), { currentPhase: undefined, phases: [] });
+		ctx.phase("Scan");
+		ctx.phase("Audit");
+		ctx.phase("Scan"); // re-opens Scan (current was Audit), but phases[] is deduped
+		const state = getWorkflowPhaseState(ctx);
+		assert.equal(state?.currentPhase, "Scan");
+		assert.deepEqual(state?.phases, ["Scan", "Audit"], "phases[] is deduped; Scan was not re-appended");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("round-12 ctx.phase(title): 100-cap bounds in-memory phases[] but events still flow", () => {
+	const cwd = tmpCwd();
+	try {
+		const manifest = fakeManifest(cwd);
+		const ctx = makeWorkflowCtx(manifest, { signal: new AbortController().signal });
+		// Append 105 distinct phase titles.
+		for (let i = 0; i < 105; i++) {
+			ctx.phase(`phase-${i}`);
+		}
+		const state = getWorkflowPhaseState(ctx);
+		assert.equal(state?.phases.length, 100, "in-memory phases[] capped at 100");
+		assert.equal(state?.currentPhase, "phase-104", "currentPhase tracks latest");
+		const events = readEvents(manifest.eventsPath);
+		const phaseStarted = events.filter((e) => e.type === "dwf.phase_started");
+		assert.equal(phaseStarted.length, 105, "events still emit past the cap");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
