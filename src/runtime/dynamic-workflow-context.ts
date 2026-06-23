@@ -30,10 +30,12 @@ import { Semaphore } from "./semaphore.ts";
 import { executeWithRetry } from "./retry-executor.ts";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { appendEvent } from "../state/event-log.ts";
 import { appendMailboxMessage, readMailbox } from "../state/mailbox.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { randomBytes } from "node:crypto";
+import type { TSchema } from "@sinclair/typebox";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { TeamRunManifest } from "../state/types.ts";
@@ -61,6 +63,11 @@ export interface AgentCallOpts {
 	 *  JSON-verdict judge, but the user's reviewer.md agent is a markdown code-reviewer.
 	 *  When set, the resolved agent's systemPrompt is replaced entirely. */
 	systemPrompt?: string;
+	/** Round-13 P0-3: optional TypeBox schema. When set, the call's output is validated
+	 *  against the schema after extraction. Validation failure yields ok:false with a
+	 *  structured `error` and undefined `structured` field. Forward-compatible: when
+	 *  undefined, behavior is identical to the regex-based extractor. */
+	schema?: TSchema;
 }
 
 export interface AgentResult {
@@ -97,6 +104,12 @@ export interface WorkflowCtx {
 	vars: Record<string, unknown>;
 	/** Mark the final result. ONLY this artifact reaches the main context. */
 	setResult(artifactPath: string, meta?: Record<string, unknown>): void;
+	/** Mark the start of a named workflow phase. Emits a `dwf.phase_started` event
+	 *  (and a `dwf.phase_completed` for the previous phase, if any) to the run's
+	 *  events.jsonl. Idempotent on the same title — calling twice with the same
+	 *  title is a no-op. Phase titles are in-memory only; the events log is the
+	 *  durable source of truth for phase boundaries. */
+	phase(title: string): void;
 	semaphore: Semaphore;
 	/** Abort signal (cancel/stop). */
 	signal: AbortSignal;
@@ -163,6 +176,10 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
 	const semaphore = new Semaphore(concurrency);
 	let finalResult: { artifactPath: string; meta?: Record<string, unknown> } | undefined;
+	// round-12 P0-1: in-memory phase state, exposed via non-enumerable getter like __finalResult.
+	// The events log is the durable source of truth for phase boundaries.
+	let phaseState: { currentPhase: string | undefined; phases: string[] } = { currentPhase: undefined, phases: [] };
+	let phaseCapWarned = false;
 
 	const ctx: WorkflowCtx = {
 		cwd: manifest.cwd,
@@ -185,7 +202,15 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				let effectiveAgent = call.disableTools === true ? { ...agentConfig, disableTools: true, tools: [] } : agentConfig;
 				// Per-call systemPrompt override (replaces the resolved agent's persona/output-format).
 				// Used by ctx.review() to force a JSON-verdict judge instead of the role's markdown reviewer.
-				if (call.systemPrompt !== undefined) {
+				// Round-13 P0-3: when a schema is provided, append a JSON-output instruction so
+				// the model returns parseable JSON instead of prose. Schema name is intentionally
+				// generic — we don't reveal TypeBox internal types.
+				if (call.schema !== undefined) {
+					effectiveAgent = {
+						...effectiveAgent,
+						systemPrompt: composeSchemaSystemPrompt(effectiveAgent.systemPrompt, call.schema),
+					};
+				} else if (call.systemPrompt !== undefined) {
 					effectiveAgent = { ...effectiveAgent, systemPrompt: call.systemPrompt };
 				}
 				const task = composeAgentTask(call);
@@ -214,7 +239,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				if (!text.trim()) {
 					text = extractTextFallback(childResult.stdout);
 				}
-				const extracted = extractStructuredResult(text);
+				// Round-13 P0-3: schema validation post-extraction. The schema option is
+				// additive — when undefined the call site is unchanged. With a schema,
+				// extracted.error means the worker output didn't match expected shape and
+				// the script should treat the result as failed (ok:false, error set).
+				const extracted = extractStructuredResult(text, call.schema);
 				// Write a side artifact for audit/isolation (§0b G3).
 				const rel = `wf/${Date.now()}-${randomBytes(4).toString("hex")}.md`;
 				const artifact = writeArtifact(manifest.artifactsRoot, {
@@ -223,6 +252,16 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					content: text,
 					producer: "dynamic-workflow",
 				});
+				if (call.schema !== undefined && !extracted.structured) {
+					return {
+						ok: false,
+						text,
+						usage: parsed.usage,
+						artifactPath: artifact.path,
+						error: extracted.error ?? "structured output does not match schema",
+						durationMs: Date.now() - started,
+					};
+				}
 				return {
 					ok: true,
 					text,
@@ -343,12 +382,52 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		setResult(artifactPath: string, meta?: Record<string, unknown>): void {
 			finalResult = { artifactPath, meta };
 		},
+		phase(title: string): void {
+			if (typeof title !== "string" || title.length === 0) {
+				throw new TypeError("ctx.phase(title) requires a non-empty string title.");
+			}
+			// Idempotency: same phase title → no event, no state change.
+			if (title === phaseState.currentPhase) return;
+			// Close out the previous open phase BEFORE the new one opens.
+			if (phaseState.currentPhase !== undefined) {
+				appendEvent(manifest.eventsPath, {
+					type: "dwf.phase_completed",
+					runId: manifest.runId,
+					data: { phase: phaseState.currentPhase },
+				});
+			}
+			phaseState.currentPhase = title;
+			// Dedup append with hard cap to bound memory; events still flow.
+			if (!phaseState.phases.includes(title)) {
+				if (phaseState.phases.length < 100) {
+					phaseState.phases.push(title);
+				} else if (!phaseCapWarned) {
+					phaseCapWarned = true;
+					logInternalError(
+						"dynamic-workflow-context.phase-cap",
+						new Error("Phase list cap of 100 reached; further phases still emit events but are not added to the in-memory phases[] list. Use the events log as the durable source of truth."),
+						`runId=${manifest.runId}`,
+					);
+				}
+			}
+			appendEvent(manifest.eventsPath, {
+				type: "dwf.phase_started",
+				runId: manifest.runId,
+				data: { phase: title },
+			});
+		},
 	};
 
 	// Attach the final-result slot via a non-enumerable getter so the runner can read it
 	// without exposing a mutation surface on the ctx the script sees.
 	Object.defineProperty(ctx, "__finalResult", {
 		get: () => finalResult,
+		enumerable: false,
+	});
+	// round-12 P0-1: phase state is read-only from the runner; the script can only mutate
+	// it via ctx.phase(title), which is the documented public surface.
+	Object.defineProperty(ctx, "__phaseState", {
+		get: () => phaseState,
 		enumerable: false,
 	});
 	return ctx;
@@ -359,11 +438,78 @@ export function getWorkflowFinalResult(ctx: WorkflowCtx): { artifactPath: string
 	return (ctx as unknown as { __finalResult?: { artifactPath: string; meta?: Record<string, unknown> } }).__finalResult;
 }
 
+/** Read the in-memory phase state set by the script (runner-only; not part of the public ctx surface). */
+export function getWorkflowPhaseState(ctx: WorkflowCtx): { currentPhase: string | undefined; phases: string[] } | undefined {
+	return (ctx as unknown as { __phaseState?: { currentPhase: string | undefined; phases: string[] } }).__phaseState;
+}
+
 /** Compose the agent task: prompt + optional dependency-input context block. */
 function composeAgentTask(call: AgentCallOpts): string {
-	if (!call.inputs?.length) return call.prompt;
-	const block = call.inputs.map((p) => `- ${p}`).join("\n");
-	return `${call.prompt}\n\n## Inputs (artifact paths)\n${block}`;
+	let base = call.prompt;
+	if (call.inputs?.length) {
+		const block = call.inputs.map((p) => `- ${p}`).join("\n");
+		base = `${base}\n\n## Inputs (artifact paths)\n${block}`;
+	}
+	// Round-13 P0-3: when a schema is requested, append a JSON-output directive.
+	// The directive lives at the END of the prompt so it wins over any conflicting
+	// persona instruction in the agent's system prompt.
+	if (call.schema !== undefined) {
+		base = `${base}\n\n## Output format\nRespond with ONLY a single JSON object that matches the schema described in your instructions. Begin your response with { and end with }. Do not wrap the JSON in a code fence. Do not add any prose before or after the JSON.`;
+	}
+	return base;
+}
+
+/**
+ * Round-13 P0-3: compose a system-prompt suffix that asks the agent to output a
+ * structured JSON object matching the schema's required shape. We don't expose
+ * the TypeBox internal type — we describe the SHAPE so the model can match it.
+ */
+function composeSchemaSystemPrompt(base: string | undefined, schema: TSchema): string {
+	const shape = describeSchemaShape(schema, 0);
+	const intro = "You are a structured-output assistant. ";
+	const instruction = `When responding, output ONLY a single JSON object matching this shape (no prose, no markdown fences, no commentary): ${shape}. Begin your response with { and end with }.`;
+	if (typeof base === "string" && base.length > 0) {
+		return `${base}\n\n${intro}${instruction}`;
+	}
+	return `${intro}${instruction}`;
+}
+
+/**
+ * Walk a TypeBox schema recursively and produce a human-readable shape description.
+ * Depth-limited to avoid runaway expansion on deeply nested schemas.
+ */
+function describeSchemaShape(schema: unknown, depth: number): string {
+	if (depth > 4) return "{...}";
+	if (!schema || typeof schema !== "object") return "any";
+	const obj = schema as Record<string, unknown>;
+	// TypeBox: every schema has a `type` discriminator or a `kind` field.
+	const kind = obj.kind as string | undefined;
+	const type = obj.type as string | undefined;
+	if (kind === "object" || type === "object") {
+		const properties = obj.properties;
+		if (!properties || typeof properties !== "object") return "{}";
+		const required = Array.isArray(obj.required) ? new Set(obj.required as string[]) : new Set<string>();
+		const props = Object.entries(properties as Record<string, unknown>)
+			.map(([key, sub]) => {
+				const mark = required.has(key) ? "" : "?";
+				return `"${key}"${mark}: ${describeSchemaShape(sub, depth + 1)}`;
+			})
+			.join(", ");
+		return `{${props}}`;
+	}
+	if (kind === "array" || type === "array") {
+		const items = obj.items;
+		return `[${describeSchemaShape(items, depth + 1)}]`;
+	}
+	if (type === "string") return "string";
+	if (type === "number" || type === "integer") return "number";
+	if (type === "boolean") return "boolean";
+	if (type === "null") return "null";
+	// Union/Enum fallbacks.
+	if (Array.isArray(obj.anyOf)) return obj.anyOf.map((s) => describeSchemaShape(s, depth + 1)).join(" | ");
+	if (Array.isArray(obj.oneOf)) return obj.oneOf.map((s) => describeSchemaShape(s, depth + 1)).join(" | ");
+	if (Array.isArray(obj.enum)) return obj.enum.map((v) => JSON.stringify(v)).join(" | ");
+	return "any";
 }
 
 /**

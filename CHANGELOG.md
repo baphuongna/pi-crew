@@ -1,5 +1,171 @@
 # Changelog
 
+## [v0.9.7] — round-13 (P0 AST determinism + structured output + abort cleanup) (2026-06-23)
+
+Three P0 features land in this round. **Backward compatible** — existing DWF
+scripts continue to work unchanged. New behavior is opt-in via the `schema`
+field on `ctx.agent()` and an env-var escape hatch for the determinism check.
+
+### Feature 1 — AST Determinism Check (P0-2)
+
+**File:** `src/runtime/deterministic-ast.ts` (new) +
+`src/runtime/dynamic-workflow-runner.ts` (integration)
+
+Dynamic workflow scripts must now be **deterministic**. The runner parses each
+`.dwf.ts` with `acorn` and walks the AST, rejecting `Date.now()`,
+`Math.random()`, and `new Date()` calls before `jiti` executes the script.
+Two runs of the same script against the same inputs now produce the same
+outputs — critical for regression testing and workflow replay.
+
+Why AST, not regex: regex matches `Date.now()` everywhere — including string
+literals, comments, and prompt text. AST walking distinguishes **calls** from
+strings, so prompts that say *"avoid `Date.now()` in your code"* still parse
+cleanly. Other `Date.*` and `Math.*` methods (`Date.parse`, `Date.UTC`,
+`Math.floor`, `Math.max`, etc.) are accepted — only `now` and `random` are
+blocked.
+
+- New dep: `acorn ^8.14.0` (small, well-maintained; verified Node ≥22 ESM/strip-types compatibility)
+- New file: `src/runtime/deterministic-ast.ts` (determinism walker; MIT-licensed adaptation from pi-dynamic-workflows, attribution in `NOTICE.md`)
+- New file: `test/unit/deterministic-ast.test.ts` (27 cases: accepts/rejects every form, comments, template literals, computed properties, parse-error delegation)
+- New tests in `test/integration/dwf-setresult.test.ts` (5 end-to-end cases including env-var opt-out)
+
+**Escape hatch:** `PI_CREW_DWF_SKIP_DETERMINISM_CHECK=1` bypasses the check for
+power users who legitimately need time/random (e.g. randomized benchmark
+scripts). Off by default.
+
+### Feature 2 — Structured Output Helper (P0-3)
+
+**Files:** `src/runtime/result-extractor.ts` + `src/runtime/dynamic-workflow-context.ts`
+
+`AgentCallOpts` gains an optional `schema?: TSchema` field (TypeBox). When set,
+`ctx.agent()` validates the extracted JSON against the schema via
+`@sinclair/typebox`'s `Value.Check`. Mismatch yields
+`{ok: false, error: "structured output does not match schema: ..."}` instead
+of an untyped `structured: { ... }` blob.
+
+How the runner helps the model comply:
+
+- Appends a JSON-output directive to the prompt.
+- Replaces the agent's system prompt suffix with a "structured-output
+  assistant" preamble that describes the schema's shape.
+
+When `schema` is **omitted**, behavior is byte-identical to the previous
+regex-based extractor — verified by the existing 30+ test cases plus 9 new
+schema-specific cases in `test/unit/result-extractor.test.ts` and 4 new
+end-to-end cases in `test/unit/dynamic-workflow-context.test.ts`.
+
+Caveat: pi-crew DWF spawns `pi` as a subprocess (`runChildPi`), not an
+in-memory `createAgentSession`. Subprocess structured output is captured via
+the same event-stream → JSON-line → schema-check pipeline used for everything
+else, so this round ships Option B (regex-extract + schema validation
+post-hoc). Option A (in-process terminating tool) is planned for round-14.
+
+### Feature 3 — Abort Listener Cleanup (P0-5) — NO-OP (already fixed in round 27)
+
+Audited `src/runtime/child-pi.ts` for AbortSignal listener leaks. The fix was
+landed in round 27 (BUG 4): both the `onParentAbort` flag handler and the
+`abort` cancellation handler are now removed inside `settle()` regardless of
+the exit path (normal completion, response timeout, hard kill, parent abort,
+forced final drain). On runs with >10 tasks sharing one AbortSignal (the
+common pattern under `background-runner`), this prevents the
+`MaxListenersExceededWarning` and per-task closure capture that previously
+pinned the worker stack frame in memory.
+
+No code changes needed in round 13. Documented for the audit trail.
+
+### Verification
+
+- `npm run typecheck` — clean
+- `npx tsc --noEmit` — clean
+- 31 new unit tests across `deterministic-ast.test.ts` (27) and 9 schema-validation cases in `result-extractor.test.ts` and 4 new cases in `dynamic-workflow-context.test.ts` — all pass
+- 5 new integration tests in `dwf-setresult.test.ts` — all pass
+- 0 regressions in the existing 4 round-12 tests
+
+
+## [v0.9.7] — round-12: DWF phases + structured-clone guard (2026-06-23)
+
+Two additive P0 features for dynamic-workflow (DWF) scripts, both fully
+backward-compatible (existing scripts continue to work unchanged). Researched
+and adopted from the public `pi-dynamic-workflows` (Michaelliv/v1.0.1)
+package — full comparison and adoption plan in
+`.crew/artifacts/team_20260623095016_b693d3f967f88048/shared/06_synthesize.md`.
+
+### Feature 1: `ctx.phase(title)` runtime phase API (P0-1)
+
+`WorkflowCtx` gains a new `phase(title: string): void` method. The orphan
+`dwf.phase_started` / `dwf.phase_completed` event types — declared in
+`src/state/contracts.ts:89-93` since v0.9.0 but never produced by any
+producer — finally have a producer. Use cases:
+
+- Group `ctx.agent()` calls under logical phases (e.g. "Scan", "Audit",
+  "Review") so downstream UI and log readers can group by phase.
+- Emit a clear phase boundary to the run's `events.jsonl` without writing
+  custom event-log code.
+- Drive live progress reporting from the script itself.
+
+Semantics:
+
+- Validates `title` is a non-empty string (throws `TypeError` otherwise).
+- Idempotent: calling `ctx.phase("Scan")` twice does not emit a duplicate
+  event or change state.
+- When a previous phase is still open, emits `dwf.phase_completed` for it
+  **before** emitting `dwf.phase_started` for the new one (consumers never
+  see two open phases at once).
+- The in-memory `phases[]` list (read-only via `getWorkflowPhaseState`,
+  mirrors the `__finalResult` non-enumerable getter pattern) is deduped and
+  capped at **100 distinct titles** to bound memory. Events still flow
+  past the cap — the events log is the durable source of truth.
+- The runner **auto-closes the last open phase** before emitting
+  `dwf.completed`, so a script that ends mid-phase still produces a
+  well-formed event sequence.
+
+**Files changed:**
+- `src/runtime/dynamic-workflow-context.ts` — interface, implementation,
+  `__phaseState` getter, `getWorkflowPhaseState` helper
+- `src/runtime/dynamic-workflow-runner.ts` — auto-close on completion
+
+### Feature 2: structured-clone guard at the runner boundary (P0-4)
+
+Defensive `assertStructuredCloneable(value, name)` helper applied to the
+final artifact content and `manifest.summary` before they reach
+`writeArtifact` and the run-event-bus emitter. Today this is mostly
+future-proofing (the artifact file is read as a string, and strings are
+always structured-cloneable), but the guard surfaces a clear, actionable
+error pointing at the most common cause — forgetting `await` on
+`ctx.agent()` / `ctx.review()` — instead of letting a cryptic
+`DataCloneError` leak from deep inside the artifact store.
+
+**Files changed:**
+- `src/runtime/dynamic-workflow-runner.ts` — `assertStructuredCloneable`
+  helper, applied to `finalText` and `summaryText` (slice)
+
+### Tests
+
+- 7 new unit tests in `test/unit/dynamic-workflow-context.test.ts`
+  (emission, idempotency, validation, sequence, helper, dedup, 100-cap).
+- 1 new integration test in `test/integration/dwf-setresult.test.ts`
+  (end-to-end phase event sequence, including runner auto-close).
+- All 23 existing DWF unit tests still pass; both pre-existing integration
+  tests still pass.
+
+### Docs
+
+- `docs/dynamic-workflows.md` — updated WorkflowCtx example to use
+  `ctx.phase("Scan")` / `ctx.phase("Audit")`; added a `ctx.phase` row to
+  the API table; added a "Phases (round-12)" subsection explaining
+  semantics, idempotency, and the 100-cap.
+
+### Out of scope (planned for future rounds)
+
+- AST determinism check (P0-2)
+- Structured output helper (P0-3)
+- Abort listener cleanup pattern (P0-5)
+- Authoring types / IDE IntelliSense (P1-1)
+- Token budget (P1-2)
+- Phase UI in `progress-pane` (P1-4)
+- Pipeline primitive (P2-1)
+- `isolated-vm` sandbox (P2-2, planned for v1.5)
+
 ## [v0.9.5] — fix "team run hangs forever at 25%" (2026-06-23)
 
 Two coupled runtime bugs caused the recurring "run stuck at 25% (1/4)" failure

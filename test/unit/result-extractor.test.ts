@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Type } from "@sinclair/typebox";
 import { extractStructuredResult } from "../../src/runtime/result-extractor.ts";
 
 test("empty string returns unstructured", () => {
@@ -102,11 +103,12 @@ test("direct JSON takes priority over fenced", () => {
 	assert.deepEqual(result.data, { priority: "direct" });
 });
 
-test("schema parameter is accepted but does not affect extraction", () => {
-	const json = '{"name":"test"}';
-	const result = extractStructuredResult(json, { type: "object" });
+test("schema parameter validates extracted value against TypeBox schema", () => {
+	const json = '{"name":"test","value":42}';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(json, schema);
 	assert.equal(result.structured, true);
-	assert.deepEqual(result.data, { name: "test" });
+	assert.deepEqual(result.data, { name: "test", value: 42 });
 });
 
 test("### Result marker extraction", () => {
@@ -176,4 +178,82 @@ test("Strategy 4: brace inside string literal does not break matching", () => {
 	const result = extractStructuredResult(text);
 	assert.equal(result.structured, true);
 	assert.deepEqual(result.data, { msg: "contains } and { chars" });
+});
+
+// ---------------------------------------------------------------------------
+// round-13 P0-3: TypeBox schema validation
+// ---------------------------------------------------------------------------
+
+test("round-13 P0-3: valid schema passes; result.structured=true", () => {
+	const json = '{"name":"test","value":42}';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { name: "test", value: 42 });
+	assert.equal(result.error, undefined);
+});
+
+test("round-13 P0-3: invalid schema returns structured:false with error message", () => {
+	const json = '{"name":"test","value":"not-a-number"}';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, false);
+	assert.equal(result.data, null);
+	assert.match(result.error ?? "", /does not match schema/);
+});
+
+test("round-13 P0-3: missing required property returns structured:false", () => {
+	const json = '{"name":"test"}';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, false);
+	assert.equal(result.data, null);
+	assert.match(result.error ?? "", /does not match schema/);
+});
+
+test("round-13 P0-3: extra properties are allowed (TypeBox default)", () => {
+	const json = '{"name":"test","value":42,"extra":"ok"}';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { name: "test", value: 42, extra: "ok" });
+});
+
+test("round-13 P0-3: schema validates fenced JSON", () => {
+	const text = '```json\n{"name":"a","value":1}\n```';
+	const schema = Type.Object({ name: Type.String(), value: Type.Number() });
+	const result = extractStructuredResult(text, schema);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { name: "a", value: 1 });
+});
+
+test("round-13 P0-3: empty text returns unstructured even with schema", () => {
+	const schema = Type.Object({ name: Type.String() });
+	const result = extractStructuredResult("", schema);
+	assert.equal(result.structured, false);
+	assert.equal(result.data, null);
+	assert.equal(result.rawText, "");
+});
+
+test("round-13 P0-3: backward compat — no schema returns existing behavior", () => {
+	const json = '{"foo":"bar"}';
+	const result = extractStructuredResult(json);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, { foo: "bar" });
+});
+
+test("round-13 P0-3: schema validates array shape", () => {
+	const json = '[1,2,3]';
+	const schema = Type.Array(Type.Number());
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, true);
+	assert.deepEqual(result.data, [1, 2, 3]);
+});
+
+test("round-13 P0-3: schema rejects array with wrong element type", () => {
+	const json = '[1,"two",3]';
+	const schema = Type.Array(Type.Number());
+	const result = extractStructuredResult(json, schema);
+	assert.equal(result.structured, false);
+	assert.match(result.error ?? "", /does not match schema/);
 });

@@ -23,7 +23,8 @@ import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { makeWorkflowCtx, getWorkflowFinalResult } from "./dynamic-workflow-context.ts";
+import { makeWorkflowCtx, getWorkflowFinalResult, getWorkflowPhaseState } from "./dynamic-workflow-context.ts";
+import { assertDeterministicScript, isDeterminismCheckEnabled } from "./deterministic-ast.ts";
 import { projectCrewRoot, userPiRoot, packageRoot } from "../utils/paths.ts";
 import type { DynamicWorkflowConfig } from "../workflows/workflow-config.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -45,6 +46,27 @@ export interface RunDynamicWorkflowResult {
 
 /** The signature a .dwf.ts default export must satisfy. */
 export type DynamicWorkflowScript = (ctx: import("./dynamic-workflow-context.ts").WorkflowCtx) => Promise<void> | void;
+
+/**
+ * round-12 P0-4: defensive structured-clone guard at the runner boundary.
+ *
+ * Today this is mostly future-proofing: a DWF script's `setResult()` path
+ * reads an artifact file as a string, and strings are always structured-
+ * cloneable. But if a future code path produces a non-cloneable value
+ * (e.g. a Worker postMessage payload that wraps a Symbol or function), we
+ * want a clear, actionable error here — not a cryptic `DataCloneError`
+ * from deep inside the artifact store. The error message also nudges
+ * users toward the most common cause: forgetting `await` on ctx.agent()
+ * or ctx.review() in their script.
+ */
+function assertStructuredCloneable(value: unknown, name: string): void {
+	try {
+		structuredClone(value);
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`${name} must be structured-cloneable; did you forget to await ctx.agent() or ctx.review()? ${detail}`);
+	}
+}
 
 /**
  * Resolve + validate the script path against the allowlist of workflow dirs (§0c C5).
@@ -79,8 +101,19 @@ function resolveScriptPath(workflow: DynamicWorkflowConfig, cwd: string): string
 /**
  * Transpile + load the .dwf.ts default export. Uses jiti (already a dep) for TS→JS.
  * Returns the default export function or throws.
+ *
+ * Round-13 P0-2: after reading the script source, run `assertDeterministicScript`
+ * to reject non-deterministic calls (Date.now()/Math.random()/new Date()) BEFORE
+ * jiti executes the module. The check is opt-out via PI_CREW_DWF_SKIP_DETERMINISM_CHECK=1.
  */
 async function loadWorkflowModule(scriptPath: string): Promise<DynamicWorkflowScript> {
+	// Round-13 P0-2: read source first so we can AST-scan before execution.
+	// jiti does not surface the transpiled source back to us, so we read the
+	// raw .dwf.ts file. This is the same source jiti will execute.
+	const scriptSource = readFileSync(scriptPath, "utf-8");
+	if (isDeterminismCheckEnabled()) {
+		assertDeterministicScript(scriptSource);
+	}
 	// jiti is the same loader async-runner.ts uses (resolveTypeScriptLoader). We require it
 	// lazily so this module stays importable in environments without jiti (type-only consumers).
 	// Fix round-4: use createRequire(import.meta.url) so `require` works under the strip-types
@@ -151,6 +184,12 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	const final = getWorkflowFinalResult(ctx);
 	const finalText = final ? readFinalArtifact(final.artifactPath) : `(dynamic workflow '${workflow.name}' completed without calling ctx.setResult())`;
 
+	// round-12 P0-4: fail fast on unawaited Promise returns BEFORE we try to
+	// write a 2 KB blob that contains a Promise reference. structuredClone on
+	// a string always succeeds; if it doesn't, the script returned something
+	// uncloneable (most often an unawaited Promise) and we want a clear error.
+	assertStructuredCloneable(finalText, "final artifact content (set via ctx.setResult)");
+
 	// Write a summary artifact mirroring the static-workflow summary.md contract (run.ts reads this).
 	const summary = writeArtifact(manifest.artifactsRoot, {
 		kind: "result",
@@ -159,12 +198,31 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		producer: "dynamic-workflow",
 	});
 
+	// round-12 P0-1: safety net — if a script never explicitly closes its
+	// final phase before returning, the runner emits a closing event so the
+	// last open phase is always terminated before dwf.completed.
+	const phaseState = getWorkflowPhaseState(ctx);
+	if (phaseState?.currentPhase !== undefined) {
+		appendEvent(eventsPath, {
+			type: "dwf.phase_completed",
+			runId: manifest.runId,
+			data: { phase: phaseState.currentPhase },
+		});
+		phaseState.currentPhase = undefined;
+	}
+
 	appendEvent(eventsPath, { type: "dwf.completed", runId: manifest.runId, data: { workflow: workflow.name, summaryArtifact: summary.path } });
+
+	// round-12 P0-4: also guard the manifest.summary slice (the value is
+	// written into JSON-serialized manifest state — a Promise here would also
+	// crash later in the run-event-bus emitter).
+	const summaryText = finalText.slice(0, 2000);
+	assertStructuredCloneable(summaryText, "manifest.summary (derived from final result)");
 
 	const updatedManifest: TeamRunManifest = {
 		...manifest,
 		status: "completed",
-		summary: finalText.slice(0, 2000),
+		summary: summaryText,
 		updatedAt: new Date().toISOString(),
 		artifacts: [...manifest.artifacts, summary],
 	};

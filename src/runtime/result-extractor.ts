@@ -1,11 +1,19 @@
 /**
  * Structured Result Extractor — attempts to extract structured data from worker output.
  * Tries multiple extraction strategies before falling back to raw text.
+ *
+ * Round-13 P0-3: optional `schema` (TypeBox `TSchema`) — when provided, extracted
+ * data is validated against the schema via `Value.Check`. On mismatch, the result
+ * is `structured:false` with an explanatory `error`. Backward compatible: when
+ * schema is undefined, behavior is identical to the previous regex-based extractor.
  */
+import type { TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+
 export interface ExtractedResult {
 	/** Whether structured data was successfully extracted */
 	structured: boolean;
-	/** Parsed structured data (if structured=true) */
+	/** Parsed structured data (if structured=true AND validated against schema if provided) */
 	data: unknown;
 	/** Raw text output (always available) */
 	rawText: string;
@@ -15,9 +23,13 @@ export interface ExtractedResult {
 
 /**
  * Extract structured result from raw worker output text.
- * Tries strategies in order: direct JSON, fenced JSON, key-value markers.
+ * Tries strategies in order: direct JSON, fenced JSON, key-value markers, scan.
+ *
+ * @param raw - the raw text output from a worker
+ * @param schema - optional TypeBox schema. When provided, the extracted value is
+ *                 validated; mismatch produces `{structured:false, error:...}`.
  */
-export function extractStructuredResult(raw: string, _schema?: Record<string, unknown>): ExtractedResult {
+export function extractStructuredResult(raw: string, schema?: TSchema): ExtractedResult {
 	const trimmed = raw.trim();
 	if (!trimmed) {
 		return { structured: false, data: null, rawText: raw };
@@ -26,19 +38,19 @@ export function extractStructuredResult(raw: string, _schema?: Record<string, un
 	// Strategy 1: Direct JSON parse (entire output is JSON)
 	const directResult = tryDirectJson(trimmed);
 	if (directResult !== undefined) {
-		return { structured: true, data: directResult, rawText: raw };
+		return finalize(directResult, raw, schema);
 	}
 
 	// Strategy 2: Extract from ```json ... ``` fence
 	const fencedResult = tryFencedJson(trimmed);
 	if (fencedResult !== undefined) {
-		return { structured: true, data: fencedResult, rawText: raw };
+		return finalize(fencedResult, raw, schema);
 	}
 
 	// Strategy 3: Extract from markers like "RESULT:" or "OUTPUT:"
 	const markerResult = tryMarkerExtraction(trimmed);
 	if (markerResult !== undefined) {
-		return { structured: true, data: markerResult, rawText: raw };
+		return finalize(markerResult, raw, schema);
 	}
 
 	// Strategy 4: Scan for the first JSON object/array anywhere in text.
@@ -46,10 +58,63 @@ export function extractStructuredResult(raw: string, _schema?: Record<string, un
 	// around the JSON. This catches JSON embedded in sentences, lists, or prose.
 	const scannedResult = tryScanJson(trimmed);
 	if (scannedResult !== undefined) {
-		return { structured: true, data: scannedResult, rawText: raw };
+		return finalize(scannedResult, raw, schema);
 	}
 
 	return { structured: false, data: null, rawText: raw };
+}
+
+/**
+ * After extracting a candidate object, validate it against the optional TypeBox schema.
+ * When no schema is given, behavior is the legacy "structured:true" path.
+ * When a schema is given and validation fails, return structured:false with a
+ * clear error message (caller can surface this in the AgentResult).
+ *
+ * NOTE: TypeBox 0.34.49's `Value.Check` returns a boolean and does not expose
+ * per-error paths in its public API. We use the boolean + a fallback "type mismatch"
+ * description. Scripts that need detailed diagnostics can wrap their own validator.
+ */
+function finalize(candidate: unknown, raw: string, schema: TSchema | undefined): ExtractedResult {
+	if (!schema) {
+		return { structured: true, data: candidate, rawText: raw };
+	}
+	const ok = Value.Check(schema, candidate);
+	if (ok) {
+		return { structured: true, data: candidate, rawText: raw };
+	}
+	return {
+		structured: false,
+		data: null,
+		rawText: raw,
+		error: `structured output does not match schema: expected shape ${describeSchemaShape(schema)}, got ${describeValue(candidate)}`,
+	};
+}
+
+function describeValue(value: unknown): string {
+	try {
+		const json = JSON.stringify(value);
+		return json.length > 200 ? `${json.slice(0, 200)}…` : json;
+	} catch {
+		return typeof value;
+	}
+}
+
+function describeSchemaShape(schema: unknown): string {
+	if (!schema || typeof schema !== "object") return "any";
+	const obj = schema as Record<string, unknown>;
+	const kind = obj.kind as string | undefined;
+	const type = obj.type as string | undefined;
+	if (kind === "object" || type === "object") {
+		const properties = obj.properties;
+		if (!properties || typeof properties !== "object") return "object";
+		return `object<${Object.keys(properties as Record<string, unknown>).join(",")}>`;
+	}
+	if (kind === "array" || type === "array") return "array";
+	if (type === "string") return "string";
+	if (type === "number" || type === "integer") return "number";
+	if (type === "boolean") return "boolean";
+	if (Array.isArray(obj.anyOf) || Array.isArray(obj.oneOf)) return "union";
+	return "any";
 }
 
 function tryDirectJson(text: string): unknown | undefined {
