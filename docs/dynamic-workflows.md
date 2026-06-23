@@ -51,6 +51,7 @@ Slash command: `/workflows` lists all workflows (static + dynamic).
 |---|---|
 | `ctx.agent({role, prompt, model?, skill?, maxTurns?, inputs?, schema?})` | Spawn one agent, await `{ok, text, structured, artifactPath, usage}`. Concurrency enforced by `ctx.semaphore`. `schema?` (round-13) is a TypeBox schema — when set, output is validated and mismatch yields `ok:false`. |
 | `ctx.fanOut(items, limit, fn)` | Bounded parallel fan-out (wraps `mapConcurrent`). |
+| `ctx.pipeline(items, ...stages)` | **round-16.** Multi-stage pipeline: each item passes through all stages sequentially; different items run concurrently (bounded by `ctx.semaphore`). A failed stage yields `null` for that item (logged via `ctx.log`) and other items continue. Aborts propagate. Returns `(TResult\|null)[]`. |
 | `ctx.review(taskId, reviewerRole?)` | Run a reviewer; parse `{outcome, feedback}`. |
 | `ctx.retry(taskId, {feedback?})` | Re-run with feedback (wraps `executeWithRetry`). |
 | `ctx.mail(to, body, opts?)` | Mailbox message to another agent/leader. |
@@ -66,6 +67,38 @@ Slash command: `/workflows` lists all workflows (static + dynamic).
 `ctx.agent({role})` resolves the role to an `AgentConfig` via 4-tier precedence:
 explicit `agent` name → `team.roles[].agent` → `discoverAgents` by name → synthesize
 minimal (`source:'dynamic'`).
+
+### Pipeline (round-16 P2-1)
+
+`ctx.pipeline(items, ...stages)` runs a **multi-stage transform** over a list of
+items. Unlike `ctx.fanOut()` (a single parallel map), the pipeline chains stages:
+
+each item flows through **all stages in sequence** (stage 1 → stage 2 → …), while
+**different items run concurrently**, bounded by `ctx.semaphore` (the workflow
+concurrency). Each stage receives `(previous, original, index)` — `previous` is the
+prior stage's output (the raw item for the first stage), `original` is the unchanged
+input item, and `index` is the item position. This mirrors `reduce`, but parallelized
+across items.
+
+- A stage that **throws** yields `null` for that item, logs `pipeline[i] failed: <msg>`
+  via `ctx.log()`, and the **other items continue**.
+- On **abort**, the error propagates (it is not swallowed into `null`).
+- Returns `(TResult | null)[]` (order-preserving).
+
+```ts
+// scan → analyze → review each shard, up to `concurrency` shards at a time.
+const verdicts = await ctx.pipeline(
+  shards,
+  (s) => ctx.agent({ role: "scanner", prompt: `scan ${s}` }),
+  (prev) => ctx.agent({ role: "analyst", prompt: `analyze ${prev.text}` }),
+  (prev) => ctx.review(prev.taskId ?? "", "reviewer"),
+);
+// verdicts[i] is null if shard i failed at any stage; others are unaffected.
+```
+
+`pipeline` uses the same bounded-concurrency primitive as `fanOut` (`mapConcurrent`),
+so item-level parallelism respects the workflow's configured concurrency. Stages that
+spawn agents additionally acquire `ctx.semaphore` for agent-level throttling.
 
 ### Phases (round-12)
 

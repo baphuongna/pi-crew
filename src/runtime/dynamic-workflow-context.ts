@@ -100,6 +100,15 @@ export interface WorkflowCtx {
 	agent(opts: AgentCallOpts): Promise<AgentResult>;
 	/** Bounded fan-out preserving order (wraps mapConcurrent). */
 	fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]>;
+	/** Pipeline: sequential per-item stages, parallel across items (bounded by
+	 *  ctx.semaphore). Each item passes through all stages in order; different
+	 *  items may run concurrently. A failed stage yields `null` for that item
+	 *  (logged via ctx.log) and other items continue. Aborts propagate.
+	 *  round-16 (P2-1). */
+	pipeline<TItem, TResult = unknown>(
+		items: TItem[],
+		...stages: Array<(previous: TResult, original: TItem, index: number) => Promise<TResult> | TResult>
+	): Promise<(TResult | null)[]>;
 	/** Run a reviewer agent over an artifact; parse {outcome, feedback}. §3.2. */
 	review(taskId: string, reviewerRole?: string, opts?: { content?: string; artifactPath?: string; disableTools?: boolean }): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }>;
 	/** Re-run a task with feedback (wraps executeWithRetry). */
@@ -325,6 +334,34 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		},
 		async fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]> {
 			return mapConcurrent(items, Math.max(1, limit), fn);
+		},
+		async pipeline<TItem, TResult = unknown>(
+			items: TItem[],
+			...stages: Array<(previous: TResult, original: TItem, index: number) => Promise<TResult> | TResult>
+		): Promise<(TResult | null)[]> {
+			if (!Array.isArray(items)) {
+				throw new TypeError("pipeline() expects an array as the first argument");
+			}
+			if (stages.length === 0 || stages.some((s) => typeof s !== "function")) {
+				throw new TypeError("pipeline() stages must be functions");
+			}
+			if (items.length === 0) return [];
+			// Parallel across items, bounded by the workflow concurrency (mirrors fanOut).
+			// Per-item stages run sequentially. A failed stage yields null for that item
+			// (logged via ctx.log) and the remaining items continue. Aborts propagate.
+			return mapConcurrent(items, concurrency, async (item, index): Promise<TResult | null> => {
+				let value: unknown = item;
+				for (const stage of stages) {
+					try {
+						value = await stage(value as TResult, item, index);
+					} catch (error) {
+						if (opts.signal.aborted) throw error;
+						ctx.log(`pipeline[${index}] failed: ${error instanceof Error ? error.message : String(error)}`);
+						return null;
+					}
+				}
+				return value as TResult;
+			});
 		},
 		async review(taskId: string, reviewerRole = "reviewer", reviewOpts?: { content?: string; artifactPath?: string; disableTools?: boolean }): Promise<{ outcome: "accept" | "reject" | "changes_requested"; feedback: string }> {
 			// review() is a VERDICT step: it must produce a parseable JSON {outcome, feedback}, not a

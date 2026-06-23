@@ -1,5 +1,55 @@
 # Changelog
 
+## [v0.9.7] — round-16 (P2-1 pipeline primitive) (2026-06-23)
+
+Adds **`ctx.pipeline(items, ...stages)`** — a multi-stage transform primitive for
+dynamic workflows. **Backward compatible** — existing DWF scripts are unaffected;
+`pipeline` is a new opt-in capability.
+
+### Feature — Pipeline primitive (P2-1)
+
+**Files:** `src/runtime/dynamic-workflow-context.ts` + `types/dwf.d.ts` + `docs/dynamic-workflows.md`
+
+Previously the DWF context only offered `ctx.fanOut()` (a single parallel map). The
+new `ctx.pipeline()` chains stages: each item flows through **all stages in sequence**
+(stage 1 → stage 2 → …), while **different items run concurrently**, bounded by the
+workflow concurrency (`mapConcurrent`, the same primitive as `fanOut`).
+
+Semantics (mirrors `pi-dynamic-workflows`' `pipeline()`):
+
+- Each stage receives `(previous, original, index)` — `previous` is the prior stage's
+  output (the raw item for the first stage), `original` is the unchanged input item.
+- A failed stage yields `null` for that item, logs `pipeline[i] failed: <msg>` via
+  `ctx.log()`, and the other items continue.
+- On **abort**, the error propagates (it is not swallowed into `null`).
+- Returns `(TResult | null)[]`, order-preserving.
+
+Signature:
+
+```ts
+ctx.pipeline<TItem, TResult = unknown>(
+  items: TItem[],
+  ...stages: Array<(previous: TResult, original: TItem, index: number) => Promise<TResult> | TResult>
+): Promise<(TResult | null)[]>;
+```
+
+Implementation notes:
+
+- Uses `mapConcurrent(items, concurrency, …)` — NOT unbounded `Promise.all` — so
+  item-level parallelism respects the workflow's configured concurrency. Stages that
+  spawn agents additionally acquire `ctx.semaphore` for agent-level throttling.
+- Validates inputs: non-array first arg → `TypeError`; non-function stage (or no
+  stages) → `TypeError`.
+- Empty items array short-circuits to `[]`.
+- Authoring types (`types/dwf.d.ts`) mirror the runtime signature for IDE IntelliSense.
+
+Example use case: scan → analyze → review each shard, up to `concurrency` shards at a
+time, with per-shard failure isolation.
+
+Tests: `test/unit/dynamic-workflow-context.test.ts` — single/multi-stage transforms,
+empty array, failed-stage isolation + logging, TypeError on bad inputs, stage-argument
+contract, async stages, and concurrency-bounded execution.
+
 ## [v0.9.7] — round-15 (P1-4 phase UI) (2026-06-23)
 
 The progress pane now **renders DWF phase markers** (▶/✓/⏸) by consuming the

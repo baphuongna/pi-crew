@@ -120,6 +120,12 @@ export interface WorkflowCtx {
 	agent(opts: AgentCallOpts): Promise<AgentResult>;
 	/** Bounded fan-out preserving order. */
 	fanOut<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<AgentResult>): Promise<AgentResult[]>;
+	/** Pipeline: sequential per-item stages, parallel across items (bounded by ctx.semaphore).
+	 *  Failed stage → null for that item (logged); other items continue. round-16 (P2-1). */
+	pipeline<TItem, TResult = unknown>(
+		items: TItem[],
+		...stages: Array<(previous: TResult, original: TItem, index: number) => Promise<TResult> | TResult>
+	): Promise<(TResult | null)[]>;
 	/** Run a reviewer agent over an artifact; parse {outcome, feedback}. */
 	review(taskId: string, reviewerRole?: string, opts?: ReviewOpts): Promise<ReviewResult>;
 	/** Re-run a task with feedback (wraps executeWithRetry). */

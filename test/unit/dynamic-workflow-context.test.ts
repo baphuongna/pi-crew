@@ -677,3 +677,164 @@ test("round-14 ctx.args(): accepts non-object args (e.g. an array)", () => {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+// ---------------------------------------------------------------------------
+// round-16 P2-1: ctx.pipeline — sequential per-item stages, parallel across items
+// ---------------------------------------------------------------------------
+
+test("ctx.pipeline — single stage transform", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const result = await ctx.pipeline([1, 2, 3], (x) => (x as number) * 2);
+		assert.deepEqual(result, [2, 4, 6]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — multiple sequential stages", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const result = await ctx.pipeline(
+			[1, 2, 3],
+			(x) => (x as number) * 2,
+			(x) => (x as number) + 1,
+		);
+		assert.deepEqual(result, [3, 5, 7]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — empty array returns empty", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const result = await ctx.pipeline([], (x) => x);
+		assert.deepEqual(result, []);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — failed stage yields null + logs, other items continue", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const result = await ctx.pipeline([1, 2, 3], (x, _orig, i) => {
+			if (i === 1) throw new Error("boom");
+			return (x as number) * 10;
+		});
+		assert.deepEqual(result, [10, null, 30]);
+		const logs = getWorkflowLogs(ctx);
+		assert.ok(
+			logs?.some((l) => l.includes("pipeline[1] failed: boom")),
+			"error should be logged via ctx.log",
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — non-array first arg throws TypeError", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		await assert.rejects(
+			() => ctx.pipeline("not-array" as unknown as never[], (x) => x),
+			/expects an array/,
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — non-function stage throws TypeError", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		await assert.rejects(
+			() => ctx.pipeline([1], "not-a-function" as unknown as never),
+			/stages must be functions/,
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — stage receives (previous, original, index)", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const calls: Array<[unknown, number, number]> = [];
+		await ctx.pipeline([10, 20], (prev, original, index) => {
+			calls.push([prev, original, index]);
+			return prev;
+		});
+		assert.deepEqual(calls, [
+			[10, 10, 0],
+			[20, 20, 1],
+		]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — stage receives previous stage output as 'previous'", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const seen: number[] = [];
+		await ctx.pipeline(
+			[5],
+			(x) => (x as number) + 1, // 6
+			(x) => (x as number) * 2, // 12
+			(x) => {
+				seen.push(x as number); // 12
+				return x;
+			},
+		);
+		assert.deepEqual(seen, [12]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — async stages work", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), { signal: new AbortController().signal });
+		const result = await ctx.pipeline([1, 2, 3], async (x) => {
+			await new Promise((r) => setTimeout(r, 5));
+			return (x as number) * 3;
+		});
+		assert.deepEqual(result, [3, 6, 9]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("ctx.pipeline — execution bounded by workflow concurrency", async () => {
+	const cwd = tmpCwd();
+	try {
+		const ctx = makeWorkflowCtx(fakeManifest(cwd), {
+			signal: new AbortController().signal,
+			concurrency: 2,
+		});
+		let inFlight = 0;
+		let maxInFlight = 0;
+		await ctx.pipeline([1, 2, 3, 4, 5, 6], async () => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			await new Promise((r) => setTimeout(r, 20));
+			inFlight--;
+			return "done";
+		});
+		assert.ok(maxInFlight <= 2, `maxInFlight ${maxInFlight} must not exceed concurrency 2`);
+		assert.ok(maxInFlight >= 2, `maxInFlight ${maxInFlight} should reach the concurrency limit`);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
