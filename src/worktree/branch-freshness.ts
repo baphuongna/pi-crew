@@ -1,4 +1,13 @@
 import { execFileSync } from "node:child_process";
+import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
+import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
+
+// Read-only git operations only (rev-list, rev-parse, log). Sanitize env to
+// avoid leaking API keys/tokens to any git hook/alias/credential-helper.
+// C-1 fix (code-review 2026-06-23): previously inherited the full parent env.
+const GIT_SAFE_ENV = sanitizeEnvSecrets(process.env, {
+	allowList: ["PATH", "HOME", "USER", ...WINDOWS_ESSENTIAL_ENV_VARS, "SHELL", "TERM", "LANG", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_EXEC_PATH"],
+});
 
 export type BranchFreshnessStatus = "fresh" | "stale" | "diverged" | "unknown";
 export type StaleBranchPolicy = "warn" | "block" | "auto_rebase" | "auto_merge_forward";
@@ -15,7 +24,7 @@ export interface BranchFreshness {
 }
 
 function git(cwd: string, args: string[]): string {
-	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }).trim();
+	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: GIT_SAFE_ENV, windowsHide: true }).trim();
 }
 
 function count(cwd: string, range: string): number {

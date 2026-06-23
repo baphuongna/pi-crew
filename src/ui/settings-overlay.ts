@@ -6,6 +6,7 @@
 import type { CrewTheme } from "./theme-adapter.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
+import { visibleWidth, truncateToWidth } from "../utils/visual.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -143,34 +144,7 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Visible character width (ignores ANSI escapes). */
-function visibleWidth(text: string): number {
-	// eslint-disable-next-line no-control-regex
-	let w = 0;
-	let inEscape = false;
-	for (const ch of text) {
-		if (ch === "\x1b") { inEscape = true; continue; }
-		if (inEscape) { if (/[a-zA-Z]/.test(ch)) inEscape = false; continue; }
-		w++;
-	}
-	return w;
-}
-
-/** Truncate string to fit within maxVis visible characters. */
-function truncateToWidth(text: string, maxVis: number): string {
-	// eslint-disable-next-line no-control-regex
-	let w = 0;
-	let result = "";
-	let inEscape = false;
-	for (const ch of text) {
-		if (ch === "\x1b") { inEscape = true; result += ch; continue; }
-		if (inEscape) { result += ch; if (/[a-zA-Z]/.test(ch)) inEscape = false; continue; }
-		w++;
-		if (w > maxVis) return result + "…";
-		result += ch;
-	}
-	return result;
-}
+/** Visible character width — delegated to the Unicode-aware shared util (M-11 fix). */
 
 /** Pad string to exactly maxVis visible width. */
 function padToWidth(text: string, maxVis: number, padChar = " "): string {

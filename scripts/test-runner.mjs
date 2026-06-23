@@ -52,7 +52,7 @@ const result = spawnSync(
 	["--import", "tsx/esm", "--test", ...finalArgs],
 	{
 		stdio: "inherit",
-		env: { ...process.env, NODE_ENV: "test" },
+		env: { ...process.env, NODE_ENV: "test", PI_CREW_SKIP_HOME_CHECK: "1" },
 		timeout: 600_000, // 10 minute overall timeout
 	},
 );

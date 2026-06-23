@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { resolveShellForScript } from "../utils/resolve-shell.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 
 /** Default timeout for post-check scripts (5 minutes). */
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -78,12 +79,13 @@ export async function runPostCheck(config: PostCheckConfig, cwd: string): Promis
 		};
 	}
 
-	// M1: Validate that the script path is contained within cwd to prevent arbitrary file execution
-	const resolved = path.resolve(cwd, scriptPath);
-	const resolvedCwd = path.resolve(cwd);
-	if (!resolved.startsWith(resolvedCwd + path.sep) && resolved !== resolvedCwd) {
-		throw new Error(`Security: PI_CREW_POST_CHECK_SCRIPT escapes cwd: ${scriptPath}`);
-	}
+	// M-1 fix (code-review 2026-06-23): use the project's safe-path primitive instead
+	// of a hand-rolled path.resolve + startsWith check. The lexical check passed a
+	// symlinked cwd/scripts -> /usr/local/bin, but execFileSync followed the symlink
+	// and executed a script outside the working directory. resolveRealContainedPath
+	// walks ancestors with O_NOFOLLOW and re-validates after realpath, defeating
+	// symlink-traversal attacks. Throws if the resolved path escapes cwd.
+	resolveRealContainedPath(cwd, scriptPath);
 
 	const startTime = Date.now();
 

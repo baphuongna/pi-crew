@@ -107,6 +107,12 @@ export function getBackgroundRunnerCommand(
 	cwd: string,
 	runId: string,
 	loaderInput: LoaderInput = resolveTypeScriptLoader(),
+	/**
+	 * Directory to write the V8 fatal-error report into. Defaults to
+	 * path.dirname(runnerPath). Pass the run stateRoot so the report lands
+	 * next to background.log for easy diagnosis.
+	 */
+	reportDirectory?: string,
 ): { args: string[]; loader: "jiti" | "strip-types" } {
 	const loader = normalizeLoaderInput(loaderInput);
 	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
@@ -116,13 +122,16 @@ export function getBackgroundRunnerCommand(
 	// defaults to ~1.5GB on 64-bit systems, which combined with jiti compilation
 	// and child processes can exhaust system memory.
 	const memoryLimit = "--max-old-space-size=512";
-	// Phase 1.5 #3 (RFC 17): opt-in V8 diagnostic report on fatal error. Writes
-	// a report file next to the manifest when the process dies abnormally.
-	// Crucial for diagnosing the non-deterministic multi-step goal-wrap crash
-	// (commit a9f6e09) — gives us native stack, environment, and load info that
-	// application-level signal handlers cannot capture.
-	const reportFlags = process.env.PI_CREW_BG_REPORT_ON_FATAL === "1" || process.env.PI_TEAMS_BG_REPORT_ON_FATAL === "1"
-		? ["--report-on-fatalerror", "--report-compact", `--report-directory=${path.dirname(runnerPath)}`]
+	// V8 diagnostic report on fatal error. A native heap-OOM abort or segfault
+	// bypasses the JS process.on('exit') handler and console overrides
+	// entirely — only a V8 report file survives such crashes. This is ON by
+	// default precisely so silent runner deaths (like the explore→code-review
+	// transition crash) leave a native stack/heap/environment trace. Users who
+	// don't want report files can opt out with PI_CREW_BG_REPORT_ON_FATAL=0.
+	const reportOn = !(process.env.PI_CREW_BG_REPORT_ON_FATAL === "0" || process.env.PI_TEAMS_BG_REPORT_ON_FATAL === "0");
+	const reportDir = reportDirectory ?? path.dirname(runnerPath);
+	const reportFlags = reportOn
+		? ["--report-on-fatalerror", "--report-compact", `--report-directory=${reportDir}`]
 		: [];
 	if (loader.kind === "jiti") {
 		return {
@@ -243,7 +252,9 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		appendEvent(manifest.eventsPath, { type: "async.failed", runId: manifest.runId, message });
 		throw new Error(message);
 	}
-	const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, loader);
+	// Pass manifest.stateRoot as report-directory so V8 fatal reports land
+	// next to background.log (same dir) for easy post-mortem diagnosis.
+	const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, loader, manifest.stateRoot);
 	fs.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}\n`, "utf-8");
 
 	// Spawn the background runner as a fully detached process with its own session.
@@ -266,13 +277,56 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		windowsHide: true,
 	} as unknown as Parameters<typeof spawn>[2];
 	const child = spawn(process.execPath, command.args, spawnOpts);
-	// Round 27 (BUG 3): the piped stdout/stderr are NEVER read or destroyed →
-	// 2 FDs leak per background spawn, and if the child writes >64KB (pipe
-	// buffer) it blocks forever (nobody drains the pipe) → background runner
-	// hangs. The background runner redirects its own console to a file, so we
-	// don't need this output — destroy the read ends immediately.
+	// Round 27 (BUG 3) history: the piped stdout/stderr were previously destroyed
+	// immediately to avoid a pipe-buffer deadlock (child writes >64KB with nobody
+	// draining → hang). BUT destroying stderr ALSO swallowed native crash
+	// messages: a V8 heap-OOM abort() or segfault writes its diagnostic directly
+	// to the process stderr fd, which was the (now-destroyed) pipe read-end, so
+	// the bytes vanished — making runner deaths completely silent. This caused
+	// the explore→code-review transition crash to leave zero trace.
+	//
+	// FIX: keep stdout destroyed (unused — runner redirects its own console to
+	// a file), but DRAIN stderr asynchronously into background.log with a
+	// "[child stderr]" prefix. Buffer is capped to avoid unbounded memory if a
+	// noisy child streams megabytes; excess is dropped with a truncation marker.
 	child.stdout?.destroy();
-	child.stderr?.destroy();
+	const STDERR_CAPTURE_LIMIT = 256 * 1024;
+	const stderrChunks: Buffer[] = [];
+	let stderrLen = 0;
+	let stderrTruncated = false;
+	const flushStderr = (): void => {
+		if (stderrChunks.length === 0) return;
+		let body: string;
+		try {
+			body = Buffer.concat(stderrChunks).toString("utf-8");
+		} catch {
+			stderrChunks.length = 0;
+			return;
+		}
+		stderrChunks.length = 0;
+		try {
+			fs.appendFileSync(logPath, `[child stderr] ${body}${body.endsWith("\n") ? "" : "\n"}`, "utf-8");
+		} catch {
+			/* best-effort */
+		}
+	};
+	child.stderr?.on("data", (chunk: Buffer) => {
+		if (stderrLen + chunk.length > STDERR_CAPTURE_LIMIT) {
+			if (!stderrTruncated) {
+				stderrTruncated = true;
+				try {
+					fs.appendFileSync(logPath, `[child stderr truncated at ${STDERR_CAPTURE_LIMIT} bytes]\n`, "utf-8");
+				} catch {
+					/* best-effort */
+				}
+			}
+			return;
+		}
+		stderrChunks.push(chunk);
+		stderrLen += chunk.length;
+	});
+	child.stderr?.on("end", flushStderr);
+	child.stderr?.on("close", flushStderr);
 	child.on("error", (error: Error) => {
 		logInternalError("async-runner.spawn", error, `pid=${child.pid ?? "unknown"}`);
 	});

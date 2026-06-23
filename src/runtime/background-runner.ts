@@ -294,7 +294,17 @@ async function main(): Promise<void> {
 	// FIX: Store logFd so it can be closed on exit to prevent file descriptor leak
 	let logFd: number | undefined;
 	// Redirect console to background.log since stdio is "ignore" in detached mode.
-	// Must be BEFORE any console.log/console.error calls.
+	// This is the ABSOLUTE FIRST thing main() does after reading --cwd/--run-id
+	// (which are required to build the log path). Any later — after heavy imports,
+	// scrubProcessEnv, or signal handler setup — and JS-level crashes during those
+	// steps would lose their console output.
+	//
+	// NOTE on native crashes: a V8 heap-OOM abort() or segfault bypasses this
+	// console redirect entirely (it writes straight to the process stderr fd).
+	// Those are now captured two other ways: (1) the parent drains the child's
+	// stderr pipe into background.log (see async-runner.ts spawn), and (2) the
+	// V8 --report-on-fatalerror flag (ON by default) writes a report file into
+	// the run stateRoot. This console redirect only covers JS-level output.
 	const _cwd = argValue("--cwd");
 	const _runId = argValue("--run-id");
 	if (_cwd && _runId) {

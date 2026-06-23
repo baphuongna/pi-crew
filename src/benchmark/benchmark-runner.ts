@@ -41,10 +41,14 @@ export interface BenchmarkResult {
  * Uses comprehensive shell metacharacter blocking similar to safe-bash.ts.
  */
 function validateCommand(command: string): void {
-  // Basic allowlist - must start with allowed command
-  const allowlist = /^(pytest|grep|npm test|npx|node) /;
+  // Basic allowlist - must start with an allowed command.
+  // SECURITY (H-7): `npx`/`node` were removed because they enable arbitrary code
+  // execution without any shell metacharacter (e.g. `npx --yes evil-package`
+  // or `node -e "require('fs')…"`). Use `npm test`/`npm run …` instead of raw
+  // `node`/`npx` in benchmark task definitions.
+  const allowlist = /^(pytest|grep|npm test|cargo test|cargo clippy) /;
   if (!allowlist.test(command)) {
-    throw new Error(`Command not allowed: ${command}. Only pytest, grep, npm test, npx allowed.`);
+    throw new Error(`Command not allowed: ${command}. Only pytest, grep, npm test, cargo test/clippy allowed.`);
   }
   
   // Block shell metacharacters after command name

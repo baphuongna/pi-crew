@@ -11,6 +11,7 @@ import type {
 	VerificationEvidence,
 } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { errors } from "../errors.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
@@ -282,11 +283,11 @@ export async function runTeamTask(
 		if (input.step.preStepScript) {
 			const scriptTimeout = input.step.preStepTimeout ?? 30_000;
 			const scriptArgs = input.step.preStepArgs ?? [];
-			// SECURITY: Validate preStepScript path is contained within cwd
-			const resolved = path.resolve(manifest.cwd, input.step.preStepScript);
-			if (!resolved.startsWith(path.resolve(manifest.cwd) + path.sep) && resolved !== path.resolve(manifest.cwd)) {
-				throw new Error(`Security: preStepScript path escapes working directory: ${input.step.preStepScript}`);
-			}
+			// SECURITY (M-1 fix, code-review 2026-06-23): use the project's safe-path
+			// primitive instead of a hand-rolled path.resolve + startsWith check.
+			// The lexical check passed a symlinked ancestor, letting execFileSync
+			// follow it and execute a script outside cwd. Throws on escape.
+			resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
 			try {
 				const { execFileSync } = await import("node:child_process");
 				preStepOutput = execFileSync(input.step.preStepScript, scriptArgs, {

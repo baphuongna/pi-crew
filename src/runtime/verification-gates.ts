@@ -130,9 +130,13 @@ export const CARGO_RUST_GATES: Array<{ name: string; command: string; critical: 
 // secrets into captured gate output, e.g. `echo $ANTHROPIC_API_KEY`).
 // $+word-char is blocked; special vars like $?/$$/$! are left alone. Built-in
 // gates use only `2>&1` (no $VAR), so this does not break them.
-const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\$\w|\b(eval|exec)\b|>>|<[^^&]|[\r\n])/;
-// Note: single `>` is NOT blocked here because `2>&1` is a safe redirect used by built-in gates.
-// `>>` (append) is still blocked. `<` without `&` (input redirect) is still blocked.
+// M-3/M-4 fix (code-review 2026-06-23): the old pattern used `>>` (append) and
+// `<[^^&]` (a confusing char class). It allowed bare `>` (file redirect, e.g.
+// `npm test > ~/.ssh/authorized_keys`) and used char-class semantics instead of
+// a lookahead. Now `[<>](?![&\d])` blocks BOTH `<` and `>` file redirects while
+// still permitting fd-duplication forms (`2>&1`, `1>&2`, `>&2`, `<&3`) via the
+// negative lookahead (a `>`/`<` followed by `&` or a digit is allowed).
+const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\$\w|\b(eval|exec)\b|[<>](?![&\d])|[\r\n])/;
 
 /**
  * Validate a verification gate command is safe to execute.
@@ -195,7 +199,23 @@ async function executeCommand(
 			output += data.toString();
 		});
 
+		// M-9 fix (code-review 2026-06-23): store the timeout handle so it can be
+		// cleared when the process exits normally, and unref it so it does not
+		// keep the Node.js event loop alive for the full timeoutMs after all work
+		// is done (previously it fired shell.kill() on an already-dead process).
+		const timer = setTimeout(() => {
+			shell.kill("SIGKILL");
+			resolve({
+				exitCode: -1,
+				output: output + "\n[TIMEOUT: Command exceeded limit]",
+				durationMs: Date.now() - start,
+			});
+		}, timeoutMs);
+		timer.unref();
+		const clearTimer = (): void => clearTimeout(timer);
+
 		shell.on("close", (code) => {
+			clearTimer();
 			exitCode = code;
 			resolve({
 				exitCode,
@@ -205,22 +225,13 @@ async function executeCommand(
 		});
 
 		shell.on("error", (err) => {
+			clearTimer();
 			resolve({
 				exitCode: -1,
 				output: `Execution error: ${err.message}`,
 				durationMs: Date.now() - start,
 			});
 		});
-
-		// Handle timeout
-		setTimeout(() => {
-			shell.kill("SIGKILL");
-			resolve({
-				exitCode: -1,
-				output: output + "\n[TIMEOUT: Command exceeded limit]",
-				durationMs: Date.now() - start,
-			});
-		}, timeoutMs);
 	});
 }
 

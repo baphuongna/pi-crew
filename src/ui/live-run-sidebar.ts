@@ -103,6 +103,13 @@ export class LiveRunSidebar {
 	}
 
 	dispose(): void {
+		// M-10 fix (code-review 2026-06-23): clear the auto-close timer so a
+		// disposed sidebar (not closed via the normal path) doesn't fire this.done()
+		// on a disposed component.
+		if (this.autoCloseTimeout) {
+			clearTimeout(this.autoCloseTimeout);
+			this.autoCloseTimeout = undefined;
+		}
 		this.unsubscribeTheme();
 		this.unsubscribeEventBus();
 	}

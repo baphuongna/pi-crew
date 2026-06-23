@@ -23,7 +23,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { userPiRoot } from "../utils/paths.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { withFileLockSync } from "../state/locks.ts";
@@ -109,12 +109,17 @@ function getProcessStartTimeLinux(pid: number): number | undefined {
 }
 
 function getProcessStartTimeMacOS(pid: number): number | undefined {
+	// SECURITY (H-6): validate pid is a finite positive number before use, and
+	// pass it as an argv element (not interpolated into a shell string) so a
+	// poisoned pid value can never reach a shell. Number.isFinite() rejects any
+	// non-numeric string that could carry shell metacharacters.
+	if (!Number.isFinite(pid) || pid <= 0) return undefined;
 	// Use sysctl to get process start time on macOS
 	// KERN_PROC_PID returns a kinfo_proc structure with p_starttime
 	try {
-		// Use ps to get process start time - format: Mon Day Time or Mon Day Year
-		// For cross-platform consistency, we use 'lstart' which gives full timestamp
-		const output = execSync(`ps -p ${pid} -o lstart=`, { encoding: "utf-8", timeout: 5000 }).trim();
+		// For cross-platform consistency, use 'lstart' which gives full timestamp.
+		// execFileSync with an args array avoids shell interpretation entirely.
+		const output = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf-8", timeout: 5000 }).trim();
 		if (!output) return undefined;
 		// Parse date string like "Mon Jan 15 10:30:45 2024"
 		const date = new Date(output);
@@ -126,12 +131,17 @@ function getProcessStartTimeMacOS(pid: number): number | undefined {
 }
 
 function getProcessStartTimeWindows(pid: number): number | undefined {
+	// SECURITY (H-6): validate pid is a finite positive number. After this guard
+	// the value is guaranteed numeric, so interpolating it into the PowerShell
+	// -Command string is safe (no shell metacharacters can be injected).
+	if (!Number.isFinite(pid) || pid <= 0) return undefined;
 	// Use Windows API via JSDrive's winattr or native code
 	// For Node.js without native modules, use tasklist /v and parse output
 	try {
 		// /v verbose, /fo csv, /nh no header
-		const output = execSync(
-			`powershell -Command "Get-Process -Id ${pid} | Select-Object -ExpandProperty StartTime"`,
+		const output = execFileSync(
+			"powershell",
+			["-Command", `Get-Process -Id ${pid} | Select-Object -ExpandProperty StartTime`],
 			{ encoding: "utf-8", timeout: 5000 },
 		).trim();
 		if (!output) return undefined;

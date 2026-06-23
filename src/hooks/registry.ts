@@ -71,7 +71,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 	function sanitizeMergeData(data: Record<string, unknown>): Record<string, unknown> {
 		const clean: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(data)) {
-			if (!POLLUTED_KEYS.has(k.toLowerCase())) {
+			if (!POLLUTED_KEYS.has(k.toLowerCase().normalize("NFKC"))) {
 				if (v !== null && typeof v === "object") {
 					if (Array.isArray(v)) {
 						// Sanitize array elements that are objects
@@ -91,7 +91,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 	// This sanitization runs at the start of executeHook to prevent prototype pollution attacks.
 	function sanitizeContext(ctx: HookContext): HookContext {
 		for (const key of Object.keys(ctx)) {
-			if (POLLUTED_KEYS.has(key.toLowerCase())) {
+			if (POLLUTED_KEYS.has(key.toLowerCase().normalize("NFKC"))) {
 				delete ctx[key];
 			}
 		}

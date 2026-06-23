@@ -12,6 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
+import { isSafePathId } from "../utils/safe-paths.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,9 @@ export function readIntermediate(
 	phase: string,
 	stepId: string,
 ): IntermediateOutput | undefined {
+	// M-2 fix (code-review 2026-06-23): validate phase/stepId before building the
+	// filename to prevent path traversal via a poisoned stepId.
+	if (!isSafePathId(phase) || !isSafePathId(stepId)) return undefined;
 	const dir = config.intermediateDir ?? DEFAULT_CONFIG.intermediateDir;
 	const filename = `${phase}-${stepId}.json`;
 	const filePath = path.join(dir, filename);

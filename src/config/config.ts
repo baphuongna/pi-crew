@@ -84,16 +84,11 @@ function resolveHomeDir(): string {
 	if (process.env.PI_CREW_SKIP_HOME_CHECK === "1") {
 		return envValue;
 	}
-	// NOTE: NODE_ENV=test bypass is intentional for test isolation only.
-	// It allows tests to use isolated temporary directories (e.g. withIsolatedHome
-	// sets PI_TEAMS_HOME to /tmp). This is NOT a security boundary — tests that
-	// need the validation skipped should set PI_CREW_SKIP_HOME_CHECK=1 explicitly.
-	// WARNING: Tests must NOT rely on PI_TEAMS_HOME for security boundaries in
-	// test environments. Any test verifying path-restriction behavior should set
-	// PI_CREW_SKIP_HOME_CHECK=1 and validate the path directly.
-	if (process.env.NODE_ENV === "test") {
-		return envValue;
-	}
+	// M-7 fix (code-review 2026-06-23): the previous `NODE_ENV === "test"` bypass
+	// was reachable from any production-ish environment that happened to set
+	// NODE_ENV=test (CI smoke tests, staging), allowing a malicious .env to
+	// redirect PI_TEAMS_HOME anywhere. The explicit opt-out flag above is the only
+	// bypass now; the test runner sets it (scripts/test-runner.mjs).
 	try {
 		const userHome = fs.realpathSync(defaultHome);
 		const resolvedHome = fs.realpathSync(envValue);

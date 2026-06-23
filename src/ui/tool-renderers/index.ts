@@ -636,8 +636,8 @@ function shortenPath(p: string): string {
 	return p;
 }
 
-/** P8: Create clickable file hyperlink via OSC 8 */
-function linkPath(p: string, label?: string): string {
-	const display = label ?? shortenPath(p);
-	return `\x1b]8;;file://${p}\x1b\\${display}\x1b]8;;\x1b\\`;
-}
+/** P8: Create clickable file hyperlink via OSC 8.
+ * Removed (M-13 fix, code-review 2026-06-23): this function was dead code (no
+ * callers) and interpolated a path into an OSC-8 escape without sanitizing
+ * control chars (\x07 BEL / \x1b\\ ST), a potential terminal-injection sink.
+ * Re-add with sanitized input if a caller is introduced. */

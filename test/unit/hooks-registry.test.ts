@@ -176,4 +176,23 @@ describe("executeHook", () => {
 		assert.equal(reportA.outcome, "allow");
 		assert.ok(reportA.durationMs >= 0, "hook executed for matching workspace");
 	});
+
+	it("M-8: strips NFKC-confusable prototype-pollution keys from ctx", async () => {
+		// Fullwidth 'o' (U+FF4F) NFKC-normalizes to ASCII 'o', so "__ｐroto__" must be
+		// treated as "__proto__" and stripped. (Cyrillic o does NOT fold under NFKC —
+		// only fullwidth/compatibility characters do. Regression for the missing
+		// .normalize in the POLLUTED_KEYS lookup.)
+		const maliciousKey = "__pr\uFF4Fto__";
+		assert.notEqual(maliciousKey, "__proto__", "sanity: the confusable key is not ASCII __proto__");
+		const ctx = { ...makeCtx(), [maliciousKey]: "evil" } as HookContext;
+		let capturedKeys: string[] = [];
+		registerHook({
+			name: "before_run_start",
+			mode: "non_blocking",
+			handler: (c) => { capturedKeys = Object.keys(c); return { outcome: "allow" }; },
+		});
+		await executeHook("before_run_start", ctx);
+		assert.ok(!capturedKeys.includes(maliciousKey), "NFKC-confusable __proto__ key must be stripped from ctx");
+		assert.ok(!capturedKeys.includes("__proto__"), "ASCII __proto__ must also be stripped");
+	});
 });

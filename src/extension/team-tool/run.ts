@@ -15,6 +15,7 @@ import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runn
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 import { logInternalError } from "../../utils/internal-error.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
 	if (!_cachedExecuteTeamRun) {
@@ -439,9 +440,11 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					let resultExcerpt = "";
 					if (task.resultArtifact?.path) {
 						try {
-							const resPath = path.isAbsolute(task.resultArtifact.path)
-							? task.resultArtifact.path
-							: path.join(completed.manifest.artifactsRoot, task.resultArtifact.path);
+							// H-3 fix (code-review 2026-06-23): resolve the result artifact path
+							// inside artifactsRoot via the project's safe-path primitive. Rejects
+							// absolute paths (/etc/passwd) and ../ traversal that the old
+							// path.isAbsolute shortcut + bare path.join allowed.
+							const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
 							resultExcerpt = fs.readFileSync(resPath, "utf-8").trim().slice(0, 2000);
 						} catch {
 							resultExcerpt = "(result unavailable)";
@@ -572,9 +575,11 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					let resultExcerpt = "";
 					if (task.resultArtifact?.path) {
 						try {
-							const resPath = path.isAbsolute(task.resultArtifact.path)
-							? task.resultArtifact.path
-							: path.join(completed.manifest.artifactsRoot, task.resultArtifact.path);
+							// H-3 fix (code-review 2026-06-23): resolve the result artifact path
+							// inside artifactsRoot via the project's safe-path primitive. Rejects
+							// absolute paths (/etc/passwd) and ../ traversal that the old
+							// path.isAbsolute shortcut + bare path.join allowed.
+							const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
 							resultExcerpt = fs.readFileSync(resPath, "utf-8").trim().slice(0, 2000);
 						} catch {
 							resultExcerpt = "(result unavailable)";

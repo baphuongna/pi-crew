@@ -19,6 +19,10 @@ export class LiveConversationOverlay {
 	private frame = 0;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	cachedLines: string[] = [];
+	// H-4 fix (code-review 2026-06-23): cap the in-memory line buffer to avoid
+	// unbounded growth (OOM) during long-running live sessions. Oldest lines are
+	// dropped first; scrollOffset is adjusted to keep the viewport stable.
+	static readonly MAX_CACHED_LINES = 5000;
 	private columns: number;
 	private rows: number;
 	private unsubscribe: (() => void) | undefined;
@@ -45,7 +49,7 @@ export class LiveConversationOverlay {
 					const obj = event as Record<string, unknown>;
 					const text = typeof obj.text === "string" ? obj.text : typeof obj.content === "string" ? obj.content : "";
 					if (text.trim()) {
-						this.cachedLines.push(text);
+						this.pushLine(text);
 						if (this.autoScroll) this.scrollOffset = Math.max(0, this.cachedLines.length - this.viewportHeight());
 					}
 				});
@@ -59,6 +63,15 @@ export class LiveConversationOverlay {
 		}, 200);
 		this.pollTimer.unref();
 		try { this.refreshSummary(); } catch { /* ignore */ }
+	}
+
+	private pushLine(line: string): void {
+		this.cachedLines.push(line);
+		if (this.cachedLines.length > LiveConversationOverlay.MAX_CACHED_LINES) {
+			const drop = this.cachedLines.length - LiveConversationOverlay.MAX_CACHED_LINES;
+			this.cachedLines.splice(0, drop);
+			this.scrollOffset = Math.max(0, this.scrollOffset - drop);
+		}
 	}
 
 	private static readonly SUMMARY_PREFIX = "\u200B"; // zero-width space as summary sentinel
@@ -92,7 +105,7 @@ export class LiveConversationOverlay {
 		if (lastLine?.startsWith(LiveConversationOverlay.SUMMARY_PREFIX)) {
 			this.cachedLines[this.cachedLines.length - 1] = summary;
 		} else {
-			this.cachedLines.push(summary);
+			this.pushLine(summary);
 		}
 		if (this.autoScroll) this.scrollOffset = Math.max(0, this.cachedLines.length - this.viewportHeight());
 	}

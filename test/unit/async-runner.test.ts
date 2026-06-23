@@ -10,10 +10,16 @@ test("background runner uses the jiti runtime loader for installed TypeScript", 
 	assert.equal(command.loader, "jiti");
 	// Memory limit is prepended first
 	assert.equal(command.args[0], "--max-old-space-size=512");
-	assert.equal(command.args[1], "--trace-uncaught");
-	assert.equal(command.args[2], "--import");
-	assert.match(command.args[3] ?? "", /jiti-register\.mjs$/);
-	assert.equal(command.args[4], "/tmp/node_modules/pi-crew/src/runtime/background-runner.ts");
+	// V8 fatal-error report is ON by default (3 flags after memory limit).
+	assert.equal(command.args[1], "--report-on-fatalerror");
+	assert.equal(command.args[2], "--report-compact");
+	assert.match(command.args[3] ?? "", /^--report-directory=/);
+	// trace-uncaught + import + jiti loader follow.
+	assert.ok(command.args.includes("--trace-uncaught"), "expected --trace-uncaught in args");
+	const importIdx = command.args.indexOf("--import");
+	assert.ok(importIdx > 0, "expected --import in args");
+	assert.match(command.args[importIdx + 1] ?? "", /jiti-register\.mjs$/);
+	assert.ok(command.args.includes("/tmp/node_modules/pi-crew/src/runtime/background-runner.ts"));
 	assert.deepEqual(command.args.slice(-4), ["--cwd", "/tmp/project", "--run-id", "run_123"]);
 });
 
@@ -76,8 +82,9 @@ test("getBackgroundRunnerCommand emits --experimental-strip-types args for strip
 	const command = getBackgroundRunnerCommand("/tmp/runner.ts", "/tmp/project", "run_123", { kind: "strip-types" });
 	assert.equal(command.loader, "strip-types");
 	assert.equal(command.args[0], "--max-old-space-size=512");
-	assert.equal(command.args[1], "--experimental-strip-types");
-	assert.equal(command.args[2], "/tmp/runner.ts");
+	// Report flags (default ON) sit between the memory limit and the loader flag.
+	assert.ok(command.args.includes("--experimental-strip-types"), "expected --experimental-strip-types in args");
+	assert.ok(command.args.includes("/tmp/runner.ts"));
 	assert.deepEqual(command.args.slice(-4), ["--cwd", "/tmp/project", "--run-id", "run_123"]);
 });
 
@@ -86,5 +93,47 @@ test("getBackgroundRunnerCommand accepts loader-spec input directly", () => {
 	const command = getBackgroundRunnerCommand("/tmp/runner.ts", "/tmp/project", "run_123", { kind: "jiti", path: jitiPath });
 	assert.equal(command.loader, "jiti");
 	assert.equal(command.args[0], "--max-old-space-size=512");
-	assert.match(command.args[3] ?? "", /jiti-register\.mjs$/);
+	// --import <jiti> pair: find --import then check the following arg.
+	const importIdx = command.args.indexOf("--import");
+	assert.ok(importIdx > 0, "expected --import in args");
+	assert.match(command.args[importIdx + 1] ?? "", /jiti-register\.mjs$/);
+});
+
+test("getBackgroundRunnerCommand emits V8 fatal-error report flags by default (ON)", () => {
+	// Ensure env is clean so the default-ON behavior is exercised.
+	const savedCrew = process.env.PI_CREW_BG_REPORT_ON_FATAL;
+	const savedTeams = process.env.PI_TEAMS_BG_REPORT_ON_FATAL;
+	delete process.env.PI_CREW_BG_REPORT_ON_FATAL;
+	delete process.env.PI_TEAMS_BG_REPORT_ON_FATAL;
+	try {
+		const command = getBackgroundRunnerCommand(
+			"/tmp/runner.ts",
+			"/tmp/project",
+			"run_123",
+			{ kind: "strip-types" },
+			"/custom/state/root",
+		);
+		assert.ok(command.args.includes("--report-on-fatalerror"), "expected --report-on-fatalerror by default");
+		assert.ok(command.args.includes("--report-compact"), "expected --report-compact by default");
+		assert.ok(
+			command.args.includes("--report-directory=/custom/state/root"),
+			"expected --report-directory to equal the stateRoot argument",
+		);
+	} finally {
+		if (savedCrew !== undefined) process.env.PI_CREW_BG_REPORT_ON_FATAL = savedCrew;
+		if (savedTeams !== undefined) process.env.PI_TEAMS_BG_REPORT_ON_FATAL = savedTeams;
+	}
+});
+
+test("getBackgroundRunnerCommand disables V8 report flags when PI_CREW_BG_REPORT_ON_FATAL=0", () => {
+	const savedCrew = process.env.PI_CREW_BG_REPORT_ON_FATAL;
+	process.env.PI_CREW_BG_REPORT_ON_FATAL = "0";
+	try {
+		const command = getBackgroundRunnerCommand("/tmp/runner.ts", "/tmp/project", "run_123", { kind: "strip-types" });
+		assert.ok(!command.args.includes("--report-on-fatalerror"), "did not expect --report-on-fatalerror when opted out");
+		assert.ok(!command.args.some((a) => a.startsWith("--report-directory=")));
+	} finally {
+		if (savedCrew === undefined) delete process.env.PI_CREW_BG_REPORT_ON_FATAL;
+		else process.env.PI_CREW_BG_REPORT_ON_FATAL = savedCrew;
+	}
 });
