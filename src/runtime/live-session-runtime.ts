@@ -36,6 +36,7 @@ import { listLiveAgents } from "./live-agent-manager.ts";
  * Module-scoped latch for the optional peer dependency import. When N
  * in-process live-session subagents spawn CONCURRENTLY (e.g. several
  * `Agent({run_in_background:true})` started at once), each used to call
+		// LAZY: defer dynamic import of @earendil-works/pi-coding-agent to its call site.
  * `await import("@earendil-works/pi-coding-agent")` independently. Under the
  * tsx loader (registering load/resolve hooks), concurrent first-imports can
  * each enter the loader and race module-record instantiation, yielding

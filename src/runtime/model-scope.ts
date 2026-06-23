@@ -128,6 +128,7 @@ export async function readEnabledModelsPatterns(cwd: string, agentDir?: string):
 		// SDK. SettingsManager is dynamically imported because the module
 		// shape differs across pi versions; the create() factory is the
 		// canonical, version-stable entry point.
+		// LAZY: defer dynamic import of @earendil-works/pi-coding-agent to its call site.
 		const mod = await import("@earendil-works/pi-coding-agent" as string).catch(() => null);
 		if (!mod) return [];
 		const SettingsManagerCtor = (mod as { SettingsManager?: { create?: (cwd: string, agentDir?: string) => { getEnabledModels?: () => string[] | undefined } } }).SettingsManager;

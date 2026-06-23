@@ -289,6 +289,7 @@ export async function runTeamTask(
 			// follow it and execute a script outside cwd. Throws on escape.
 			resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
 			try {
+		// LAZY: defer dynamic import of node:child_process to its call site.
 				const { execFileSync } = await import("node:child_process");
 				preStepOutput = execFileSync(input.step.preStepScript, scriptArgs, {
 					timeout: scriptTimeout,

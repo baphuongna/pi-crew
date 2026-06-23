@@ -269,6 +269,7 @@ async function handleStop(input: GoalSubActionInput): Promise<ReturnType<typeof 
 	let cancelMsg = "";
 	if (updated.currentRunId) {
 		try {
+		// LAZY: defer dynamic import of ./cancel.ts to its call site.
 			const { handleCancel } = await import("./cancel.ts");
 			const cancelResult = await handleCancel({ action: "cancel", runId: updated.currentRunId, force: true, config: { intent: "user requested goal stop" } }, ctx);
 			cancelMsg = ` In-flight turn ${updated.currentRunId} cancel: ${(cancelResult.content[0] as { text?: string } | undefined)?.text ?? "ok"}.`;

@@ -121,6 +121,7 @@ export const realGoalEvaluator = async (
 		}
 		if (!verificationCompromised) {
 			try {
+		// LAZY: defer dynamic import of ./verification-gates.ts to its call site.
 				const { executeVerificationCommands } = await import("./verification-gates.ts");
 				const contract = { requiredGreenLevel: "none" as const, commands: goal.verification.commands, allowManualEvidence: goal.verification.allowManualEvidence ?? false };
 				// Phase 1.5 #2 (RFC 16): run verification in a pristine git worktree at
@@ -131,6 +132,7 @@ export const realGoalEvaluator = async (
 				let worktreeCwd: string | undefined;
 				let worktreeCleanup: (() => void) | undefined;
 				try {
+		// LAZY: defer dynamic import of ./verification-worktree.ts to its call site.
 					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("./verification-worktree.ts");
 					const availability = checkWorktreeSandboxAvailable(goal.cwd);
 					if (availability.available) {

@@ -1129,6 +1129,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 				// LAZY: state-store only needed in hasRunning; avoid at startup.
 				// Use dynamic import to avoid CJS/ESM mixed module issues.
 				const { loadRunManifestById: loadRunForHasRunning } =
+		// LAZY: defer dynamic import of ../state/state-store.ts to its call site.
 					await import("../state/state-store.ts");
 				const loaded = loadRunForHasRunning(
 					currentCtx?.cwd ?? process.cwd(),
@@ -1494,6 +1495,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 								const cwd = ctx.cwd ?? process.cwd();
 								const loaded = loadRunManifestById(cwd, runId);
 								if (loaded) {
+		// LAZY: defer dynamic import of ../state/atomic-write.ts to its call site.
 									const { atomicWriteJson } = await import("../state/atomic-write.ts");
 									atomicWriteJson(loaded.manifest.stateRoot + "/manifest.json", {
 										...loaded.manifest,

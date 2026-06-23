@@ -34,6 +34,7 @@ import { expandParallelResearchWorkflow } from "../../runtime/parallel-research.
 /**
  * Module-scoped latch for the crew-init dynamic import.
  *
+		// LAZY: defer dynamic import of module to its call site.
  * `crew-init.ts` is dynamically `await import()`'d from `handleRun` below, which
  * N concurrent subagents hit simultaneously (every `team` tool call runs it).
  * Under the tsx/jiti loader, concurrent first-imports race module-record
@@ -296,6 +297,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	// orchestrates subagents via ctx.agent(); only ctx.setResult() reaches the main context.
 	// Placed AFTER manifest creation so runId/paths/artifactsRoot are available.
 	if (!directAgent && (workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig).runtime === "dynamic") {
+		// LAZY: defer dynamic import of ../../runtime/dynamic-workflow-runner.ts to its call site.
 		const { runDynamicWorkflow } = await import("../../runtime/dynamic-workflow-runner.ts");
 		// Re-synthesize a dynamic-team (§0c C9) for role resolution.
 		const dwfTeam: import("../../teams/team-config.ts").TeamConfig = {

@@ -202,11 +202,13 @@ export async function openTeamSettingsOverlay(ctx: ExtensionContext): Promise<vo
 						if (res.success) {
 							ctx.ui.notify(`Theme: ${value} (applied live)`, "info");
 						} else {
+		// LAZY: defer dynamic import of ../../ui/theme-discovery.ts to its call site.
 							const { setPiTheme } = await import("../../ui/theme-discovery.ts");
 							setPiTheme(value);
 							ctx.ui.notify(`Theme saved as '${value}' but failed to apply: ${res.error ?? "unknown"}. Restart Pi.`, "warning");
 						}
 					} else {
+		// LAZY: defer dynamic import of ../../ui/theme-discovery.ts to its call site.
 						const { setPiTheme } = await import("../../ui/theme-discovery.ts");
 						setPiTheme(value);
 						ctx.ui.notify(`Pi theme set to '${value}'. Restart Pi to apply.`, "info");
@@ -672,6 +674,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 	pi.registerCommand("crew-brief", {
 		description: "Toggle brief tool output mode: on | off | status",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
+		// LAZY: defer dynamic import of ../../ui/tool-renderers/brief-mode.ts to its call site.
 			const { isBrief, setBrief, BRIEF_ENTRY_TYPE, makeBriefEntry } = await import("../../ui/tool-renderers/brief-mode.ts");
 			const trimmed = args.trim();
 

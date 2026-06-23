@@ -156,6 +156,7 @@ interface AgentSearchResult {
  * Uses dynamic import to avoid ESM/CJS issues at module load time.
  */
 export async function searchAgents(query: string, options?: { limit?: number }): Promise<AgentSearchResult[]> {
+		// LAZY: defer dynamic import of ../agents/discover-agents.ts to its call site.
   const { discoverAgents, allAgents } = await import("../agents/discover-agents.ts");
   const discovery = discoverAgents(process.cwd());
   const all = allAgents(discovery);
@@ -200,6 +201,7 @@ interface TeamSearchResult {
  * Uses dynamic import to avoid ESM/CJS issues at module load time.
  */
 export async function searchTeams(query: string, options?: { limit?: number }): Promise<TeamSearchResult[]> {
+		// LAZY: defer dynamic import of ../teams/discover-teams.ts to its call site.
   const { discoverTeams, allTeams } = await import("../teams/discover-teams.ts");
   const discovery = discoverTeams(process.cwd());
   const all = allTeams(discovery);

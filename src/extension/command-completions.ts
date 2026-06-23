@@ -67,6 +67,7 @@ export function suggestRunIds(_prefix: string, cwd?: string): AutocompleteItem[]
 export async function suggestTaskIds(runId: string, prefix: string, cwd?: string): Promise<AutocompleteItem[] | null> {
 	const resolvedCwd = cwd ?? process.cwd();
 	// Dynamic import to avoid pulling state-store into the hot command-registration path.
+		// LAZY: defer dynamic import of ../state/state-store.ts to its call site.
 	const { loadRunManifestById } = await import("../state/state-store.ts");
 	const loaded = loadRunManifestById(resolvedCwd, runId);
 	if (!loaded) return null;

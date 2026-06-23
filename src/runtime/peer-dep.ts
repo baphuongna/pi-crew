@@ -239,6 +239,7 @@ export function primePeerDep(): Promise<PeerDepModule> {
 		if (!resolved) {
 			throw new Error(buildMissingMessage());
 		}
+		// LAZY: defer dynamic import of module to its call site.
 		cachedModule = (await import(resolved.mainUrl)) as PeerDepModule;
 		return cachedModule;
 	})();

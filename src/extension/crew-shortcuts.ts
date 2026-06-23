@@ -34,6 +34,7 @@ const CREW_SHORTCUTS: ReadonlyArray<ShortcutRegistration> = [
 		// (avoids pulling the full commands.ts dependency tree into every
 		// process that imports this module, e.g. the unit test).
 		handler: async (ctx) => {
+		// LAZY: defer dynamic import of ./registration/commands.ts to its call site.
 			const { openTeamSettingsOverlay } = await import("./registration/commands.ts");
 			await openTeamSettingsOverlay(ctx);
 		},

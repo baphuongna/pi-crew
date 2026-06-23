@@ -85,6 +85,7 @@ async function loadWorkflowModule(scriptPath: string): Promise<DynamicWorkflowSc
 	// lazily so this module stays importable in environments without jiti (type-only consumers).
 	// Fix round-4: use createRequire(import.meta.url) so `require` works under the strip-types
 	// loader fallback (Node ≥ 22.6) where bare `require` is not defined in ESM scope.
+		// LAZY: defer dynamic import of node:module to its call site.
 	const { createRequire } = await import("node:module");
 	const require = createRequire(import.meta.url);
 	// eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -11,7 +11,9 @@ let pathsInstance: typeof import("../utils/paths.js") | null = null;
 
 async function getStore() {
 	if (!storeInstance) {
+		// LAZY: defer dynamic import of ./instinct-store.js to its call site.
 		const { InstinctStore } = await import("./instinct-store.js");
+		// LAZY: defer dynamic import of ../utils/paths.js to its call site.
 		const paths = await import("../utils/paths.js");
 		storeInstance = new InstinctStore(paths.projectCrewRoot(process.cwd()));
 	}
@@ -20,6 +22,7 @@ async function getStore() {
 
 async function getPaths() {
 	if (!pathsInstance) {
+		// LAZY: defer dynamic import of ../utils/paths.js to its call site.
 		pathsInstance = await import("../utils/paths.js");
 	}
 	return pathsInstance;

@@ -133,6 +133,7 @@ export function wrapEditWithResilientReplace(pi: ExtensionAPI, tools?: { edit: T
 			throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
 		}
 
+		// LAZY: defer dynamic import of node:fs/promises to its call site.
 		const fs = await import("node:fs/promises");
 		let content: string;
 		try {
