@@ -44,7 +44,7 @@ test("HB-003a source contract: steer-backpressure branch does NOT call killProce
 	const steerBlock = sliceBetween(
 		childPiSource,
 		"// Inject steer via stdin to tell child to wrap up.",
-		"// Hard abort — terminate after grace turns",
+		"// Hard abort",
 	);
 	assert.ok(steerBlock.length > 0, "steer-injection block must be locatable in child-pi.ts");
 
@@ -74,15 +74,14 @@ test("HB-003a source contract: hard-abort at maxTurns + graceTurns still enforce
 	const hardAbortBlock = sliceBetween(
 		childPiSource,
 		"} else if (maxTurns !== undefined && softLimitReached",
-		"// Hard abort — terminate after grace turns\n",
+		"// Hard abort",
 	);
 	assert.match(hardAbortBlock, /maxTurns\s*\+\s*\(graceTurns/, "hard-abort must key off maxTurns + graceTurns");
 	// The hard-abort block ends at the comment; the child.kill call is on the
-	// next line. Verify it follows.
-	const afterBlock = childPiSource.slice(
-		childPiSource.indexOf("// Hard abort — terminate after grace turns"),
-		childPiSource.indexOf("// Hard abort — terminate after grace turns") + 200,
-	);
+	// next line. Verify it follows. Use a window after the anchor that doesn't
+	// depend on the em-dash (Windows encoding can mangle non-ASCII in source reads).
+	const hardAbortIdx = childPiSource.indexOf("// Hard abort");
+	const afterBlock = childPiSource.slice(hardAbortIdx, hardAbortIdx + 200);
 	assert.match(afterBlock, /child\.kill/, "hard-abort must still terminate the worker");
 });
 
