@@ -2,7 +2,8 @@ import type { AgentConfig, ResourceSource } from "../agents/agent-config.ts";
 import { discoverAgents } from "../agents/discover-agents.ts";
 import { discoverTeams } from "../teams/discover-teams.ts";
 import { discoverWorkflows } from "../workflows/discover-workflows.ts";
-import { discoverSkills } from "../skills/discover-skills.ts";
+import { discoverSkills, getLastDiscoveryDiagnostics } from "../skills/discover-skills.ts";
+import type { SkillValidationError } from "../skills/validate.ts";
 import type { PiTeamsConfig } from "../config/config.ts";
 
 export type CapabilityKind = "team" | "workflow" | "agent" | "skill" | "tool" | "runtime";
@@ -113,4 +114,22 @@ export function buildCapabilityInventory(cwd: string, config?: PiTeamsConfig): C
 	}
 
 	return items.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * L3: surface skill-validation diagnostics from the most recent
+ * `discoverSkills()` call. Skills that fail HARD validation are silently
+ * excluded from `buildCapabilityInventory()`; this function exposes the
+ * underlying errors so users see WHY a skill is missing instead of just
+ * noticing the absence.
+ *
+ * Soft warnings (unknown props, derived-name fallback) are also returned so
+ * skill authors can clean up their frontmatter over time.
+ *
+ * IMPORTANT: `discoverSkills()` is internally cached for 30s, so this
+ * function returns diagnostics from whichever call last populated the cache.
+ * Call `buildCapabilityInventory(cwd)` first to ensure a fresh pass.
+ */
+export function buildSkillValidationDiagnostics(): SkillValidationError[] {
+	return getLastDiscoveryDiagnostics();
 }

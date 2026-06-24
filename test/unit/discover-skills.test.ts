@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { discoverSkills } from "../../src/skills/discover-skills.ts";
+import { discoverSkills, getLastDiscoveryDiagnostics } from "../../src/skills/discover-skills.ts";
 
 describe("discoverSkills", () => {
 	it("returns package skills from pi-crew skills directory", () => {
@@ -137,6 +137,55 @@ describe("discoverSkills", () => {
 			const skills = discoverSkills(cwd);
 			const linked = skills.find((s) => s.name === "linked-md" && s.source === "project");
 			assert.equal(linked, undefined, "should not discover symlinked SKILL.md files");
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	// L3: strict validation + diagnostics plumbing.
+	it("excludes malformed skills and records HARD diagnostics", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skills-diag-"));
+		try {
+			const badDir = path.join(cwd, "skills", "bad-name-UpperCase");
+			fs.mkdirSync(badDir, { recursive: true });
+			fs.writeFileSync(path.join(badDir, "SKILL.md"), "---\nname: BadName\ndescription: x\n---\nbody");
+			const skills = discoverSkills(cwd);
+			const found = skills.find((s) => s.name === "bad-name-UpperCase");
+			assert.equal(found, undefined, "malformed skill must be excluded");
+			const diagnostics = getLastDiscoveryDiagnostics();
+			assert.ok(
+				diagnostics.some((d) => d.field === "name" && d.severity === "error"),
+				"diagnostics should include a HARD name error",
+			);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("includes bundled package skills with valid frontmatter", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skills-pkg-"));
+		try {
+			// No project skills; we should still get the bundled ones.
+			const skills = discoverSkills(cwd);
+			assert.ok(skills.length > 0, "should find at least the bundled package skills");
+			// Filter to ONLY bundled (package source) skills so user-skill
+			// diagnostics in the home dir don't pollute the assertion.
+			const bundled = skills.filter((s) => s.source === "package");
+			assert.ok(bundled.length > 0, "should find at least one bundled package skill");
+			for (const s of bundled) {
+				assert.ok(s.name.length > 0, `bundled skill must have a name: ${s.path}`);
+				assert.ok(typeof s.description === "string", `description must be a string: ${s.path}`);
+			}
+			// L3 HYBRID policy: bundled skills should not produce HARD diagnostics
+			// for their own frontmatter (we pre-flighted them when we wrote the
+			// strictness). However, user-skill HARD diagnostics in the home dir
+			// are NOT a regression — they're surfacing real frontmatter bugs
+			// the user should know about. So we filter assertions to package
+			// source only.
+			const diagnostics = getLastDiscoveryDiagnostics();
+			const bundledPaths = new Set(bundled.map((s) => path.dirname(s.path)));
+			const hardFromBundled = diagnostics.filter((d) => d.severity === "error" && bundledPaths.has(d.path));
+			assert.equal(hardFromBundled.length, 0, `bundled skills must produce no HARD diagnostics; got: ${JSON.stringify(hardFromBundled, null, 2)}`);
 		} finally {
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}

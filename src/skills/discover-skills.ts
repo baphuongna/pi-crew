@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { getAgentDir } from "../runtime/peer-dep.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { isSafePathId, resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { parseSkillFrontmatter, validateSkillFrontmatter, type SkillValidationError } from "./validate.ts";
 
 const PACKAGE_SKILLS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
 
@@ -54,16 +55,44 @@ function listSkillDirs(cwd: string): Array<{ root: string; source: SkillDescript
 	];
 }
 
-function frontmatterDescription(content: string): string | undefined {
-	const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-	if (!match) return undefined;
-	const line = match[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
-	return line?.slice("description:".length).trim();
+// ── Diagnostics (L3) ──────────────────────────────────────────────────────────
+// Module-level buffer populated each `discoverSkills()` call. Cleared at the
+// start of every call so callers see only the most recent run's diagnostics.
+// Surfaced via `getLastDiscoveryDiagnostics()` so capability-inventory and
+// other consumers can convert silent exclusions into visible feedback.
+let lastDiagnostics: SkillValidationError[] = [];
+
+export function getLastDiscoveryDiagnostics(): SkillValidationError[] {
+	return lastDiagnostics;
+}
+
+/**
+ * Parse frontmatter defensively. Falls back to the legacy line-prefix match
+ * if YAML parsing fails — preserves back-compat for malformed but readable
+ * SKILL.md files that pre-date the validator (we record a diagnostic in that
+ * case but still return the description we could salvage).
+ */
+function readDescription(content: string): { description: string; parseError: string | null } {
+	const parsed = parseSkillFrontmatter(content);
+	if (parsed.ok) {
+		const d = parsed.data.description;
+		return { description: typeof d === "string" ? d : "", parseError: null };
+	}
+	// YAML parse failed — fall back to legacy line-prefix match so we don't
+	// regress existing skills whose frontmatter the old parser could read.
+	const legacyMatch = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+	if (legacyMatch) {
+		const line = legacyMatch[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
+		const fallback = line?.slice("description:".length).trim() ?? "";
+		return { description: fallback, parseError: parsed.error };
+	}
+	return { description: "", parseError: parsed.error };
 }
 
 export function discoverSkills(cwd: string): SkillDescriptor[] {
 	if (cache && cache.cwd === cwd && Date.now() - cache.cachedAt < CACHE_TTL_MS) return cache.skills;
 	const results: SkillDescriptor[] = [];
+	const diagnostics: SkillValidationError[] = [];
 	for (const dir of listSkillDirs(cwd)) {
 		if (!fs.existsSync(dir.root)) continue;
 		try {
@@ -94,7 +123,16 @@ export function discoverSkills(cwd: string): SkillDescriptor[] {
 						// (e.g. macOS /var → /private/var). Fall through with un-resolved path.
 					}
 					const content = fs.readFileSync(readPath, "utf-8");
-					description = frontmatterDescription(content) ?? "";
+					const { description: desc, parseError } = readDescription(content);
+					description = desc;
+					if (parseError) {
+						diagnostics.push({
+							path: path.dirname(skillMdPath),
+							field: "frontmatter",
+							reason: parseError,
+							severity: "error",
+						});
+					}
 				} catch (error) {
 					logInternalError("discoverSkills.readSkill", error, `skill=${entry.name}`);
 				}
@@ -104,6 +142,21 @@ export function discoverSkills(cwd: string): SkillDescriptor[] {
 			logInternalError("discoverSkills.readdir", error, `root=${dir.root}`);
 		}
 	}
-	cache = { skills: results, cachedAt: Date.now(), cwd };
-	return results;
+	// L3: strict validation pass after we've collected every (skill, source)
+	// candidate. Excludes malformed skills (HYBRID policy: missing/malformed
+	// `name`/`description` hard-fail; unknown props warn). Diagnostics are
+	// always recorded, including for skills that PASSED validation but had
+	// unknown-prop warnings.
+	const filtered: SkillDescriptor[] = [];
+	for (const skill of results) {
+		const validation = validateSkillFrontmatter(path.dirname(skill.path));
+		if (validation.ok) {
+			filtered.push(skill);
+		} else {
+			diagnostics.push(...validation.errors);
+		}
+	}
+	lastDiagnostics = diagnostics;
+	cache = { skills: filtered, cachedAt: Date.now(), cwd };
+	return filtered;
 }

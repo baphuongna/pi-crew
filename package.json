@@ -90,7 +90,8 @@
     "ajv": "^8.20.0",
     "cli-highlight": "^2.1.11",
     "diff": "^5.2.0",
-    "jiti": "^2.7.0"
+    "jiti": "^2.7.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
