@@ -63,4 +63,10 @@ end-to-end via `team action='run'` and asserts on the resulting
 
 **Risk**: normal (token cost when run; otherwise read-only)
 
-**Status**: proposed
+**Status**: ✅ DONE (2026-06-24). `test/smoke/` shipped with 5 smoke tests
+(argv-flags, agent-plain, agent-schema, agent-disabletools, dwf-workflow),
+all gated behind `PI_CREW_SMOKE=1`. `npm run test:smoke` runs them. CI
+manual-dispatch workflow at `.github/workflows/smoke.yml` (requires
+`PI_AUTH_JSON` secret). Runbook in `docs/troubleshooting.md`. Each smoke test
+maps to a real bug it would have caught (HB-003a, the schema+systemPrompt
+drop, the `--crew-subagent` argv regression).

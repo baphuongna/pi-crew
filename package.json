@@ -53,6 +53,7 @@
     "test:unit": "node scripts/test-runner.mjs --test-concurrency=4 --test-timeout=180000 --test-force-exit test/unit/*.test.ts",
     "test:watch": "tsx --watch --test --test-concurrency=4 --test-timeout=30000 --test-force-exit test/unit/*.test.ts",
     "test:integration": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=120000 test/integration/*.test.ts",
+    "test:smoke": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=180000 test/smoke/*.smoke.ts",
     "build:bundle": "node scripts/build-bundle.mjs",
     "bench": "node scripts/run-bench.mjs",
     "bench:check": "node scripts/bench-check.mjs",

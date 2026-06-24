@@ -1,0 +1,79 @@
+name: Smoke (real-binary, manual)
+
+# HB-004: real-binary smoke tests for pi-crew. These shell out to the real `pi`
+# binary and make real LLM calls, so they bill tokens. They are therefore
+# MANUAL-DISPATCH ONLY — never run on push/PR. Trigger from the Actions tab:
+#   Actions → "Smoke (real-binary, manual)" → Run workflow → pick OS.
+#
+# What it catches that the default CI cannot:
+#   - argv flags the real pi rejects (e.g. the --crew-subagent regression)
+#   - persona/schema interactions that change real model output
+#   - spawn-lifecycle races (e.g. the HB-003a steer-backpressure exit-null)
+# See docs/HARNESS_BACKLOG.md HB-004 + docs/fix-plan-disabletools-exit-null.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Runner OS"
+        required: true
+        type: choice
+        default: ubuntu-latest
+        options:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PI_CREW_SMOKE: "1"
+
+jobs:
+  smoke:
+    name: ${{ inputs.os }}
+    runs-on: ${{ inputs.os }}
+    # If the model provider key isn't configured for this repo, the smoke tests
+    # that make LLM calls will fail. Fail loud rather than silently skip — the
+    # operator who triggered the run needs to know.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Print platform diagnostics
+        run: |
+          node -p "JSON.stringify({ platform: process.platform, arch: process.arch, node: process.version }, null, 2)"
+          npm --version
+      - name: Install dependencies
+        run: npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Configure pi (auth)
+        env:
+          PI_AUTH: ${{ secrets.PI_AUTH_JSON }}
+        run: |
+          # The smoke tests spawn `pi`, which reads ~/.pi/agent/auth.json.
+          # The repo secret PI_AUTH_JSON holds that file's contents. If the
+          # secret is unset, this step no-ops and the LLM-calling smoke tests
+          # will fail downstream with a clear auth error.
+          if [ -n "$PI_AUTH" ]; then
+            mkdir -p ~/.pi/agent
+            printf '%s' "$PI_AUTH" > ~/.pi/agent/auth.json
+            echo "auth.json written ($(wc -c < ~/.pi/agent/auth.json) bytes)"
+          else
+            echo "WARNING: PI_AUTH_JSON secret not set — LLM-calling smoke tests will fail"
+          fi
+      - name: Run smoke tests
+        run: npm run test:smoke
+      - name: Upload smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ inputs.os }}
+          path: |
+            test/smoke/*.log
+            .crew/state/runs/team_smoke_*/
+          if-no-files-found: ignore
+          retention-days: 7

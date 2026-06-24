@@ -193,3 +193,41 @@ hard-abort at `maxTurns + graceTurns` remains the safety net for genuine
 runaways. The `disableTools` correlation was a red herring — the real trigger
 was `maxTurns:1` hitting on the first turn. See CHANGELOG "Real-world smoke
 testing findings" and `test/unit/child-pi-steer-backpressure.test.ts`.
+
+## Running the real-binary smoke suite (HB-004)
+
+The default `npm test` mocks child-pi (`PI_TEAMS_MOCK_CHILD_PI`), so it cannot
+catch bugs that only manifest against the real `pi` binary. The smoke suite
+shells out to real pi + makes real LLM calls, so it bills tokens and is gated
+behind `PI_CREW_SMOKE=1`.
+
+### Run locally
+
+```bash
+# All smoke tests (~5 tests, ~1 min, bills tokens):
+PI_CREW_SMOKE=1 npm run test:smoke
+
+# One smoke test in isolation:
+PI_CREW_SMOKE=1 npx tsx --test test/smoke/agent-disabletools.smoke.ts
+```
+
+Smoke tests live in `test/smoke/*.smoke.ts` and are NOT picked up by the default
+`npm test` glob (`test/unit/*` + `test/integration/*`). Each test self-skips
+unless `PI_CREW_SMOKE=1`.
+
+### What each covers
+
+| File | Feature family | Catches |
+|---|---|---|
+| `argv-flags.smoke.ts` | buildPiWorkerArgs argv | unknown-flag rejection (e.g. `--crew-subagent`) |
+| `agent-plain.smoke.ts` | ctx.agent() baseline | spawn-path breakage |
+| `agent-schema.smoke.ts` | ctx.agent({schema, systemPrompt}) | persona-leak / schema-validation failures |
+| `agent-disabletools.smoke.ts` | ctx.agent({disableTools, maxTurns:1}) ×5 | HB-003a steer-backpressure exit-null (flaky → 5×) |
+| `dwf-workflow.smoke.ts` | full DWF end-to-end | phase/log/args/budget/pipeline/agent/setResult integration |
+
+### Run in CI (manual dispatch)
+
+GitHub Actions → "Smoke (real-binary, manual)" → Run workflow → pick OS.
+Requires the `PI_AUTH_JSON` repo secret (the contents of `~/.pi/agent/auth.json`)
+so the spawned `pi` can authenticate with the model provider. If unset, the
+LLM-calling smoke tests fail with a clear auth error.
