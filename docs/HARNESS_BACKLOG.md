@@ -14,7 +14,13 @@ Use when an agent discovers a missing harness capability but should not change t
 
 **Risk**: normal
 
-**Status**: proposed
+**Status**: ✅ PARTIALLY DONE (2026-06-24). The bulk of HB-001 was already
+covered by 21 existing `test/integration/` files (team-runner path via
+`mock-child-run`, `full-feature-smoke`, `phase3-6-*`). The genuine remaining
+gap — interleaved manifest+task+event writes reloaded consistently (the
+realistic run-load pattern) — is now covered by
+`test/integration/state-durability-hb001.test.ts`. Child-process exit →
+state-store reconcile is covered by `async-restart-recovery.test.ts`.
 
 ### HB-002: Windows-specific test coverage
 
@@ -26,7 +32,12 @@ Use when an agent discovers a missing harness capability but should not change t
 
 **Risk**: normal
 
-**Status**: proposed
+**Status**: ✅ DONE (2026-06-24). `test/platform/` ships with two files:
+`windows-rename.test.ts` (EBUSY/EPERM rename retry path via `renameWithRetry`,
+self-skips off win32) and `posix-tools.test.ts` (BSD-vs-GNU grep, /var →
+/private/var realpath, POSIX-shell resolution — self-skips on win32).
+Runbook in `test/platform/README.md`. The CI OS matrix (ubuntu/windows/macos)
+exercises each platform's tests.
 
 ### HB-003: Performance regression baseline
 
@@ -38,7 +49,13 @@ Use when an agent discovers a missing harness capability but should not change t
 
 **Risk**: tiny
 
-**Status**: proposed
+**Status**: ✅ DONE (2026-06-24). `test/bench/` now has 6 benchmarks:
+the pre-existing `register-startup`, `render-flush`, `snapshot-cache`, plus
+three new ones covering the gaps HB-003 flagged — `atomic-write.bench.ts`
+(`atomicWriteJson` cold/warm), `event-append.bench.ts` (serial lock
+contention vs batch), `task-graph-scheduler.bench.ts` (DAG build/refresh/
+full-run). All run via `npm run bench` → `test/bench/results.json`; baseline
+via `npm run bench:capture`. Each prints min/p50/p95/p99/max percentiles.
 
 ### HB-004: Real-binary smoke tests for ctx.agent() paths
 

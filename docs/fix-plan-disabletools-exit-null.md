@@ -195,15 +195,22 @@ ubuntu/windows/macos × Node 22.
 - Changing the final-drain timeout constants (`FINAL_DRAIN_MS=5s`, `HARD_KILL_MS=3s`).
 - The `runKind:'goal-loop'` foreground-dispatch note from smoke testing (separate item).
 
-## 8. Open questions for Phase 0
+## 8. Open questions for Phase 0 — ANSWERED (2026-06-24)
 
-1. Why does the keep-alive case return `exitCode=0` with `finalDrain=true` while the
-   fast-exit case returns `null` with no `final_drain` event? (The unref'd timer +
-   event-loop lifetime is the leading suspect — needs the timing capture to confirm.)
-2. Is there a second code path (e.g. `killProcessTree` at line 657) that can fire
-   before the final-drain timer under the `--no-tools` fast-exit pattern?
-3. Does the prompt-runtime extension (loaded via `--extension` in the child) do
-   anything on `agent_end` that could self-terminate the child?
+All three resolved by the Phase-0 root-cause finding (steer-backpressure kill,
+NOT the final-drain race). Kept for the audit trail.
+
+1. **ANSWERED: not the final-drain timer.** The keep-alive case returned `exitCode=0`
+   by coincidence — the SIGTERM came from `killProcessTree` on the steer-injection
+   path (`child-pi.ts:731`), not the final-drain timer (`forcedFinalDrain=false`
+   on failing runs). Keep-alive merely changed the OS-buffer state so the stdin
+   `write()` happened to return `true`. Red herring.
+2. **ANSWERED: yes — the steer-injection path (`child-pi.ts:716-726`).** Stack
+   capture under `PI_TEAMS_DEBUG=1` proved `killProcessTree` was invoked from
+   `onJsonEvent` on a `turn_end` where `maxTurns` was reached and `stdin.write()`
+   returned `false` (normal backpressure, mis-treated as fatal).
+3. **ANSWERED: no extension self-termination.** The kill stack is entirely
+   inside `child-pi.ts`; the prompt-runtime extension is not on the stack.
 
 ---
 
