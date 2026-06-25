@@ -209,6 +209,25 @@ const RETRYABLE_MODEL_FAILURE_PATTERNS = [
 	/internal(?:_server)?[ _]error/i,
 	/server error/i,
 	/bad gateway/i,
+	//
+	// Broader retryable patterns (added 2026-06-25, FIX 2):
+	// - `/provider[_ ]?error/i`: OpenAI-compatible "Provider error" generic fault.
+	// - `/context[_ ]?length[_ ]?exceeded/i`: "context_length_exceeded" from
+	//   OpenAI/Anthropic — when the configured model is the bottleneck, a
+	//   different model in the fallback chain may have a larger window.
+	// - `/safety/i`: Anthropic safety blocks — typically retryable on a
+	//   different model in the fallback chain.
+	// - `/is[_ ]?overloaded/i`: alias to the existing `/overloaded/i` pattern
+	//   to catch phrasings like "upstream is overloaded".
+	// - `/\b408\b/`: HTTP 408 Request Timeout — transient, provider-side.
+	//
+	// Intentionally NOT added: `/bad_request/` — can mean bad input (e.g.
+	// invalid schema), which is non-retryable.
+	/provider[_ ]?error/i,
+	/context[_ ]?length[_ ]?exceeded/i,
+	/safety/i,
+	/is[_ ]?overloaded/i,
+	/\b408\b/,
 ];
 
 // These patterns indicate auth/key/billing issues that will never succeed on retry.
@@ -313,9 +332,18 @@ export function buildConfiguredModelRouting(input: {
 	const rawModels = availableModels
 		? [input.overrideModel, input.stepModel, input.teamRoleModel, effectiveAgentModel, ...(input.fallbackModels ?? []), ...availableModels.map((model) => model.fullId)]
 		: [input.overrideModel, input.stepModel, input.teamRoleModel, effectiveAgentModel, ...(input.fallbackModels ?? []), parentModel];
+	// Fix (Round 18): when an agent has `model: false` (frontmatter) the
+	// inherited `parentModel` (= session chính's model, e.g. minimax-M3) IS the
+	// desired primary. It must NOT be filtered out by isAvailableModel — which
+	// only knows about models from models.json / registry, NOT builtin Pi models.
+	// Pin the inherited parentModel at index 0 regardless of availability.
+	const parentModelRaw = effectiveAgentModel?.trim() || undefined;
 	const configuredModels = rawModels
 		.filter((model): model is string => Boolean(model?.trim()))
-		.filter((model) => isAvailableModel(model.trim(), availableModels));
+		.filter((model, idx) => {
+			if (parentModelRaw && idx === 0 && model.trim() === parentModelRaw) return true;
+			return isAvailableModel(model.trim(), availableModels);
+		});
 	const candidates = buildModelCandidates(configuredModels[0], configuredModels.slice(1), availableModels, preferredProvider);
 	const reason = requested && candidates[0] && resolveModelCandidate(requested, availableModels, preferredProvider) !== candidates[0]
 		? "requested model unavailable; selected configured Pi fallback"

@@ -763,7 +763,30 @@ export async function runTeamTask(
 					"",
 				);
 				if (!error) break;
-				const nextModel = attemptModels[i + 1];
+				let nextModel = attemptModels[i + 1];
+				// FIX 1 (task packet 01_01-agent): when the precomputed attempt
+				// chain is exhausted but the failure is retryable, do a one-shot
+				// re-resolve via buildConfiguredModelRouting with the failed
+				// model as parent. This finds alternative providers/models the
+				// original chain missed (e.g. a registry gained new fallbacks
+				// after the precompute, or the precompute ran before the parent
+				// model was known). If a different candidate is found, use it as
+				// nextModel; otherwise fall through to the existing break.
+				if (!nextModel && isRetryableModelFailure(error)) {
+					const reResolved = buildConfiguredModelRouting({
+						overrideModel: undefined,
+						stepModel: undefined,
+						teamRoleModel: undefined,
+						agentModel: undefined,
+						fallbackModels: undefined,
+						parentModel: attempt.model,
+						modelRegistry: input.modelRegistry,
+						cwd: task.cwd,
+						scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd),
+					});
+					const alt = reResolved.candidates.find((c) => c !== attempt.model);
+					if (alt) nextModel = alt;
+				}
 				if (!nextModel || !isRetryableModelFailure(error)) break;
 				logs.push(formatModelAttemptNote(attempt, nextModel), "");
 			}
@@ -1368,19 +1391,57 @@ async function resolveTaskScopeModelsPatterns(cwd: string): Promise<string[]> {
  * or when there are no retryable error messages.
  */
 export function detectRetryableModelFailureFromOutput(parsed: ParsedPiJsonOutput): string | undefined {
+	// Primary signal: pre-extracted `errorMessages` (from pi-json-output parser).
+	// The parser already filters to non-empty trimmed strings from message_end
+	// events.
 	const messages = parsed.errorMessages;
-	if (!messages || messages.length === 0) return undefined;
-	// Find the first retryable model-failure message (429 / rate-limit / overloaded / 5xx / ...).
-	const retryable = messages.find((m) => isRetryableModelFailure(m));
-	if (!retryable) return undefined;
-	// Did the run actually produce real output despite the transient errors?
-	// If finalText / textEvents / patches exist, the model recovered and we
-	// should NOT mark the run as failed — only flag it when the worker yielded
-	// nothing (the 429-only case from the bug report).
-	const hasRealOutput =
-		(parsed.finalText?.trim().length ?? 0) > 0 ||
-		parsed.textEvents.some((t) => t.trim().length > 0) ||
-		(parsed.patches?.length ?? 0) > 0;
-	if (hasRealOutput) return undefined;
-	return `Model returned only retryable errors and no output: ${retryable}`;
+	if (messages && messages.length > 0) {
+		// Find the first retryable model-failure message
+		// (429 / rate-limit / overloaded / 5xx / ...).
+		const retryable = messages.find((m) => isRetryableModelFailure(m));
+		if (retryable) {
+			// Did the run actually produce real output despite the transient errors?
+			// If finalText / textEvents / patches exist, the model recovered and we
+			// should NOT mark the run as failed — only flag it when the worker
+			// yielded nothing (the 429-only case from the bug report).
+			const hasRealOutput =
+				(parsed.finalText?.trim().length ?? 0) > 0 ||
+				parsed.textEvents.some((t) => t.trim().length > 0) ||
+				(parsed.patches?.length ?? 0) > 0;
+			if (hasRealOutput) return undefined;
+			return `Model returned only retryable errors and no output: ${retryable}`;
+		}
+	}
+	// Secondary signal (FIX 3, task packet 01_01-agent): inspect a raw
+	// `messageEndEvents` (or `transcript`) array on the parsed output. The
+	// ParsedPiJsonOutput type does not currently declare this field, so we
+	// read it through a local extension cast. Callers that pass it (tests, a
+	// future parser that captures the full event stream) get a second chance
+	// to surface retryable failures. Primary path still wins when it matches.
+	const raw = parsed as ParsedPiJsonOutput & {
+		messageEndEvents?: unknown;
+		transcript?: unknown;
+	};
+	const eventSource = Array.isArray(raw.messageEndEvents)
+		? raw.messageEndEvents
+		: Array.isArray(raw.transcript)
+			? raw.transcript
+			: undefined;
+	if (!eventSource || eventSource.length === 0) return undefined;
+	for (const candidate of eventSource) {
+		if (!candidate || typeof candidate !== "object") continue;
+		const event = candidate as { stopReason?: unknown; errorMessage?: unknown };
+		if (event.stopReason !== "error") continue;
+		if (typeof event.errorMessage !== "string" || event.errorMessage.length === 0) continue;
+		if (!isRetryableModelFailure(event.errorMessage)) continue;
+		// Same real-output gate as the primary signal — don't flag runs that
+		// recovered with real final text / patches.
+		const hasRealOutput =
+			(parsed.finalText?.trim().length ?? 0) > 0 ||
+			parsed.textEvents.some((t) => t.trim().length > 0) ||
+			(parsed.patches?.length ?? 0) > 0;
+		if (hasRealOutput) return undefined;
+		return `Model returned only retryable errors and no output: ${event.errorMessage}`;
+	}
+	return undefined;
 }

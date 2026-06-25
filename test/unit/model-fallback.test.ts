@@ -20,7 +20,12 @@ test("buildModelCandidates de-duplicates candidates", () => {
 	assert.deepEqual(buildModelCandidates("sonnet", ["anthropic/sonnet", "other"], available), ["anthropic/sonnet", "other"]);
 });
 
-test("buildConfiguredModelCandidates only uses configured Pi models before parent default", () => {
+test("buildConfiguredModelCandidates pins effectiveAgentModel at index 0 even when not in registry", () => {
+	// The effectiveAgentModel (= agentModel when set) MUST stay at candidates[0]
+	// even if it is not present in the configured Pi modelRegistry. This is the
+	// round-18 fix: previously `isAvailableModel` filtered it out, so a session
+	// whose agent declared a model outside models.json fell through to whatever
+	// the registry had instead of using its declared model.
 	const modelRegistry = {
 		getAvailable: () => [
 			{ provider: "openai-codex", id: "gpt-5.5" },
@@ -35,7 +40,7 @@ test("buildConfiguredModelCandidates only uses configured Pi models before paren
 			parentModel,
 			modelRegistry,
 		}),
-		["openai-codex/gpt-5-mini", "openai-codex/gpt-5.5"],
+		["claude-haiku-4-5", "openai-codex/gpt-5-mini", "openai-codex/gpt-5.5"],
 	);
 });
 
@@ -54,7 +59,7 @@ test("buildConfiguredModelCandidates appends remaining configured Pi models as f
 	);
 });
 
-test("buildConfiguredModelRouting persists requested model and fallback chain", () => {
+test("buildConfiguredModelRouting persists requested model and keeps effectiveAgentModel at head", () => {
 	const modelRegistry = {
 		getAvailable: () => [
 			{ provider: "openai-codex", id: "gpt-5.5" },
@@ -63,15 +68,20 @@ test("buildConfiguredModelRouting persists requested model and fallback chain", 
 	};
 	const routing = buildConfiguredModelRouting({ agentModel: "claude-haiku-4-5", fallbackModels: ["gpt-5-mini"], parentModel: { provider: "openai-codex", id: "gpt-5.5" }, modelRegistry });
 	assert.equal(routing.requested, "claude-haiku-4-5");
-	assert.deepEqual(routing.candidates, ["openai-codex/gpt-5-mini", "openai-codex/gpt-5.5"]);
+	// claude-haiku-4-5 is NOT in registry but must be the primary candidate
+	// (round-18 fix); the configured Pi fallbacks follow.
+	assert.deepEqual(routing.candidates, ["claude-haiku-4-5", "openai-codex/gpt-5-mini", "openai-codex/gpt-5.5"]);
 	assert.match(routing.reason ?? "", /fallback/);
 });
 
 test("buildConfiguredModelCandidates falls back to Pi default when no configured model is selected", () => {
+	// effectiveAgentModel = parentModel when agentModel is unset (B3 inheritance).
+	// round-18 fix keeps it pinned at index 0 even when the parent model is not
+	// in the Pi-configured modelRegistry (e.g. parent = builtin "minimax-M3").
 	const modelRegistry = { getAvailable: () => [{ provider: "openai-codex", id: "gpt-5.5" }] };
 	assert.deepEqual(
 		buildConfiguredModelCandidates({ agentModel: "claude-haiku-4-5", parentModel: { provider: "openai-codex", id: "gpt-5.5" }, modelRegistry }),
-		["openai-codex/gpt-5.5"],
+		["claude-haiku-4-5", "openai-codex/gpt-5.5"],
 	);
 });
 
@@ -179,4 +189,53 @@ test("isRetryableModelFailure still treats auth/billing/key errors as NON-retrya
 test("isRetryableModelFailure handles undefined/empty (no false trigger)", () => {
 	assert.equal(isRetryableModelFailure(undefined), false);
 	assert.equal(isRetryableModelFailure(""), false);
+});
+
+// FIX 2 — Broader RETRYABLE_MODEL_FAILURE_PATTERNS (2026-06-25).
+// Each new pattern is asserted with a representative provider error string.
+test("isRetryableModelFailure: 'provider error: api_error' triggers fallback", () => {
+	assert.equal(isRetryableModelFailure("provider error: api_error"), true);
+});
+
+test("isRetryableModelFailure: 'context_length_exceeded' triggers fallback", () => {
+	assert.equal(isRetryableModelFailure("context_length_exceeded: please reduce prompt size"), true);
+});
+
+test("isRetryableModelFailure: 'output flagged by safety' triggers fallback", () => {
+	assert.equal(isRetryableModelFailure("output flagged by safety filter; please retry"), true);
+});
+
+test("isRetryableModelFailure: 'upstream is overloaded' triggers fallback", () => {
+	assert.equal(isRetryableModelFailure("upstream is overloaded; retrying"), true);
+});
+
+test("isRetryableModelFailure: HTTP 408 'request timeout' triggers fallback", () => {
+	assert.equal(isRetryableModelFailure("HTTP 408 request timeout"), true);
+});
+
+// Regression guard: even with the broader retryable list, an invalid api key
+// must still be flagged NON-retryable so the fallback chain doesn't loop.
+test("isRetryableModelFailure: 'invalid api key' is NOT retryable", () => {
+	assert.equal(isRetryableModelFailure("invalid api key"), false);
+});
+
+
+// Regression: when agent declares `model: false` and the parent session model is
+// a builtin (not in models.json), the inherited model must lead the candidate
+// chain. Previously the chain collapsed to the only models.json entry
+// (e.g. zaic/glm-5.2), so a single-provider outage had no real fallback.
+test("buildConfiguredModelCandidates keeps inherited parent builtin model when registry has different providers", () => {
+	const modelRegistry = {
+		getAvailable: () => [
+			{ provider: "zaic", id: "glm-5.2" },
+			{ provider: "zai", id: "glm-5.2" },
+		],
+	};
+	// parentModel = builtin (e.g. minimax-M3 from session chính), agent has model: false
+	const result = buildConfiguredModelCandidates({
+		agentModel: undefined,
+		parentModel: { provider: "minimax", id: "MiniMax-M3" },
+		modelRegistry,
+	});
+	assert.deepEqual(result, ["minimax/MiniMax-M3", "zaic/glm-5.2", "zai/glm-5.2"]);
 });

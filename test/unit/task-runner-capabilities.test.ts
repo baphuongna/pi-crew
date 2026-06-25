@@ -10,6 +10,23 @@ import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 
+// TODO (task packet 01_01-agent, FIX 1 follow-up):
+// FIX 1 relaxes the `!attemptModels[i + 1]` short-circuit in the retry loop
+// (src/runtime/task-runner.ts, around line 766) to do a one-shot re-resolve
+// via buildConfiguredModelRouting with the failed model as parent. This is
+// hard to unit-test in isolation (the loop is inside runTeamTask and uses
+// many side effects: modelRegistry, scope gate, async child run, etc.).
+//
+// An integration assertion belongs in
+//   test/integration/model-fallback-chain-e2e.test.ts
+// (a different agent owns that file). The two cases to cover are:
+//   1. attemptModels exhausted + buildConfiguredModelRouting returns 0 alt
+//      candidates  → retry loop breaks (unchanged behavior).
+//   2. attemptModels exhausted + buildConfiguredModelRouting returns 1+ alt
+//      candidates different from the failed model → retry loop uses the alt
+//      on the next iteration.
+// Add the integration test there with a mock that returns 1 vs 2 candidates.
+
 const team = { name: "t", description: "", source: "project", filePath: "t", roles: [{ name: "r", agent: "a" }] } satisfies TeamConfig;
 const workflow = { name: "w", description: "", source: "project", filePath: "w", steps: [{ id: "s", role: "r", task: "x", model: "step/model" }] } satisfies WorkflowConfig;
 const agent = {

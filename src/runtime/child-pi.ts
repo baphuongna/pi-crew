@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import type { AgentConfig } from "../agents/agent-config.ts";
@@ -569,6 +570,55 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			return { exitCode: 0, stdout, stderr: "" };
 		}
 		if (mock === "retryable-failure") return { exitCode: 1, stdout: "", stderr: "[MOCK] rate limit: mock failure" };
+		// E2E fallback-chain fixture: invocation #1 returns a SILENT retryable
+		// failure (exit code 0, no real assistant text, message_end carries a
+		// retryable-pattern errorMessage). Invocation #2+ delegates to the
+		// standard json-success shape. Counter lives in os.tmpdir() keyed by
+		// process.pid + mock name so concurrent test processes don't collide.
+		// The test cleans up the file in its finally block.
+		if (mock === "retryable-failure-then-success") {
+			const counterFile = path.join(os.tmpdir(), `pi-crew-mock-counter-${process.pid}-retryable-failure-then-success`);
+			let count = 0;
+			try {
+				const raw = fs.readFileSync(counterFile, "utf-8");
+				const parsed = Number.parseInt(raw.trim(), 10);
+				if (Number.isFinite(parsed) && parsed >= 0) count = parsed;
+			} catch {
+				// file missing or unreadable — first invocation in this process
+			}
+			count += 1;
+			try {
+				fs.writeFileSync(counterFile, String(count));
+			} catch (error) {
+				logInternalError("child-pi.mock-counter-write", error as Error, `file=${counterFile}`);
+			}
+			if (count === 1) {
+				// Silent retryable failure: exit 0, no real text, message_end
+				// carries errorMessage matching `/provider[_ ]?error/i` so that
+				// `detectRetryableModelFailureFromOutput` surfaces it as an error
+				// and `isRetryableModelFailure` routes the next attempt to the
+				// next candidate model. `stopReason:"error"` (NOT "stop") so
+				// `isFinalAssistantEvent` does NOT prematurely terminate the run.
+				const failureEvent = {
+					type: "message_end",
+					message: {
+						role: "assistant",
+						content: [],
+						errorMessage: "Provider error: api_error",
+						stopReason: "error",
+					},
+				};
+				const stdout = `${JSON.stringify(failureEvent)}\n`;
+				observeStdoutChunk(input, stdout);
+				return { exitCode: 0, stdout, stderr: "" };
+			}
+			// Subsequent invocations: delegate to json-success shape so the
+			// fallback chain's second attempt succeeds and the run completes.
+			const text = `[MOCK] JSON success for ${input.agent.name}`;
+			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
+			observeStdoutChunk(input, stdout);
+			return { exitCode: 0, stdout, stderr: "" };
+		}
 		return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
 	}
 	const built = buildPiWorkerArgs({ task: effectiveTask, agent: input.agent, model: input.model, sessionEnabled: true, maxDepth: input.maxDepth, skillPaths: input.skillPaths, role: input.role });
