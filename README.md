@@ -39,9 +39,9 @@ npm: pi-crew
 repo: https://github.com/baphuongna/pi-crew
 ```
 
-**v0.9.4 / v0.9.5 / v0.9.8**: See [CHANGELOG.md](CHANGELOG.md).
+**v0.9.4 / v0.9.5 / v0.9.8 / v0.9.9**: See [CHANGELOG.md](CHANGELOG.md).
 
-### Highlights (v0.6.4 → v0.9.8)
+### Highlights (v0.6.4 → v0.9.9)
 
 A long arc of **trust, cliff-resilience, and robustness** work. Principle: *build
 trust and cliff-resilience, stay lean, delete before adding.*

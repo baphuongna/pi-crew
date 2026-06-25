@@ -1,5 +1,38 @@
 # Changelog
 
+## [v0.9.9] — gajae-code distillation (4 P0) + notification race fix (2026-06-25)
+
+Six changes: four high-impact/low-effort features distilled from researching [Yeachan-Heo/gajae-code](https://github.com/Yeachan-Heo/gajae-code) (full report: `research-findings/gajae-code-distill.md`), plus a fix for a redundant-notification bug the leader directly hit while running that research. Each was calibrated against real pi-crew code — two reported "gaps" turned out to be patterns pi-crew already implements (prompt-level stablePrefix, detached spawning), and four areas where pi-crew is already superior were deliberately left untouched (crash-recovery byte-offset cursor, declarative workflow + semaphores, run-snapshot-cache, event sourcing).
+
+### P0 #1 — Crash classification taxonomy (commit fb8c4a8)
+
+`child-pi.ts` captured stderr/exit codes but never bucketed failure modes. New pure `classifyProcessCrash()` (port of gajae-code's `crash-diagnostics.ts`) maps exits to 9 semantic classes (`clean_exit | non_zero_exit | signal_exit | timeout | cancelled | spawn_error | protocol_exit | native_panic | unknown`) with precedence timeout > cancelled > spawn_error > native_panic > signal. Attached to `WorkerExitStatus` at both settle paths; kill/drain/timeout logic untouched. 30 unit tests.
+
+### P0 #2 — Staleness-aware tool output pruning (commit 13acf37)
+
+The L4 size-based compaction retained every copy of a re-read file until a size threshold tripped. New `tool-output-pruner.ts` (port of gajae-code's `pruning.ts`) drops superseded tool results — same-file re-reads and read-then-edit — **before** they are injected into a downstream worker's prompt via `task-output-context.ts`. Replaces stale content with a digest notice (first/last lines + count for bash/grep/search). OPT-IN via `DEFAULT_PRUNE_CONFIG`; does NOT regress the L4 head+tail(75/25) behavior. 25 unit tests.
+
+### P0 #3 — OwnedProcess abstraction (commit fe3bdde)
+
+Background spawns used `detached:true` but had no unified ownership primitive for guaranteed teardown. New `process-lifecycle.ts` adds `OwnedProcess` (escalating SIGTERM → grace → SIGKILL; Windows `taskkill /F /T /PID` fallback; idempotent `dispose()`; bounded `awaitExit()`; `onExit`) plus `registerResourceOwner()`/`disposeAllOwners()` for non-process resources (timers, sockets, Workers) and root-exit drain reconciliation. **Incremental adoption** — deliberately NOT migrating `child-pi.ts`'s battle-tested `killProcessTree`/post-exit-stdio-guard/hard-kill-timer or `async-runner.ts`'s intentionally-detached background spawns; the primitive is available for future ownership-scoped spawns (MCP/LSP/DAP servers, eval workers). 22 unit tests.
+
+### P0 #4 — IRC reply support, side-channel Q&A (commit 43bcd65)
+
+The `irc-tool` was fire-and-forget despite an `awaitReply` param marked "Not yet supported". New `respondAsBackground()` on `live-agent-manager.ts` delivers a DM to a recipient's session **without blocking its main loop** (`sendCustomMessage({triggerTurn:false})`) and awaits an event-driven, timeout-bounded reply via an in-memory pending-reply registry keyed by correlation id. `awaitReply:true` DMs now route through this side-channel and return reply content; broadcast stays fire-and-forget. Coexists with mailbox.ts's existing file-based reply fields (cross-process). 10 unit tests.
+
+### Notification race fix — Rule 2 + Rule 1 (commits 592d9ea, c22cbb9)
+
+While running the gajae-code research, the leader observed redundant "background subagent changed state" notifications arriving a turn late, after results were already read. Root cause: the completion callback (`SubagentManager.onComplete`) fires from inside the `record.promise` IIFE `finally` block — **before the promise resolves** — so a leader calling `get_subagent_result(wait:true)` sets `resultConsumed=true` only afterward, and the synchronous `if (record.resultConsumed) return` guard always saw `false`. A latent test bug (`assert sentMessages.length === 0` on an array that was unconditionally empty because `sendAgentWakeUp` prefers `sendUserMessage`) masked it.
+
+- **Rule 2** (592d9ea): defer notification emission to a `setTimeout(0)` **macrotask** (not `queueMicrotask` — microtasks queued in the finally run before the promise-resolution microtask), then recheck `resultConsumed` (in-memory `getRecord` + persisted `readPersistedSubagentRecord`) before emitting; suppress if already consumed. Covers all three `onComplete` call sites via the single emit point. Fixed the test assertion to `sentUserMessages` and added two explicit regression tests (notify still fires when leader does NOT pre-consume; notify suppressed when leader pre-consumes via `wait:true`).
+- **Rule 1** (c22cbb9): new `BatchBarrier` registry + optional `batch_id` param on the Agent tool. Background agents sharing a `batch_id` never emit individual notifications; instead each completion is recorded in the barrier and **one consolidated** "All N background subagents in batch \"X\" have finished" notification fires exactly once when every member reaches a terminal state (`blocked` is NOT terminal — a blocked agent resumes later). Verified end-to-end with 1/2/5-agent batches (one with a queued member and staggered 10–25s sleeps): exactly 1 consolidated notification, 0 individual leaks. Composes with Rule 2 (a batched agent whose result was already consumed is still suppressed via the `resultConsumed` recheck). 10 unit tests + 2 integration tests.
+
+Design doc: `research-findings/subagent-notification-race-fix.md`.
+
+### What was NOT adopted (pi-crew already superior)
+
+Crash recovery (`crash-recovery.ts`, 421 lines, byte-offset event-log cursor), declarative workflow + semaphores, `run-snapshot-cache` (disk rebuild, TTL 1500ms), and event sourcing (`readEventsCursor`) are all more sophisticated than gajae-code's equivalents and were left intact.
+
 ## [v0.9.8] — deer-flow learning integration: L1/L2/L3/L4 (2026-06-24)
 
 Four improvements distilled from researching [bytedance/deer-flow](https://github.com/bytedance/deer-flow) and the wider Pi-ecosystem (pi-boomerang, pi-subagents, pi-dynamic-workflows). Each was calibrated against real pi-crew code (the research over-reported gaps — several patterns pi-crew already does *better* than deer-flow) and sized from measured data, not guesses.
