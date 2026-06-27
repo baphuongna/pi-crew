@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import * as os from "node:os";
-import { getBackgroundRunnerCommand, resolveJitiRegisterPath, resolveTypeScriptLoader, nodeSupportsStripTypes } from "../../src/runtime/async-runner.ts";
+import { getBackgroundRunnerCommand, resolveJitiRegisterPath, resolveTypeScriptLoader, nodeSupportsStripTypes, BACKGROUND_RUNNER_ENV_ALLOWLIST } from "../../src/runtime/async-runner.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 test("background runner uses the jiti runtime loader for installed TypeScript", () => {
@@ -123,6 +123,32 @@ test("getBackgroundRunnerCommand emits V8 fatal-error report flags by default (O
 		if (savedCrew !== undefined) process.env.PI_CREW_BG_REPORT_ON_FATAL = savedCrew;
 		if (savedTeams !== undefined) process.env.PI_TEAMS_BG_REPORT_ON_FATAL = savedTeams;
 	}
+});
+
+test("M1 regression: background-runner env allowlist omits model provider API keys", () => {
+	// Provider keys must NOT be forwarded to the detached background runner:
+	// children read keys from the Pi config file, and env keys leak into V8
+	// fatal-error reports (--report-on-fatalerror writes environmentVariables
+	// unredacted). See security review M1.
+	const PROVIDER_KEYS = [
+		"MINIMAX_API_KEY", "MINIMAX_GROUP_ID",
+		"OPENAI_API_KEY", "OPENAI_ORG_ID",
+		"ANTHROPIC_API_KEY",
+		"GOOGLE_API_KEY", "GOOGLE_GENERATIVE_LANGUAGE_API_KEY",
+		"AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
+		"ZEU_API_KEY", "ZERODEV_API_KEY",
+	];
+	for (const key of PROVIDER_KEYS) {
+		assert.ok(
+			!BACKGROUND_RUNNER_ENV_ALLOWLIST.includes(key),
+			`provider key ${key} must NOT be in the background-runner allowlist (M1)`,
+		);
+	}
+	// Sanity: essential non-secret control vars are still forwarded.
+	assert.ok(BACKGROUND_RUNNER_ENV_ALLOWLIST.includes("PATH"));
+	assert.ok(BACKGROUND_RUNNER_ENV_ALLOWLIST.includes("HOME"));
+	assert.ok(BACKGROUND_RUNNER_ENV_ALLOWLIST.includes("PI_CREW_PARENT_PID"));
 });
 
 test("getBackgroundRunnerCommand disables V8 report flags when PI_CREW_BG_REPORT_ON_FATAL=0", () => {

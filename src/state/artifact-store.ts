@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type { ArtifactDescriptor } from "./types.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { redactSecretString } from "../utils/redaction.ts";
+import { redactSecretString, redactSecrets } from "../utils/redaction.ts";
 
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
@@ -127,7 +127,21 @@ export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptio
 	const filePath = resolveInside(artifactsRoot, options.relativePath);
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	resolveRealContainedPath(artifactsRoot, path.dirname(filePath));
-	const content = redactSecretString(options.content);
+	let content = options.content;
+	// Structural JSON redaction first — catches quoted-JSON secrets
+	// ("api_key":"sk-...") and nested keys that flat redactSecretString misses.
+	// The flat scan below still catches free-text patterns (Bearer/JWT/Auth
+	// headers) that may live inside JSON string values. See security review M2.
+	const trimmed = content.trim();
+	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+		try {
+			const parsed: unknown = JSON.parse(content);
+			content = JSON.stringify(redactSecrets(parsed));
+		} catch {
+			// not valid JSON — fall through to flat redaction only
+		}
+	}
+	content = redactSecretString(content);
 	atomicWriteFile(filePath, content);
 	// Compute hash on written bytes for integrity verification.
 	// Read back the actual file content to handle atomicWrite fallback path

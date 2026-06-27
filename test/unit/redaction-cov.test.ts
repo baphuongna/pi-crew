@@ -172,3 +172,41 @@ describe("redactJsonLine", () => {
 		assert.ok(typeof result === "string");
 	});
 });
+
+describe("redactAuthHeader — L3/L5 regression (security review)", () => {
+	it("L3: redacts EVERY occurrence across multiple lines (was first-only)", () => {
+		const input = "line1\nAuthorization: Basic sec-one\nmid line\nauthorization: Basic sec-two";
+		const result = redactSecretString(input);
+		assert.ok(!result.includes("sec-one"), "first occurrence value must be redacted");
+		assert.ok(!result.includes("sec-two"), "second occurrence value must be redacted (L3)");
+	});
+
+	it("L5: redacts Proxy-Authorization (non-Bearer) — boundary includes '-'", () => {
+		const result = redactSecretString("Proxy-Authorization: Basic c2VjcmV0");
+		assert.ok(!result.includes("c2VjcmV0"), "Proxy-Authorization Basic credential must be redacted (L5)");
+		assert.ok(result.includes("***"));
+	});
+
+	it("L5: redacts X-Authorization (non-Bearer)", () => {
+		const result = redactSecretString("X-Authorization: Basic c2VjcmV0");
+		assert.ok(!result.includes("c2VjcmV0"), "X-Authorization Basic credential must be redacted (L5)");
+	});
+
+	it("L5: redacts tab-indented Authorization header — boundary includes '\\t'", () => {
+		const result = redactSecretString("\tauthorization: Basic sec-tab");
+		assert.ok(!result.includes("sec-tab"), "tab-indented Authorization must be redacted (L5)");
+	});
+
+	it("regression: still does NOT redact Bearer values here (delegated to redactBearerTokens)", () => {
+		const result = redactAuthHeader("authorization: Bearer tok_12345678");
+		assert.ok(result.includes("Bearer"), "Bearer keyword must be preserved for redactBearerTokens");
+	});
+});
+
+describe("redactBearerTokens — L5 regression", () => {
+	it("L5: redacts Bearer token preceded by '-' (Proxy-Authorization: Bearer ...)", () => {
+		const result = redactBearerTokens("Proxy-Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234");
+		assert.ok(!result.includes("abcdefghijklmnopqrstuvwxyz1234"), "Bearer token after hyphen-boundary must be redacted (L5)");
+		assert.ok(result.includes("***"));
+	});
+});

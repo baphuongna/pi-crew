@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.9.10 (continued)] — Secret redaction & env hardening (2026-06-27)
+
+Independent security review (review team, 3/4 tasks, ~360K tokens) flagged 3 Medium findings in the secret-redaction and env-passthrough surfaces. All verified by live `npx tsx` repro + source trace before fixing.
+
+### Bug fixes
+
+- **`redactAuthHeader` leaked credential values (L3/L5)** (`src/utils/redaction.ts`). Two defects: (1) `indexOf` matched only the FIRST `authorization:` occurrence per call, so a second header on a later line leaked verbatim; (2) the word-boundary allow-list excluded `-` and `\t`, so `Proxy-Authorization:` / `X-Authorization:` and tab-indented headers were not recognized. Fix: loop over all occurrences and add `-`/`\t` to a shared `AUTH_HEADER_BOUNDARY_CHARS` set (used by both `redactAuthHeader` and `redactBearerTokens`). Latent weakness caught by repro (NOT by the reviewer's proposed fix): the old code only APPENDED a ` ***` marker without removing the value — `"authorization: Basic abc123"` became `"authorization: Basic abc123 ***"` (credential still visible). The redact branch now blanks the value: `line.substring(authIdx, authIdx+14) + " ***"` → `"authorization: ***"`. Consistent with `redactInlineSecrets`.
+- **`writeArtifact` flat-redaction only (M2)** (`src/state/artifact-store.ts:130`). Applied only `redactSecretString` (flat regex scan), so quoted-JSON secrets (`"api_key":"sk-..."`) and nested keys survived into persisted artifacts (e.g. `startup-evidence.json` holds up to 500 chars of raw child stderr). Fix: structural-then-flat — when content parses as JSON, run `redactSecrets` (recursive) first, then flat `redactSecretString`. Order matters: structural catches quoted keys, flat still catches Bearer/JWT/Auth headers inside JSON string values.
+- **Provider API keys leaked into the detached background runner (M1)** (`src/runtime/async-runner.ts:162`). The env allowlist forwarded 14 provider keys (MINIMAX/OPENAI/ANTHROPIC/...) to the background runner, contradicting `child-pi.ts:275` ("API keys are NOT needed — config file"). Keys leaked into V8 fatal-error reports (`--report-on-fatalerror` writes `environmentVariables` unredacted). The inline comment "same as child-pi.ts" was false. Fix: extracted `BACKGROUND_RUNNER_ENV_ALLOWLIST` (exported, unit-testable) and removed the 14 provider keys. Prereq verified: `background-runner.ts` does not read provider keys directly.
+
+### Verification
+
+- `npx tsc --noEmit` EXIT 0
+- 21 targeted suites pass (~130 tests): redaction-cov (32), redaction-p1f (18), redaction-transcript-roundtrip (3), child-pi-sec1-redaction (8), artifact-store (4), async-runner (13), env-filter (4), env-filter-cov (9), security-hardening (8), round28-otlp-crlf (4), child-pi-compaction-real (9), + others
+- Live repro: `redactSecretString("Proxy-Authorization: Basic c2VjcmV0")` → `"Proxy-Authorization: ***"` (was: unchanged leak)
+
 ## [v0.9.10 (continued)] — Round 29 follow-ups: BG2 sweep bug fixes, test optimization, E2E verification (2026-06-26)
 
 A full-suite verify run (`verify-full2`, 5502 tests, 774 suites) surfaced 4 file-level timeouts and 2 real correctness bugs. This release fixes the 2 real bugs, the underlying cause of 2 of the 4 timeouts (chain-runner + orphan-worker-registry + cleanup-full-flow self-deadlock + HandoffManager interval leak), and adds E2E verification artifacts to prove all fixes hold against the live runtime, not just static analysis.

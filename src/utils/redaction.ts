@@ -97,34 +97,54 @@ export function isSecretKey(keyName: string): boolean {
 	return false;
 }
 
-// Linear-time Authorization header redaction
+// Boundary chars that may precede an "authorization:" or "Bearer " keyword.
+// Includes '-' so prefixed headers (Proxy-Authorization, X-Authorization) and
+// '\t' so tab-indented headers are recognized. See security review L5.
+const AUTH_HEADER_BOUNDARY_CHARS = new Set([" ", ",", "{", "[", "\"", "\r", "\n", "-", "\t"]);
+function isAuthHeaderBoundary(ch: string | undefined): boolean {
+	return ch !== undefined && AUTH_HEADER_BOUNDARY_CHARS.has(ch);
+}
+
+// Linear-time Authorization header redaction.
+// L3 fix: scan ALL occurrences (previously first-only via indexOf, so a second
+// "authorization:" on a later line leaked). L5 fix: boundary set includes '-'
+// and '\t' so Proxy-Authorization / X-Authorization / tab-indented headers are
+// redacted. Bearer values are left for redactBearerTokens.
 export function redactAuthHeader(line: string): string {
 	const lower = line.toLowerCase();
-	const authIdx = lower.indexOf("authorization:");
-	if (authIdx === -1) return line;
-	
-	// Verify word boundary - must be at start of line or preceded by whitespace/comma/brace
-	if (authIdx > 0) {
-		const before = line[authIdx - 1];
-		if (before !== ' ' && before !== ',' && before !== '{' && before !== '[' && before !== '"' && before !== '\r' && before !== '\n') {
-			return line; // Not a word boundary
+	let result = "";
+	let i = 0;          // emit cursor into the original `line`
+	let searchFrom = 0;  // cursor for the next indexOf scan
+	for (;;) {
+		const authIdx = lower.indexOf("authorization:", searchFrom);
+		if (authIdx === -1) {
+			result += line.substring(i);
+			return result;
+		}
+		// Emit the unchanged span up to this occurrence.
+		result += line.substring(i, authIdx);
+		const isBoundary = authIdx === 0 || isAuthHeaderBoundary(line[authIdx - 1]);
+		const afterAuth = lower.substring(authIdx + 14).trimStart();
+		if (isBoundary && !afterAuth.startsWith("bearer ")) {
+			// Regular Authorization header — blank the credential value (the rest
+			// of the line is the credential). Appending only a marker would leave
+			// the secret bytes visible; replace them with "***". Bearer values are
+			// left intact here for redactBearerTokens. See security review L3/L5.
+			let end = authIdx + 14;
+			while (end < line.length && line[end] !== "\r" && line[end] !== "\n") {
+				end++;
+			}
+			result += line.substring(authIdx, authIdx + 14) + " ***";
+			i = end;
+			searchFrom = end; // entire line consumed; resume after the line break
+		} else {
+			// Bearer token (handled by redactBearerTokens) OR not a boundary —
+			// keep the "authorization:" literal and continue scanning.
+			result += line.substring(authIdx, authIdx + 14);
+			i = authIdx + 14;
+			searchFrom = authIdx + 14;
 		}
 	}
-	
-	// Check if this is followed by Bearer token (don't redact Bearer tokens separately)
-	// Look for "Bearer" after "authorization:"
-	const afterAuth = lower.substring(authIdx + 14).trimStart();
-	if (!afterAuth.startsWith('bearer ')) {
-		// No Bearer token, this is a regular Authorization header - redact it
-		let end = authIdx + 14;
-		while (end < line.length && line[end] !== "\r" && line[end] !== "\n") {
-			end++;
-		}
-		return line.substring(0, end) + " ***" + (end < line.length ? line.substring(end) : "");
-	}
-	
-	// It's a Bearer token format - don't redact here, let redactBearerTokens handle it
-	return line;
 }
 
 // Linear-time Bearer token redaction
@@ -135,14 +155,12 @@ export function redactBearerTokens(line: string): string {
 	
 	while (i < line.length) {
 		if (upper.startsWith("BEARER ", i)) {
-			// Check word boundary: preceded by start, space, comma, brace, or newline
-			if (i > 0) {
-				const before = line[i - 1];
-				if (before !== ' ' && before !== ',' && before !== '{' && before !== '[' && before !== '"' && before !== '\r' && before !== '\n') {
-					result.push(line[i]);
-					i++;
-					continue;
-				}
+			// Check word boundary: start-of-string or a boundary char. Includes '-'
+			// and '\t' (L5) so "Proxy-Authorization: Bearer ..." is redacted.
+			if (i > 0 && !isAuthHeaderBoundary(line[i - 1])) {
+				result.push(line[i]);
+				i++;
+				continue;
 			}
 			
 			// Found "Bearer " - now find the token

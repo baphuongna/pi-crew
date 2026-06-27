@@ -150,6 +150,75 @@ export interface SpawnBackgroundTeamRunResult {
 	logPath: string;
 }
 
+/**
+ * Env vars explicitly forwarded to the detached background runner.
+ *
+ * Provider API keys (MINIMAX/OPENAI/ANTHROPIC/...) are INTENTIONALLY OMITTED
+ * (security review M1): the background runner only spawns child Pi workers,
+ * which read keys from the Pi config file (not env). Passing keys via env
+ * leaks them into V8 fatal-error reports (--report-on-fatalerror writes the
+ * `environmentVariables` section unredacted). Matches child-pi.ts policy.
+ * Exported so the invariant is unit-testable (test/unit/async-runner.test.ts).
+ */
+export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
+	// Essential non-secret vars
+	"PATH",
+	"HOME",
+	"USER",
+	"SHELL",
+	"TERM",
+	"LANG",
+	"LC_ALL",
+	"LC_COLLATE",
+	"LC_CTYPE",
+	"LC_MESSAGES",
+	"LC_MONETARY",
+	"LC_NUMERIC",
+	"LC_TIME",
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_CACHE_HOME",
+	"XDG_RUNTIME_DIR",
+	// Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
+	...WINDOWS_ESSENTIAL_ENV_VARS,
+	"NVM_BIN",
+	"NVM_DIR",
+	"NVM_INC",
+	"NODE_PATH",
+	"NODE_DISABLE_COLORS",
+	"NODE_EXTRA_CA_CERTS",
+	"NPM_CONFIG_REGISTRY",
+	"NPM_CONFIG_USERCONFIG",
+	"NPM_CONFIG_GLOBALCONFIG",
+	// PI_CREW_PARENT_PID is needed for parent-guard (liveness check).
+	"PI_CREW_DEPTH",
+	"PI_CREW_MAX_DEPTH",
+	"PI_CREW_INHERIT_PROJECT_CONTEXT",
+	"PI_CREW_INHERIT_SKILLS",
+	"PI_CREW_PARENT_PID",
+	"PI_TEAMS_DEPTH",
+	"PI_TEAMS_MAX_DEPTH",
+	"PI_TEAMS_INHERIT_PROJECT_CONTEXT",
+	"PI_TEAMS_INHERIT_SKILLS",
+	"PI_TEAMS_PI_BIN",
+	"PI_TEAMS_MOCK_CHILD_PI",
+	"PI_CREW_ALLOW_MOCK",
+	// Phase 1.5: worker-thread atomic writer opt-in (RFC 15).
+	"PI_CREW_WORKER_ATOMIC_WRITER",
+	"PI_TEAMS_WORKER_ATOMIC_WRITER",
+	// Phase 1.5 #1: verification env sanitization opt-in (RFC 13 §6).
+	"PI_CREW_VERIFICATION_SANITIZE_ENV",
+	"PI_TEAMS_VERIFICATION_SANITIZE_ENV",
+	"PI_CREW_VERIFICATION_PRESERVE_ENV",
+	"PI_TEAMS_VERIFICATION_PRESERVE_ENV",
+	// Phase 1.5 #2: verification git-worktree sandbox opt-in (RFC 16).
+	"PI_CREW_VERIFICATION_WORKTREE",
+	"PI_TEAMS_VERIFICATION_WORKTREE",
+	// Phase 1.5 #3: V8 diagnostic report on fatal error (RFC 17 — investigation).
+	"PI_CREW_BG_REPORT_ON_FATAL",
+	"PI_TEAMS_BG_REPORT_ON_FATAL",
+];
+
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
 	const runnerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "background-runner.ts");
 	const logPath = path.join(manifest.stateRoot, "background.log");
@@ -159,80 +228,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	// to prevent leaking all env vars (including secrets) to detached background runner.
 	// Previously, destructuring only removed PI_CREW_PARENT_PID but kept everything else.
 	const filteredEnv = sanitizeEnvSecrets(process.env, {
-		allowList: [
-			// Model provider API keys (same as child-pi.ts)
-			"MINIMAX_API_KEY",
-			"MINIMAX_GROUP_ID",
-			"OPENAI_API_KEY",
-			"OPENAI_ORG_ID",
-			"ANTHROPIC_API_KEY",
-			"GOOGLE_API_KEY",
-			"GOOGLE_GENERATIVE_LANGUAGE_API_KEY",
-			"AZURE_OPENAI_API_KEY",
-			"AZURE_OPENAI_ENDPOINT",
-			"AWS_ACCESS_KEY_ID",
-			"AWS_SECRET_ACCESS_KEY",
-			"AWS_REGION",
-			"ZEU_API_KEY",
-			"ZERODEV_API_KEY",
-			// Essential non-secret vars
-			"PATH",
-			"HOME",
-			"USER",
-			"SHELL",
-			"TERM",
-			"LANG",
-			"LC_ALL",
-			"LC_COLLATE",
-			"LC_CTYPE",
-			"LC_MESSAGES",
-			"LC_MONETARY",
-			"LC_NUMERIC",
-			"LC_TIME",
-			"XDG_CONFIG_HOME",
-			"XDG_DATA_HOME",
-			"XDG_CACHE_HOME",
-			"XDG_RUNTIME_DIR",
-			// Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
-			...WINDOWS_ESSENTIAL_ENV_VARS,
-			"NVM_BIN",
-			"NVM_DIR",
-			"NVM_INC",
-			"NODE_PATH",
-			"NODE_DISABLE_COLORS",
-			"NODE_EXTRA_CA_CERTS",
-			"NPM_CONFIG_REGISTRY",
-			"NPM_CONFIG_USERCONFIG",
-			"NPM_CONFIG_GLOBALCONFIG",
-			// FIX: explicit list matches child-pi.ts to prevent regression.
-			// PI_CREW_PARENT_PID is needed for parent-guard (liveness check).
-			"PI_CREW_DEPTH",
-			"PI_CREW_MAX_DEPTH",
-			"PI_CREW_INHERIT_PROJECT_CONTEXT",
-			"PI_CREW_INHERIT_SKILLS",
-			"PI_CREW_PARENT_PID",
-			"PI_TEAMS_DEPTH",
-			"PI_TEAMS_MAX_DEPTH",
-			"PI_TEAMS_INHERIT_PROJECT_CONTEXT",
-			"PI_TEAMS_INHERIT_SKILLS",
-			"PI_TEAMS_PI_BIN",
-			"PI_TEAMS_MOCK_CHILD_PI",
-			"PI_CREW_ALLOW_MOCK",
-			// Phase 1.5: worker-thread atomic writer opt-in (RFC 15).
-			"PI_CREW_WORKER_ATOMIC_WRITER",
-			"PI_TEAMS_WORKER_ATOMIC_WRITER",
-			// Phase 1.5 #1: verification env sanitization opt-in (RFC 13 §6).
-			"PI_CREW_VERIFICATION_SANITIZE_ENV",
-			"PI_TEAMS_VERIFICATION_SANITIZE_ENV",
-			"PI_CREW_VERIFICATION_PRESERVE_ENV",
-			"PI_TEAMS_VERIFICATION_PRESERVE_ENV",
-			// Phase 1.5 #2: verification git-worktree sandbox opt-in (RFC 16).
-			"PI_CREW_VERIFICATION_WORKTREE",
-			"PI_TEAMS_VERIFICATION_WORKTREE",
-			// Phase 1.5 #3: V8 diagnostic report on fatal error (RFC 17 — investigation).
-			"PI_CREW_BG_REPORT_ON_FATAL",
-			"PI_TEAMS_BG_REPORT_ON_FATAL",
-		],
+		allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST,
 	});
 	// FIX: removed delete workarounds — with explicit allowlist, these vars
 	// are no longer auto-leaked. Matches child-pi.ts.
