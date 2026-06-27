@@ -132,11 +132,17 @@ export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptio
 	// ("api_key":"sk-...") and nested keys that flat redactSecretString misses.
 	// The flat scan below still catches free-text patterns (Bearer/JWT/Auth
 	// headers) that may live inside JSON string values. See security review M2.
+	//
+	// Formatting preservation: re-stringify with the SAME indentation as the
+	// input so pretty-printed artifacts (e.g. group-join metadata expected by
+	// test/integration/phase4-runtime.test.ts to contain `"partial": false`)
+	// keep their whitespace. Detect pretty-vs-compact from the raw input.
 	const trimmed = content.trim();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
 		try {
 			const parsed: unknown = JSON.parse(content);
-			content = JSON.stringify(redactSecrets(parsed));
+			const isPretty = /\n|"\s*:\s/.test(content);
+			content = JSON.stringify(redactSecrets(parsed), null, isPretty ? 2 : undefined);
 		} catch {
 			// not valid JSON — fall through to flat redaction only
 		}
