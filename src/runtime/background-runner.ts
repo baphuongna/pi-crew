@@ -25,6 +25,19 @@ import type { executeTeamRun as ExecuteTeamRunFn } from "./team-runner.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
+
+/** Maximum runtime for a single background run before the watchdog force-aborts
+ *  it. Prevents zombie background-runner processes when a team run hangs forever
+ *  (e.g. a hung child Pi process, a stuck lock, or a test that spawns a run
+ *  without cleanup). Default 2h — generous for legitimate long runs (research
+ *  workflows, goal-loops) but catches true zombies (observed: 10h+ stale test
+ *  runs). Override via PI_CREW_MAX_RUN_MS env (milliseconds). The watchdog
+ *  aborts via the shared AbortController, then force-exits after a grace
+ *  period in case the abort signal does not propagate to all execution paths. */
+const MAX_BACKGROUND_RUN_MS = (() => {
+	const env = Number.parseInt(process.env.PI_CREW_MAX_RUN_MS ?? "", 10);
+	return Number.isFinite(env) && env > 0 ? env : 2 * 60 * 60 * 1000;
+})();
 async function executeTeamRun(
 	...args: Parameters<typeof ExecuteTeamRunFn>
 ): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -234,6 +247,7 @@ function runCleanup(
 	stopParentGuard: () => void,
 	stopHeartbeat: () => void,
 	keepAlive: NodeJS.Timeout,
+	watchdogTimer: NodeJS.Timeout,
 	exitDueToRejection: boolean,
 	eventsPath?: string,
 ): void {
@@ -245,6 +259,9 @@ function runCleanup(
 	// FIX: clearInterval FIRST, then kill children. This ensures the heartbeat
 	// interval is always cleaned up even if terminateActiveChildPiProcesses throws.
 	clearInterval(keepAlive);
+	// Clear the anti-zombie watchdog so a normally-completing run does not
+	// carry a pending force-exit timer into the exit path.
+	clearTimeout(watchdogTimer);
 	// FIX Issues #1, #2, #4: Wrap child process termination in try/catch so errors
 	// don't prevent the cleanup from completing. We log but don't re-throw since
 	// we're already exiting.
@@ -563,6 +580,37 @@ async function main(): Promise<void> {
 	// bounded by the 5s interval. The event loop exit is deferred at most 5s.
 	const keepAlive = setInterval(() => {}, 5000);
 
+	// WATCHDOG (anti-zombie): if the run exceeds MAX_BACKGROUND_RUN_MS without
+	// completing, abort it and force-exit. Without this, a hung team run
+	// (stuck child Pi, deadlocked lock, test that never cleans up) leaves the
+	// background-runner alive forever because keepAlive holds the event loop.
+	// The watchdog fires once; it is cleared in the finally block via runCleanup.
+	const watchdogTimer = setTimeout(() => {
+		console.error(`[background-runner] WATCHDOG: run ${runId} exceeded ${MAX_BACKGROUND_RUN_MS}ms — aborting (zombie prevention)`);
+		try {
+			appendEvent(manifest.eventsPath, {
+				type: "async.watchdog_fired",
+				runId,
+				message: `Run exceeded ${MAX_BACKGROUND_RUN_MS}ms and was force-aborted to prevent a zombie background-runner process.`,
+				data: { maxRunMs: MAX_BACKGROUND_RUN_MS },
+			});
+		} catch { /* best-effort event log */ }
+		// Signal the finally block to exit(1) after cleanup.
+		exitDueToRejection = true;
+		// Abort the in-flight team run via the shared signal (propagates to
+		// executeTeamRun → child-pi → kills child processes).
+		abortController.abort();
+		// Hard-exit safety net: if the abort does not propagate within 15s
+		// (e.g. a hung native call), force-kill so the process cannot linger.
+		const forceExit = setTimeout(() => {
+			console.error(`[background-runner] WATCHDOG: abort did not propagate within grace period — force-exiting`);
+			stopParentGuard();
+			try { terminateActiveChildPiProcesses(); } catch { /* best-effort */ }
+			process.exit(1);
+		}, 15_000);
+		forceExit.unref();
+	}, MAX_BACKGROUND_RUN_MS);
+
 	try {
 		debugLog(`[background-runner] about to call discoverAgents`);
 		const agents = allAgents(discoverAgents(cwd));
@@ -798,6 +846,7 @@ async function main(): Promise<void> {
 				stopParentGuard,
 				stopHeartbeat,
 				keepAlive,
+				watchdogTimer,
 				exitDueToRejection,
 				manifest.eventsPath,
 			);
