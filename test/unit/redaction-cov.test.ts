@@ -19,6 +19,63 @@ describe("isSecretKey", () => {
 		assert.equal(isSecretKey("credential"), true);
 	});
 
+	it("FIX #5: does NOT treat token-count keys as secrets", () => {
+		// These contain 'token' and matched '_token' in isSecretKey's keyword
+		// scan, causing ALL LLM usage counts to be redacted to '***' in
+		// events.jsonl. They are observable metrics, not credentials.
+		const tokenKeys = [
+			"prompt_tokens",
+			"completion_tokens",
+			"total_tokens",
+			"cached_tokens",
+			"reasoning_tokens",
+			"cached_read_tokens",
+			"cached_write_tokens",
+			"input_tokens",
+			"output_tokens",
+		];
+		for (const key of tokenKeys) {
+			assert.equal(isSecretKey(key), false, `${key} must NOT be classified as a secret`);
+			assert.equal(isSecretKey(key.toUpperCase()), false, `${key.toUpperCase()} (uppercase) must NOT be classified as a secret`);
+		}
+	});
+
+	it("FIX #5: redactSecrets preserves token-count values", () => {
+		// Token counts must survive redactSecrets so events.jsonl retains
+		// observable usage data while real secrets are still redacted.
+		const input = {
+			prompt_tokens: 1500,
+			completion_tokens: 320,
+			total_tokens: 1820,
+			cached_tokens: 900,
+			reasoning_tokens: 50,
+			api_key: "sk-live-abc123",
+			password: "hunter2",
+		};
+		const result = redactSecrets(input) as Record<string, unknown>;
+		assert.equal(result.prompt_tokens, 1500, "prompt_tokens value must be preserved");
+		assert.equal(result.completion_tokens, 320, "completion_tokens value must be preserved");
+		assert.equal(result.total_tokens, 1820, "total_tokens value must be preserved");
+		assert.equal(result.cached_tokens, 900, "cached_tokens value must be preserved");
+		assert.equal(result.reasoning_tokens, 50, "reasoning_tokens value must be preserved");
+		assert.equal(result.api_key, "***", "api_key must still be redacted");
+		assert.equal(result.password, "***", "password must still be redacted");
+	});
+
+	it("FIX #5: redactJsonLine preserves token counts in JSON event lines", () => {
+		const jsonLine = JSON.stringify({
+			event: "usage",
+			prompt_tokens: 1500,
+			completion_tokens: 320,
+			total_tokens: 1820,
+		});
+		const result = redactJsonLine(jsonLine);
+		const parsed = JSON.parse(result) as Record<string, unknown>;
+		assert.equal(parsed.prompt_tokens, 1500);
+		assert.equal(parsed.completion_tokens, 320);
+		assert.equal(parsed.total_tokens, 1820);
+	});
+
 	it("matches case-insensitively", () => {
 		assert.equal(isSecretKey("TOKEN"), true);
 		assert.equal(isSecretKey("Password"), true);

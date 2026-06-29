@@ -19,6 +19,24 @@ export const PEM_PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]
 // Full mitigation ladder: (1) redaction here + at artifact-write; (2) Phase 1.5
 // sanitized-env verification; (3) sandbox (deferred).
 
+// Exclusion list: LLM usage-count key names that contain "token" but are
+// observable metrics, NOT credentials. These must NEVER be redacted so that
+// token-usage observability in events.jsonl is preserved. The isSecretKey()
+// keyword-scan matches '_token' in 'prompt_tokens' (underscore + "token"),
+// falsely classifying usage counts as secrets. See performance/quality
+// assessment fix #5.
+const TOKEN_COUNT_KEYS = new Set([
+	"prompt_tokens",
+	"completion_tokens",
+	"total_tokens",
+	"cached_tokens",
+	"reasoning_tokens",
+	"cached_read_tokens",
+	"cached_write_tokens",
+	"input_tokens",
+	"output_tokens",
+]);
+
 // JWT — three base64url segments separated by dots, distinctive "eyJ" headers.
 // Linear: single + on [A-Za-z0-9_-] per segment, no nesting.
 export const JWT_PATTERN = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
@@ -43,6 +61,8 @@ export const STRIPE_KEY_PATTERN = /(?<![A-Za-z0-9_])sk_live_[0-9a-zA-Z]{24}(?![0
 // a more complex regex, catastrophic backtracking (ReDoS) could result.
 // Any modifications must preserve O(n) complexity where n = keyName.length.
 export function isSecretKey(keyName: string): boolean {
+	// Fast path: known token-count keys are never secrets.
+	if (TOKEN_COUNT_KEYS.has(keyName.toLowerCase())) return false;
 	// Fast path: common secret key names (safe anchored regex, no backtracking)
 	const lower = keyName.toLowerCase();
 	if (/^(token|apikey|api_key|password|secret|credential|authorization|privatekey|private_key)$/.test(lower)) {
