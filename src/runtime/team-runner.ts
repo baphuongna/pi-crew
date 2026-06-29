@@ -343,6 +343,16 @@ function retryPolicyFromConfig(config: CrewReliabilityConfig | undefined): Retry
 	return { ...DEFAULT_RETRY_POLICY, ...(config?.retryPolicy ?? {}) };
 }
 
+/**
+ * #1 (assessment): decide whether the per-task retry path (executeWithRetry) is used.
+ * Defaults to TRUE (opt-out) so transient worker hangs (ChildTimeout) are retried
+ * automatically. Previously opt-in, which left the entire retry+recovery stack dormant.
+ * Exported for unit testing.
+ */
+export function shouldUseRetry(reliability: CrewReliabilityConfig | undefined): boolean {
+	return reliability?.autoRetry !== false;
+}
+
 function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): TeamTaskState | undefined {
 	return result.tasks.find((item) => item.id === taskId && item.status === "failed");
 }
@@ -685,7 +695,12 @@ async function executeTeamRunCore(
 				const teamRole = input.team.roles.find((role) => role.name === task.role);
 				const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
 				const baseInput = { manifest, tasks, task, step, agent, signal: input.signal, executeWorkers: input.executeWorkers, runtimeKind: runtimeKind, taskRuntimeOverride: perTaskRuntime !== runtimeKind ? perTaskRuntime : undefined, runtimeConfig: input.runtimeConfig, parentContext: input.parentContext, parentModel: input.parentModel, modelRegistry: input.modelRegistry, modelOverride: input.modelOverride, teamRoleModel: teamRole?.model, teamRoleSkills: teamRole?.skills, skillOverride: input.skillOverride, limits: input.limits, onJsonEvent: input.onJsonEvent, workspaceId: input.workspaceId };
-				if (input.reliability?.autoRetry !== true) return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
+				// #1 (assessment): autoRetry now defaults ON (opt-out via reliability.autoRetry=false).
+				// The dominant v0.9.13 failure was ChildTimeout ("worker became unresponsive") with
+				// ZERO retries because this gate was opt-in. isRetryable() defaults to true when
+				// retryableErrors is empty, so transient hangs now retry up to maxAttempts (3) with
+				// exponential backoff. Set reliability.autoRetry=false to restore old single-shot behavior.
+				if (!shouldUseRetry(input.reliability)) return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
 				let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
 				let lastAttemptId: string | undefined;
 				const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];
