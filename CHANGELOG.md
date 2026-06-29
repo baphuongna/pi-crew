@@ -1,5 +1,57 @@
 # Changelog
 
+## [v0.9.14] — reliability & UX fixes from the v0.9.13 performance/quality assessment (2026-06-29)
+
+A parallel-research assessment of v0.9.13 measured three operational gaps and produced ten prioritized recommendations (effort × impact). This release ships **8 of 10 fixes + 2 UX bug fixes from bug reports**, with the remaining 2 honestly deferred (need product input). The unifying theme: **stop the silent lies** — retry that was built but never enabled, a "completed" status that hid zero work, and UI that read failed runs as still-running.
+
+Full assessment: `research-findings/pi-crew-performance-quality-assessment.md`. Completion ledger: `research-findings/fix-all-completion-status.md`.
+
+### Bug fixes — reliability (assessment recs #1–#10)
+
+- **#1 autoRetry enabled by default (opt-out) [HIGH impact]** — the entire retry + recovery stack was built and tested but gated off (`team-runner.ts:688`: `if (autoRetry !== true) return single-shot`). Every task got exactly ONE attempt. The dominant v0.9.13 failure was `ChildTimeout` ("worker became unresponsive") — 78 event-log occurrences, 13 run-level failures — all with zero retries. Now opt-OUT: new `shouldUseRetry()` helper (`reliability.autoRetry !== false`); `isRetryable()` already returns true on the default policy, so transient hangs retry up to `maxAttempts` (3) with exponential backoff. The single highest-impact fix — flip one gate.
+
+- **#2 goal-achievement detection — kills the silent false-green** — run `team_20260626170635` reported terminal-success while its verifier wrote "did NOT apply ANY of the three security fixes. `git diff --stat` empty. Tests green only because nothing was changed." New `goal-achievement.ts` (pure functions, unit-tested): a code-mutating workflow (executor/test-engineer steps) in a git repo whose working tree is CLEAN after "completion" is the false-green signature. Read-only/doc workflows and non-git cwds are never accused (conservative). `manifest.goalAchieved` + `goalAchievementNote` + a `run.goal_achievement` event are emitted always; status is downgraded `completed` → `failed` ONLY when a corroborating failed-task signal confirms it (a legitimately-no-op mutating run is flagged but not broken).
+
+- **#4 recovery `rerun_task` execution (was decorative)** — `buildRecoveryLedger` recorded `rerun_task` entries with `state:"planned"` but NOTHING ever executed them. The run loop aborted on the first failed task. New `shouldRerunFailedTask()` (pure fn) drives a bounded whole-task re-queue in the run loop when `limits.maxRetriesPerTask > 0` and `retryCount < max`. Default-off (preserves behavior); bounded by `retryCount >= max` (no infinite loop). Complements #1 (autoRetry handles retryable throws within `executeWithRetry`; #4 handles terminal FAILED status re-queue).
+
+- **#3 unresponsive-worker hardening [confounded — labeled "hardened" not "fixed"]** — the 78 `ChildTimeout` occurrences are confounded by the free model (`zai/glm-5.2`, `cost=0` everywhere in sampled runs); cannot be root-caused without a paid model. Applied defensive hardening anyway: `maxCaptureBytes` 256 KB → 512 KB (critical diagnostic stderr less likely truncated during hang analysis), SIGKILL escalation on timeout (kill-tree after grace) + a safety-settle timer so a hung worker cannot hold the run forever.
+
+- **#5 stop redacting token counts in `events.jsonl`** — usage/cost fields were obscured as `"***"`, blocking token analysis off the event stream. New `TOKEN_COUNT_KEYS` exclusion in `redaction.ts` un-redacts token/cost COUNTS while keeping API-key secrets redacted. Restores observability.
+
+- **#7 intermediate-findings capture (over-budget workers)** — a worker that spends its whole budget on tool calls (13 calls) may never emit a final structured handoff → `results/<id>.txt` = one fragment line → `valid:false`. This happened to the `explore-ui` shard of THIS release's assessment. `ChildPiLineObserver` now tracks `intermediateFindings` (best assistant text seen), and `task-runner`'s result chain falls back to it when no clean `rawFinalText` is produced — the result is never a useless 1-line fragment. Does NOT regress Fix A (rawFinalText, v0.9.13): rawFinalText stays preferred; intermediateFindings is a deeper fallback.
+
+- **#10 version drift** — `BUILT_AGAINST_PI_VERSION` ("0.79.3") did not match the installed `pi-coding-agent` ("0.77.0"). Reconciled; a new test reads `node_modules` at test time and asserts the match, so drift is caught going forward.
+
+### Bug fixes — UX (bug reports)
+
+- **bug-021 notification badge** — the `🔔N` bell glyph in the crew widget header / powerbar was misread as "queued messages": users saw `🔔227` and concluded 227 pending items, when the value is a CUMULATIVE warning/error/critical count with zero actual queue behind it (verified: 0 queued agents, 0 queued tasks, 0 unread mailbox). `notificationBadge()` now renders `· N alerts` (explicit label, no bell) and caps the display at `99+` (standard badge practice). The cumulative count stays accurate internally and remains fully logged in `.crew/state/notifications/`; this bounds presentation only. Deeper fixes (decay window, owner-scope, auto-reset, full deprecation) remain open product decisions — documented in `docs/bugs/bug-021-notification-badge-counter-misleading.md`.
+
+- **bug-022 terminal-run widget row** — for terminal runs (failed/cancelled/completed), the run-progress row computed `runElapsedMs = Date.now() - run.createdAt` for EVERY run, so a failed run lingering in the F-5 grace window showed an ever-climbing counter (e.g. `2028s` and rising), read as "still running". The `✘` glyph + `0/1 agents` layout reinforced the misread. Now: the timer FREEZES at `run.updatedAt` (when the run reached terminal status) and an explicit ` · <status>` label is appended. Running runs keep the live ticker. Verified live: a completed fast-fix run renders `✓ fast-fix/fast-fix · 3/3 agents · 513s · completed` with a stable, non-climbing counter.
+
+### Tests
+
+- **#9 real-process watchdog E2E** — `background-runner-watchdog.test.ts` was logic-only (admitted in its header); the real-process kill path was only manually verified. New `background-runner-watchdog-e2e.test.ts` spawns a hung harness with `PI_CREW_MAX_RUN_MS` overridden short, asserts the process dies within the grace window, and uses the `PI_CREW_PARENT_PID=test.pid` no-leak pattern so the test never leaks a runner.
+
+- **team-tool-parallel process leak** — test case 5 passed validation and reached `spawnBackgroundTeamRun`, spawning a REAL detached background-runner on every `npm test`. Rewritten to use a non-existent agent (returns an agent-not-found error BEFORE spawn) + `PI_CREW_PARENT_PID` defense-in-depth.
+
+### Honesty discipline
+
+- **Anti-overclaim verification** — the fix-all implementation run's verifier FAILED honestly: only 2/10 were committed by the worker team, 7 incomplete. The leader (this session) then implemented #1/#2/#4 surgically, committed the uncommitted #3/#7/#9, and deferred #6/#8 with documented rationale. Pre-existing flaky `goal-loop-smoke.test.ts` was PROVEN independent (fails identically at baseline `aff3fd5`). MEASURED vs INFERRED separated throughout.
+
+### Deferred (need product input)
+
+- **#6 retained chain + research E2E** — `scripts/run-real-chain.ts` needs a REAL model run; the free model hangs (the assessment's core confound). Chain feature is statically verified (86/86 unit tests). Live E2E pending paid-model access.
+- **#8 split `register.ts`** (2194 LOC) — already a thin orchestrator calling ~30 extracted `registerXxx()` functions; split = cosmetic churn with regression risk for marginal gain. Not worth it.
+
+### Verification
+
+- `tsc --noEmit` → EXIT 0
+- `check:lazy-imports` → EXIT 0
+- `test:unit` → 5742 tests, 5739 pass, 0 fail (3 skipped), EXIT 0
+- `test:integration` → 157/157 pass excluding pre-existing-flaky `goal-loop-smoke` (proven fails identically at baseline)
+- new-fix tests → 67/67 pass (#1/#2/#4/#5/#7/#9/#10 + bug-021/022)
+- `npm pack --dry-run` → 631 files, clean
+
 ## [v0.9.13] — chain feature + raw worker output + anti-zombie hardening (2026-06-29)
 
 Context/compaction efficiency work + a live `chain` feature that wires previously-dead code, plus two root-cause zombie fixes. The unifying theme: **deliver the right context efficiently and never leave orphaned state behind.**
