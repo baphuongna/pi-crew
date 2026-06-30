@@ -44,12 +44,31 @@ test("observability API supports event cursors, agent output tail, and dashboard
 		const runId = run.details.runId!;
 
 		// On slow CI (Windows), the completed run's event log may take a moment to
-		// become fully visible to a concurrent read. Poll until the cursor reflects
-		// the expected stream (run-started at seq 1, then ≥2 more events → nextSeq ≥ 3)
-		// before asserting. Preserves the assertion's intent while tolerating CI latency.
-		let eventPayload: { events: unknown[]; nextSeq: number };
-		const pollDeadline = Date.now() + 10_000;
+		// become fully visible to a concurrent read. Poll until BOTH the manifest
+		// reports status='completed' AND the cursor reflects the expected stream
+		// (run-started at seq 1, then ≥2 more events → nextSeq ≥ 3).
+		//
+		// History:
+		//   ce0c2e4 (2026-06-22) added 10s timeout. Insufficient on the slowest
+		//     windows-latest GH Actions runners (~10x slower than Linux; observed
+		//     test duration 13.27s vs typical 1.5s on POSIX).
+		//   <this commit> bumps timeout to 30s AND gates on manifest.status so we
+		//     exit as soon as the run has truly completed, not on a wall-clock tick.
+		//     On fast runners the manifest gate fires after 1–2 polls.
+		const manifestPath = path.join(cwd, ".crew", "state", "runs", runId, "manifest.json");
+		let eventPayload: { events: unknown[]; nextSeq: number } = { events: [], nextSeq: 0 };
+		const pollDeadline = Date.now() + 30_000;
+		let cursorReady = false;
+		let manifestCompleted = false;
 		for (;;) {
+			manifestCompleted = false;
+			try {
+				const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+				if (manifest.status === "completed") manifestCompleted = true;
+			} catch {
+				// manifest not yet written — keep polling.
+			}
+
 			const events = await handleTeamTool(
 				{
 					action: "api",
@@ -59,10 +78,22 @@ test("observability API supports event cursors, agent output tail, and dashboard
 				{ cwd },
 			);
 			eventPayload = JSON.parse(firstText(events));
-			if (eventPayload.events.length === 2 && eventPayload.nextSeq >= 3) break;
+			if (eventPayload.events.length === 2 && eventPayload.nextSeq >= 3) {
+				cursorReady = true;
+				break;
+			}
+			// Once manifest is completed, give a short grace window (1s) for the
+			// terminal event to flush, then assert.
+			if (manifestCompleted && eventPayload.events.length >= 1 && Date.now() > pollDeadline - 29_000) break;
 			if (Date.now() > pollDeadline) break;
 			await new Promise((r) => setTimeout(r, 100));
 		}
+		assert.ok(
+			cursorReady,
+			`events cursor never reached nextSeq >= 3 within 30s ` +
+				`(manifest.status=${manifestCompleted ? "completed" : "pending"}, ` +
+				`last length=${eventPayload.events.length}, nextSeq=${eventPayload.nextSeq})`,
+		);
 		assert.equal(eventPayload.events.length, 2);
 		assert.ok(eventPayload.nextSeq >= 3);
 
