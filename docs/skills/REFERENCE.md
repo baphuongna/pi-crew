@@ -62,14 +62,8 @@ verification-before-done (per round)
 | Task delegation | `delegation-patterns` |
 | Complex multi-phase work | `orchestration` |
 | After bug is fixed | `post-mortem` |
-| Security review | `security-review` |
 | Workspace safety | `workspace-isolation` |
 | Bash safety | `safe-bash` |
-| Hypothesis-driven investigation | `threat-hypothesis-framework` |
-| Active threat hunting | `hunting-investigation-loop` |
-| Artifact examination | `artifact-analysis-loop` |
-| Building response procedures | `incident-playbook-construction` |
-| Designing detection pipelines | `detection-pipeline-design` |
 
 ---
 
@@ -82,17 +76,6 @@ verification-before-done (per round)
 | `systematic-debugging` | Four-phase debugging with refuse gates, falsify-first discipline |
 | `verification-before-done` | Evidence before claims |
 | `orchestration` | Multi-phase coordination, 8 rules including "respawn not absorb" |
-
-### Security
-
-| Skill | Description |
-|-------|-------------|
-| `security-review` | Security review with audit and detection authoring |
-| `threat-hypothesis-framework` | Hypothesis-driven investigation |
-| `hunting-investigation-loop` | Active threat hunting with validation |
-| `artifact-analysis-loop` | Artifact analysis with IOC extraction |
-| `incident-playbook-construction` | Playbook building with steps, decisions, SLAs |
-| `detection-pipeline-design` | Data pipeline design for security monitoring |
 
 ### Documentation
 

@@ -28,7 +28,7 @@ description: Chief Security Officer who finds OWASP Top 10 threats
 tools: read, bash, edit
 model: claude-sonnet-4-20250514
 effort: high
-skills: safe-bash, security-review
+skills: safe-bash
 maxTurns: 30
 contextMode: fresh
 ---
