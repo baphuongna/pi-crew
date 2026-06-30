@@ -6,7 +6,7 @@ import { loadConfig } from "../config/config.ts";
 import { errors } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEventAsync, appendEventBuffered, appendEventFireAndForget } from "../state/event-log.ts";
 import { saveRunManifest } from "../state/state-store.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import type {
@@ -388,9 +388,11 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				});
 				if (decision.shouldAppend) {
 					// 2.2 caller migration: high-frequency task.progress goes through
-					// the buffered path; loss-on-kill is acceptable because progress
+					// the buffered path (M7 wire); loss-on-kill is acceptable because progress
 					// is informational and re-derivable from per-agent records.
-					appendEventFireAndForget(manifest.eventsPath, {
+					// appendEventBuffered coalesces into a single lock acquire after bufferMs,
+					// reducing producer p95 from ~13µs (serial) to ~0µs (bench M7).
+					void appendEventBuffered(manifest.eventsPath, {
 						type: "task.progress",
 						runId: manifest.runId,
 						taskId: task.id,

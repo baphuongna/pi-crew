@@ -8,7 +8,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent, appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
 import { loadRunManifestById, saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
@@ -673,6 +673,11 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			);
 		}
 
+		// M7: flush buffered task.progress events so the final state is durable
+		// before the run returns. Buffered producer wins on latency (p95≈0µs);
+		// this single flush at run-end coalesces any pending progress bursts
+		// before manifest updates are observed by readers.
+		await flushEventLogBuffer();
 		return result;
 	} catch (error) {
 		// Round 27 (BUG 1): the success path calls stopTeamHeartbeat() but this
@@ -738,6 +743,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			data: { status: manifest.status, error: message },
 		});
 		cleanupUsage();
+		// M7: flush buffered events before returning on the error path so the
+		// final buffered progress events are durable alongside the failure state.
+		await flushEventLogBuffer();
 		return result;
 	}
 }
@@ -998,8 +1006,8 @@ async function executeTeamRunCore(
 			return { manifest, tasks };
 		}
 
-		// 2.2 caller migration: batch progress is high-frequency informational.
-		appendEventFireAndForget(manifest.eventsPath, {
+		// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
+		void appendEventBuffered(manifest.eventsPath, {
 			type: "task.progress",
 			runId: manifest.runId,
 			message: `Starting ready batch with ${readyBatch.length} task(s).`,
