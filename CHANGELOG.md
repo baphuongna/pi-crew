@@ -1,25 +1,33 @@
 # Changelog
 
-## [Unreleased] — bundle opt-in via PI_CREW_USE_BUNDLE
+## [Unreleased] — bundle as default entry
 
-The bundled entrypoint (`dist/index.mjs`, 2.9MB single file) is now opt-in via the `PI_CREW_USE_BUNDLE=1` env var. By default, pi-crew continues to load via inline strip-types from `src/`.
+The bundled entrypoint (`dist/index.mjs`, 2.9MB single file) is now the **default** load path. Strip-types loading remains as a fallback when `dist/` is missing (e.g. dev clone without `npm run build:bundle`) or when `PI_CREW_USE_BUNDLE=0` is set explicitly.
 
-### Why opt-in, not default
+### Why default (vs opt-in)
 
 Benchmarked with `scripts/bench-cold-start.mjs` (20 iters, fresh node processes each, **after the atomic-write fsync fix in `13f4490`**):
 
 | Metric | Strip-types (p50) | Bundle (p50) | Delta |
 |---|---|---|---|
-| Total cold-start | 3256.0ms | 2639.1ms | **−18.9%** (bundle faster) |
-| Import (`await import`) | 2967.1ms | 2393.8ms | **−19.3%** |
-| Register (`registerPiTeams(mockPi)`) | 238.7ms | 233.8ms | **−2.0%** (bundle slightly faster) |
+| Total cold-start | 2509.4ms | 1716.6ms | **−31.6%** (bundle faster) |
+| Import (`await import`) | 2322.1ms | 1543.1ms | **−33.5%** |
+| Register (`registerPiTeams(mockPi)`) | 204.2ms | 157.8ms | **−22.7%** (bundle faster) |
 
-Initial bench (before fsync) showed a modest 4.9% speedup; the fsync fix made the strip-types path more expensive relative to bundle (every per-file atomic write now pays fsync cost). Bundle's single-file parse + fewer atomic-write calls during import means it now wins by ~19% on cold-start. Both paths are still opt-in safe: env var defaults to strip-types; users who want the speedup can set `PI_CREW_USE_BUNDLE=1` after building.
+After fsync, bundle is ~32% faster total cold-start. Bundle-flip risk is now bounded by a comprehensive safety net: `check-bundle-staleness` (CI gate, fails if src/ is newer than dist/), `check-conflict-markers` (CI gate, blocks bad merges), graceful fallback (silent if env unset, loud warning if PI_CREW_USE_BUNDLE=1 and bundle missing), and a separate bundle entry (`index.bundle.ts`) to avoid chicken-and-egg recursion. The cost (postinstall + ~9MB npm package) is paid automatically and silently for users who install via npm.
+
+### Env var semantics
+
+- unset / empty → use bundle if present, else strip-types
+- `PI_CREW_USE_BUNDLE=0` / `false` / `no` / `off` → force strip-types, ignore bundle
+- `PI_CREW_USE_BUNDLE=1` / `true` / `yes` / `on` → force bundle (same as unset when bundle is present; loud warning if bundle is missing)
 
 ### Changed
 
-- `index.ts` — entrypoint now gates on `PI_CREW_USE_BUNDLE` env var. Default: strip-types. When opted in and `dist/index.mjs` is missing, logs a one-time warning and falls back to strip-types (slow beats broken).
-- `package.json` — `postinstall` script retained (`build:bundle || warn`) for users who want the bundle built automatically. `files` includes `dist/` so opt-in users get a working bundle after `npm install`.
+- `index.ts` — entrypoint now defaults to bundle, with strip-types as fallback when bundle is missing OR `PI_CREW_USE_BUNDLE=0`. Replaces the previous opt-in model (`ae01851`).
+- `index.bundle.ts` (new) — minimal bundle entry. Bundled by `scripts/build-bundle.mjs` into `dist/index.mjs`. Separate from `index.ts` to avoid chicken-and-egg recursion (the bundle's `import.meta.url` is inside `dist/`, so building from `index.ts` would resolve `dist/index.mjs` relative to itself and try to load `dist/dist/index.mjs`).
+- `scripts/build-bundle.mjs` — now bundles from `index.bundle.ts` (not `index.ts`).
+- `package.json` — `postinstall` script retained (`build:bundle || warn`) so users get a working bundle out of the box. `files` includes `dist/` so opt-in/opt-out users get a working bundle after `npm install`.
 - `scripts/check-bundle-staleness.mjs` (new) — CI gate that fails the build if any `src/*.ts` is newer than `dist/index.mjs`. Wired into `npm run ci`. No-op when `dist/` is absent.
 - `scripts/check-conflict-markers.mjs` (new) — CI gate that scans tracked source for unresolved git merge markers (`<<<<<<<`, `=======`, `>>>>>>>`, `|||||||`). Excludes `test/unit/conflict-detect.test.ts` (intentional fixtures). Prevents recurrence of CI #28498831579 where unresolved stash/pop markers reached the bundle.
 - `src/state/atomic-write.ts` — `atomicWriteFile` now calls `fs.fsyncSync(fd)` before close, and `fs.fsyncSync(dirFd)` on the parent directory after rename (Linux only). Fixes CI #28498831579 mailbox-replay flake on Ubuntu (page cache eviction under I/O pressure could cause read-after-write to see stale content).

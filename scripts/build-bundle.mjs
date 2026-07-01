@@ -30,7 +30,13 @@ fs.mkdirSync(distDir, { recursive: true });
 
 const start = Date.now();
 const result = await build({
-	entryPoints: [path.join(root, "index.ts")],
+	// Bundle entry must be the bare extension (index.bundle.ts) NOT the
+	// entry shell (index.ts). If we bundled index.ts, the bundled code
+	// would re-resolve dist/index.mjs relative to ITS OWN location
+	// (file:///.../dist/index.mjs), producing dist/dist/index.mjs and a
+	// recursion error. index.bundle.ts has no shell logic so this is
+	// a clean single-file bundle. See index.bundle.ts header for details.
+	entryPoints: [path.join(root, "index.bundle.ts")],
 	bundle: true,
 	format: "esm",
 	platform: "node",
