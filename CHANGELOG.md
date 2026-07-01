@@ -6,23 +6,26 @@ The bundled entrypoint (`dist/index.mjs`, 2.9MB single file) is now opt-in via t
 
 ### Why opt-in, not default
 
-Benchmarked with `scripts/bench-cold-start.mjs` (20 iters, fresh node processes each):
+Benchmarked with `scripts/bench-cold-start.mjs` (20 iters, fresh node processes each, **after the atomic-write fsync fix in `13f4490`**):
 
 | Metric | Strip-types (p50) | Bundle (p50) | Delta |
 |---|---|---|---|
-| Total cold-start | 3238.7ms | 3079.7ms | **−4.9%** (bundle faster) |
-| Import (`await import`) | 2906.0ms | 2740.2ms | **−5.7%** |
-| Register (`registerPiTeams(mockPi)`) | 261.1ms | 283.8ms | **+8.7%** (bundle slower) |
+| Total cold-start | 3256.0ms | 2639.1ms | **−18.9%** (bundle faster) |
+| Import (`await import`) | 2967.1ms | 2393.8ms | **−19.3%** |
+| Register (`registerPiTeams(mockPi)`) | 238.7ms | 233.8ms | **−2.0%** (bundle slightly faster) |
 
-Modest 5% total speedup is offset by +9% register overhead and +9MB npm package size. Opt-in lets users opt into the speedup if they want it; everyone else keeps the simpler strip-types default.
+Initial bench (before fsync) showed a modest 4.9% speedup; the fsync fix made the strip-types path more expensive relative to bundle (every per-file atomic write now pays fsync cost). Bundle's single-file parse + fewer atomic-write calls during import means it now wins by ~19% on cold-start. Both paths are still opt-in safe: env var defaults to strip-types; users who want the speedup can set `PI_CREW_USE_BUNDLE=1` after building.
 
 ### Changed
 
 - `index.ts` — entrypoint now gates on `PI_CREW_USE_BUNDLE` env var. Default: strip-types. When opted in and `dist/index.mjs` is missing, logs a one-time warning and falls back to strip-types (slow beats broken).
 - `package.json` — `postinstall` script retained (`build:bundle || warn`) for users who want the bundle built automatically. `files` includes `dist/` so opt-in users get a working bundle after `npm install`.
 - `scripts/check-bundle-staleness.mjs` (new) — CI gate that fails the build if any `src/*.ts` is newer than `dist/index.mjs`. Wired into `npm run ci`. No-op when `dist/` is absent.
+- `scripts/check-conflict-markers.mjs` (new) — CI gate that scans tracked source for unresolved git merge markers (`<<<<<<<`, `=======`, `>>>>>>>`, `|||||||`). Excludes `test/unit/conflict-detect.test.ts` (intentional fixtures). Prevents recurrence of CI #28498831579 where unresolved stash/pop markers reached the bundle.
+- `src/state/atomic-write.ts` — `atomicWriteFile` now calls `fs.fsyncSync(fd)` before close, and `fs.fsyncSync(dirFd)` on the parent directory after rename (Linux only). Fixes CI #28498831579 mailbox-replay flake on Ubuntu (page cache eviction under I/O pressure could cause read-after-write to see stale content).
 - `src/utils/paths.ts` — `packageRoot()` now uses a heuristic walk to find the directory containing pi-crew's `package.json`. The original 2-level walk only worked for src/ paths; called from the bundle (1-level deep) it resolved to the wrong directory and broke team discovery.
 - `scripts/bench-cold-start.mjs` (new) — reproducible cold-start benchmark. Run with `node scripts/bench-cold-start.mjs --iters 20`.
+- `scripts/test-runner.mjs` — test step timeout bumped 600s → 900s to give Windows headroom for the fsync overhead (cost: ~5-10ms per atomic write across 5800+ tests).
 
 ## [v0.9.16] — cancel wipes the trace (2026-06-29)
 
