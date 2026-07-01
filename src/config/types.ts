@@ -28,6 +28,11 @@ export interface CrewLimitsConfig {
 	maxRetriesPerTask?: number;
 	maxTasksPerRun?: number;
 	heartbeatStaleMs?: number;
+	/** Round 25 (M5): serialize on write-path overlap. Default false (off).
+	 *  When true, the scheduler skips ready tasks whose declared `step.output`
+	 *  overlaps with already-picked tasks, so two workers never write the same
+	 *  file in parallel. See src/runtime/path-overlap.ts. */
+	serializeOnPathOverlap?: boolean;
 }
 
 export type CrewRuntimeMode = "auto" | "scaffold" | "child-process" | "live-session";

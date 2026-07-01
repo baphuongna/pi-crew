@@ -40,6 +40,7 @@ import { recordsForMaterializedTasks } from "./task-display.ts";
 import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./task-graph.ts";
 import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
+import { filterReadyByWriteOverlap } from "./path-overlap.ts";
 import { runTeamTask } from "./task-runner.ts";
 import { clearTrackedTaskUsage } from "./usage-tracker.ts";
 import {
@@ -916,7 +917,7 @@ async function executeTeamRunCore(
 		// existing task-graph-scheduler when no explicit deps exist (backward compat).
 		const completedIds = new Set(tasks.filter((t) => t.status === "completed" || t.status === "needs_attention").map((t) => t.id));
 		const dagReady = dagReadyTaskIds(tasks, completedIds);
-		const effectiveReady = dagReady ?? snapshot.ready;
+		const readyBeforeFilter = dagReady ?? snapshot.ready;
 
 		// Workflow phase precondition check (non-blocking: log warnings only).
 		if (wfMachine.currentPhaseIndex < wfMachine.phases.length) {
@@ -960,7 +961,7 @@ async function executeTeamRunCore(
 			}
 		}
 
-		const readyRoles = effectiveReady
+		const readyRoles = readyBeforeFilter
 			.map((taskId) => tasks.find((task) => task.id === taskId)?.role)
 			.filter((role): role is string => Boolean(role));
 		const concurrency = resolveBatchConcurrency({
@@ -969,10 +970,24 @@ async function executeTeamRunCore(
 			teamMaxConcurrency: input.team.maxConcurrency,
 			limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers,
 			allowUnboundedConcurrency: input.limits?.allowUnboundedConcurrency,
-			readyCount: effectiveReady.length,
+			readyCount: readyBeforeFilter.length,
 			workspaceMode: manifest.workspaceMode,
 			readyRoles,
 		});
+
+		// Round 25 (M5): serialize on write-path overlap when opted in.
+		// Opt-in via limits.serializeOnPathOverlap; default off (= no behavior change).
+		// filterReadyByWriteOverlap returns the same array when enabled=false, so
+		// production runs pay nothing for the unused code path. When the flag is on,
+		// `serializedReady` MAY be a strict subset of `readyBeforeFilter` (conflicting tasks
+		// deferred to next cycle).
+		const serializedReady = filterReadyByWriteOverlap(
+			readyBeforeFilter,
+			tasks,
+			workflow,
+			concurrency.maxConcurrent,
+			input.limits?.serializeOnPathOverlap === true,
+		);
 		if (concurrency.reason.includes(";unbounded:")) {
 			await appendEventAsync(manifest.eventsPath, {
 				type: "limits.unbounded",
@@ -985,7 +1000,7 @@ async function executeTeamRunCore(
 			});
 		}
 		const approvalPending = isPlanApprovalPending(manifest);
-		const readyIds = approvalPending ? effectiveReady : effectiveReady.slice(0, concurrency.selectedCount);
+		const readyIds = approvalPending ? serializedReady : serializedReady.slice(0, concurrency.selectedCount);
 		const candidateBatch = readyIds
 			.map((id) => tasks.find((task) => task.id === id))
 			.filter((task): task is TeamTaskState => Boolean(task));
