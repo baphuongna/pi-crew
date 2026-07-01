@@ -19,7 +19,8 @@ import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
-import { planCoalescedGroups } from "./coalesce-tasks.ts";
+import { planCoalescedGroups, buildDispatchUnits } from "./coalesce-tasks.ts";
+import { runCoalescedTaskGroup } from "./run-coalesced-task-group.ts";
 import { resolveBatchConcurrency } from "./concurrency.ts";
 import { readCrewAgents, saveCrewAgents } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
@@ -1099,7 +1100,52 @@ async function executeTeamRunCore(
 				},
 			});
 		}
-		const results = await mapConcurrent(batchTasks, concurrency.selectedCount, async (task) => {
+
+		// M6 real dispatch: when coalesceMicroTasks is enabled, batch the
+		// ready tasks into dispatch units. Multi-task groups are dispatched
+		// as one worker (single cold-start) instead of N. Singletons fall
+		// through to per-task dispatch.
+		const coalescedGroups = planCoalescedGroups(
+			batchTasks.map((t) => t.id),
+			tasks,
+			workflow,
+			coalesceEnabled,
+		);
+		const dispatchUnits = buildDispatchUnits(
+			batchTasks.map((t) => t.id),
+			coalescedGroups,
+		);
+
+		const results = await mapConcurrent(dispatchUnits, concurrency.selectedCount, async (unit) => {
+			// M6 real dispatch path: single worker for N tasks.
+			if (unit.kind === "group") {
+				const groupTasks = unit.group.tasks;
+				const firstTask = groupTasks[0]!;
+				const step = findStep(workflow, firstTask);
+				const agent = findAgent(input.agents, firstTask);
+				const teamRole = input.team.roles.find((role) => role.name === firstTask.role);
+				const perTaskRuntime = resolveTaskRuntimeKind(
+					runtimeKind,
+					firstTask.role,
+					input.runtimeConfig?.isolationPolicy,
+				);
+				return runCoalescedTaskGroup({
+					manifest,
+					tasks,
+					groupTasks,
+					step,
+					agent,
+					signal: input.signal,
+					executeWorkers: input.executeWorkers,
+					runtimeKind,
+					workspaceId: input.workspaceId,
+					onJsonEvent: input.onJsonEvent,
+					teamRole,
+					perTaskRuntime,
+				});
+			}
+			// Singleton path: original per-task dispatch.
+			const task = batchTasks.find((t) => t.id === unit.taskId)!;
 			const step = findStep(workflow, task);
 			const agent = findAgent(input.agents, task);
 			const teamRole = input.team.roles.find((role) => role.name === task.role);

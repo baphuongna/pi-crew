@@ -16,13 +16,23 @@
  *   - When the flag is off or the list is empty, returns the input list
  *     unchanged (no-op for production; zero overhead).
  *
- * Note: this module produces *group specifications* (arrays of tasks per
- * group). The actual worker prompt construction is left to the caller
- * (team-runner) — out of scope for v0.9.17 first ship.
+ * Real-dispatch (v0.9.17+ follow-up, see m6-real-dispatch-design.md):
+ *   - MVP only coalesces READ_ONLY roles (permissionForRole === "read_only").
+ *     This eliminates write-path conflicts, worktree concerns, and mutation
+ *     guards. Use case: parallel-research with 4 explorers → 1 worker.
+ *   - MVP rejects coalescing when any step has: worktree: true, preStepScript,
+ *     verify: true, or non-false output. These are per-step concerns that
+ *     don't compose in a single multi-task worker.
+ *   - maxGroupSize cap (default 5) prevents context-budget overflow when
+ *     grouping many micro-tasks into one worker prompt.
  */
 
+import { permissionForRole } from "./role-permission.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
+
+/** Default cap on group size to prevent context-budget overflow. */
+export const DEFAULT_MAX_GROUP_SIZE = 5;
 
 export interface CoalescedGroup {
 	/** Stable id derived from the group membership; deterministic for tests. */
@@ -51,6 +61,7 @@ export function planCoalescedGroups(
 	tasks: TeamTaskState[],
 	workflow: WorkflowConfig,
 	enabled: boolean,
+	maxGroupSize: number = DEFAULT_MAX_GROUP_SIZE,
 ): CoalescedGroup[] {
 	if (!enabled || readyTaskIds.length === 0) return [];
 	const taskById = new Map<string, TeamTaskState>(tasks.map((task) => [task.id, task]));
@@ -63,6 +74,20 @@ export function planCoalescedGroups(
 		if (!task || !task.stepId) continue;
 		const step = stepById.get(task.stepId);
 		if (!step) continue;
+
+		// MVP constraint (real-dispatch safety): only coalesce READ_ONLY roles.
+		// Writing roles (executor, writer, implementer) require per-step hooks
+		// (worktree, preStepScript, verify) that don't compose in one worker.
+		if (permissionForRole(task.role) !== "read_only") continue;
+
+		// MVP constraint: reject if step has any per-step concern that
+		// doesn't compose in a multi-task worker. These flags set up side
+		// effects per-task that can't be combined.
+		if (step.worktree) continue;
+		if (step.preStepScript) continue;
+		if (step.verify) continue;
+		if (step.output !== undefined && step.output !== false && step.output !== "") continue;
+
 		const key = `${task.role}\0${task.cwd}`;
 		const list = buckets.get(key);
 		if (list) list.push(task);
@@ -70,18 +95,35 @@ export function planCoalescedGroups(
 	}
 
 	// Within each bucket, split further by write-path safety (groups of tasks
-	// that all have distinct write outputs).
+	// that all have distinct write outputs) AND cap at maxGroupSize.
 	const groups: CoalescedGroup[] = [];
 	for (const [key, bucketTasks] of buckets) {
 		const [role, cwd] = key.split("\0");
 		const subgroups = splitByWriteSafety(bucketTasks, stepById);
 		for (const subgroup of subgroups) {
-			groups.push({
-				id: subgroup.map((task) => task.id).join("+"),
-				role,
-				cwd,
-				tasks: subgroup,
-			});
+			// Split oversized buckets into maxGroupSize chunks.
+			for (let i = 0; i < subgroup.length; i += maxGroupSize) {
+				const slice = subgroup.slice(i, i + maxGroupSize);
+				if (slice.length < 2) {
+					// Singletons don't justify coalescing overhead. Emit as a
+					// group of size 1 anyway so callers can iterate uniformly;
+					// the team-runner dispatch loop checks `tasks.length < 2`
+					// and falls back to per-task dispatch for singletons.
+					groups.push({
+						id: slice[0]!.id,
+						role,
+						cwd,
+						tasks: slice,
+					});
+				} else {
+					groups.push({
+						id: slice.map((task) => task.id).join("+"),
+						role,
+						cwd,
+						tasks: slice,
+					});
+				}
+			}
 		}
 	}
 	return groups;
@@ -129,4 +171,65 @@ function splitByWriteSafety(bucketTasks: TeamTaskState[], stepById: Map<string, 
  */
 export function flattenGroupIds(groups: CoalescedGroup[]): string[] {
 	return groups.flatMap((group) => group.tasks.map((task) => task.id));
+}
+
+/**
+ * Find the coalesced group that contains the given task ID.
+ * Returns undefined if the task is not in any group (e.g., it was excluded
+ * by MVP constraints or wasn't part of the coalesced set).
+ *
+ * Used by the team-runner dispatch loop to look up a task's group metadata
+ * (role, cwd, group ID, sibling task IDs) when iterating the flat ready
+ * list and discovering which tasks should be batched together.
+ */
+export function findGroupContainingTask(
+	groups: CoalescedGroup[],
+	taskId: string,
+): CoalescedGroup | undefined {
+	for (const group of groups) {
+		if (group.tasks.some((task) => task.id === taskId)) return group;
+	}
+	return undefined;
+}
+
+/**
+ * Expand a list of task IDs into a list of dispatch units, where each unit
+ * is either a single task (for singletons / non-coalescable tasks) or a
+ * CoalescedGroup (for multi-task batches). The returned units can be fed
+ * directly into mapConcurrent.
+ *
+ * Tasks not present in any coalesced group are returned as singleton units.
+ */
+export type DispatchUnit =
+	| { kind: "singleton"; taskId: string }
+	| { kind: "group"; group: CoalescedGroup };
+
+export function buildDispatchUnits(
+	readyTaskIds: string[],
+	coalescedGroups: CoalescedGroup[],
+): DispatchUnit[] {
+	const groupByTaskId = new Map<string, CoalescedGroup>();
+	for (const group of coalescedGroups) {
+		if (group.tasks.length < 2) continue; // singletons handled separately
+		for (const task of group.tasks) {
+			groupByTaskId.set(task.id, group);
+		}
+	}
+	const visited = new Set<string>();
+	const units: DispatchUnit[] = [];
+	// First pass: emit groups (one unit per group, in input order)
+	for (const taskId of readyTaskIds) {
+		const group = groupByTaskId.get(taskId);
+		if (!group) continue;
+		if (visited.has(group.id)) continue;
+		visited.add(group.id);
+		for (const t of group.tasks) visited.add(t.id);
+		units.push({ kind: "group", group });
+	}
+	// Second pass: emit singletons (and tasks whose group is size 1)
+	for (const taskId of readyTaskIds) {
+		if (visited.has(taskId)) continue;
+		units.push({ kind: "singleton", taskId });
+	}
+	return units;
 }

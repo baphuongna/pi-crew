@@ -57,8 +57,11 @@ test("coalesce: tasks with same role + cwd group together", () => {
 });
 
 test("coalesce: different roles stay in separate groups", () => {
-	const tasks = [makeTask("a", "explorer", "/cwd", "step-a"), makeTask("b", "executor", "/cwd", "step-b")];
-	const workflow = makeWorkflow([makeStep("step-a", "explorer", "explore"), makeStep("step-b", "executor", "execute")]);
+	// MVP (M6 real-dispatch): only READ_ONLY roles are coalescable. executor
+	// (write role) is filtered out by planCoalescedGroups. To verify
+	// "different roles" still separate groups, use two read-only roles.
+	const tasks = [makeTask("a", "explorer", "/cwd", "step-a"), makeTask("b", "reviewer", "/cwd", "step-b")];
+	const workflow = makeWorkflow([makeStep("step-a", "explorer", "explore"), makeStep("step-b", "reviewer", "review")]);
 	const groups = planCoalescedGroups(["a", "b"], tasks, workflow, true);
 	assert.equal(groups.length, 2);
 	const ids = groups.flatMap((g) => g.tasks.map((t) => t.id));
@@ -73,18 +76,19 @@ test("coalesce: different cwds stay in separate groups", () => {
 });
 
 test("coalesce: same role + cwd but write-path conflict splits groups", () => {
-	const tasks = [makeTask("a", "writer", "/cwd", "step-a"), makeTask("b", "writer", "/cwd", "step-b")];
+	// MVP (M6 real-dispatch): any step with explicit output (not false) is
+	// filtered out as a safety guard (write-path side effects don't compose
+	// in a single multi-task worker). So this test verifies that 2 tasks
+	// with explicit output paths return 0 coalescable groups — they fall
+	// through to per-task dispatch.
+	const tasks = [makeTask("a", "reviewer", "/cwd", "step-a"), makeTask("b", "reviewer", "/cwd", "step-b")];
 	const workflow = makeWorkflow([
-		makeStep("step-a", "writer", "write A", "out.md"),
-		makeStep("step-b", "writer", "write B", "out.md"), // same output as a → conflict
+		makeStep("step-a", "reviewer", "review A", "out.md"),
+		makeStep("step-b", "reviewer", "review B", "out.md"), // same output as a → conflict
 	]);
 	const groups = planCoalescedGroups(["a", "b"], tasks, workflow, true);
-	// Should split into 2 singletons
-	assert.equal(groups.length, 2);
-	assert.deepEqual(
-		groups.map((g) => g.tasks.map((t) => t.id).sort()),
-		[["a"], ["b"]],
-	);
+	// MVP filters out steps with explicit output paths entirely.
+	assert.equal(groups.length, 0);
 });
 
 test("coalesce: read-only tasks (no output) coalesce freely", () => {
