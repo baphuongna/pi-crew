@@ -48,9 +48,7 @@ export interface CoalescedTaskGroupResult {
 	success: boolean;
 }
 
-export async function runCoalescedTaskGroup(
-	input: CoalescedTaskGroupInput,
-): Promise<CoalescedTaskGroupResult> {
+export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Promise<CoalescedTaskGroupResult> {
 	const { manifest, groupTasks, step, agent, signal, executeWorkers } = input;
 	const groupId = groupTasks.map((t) => t.id).join("+");
 	const firstTask = groupTasks[0]!;
@@ -106,10 +104,7 @@ export async function runCoalescedTaskGroup(
 				if (!taskIds.includes(t.id)) return t;
 				return {
 					...t,
-					heartbeat: touchWorkerHeartbeat(
-						t.heartbeat ?? createWorkerHeartbeat(t.id),
-						{ alive: true },
-					),
+					heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
 				};
 			});
 			try {
@@ -200,9 +195,10 @@ async function buildCoalescedPrompt(
 ): Promise<string> {
 	const tree = await buildWorkspaceTree(groupTasks[0]!.cwd);
 	const treeBlock = tree.rendered ? `# Workspace Structure\n${tree.rendered}` : "";
-	const roleInstructions = permissionForRole(groupTasks[0]!.role) === "read_only"
-		? `You are running in READ-ONLY mode. Do not create, modify, delete, or move files. Emit your findings as TEXT in your final output.`
-		: "";
+	const roleInstructions =
+		permissionForRole(groupTasks[0]!.role) === "read_only"
+			? `You are running in READ-ONLY mode. Do not create, modify, delete, or move files. Emit your findings as TEXT in your final output.`
+			: "";
 
 	const taskBlocks = groupTasks
 		.map((task, idx) => {
@@ -215,9 +211,7 @@ async function buildCoalescedPrompt(
 		})
 		.join("\n\n---\n\n");
 
-	const outputInstructions = groupTasks
-		.map((task) => `<<<TASK_RESULT:${task.id}>>>`)
-		.join(" ... ");
+	const outputInstructions = groupTasks.map((task) => `<<<TASK_RESULT:${task.id}>>>`).join(" ... ");
 
 	return [
 		"# pi-crew Coalesced Worker Prompt",
@@ -247,11 +241,16 @@ async function buildCoalescedPrompt(
 		`<<<END_TASK_RESULT>>>`,
 		``,
 		`If delimiters don't fit your workflow, use \`### Task N of M\` headings and we'll parse those instead.`,
-	].filter(Boolean).join("\n");
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 function buildScaffoldOutput(groupTasks: TeamTaskState[]): string {
 	return groupTasks
-		.map((task, idx) => `<<<TASK_RESULT:${task.id}>>>\nScaffold result for task ${idx + 1} of ${groupTasks.length}: ${task.id}\n<<<END_TASK_RESULT>>>`)
+		.map(
+			(task, idx) =>
+				`<<<TASK_RESULT:${task.id}>>>\nScaffold result for task ${idx + 1} of ${groupTasks.length}: ${task.id}\n<<<END_TASK_RESULT>>>`,
+		)
 		.join("\n\n");
 }

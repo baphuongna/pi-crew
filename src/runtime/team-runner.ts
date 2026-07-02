@@ -1125,11 +1125,7 @@ async function executeTeamRunCore(
 				const step = findStep(workflow, firstTask);
 				const agent = findAgent(input.agents, firstTask);
 				const teamRole = input.team.roles.find((role) => role.name === firstTask.role);
-				const perTaskRuntime = resolveTaskRuntimeKind(
-					runtimeKind,
-					firstTask.role,
-					input.runtimeConfig?.isolationPolicy,
-				);
+				const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, firstTask.role, input.runtimeConfig?.isolationPolicy);
 				return runCoalescedTaskGroup({
 					manifest,
 					tasks,

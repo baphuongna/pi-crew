@@ -223,10 +223,7 @@ export function flattenGroupIds(groups: CoalescedGroup[]): string[] {
  * (role, cwd, group ID, sibling task IDs) when iterating the flat ready
  * list and discovering which tasks should be batched together.
  */
-export function findGroupContainingTask(
-	groups: CoalescedGroup[],
-	taskId: string,
-): CoalescedGroup | undefined {
+export function findGroupContainingTask(groups: CoalescedGroup[], taskId: string): CoalescedGroup | undefined {
 	for (const group of groups) {
 		if (group.tasks.some((task) => task.id === taskId)) return group;
 	}
@@ -241,14 +238,9 @@ export function findGroupContainingTask(
  *
  * Tasks not present in any coalesced group are returned as singleton units.
  */
-export type DispatchUnit =
-	| { kind: "singleton"; taskId: string }
-	| { kind: "group"; group: CoalescedGroup };
+export type DispatchUnit = { kind: "singleton"; taskId: string } | { kind: "group"; group: CoalescedGroup };
 
-export function buildDispatchUnits(
-	readyTaskIds: string[],
-	coalescedGroups: CoalescedGroup[],
-): DispatchUnit[] {
+export function buildDispatchUnits(readyTaskIds: string[], coalescedGroups: CoalescedGroup[]): DispatchUnit[] {
 	const groupByTaskId = new Map<string, CoalescedGroup>();
 	for (const group of coalescedGroups) {
 		if (group.tasks.length < 2) continue; // singletons handled separately

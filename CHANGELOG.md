@@ -1,5 +1,51 @@
 # Changelog
 
+## [v0.9.17] — coalesced micro-tasks (M6) ships + closeout race fix (2026-07-02)
+
+Two end-to-end correctness fixes for the M6 real-dispatch path + one workload-sizing refinement, plus a startup-latency fix discovered during user testing.
+
+### Highlights
+
+- **M6 coalesced micro-tasks (real dispatch, MVP)**: 3-task smoke (`test-coalesce-static`) now produces real output files, populates `task.resultArtifact`, and writes heartbeats for all N group tasks so the background watcher doesn't emit false-positive `heartbeat_dead` alarms.
+- **Closeout `run.lock` race fixed**: `executeTeamRun`'s catch path no longer re-acquires the run lock. The previous behavior caused `run.completed` to fire, then `run.failed` ~500ms later with `Run 'run.lock' is locked by another operation`. Symptom: spurious failed runs.
+- **PI-CREW bundle path bug fixed (user-reported)**: `PROMPT_RUNTIME_EXTENSION_PATH` was computed via `import.meta.url-relative` resolution. In source it landed correctly at `<pi-crew>/src/prompt/prompt-runtime.ts`, but in the bundle esbuild's `__esm` helper does NOT preserve per-module `import.meta.url` — every module's `import.meta.url` resolves to the bundle's URL, so `dirname + "../"` landed at `<pi-crew>/` (missing `src/`). Replaced with `path.join(packageRoot(), 'src', 'prompt', 'prompt-runtime.ts')`. `packageRoot()` heuristically walks up to find pi-crew's `package.json` and works from both `src/` and `dist/` entries.
+- **Adaptive group sizing** (M6 deferred #4): `planCoalescedGroups` now also caps by combined estimated prompt bytes (default 100KB heuristic) on top of the existing count cap. Prevents context-budget overflow on workflows with very long per-task instructions.
+
+### Behavior changes
+
+- **`coalesceMicroTasks` workflow frontmatter flag** (opt-in, default off) — now parsed and honored. See `.crew/workflows/test-coalesce-static.workflow.md` for usage.
+- M6 dispatch now writes `task.resultArtifact` for all group tasks (single-task path was already doing this).
+- M6 dispatch now writes heartbeats for all group tasks (15s interval while worker is in flight; cleared on completion). Heartbeat alert coercion — first-time-only emission per `(run, task)` — preserved.
+- Catch path uses in-memory state instead of `withRunLock`-reloaded disk state. Trade-off documented: final-state inconsistency on partial closeout is preferable to spurious "run.lock locked" failures.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| TSC | ✅ |
+| Lint | ✅ |
+| format:check | ✅ |
+| check:conflict-markers | ✅ |
+| check:lazy-imports | ✅ |
+| check:bundle-staleness | ✅ |
+| Unit tests (npm test) | ✅ 30+ suites, all green on CI (Ubuntu/macOS/Windows) |
+| Live E2E (test-coalesce-static) | ✅ 3/3 tasks with real output files + heartbeats on disk |
+
+### Changed
+
+- `src/runtime/pi-args.ts` — `PROMPT_RUNTIME_EXTENSION_PATH` uses `packageRoot()` heuristic instead of `import.meta.url-relative` path.
+- `src/runtime/coalesce-tasks.ts` — `planCoalescedGroups` adds `maxGroupBytes` cap; greedy byte-budget chunking alongside the existing count cap.
+- `src/runtime/run-coalesced-task-group.ts` — writes heartbeats for all N group tasks at dispatch and on a 15s interval while the worker is in flight (fixes false-positive `heartbeat_dead`).
+- `src/runtime/team-runner.ts` — catch path no longer acquires `withRunLock`; uses in-memory state directly. Eliminates `run.lock` race against the closeout path.
+- `src/workflow/...` — `coalesceMicroTasks` frontmatter field parsed from workflow YAMLs.
+- `dist/index.mjs` — rebuilt; +1KB net (expanded lock-acquisition rationale comment + heartbeat init).
+
+### Migration notes
+
+- Workflow authors can now opt into micro-task coalescing via `coalesceMicroTasks: true` in workflow frontmatter. Default `false` — no behavior change for existing workflows.
+- No public-API breaking changes. No new required configuration.
+- Users on the strip-types fallback (`PI_CREW_USE_BUNDLE=0`) should rebuild the bundle once after upgrade if they want the fix: `npm run build:bundle`.
+
 ## [Unreleased] — bundle as default entry
 
 The bundled entrypoint (`dist/index.mjs`, 2.9MB single file) is now the **default** load path. Strip-types loading remains as a fallback when `dist/` is missing (e.g. dev clone without `npm run build:bundle`) or when `PI_CREW_USE_BUNDLE=0` is set explicitly.
