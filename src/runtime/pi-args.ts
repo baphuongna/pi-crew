@@ -4,10 +4,18 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { resolveToolPolicy } from "../agents/agent-config.ts";
-import { userPiRoot } from "../utils/paths.ts";
+import { packageRoot, userPiRoot } from "../utils/paths.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
-const PROMPT_RUNTIME_EXTENSION_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "prompt", "prompt-runtime.ts");
+// FIX (2026-07-02): use packageRoot() instead of import.meta.url-relative path.
+// The previous path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+// "..", "prompt", "prompt-runtime.ts") was correct in source but BROKEN
+// in the bundle: esbuild's __esm helper doesn't preserve per-module
+// import.meta.url, so the resolve lands at <pi-crew>/prompt/... (missing
+// `src/`) instead of <pi-crew>/src/prompt/... packageRoot() walks up to
+// find pi-crew's package.json and works correctly from both src/ and
+// dist/ entry points.
+const PROMPT_RUNTIME_EXTENSION_PATH = path.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
 const TASK_ARG_LIMIT = 8000;
 const DEFAULT_MAX_CREW_DEPTH = 2;
 
