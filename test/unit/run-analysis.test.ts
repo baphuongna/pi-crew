@@ -15,7 +15,11 @@ import { loadRunManifestById } from "../../src/state/state-store.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 function makeRunCwd(): string {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-analysis-test-"));
+	// realpathSync: os.tmpdir() is a symlink on macOS (/var → /private/var) and
+	// can be an 8.3 short name on Windows. writeArtifact stores canonicalized
+	// paths, so exact-string path assertions below need a canonical cwd too —
+	// without this the manifest.artifacts[] lookup fails on macOS/Windows CI.
+	const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-analysis-test-")));
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	return cwd;
 }
@@ -147,6 +151,27 @@ test("run returns friendly error when analysisPath file is missing", async () =>
 		);
 		assert.equal(run.isError, true);
 		assert.match(firstText(run), /Analysis file not found/i);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("run rejects analysisPath file larger than 100KB cap", async () => {
+	const cwd = makeRunCwd();
+	try {
+		fs.writeFileSync(path.join(cwd, "big.md"), "x".repeat(100_001), "utf-8");
+		const run = await handleTeamTool(
+			{
+				action: "run",
+				config: { runtime: { mode: "scaffold" } },
+				team: "default",
+				goal: "x",
+				analysisPath: "big.md",
+			},
+			{ cwd },
+		);
+		assert.equal(run.isError, true);
+		assert.match(firstText(run), /Analysis file too large/i);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

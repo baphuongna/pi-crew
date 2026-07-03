@@ -129,6 +129,13 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 }
 
 /**
+ * Max analysis size in bytes — matches the `maxLength: 100_000` schema cap on
+ * the inline `analysis` param, so the file channel can't smuggle in a larger
+ * payload than the inline channel allows (prompt-size blowup guard).
+ */
+const MAX_ANALYSIS_BYTES = 100_000;
+
+/**
  * Resolve the analysis channel (round-X Y1): inline `analysis` or `analysisPath` file.
  *
  * Called BEFORE `createRunManifest` so validation failures fail-fast and no orphan
@@ -167,6 +174,15 @@ function resolveAnalysisText(
 		if (!fs.existsSync(resolved)) {
 			return {
 				error: `Analysis file not found: ${resolved}`,
+				source: "none",
+			};
+		}
+		// Size cap BEFORE reading: mirror the inline schema cap (maxLength 100_000)
+		// so a large file can't blow up worker prompts via the sharedReads channel.
+		const { size } = fs.statSync(resolved);
+		if (size > MAX_ANALYSIS_BYTES) {
+			return {
+				error: `Analysis file too large: ${size} bytes (max ${MAX_ANALYSIS_BYTES}). Trim the analysis or pass a summary inline.`,
 				source: "none",
 			};
 		}
