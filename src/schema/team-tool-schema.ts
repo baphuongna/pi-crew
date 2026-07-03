@@ -264,6 +264,19 @@ export const TeamToolParams = Type.Object({
 		// "description-only schema" strict-provider check.
 		Type.Any(),
 	),
+	analysis: Type.Optional(
+		Type.String({
+			maxLength: 100_000,
+			description:
+				"Inline analysis/context notes from the calling session. Persisted to artifacts/{runId}/shared/analysis.md (audit trail) and auto-injected into any workflow step declaring reads: analysis.md (e.g. builtin 'plan-execute'). Mutually exclusive with analysisPath. Ignored by goal-wrapped runs and chain dispatch in v1.",
+		}),
+	),
+	analysisPath: Type.Optional(
+		Type.String({
+			description:
+				"Path to an existing markdown analysis file (resolved within cwd). Copied into shared/analysis.md. Mutually exclusive with analysis.",
+		}),
+	),
 	focus: Type.Optional(
 		Type.String({
 			description:
@@ -385,4 +398,12 @@ export interface TeamToolParamsValue {
 	tokenBudget?: number;
 	/** Typed workflow arguments for .dwf.ts scripts, accessible via ctx.args<T>() (round-14 P1-5). */
 	args?: unknown;
+	/** Inline analysis/context notes from the calling session. Persisted to
+	 *  artifacts/{runId}/shared/analysis.md (audit trail) and auto-injected into
+	 *  any workflow step declaring reads: analysis.md (e.g. builtin 'plan-execute').
+	 *  Mutually exclusive with `analysisPath`. */
+	analysis?: string;
+	/** Path to an existing analysis file resolved within `cwd`. Copied into
+	 *  shared/analysis.md. Mutually exclusive with `analysis`. */
+	analysisPath?: string;
 }

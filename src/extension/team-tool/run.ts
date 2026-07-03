@@ -1,6 +1,7 @@
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { PipelineRunner, type PipelineWorkflow } from "../../runtime/pipeline-runner.ts";
+import { sanitizeTaskText } from "../../runtime/task-packet.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -17,7 +18,7 @@ import { assertCleanLeader, findGitRoot } from "../../worktree/worktree-manager.
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
 import { logInternalError } from "../../utils/internal-error.ts";
-import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { resolveContainedPath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -127,6 +128,60 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 	timer.unref();
 }
 
+/**
+ * Resolve the analysis channel (round-X Y1): inline `analysis` or `analysisPath` file.
+ *
+ * Called BEFORE `createRunManifest` so validation failures fail-fast and no orphan
+ * run state is left on disk. Sanitizes the parsed content with the same
+ * {@link sanitizeTaskText} machinery used in `buildTaskPacket` (SEC-007), since the
+ * resulting text is injected into worker prompts via standard sharedReads.
+ *
+ * Mutual exclusivity mirrors the `budgetTotal`/`budgetUnlimited` pattern in
+ * `goal.ts` — a cold-review #2 blocking fix pattern.
+ */
+function resolveAnalysisText(
+	params: TeamToolParamsValue,
+	cwd: string,
+): { text?: string; error?: string; source: "inline" | "path" | "none" } {
+	const hasInline = typeof params.analysis === "string" && params.analysis.length > 0;
+	const hasPath = typeof params.analysisPath === "string" && params.analysisPath.length > 0;
+
+	if (hasInline && hasPath) {
+		return {
+			error: "`analysis` and `analysisPath` are mutually exclusive. Set exactly one.",
+			source: "none",
+		};
+	}
+	if (!hasInline && !hasPath) return { source: "none" };
+
+	if (hasPath) {
+		let resolved: string;
+		try {
+			resolved = resolveContainedPath(cwd, params.analysisPath as string);
+		} catch {
+			return {
+				error: `analysisPath must be within project directory: ${params.analysisPath}`,
+				source: "none",
+			};
+		}
+		if (!fs.existsSync(resolved)) {
+			return {
+				error: `Analysis file not found: ${resolved}`,
+				source: "none",
+			};
+		}
+		const raw = fs.readFileSync(resolved, "utf-8");
+		const sanitized = sanitizeTaskText(raw);
+		if (!sanitized) return { source: "none" };
+		return { text: sanitized, source: "path" };
+	}
+
+	// hasInline
+	const sanitized = sanitizeTaskText(params.analysis as string);
+	if (!sanitized) return { source: "none" };
+	return { text: sanitized, source: "inline" };
+}
+
 export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	// CHAIN DISPATCH: runs before goal validation since a chain has no top-level
 	// goal. The injected handleRun reference breaks the run.ts ↔ chain-dispatch.ts
@@ -234,11 +289,18 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 						role: params.role ?? "agent",
 						task: "{goal}",
 						model: params.model,
+						reads: params.analysis || params.analysisPath ? ["analysis.md"] : undefined,
 					},
 				],
 			}
 		: workflows.find((item) => item.name === workflowName);
 	if (!baseWorkflow) return result(`Workflow '${workflowName}' not found.`, { action: "run", status: "error" }, true);
+
+	// ANALYSIS CHANNEL (round-X Y1): resolve analysis text from inline or file BEFORE
+	// createRunManifest so validation errors fail-fast (no orphan run state).
+	const analysisParam = resolveAnalysisText(params, resolvedCtx.cwd);
+	if (analysisParam.error) return result(analysisParam.error, { action: "run", status: "error" }, true);
+
 	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { expandParallelResearchWorkflow }` above (issue #28, RFC 17). At call time the module body has fully evaluated, so the dynamic import returns a live binding. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
 	const { expandParallelResearchWorkflow: expandParallelResearch } = await import("../../runtime/parallel-research.ts");
 	const workflow = directAgent ? baseWorkflow : expandParallelResearch(baseWorkflow, resolvedCtx.cwd);
@@ -276,6 +338,11 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	if (!directAgent && workflow.source === "builtin" && isGoalWrapEnabled(resolvedCtx.cwd, workflow.name)) {
 		const decision = shouldGoalWrap(resolvedCtx.cwd, workflow);
 		if (decision.enabled) {
+			if (analysisParam.text) {
+				console.warn(
+					`[team-tool.run] analysis param is ignored by goal-wrapped run (workflow=${workflow.name}). The analysis artifact will not be written.`,
+				);
+			}
 			return await startGoalWrappedRun(params, ctx, workflow, goal);
 		}
 		// goal-wrap disabled for this workflow — fall through silently to normal
@@ -364,10 +431,23 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		content: `${goal}\n`,
 		producer: "team-tool",
 	});
+	// ANALYSIS CHANNEL (round-X Y1): if analysis was provided, persist as a shared artifact
+	// so workflow steps declaring reads: analysis.md receive it via the standard
+	// dependency-context injection (collectDependencyOutputContext → renderDependencyOutputContext).
+	const analysisArtifacts = analysisParam.text
+		? [
+				writeArtifact(paths.artifactsRoot, {
+					kind: "prompt",
+					relativePath: "shared/analysis.md",
+					content: `${analysisParam.text}\n`,
+					producer: "team-tool",
+				}),
+			]
+		: [];
 	const updatedManifest = {
 		...manifest,
 		...(skillOverride !== undefined ? { skillOverride } : {}),
-		artifacts: [goalArtifact],
+		artifacts: [goalArtifact, ...analysisArtifacts],
 		summary: "Run manifest created; worker execution is not implemented yet.",
 	};
 	atomicWriteJson(paths.manifestPath, updatedManifest);
