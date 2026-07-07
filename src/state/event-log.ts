@@ -412,15 +412,11 @@ export function resetEventLogMode(): void {
 export async function appendEventAsync(eventsPath: string, event: AppendTeamEvent): Promise<TeamEvent> {
 	// Non-terminal events: route through buffer for coalesced writes (20ms default).
 	// This eliminates per-event fsync + persistSequence overhead for high-frequency events.
+	// The buffer timer is kept alive (ref'd) so standalone contexts (tests, short-lived
+	// scripts) get their events flushed before the loop drains — no per-event keepAlive
+	// intervals needed (which previously starved the event loop at high fan-out).
 	if (!TERMINAL_EVENT_TYPES.has(event.type)) {
-		const result = appendEventBuffered(eventsPath, event);
-		// FIX: appendEventBuffered uses unref()'d timers. Keep the event loop alive
-		// so the promise resolves in standalone/test contexts where nothing else
-		// keeps the loop running. Without this, the event loop drains before the
-		// timer fires and the promise never resolves.
-		const keepAlive = setInterval(() => {}, 200);
-		void result.finally(() => clearInterval(keepAlive));
-		return result;
+		return appendEventBuffered(eventsPath, event);
 	}
 	// Terminal events: direct async path for immediate durability guarantee
 	const queueKey = eventsPath;
@@ -618,6 +614,131 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
  * `withEventLogLockSync` for `eventsPath`. Used by `appendEventBuffered` to
  * write a whole batch of pending events under a single lock acquire.
  */
+/**
+ * Batch variant used by the buffered flush path. Computes metadata for each
+ * event, writes the whole batch in a single appendFileSync + fsync, persists
+ * the sequence sidecar once with the last seq, and updates the sequence cache
+ * once. Resolves each item with its finalized event (carrying the assigned
+ * seq). This collapses N fsyncs into 1 for the buffered write path, which is
+ * the entire point of buffering — the previous per-event fsync made buffer
+ * coalescing useless and added ~30ms/event on tmpfs.
+ */
+async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedAppend[]): Promise<void> {
+	if (queue.length === 0) return;
+	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
+
+	// Pre-flight size check (mirrors appendEventInsideLock). We do it once for
+	// the batch instead of once per event.
+	try {
+		if (fs.existsSync(eventsPath)) {
+			const stat = fs.statSync(eventsPath);
+			if (stat.size > MAX_EVENTS_BYTES) {
+				try {
+					const prepared = prepareCompaction(eventsPath);
+					if (prepared) applyCompactionUnlocked(eventsPath, prepared);
+				} catch (error) {
+					logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
+				}
+				if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
+					rotateEventLogUnlocked(eventsPath);
+				}
+			}
+		}
+	} catch (error) {
+		logInternalError("event-log.batch-size-check", error, `eventsPath=${eventsPath}`);
+	}
+
+	// Phase 1: compute metadata + JSON lines for every event in the batch.
+	// Initialize nextSeq ONCE from nextSequence (or the first event's baseMetadata.seq),
+	// then increment locally for each subsequent event in the batch. Calling
+	// nextSequence() per-event would re-read file stat/sidecar with no writes
+	// in between — every call would see the same file state and return the same
+	// seq, breaking the "unique monotonic seq" contract. The cache update +
+	// persistSequence at the end refreshes the sidecar to the last assigned seq.
+	const startingSeq = queue[0]?.event.metadata?.seq ?? nextSequence(eventsPath);
+	let nextSeq = startingSeq;
+	const finalized: { item: BufferedAppend; line: string; fullEvent: TeamEvent }[] = [];
+	let lastSeq = 0;
+	for (const item of queue) {
+		const baseMetadata = item.event.metadata;
+		const seq = baseMetadata?.seq ?? nextSeq++;
+		let metadata: TeamEventMetadata = {
+			seq,
+			provenance: baseMetadata?.provenance ?? "team_runner",
+			...(baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {}),
+			...(baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {}),
+			...(baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {}),
+			...(baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {}),
+			...(baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {}),
+			...(baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {}),
+			...(baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {}),
+			...(baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {}),
+			...(baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}),
+		};
+		const fullEvent: TeamEvent = {
+			time: new Date().toISOString(),
+			...item.event,
+			metadata,
+		};
+		if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
+			metadata = {
+				...metadata,
+				fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent),
+			};
+			fullEvent.metadata = metadata;
+		}
+		finalized.push({ item, line: `${JSON.stringify(redactSecrets(fullEvent))}\n`, fullEvent });
+		lastSeq = seq;
+	}
+
+	// Phase 2: single appendFileSync + single fsync + single persistSequence.
+	// Before this fix, each event in the batch triggered its own fsync, which
+	// was the dominant cost on tmpfs and CI runners.
+	try {
+		if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
+			logInternalError(
+				"event-log.size-limit",
+				new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
+				`eventsPath=${eventsPath}`,
+			);
+			// Reject the batch — caller will surface the error per item.
+			for (const { item } of finalized) item.reject(new Error("event log size limit exceeded"));
+			return;
+		}
+	} catch (error) {
+		logInternalError("event-log.batch-size-check-post", error, `eventsPath=${eventsPath}`);
+	}
+
+	fs.appendFileSync(eventsPath, finalized.map((f) => f.line).join(""), "utf-8");
+	const fd = fs.openSync(eventsPath, "r+");
+	try {
+		fs.fsyncSync(fd);
+	} catch {
+		// EPERM on Windows CI: best-effort flush
+	} finally {
+		fs.closeSync(fd);
+	}
+	persistSequence(eventsPath, lastSeq);
+
+	// Phase 3: cache update + resolve all promises.
+	try {
+		const stat = fs.statSync(eventsPath);
+		if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
+			evictOldestSequenceCacheEntries();
+		}
+		sequenceCache.set(eventsPath, {
+			size: stat.size,
+			mtimeMs: stat.mtimeMs,
+			seq: lastSeq,
+			lastAccessMs: Date.now(),
+		});
+	} catch (error) {
+		logInternalError("event-log.batch-cache-update", error, `eventsPath=${eventsPath}`);
+	}
+
+	for (const { item, fullEvent } of finalized) item.resolve(fullEvent);
+}
+
 function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): TeamEvent {
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
 	const baseMetadata = event.metadata;
@@ -784,8 +905,15 @@ export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, 
 		queue.push({ event, resolve, reject });
 		bufferedQueues.set(eventsPath, queue);
 		if (!bufferedTimers.has(eventsPath)) {
-			const timer = setTimeout(() => flushOneEventLogBuffer(eventsPath), bufferMs);
-			timer.unref();
+			// Wrap flush in async IIFE so the returned Promise is awaited (avoids
+			// "floating promise" warnings under --test-force-exit and prevents
+			// the timer from being treated as done before the flush actually
+			// completes its async work).
+			const timer = setTimeout(() => {
+				flushOneEventLogBuffer(eventsPath).catch((error) => {
+					logInternalError("event-log.buffered-flush", error, `eventsPath=${eventsPath}`);
+				});
+			}, bufferMs);
 			bufferedTimers.set(eventsPath, timer);
 		}
 	});
@@ -830,15 +958,12 @@ async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 		// FIX (Issue 2): Use async lock instead of withEventLogLockSync to avoid
 		// blocking the event loop. The sync lock uses sleepSync which blocks for
 		// up to 5s and prevents AbortSignal handlers from firing.
+		// FIX (P0 follow-up): Batch the file write + fsync + persistSequence across
+		// the whole queue. Previously each event triggered its own fsyncSync,
+		// turning 100 buffered events into 100 fsyncs (~3s on tmpfs). Now we do
+		// 1 appendFileSync + 1 fsync + 1 persistSequence for the whole batch.
 		await withEventLogLockAsync(eventsPath, async () => {
-			for (const item of queue) {
-				try {
-					const ev = appendEventInsideLock(eventsPath, item.event);
-					item.resolve(ev);
-				} catch (error) {
-					item.reject(error);
-				}
-			}
+			await appendEventBatchInsideLock(eventsPath, queue);
 		});
 	} catch (error) {
 		// Lock acquire failed — fail every queued item so callers can fall back.
@@ -866,13 +991,26 @@ export function appendEventFireAndForget(eventsPath: string, event: AppendTeamEv
 // Auto-flush on process exit so buffered events do not silently leak.
 // Defense-in-depth: SIGTERM/SIGINT use setImmediate so the handler returns
 // immediately and the main thread is not blocked by sync I/O.
+// FIX (P0 follow-up): Only call flushEventLogBuffer() / drainAsyncQueues() if
+// there is actually pending work. Calling them unconditionally creates a new
+// floating Promise that the test runner detects under --test-force-exit,
+// failing tests with "Promise resolution is still pending but the event loop
+// has already resolved" even when the test body completed cleanly.
 process.on("exit", () => {
-	flushEventLogBuffer();
+	if (bufferedQueues.size > 0) {
+		flushEventLogBuffer().catch(() => {
+			/* best-effort flush on exit */
+		});
+	}
 	// FIX (Issue 1): Drain asyncQueues on exit to minimize event loss.
 	// In-flight async writes are awaited (via Promise.allSettled) before
 	// the map is cleared. This reduces but does not eliminate event loss
 	// on crash — SIGKILL (kill -9) cannot be intercepted.
-	drainAsyncQueues();
+	if (asyncQueues.size > 0) {
+		drainAsyncQueues().catch(() => {
+			/* best-effort drain on exit */
+		});
+	}
 	asyncQueues.clear();
 });
 process.on("SIGTERM", () => setImmediate(() => flushEventLogBuffer()));
