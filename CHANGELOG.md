@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.9.22] — fix: batch buffered event-log flush (25-85x faster) (2026-07-07)
+
+P0 follow-up to v0.9.21 event batching. The buffered flush path was calling `appendEventInsideLock` per-event, which triggered an `fsyncSync` per queued event. This defeated the entire point of batching — for 100 buffered events the flush took ~3s on tmpfs instead of the expected ~20ms.
+
+### Highlights
+
+- **Buffered flush now coalesces fsyncs.** New `appendEventBatchInsideLock()` computes metadata for the whole queue, then performs 1 `appendFileSync` + 1 `fsyncSync` + 1 `persistSequence` + 1 cache update at the end. Resolves all queued promises with their finalized events.
+- **Side fixes for batch correctness.** `nextSequence()` cannot be called per-event in Phase 1 (no writes between calls → all events get the same seq). Now computes `startingSeq` once and increments locally. `setTimeout` callback no longer returns a floating Promise from `flushOneEventLogBuffer`. `process.on('exit')` guards `flushEventLogBuffer()` with a size > 0 check to avoid creating a new floating Promise on every exit.
+
+### Performance
+
+| Workload | Before | After | Speedup |
+|---|---|---|---|
+| 100 buffered events | 3,314 ms | 132 ms | 25x |
+| 1,000 buffered events | 29,205 ms | 343 ms | 85x |
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `event-log-async.test.ts` | ✅ 16/16 pass |
+| `event-log-batch.test.ts` | ✅ all pass |
+| `event-log-buffered.test.ts` | ✅ seq uniqueness restored |
+| `event-log-race.test.ts` | ✅ all pass |
+| `event-log-leak.test.ts` H2 | ✅ pass |
+| `event-log-leak.test.ts` H1/H3 | ⚠️ cancelled under `--test-force-exit` (node:test framework detects pending work; tracked separately) |
+| `per-task-budget.test.ts`, `token-counter.test.ts` | ✅ all pass |
+
+### Files
+
+- MOD: `src/state/event-log.ts` — added `appendEventBatchInsideLock()`, fixed `nextSequence()` batching, fixed floating Promise in `setTimeout` callback, guarded `process.on('exit')` flush
+
+---
+
 ## [v0.9.21] — P0 performance fixes: event batching, async worktree, per-task budget, token counter (2026-07-07)
 
 Four P0 performance fixes identified by a parallel performance review (4 subagents: runtime, token efficiency, architecture, security overhead). All fixes are backward-compatible; no breaking changes.

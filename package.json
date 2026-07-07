@@ -1,6 +1,6 @@
 {
   "name": "pi-crew",
-  "version": "0.9.21",
+  "version": "0.9.22",
   "description": "Pi extension for coordinated AI teams, workflows, worktrees, and async task orchestration",
   "author": "baphuongna",
   "license": "MIT",
