@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { errors } from "../errors.ts";
-import { appendEventAsync } from "../state/event-log.ts";
+import { appendEventAsync, flushEventLogBuffer } from "../state/event-log.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
@@ -107,142 +107,151 @@ export class PipelineRunner {
 		let previousResults: unknown[] = [];
 		const startTime = Date.now();
 
-		await appendEventAsync(eventsPath, {
-			type: "pipeline:started",
-			runId,
-			message: `Pipeline '${workflow.name}' started`,
-			data: { stages: workflow.stages.map((s) => s.name) },
-		});
-
-		for (let i = 0; i < workflow.stages.length; i++) {
-			const stage = workflow.stages[i];
-			const stageStartTime = Date.now();
-
-			// Determine stop behavior for this stage
-			const effectiveStopOnError = stage.stopOnError ?? workflow.stopOnError ?? this.stopOnError;
-
+		try {
 			await appendEventAsync(eventsPath, {
-				type: "pipeline:stage_started",
+				type: "pipeline:started",
 				runId,
-				message: `Stage '${stage.name}' started`,
-				data: { stageIndex: i, stageName: stage.name },
+				message: `Pipeline '${workflow.name}' started`,
+				data: { stages: workflow.stages.map((s) => s.name) },
 			});
 
-			try {
-				// Build stage context
-				const stageContext: PipelineContext = {
-					stageIndex: i,
-					stageName: stage.name,
-					previousResults,
-					totalStages: workflow.stages.length,
-					runId,
-				};
+			for (let i = 0; i < workflow.stages.length; i++) {
+				const stage = workflow.stages[i];
+				const stageStartTime = Date.now();
 
-				// Resolve inputs
-				const inputs = this.resolveInputs(stage.inputs, previousResults, context);
-
-				// Execute stage (handle fan-out if enabled)
-				const results = await this.executeStageInternal(stage, inputs, stageContext, executeStage);
-
-				const duration = Date.now() - stageStartTime;
-				stages.push({
-					name: stage.name,
-					status: "completed",
-					results,
-					duration,
-					fanOutItems: Array.isArray(inputs) ? inputs.length : undefined,
-				});
-
-				previousResults = results;
+				// Determine stop behavior for this stage
+				const effectiveStopOnError = stage.stopOnError ?? workflow.stopOnError ?? this.stopOnError;
 
 				await appendEventAsync(eventsPath, {
-					type: "pipeline:stage_completed",
+					type: "pipeline:stage_started",
 					runId,
-					message: `Stage '${stage.name}' completed`,
-					data: {
+					message: `Stage '${stage.name}' started`,
+					data: { stageIndex: i, stageName: stage.name },
+				});
+
+				try {
+					// Build stage context
+					const stageContext: PipelineContext = {
 						stageIndex: i,
 						stageName: stage.name,
-						duration,
-						resultCount: results.length,
-					},
-				});
-			} catch (error) {
-				const duration = Date.now() - stageStartTime;
-				const errorMessage = error instanceof Error ? error.message : String(error);
-
-				if (effectiveStopOnError) {
-					stages.push({
-						name: stage.name,
-						status: "failed",
-						results: [],
-						error: errorMessage,
-						duration,
-					});
-
-					await appendEventAsync(eventsPath, {
-						type: "pipeline:stage_failed",
+						previousResults,
+						totalStages: workflow.stages.length,
 						runId,
-						message: `Stage '${stage.name}' failed: ${errorMessage}`,
-						data: {
-							stageIndex: i,
-							stageName: stage.name,
-							duration,
-							error: errorMessage,
-						},
-					});
-
-					await appendEventAsync(eventsPath, {
-						type: "pipeline:failed",
-						runId,
-						message: `Pipeline '${workflow.name}' failed at stage '${stage.name}'`,
-						data: { failedStage: stage.name, error: errorMessage },
-					});
-
-					return {
-						stages,
-						totalDuration: Date.now() - startTime,
-						finalResults: previousResults,
-						status: "failed",
 					};
-				} else {
+
+					// Resolve inputs
+					const inputs = this.resolveInputs(stage.inputs, previousResults, context);
+
+					// Execute stage (handle fan-out if enabled)
+					const results = await this.executeStageInternal(stage, inputs, stageContext, executeStage);
+
+					const duration = Date.now() - stageStartTime;
 					stages.push({
 						name: stage.name,
-						status: "failed",
-						results: [],
-						error: errorMessage,
+						status: "completed",
+						results,
 						duration,
+						fanOutItems: Array.isArray(inputs) ? inputs.length : undefined,
 					});
 
+					previousResults = results;
+
 					await appendEventAsync(eventsPath, {
-						type: "pipeline:stage_skipped",
+						type: "pipeline:stage_completed",
 						runId,
-						message: `Stage '${stage.name}' skipped due to error`,
+						message: `Stage '${stage.name}' completed`,
 						data: {
 							stageIndex: i,
 							stageName: stage.name,
 							duration,
-							error: errorMessage,
+							resultCount: results.length,
 						},
 					});
+				} catch (error) {
+					const duration = Date.now() - stageStartTime;
+					const errorMessage = error instanceof Error ? error.message : String(error);
+
+					if (effectiveStopOnError) {
+						stages.push({
+							name: stage.name,
+							status: "failed",
+							results: [],
+							error: errorMessage,
+							duration,
+						});
+
+						await appendEventAsync(eventsPath, {
+							type: "pipeline:stage_failed",
+							runId,
+							message: `Stage '${stage.name}' failed: ${errorMessage}`,
+							data: {
+								stageIndex: i,
+								stageName: stage.name,
+								duration,
+								error: errorMessage,
+							},
+						});
+
+						await appendEventAsync(eventsPath, {
+							type: "pipeline:failed",
+							runId,
+							message: `Pipeline '${workflow.name}' failed at stage '${stage.name}'`,
+							data: { failedStage: stage.name, error: errorMessage },
+						});
+
+						return {
+							stages,
+							totalDuration: Date.now() - startTime,
+							finalResults: previousResults,
+							status: "failed",
+						};
+					} else {
+						stages.push({
+							name: stage.name,
+							status: "failed",
+							results: [],
+							error: errorMessage,
+							duration,
+						});
+
+						await appendEventAsync(eventsPath, {
+							type: "pipeline:stage_skipped",
+							runId,
+							message: `Stage '${stage.name}' skipped due to error`,
+							data: {
+								stageIndex: i,
+								stageName: stage.name,
+								duration,
+								error: errorMessage,
+							},
+						});
+					}
 				}
 			}
+
+			await appendEventAsync(eventsPath, {
+				type: "pipeline:completed",
+				runId,
+				message: `Pipeline '${workflow.name}' completed`,
+				data: {
+					stages: stages.map((s) => ({ name: s.name, status: s.status })),
+				},
+			});
+
+			return {
+				stages,
+				totalDuration: Date.now() - startTime,
+				finalResults: previousResults,
+				status: stages.some((s) => s.status === "failed") ? "partial" : "completed",
+			};
+		} finally {
+			// FIX (P0 follow-up): Drain the event-log buffer before returning so
+			// --test-force-exit does not detect "Promise resolution is still
+			// pending". The buffered flush uses a 20ms ref'd timer that fires
+			// asynchronously; without this explicit drain, the test runner sees
+			// pending appendEventAsync promises and cancels the test file.
+			await flushEventLogBuffer(eventsPath);
 		}
-
-		await appendEventAsync(eventsPath, {
-			type: "pipeline:completed",
-			runId,
-			message: `Pipeline '${workflow.name}' completed`,
-			data: {
-				stages: stages.map((s) => ({ name: s.name, status: s.status })),
-			},
-		});
-
-		return {
-			stages,
-			totalDuration: Date.now() - startTime,
-			finalResults: previousResults,
-			status: stages.some((s) => s.status === "failed") ? "partial" : "completed",
-		};
 	}
 
 	/**

@@ -1013,6 +1013,30 @@ process.on("exit", () => {
 	}
 	asyncQueues.clear();
 });
+
+// FIX (P0 follow-up): Drain buffered events on `beforeExit` (async-aware).
+// The `exit` handler above is sync-only and cannot await the flush, leaving
+// pending promises that the test runner detects under --test-force-exit as
+// "Promise resolution is still pending but the event loop has already
+// resolved". `beforeExit` fires when the event loop drains naturally and
+// supports async handlers, so we can await the flush here and let the loop
+// drain cleanly before process.exit() is called.
+process.on("beforeExit", async () => {
+	if (bufferedQueues.size > 0) {
+		try {
+			await flushEventLogBuffer();
+		} catch {
+			/* best-effort */
+		}
+	}
+	if (asyncQueues.size > 0) {
+		try {
+			await drainAsyncQueues();
+		} catch {
+			/* best-effort */
+		}
+	}
+});
 process.on("SIGTERM", () => setImmediate(() => flushEventLogBuffer()));
 process.on("SIGINT", () => setImmediate(() => flushEventLogBuffer()));
 // FIX (Issue 1): Handle uncaught exceptions to flush buffered events before
