@@ -153,150 +153,168 @@ export function registerPiCrewRpc(
 ): PiCrewRpcHandle | undefined {
 	if (!events) return undefined;
 	const unsubs = [
-		on(events, "pi-crew:rpc:ping", withHmacVerification((raw) =>
-			reply(events, "pi-crew:rpc:ping", requestId(raw), {
-				success: true,
-				data: { version: PI_CREW_RPC_VERSION },
-			}),
-		"pi-crew:rpc:ping")),
-		on(events, "pi-crew:rpc:run", withHmacVerification(async (raw) => {
-			const id = requestId(raw);
-			try {
-				// SECURITY (HIGH #4 fix): Rate limit RPC run requests
-				const rateLimit = checkRpcRateLimit();
-				if (!rateLimit.allowed) {
-					reply(events, "pi-crew:rpc:run", id, {
-						success: false,
-						error: `RPC run rate limit exceeded. Max ${RPC_RATE_LIMIT_MAX} requests per ${RPC_RATE_LIMIT_WINDOW_MS / 1000}s. Retry after ${Math.ceil((rateLimit.retryAfterMs ?? 60000) / 1000)}s.`,
-					});
-					return;
-				}
-				recordRpcRun();
-				const ctx = getCtx();
-				if (!ctx) throw new Error("No active pi-crew session context.");
-				// Validate payload: only allow known fields from TeamToolParamsValue
-				const ALLOWED_RPC_RUN_KEYS = new Set(["goal", "team", "workflow", "async", "cwd", "config", "skill", "model"]);
-				let params: TeamToolParamsValue;
-				if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-					const filtered: Record<string, unknown> = {
-						...(raw as object),
-					};
-					// Strip any keys not in the allowlist to prevent injection of unexpected fields
-					for (const key of Object.keys(filtered)) {
-						if (!ALLOWED_RPC_RUN_KEYS.has(key)) delete filtered[key];
+		on(
+			events,
+			"pi-crew:rpc:ping",
+			withHmacVerification(
+				(raw) =>
+					reply(events, "pi-crew:rpc:ping", requestId(raw), {
+						success: true,
+						data: { version: PI_CREW_RPC_VERSION },
+					}),
+				"pi-crew:rpc:ping",
+			),
+		),
+		on(
+			events,
+			"pi-crew:rpc:run",
+			withHmacVerification(async (raw) => {
+				const id = requestId(raw);
+				try {
+					// SECURITY (HIGH #4 fix): Rate limit RPC run requests
+					const rateLimit = checkRpcRateLimit();
+					if (!rateLimit.allowed) {
+						reply(events, "pi-crew:rpc:run", id, {
+							success: false,
+							error: `RPC run rate limit exceeded. Max ${RPC_RATE_LIMIT_MAX} requests per ${RPC_RATE_LIMIT_WINDOW_MS / 1000}s. Retry after ${Math.ceil((rateLimit.retryAfterMs ?? 60000) / 1000)}s.`,
+						});
+						return;
 					}
-					params = {
-						...filtered,
-						action: "run",
-					} as TeamToolParamsValue;
-				} else {
-					params = { action: "run" };
-				}
-				const permission = isAllowedRpcRunParams(params);
-				if (!permission.ok) {
+					recordRpcRun();
+					const ctx = getCtx();
+					if (!ctx) throw new Error("No active pi-crew session context.");
+					// Validate payload: only allow known fields from TeamToolParamsValue
+					const ALLOWED_RPC_RUN_KEYS = new Set(["goal", "team", "workflow", "async", "cwd", "config", "skill", "model"]);
+					let params: TeamToolParamsValue;
+					if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+						const filtered: Record<string, unknown> = {
+							...(raw as object),
+						};
+						// Strip any keys not in the allowlist to prevent injection of unexpected fields
+						for (const key of Object.keys(filtered)) {
+							if (!ALLOWED_RPC_RUN_KEYS.has(key)) delete filtered[key];
+						}
+						params = {
+							...filtered,
+							action: "run",
+						} as TeamToolParamsValue;
+					} else {
+						params = { action: "run" };
+					}
+					const permission = isAllowedRpcRunParams(params);
+					if (!permission.ok) {
+						reply(events, "pi-crew:rpc:run", id, {
+							success: false,
+							error: permission.error ?? "permission denied",
+						});
+						return;
+					}
+					const result = await handleTeamTool(params, ctx);
+					reply(
+						events,
+						"pi-crew:rpc:run",
+						id,
+						result.isError ? { success: false, error: textOf(result) } : { success: true, data: result.details },
+					);
+				} catch (error) {
 					reply(events, "pi-crew:rpc:run", id, {
 						success: false,
-						error: permission.error ?? "permission denied",
+						error: error instanceof Error ? error.message : String(error),
 					});
-					return;
 				}
-				const result = await handleTeamTool(params, ctx);
-				reply(
-					events,
-					"pi-crew:rpc:run",
-					id,
-					result.isError ? { success: false, error: textOf(result) } : { success: true, data: result.details },
-				);
-			} catch (error) {
-				reply(events, "pi-crew:rpc:run", id, {
-					success: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}, "pi-crew:rpc:run")),
-		on(events, "pi-crew:rpc:status", withHmacVerification(async (raw) => {
-			const id = requestId(raw);
-			try {
-				const ctx = getCtx();
-				if (!ctx) throw new Error("No active pi-crew session context.");
-				const runId = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { runId?: string }).runId : undefined;
-				const result = await handleTeamTool({ action: "status", runId }, ctx);
-				reply(
-					events,
-					"pi-crew:rpc:status",
-					id,
-					result.isError
-						? { success: false, error: textOf(result) }
-						: {
-								success: true,
-								data: {
-									text: textOf(result),
-									details: result.details,
+			}, "pi-crew:rpc:run"),
+		),
+		on(
+			events,
+			"pi-crew:rpc:status",
+			withHmacVerification(async (raw) => {
+				const id = requestId(raw);
+				try {
+					const ctx = getCtx();
+					if (!ctx) throw new Error("No active pi-crew session context.");
+					const runId = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { runId?: string }).runId : undefined;
+					const result = await handleTeamTool({ action: "status", runId }, ctx);
+					reply(
+						events,
+						"pi-crew:rpc:status",
+						id,
+						result.isError
+							? { success: false, error: textOf(result) }
+							: {
+									success: true,
+									data: {
+										text: textOf(result),
+										details: result.details,
+									},
 								},
-							},
-				);
-			} catch (error) {
-				reply(events, "pi-crew:rpc:status", id, {
-					success: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}, "pi-crew:rpc:status")),
+					);
+				} catch (error) {
+					reply(events, "pi-crew:rpc:status", id, {
+						success: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}, "pi-crew:rpc:status"),
+		),
 		on(events, "pi-crew:live-control", (raw) => {
 			const request = parseLiveControlRealtimeMessage(raw);
 			if (request) publishLiveControlRealtime(request);
 		}),
-		on(events, "pi-crew:rpc:live-control", withHmacVerification(async (raw) => {
-			const id = requestId(raw);
-			try {
-				const ctx = getCtx();
-				if (!ctx) throw new Error("No active pi-crew session context.");
-				const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-				const rawOp = typeof obj.operation === "string" ? obj.operation : "steer-agent";
-				// SECURITY: Reject any operation not in the explicit allowlist.
-				// Mutating ops (approve-plan, cancel-plan, steer-agent, stop-agent, etc.)
-				// require user consent and are blocked here.
-				if (!isAllowedRpcOperation(rawOp)) {
+		on(
+			events,
+			"pi-crew:rpc:live-control",
+			withHmacVerification(async (raw) => {
+				const id = requestId(raw);
+				try {
+					const ctx = getCtx();
+					if (!ctx) throw new Error("No active pi-crew session context.");
+					const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+					const rawOp = typeof obj.operation === "string" ? obj.operation : "steer-agent";
+					// SECURITY: Reject any operation not in the explicit allowlist.
+					// Mutating ops (approve-plan, cancel-plan, steer-agent, stop-agent, etc.)
+					// require user consent and are blocked here.
+					if (!isAllowedRpcOperation(rawOp)) {
+						reply(events, "pi-crew:rpc:live-control", id, {
+							success: false,
+							error: `RPC operation '${rawOp}' is not allowed. Allowed: ${[...RPC_ALLOWED_OPERATIONS].join(", ")}`,
+						});
+						return;
+					}
+					const result = await handleTeamTool(
+						{
+							action: "api",
+							runId: typeof obj.runId === "string" ? obj.runId : undefined,
+							config: {
+								operation: rawOp,
+								agentId: obj.agentId,
+								message: obj.message,
+								prompt: obj.prompt,
+							},
+						},
+						ctx,
+					);
+					reply(
+						events,
+						"pi-crew:rpc:live-control",
+						id,
+						result.isError
+							? { success: false, error: textOf(result) }
+							: {
+									success: true,
+									data: {
+										text: textOf(result),
+										details: result.details,
+									},
+								},
+					);
+				} catch (error) {
 					reply(events, "pi-crew:rpc:live-control", id, {
 						success: false,
-						error: `RPC operation '${rawOp}' is not allowed. Allowed: ${[...RPC_ALLOWED_OPERATIONS].join(", ")}`,
+						error: error instanceof Error ? error.message : String(error),
 					});
-					return;
 				}
-				const result = await handleTeamTool(
-					{
-						action: "api",
-						runId: typeof obj.runId === "string" ? obj.runId : undefined,
-						config: {
-							operation: rawOp,
-							agentId: obj.agentId,
-							message: obj.message,
-							prompt: obj.prompt,
-						},
-					},
-					ctx,
-				);
-				reply(
-					events,
-					"pi-crew:rpc:live-control",
-					id,
-					result.isError
-						? { success: false, error: textOf(result) }
-						: {
-								success: true,
-								data: {
-									text: textOf(result),
-									details: result.details,
-								},
-							},
-				);
-			} catch (error) {
-				reply(events, "pi-crew:rpc:live-control", id, {
-					success: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}, "pi-crew:rpc:live-control")),
+			}, "pi-crew:rpc:live-control"),
+		),
 	];
 	return { unsubscribe: () => unsubs.forEach((unsub) => unsub()) };
 }

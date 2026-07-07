@@ -13,7 +13,24 @@ import { getSafeBashMode, isAllowedWhitelist } from "../../src/tools/safe-bash.t
 // --- isAllowedWhitelist: allowed commands ---
 
 test("whitelist allows each whitelisted command", () => {
-	for (const cmd of ["ls", "cat", "head", "tail", "wc", "grep", "find", "echo", "pwd", "date", "whoami", "uname", "df", "du", "file", "stat"]) {
+	for (const cmd of [
+		"ls",
+		"cat",
+		"head",
+		"tail",
+		"wc",
+		"grep",
+		"find",
+		"echo",
+		"pwd",
+		"date",
+		"whoami",
+		"uname",
+		"df",
+		"du",
+		"file",
+		"stat",
+	]) {
 		assert.ok(isAllowedWhitelist(cmd), `expected ${cmd} to be allowed`);
 	}
 });

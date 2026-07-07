@@ -57,10 +57,7 @@ describe("RPC HMAC authentication", () => {
 
 		it("throws when no secret configured", () => {
 			clearRpcSecret();
-			assert.throws(
-				() => createRpcSignature("test-ext", "pi-crew:rpc:ping", {}),
-				/pi-crew HMAC.*Cannot create signature/,
-			);
+			assert.throws(() => createRpcSignature("test-ext", "pi-crew:rpc:ping", {}), /pi-crew HMAC.*Cannot create signature/);
 		});
 
 		it("produces different signatures for different nonces", () => {
@@ -271,10 +268,7 @@ describe("RPC HMAC authentication", () => {
 				return { ok: true };
 			}, "pi-crew:rpc:ping");
 
-			assert.throws(
-				() => handler({ requestId: "test" }),
-				/pi-crew HMAC.*Missing HMAC signature/,
-			);
+			assert.throws(() => handler({ requestId: "test" }), /pi-crew HMAC.*Missing HMAC signature/);
 		});
 
 		it("rejects request with invalid HMAC when HMAC enabled", () => {
@@ -293,10 +287,7 @@ describe("RPC HMAC authentication", () => {
 				hmacSignature: "0000000000000000000000000000000000000000000000000000000000000000",
 			};
 
-			assert.throws(
-				() => handler(badParams as any),
-				/pi-crew HMAC.*mismatch/,
-			);
+			assert.throws(() => handler(badParams as any), /pi-crew HMAC.*mismatch/);
 		});
 	});
 
@@ -311,10 +302,7 @@ describe("RPC HMAC authentication", () => {
 			const sig = createRpcSignature("test-ext", "pi-crew:rpc:ping", body);
 
 			// Verify against channel B
-			const result = verifyRpcSignature(
-				{ ...sig, channel: "pi-crew:rpc:run" },
-				body,
-			);
+			const result = verifyRpcSignature({ ...sig, channel: "pi-crew:rpc:run" }, body);
 			assert.equal(result.valid, false);
 		});
 	});

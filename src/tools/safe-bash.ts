@@ -415,8 +415,22 @@ export const SAFE_BASH_PRESETS = {
 
 /** Commands permitted under whitelist mode (read-only utilities only). */
 const WHITELISTED_COMMANDS = new Set<string>([
-	"ls", "cat", "head", "tail", "wc", "grep", "find", "echo", "pwd",
-	"date", "whoami", "uname", "df", "du", "file", "stat",
+	"ls",
+	"cat",
+	"head",
+	"tail",
+	"wc",
+	"grep",
+	"find",
+	"echo",
+	"pwd",
+	"date",
+	"whoami",
+	"uname",
+	"df",
+	"du",
+	"file",
+	"stat",
 ]);
 
 /**
@@ -485,9 +499,7 @@ export function getSafeBashMode(): "blacklist" | "whitelist" {
  */
 export function checkCommand(command: string, options: SafeBashOptions = {}): string | null {
 	if (getSafeBashMode() === "whitelist") {
-		return isAllowedWhitelist(command)
-			? null
-			: "Command blocked by safe_bash whitelist: command not in allowlist";
+		return isAllowedWhitelist(command) ? null : "Command blocked by safe_bash whitelist: command not in allowlist";
 	}
 	return isDangerous(command, options);
 }

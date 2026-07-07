@@ -334,9 +334,7 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 	// PER-TASK KEY SCOPING: when a model is provided, only the env keys for that
 	// provider are injected (via buildScopedAllowList). When no model is given,
 	// only BASE_ALLOWLIST system vars pass through — no provider keys leak.
-	const allowList = model
-		? buildScopedAllowList(BASE_ALLOWLIST, [model])
-		: BASE_ALLOWLIST;
+	const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
 	const filteredEnv = sanitizeEnvSecrets(env, { allowList });
 	// FIX: Removed delete workarounds — with explicit allowlist, these vars
 	// are no longer auto-leaked. The wildcard approach was fragile.
@@ -879,10 +877,14 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			const child = spawn(
 				spawnSpec.command,
 				spawnSpec.args,
-				buildChildPiSpawnOptions(input.cwd, {
-					...process.env,
-					...built.env,
-				}, input.model),
+				buildChildPiSpawnOptions(
+					input.cwd,
+					{
+						...process.env,
+						...built.env,
+					},
+					input.model,
+				),
 			);
 			if (child.pid) {
 				activeChildProcesses.set(child.pid, child);

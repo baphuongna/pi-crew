@@ -63,9 +63,7 @@ export type RpcSignedPayload = RpcSignaturePayload & { signature: string };
 export function createRpcSignature(origin: string, channel: string, body: unknown): RpcSignedPayload {
 	const secret = getRpcSecret();
 	if (!secret) {
-		throw new Error(
-			`[pi-crew HMAC] Cannot create signature: ${SECRET_ENV_VAR} not set.`,
-		);
+		throw new Error(`[pi-crew HMAC] Cannot create signature: ${SECRET_ENV_VAR} not set.`);
 	}
 
 	const payload: RpcSignaturePayload = {
@@ -87,10 +85,7 @@ export function createRpcSignature(origin: string, channel: string, body: unknow
  *
  * @returns `{ valid: true }` or `{ valid: false, reason: string }`
  */
-export function verifyRpcSignature(
-	payload: RpcSignedPayload,
-	body: unknown,
-): { valid: true } | { valid: false; reason: string } {
+export function verifyRpcSignature(payload: RpcSignedPayload, body: unknown): { valid: true } | { valid: false; reason: string } {
 	const secret = getRpcSecret();
 	if (!secret) {
 		return { valid: false, reason: `[pi-crew HMAC] ${SECRET_ENV_VAR} not configured.` };
@@ -110,9 +105,7 @@ export function verifyRpcSignature(
 	}
 
 	const expected = computeHmac(secret, payload, body);
-	return timingSafeCompare(payload.signature, expected)
-		? { valid: true }
-		: { valid: false, reason: "HMAC signature mismatch" };
+	return timingSafeCompare(payload.signature, expected) ? { valid: true } : { valid: false, reason: "HMAC signature mismatch" };
 }
 
 // --- Middleware --------------------------------------------------------------
