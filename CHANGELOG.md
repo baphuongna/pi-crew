@@ -1,5 +1,33 @@
 # Changelog
 
+## [v0.9.20] — security hardening: RPC HMAC auth + per-task API key scoping + safe-bash whitelist (2026-07-06)
+
+Three defense-in-depth security upgrades distilled from cross-source research (52+ repos) and the H-1/H-2/H-6 audit findings. All three are additive (no breaking changes); two are opt-in via env vars, one is default-on.
+
+### Highlights
+
+- **RPC HMAC authentication (opt-in).** All cross-extension RPC channels (`ping`/`run`/`status`/`live-control` at extension layer; `ping`/`spawn`/`stop` at runtime layer) now support HMAC-SHA256 origin signing. When `PI_CREW_RPC_SECRET` is set, every request must carry a valid signature with timestamp + nonce (anti-replay) and channel binding (cross-channel replay guard). Timing-safe comparison prevents timing attacks. Unset = backward-compatible passthrough. Closes the H-2 authorization-bypass finding where any co-installed extension could spoof `source='pi-crew'` to spawn/kill subagents. New module `src/extension/rpc-hmac.ts`; 24 tests in `test/unit/rpc-hmac-auth.test.ts`.
+- **Per-task API key scoping (default-on).** Child workers previously inherited ALL model provider API keys via a broad allowlist. `buildChildPiSpawnOptions()` now takes an optional `model` param and calls `buildScopedAllowList()` to inject only the provider keys needed for the assigned model. When no model is given, only `BASE_ALLOWLIST` system vars pass through (zero provider keys leak). Reduces blast radius: a compromised child only gets keys for its model. Helpers `providerEnvKeys()` + `buildScopedAllowList()` in `src/utils/env-filter.ts`; per-task wiring in `src/runtime/child-pi.ts`; tests in `test/unit/api-key-scoping.test.ts`.
+- **Safe-bash whitelist mode (opt-in).** A deny-by-default whitelist as an opt-in alternative to the legacy blacklist `isDangerous()`. Enabled via `PI_CREW_SAFE_BASH_MODE=whitelist`. Only 16 read-only commands allowed (`ls cat head tail wc grep find echo pwd date whoami uname df du file stat`). Shell metacharacter regex blocks chaining/substitution before the first-token check (`ls; rm file` cannot smuggle `rm`); unmatched quotes are rejected as malformed input. Legacy blacklist path unchanged when not enabled. `src/tools/safe-bash.ts`; 21 tests in `test/unit/safe-bash-whitelist.test.ts`.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| Affected unit tests (20 files) | ✅ 187/187 pass |
+| safe-bash (blacklist + whitelist + ANSI) | ✅ 51/51 |
+| env-filter + API key scoping | ✅ 26/26 |
+| cross-extension-rpc + HMAC | ✅ 48/48 |
+| child-pi (hardening/exit/redaction/compaction) | ✅ 35/35 |
+| security (hardening/artifact/cwd/import/output) | ✅ 27/27 |
+| Live E2E (research workflow) | ✅ 3/3 tasks, end-to-end |
+| Extension load | ✅ |
+
+### Files
+
+- NEW: `src/extension/rpc-hmac.ts`, `test/unit/rpc-hmac-auth.test.ts`, `test/unit/api-key-scoping.test.ts`, `test/unit/safe-bash-whitelist.test.ts`
+- MOD: `src/extension/cross-extension-rpc.ts`, `src/runtime/cross-extension-rpc.ts`, `src/utils/env-filter.ts`, `src/runtime/child-pi.ts`, `src/tools/safe-bash.ts`, `src/tools/safe-bash-extension.ts`, `test/unit/env-filter.test.ts`, `test/unit/security-hardening.test.ts`
+
 ## [v0.9.19] — plan-execute workflow + main-session→planner analysis handoff (2026-07-03)
 
 New builtin workflow for the common "I already analyzed this — just plan + execute + verify it" case, plus a generic `analysis`/`analysisPath` channel on `team action='run'` for handing caller-session context to planner child workers.

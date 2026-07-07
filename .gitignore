@@ -11,6 +11,7 @@ PI_MEMORY.md
 .pi-recall
 .profile/
 test/bench/results.json
+.bench/
 *.cpuprofile
 dist/
 .crew/state/
