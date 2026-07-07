@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { countTokens } from "../../src/utils/token-counter";
+import { countTokens } from "../../src/utils/token-counter.ts";
 
 describe("countTokens", () => {
 	it("returns 0 for empty string", () => {

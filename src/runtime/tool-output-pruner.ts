@@ -90,7 +90,7 @@ export interface PruneResult {
 // Token estimation (rough char/4 heuristic, matching gajae-code)
 // ---------------------------------------------------------------------------
 
-import { countTokens } from "../utils/token-counter";
+import { countTokens } from "../utils/token-counter.ts";
 
 function estimateTokens(text: string): number {
 	return countTokens(text);

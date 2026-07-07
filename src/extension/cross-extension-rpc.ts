@@ -137,7 +137,7 @@ function isAllowedRpcRunParams(params: TeamToolParamsValue): {
 	return { ok: true };
 }
 
-function on(events: EventBusLike, channel: string, handler: (raw: unknown) => void): () => void {
+function on(events: EventBusLike, channel: string, handler: (raw: any) => unknown): () => void {
 	const unsub = events.on(channel, handler);
 	return typeof unsub === "function" ? unsub : () => {};
 }

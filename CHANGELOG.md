@@ -1,5 +1,35 @@
 # Changelog
 
+## [v0.9.21] — P0 performance fixes: event batching, async worktree, per-task budget, token counter (2026-07-07)
+
+Four P0 performance fixes identified by a parallel performance review (4 subagents: runtime, token efficiency, architecture, security overhead). All fixes are backward-compatible; no breaking changes.
+
+### Highlights
+
+- **Event log batching (P0).** The event log now uses a 50ms flush interval instead of immediate per-event writes. This reduces fsync calls from 1 per event to 1 per batch. New helpers: `appendEventBuffered()`, `flushEventBuffer()`. Force flush on run completion and shutdown. `src/state/event-log.ts`; 12 tests in `test/unit/event-log-batch.test.ts`.
+
+- **Async worktree operations (P0).** `execFileSync` → async `execFile` for non-blocking I/O. `findGitRoot()` cached via Map to avoid repeated disk reads. `assertCleanLeader()` uses async execFile. Dynamic workflow context updated to use async worktree. `src/worktree/worktree-manager.ts`, `src/runtime/task-runner.ts`, `src/runtime/dynamic-workflow-context.ts`; 7 tests in `test/unit/worktree-async.test.ts`.
+
+- **Per-task token budget enforcement (P0).** `executeTeamRun()` now enforces `budgetTotal`/`budgetAbort` thresholds. Budget warning and abort events emitted when limits exceeded. `TeamRunManifest` includes `budgetTotal`, `budgetWarning`, `budgetAbort`, `budgetUnlimited` fields. Budget propagation chain: MCP tool → handleRun → executeTeamRun → manifest persistence. `src/runtime/team-runner.ts`, `src/extension/team-tool/run.ts`, `src/state/types.ts`; 14 tests in `test/unit/per-task-budget.test.ts`.
+
+- **Accurate token counting (P0).** New `token-counter.ts` with `ceil(alpha/4) + punctuation` formula. Replaces `char/4` heuristic for better accuracy on code. Single-pass O(n) algorithm, no dependencies. Tool output pruner uses `countTokens()` for accurate pruning. `src/utils/token-counter.ts`, `src/runtime/tool-output-pruner.ts`; 9 tests in `test/unit/token-counter.test.ts`.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| All unit tests (21 files) | ✅ 187/187 pass |
+| New P0 tests (4 files) | ✅ 67/67 pass |
+| Live E2E (fast-fix workflow) | ✅ 3/3 tasks, budget propagation verified |
+| Extension load | ✅ |
+
+### Files
+
+- NEW: `src/utils/token-counter.ts`, `test/unit/event-log-batch.test.ts`, `test/unit/per-task-budget.test.ts`, `test/unit/token-counter.test.ts`, `test/unit/worktree-async.test.ts`
+- MOD: `src/state/event-log.ts`, `src/worktree/worktree-manager.ts`, `src/runtime/team-runner.ts`, `src/runtime/task-runner.ts`, `src/runtime/dynamic-workflow-context.ts`, `src/runtime/tool-output-pruner.ts`, `src/extension/team-tool/run.ts`, `src/extension/cross-extension-rpc.ts`, `src/runtime/background-runner.ts`, `src/state/types.ts`
+
+---
+
 ## [v0.9.20] — security hardening: RPC HMAC auth + per-task API key scoping + safe-bash whitelist (2026-07-06)
 
 Three defense-in-depth security upgrades distilled from cross-source research (52+ repos) and the H-1/H-2/H-6 audit findings. All three are additive (no breaking changes); two are opt-in via env vars, one is default-on.

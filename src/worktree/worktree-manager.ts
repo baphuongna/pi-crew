@@ -111,7 +111,6 @@ async function gitAsync(cwd: string, args: string[]): Promise<string> {
 	const { stdout } = await execFileAsync("git", args, {
 		cwd,
 		encoding: "utf-8",
-		stdio: ["ignore", "pipe", "pipe"],
 		env: gitEnv(),
 		windowsHide: true,
 	});
@@ -445,7 +444,6 @@ async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ lo
 			await execFileAsync("git", ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`], {
 				cwd: repoRoot,
 				encoding: "utf-8",
-				stdio: ["ignore", "pipe", "pipe"],
 				windowsHide: true,
 			})
 		).stdout.trim();
@@ -459,7 +457,7 @@ async function pruneStaleWorktreesAsync(repoRoot: string): Promise<void> {
 	try {
 		await execFileAsync("git", ["worktree", "prune"], {
 			cwd: repoRoot,
-			stdio: ["ignore", "ignore", "ignore"],
+			windowsHide: true,
 		});
 	} catch {
 		/* best-effort */
