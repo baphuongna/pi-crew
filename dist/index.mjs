@@ -15599,12 +15599,12 @@ function getProcessStartTime2(pid) {
   } catch {
     return void 0;
   }
-  const platform2 = process.platform;
-  if (platform2 === "linux") {
+  const platform = process.platform;
+  if (platform === "linux") {
     return getProcessStartTimeLinux(pid);
-  } else if (platform2 === "darwin") {
+  } else if (platform === "darwin") {
     return getProcessStartTimeMacOS(pid);
-  } else if (platform2 === "win32") {
+  } else if (platform === "win32") {
     return getProcessStartTimeWindows(pid);
   }
   return void 0;
@@ -81684,40 +81684,15 @@ function registerCrewShortcuts(pi) {
 var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 
 // src/extension/crew-vibes/config.ts
-import { existsSync as existsSync76, mkdirSync as mkdirSync44, readFileSync as readFileSync74, writeFileSync as writeFileSync33 } from "node:fs";
-import { dirname as dirname39, join as join76 } from "node:path";
-
-// src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync75 } from "node:fs";
-import { homedir as homedir11, platform } from "node:os";
-import { join as join75 } from "node:path";
-function fontPath() {
-  const os16 = platform();
-  const home = homedir11();
-  if (os16 === "darwin") return join75(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os16 === "linux") return join75(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os16 === "win32") {
-    const local = process.env.LOCALAPPDATA ?? join75(home, "AppData", "Local");
-    return join75(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
-  }
-  return "";
-}
-var _hasFontFile = null;
-function hasCrewFontFile() {
-  if (_hasFontFile !== null) return _hasFontFile;
-  const p = fontPath();
-  _hasFontFile = p !== "" && existsSync75(p);
-  return _hasFontFile;
-}
-
-// src/extension/crew-vibes/config.ts
+import { existsSync as existsSync75, mkdirSync as mkdirSync44, readFileSync as readFileSync74, writeFileSync as writeFileSync33 } from "node:fs";
+import { dirname as dirname39, join as join75 } from "node:path";
 var SPEED_STATUS_ID = "pi-crew-speed";
 var CAPACITY_STATUS_ID = "pi-crew-capacity";
 function resolveHome() {
   return process.env.PI_TEAMS_HOME?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
-  return join76(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
+  return join75(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
 }
 var DEFAULT_CONFIG2 = {
   enabled: true,
@@ -81759,7 +81734,7 @@ var FALLBACK_CAPACITY_ICONS = [
   // ⬢ filled hexagon (oh lawd)
 ];
 function capacityIcons() {
-  return hasCrewFontFile() ? DEFAULT_CONFIG2.capacity.icons : FALLBACK_CAPACITY_ICONS;
+  return FALLBACK_CAPACITY_ICONS;
 }
 function asRecord10(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -81826,7 +81801,7 @@ function normalizeConfig(raw) {
 function loadConfig2() {
   try {
     const path81 = configPath2();
-    if (!existsSync76(path81)) return normalizeConfig(void 0);
+    if (!existsSync75(path81)) return normalizeConfig(void 0);
     return normalizeConfig(JSON.parse(readFileSync74(path81, "utf8")));
   } catch {
     return normalizeConfig(void 0);
@@ -81880,7 +81855,7 @@ var PUA_CREW_FRAMES = [
   "\uE70E ",
   "\uE70F "
 ];
-function crewFrames(style = "pua") {
+function crewFrames(style = "braille") {
   return style === "pua" ? PUA_CREW_FRAMES : BRAILLE_FRAMES;
 }
 function intervalForSpeed(config, speed) {

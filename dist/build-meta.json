@@ -17117,29 +17117,8 @@
       ],
       "format": "esm"
     },
-    "src/extension/crew-vibes/font-detect.ts": {
-      "bytes": 1295,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
     "src/extension/crew-vibes/config.ts": {
-      "bytes": 6584,
+      "bytes": 6532,
       "imports": [
         {
           "path": "node:fs",
@@ -17152,15 +17131,15 @@
           "external": true
         },
         {
-          "path": "src/extension/crew-vibes/font-detect.ts",
+          "path": "./font-detect.ts",
           "kind": "import-statement",
-          "original": "./font-detect.ts"
+          "external": true
         }
       ],
       "format": "esm"
     },
     "src/extension/crew-vibes/figures.ts": {
-      "bytes": 3611,
+      "bytes": 3615,
       "imports": [],
       "format": "esm"
     },
@@ -18302,7 +18281,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6566187
+      "bytes": 6564001
     },
     "dist/index.mjs": {
       "imports": [
@@ -19697,21 +19676,6 @@
           "external": true
         },
         {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:crypto",
           "kind": "import-statement",
           "external": true
@@ -20580,7 +20544,7 @@
           "bytesInOutput": 592
         },
         "src/runtime/orphan-worker-registry.ts": {
-          "bytesInOutput": 7463
+          "bytesInOutput": 7459
         },
         "src/runtime/pi-spawn.ts": {
           "bytesInOutput": 6694
@@ -21927,13 +21891,10 @@
           "bytesInOutput": 1204
         },
         "src/extension/crew-vibes/config.ts": {
-          "bytesInOutput": 4872
-        },
-        "src/extension/crew-vibes/font-detect.ts": {
-          "bytesInOutput": 809
+          "bytesInOutput": 4819
         },
         "src/extension/crew-vibes/figures.ts": {
-          "bytesInOutput": 1273
+          "bytesInOutput": 1277
         },
         "src/extension/crew-vibes/render.ts": {
           "bytesInOutput": 3655
@@ -21978,7 +21939,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3132520
+      "bytes": 3131575
     }
   }
 }
