@@ -33,19 +33,21 @@ const PUA_CREW_FRAMES: readonly string[] = [
 	"\uE70F ",
 ] as const;
 
-// Fallback frames using standard Unicode block elements that render on any
-// terminal without a custom font.  8 frames — half the PUA count — both
-// produce a smooth animation at the same cadence because the Loader cycles
-// frames independently via its own setInterval.
-const ASCII_FALLBACK_FRAMES: readonly string[] = [
-	"\u258C ",
-	"\u258D ",
-	"\u258E ",
-	"\u258F ",
-	"\u2590 ",
-	"\u2591 ",
-	"\u2592 ",
-	"\u2593 ",
+// Fallback frames using standard Unicode braille spinner — the same
+// characters pi uses for its built-in working indicator (see loaders.ts
+// DEFAULT_FRAMES).  Guaranteed to render on any terminal with Unicode
+// support, no custom font required.
+const BRAILLE_FALLBACK_FRAMES: readonly string[] = [
+	"\u280B ",
+	"\u2819 ",
+	"\u2839 ",
+	"\u2838 ",
+	"\u283C ",
+	"\u2834 ",
+	"\u2826 ",
+	"\u2827 ",
+	"\u2807 ",
+	"\u280F ",
 ] as const;
 
 // Re-export PUA frames for direct consumers that don't need the font check.
@@ -57,7 +59,7 @@ export const RUN_CREW_FRAMES = PUA_CREW_FRAMES;
  * to standard Unicode block elements that render on any terminal.
  */
 export function crewFrames(): readonly string[] {
-	return hasCrewFont() ? PUA_CREW_FRAMES : ASCII_FALLBACK_FRAMES;
+	return hasCrewFont() ? PUA_CREW_FRAMES : BRAILLE_FALLBACK_FRAMES;
 }
 
 /**
