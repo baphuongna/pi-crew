@@ -322,82 +322,68 @@ async function fetchMinimaxUsage(token: string): Promise<ProviderUsage> {
 	};
 }
 
+/** Providers that have a quota API. */
+const QUOTA_PROVIDERS = new Set(["anthropic", "minimax", "minimax-cn", "zai", "github-copilot"]);
+
+/** Check if a provider supports quota checking. */
+export function providerSupportsQuota(provider: string): boolean {
+	return QUOTA_PROVIDERS.has(provider);
+}
+
+/** Fetch usage for a SPECIFIC provider. Returns null if not supported. */
+async function fetchForProvider(provider: string): Promise<ProviderUsage | null> {
+	switch (provider) {
+		case "anthropic": {
+			const token = loadAnthropicToken();
+			if (!token) return null;
+			const base = await fetchAnthropicUsage(token);
+			return { providerName: "Claude", ...base };
+		}
+		case "minimax":
+		case "minimax-cn": {
+			const token = loadMinimaxToken();
+			if (!token) return null;
+			return await fetchMinimaxUsage(token);
+		}
+		case "zai": {
+			const token = loadZaiToken();
+			if (!token) return null;
+			const usage = await fetchZaiUsage(token);
+			usage.providerName = "z.ai";
+			return usage;
+		}
+		case "github-copilot": {
+			const token = loadCopilotToken();
+			if (!token) return null;
+			const pct = await fetchCopilotMonthlyPercent(token);
+			if (pct === undefined) return null;
+			return { providerName: "Copilot", fiveHourPercent: 0, fiveHourResetAt: null, weeklyPercent: pct, weeklyResetAt: null, copilotMonthlyPercent: pct };
+		}
+		default:
+			return null;
+	}
+}
+
 /**
- * Fetch provider rate-limit usage, caching the result for `maxAgeMs`.
- *
- * Tries providers in order: Anthropic → z.ai → Copilot.
- * Returns the first one that has credentials + responds successfully.
- * Returns `null` when no credentials exist or all fetches fail — never throws.
+ * Fetch provider rate-limit usage for the current model's provider.
+ * Returns `null` when provider has no quota API or no credentials.
  */
-export async function fetchProviderUsage(maxAgeMs = 300000): Promise<ProviderUsage | null> {
-	// Serve fresh-enough cache without hitting the network.
+export async function fetchProviderUsage(maxAgeMs = 300000, provider?: string): Promise<ProviderUsage | null> {
+	if (!provider || !QUOTA_PROVIDERS.has(provider)) {
+		cachedUsage = null;
+		return null;
+	}
 	if (cachedUsage !== null && Date.now() - cachedAt < maxAgeMs) {
 		return cachedUsage;
 	}
-
 	try {
-		// Try Anthropic first
-		const anthropicToken = loadAnthropicToken();
-		if (anthropicToken) {
-			const base = await fetchAnthropicUsage(anthropicToken);
-			const usage: ProviderUsage = {
-				providerName: "Claude",
-				fiveHourPercent: base.fiveHourPercent,
-				fiveHourResetAt: base.fiveHourResetAt,
-				weeklyPercent: base.weeklyPercent,
-				weeklyResetAt: base.weeklyResetAt,
-			};
+		const usage = await fetchForProvider(provider);
+		if (usage) {
 			cachedUsage = usage;
 			cachedAt = Date.now();
-			return usage;
 		}
-
-		// Try Minimax (before z.ai — user typically has both)
-		const minimaxToken = loadMinimaxToken();
-		if (minimaxToken) {
-			try {
-				const usage = await fetchMinimaxUsage(minimaxToken);
-				cachedUsage = usage;
-				cachedAt = Date.now();
-				return usage;
-			} catch {
-				// minimax failed, try next
-			}
-		}
-
-		// Try z.ai
-		const zaiToken = loadZaiToken();
-		if (zaiToken) {
-			const usage = await fetchZaiUsage(zaiToken);
-			usage.providerName = "z.ai";
-			cachedUsage = usage;
-			cachedAt = Date.now();
-			return usage;
-		}
-
-		// Try Copilot
-		const copilotToken = loadCopilotToken();
-		if (copilotToken) {
-			const monthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
-			if (monthlyPercent !== undefined) {
-				const usage: ProviderUsage = {
-					providerName: "Copilot",
-					fiveHourPercent: 0,
-					fiveHourResetAt: null,
-					weeklyPercent: monthlyPercent,
-					weeklyResetAt: null,
-					copilotMonthlyPercent: monthlyPercent,
-				};
-				cachedUsage = usage;
-				cachedAt = Date.now();
-				return usage;
-			}
-		}
-
-		// No credentials for any provider
-		return null;
+		return usage;
 	} catch {
-		// Network error / timeout / parse error — fail gracefully.
 		return null;
 	}
 }

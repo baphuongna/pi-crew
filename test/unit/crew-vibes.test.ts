@@ -365,7 +365,7 @@ describe("provider-usage module", () => {
 
 	test("fetchProviderUsage returns null when no auth.json and no env token exist", async () => {
 		// tempHome has no ~/.pi/agent/auth.json and no provider env vars are set.
-		const usage = await fetchProviderUsage(0);
+		const usage = await fetchProviderUsage(0, "anthropic");
 		assert.equal(usage, null);
 	});
 
@@ -375,8 +375,8 @@ describe("provider-usage module", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = fn;
 		try {
-			const first = await fetchProviderUsage(); // default TTL = 5 min
-			const second = await fetchProviderUsage();
+			const first = await fetchProviderUsage(300000, "anthropic"); // default TTL = 5 min
+			const second = await fetchProviderUsage(300000, "anthropic");
 			assert.ok(first, "first call should return usage");
 			assert.equal(counter.calls, 1, "fetch invoked exactly once across two cached calls");
 			assert.equal(second, first, "cached result is the same object reference");
@@ -391,10 +391,10 @@ describe("provider-usage module", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = fn;
 		try {
-			await fetchProviderUsage();
+			await fetchProviderUsage(300000, "anthropic");
 			assert.equal(counter.calls, 1);
 			clearProviderUsageCache();
-			await fetchProviderUsage();
+			await fetchProviderUsage(300000, "anthropic");
 			assert.equal(counter.calls, 2, "cache clear triggers a second fetch");
 		} finally {
 			globalThis.fetch = originalFetch;
@@ -406,7 +406,7 @@ describe("provider-usage module", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = anthropicOkMock().fn;
 		try {
-			const usage = await fetchProviderUsage(0); // TTL=0 forces fetch
+			const usage = await fetchProviderUsage(0, "anthropic"); // TTL=0 forces fetch
 			assert.ok(usage, "expected parsed usage");
 			assert.equal(usage!.fiveHourPercent, 45.5);
 			assert.equal(usage!.weeklyPercent, 23);
@@ -421,7 +421,7 @@ describe("provider-usage module", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = makeFetchMock(() => new Response("Forbidden", { status: 403 })).fn;
 		try {
-			assert.equal(await fetchProviderUsage(0), null);
+			assert.equal(await fetchProviderUsage(0, "anthropic"), null);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
@@ -434,7 +434,7 @@ describe("provider-usage module", () => {
 			throw new Error("ECONNREFUSED");
 		}) as typeof fetch;
 		try {
-			assert.equal(await fetchProviderUsage(0), null);
+			assert.equal(await fetchProviderUsage(0, "anthropic"), null);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

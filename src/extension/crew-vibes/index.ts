@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type CrewVibesConfig, loadConfig, PROVIDER_STATUS_ID, saveConfig } from "./config.ts";
-import { fetchProviderUsage, clearProviderUsageCache } from "./provider-usage.ts";
+import { fetchProviderUsage, clearProviderUsageCache, providerSupportsQuota } from "./provider-usage.ts";
 import { intervalForSpeed } from "./figures.ts";
 import {
 	asCrewTheme,
@@ -50,6 +50,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	let capacityTimer: ReturnType<typeof setInterval> | undefined;
 	let providerTimer: ReturnType<typeof setInterval> | undefined;
 	let lastProviderText: string | undefined;
+	let currentProvider: string | undefined;
 
 	/** Strip ANSI codes to measure visible width. */
 	function visibleLen(text: string): number {
@@ -178,7 +179,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 				return;
 			}
 			try {
-				const usage = await fetchProviderUsage(config.capacity.providerRefreshMs);
+				const usage = await fetchProviderUsage(config.capacity.providerRefreshMs, currentProvider);
 				lastProviderText = renderProviderUsage(themeOf(ctx), usage);
 				// Re-render combined capacity + provider line
 				publishCapacity(ctx);
@@ -308,7 +309,11 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("model_select", (_event, ctx) => publishCapacity(ctx));
+	pi.on("model_select", (event, ctx) => {
+		currentProvider = (event as { model?: { provider?: string } }).model?.provider;
+		clearProviderUsageCache();
+		publishCapacity(ctx);
+	});
 	pi.on("session_compact", (_event, ctx) => publishCapacity(ctx));
 	pi.on("session_tree", (_event, ctx) => publishCapacity(ctx));
 

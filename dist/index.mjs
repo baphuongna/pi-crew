@@ -82056,61 +82056,54 @@ async function fetchMinimaxUsage(token) {
     weeklyResetAt: weeklyReset
   };
 }
-async function fetchProviderUsage(maxAgeMs = 3e5) {
+var QUOTA_PROVIDERS = /* @__PURE__ */ new Set(["anthropic", "minimax", "minimax-cn", "zai", "github-copilot"]);
+async function fetchForProvider(provider) {
+  switch (provider) {
+    case "anthropic": {
+      const token = loadAnthropicToken();
+      if (!token) return null;
+      const base = await fetchAnthropicUsage(token);
+      return { providerName: "Claude", ...base };
+    }
+    case "minimax":
+    case "minimax-cn": {
+      const token = loadMinimaxToken();
+      if (!token) return null;
+      return await fetchMinimaxUsage(token);
+    }
+    case "zai": {
+      const token = loadZaiToken();
+      if (!token) return null;
+      const usage = await fetchZaiUsage(token);
+      usage.providerName = "z.ai";
+      return usage;
+    }
+    case "github-copilot": {
+      const token = loadCopilotToken();
+      if (!token) return null;
+      const pct = await fetchCopilotMonthlyPercent(token);
+      if (pct === void 0) return null;
+      return { providerName: "Copilot", fiveHourPercent: 0, fiveHourResetAt: null, weeklyPercent: pct, weeklyResetAt: null, copilotMonthlyPercent: pct };
+    }
+    default:
+      return null;
+  }
+}
+async function fetchProviderUsage(maxAgeMs = 3e5, provider) {
+  if (!provider || !QUOTA_PROVIDERS.has(provider)) {
+    cachedUsage = null;
+    return null;
+  }
   if (cachedUsage !== null && Date.now() - cachedAt < maxAgeMs) {
     return cachedUsage;
   }
   try {
-    const anthropicToken = loadAnthropicToken();
-    if (anthropicToken) {
-      const base = await fetchAnthropicUsage(anthropicToken);
-      const usage = {
-        providerName: "Claude",
-        fiveHourPercent: base.fiveHourPercent,
-        fiveHourResetAt: base.fiveHourResetAt,
-        weeklyPercent: base.weeklyPercent,
-        weeklyResetAt: base.weeklyResetAt
-      };
+    const usage = await fetchForProvider(provider);
+    if (usage) {
       cachedUsage = usage;
       cachedAt = Date.now();
-      return usage;
     }
-    const minimaxToken = loadMinimaxToken();
-    if (minimaxToken) {
-      try {
-        const usage = await fetchMinimaxUsage(minimaxToken);
-        cachedUsage = usage;
-        cachedAt = Date.now();
-        return usage;
-      } catch {
-      }
-    }
-    const zaiToken = loadZaiToken();
-    if (zaiToken) {
-      const usage = await fetchZaiUsage(zaiToken);
-      usage.providerName = "z.ai";
-      cachedUsage = usage;
-      cachedAt = Date.now();
-      return usage;
-    }
-    const copilotToken = loadCopilotToken();
-    if (copilotToken) {
-      const monthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
-      if (monthlyPercent !== void 0) {
-        const usage = {
-          providerName: "Copilot",
-          fiveHourPercent: 0,
-          fiveHourResetAt: null,
-          weeklyPercent: monthlyPercent,
-          weeklyResetAt: null,
-          copilotMonthlyPercent: monthlyPercent
-        };
-        cachedUsage = usage;
-        cachedAt = Date.now();
-        return usage;
-      }
-    }
-    return null;
+    return usage;
   } catch {
     return null;
   }
@@ -82546,6 +82539,7 @@ function registerCrewVibes(pi) {
   let capacityTimer;
   let providerTimer;
   let lastProviderText;
+  let currentProvider;
   function visibleLen(text) {
     return text.replace(/\x1b\[[0-9;]*m/g, "").length;
   }
@@ -82653,7 +82647,7 @@ function registerCrewVibes(pi) {
         return;
       }
       try {
-        const usage = await fetchProviderUsage(config.capacity.providerRefreshMs);
+        const usage = await fetchProviderUsage(config.capacity.providerRefreshMs, currentProvider);
         lastProviderText = renderProviderUsage(themeOf(ctx), usage);
         publishCapacity(ctx);
       } catch {
@@ -82760,7 +82754,11 @@ function registerCrewVibes(pi) {
       ctx.ui.setWorkingMessage();
     }
   });
-  pi.on("model_select", (_event, ctx) => publishCapacity(ctx));
+  pi.on("model_select", (event, ctx) => {
+    currentProvider = event.model?.provider;
+    clearProviderUsageCache();
+    publishCapacity(ctx);
+  });
   pi.on("session_compact", (_event, ctx) => publishCapacity(ctx));
   pi.on("session_tree", (_event, ctx) => publishCapacity(ctx));
   pi.on("session_shutdown", (_event, ctx) => {
