@@ -81729,8 +81729,8 @@ function isWebTerminal() {
 
 // src/extension/crew-vibes/config.ts
 var SPEED_STATUS_ID = "pi-crew-speed";
-var CAPACITY_STATUS_ID = "pi-crew-capacity";
-var PROVIDER_STATUS_ID = "pi-crew-provider";
+var CAPACITY_STATUS_ID = "pi-crew-1-capacity";
+var PROVIDER_STATUS_ID = "pi-crew-2-provider";
 function resolveHome() {
   return process.env.PI_TEAMS_HOME?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
