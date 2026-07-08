@@ -3,11 +3,12 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
 /**
- * Detect whether the crew-vibes PUA font (U+E700..U+E70F) is installed.
- * Without it, the 16 runner-pose glyphs render as identical tofu boxes
- * and the animation appears frozen.  The result is cached at module load
- * — filesystem checks are cheap and the answer never changes within a
- * single process lifetime.
+ * Detect whether the crew-vibes PUA font (U+E700..U+E70F) file exists
+ * on disk.  This is a *best-effort* heuristic — file existence does NOT
+ * guarantee the terminal can render PUA glyphs (many terminals have their
+ * own font stacks).  For reliable animation, braille fallback frames are
+ * used by default; PUA frames are only activated when the user explicitly
+ * enables them via config (speed.indicatorStyle = "pua").
  */
 
 function fontPath(): string {
@@ -22,12 +23,12 @@ function fontPath(): string {
 	return "";
 }
 
-let _hasFont: boolean | null = null;
+let _hasFontFile: boolean | null = null;
 
-/** Returns true when the crew-vibes PUA font file is present. */
-export function hasCrewFont(): boolean {
-	if (_hasFont !== null) return _hasFont;
+/** Returns true when crew-vibes.ttf exists in the platform font directory. */
+export function hasCrewFontFile(): boolean {
+	if (_hasFontFile !== null) return _hasFontFile;
 	const p = fontPath();
-	_hasFont = p !== "" && existsSync(p);
-	return _hasFont;
+	_hasFontFile = p !== "" && existsSync(p);
+	return _hasFontFile;
 }

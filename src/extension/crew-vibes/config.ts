@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { hasCrewFontFile } from "./font-detect.ts";
 
 /**
  * Self-contained config for the crew-vibes module (speed + capacity meters).
@@ -75,6 +76,22 @@ export const DEFAULT_CONFIG: CrewVibesConfig = {
 		icons: ["", "", "", "", "", ""],
 	},
 };
+
+// Fallback capacity icons using standard Unicode characters that render
+// on any terminal without the crew-vibes PUA font.
+const FALLBACK_CAPACITY_ICONS: [string, string, string, string, string, string] = [
+	"\u25CB ", // ○ empty circle (lean)
+	"\u25D4 ", // ◔ circle with dot (chonking)
+	"\u25D1 ", // ◑ circle half filled (chonky)
+	"\u25CF ", // ● filled circle (big chonk)
+	"\u2B24 ", // ⬤ large filled circle (mega chonk)
+	"\u2B22 ", // ⬢ filled hexagon (oh lawd)
+];
+
+/** Return capacity icons: PUA glyphs when font is available, else fallback. */
+export function capacityIcons(): [string, string, string, string, string, string] {
+	return hasCrewFontFile() ? DEFAULT_CONFIG.capacity.icons : FALLBACK_CAPACITY_ICONS;
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};

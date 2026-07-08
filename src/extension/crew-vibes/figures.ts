@@ -1,19 +1,40 @@
 import type { SpeedConfig } from "./config.ts";
-import { hasCrewFont } from "./font-detect.ts";
 
 /**
  * Crew figures replacing the original cat glyphs from pi-speeed / pi-chonk.
- * Uses PUA glyphs (U+E700..U+E70F) from the bundled crew-vibes.ttf font;
- * run `npm run install:crew-font` or rely on the postinstall hook.
- * Without the font the glyphs render as tofu boxes.
+ *
+ * The working indicator uses braille spinner characters by default — the
+ * same characters pi uses for its built-in loading animation (loaders.ts
+ * DEFAULT_FRAMES).  These render on ANY terminal with basic Unicode support,
+ * no custom font required.
+ *
+ * PUA glyphs (U+E700..U+E70F) from the bundled crew-vibes.ttf font are
+ * available as an opt-in alternative (set speed.indicatorStyle = "pua" in
+ * config).  Requires the font to be installed via `npm run install:crew-font`
+ * AND a terminal that renders Private Use Area codepoints.
  */
 
-// Speed indicator: 16 runner poses stored as PUA glyphs in the bundled
-// crew-vibes.ttf (U+E700..U+E70F). Each frame is one glyph + a trailing
-// space (mirrors pi-speeed's RunCat layout) so the working indicator keeps
-// a constant 2-cell width across frames. Faster tok/s cycles frames faster
-// (see intervalForSpeed). Install the font via `npm run install:crew-font`
-// or the postinstall hook; without it the glyphs render as tofu boxes.
+// ── Braille spinner frames (default) ──────────────────────────────────
+// Same 10-frame cycle as pi's built-in DEFAULT_FRAMES in loaders.ts.
+// Each frame is a braille pattern (U+2800..U+28FF) + trailing space for
+// constant 2-cell width across frames.
+const BRAILLE_FRAMES: readonly string[] = [
+	"\u280B ", // ⠋ dots 1,4,5
+	"\u2819 ", // ⠙ dots 1,4
+	"\u2839 ", // ⠹ dots 1,4,5,6
+	"\u2838 ", // ⠸ dots 4,5,6
+	"\u283C ", // ⠼ dots 3,4,5,6
+	"\u2834 ", // ⠴ dots 3,5,6
+	"\u2826 ", // ⠦ dots 2,3,5,6
+	"\u2827 ", // ⠧ dots 1,2,3,5,6
+	"\u2807 ", // ⠇ dots 1,2,3
+	"\u280F ", // ⠏ dots 1,2,3,4
+] as const;
+
+// ── PUA runner frames (opt-in) ────────────────────────────────────────
+// 16 runner poses from the bundled crew-vibes.ttf font.  Only usable when
+// the font is installed AND the terminal renders PUA codepoints correctly.
+// Each frame is one glyph + trailing space for constant 2-cell width.
 const PUA_CREW_FRAMES: readonly string[] = [
 	"\uE700 ",
 	"\uE701 ",
@@ -33,34 +54,18 @@ const PUA_CREW_FRAMES: readonly string[] = [
 	"\uE70F ",
 ] as const;
 
-// Fallback frames using standard Unicode braille spinner — the same
-// characters pi uses for its built-in working indicator (see loaders.ts
-// DEFAULT_FRAMES).  Guaranteed to render on any terminal with Unicode
-// support, no custom font required.
-const BRAILLE_FALLBACK_FRAMES: readonly string[] = [
-	"\u280B ",
-	"\u2819 ",
-	"\u2839 ",
-	"\u2838 ",
-	"\u283C ",
-	"\u2834 ",
-	"\u2826 ",
-	"\u2827 ",
-	"\u2807 ",
-	"\u280F ",
-] as const;
-
-// Re-export PUA frames for direct consumers that don't need the font check.
-export const RUN_CREW_FRAMES = PUA_CREW_FRAMES;
-
 /**
- * Return the best available indicator frames.
- * Returns PUA glyphs when crew-vibes.ttf is installed, otherwise falls back
- * to standard Unicode block elements that render on any terminal.
+ * Return the indicator frames for the given style.
+ *
+ * - `"braille"` (default): standard Unicode braille spinner, works everywhere
+ * - `"pua"`: runner-pose glyphs from crew-vibes.ttf, requires font install
  */
-export function crewFrames(): readonly string[] {
-	return hasCrewFont() ? PUA_CREW_FRAMES : BRAILLE_FALLBACK_FRAMES;
+export function crewFrames(style: "braille" | "pua" = "braille"): readonly string[] {
+	return style === "pua" ? PUA_CREW_FRAMES : BRAILLE_FRAMES;
 }
+
+// Re-export PUA frames for backward compatibility and direct consumers.
+export const RUN_CREW_FRAMES = PUA_CREW_FRAMES;
 
 /**
  * Map a tok/s reading to a working-indicator frame interval in ms.

@@ -4,6 +4,7 @@ import {
 	CAPACITY_STATUS_ID,
 	type CapacityConfig,
 	type CrewVibesConfig,
+	capacityIcons,
 	SPEED_STATUS_ID,
 	type SpeedConfig,
 	type TokenDisplay,
@@ -79,9 +80,10 @@ function colorStage(theme: CrewTheme | undefined, index: number, levels: number,
 }
 
 export function renderCapacity(theme: CrewTheme | undefined, config: CapacityConfig, usage: CapacityUsage): string {
-	const levels = config.icons.length;
+	const icons = capacityIcons();
+	const levels = icons.length;
 	const index = capacityIndex(usage.percent, levels);
-	const icon = config.icons[index] ?? config.icons[0];
+	const icon = icons[index] ?? icons[0];
 	const label = config.labels[index] ?? config.labels[0];
 	const prefix = theme ? theme.fg("muted", formatCapacityPrefix(config, usage)) : formatCapacityPrefix(config, usage);
 	const coloredIcon = colorStage(theme, index, levels, icon);
