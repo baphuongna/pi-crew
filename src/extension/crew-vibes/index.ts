@@ -59,11 +59,13 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		return text.replace(/\x1b\[[0-9;]*m/g, "").length;
 	}
 
-	/** Left-align `left`, right-align `right` on the same line. */
+	/** Left-align `left`, right-align `right` on the same line.
+	 * Uses non-breaking space (U+00A0) for padding because pi's
+	 * sanitizeStatusText collapses regular spaces: / +/g → " ". */
 	function spreadLine(left: string, right: string): string {
 		const cols = process.stdout.columns || 120;
 		const padding = Math.max(2, cols - visibleLen(left) - visibleLen(right));
-		return left + " ".repeat(padding) + right;
+		return left + "\u00A0".repeat(padding) + right;
 	}
 
 	function themeOf(ctx: ExtensionContext) {

@@ -82548,7 +82548,7 @@ function registerCrewVibes(pi) {
   function spreadLine(left, right) {
     const cols = process.stdout.columns || 120;
     const padding = Math.max(2, cols - visibleLen(left) - visibleLen(right));
-    return left + " ".repeat(padding) + right;
+    return left + "\xA0".repeat(padding) + right;
   }
   function themeOf(ctx) {
     return asCrewTheme2(ctx.hasUI ? ctx.ui.theme : void 0);
