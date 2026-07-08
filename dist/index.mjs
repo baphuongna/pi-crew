@@ -82552,7 +82552,7 @@ function registerCrewVibes(pi) {
       return;
     }
     const capText = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
-    const combined = lastProviderText ? `${capText}     ${lastProviderText}` : capText;
+    const combined = lastProviderText ? `${capText}  \u2502  ${lastProviderText}` : capText;
     setCapacityStatus(ctx, config, combined);
   }
   function publishSpeedFooter(ctx, speed = footerAnimator.value()) {

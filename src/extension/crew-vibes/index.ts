@@ -66,7 +66,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		}
 		const capText = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
 		// Combine capacity + provider on one line with spacing
-		const combined = lastProviderText ? `${capText}     ${lastProviderText}` : capText;
+		const combined = lastProviderText ? `${capText}  \u2502  ${lastProviderText}` : capText;
 		setCapacityStatus(ctx, config, combined);
 	}
 

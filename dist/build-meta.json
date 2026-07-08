@@ -17218,7 +17218,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/index.ts": {
-      "bytes": 12608,
+      "bytes": 12613,
       "imports": [
         {
           "path": "src/extension/crew-vibes/config.ts",
@@ -18349,7 +18349,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6595864
+      "bytes": 6595870
     },
     "dist/index.mjs": {
       "imports": [
@@ -22010,7 +22010,7 @@
           "bytesInOutput": 935
         },
         "src/extension/crew-vibes/index.ts": {
-          "bytesInOutput": 10794
+          "bytesInOutput": 10799
         },
         "src/extension/cross-extension-rpc.ts": {
           "bytesInOutput": 8532
@@ -22046,7 +22046,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3145638
+      "bytes": 3145643
     }
   }
 }
