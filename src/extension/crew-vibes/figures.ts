@@ -15,22 +15,22 @@ import { isWebTerminal } from "./font-detect.ts";
  * AND a terminal that renders Private Use Area codepoints.
  */
 
-// ── Braille spinner frames (default) ──────────────────────────────────
-// Same 10-frame cycle as pi's built-in DEFAULT_FRAMES in loaders.ts.
-// Each frame is a braille pattern (U+2800..U+28FF) + trailing space for
-// constant 2-cell width across frames.
+// ── Braille spinner frames (web terminal fallback) ───────────────────
+// Standard Unicode braille spinner — same characters pi uses for its
+// built-in loading animation.  Renders on ANY terminal.
 const BRAILLE_FRAMES: readonly string[] = [
-	"\u280B ", // ⠋ dots 1,4,5
-	"\u2819 ", // ⠙ dots 1,4
-	"\u2839 ", // ⠹ dots 1,4,5,6
-	"\u2838 ", // ⠸ dots 4,5,6
-	"\u283C ", // ⠼ dots 3,4,5,6
-	"\u2834 ", // ⠴ dots 3,5,6
-	"\u2826 ", // ⠦ dots 2,3,5,6
-	"\u2827 ", // ⠧ dots 1,2,3,5,6
-	"\u2807 ", // ⠇ dots 1,2,3
-	"\u280F ", // ⠏ dots 1,2,3,4
+	"\u280B ", // ⠋
+	"\u2819 ", // ⠙
+	"\u2839 ", // ⠹
+	"\u2838 ", // ⠸
+	"\u283C ", // ⠼
+	"\u2834 ", // ⠴
+	"\u2826 ", // ⠦
+	"\u2827 ", // ⠧
+	"\u2807 ", // ⠇
+	"\u280F ", // ⠏
 ] as const;
+
 
 // ── PUA runner frames (opt-in) ────────────────────────────────────────
 // 16 runner poses from the bundled crew-vibes.ttf font.  Only usable when

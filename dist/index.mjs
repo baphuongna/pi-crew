@@ -81860,25 +81860,25 @@ function saveConfig(config) {
 // src/extension/crew-vibes/figures.ts
 var BRAILLE_FRAMES = [
   "\u280B ",
-  // ⠋ dots 1,4,5
+  // ⠋
   "\u2819 ",
-  // ⠙ dots 1,4
+  // ⠙
   "\u2839 ",
-  // ⠹ dots 1,4,5,6
+  // ⠹
   "\u2838 ",
-  // ⠸ dots 4,5,6
+  // ⠸
   "\u283C ",
-  // ⠼ dots 3,4,5,6
+  // ⠼
   "\u2834 ",
-  // ⠴ dots 3,5,6
+  // ⠴
   "\u2826 ",
-  // ⠦ dots 2,3,5,6
+  // ⠦
   "\u2827 ",
-  // ⠧ dots 1,2,3,5,6
+  // ⠧
   "\u2807 ",
-  // ⠇ dots 1,2,3
+  // ⠇
   "\u280F "
-  // ⠏ dots 1,2,3,4
+  // ⠏
 ];
 var PUA_CREW_FRAMES = [
   "\uE700 ",
