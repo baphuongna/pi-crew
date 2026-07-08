@@ -14,3 +14,17 @@
 When code is copied or substantially adapted from an MIT source, add the source path and license note here.
 
 Current scaffold status: no substantial source files have been copied verbatim; implementation is a fresh scaffold based on documented design lessons.
+
+## crew-vibes font assets
+
+- `assets/runner-spritesheet.png` and the 16 runner glyphs (U+E700..U+E70F) traced
+  from it in `assets/crew-vibes.ttf` are adapted from the RunCat sprite art of
+  `pi-speeed` by somus (MIT license, https://github.com/somus/pi-speeed), which
+  itself traces inspiration to `pi-runcat` by FredySandoval. The silhouettes are
+  re-traced (bitmap -> contour) into a new Private-Use-Area font; no font binary
+  was copied verbatim.
+- The token-speed engine in `src/extension/crew-vibes/speed.ts` is adapted from
+  `pi-speeed` (MIT license, https://github.com/somus/pi-speeed).
+- The capacity meter concept is adapted from `pi-chonk` by somus (MIT license,
+  https://github.com/somus/pi-chonk); the boat+crew figures (U+E710..U+E715) are
+  original vector drawings.

@@ -68,6 +68,7 @@ import { type PiCrewRpcHandle, registerPiCrewRpc } from "./cross-extension-rpc.t
 import { registerKnowledgeInjection } from "./knowledge-injection.ts";
 import { registerCrewMessageRenderers } from "./message-renderers.ts";
 import type { NotificationDescriptor } from "./notification-router.ts";
+import { registerCrewVibes } from "./crew-vibes/index.ts";
 import { runArtifactCleanup } from "./registration/artifact-cleanup.ts";
 import { registerTeamCommands } from "./registration/commands.ts";
 import { registerCompactionGuard } from "./registration/compaction-guard.ts";
@@ -1545,4 +1546,6 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	registerContextStatusInjection(pi, {
 		enabled: loadConfig(process.cwd()).config.reliability?.ambientStatusInjection !== false,
 	});
+
+	registerCrewVibes(pi);
 }
