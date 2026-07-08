@@ -82259,7 +82259,6 @@ var CatWidget = class {
     if (this.intervalId) return;
     this.intervalId = setInterval(() => {
       this.frameIndex = (this.frameIndex + 1) % CAT_FRAME_COUNT;
-      this.cachedLines = null;
     }, this.intervalMs);
   }
   stop() {

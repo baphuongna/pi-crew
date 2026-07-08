@@ -17197,7 +17197,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/cat-widget.ts": {
-      "bytes": 1425,
+      "bytes": 1377,
       "imports": [
         {
           "path": "src/extension/crew-vibes/cat-frames.ts",
@@ -18334,7 +18334,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6573474
+      "bytes": 6573406
     },
     "dist/index.mjs": {
       "imports": [
@@ -21977,7 +21977,7 @@
           "bytesInOutput": 935
         },
         "src/extension/crew-vibes/cat-widget.ts": {
-          "bytesInOutput": 943
+          "bytesInOutput": 912
         },
         "src/extension/crew-vibes/index.ts": {
           "bytesInOutput": 9560
@@ -22016,7 +22016,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3135819
+      "bytes": 3135788
     }
   }
 }

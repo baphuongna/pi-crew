@@ -18,7 +18,6 @@ export class CatWidget {
 		if (this.intervalId) return;
 		this.intervalId = setInterval(() => {
 			this.frameIndex = (this.frameIndex + 1) % CAT_FRAME_COUNT;
-			this.cachedLines = null; // invalidate cache
 		}, this.intervalMs);
 	}
 
