@@ -60,7 +60,7 @@ const PUA_CREW_FRAMES: readonly string[] = [
  * - `"braille"` (default): standard Unicode braille spinner, works everywhere
  * - `"pua"`: runner-pose glyphs from crew-vibes.ttf, requires font install
  */
-export function crewFrames(style: "braille" | "pua" = "braille"): readonly string[] {
+export function crewFrames(style: "braille" | "pua" = "pua"): readonly string[] {
 	return style === "pua" ? PUA_CREW_FRAMES : BRAILLE_FRAMES;
 }
 

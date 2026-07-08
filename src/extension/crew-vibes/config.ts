@@ -92,7 +92,7 @@ const FALLBACK_CAPACITY_ICONS: [string, string, string, string, string, string] 
  * PUA glyphs (U+E710..U+E715) require crew-vibes.ttf AND terminal PUA
  * support — many terminals cannot render them even with the font installed. */
 export function capacityIcons(): [string, string, string, string, string, string] {
-	return FALLBACK_CAPACITY_ICONS;
+	return hasCrewFontFile() ? DEFAULT_CONFIG.capacity.icons : FALLBACK_CAPACITY_ICONS;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
