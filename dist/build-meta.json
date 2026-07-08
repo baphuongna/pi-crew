@@ -17139,7 +17139,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/config.ts": {
-      "bytes": 6714,
+      "bytes": 6722,
       "imports": [
         {
           "path": "node:fs",
@@ -18323,7 +18323,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6570934
+      "bytes": 6570942
     },
     "dist/index.mjs": {
       "imports": [
@@ -21948,7 +21948,7 @@
           "bytesInOutput": 1204
         },
         "src/extension/crew-vibes/config.ts": {
-          "bytesInOutput": 4927
+          "bytesInOutput": 4935
         },
         "src/extension/crew-vibes/font-detect.ts": {
           "bytesInOutput": 1467
@@ -22002,7 +22002,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3134761
+      "bytes": 3134769
     }
   }
 }

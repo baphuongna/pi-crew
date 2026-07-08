@@ -81757,7 +81757,7 @@ var DEFAULT_CONFIG2 = {
     tokenDisplay: "tokens",
     showLabel: true,
     refreshIntervalMs: 2e3,
-    labels: ["Solo", "Duo", "Squad", "Crew", "Full deck", "All hands"],
+    labels: ["Orbit", "Cruise", "Warp", "Black Hole", "Supernova", "Big Bang"],
     icons: ["\uE710", "\uE711", "\uE712", "\uE713", "\uE714", "\uE715"]
   }
 };

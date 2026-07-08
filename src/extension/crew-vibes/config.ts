@@ -72,7 +72,7 @@ export const DEFAULT_CONFIG: CrewVibesConfig = {
 		tokenDisplay: "tokens",
 		showLabel: true,
 		refreshIntervalMs: 2000,
-		labels: ["Solo", "Duo", "Squad", "Crew", "Full deck", "All hands"],
+		labels: ["Orbit", "Cruise", "Warp", "Black Hole", "Supernova", "Big Bang"],
 		icons: ["", "", "", "", "", ""],
 	},
 };
