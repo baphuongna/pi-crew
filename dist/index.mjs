@@ -81729,8 +81729,8 @@ function isWebTerminal() {
 
 // src/extension/crew-vibes/config.ts
 var SPEED_STATUS_ID = "pi-crew-speed";
-var CAPACITY_STATUS_ID = "pi-crew-1-capacity";
-var PROVIDER_STATUS_ID = "pi-crew-2-provider";
+var CAPACITY_STATUS_ID = "pi-crew-bar";
+var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
   return process.env.PI_TEAMS_HOME?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
@@ -82268,14 +82268,6 @@ function renderProviderUsage(theme, usage) {
   }
   return parts.join(" ");
 }
-function setProviderStatus(ctx, config, text) {
-  if (!ctx?.hasUI) return;
-  if (!config.enabled || !config.capacity.providerUsage) {
-    ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
-    return;
-  }
-  ctx.ui.setStatus(PROVIDER_STATUS_ID, text);
-}
 
 // src/extension/crew-vibes/speed.ts
 var COMPACTION_THRESHOLD = 5e3;
@@ -82548,6 +82540,7 @@ function registerCrewVibes(pi) {
   let footerTimer;
   let capacityTimer;
   let providerTimer;
+  let lastProviderText;
   let catFrameIndex = 0;
   function themeOf(ctx) {
     return asCrewTheme2(ctx.hasUI ? ctx.ui.theme : void 0);
@@ -82558,8 +82551,9 @@ function registerCrewVibes(pi) {
       setCapacityStatus(ctx, config, void 0);
       return;
     }
-    const text = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
-    setCapacityStatus(ctx, config, text);
+    const capText = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
+    const combined = lastProviderText ? `${capText}     ${lastProviderText}` : capText;
+    setCapacityStatus(ctx, config, combined);
   }
   function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
     if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
@@ -82652,10 +82646,11 @@ function registerCrewVibes(pi) {
       }
       try {
         const usage = await fetchProviderUsage(config.capacity.providerRefreshMs);
-        const text = renderProviderUsage(themeOf(ctx), usage);
-        setProviderStatus(ctx, config, text);
+        lastProviderText = renderProviderUsage(themeOf(ctx), usage);
+        publishCapacity(ctx);
       } catch {
-        setProviderStatus(ctx, config, void 0);
+        lastProviderText = void 0;
+        publishCapacity(ctx);
       }
     }
     tick();

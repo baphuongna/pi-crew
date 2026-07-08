@@ -51,6 +51,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	let footerTimer: ReturnType<typeof setInterval> | undefined;
 	let capacityTimer: ReturnType<typeof setInterval> | undefined;
 	let providerTimer: ReturnType<typeof setInterval> | undefined;
+	let lastProviderText: string | undefined;
 	let catFrameIndex = 0;
 
 	function themeOf(ctx: ExtensionContext) {
@@ -63,8 +64,10 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 			setCapacityStatus(ctx, config, undefined);
 			return;
 		}
-		const text = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
-		setCapacityStatus(ctx, config, text);
+		const capText = renderCapacity(themeOf(ctx), config.capacity, getCapacityUsage(ctx));
+		// Combine capacity + provider on one line with spacing
+		const combined = lastProviderText ? `${capText}     ${lastProviderText}` : capText;
+		setCapacityStatus(ctx, config, combined);
 	}
 
 	function publishSpeedFooter(ctx: ExtensionContext, speed = footerAnimator.value()): void {
@@ -170,11 +173,13 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 			}
 			try {
 				const usage = await fetchProviderUsage(config.capacity.providerRefreshMs);
-				const text = renderProviderUsage(themeOf(ctx), usage);
-				setProviderStatus(ctx, config, text);
+				lastProviderText = renderProviderUsage(themeOf(ctx), usage);
+				// Re-render combined capacity + provider line
+				publishCapacity(ctx);
 			} catch {
 				// Never crash on provider fetch failure
-				setProviderStatus(ctx, config, undefined);
+				lastProviderText = undefined;
+				publishCapacity(ctx);
 			}
 		}
 
