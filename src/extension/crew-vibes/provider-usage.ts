@@ -50,6 +50,22 @@ export function loadAnthropicToken(): string | undefined {
 	}
 }
 
+/** Load the z.ai API key from env or auth.json. */
+export function loadZaiToken(): string | undefined {
+	const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
+	if (envKey) return envKey;
+	try {
+		const data = JSON.parse(readFileSync(piAuthPath(), "utf8")) as {
+			"z-ai"?: { access?: string; key?: string };
+			zai?: { access?: string; key?: string };
+		};
+		const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
+		return typeof key === "string" && key.length > 0 ? key : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Copilot host entry keys used by the legacy GitHub Copilot CLI. */
 type CopilotHostEntry = {
 	oauth_token?: string;
@@ -179,6 +195,57 @@ async function fetchCopilotMonthlyPercent(token: string): Promise<number | undef
 	return Math.max(0, 100 - percentRemaining);
 }
 
+/** z.ai quota limit response shape. */
+type ZaiLimit = {
+	type?: string;
+	percentage?: number;
+	nextResetTime?: string;
+};
+type ZaiUsageResponse = {
+	success?: boolean;
+	code?: number;
+	msg?: string;
+	data?: { limits?: ZaiLimit[] };
+};
+
+async function fetchZaiUsage(token: string): Promise<ProviderUsage> {
+	const data = await withTimeout(10000, async (signal) => {
+		const res = await fetch("https://api.z.ai/api/monitor/usage/quota/limit", {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/json",
+			},
+			signal,
+		});
+		if (!res.ok) throw new Error(`z.ai usage HTTP ${res.status}`);
+		return (await res.json()) as ZaiUsageResponse;
+	});
+	if (!data.success || data.code !== 200) throw new Error(data.msg || "z.ai API error");
+
+	const limits = data.data?.limits ?? [];
+	let tokensPercent = 0;
+	let monthlyPercent = 0;
+	let resetAt: string | null = null;
+
+	for (const limit of limits) {
+		const pct = limit.percentage ?? 0;
+		if (limit.type === "TOKENS_LIMIT") {
+			tokensPercent = pct;
+			resetAt = limit.nextResetTime ?? resetAt;
+		} else if (limit.type === "TIME_LIMIT") {
+			monthlyPercent = pct;
+			resetAt = limit.nextResetTime ?? resetAt;
+		}
+	}
+
+	return {
+		fiveHourPercent: tokensPercent,
+		weeklyPercent: monthlyPercent,
+		resetAt,
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Cache + public entry point
 // ---------------------------------------------------------------------------
@@ -195,8 +262,9 @@ export function clearProviderUsageCache(): void {
 /**
  * Fetch provider rate-limit usage, caching the result for `maxAgeMs`.
  *
- * Returns `null` when credentials are absent, the network fails, or the
- * response cannot be parsed — never throws.
+ * Tries providers in order: Anthropic → z.ai → Copilot.
+ * Returns the first one that has credentials + responds successfully.
+ * Returns `null` when no credentials exist or all fetches fail — never throws.
  */
 export async function fetchProviderUsage(maxAgeMs = 300000): Promise<ProviderUsage | null> {
 	// Serve fresh-enough cache without hitting the network.
@@ -205,35 +273,48 @@ export async function fetchProviderUsage(maxAgeMs = 300000): Promise<ProviderUsa
 	}
 
 	try {
+		// Try Anthropic first
 		const anthropicToken = loadAnthropicToken();
-		if (!anthropicToken) {
-			// No Anthropic credentials — nothing to show (headless safe).
-			return null;
+		if (anthropicToken) {
+			const base = await fetchAnthropicUsage(anthropicToken);
+			const usage: ProviderUsage = {
+				fiveHourPercent: base.fiveHourPercent,
+				weeklyPercent: base.weeklyPercent,
+				resetAt: base.resetAt,
+			};
+			cachedUsage = usage;
+			cachedAt = Date.now();
+			return usage;
 		}
 
-		const base = await fetchAnthropicUsage(anthropicToken);
+		// Try z.ai
+		const zaiToken = loadZaiToken();
+		if (zaiToken) {
+			const usage = await fetchZaiUsage(zaiToken);
+			cachedUsage = usage;
+			cachedAt = Date.now();
+			return usage;
+		}
 
-		// Copilot is secondary / optional — never let it break the result.
-		let copilotMonthlyPercent: number | undefined;
-		try {
-			const copilotToken = loadCopilotToken();
-			if (copilotToken) {
-				copilotMonthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
+		// Try Copilot
+		const copilotToken = loadCopilotToken();
+		if (copilotToken) {
+			const monthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
+			if (monthlyPercent !== undefined) {
+				const usage: ProviderUsage = {
+					fiveHourPercent: 0,
+					weeklyPercent: monthlyPercent,
+					resetAt: null,
+					copilotMonthlyPercent: monthlyPercent,
+				};
+				cachedUsage = usage;
+				cachedAt = Date.now();
+				return usage;
 			}
-		} catch {
-			// Copilot fetch is best-effort
 		}
 
-		const usage: ProviderUsage = {
-			fiveHourPercent: base.fiveHourPercent,
-			weeklyPercent: base.weeklyPercent,
-			resetAt: base.resetAt,
-			...(copilotMonthlyPercent !== undefined ? { copilotMonthlyPercent } : {}),
-		};
-
-		cachedUsage = usage;
-		cachedAt = Date.now();
-		return usage;
+		// No credentials for any provider
+		return null;
 	} catch {
 		// Network error / timeout / parse error — fail gracefully.
 		return null;

@@ -17160,7 +17160,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/provider-usage.ts": {
-      "bytes": 8021,
+      "bytes": 10223,
       "imports": [
         {
           "path": "node:fs",
@@ -18349,7 +18349,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6589417
+      "bytes": 6593141
     },
     "dist/index.mjs": {
       "imports": [
@@ -21995,7 +21995,7 @@
           "bytesInOutput": 1467
         },
         "src/extension/crew-vibes/provider-usage.ts": {
-          "bytesInOutput": 4861
+          "bytesInOutput": 6703
         },
         "src/extension/crew-vibes/figures.ts": {
           "bytesInOutput": 1218
@@ -22046,7 +22046,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3142676
+      "bytes": 3144518
     }
   }
 }

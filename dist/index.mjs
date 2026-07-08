@@ -81885,6 +81885,17 @@ function loadAnthropicToken() {
     return void 0;
   }
 }
+function loadZaiToken() {
+  const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
+  if (envKey) return envKey;
+  try {
+    const data2 = JSON.parse(readFileSync76(piAuthPath(), "utf8"));
+    const key = data2["z-ai"]?.access || data2["z-ai"]?.key || data2.zai?.access || data2.zai?.key;
+    return typeof key === "string" && key.length > 0 ? key : void 0;
+  } catch {
+    return void 0;
+  }
+}
 var COPILOT_TOKEN_KEYS = [
   "oauth_token",
   "user_token",
@@ -81972,6 +81983,40 @@ async function fetchCopilotMonthlyPercent(token) {
   if (typeof percentRemaining !== "number") return void 0;
   return Math.max(0, 100 - percentRemaining);
 }
+async function fetchZaiUsage(token) {
+  const data2 = await withTimeout(1e4, async (signal) => {
+    const res = await fetch("https://api.z.ai/api/monitor/usage/quota/limit", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json"
+      },
+      signal
+    });
+    if (!res.ok) throw new Error(`z.ai usage HTTP ${res.status}`);
+    return await res.json();
+  });
+  if (!data2.success || data2.code !== 200) throw new Error(data2.msg || "z.ai API error");
+  const limits = data2.data?.limits ?? [];
+  let tokensPercent = 0;
+  let monthlyPercent = 0;
+  let resetAt = null;
+  for (const limit of limits) {
+    const pct = limit.percentage ?? 0;
+    if (limit.type === "TOKENS_LIMIT") {
+      tokensPercent = pct;
+      resetAt = limit.nextResetTime ?? resetAt;
+    } else if (limit.type === "TIME_LIMIT") {
+      monthlyPercent = pct;
+      resetAt = limit.nextResetTime ?? resetAt;
+    }
+  }
+  return {
+    fiveHourPercent: tokensPercent,
+    weeklyPercent: monthlyPercent,
+    resetAt
+  };
+}
 var cachedUsage = null;
 var cachedAt = 0;
 function clearProviderUsageCache() {
@@ -81984,27 +82029,40 @@ async function fetchProviderUsage(maxAgeMs = 3e5) {
   }
   try {
     const anthropicToken = loadAnthropicToken();
-    if (!anthropicToken) {
-      return null;
+    if (anthropicToken) {
+      const base = await fetchAnthropicUsage(anthropicToken);
+      const usage = {
+        fiveHourPercent: base.fiveHourPercent,
+        weeklyPercent: base.weeklyPercent,
+        resetAt: base.resetAt
+      };
+      cachedUsage = usage;
+      cachedAt = Date.now();
+      return usage;
     }
-    const base = await fetchAnthropicUsage(anthropicToken);
-    let copilotMonthlyPercent;
-    try {
-      const copilotToken = loadCopilotToken();
-      if (copilotToken) {
-        copilotMonthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
+    const zaiToken = loadZaiToken();
+    if (zaiToken) {
+      const usage = await fetchZaiUsage(zaiToken);
+      cachedUsage = usage;
+      cachedAt = Date.now();
+      return usage;
+    }
+    const copilotToken = loadCopilotToken();
+    if (copilotToken) {
+      const monthlyPercent = await fetchCopilotMonthlyPercent(copilotToken);
+      if (monthlyPercent !== void 0) {
+        const usage = {
+          fiveHourPercent: 0,
+          weeklyPercent: monthlyPercent,
+          resetAt: null,
+          copilotMonthlyPercent: monthlyPercent
+        };
+        cachedUsage = usage;
+        cachedAt = Date.now();
+        return usage;
       }
-    } catch {
     }
-    const usage = {
-      fiveHourPercent: base.fiveHourPercent,
-      weeklyPercent: base.weeklyPercent,
-      resetAt: base.resetAt,
-      ...copilotMonthlyPercent !== void 0 ? { copilotMonthlyPercent } : {}
-    };
-    cachedUsage = usage;
-    cachedAt = Date.now();
-    return usage;
+    return null;
   } catch {
     return null;
   }
