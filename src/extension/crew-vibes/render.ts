@@ -3,6 +3,7 @@ import type { CrewTheme } from "../../ui/theme-adapter.ts";
 import {
 	CAPACITY_STATUS_ID,
 	type CapacityConfig,
+	CREW_VIBES_WIDGET_KEY,
 	type CrewVibesConfig,
 	capacityIcons,
 	PROVIDER_STATUS_ID,
@@ -113,8 +114,7 @@ export function setCapacityStatus(ctx: ExtensionContext, config: CrewVibesConfig
 export function clearVibesStatus(ctx: ExtensionContext): void {
 	if (!ctx?.hasUI) return;
 	ctx.ui.setStatus(SPEED_STATUS_ID, undefined);
-	ctx.ui.setStatus(CAPACITY_STATUS_ID, undefined);
-	ctx.ui.setStatus(PROVIDER_STATUS_ID, undefined);
+	ctx.ui.setWidget(CREW_VIBES_WIDGET_KEY, undefined);
 	if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
 	if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
 }
@@ -201,6 +201,26 @@ export function setProviderStatus(ctx: ExtensionContext, config: CrewVibesConfig
 		return;
 	}
 	ctx.ui.setStatus(PROVIDER_STATUS_ID, text);
+}
+
+/** Render capacity + provider quota as a 2-line widget below the editor.
+ * setWidget uses `wrapTextWithAnsi` per line (no truncation, no "..."),
+ * so each line keeps its full content even when narrow. */
+export function setCrewVibesWidget(
+	ctx: ExtensionContext,
+	config: CrewVibesConfig,
+	capText: string | undefined,
+	quotaText: string | undefined,
+): void {
+	if (!ctx?.hasUI) return;
+	if (!config.enabled) {
+		ctx.ui.setWidget(CREW_VIBES_WIDGET_KEY, undefined);
+		return;
+	}
+	const lines: string[] = [];
+	if (capText) lines.push(capText);
+	if (quotaText) lines.push(quotaText);
+	ctx.ui.setWidget(CREW_VIBES_WIDGET_KEY, lines.length ? lines : undefined, { placement: "belowEditor" });
 }
 
 export { asCrewTheme };
