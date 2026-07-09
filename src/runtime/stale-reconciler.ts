@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
+import { atomicWriteJson } from "../state/atomic-write.ts";
 import { saveRunManifest } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
@@ -67,8 +68,14 @@ function checkResultFile(manifest: TeamRunManifest, tasks: TeamTaskState[]): { f
 		);
 	if (allTerminal) {
 		// All tasks are terminal but manifest status was not updated — repair it.
+		// Derive the run status from task outcomes instead of blindly marking
+		// "completed": a run where every task failed/cancelled is NOT a success.
+		const hasFailed = tasks.some((t) => t.status === "failed");
+		const onlyCancelledOrSkipped = tasks.every(
+			(t) => t.status === "cancelled" || t.status === "skipped",
+		);
+		manifest.status = hasFailed ? "failed" : onlyCancelledOrSkipped ? "cancelled" : "completed";
 		// Persist manifest status change immediately to make checkResultFile self-contained.
-		manifest.status = "completed";
 		saveRunManifest(manifest);
 		// Sync agent records even when tasks are already terminal
 		// (e.g., a previous reconcile fixed tasks but crashed before updating agents)
@@ -492,8 +499,8 @@ export function reconcileOrphanedTempWorkspaces(
 						const tasks: TeamTaskState[] = JSON.parse(fs.readFileSync(tasksPath, "utf-8"));
 						const result = reconcileStaleRun(manifest, tasks, now);
 						if (result.repaired && result.repairedTasks) {
-							// Persist repaired tasks
-							fs.writeFileSync(tasksPath, JSON.stringify(result.repairedTasks, null, 2));
+							// Persist repaired tasks (atomic — temp+rename to survive mid-write crash)
+							atomicWriteJson(tasksPath, result.repairedTasks);
 							// Update manifest status
 							const updated = {
 								...manifest,
@@ -501,7 +508,7 @@ export function reconcileOrphanedTempWorkspaces(
 								updatedAt: new Date(now).toISOString(),
 								summary: `Stale run reconciled: ${result.detail}`,
 							};
-							fs.writeFileSync(manifestPath, JSON.stringify(updated, null, 2));
+							atomicWriteJson(manifestPath, updated);
 							// Update agent records
 							for (const task of result.repairedTasks) {
 								try {

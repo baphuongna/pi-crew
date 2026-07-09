@@ -47,6 +47,46 @@ describe("reconcileStaleRun", () => {
 		assert.equal(result.repaired, false);
 	});
 
+	it("marks run failed (not completed) when all tasks failed (C2 regression)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const failedTask: TeamTaskState = {
+			...runningTask,
+			status: "failed",
+			finishedAt: new Date().toISOString(),
+		};
+		const result = reconcileStaleRun(manifest, [failedTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "failed");
+	});
+
+	it("marks run failed when a mix of failed + completed tasks exists (C2 regression)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const failedTask: TeamTaskState = {
+			...runningTask,
+			id: "task-fail",
+			status: "failed",
+			finishedAt: new Date().toISOString(),
+		};
+		const result = reconcileStaleRun(manifest, [completedTask, failedTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "failed");
+	});
+
+	it("marks run cancelled when all tasks are cancelled/skipped (C2 regression)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const cancelledTask: TeamTaskState = { ...runningTask, status: "cancelled" };
+		const result = reconcileStaleRun(manifest, [cancelledTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "cancelled");
+	});
+
+	it("marks run completed only when tasks succeeded (C2 regression)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const result = reconcileStaleRun(manifest, [completedTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "completed");
+	});
+
 	// Regression: PR #32 / gustavo-pelissaro — a run blocked on human plan
 	// approval must never be stale-repaired or marked failed, even if its
 	// owning session died or its async PID is no longer live.
