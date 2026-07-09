@@ -10,8 +10,7 @@ import { hasCrewFontFile, isWebTerminal } from "./font-detect.ts";
 
 export const SPEED_STATUS_ID = "pi-crew-speed";
 export const CAPACITY_STATUS_ID = "pi-crew-bar";
-export const PROVIDER_STATUS_ID = "pi-crew-quota";
-export const CREW_VIBES_WIDGET_KEY = "pi-crew-status";
+export const PROVIDER_STATUS_ID = "pi-crew-bar";
 
 function resolveHome(): string {
 	return process.env.PI_TEAMS_HOME?.trim() || process.env.HOME || process.env.USERPROFILE || "";

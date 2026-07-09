@@ -12,7 +12,7 @@ import {
 	renderProviderUsage,
 	renderSpeedFooter,
 	renderWorkingMessage,
-	setCrewVibesWidget,
+	setCapacityStatus,
 	setSpeedStatus,
 } from "./render.ts";
 import { SpeedAnimator, SpeedTracker } from "./speed.ts";
@@ -96,25 +96,47 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		publishBoth(ctx);
 	}
 
-	/** Publish provider quota. Currently a no-op since both lines are pushed
-	 * together in publishBoth() — kept as a hook so the provider timer can
-	 * trigger a refresh without waiting for the next capacity tick. */
+	/** Publish provider quota. Calls publishBoth() so both lines refresh together. */
 	function publishProviderQuota(ctx: ExtensionContext): void {
 		publishBoth(ctx);
 	}
 
-	/** Push capacity + provider quota as a 2-line widget. setWidget uses
-	 * `wrapTextWithAnsi` per line (no truncate, no "..."), so each line
-	 * keeps its full content regardless of terminal width. */
+	/** Render capacity + provider quota on ONE status line (joined).
+	 * Uses non-breaking space (U+00A0) padding to right-align quota.
+	 * Pi joins all extension statuses with single ASCII space, sorted by
+	 * key alphabetically, so we only control OUR row's layout.
+	 * Other extension statuses (pi-crew widget, pi-sub-bar) prepend their
+	 * own text and may overflow cols — but U+00A0 padding + visibleLen
+	 * computation keeps quota fully visible as long as cap+quota fits cols. */
 	function publishBoth(ctx: ExtensionContext): void {
 		if (!ctx?.hasUI) return;
 		if (!config.enabled) {
-			setCrewVibesWidget(ctx, config, undefined, undefined);
+			setCapacityStatus(ctx, config, undefined);
 			return;
 		}
 		const capText = config.capacity.enabled ? lastCapacityText : undefined;
 		const quotaText = config.capacity.providerUsage ? lastProviderText : undefined;
-		setCrewVibesWidget(ctx, config, capText, quotaText);
+		if (!capText && !quotaText) {
+			setCapacityStatus(ctx, config, undefined);
+			return;
+		}
+		if (!quotaText) {
+			setCapacityStatus(ctx, config, capText);
+			return;
+		}
+		if (!capText) {
+			setCapacityStatus(ctx, config, quotaText);
+			return;
+		}
+		const cols = process.stdout.columns || 120;
+		const capWidth = visibleLen(capText);
+		const quotaWidth = visibleLen(quotaText);
+		// Pad quota so its right edge lands at column `cols`. Other extension
+		// statuses may still overflow (causing pi to truncate), but our row
+		// keeps quota fully visible because pad shrinks dynamically.
+		const pad = Math.max(0, cols - quotaWidth - capWidth - 1);
+		const padded = capText + "\u00A0".repeat(pad) + quotaText;
+		setCapacityStatus(ctx, config, padded);
 	}
 
 	function publishSpeedFooter(ctx: ExtensionContext, speed = footerAnimator.value()): void {
