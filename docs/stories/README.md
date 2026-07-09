@@ -13,7 +13,9 @@ Story-sized work packets for pi-crew development.
 
 ## Active Stories
 
-No active stories. Pick from backlog or create new ones via feature intake.
+| ID | Title | Lane | Status |
+|----|-------|------|--------|
+| US-DEPS-major-upgrade | Nâng cấp deps major (diff 5→9, TypeScript 7) | normal | planned |
 
 ## Completed Stories (from review rounds)
 
