@@ -15,20 +15,17 @@ PI_MEMORY.md
 test/bench/results.json
 .bench/
 *.cpuprofile
-dist/
 .crew/state/
 
 # Team run artifacts
 artifacts/
 vscode-extension/
 .crew/worktrees/
-.crew/worktrees/
 
-/.crew/
 /.crew
 !.crew/artifacts/
 !.crew/graphs/
 !.crew/artifacts/.gitkeep
-!.crew/graphs/.gitkeepfallow-audit-report/
+!.crew/graphs/.gitkeep
 live-test-research.md
 fallow-audit-report/
