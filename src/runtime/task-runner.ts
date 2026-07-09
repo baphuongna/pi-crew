@@ -449,6 +449,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					runId: manifest.runId,
 					agentId: task.id,
 					artifactsRoot: manifest.artifactsRoot,
+					steeringFile: `${manifest.artifactsRoot}/steering/${task.id}.jsonl`,
 					onSpawn: (pid) => {
 						try {
 							({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));

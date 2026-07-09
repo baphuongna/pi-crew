@@ -498,6 +498,17 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 	}
 	task.pendingSteers.push(message);
 	saveRunTasks(loaded.manifest, loaded.tasks);
+	// Real-time steer delivery: write to steering file so child can read immediately
+	try {
+		const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
+		fs.mkdirSync(steeringDir, { recursive: true });
+		fs.appendFileSync(
+			`${steeringDir}/${taskId}.jsonl`,
+			JSON.stringify({ type: "steer", message, ts: new Date().toISOString() }) + "\n",
+		);
+	} catch {
+		// Best-effort: file write failure doesn't block the steer from pending array
+	}
 	appendEvent(loaded.manifest.eventsPath, {
 		type: "task.steer_queued",
 		runId,

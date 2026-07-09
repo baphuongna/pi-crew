@@ -238,6 +238,8 @@ export interface ChildPiRunInput {
 	excludeContextBash?: boolean;
 	/** pi session ID for session naming (aligns with pi-crew run ID) */
 	sessionId?: string;
+	/** Path to steering JSONL file for real-time steer injection. */
+	steeringFile?: string;
 	/** Run ID for cleanup tracking */
 	runId?: string;
 	/** Agent ID for cleanup tracking */
@@ -888,6 +890,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 		skillPaths: input.skillPaths,
 		role: input.role,
 	});
+	// Pass steering file path to child for real-time steer injection
+	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
 	const spawnSpec = getPiSpawnCommand(built.args);
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {

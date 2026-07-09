@@ -16490,7 +16490,9 @@ function buildPiWorkerArgs(input) {
       PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills ? "1" : "0",
       PI_TEAMS_DEPTH: String(parentDepth + 1),
       PI_TEAMS_MAX_DEPTH: String(maxDepth),
-      PI_TEAMS_ROLE: input.agent.name
+      PI_TEAMS_ROLE: input.agent.name,
+      // maxTokens cap for background workers — prompt-runtime reads this to cap API output
+      ...input.agent.maxTokens ? { PI_CREW_MAX_OUTPUT_TOKENS: String(input.agent.maxTokens) } : {}
     },
     tempDir
   };
@@ -18713,6 +18715,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     skillPaths: input.skillPaths,
     role: input.role
   });
+  if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
   const spawnSpec = getPiSpawnCommand(built.args);
   try {
     return await new Promise((resolve21) => {
@@ -58134,6 +58137,7 @@ async function runTeamTask(input) {
           runId: manifest.runId,
           agentId: task.id,
           artifactsRoot: manifest.artifactsRoot,
+          steeringFile: `${manifest.artifactsRoot}/steering/${task.id}.jsonl`,
           onSpawn: (pid) => {
             try {
               ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
@@ -71196,6 +71200,15 @@ function handleSteer(params, ctx) {
   }
   task.pendingSteers.push(message);
   saveRunTasks(loaded.manifest, loaded.tasks);
+  try {
+    const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
+    fs91.mkdirSync(steeringDir, { recursive: true });
+    fs91.appendFileSync(
+      `${steeringDir}/${taskId}.jsonl`,
+      JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
+    );
+  } catch {
+  }
   appendEvent(loaded.manifest.eventsPath, {
     type: "task.steer_queued",
     runId,
@@ -81684,7 +81697,7 @@ function registerCrewShortcuts(pi) {
 var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 
 // src/extension/crew-vibes/config.ts
-import { existsSync as existsSync76, mkdirSync as mkdirSync44, readFileSync as readFileSync75, writeFileSync as writeFileSync33 } from "node:fs";
+import { existsSync as existsSync76, mkdirSync as mkdirSync45, readFileSync as readFileSync75, writeFileSync as writeFileSync33 } from "node:fs";
 import { dirname as dirname39, join as join76 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
@@ -81857,7 +81870,7 @@ function loadConfig2() {
 }
 function saveConfig(config) {
   const path81 = configPath2();
-  mkdirSync44(dirname39(path81), { recursive: true });
+  mkdirSync45(dirname39(path81), { recursive: true });
   writeFileSync33(path81, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }

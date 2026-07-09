@@ -7077,7 +7077,7 @@
       "format": "esm"
     },
     "src/agents/agent-config.ts": {
-      "bytes": 8253,
+      "bytes": 8365,
       "imports": [
         {
           "path": "src/config/role-tools.ts",
@@ -7088,7 +7088,7 @@
       "format": "esm"
     },
     "src/runtime/pi-args.ts": {
-      "bytes": 27311,
+      "bytes": 27501,
       "imports": [
         {
           "path": "node:fs",
@@ -7341,7 +7341,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 65598,
+      "bytes": 65835,
       "imports": [
         {
           "path": "node:child_process",
@@ -14815,7 +14815,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 54735,
+      "bytes": 54809,
       "imports": [
         {
           "path": "node:fs",
@@ -15975,7 +15975,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 40639,
+      "bytes": 41087,
       "imports": [
         {
           "path": "node:fs",
@@ -18334,7 +18334,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6597889
+      "bytes": 6599432
     },
     "dist/index.mjs": {
       "imports": [
@@ -20642,7 +20642,7 @@
           "bytesInOutput": 1291
         },
         "src/runtime/pi-args.ts": {
-          "bytesInOutput": 14908
+          "bytesInOutput": 15102
         },
         "src/runtime/runtime-warmup.ts": {
           "bytesInOutput": 1998
@@ -20705,7 +20705,7 @@
           "bytesInOutput": 1642
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 45261
+          "bytesInOutput": 45341
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 953
@@ -21710,7 +21710,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 42475
+          "bytesInOutput": 42554
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -21788,7 +21788,7 @@
           "bytesInOutput": 34875
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 35293
+          "bytesInOutput": 35616
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4137
@@ -22028,7 +22028,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3146257
+      "bytes": 3146933
     }
   }
 }

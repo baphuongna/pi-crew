@@ -360,6 +360,8 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 			PI_TEAMS_DEPTH: String(parentDepth + 1),
 			PI_TEAMS_MAX_DEPTH: String(maxDepth),
 			PI_TEAMS_ROLE: input.agent.name,
+			// maxTokens cap for background workers — prompt-runtime reads this to cap API output
+			...(input.agent.maxTokens ? { PI_CREW_MAX_OUTPUT_TOKENS: String(input.agent.maxTokens) } : {}),
 		},
 		tempDir,
 	};
