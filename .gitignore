@@ -29,3 +29,5 @@ vscode-extension/
 !.crew/graphs/.gitkeep
 live-test-research.md
 fallow-audit-report/
+
+/.crew/
