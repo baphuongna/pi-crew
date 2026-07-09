@@ -304,6 +304,37 @@ function persistSequence(eventsPath: string, seq: number): void {
 	}
 }
 
+// B7: single in-process monotonic sequence counter per eventsPath. The three
+// append paths — sync appendEvent (withEventLogLockSync file lock), buffered
+// flush (asyncLocks promise chain), and direct appendEventAsync (asyncQueues
+// promise chain) — use DIFFERENT locks, so the old read-sidecar / compute /
+// persist-sidecar sequence logic in nextSequence() raced ACROSS paths and
+// produced duplicate sequence numbers (observed live: distinct events sharing
+// a seq; no data loss — only the counter collided). A single in-process counter
+// makes assignment atomic (JS is single-threaded); persistSequence() keeps the
+// sidecar durable for crash recovery across restarts.
+const seqCounters = new Map<string, number>();
+
+/** Atomically reserve the next sequence number for `eventsPath`. */
+function reserveSequence(eventsPath: string): number {
+	let last = seqCounters.get(eventsPath);
+	if (last === undefined) {
+		// Seed once from the authoritative source (sidecar / cache / file scan).
+		// nextSequence() returns the NEXT seq to assign, so the last assigned is one less.
+		last = nextSequence(eventsPath) - 1;
+	}
+	const next = last + 1;
+	seqCounters.set(eventsPath, next);
+	return next;
+}
+
+/** Keep the in-process counter monotonic w.r.t. an explicitly-provided seq
+ *  (e.g. baseMetadata.seq) so a later auto-assigned seq never collides with it. */
+function advanceSequenceCounter(eventsPath: string, seq: number): void {
+	const last = seqCounters.get(eventsPath);
+	if (last === undefined || seq > last) seqCounters.set(eventsPath, seq);
+}
+
 export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" | "taskId" | "data">): string {
 	return createHash("sha256")
 		.update(
@@ -403,6 +434,9 @@ async function withEventLogLockAsync(eventsPath: string, fn: () => Promise<void>
 /** Reset event log mode (for testing only). */
 export function resetEventLogMode(): void {
 	asyncQueues.clear();
+	// B7: clear in-process sequence counters alongside async state so tests
+	// don't leak seq state between runs.
+	seqCounters.clear();
 }
 
 /**
@@ -446,8 +480,9 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		let seq: number;
 		if (baseMetadata?.seq !== undefined) {
 			seq = baseMetadata.seq;
+			advanceSequenceCounter(eventsPath, seq);
 		} else {
-			seq = nextSequence(eventsPath);
+			seq = reserveSequence(eventsPath);
 			// NOTE: We do NOT call persistSequence here. It will be called AFTER
 			// successful appendFile below to ensure sidecar is only updated when
 			// the event is actually written.
@@ -668,7 +703,8 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	// in between — every call would see the same file state and return the same
 	// seq, breaking the "unique monotonic seq" contract. The cache update +
 	// persistSequence at the end refreshes the sidecar to the last assigned seq.
-	const startingSeq = queue[0]?.event.metadata?.seq ?? nextSequence(eventsPath);
+	// B7: use reserveSequence for atomic seq assignment across all paths.
+	const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath);
 	let nextSeq = startingSeq;
 	const finalized: { item: BufferedAppend; line: string; fullEvent: TeamEvent }[] = [];
 	let lastSeq = 0;
@@ -703,6 +739,8 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 		finalized.push({ item, line: `${JSON.stringify(redactSecrets(fullEvent))}\n`, fullEvent });
 		lastSeq = seq;
 	}
+	// B7: advance counter past the entire batch so next reserveSequence returns the correct value.
+	advanceSequenceCounter(eventsPath, lastSeq);
 
 	// Phase 2: single appendFileSync + single fsync + single persistSequence.
 	// Before this fix, each event in the batch triggered its own fsync, which
@@ -755,8 +793,12 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): TeamEvent {
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
 	const baseMetadata = event.metadata;
+	// B7: use reserveSequence for atomic seq assignment across all paths.
+	const explicitSeq = baseMetadata?.seq;
+	const seq = explicitSeq ?? reserveSequence(eventsPath);
+	if (explicitSeq !== undefined) advanceSequenceCounter(eventsPath, seq);
 	let metadata: TeamEventMetadata = {
-		seq: baseMetadata?.seq ?? nextSequence(eventsPath),
+		seq,
 		provenance: baseMetadata?.provenance ?? "team_runner",
 		...(baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {}),
 		...(baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {}),
@@ -823,7 +865,8 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 	} catch (error) {
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 	}
-	const seq = fullEvent.metadata?.seq ?? 0;
+	// seq is already computed above via reserveSequence — reuse it for persist/cache.
+	// const seq declaration removed (B7: seq is now computed before metadata object).
 	if (!skippedDueToSize) {
 		fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");
 		// F3a: skip data fsync for non-terminal events. We still call `persistSequence`
