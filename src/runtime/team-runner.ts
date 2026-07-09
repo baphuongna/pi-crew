@@ -757,22 +757,17 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		stopTeamHeartbeat();
 		// P1: Catch unhandled errors — ensure manifest/tasks/agents are terminal so they don't stay "running" forever.
 		const message = error instanceof Error ? error.message : String(error);
-		// FIX (2026-07-02): drop withRunLock here entirely.
-		// Previously this catch path acquired withRunLock to reload manifest+tasks
-		// from disk (best-effort with in-memory fallback). But the closeout path at
-		// line ~1596 ALSO holds the same run lock for its final save — when a late
-		// failure fires during closeout (e.g. async hook error after run.completed),
-		// this catch path can hit `Run 'run.lock' is locked by another operation.`
-		// and the error propagates as "Unhandled error in team runner" after the
-		// run has actually completed. Lock acquisition here is unnecessary —
-		// the closeout writes through to disk before this catch fires (or after —
-		// either is fine), and the in-memory state already contains the latest
-		// post-completion manifest/tasks. We use in-memory state unconditionally.
-		// The stale-data concern is mitigated by the dispatcher having re-read disk
-		// state under lock at line ~1364 for each iteration; the manifest+task
-		// objects in the calling scope are already post-merge.
-		const freshManifest = manifest;
-		const freshTasks = refreshTaskGraphQueues(input.tasks);
+		// Re-read the latest persisted state from disk instead of trusting
+		// input.tasks (the ORIGINAL start snapshot, still all "queued" — it is never
+		// mutated by executeTeamRunCore). A late failure during closeout would
+		// otherwise map every task to "failed", overwriting tasks that already
+		// completed during the run. loadRunManifestById is the established
+		// fresh-read pattern in this file (see ~line 1269); it is best-effort with
+		// no lock, consistent with the lock-drop decision below. If the disk read
+		// fails, fall back to input.tasks so the run is still marked terminal.
+		const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+		const freshManifest = fresh?.manifest ?? manifest;
+		const freshTasks = refreshTaskGraphQueues(fresh?.tasks ?? input.tasks);
 		const failedAt = new Date().toISOString();
 		const tasks = freshTasks.map((task) =>
 			task.status === "running" || task.status === "queued" || task.status === "waiting"
