@@ -68,7 +68,11 @@ export function scanConflictLines(lines: readonly string[], firstLineNumber: num
 	} | null = null;
 
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
+		// Strip a trailing CR so CRLF files (Windows) match markers/separators.
+		// The raw line (with CR) is never needed here; content is collected from
+		// the normalized line so storage stays consistent across LF/CRLF inputs.
+		const rawLine = lines[i];
+		const line = rawLine.charCodeAt(rawLine.length - 1) === 13 /* \r */ ? rawLine.slice(0, -1) : rawLine;
 		const ln = firstLineNumber + i;
 
 		const oursLabel = matchMarker(line, OURS_PREFIX);
@@ -339,7 +343,9 @@ export function parseConflictUri(raw: string): ParsedConflictUri | null {
  * in the file that shift line numbers don't break resolution.
  */
 export function spliceConflict(originalText: string, entry: ConflictEntry, replacement: string): string {
-	const lines = originalText.split("\n");
+	// Preserve the original line ending (CRLF or LF) for a byte-accurate round-trip.
+	const eol = originalText.includes("\r\n") ? "\r\n" : "\n";
+	const lines = originalText.split(/\r?\n/);
 	const expected = buildRecordedRegion(entry);
 	const match = locateRegion(lines, expected, entry.startLine - 1);
 	if (!match) {
@@ -351,7 +357,7 @@ export function spliceConflict(originalText: string, entry: ConflictEntry, repla
 	const trimmed = normalizeTrailingNewline(replacement);
 	const replacementLines = trimmed.split("\n");
 	const next = [...lines.slice(0, match.startIdx), ...replacementLines, ...lines.slice(match.endIdx + 1)];
-	return next.join("\n");
+	return next.join(eol);
 }
 
 /** Reconstruct the recorded marker block as it should appear in the file. */

@@ -41,6 +41,38 @@ describe("scanConflictLines", () => {
 		assert.strictEqual(blocks[0].theirsLabel, "feature");
 	});
 
+	it("detects basic two-way conflict block in CRLF (Windows) files", () => {
+		// Lines carry a trailing CR, mirroring text.split("\n") on a CRLF file.
+		const lines = [
+			"line before\r",
+			"<<<<<<< HEAD\r",
+			"our change\r",
+			"=======\r",
+			"their change\r",
+			">>>>>>> feature\r",
+			"line after\r",
+		];
+		const blocks = scanConflictLines(lines, 1);
+		assert.strictEqual(blocks.length, 1, "separator/marker with trailing CR must still match");
+		assert.strictEqual(blocks[0].startLine, 2);
+		assert.strictEqual(blocks[0].separatorLine, 4);
+		assert.strictEqual(blocks[0].endLine, 6);
+		assert.deepStrictEqual(blocks[0].oursLines, ["our change"]);
+		assert.deepStrictEqual(blocks[0].theirsLines, ["their change"]);
+		assert.strictEqual(blocks[0].oursLabel, "HEAD");
+		assert.strictEqual(blocks[0].theirsLabel, "feature");
+	});
+
+	it("detects CRLF conflict with bare (label-less) markers", () => {
+		const lines = ["<<<<<<<\r", "ours content\r", "=======\r", "theirs content\r", ">>>>>>>\r"];
+		const blocks = scanConflictLines(lines, 1);
+		assert.strictEqual(blocks.length, 1);
+		assert.strictEqual(blocks[0].oursLabel, undefined);
+		assert.strictEqual(blocks[0].theirsLabel, undefined);
+		assert.deepStrictEqual(blocks[0].oursLines, ["ours content"]);
+		assert.deepStrictEqual(blocks[0].theirsLines, ["theirs content"]);
+	});
+
 	it("detects conflict with no labels", () => {
 		const lines = ["<<<<<<<", "ours content", "=======", "theirs content", ">>>>>>>"];
 		const blocks = scanConflictLines(lines, 1);
@@ -374,6 +406,24 @@ describe("spliceConflict", () => {
 		};
 		const result = spliceConflict(original, entry, "resolved");
 		assert.strictEqual(result, "resolved\n");
+	});
+
+	it("preserves CRLF line endings when splicing", () => {
+		const original = "start\r\n<<<<<<< HEAD\r\nours\r\n=======\r\ntheirs\r\n>>>>>>> feat\r\nend";
+		const entry = {
+			id: 1,
+			absolutePath: "/a.txt",
+			displayPath: "a.txt",
+			startLine: 2,
+			separatorLine: 4,
+			endLine: 6,
+			oursLabel: "HEAD",
+			theirsLabel: "feat",
+			oursLines: ["ours"],
+			theirsLines: ["theirs"],
+		};
+		const result = spliceConflict(original, entry, "resolved");
+		assert.strictEqual(result, "start\r\nresolved\r\nend");
 	});
 
 	it("throws when block not found", () => {
