@@ -73,3 +73,20 @@ test("hard timer closes chatty streams", async () => {
 	assert.ok(child.stdout.destroyed);
 	assert.ok(child.stderr.destroyed);
 });
+
+test("arms immediately when attached AFTER exit (regression: in-exit-handler attach, B4)", async () => {
+	// Production attaches the guard from INSIDE the child 'exit' handler, so by
+	// attach time the child has already exited (exitCode set) and a freshly
+	// registered 'exit' listener would NOT fire for the in-flight event. Without
+	// the fix the guard never arms -> hang if a descendant holds the pipes open.
+	const child = new MockPipedChild();
+	(child as unknown as { exitCode: number | null }).exitCode = 0;
+	attachPostExitStdioGuard(child as unknown as Parameters<typeof attachPostExitStdioGuard>[0], {
+		idleMs: 200,
+		hardMs: 8000,
+	});
+	// Intentionally do NOT emit "exit" — production cannot either.
+	await sleep(600);
+	assert.ok(child.stdout.destroyed, "guard must arm immediately when attached post-exit");
+	assert.ok(child.stderr.destroyed);
+});

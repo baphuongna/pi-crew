@@ -9,6 +9,9 @@ export interface ChildWithPipedStdio {
 	stdout: ChildProcess["stdout"];
 	stderr: ChildProcess["stderr"];
 	on: ChildProcess["on"];
+	/** Set by Node after the child exits. Used to detect a post-exit attach. */
+	exitCode?: number | null;
+	signalCode?: NodeJS.Signals | null;
 }
 
 export interface ChildWithKill {
@@ -72,13 +75,28 @@ export function attachPostExitStdioGuard(child: ChildWithPipedStdio, options: Po
 		stderrEnded = true;
 		if (stdoutEnded && stderrEnded) clearTimers();
 	});
-	child.on("exit", () => {
-		exited = true;
-		armIdleTimer();
+
+	const armHardTimer = (): void => {
 		if (hardTimer) return;
 		hardTimer = setTimeout(destroyUnendedStdio, hardMs);
 		hardTimer.unref();
-	});
+	};
+	const onExit = (): void => {
+		exited = true;
+		armIdleTimer();
+		armHardTimer();
+	};
+	// The guard is normally attached from INSIDE the child's 'exit' handler
+	// (child-pi.ts), i.e. AFTER the child has already exited. A listener
+	// registered with child.on('exit') during the in-flight 'exit' dispatch
+	// will NOT fire (Node clones the listener array before iterating), so
+	// relying on it alone makes this guard a no-op and can hang the run if a
+	// descendant process holds the stdio pipes open. When a prior exit is
+	// detectable (exitCode/signalCode already set by Node), arm immediately.
+	if (child.exitCode != null || child.signalCode != null) {
+		onExit();
+	}
+	child.on("exit", onExit);
 	child.on("close", clearTimers);
 	child.on("error", clearTimers);
 
