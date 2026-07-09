@@ -551,6 +551,65 @@ export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPat
 	}
 }
 
+/**
+ * Snapshot uncommitted work in a reused worktree to a recovery artifact BEFORE
+ * discarding it, so the data is never silently lost. Captures tracked changes
+ * (git diff HEAD) and inlines untracked file contents so the work can be
+ * recovered via `git apply` / manual restore. Best-effort: a snapshot failure
+ * only logs (it must not block the clean-slate reuse flow).
+ */
+function snapshotDirtyWorktree(
+	manifest: TeamRunManifest,
+	task: TeamTaskState,
+	worktreePath: string,
+	dirtyStatus: string,
+): void {
+	try {
+		const parts: string[] = [
+			`# Worktree recovery snapshot`,
+			`runId: ${manifest.runId}  taskId: ${task.id}  path: ${worktreePath}`,
+			`capturedAt: ${new Date().toISOString()}`,
+			"",
+		];
+		let trackedDiff = "";
+		try {
+			trackedDiff = git(worktreePath, ["diff", "HEAD"]);
+		} catch {
+			trackedDiff = "";
+		}
+		if (trackedDiff.trim()) {
+			parts.push("## Tracked changes (`git diff HEAD`)", "```diff", trackedDiff, "```", "");
+		}
+		for (const line of dirtyStatus.split("\n")) {
+			if (!line.startsWith("?? ")) continue;
+			// Strip the "?? " prefix and surrounding git quotes.
+			const rel = line.slice(3).replace(/^"|"$/g, "");
+			if (!rel) continue;
+			try {
+				const abs = path.join(worktreePath, rel);
+				if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) continue;
+				const content = fs.readFileSync(abs, "utf-8");
+				parts.push(`## Untracked file: ${rel}`, "```", content, "```", "");
+			} catch {
+				/* skip unreadable/unstat-able entry */
+			}
+		}
+		writeArtifact(manifest.artifactsRoot, {
+			kind: "diff",
+			relativePath: `worktree-recovery/${task.id}-${Date.now()}.md`,
+			content: parts.join("\n"),
+			producer: "worktree-manager.snapshotDirtyWorktree",
+			retention: "run",
+		});
+	} catch (err) {
+		logInternalError(
+			"worktree.recovery.snapshotFailed",
+			err instanceof Error ? err : new Error(String(err)),
+			`runId=${manifest.runId}, taskId=${task.id}`,
+		);
+	}
+}
+
 export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskState, stepSeedPaths?: string[]): PreparedTaskWorkspace {
 	if (manifest.workspaceMode !== "worktree") return { cwd: task.cwd };
 	const repoRoot = findGitRoot(manifest.cwd);
@@ -626,10 +685,12 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		// Check for uncommitted changes from previous run before reusing
 		const dirtyStatus = git(worktreePath, ["status", "--porcelain"]);
 		if (dirtyStatus.trim()) {
-			// Discard uncommitted changes to ensure clean slate for new task
+			// Snapshot uncommitted work to a recovery artifact BEFORE discarding, so the
+			// previous run's changes are never silently destroyed on reuse.
+			snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
 			logInternalError(
 				"worktree.reused.dirty",
-				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath}`),
+				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
 				`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 			);
 			git(worktreePath, ["checkout", "--", "."]);
@@ -766,9 +827,10 @@ export async function prepareTaskWorkspaceAsync(
 		}
 		const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain"]);
 		if (dirtyStatus.trim()) {
+			snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
 			logInternalError(
 				"worktree.reused.dirty",
-				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath}`),
+				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
 				`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 			);
 			await gitAsync(worktreePath, ["checkout", "--", "."]);
