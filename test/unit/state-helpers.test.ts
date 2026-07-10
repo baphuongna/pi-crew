@@ -80,9 +80,19 @@ test("persistSingleTaskUpdate: happy path — updates task status and persists t
 			assert.ok(returned, "updated task should be in result");
 			assert.equal(returned.status, "completed");
 
-			// Verify it actually landed on disk
+			// Verify it actually landed on disk. Retry briefly on Windows
+			// (CI) where the file system can take a few ms to surface a
+			// newly-written manifest. Linux/macOS resolve on the first read.
 			__test__clearManifestCache();
-			const reloaded = loadRunManifestById(cwd, created.manifest.runId);
+			let reloaded: ReturnType<typeof loadRunManifestById>;
+			for (let attempt = 0; attempt < 10; attempt++) {
+				reloaded = loadRunManifestById(cwd, created.manifest.runId);
+				if (reloaded) break;
+				const end = Date.now() + 25;
+				while (Date.now() < end) {
+					/* brief spin for Windows AV-scan window */
+				}
+			}
 			assert.ok(reloaded, "manifest should reload");
 			const diskTask = reloaded!.tasks.find((t) => t.id === originalTask.id);
 			assert.ok(diskTask, "task should exist on disk");
