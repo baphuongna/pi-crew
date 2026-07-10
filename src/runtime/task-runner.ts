@@ -8,6 +8,7 @@ import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync, appendEventBuffered, appendEventFireAndForget } from "../state/event-log.ts";
 import { saveRunManifest } from "../state/state-store.ts";
+import { withRunLockSync } from "../state/locks.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import type {
 	ArtifactDescriptor,
@@ -1194,8 +1195,16 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				...(patchArtifact ? [patchArtifact] : []),
 			],
 		};
-		saveRunManifest(manifest);
-		tasks = persistSingleTaskUpdate(manifest, tasks, task);
+		// NEW-C3: persist manifest + tasks atomically under the run lock. Without this,
+		// the unlocked saveRunManifest here races with the team-runner batch merge path
+		// (which writes the manifest under withRunLock) — a parallel batch could read a
+		// stale manifest and overwrite this task's freshly-written artifacts, silently
+		// losing them. persistSingleTaskUpdate is re-entrance-safe (runLockHeldByUs guard),
+		// so nesting it inside this lock is a no-op re-acquire, not a deadlock.
+		withRunLockSync(manifest, () => {
+			saveRunManifest(manifest);
+			tasks = persistSingleTaskUpdate(manifest, tasks, task);
+		});
 		upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
 		// Execute task_result hook before emitting terminal event
 		const hookReport = await executeHook("task_result", {
