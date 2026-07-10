@@ -75,6 +75,64 @@ export function renderOutputSchemaBlock(outputSchema: TaskOutputSchema): string 
 	return lines.join("\n");
 }
 
+/**
+ * Expensive async sub-results that compose the stable prefix.
+ * These are cached per (cwd, step.task, runId) so parallel siblings
+ * in the same batch reuse them instead of recomputing.
+ */
+export interface StableComponents {
+	treeBlock: string;
+	suggestedFilesBlock: string;
+	knowledgeFragment: string;
+}
+
+const stableComponentCache = new Map<string, StableComponents>();
+
+function stablePrefixCacheKey(task: TeamTaskState, step: WorkflowStep, manifest: TeamRunManifest): string {
+	return `${task.cwd}|${step.task}|${manifest.runId}`;
+}
+
+/**
+ * Clear the stable prefix cache. Called at run end so the module-level cache
+ * (keyed by runId) does not grow unbounded across runs in a long-lived session.
+ * Safe to call at any time; the next compute re-populates lazily.
+ */
+export function clearStablePrefixCache(): void {
+	stableComponentCache.clear();
+}
+
+/**
+ * Compute (or return cached) expensive async sub-results that compose
+ * the stable prefix: workspace tree, file retrieval, knowledge fragment.
+ * Parallel siblings with the same cwd/step/run reuse the cached result.
+ */
+export async function computeStablePrefixComponents(
+	manifest: TeamRunManifest,
+	step: WorkflowStep,
+	task: TeamTaskState,
+	_agent?: AgentConfig,
+): Promise<StableComponents> {
+	const cacheKey = stablePrefixCacheKey(task, step, manifest);
+	const cached = stableComponentCache.get(cacheKey);
+	if (cached) return cached;
+
+	const tree = await buildWorkspaceTree(task.cwd);
+	const treeBlock = tree.rendered ? `# Workspace Structure\n${tree.rendered}` : "";
+
+	const retrieval = await runRetrievalCycle(step.task, manifest.goal, task.cwd);
+	const suggestedFilesBlock = renderSuggestedFilesSection(retrieval);
+
+	const knowledgeFragment = buildKnowledgeFragment(task.cwd, {
+		goal: manifest.goal,
+		taskText: step.task,
+		role: step.role,
+	});
+
+	const components: StableComponents = { treeBlock, suggestedFilesBlock, knowledgeFragment };
+	stableComponentCache.set(cacheKey, components);
+	return components;
+}
+
 export interface RenderedTaskPrompt {
 	/** Stable sections that rarely change between tasks of the same role/cwd. */
 	stablePrefix: string;
@@ -90,23 +148,16 @@ export async function renderTaskPrompt(
 	task: TeamTaskState,
 	agent?: AgentConfig,
 	skillBlock = "",
+	precomputedStableComponents?: StableComponents,
 ): Promise<RenderedTaskPrompt> {
 	const memoryBlock = agent?.memory
 		? buildMemoryBlock(agent.name, agent.memory, task.cwd, Boolean(agent.tools?.some((tool) => tool === "write" || tool === "edit")))
 		: "";
 
-	// Build workspace tree for stable context
-	const tree = await buildWorkspaceTree(task.cwd);
-	const treeBlock = tree.rendered ? `# Workspace Structure\n${tree.rendered}` : "";
-
-	// M3: run iterative file-retrieval AFTER the workspace tree is
-	// assembled and BEFORE the dynamic suffix is built, so the suggested
-	// files section lands in the stable prefix (next to the tree) and
-	// is visible to the worker before they start on the task. Never
-	// throws — the orchestrator falls back to in-memory heuristic when
-	// ripgrep is not installed.
-	const retrieval = await runRetrievalCycle(step.task, manifest.goal, task.cwd);
-	const suggestedFilesBlock = renderSuggestedFilesSection(retrieval);
+	// Use precomputed or cached stable components when available, avoiding
+	// redundant workspace tree, file retrieval, and knowledge fragment
+	// computation for parallel siblings in the same batch.
+	const stableComponents = precomputedStableComponents ?? (await computeStablePrefixComponents(manifest, step, task, agent));
 
 	// Stable prefix: role instructions, coordination, workspace tree — rarely changes
 	const stablePrefix = [
@@ -131,20 +182,16 @@ export async function renderTaskPrompt(
 		"",
 		coordinationBridgeInstructions(task),
 		"",
-		treeBlock,
+		stableComponents.treeBlock,
 		"",
-		suggestedFilesBlock,
+		stableComponents.suggestedFilesBlock,
 		"",
 		toolGuidanceBlock(agent),
 		"",
 		// O4: project knowledge (.crew/knowledge.md) — workers don't load the
 		// pi-crew extension (spawned with --no-extensions), so before_agent_start
 		// never fires for them. Inject here so every worker sees project knowledge.
-		buildKnowledgeFragment(task.cwd, {
-			goal: manifest.goal,
-			taskText: step.task,
-			role: step.role,
-		}),
+		stableComponents.knowledgeFragment,
 	]
 		.filter(Boolean)
 		.join("\n");

@@ -135,6 +135,8 @@ interface CachedSkillMarkdown {
 	path: string;
 	source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents";
 	content: string;
+	/** Pre-computed compacted body (frontmatter stripped + truncated). Cached to avoid re-compaction on every render. */
+	compacted: string;
 	mtimeMs: number;
 	size: number;
 }
@@ -173,6 +175,7 @@ function readSkillMarkdown(
 			path: string;
 			source: "project" | "package" | "project-pi" | "user-pi" | "project-agents" | "user-agents";
 			content: string;
+			compacted: string;
 	  }
 	| undefined {
 	if (!isValidSkillName(name)) return undefined;
@@ -188,10 +191,12 @@ function readSkillMarkdown(
 			if (fs.lstatSync(contained).isSymbolicLink()) continue;
 			const filePath = resolveRealContainedPath(entry.root, relative);
 			const stat = fs.statSync(filePath);
+			const rawContent = fs.readFileSync(filePath, "utf-8");
 			return rememberSkill(cacheKey, {
 				path: filePath,
 				source: entry.source,
-				content: fs.readFileSync(filePath, "utf-8"),
+				content: rawContent,
+				compacted: compactSkillContent(rawContent),
 				mtimeMs: stat.mtimeMs,
 				size: stat.size,
 			});
@@ -296,7 +301,7 @@ export function renderSkillInstructions(
 		]
 			.filter(Boolean)
 			.join("\n");
-		const rawContent = compactSkillContent(loaded.content);
+		const rawContent = loaded.compacted;
 		// Wrap skill content with provenance markers to help LLMs distinguish skill instructions
 		const wrappedContent = `<!-- skill: ${safeName} -->\n${rawContent}\n<!-- end-skill: ${safeName} -->`;
 		const section = `${header}\n\n${wrappedContent}`;

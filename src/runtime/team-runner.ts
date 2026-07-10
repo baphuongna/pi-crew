@@ -44,6 +44,7 @@ import { recordsForMaterializedTasks } from "./task-display.ts";
 import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./task-graph.ts";
 import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
+import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask } from "./task-runner.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { clearTrackedTaskUsage } from "./usage-tracker.ts";
@@ -830,6 +831,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// still has its own flush for M7 backward compat — flushEventLogBuffer
 		// is idempotent on an empty queue.
 		await flushEventLogBuffer();
+		// NEW-M1: clear the stable-prefix cache (keyed by runId) so it does not
+		// grow unbounded across runs in a long-lived session.
+		clearStablePrefixCache();
 	}
 }
 
@@ -1195,6 +1199,26 @@ async function executeTeamRunCore(
 			batchTasks.map((t) => t.id),
 			coalescedGroups,
 		);
+
+		// NEW-M1: Pre-warm stable prefix cache for one representative task
+		// per unique cwd. Parallel siblings with the same cwd/step reuse
+		// the cached workspace tree, file retrieval, and knowledge fragment
+		// instead of recomputing them independently (~200-800ms per batch).
+		if (batchTasks.length > 1) {
+			const seenCwds = new Set<string>();
+			await Promise.all(
+				batchTasks
+					.filter((task) => {
+						if (seenCwds.has(task.cwd)) return false;
+						seenCwds.add(task.cwd);
+						return true;
+					})
+					.map((task) => {
+						const step = findStep(workflow, task);
+						return computeStablePrefixComponents(manifest, step, task);
+					}),
+			);
+		}
 
 		const results = await mapConcurrent(dispatchUnits, concurrency.selectedCount, async (unit) => {
 			// M6 real dispatch path: single worker for N tasks.

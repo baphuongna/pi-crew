@@ -158,6 +158,10 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		} as TeamTaskState;
 		let tasks = updateTask(input.tasks, task);
 		const runtimeKind = input.taskRuntimeOverride ?? input.runtimeKind ?? (input.executeWorkers ? "child-process" : "scaffold");
+		// A1-F7: Pre-compute whether yield-event collection is needed. For child-process
+		// workers (the common case) this is always false, so we skip allocating/accumulating
+		// collectedJsonEvents entirely — eliminating ~10KB memory waste per task.
+		const collectYieldEvents = runtimeKind !== "child-process" && (input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled);
 		// FIX: Check signal before persisting state — if cancelled, skip the write.
 		if (input.signal?.aborted) {
 			const cancelReason = cancellationReasonFromSignal(input.signal);
@@ -293,7 +297,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		let finalStdout = "";
 		let transcriptPath: string | undefined;
 		let terminalEvidence: OperationTerminalEvidence[] = [];
-		const collectedJsonEvents: Record<string, unknown>[] = [];
+		const collectedJsonEvents: Record<string, unknown>[] | undefined = collectYieldEvents ? [] : undefined;
 
 		let startupEvidence = createStartupEvidence({
 			command: runtimeKind === "child-process" ? "pi" : runtimeKind === "live-session" ? "live-session" : "safe-scaffold",
@@ -502,9 +506,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 						// Errors are logged but processing continues so subsequent events still update state.
 						try {
 							appendCrewAgentEvent(manifest, task.id, event);
-							if (event && typeof event === "object" && !Array.isArray(event))
+							if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
 								collectedJsonEvents.push(event as Record<string, unknown>);
-							if (collectedJsonEvents.length > 1000) {
+							if (collectedJsonEvents && collectedJsonEvents.length > 1000) {
 								collectedJsonEvents.splice(0, collectedJsonEvents.length - 1000);
 							}
 							// Accumulate lifetime usage via message_end events (survives compaction)
@@ -878,8 +882,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		// only applies to live-session workers where submit_result is injected by the
 		// runtime. Skipping yield detection for child-process prevents every child
 		// worker from incorrectly being marked needs_attention.
-		const yieldEnabled = runtimeKind !== "child-process" && (input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled);
-		if (yieldEnabled && collectedJsonEvents.length > 0) {
+		const yieldEnabled = collectYieldEvents;
+		if (yieldEnabled && collectedJsonEvents && collectedJsonEvents.length > 0) {
 			if (hasYieldInOutput(collectedJsonEvents)) {
 				const yieldEvent = collectedJsonEvents.find((e) => isYieldEvent(e));
 				if (yieldEvent) {
