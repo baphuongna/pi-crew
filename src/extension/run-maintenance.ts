@@ -7,6 +7,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { cleanupRunWorktrees } from "../worktree/cleanup.ts";
 import { listRuns } from "./run-index.ts";
 
 export interface PruneRunsResult {
@@ -21,7 +22,14 @@ export interface PruneRunsOptions {
 }
 
 function isFinished(run: TeamRunManifest): boolean {
-	return run.status === "completed" || run.status === "failed" || run.status === "cancelled" || run.status === "blocked";
+	// P3: "blocked" is NOT a terminal status — the run is waiting on something
+	// (plan approval, mailbox reply, scheduler stall) and can transition to
+	// running/cancelled/failed (per TEAM_RUN_STATUS_TRANSITIONS). Pruning a
+	// blocked run destroys recoverable state (e.g. a plan the user needs to
+	// approve, or a mailbox wait the user needs to answer). Truly stuck
+	// blocked runs are handled by the stale-reconciler/crash-recovery, not
+	// by prune.
+	return run.status === "completed" || run.status === "failed" || run.status === "cancelled";
 }
 
 function isSafeToPrune(cwd: string, run: TeamRunManifest): boolean {
@@ -62,6 +70,26 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 			logInternalError(
 				"prune.path-unsafe",
 				new Error(`Skipping unsafe prune: stateRoot=${run.stateRoot}, artifactsRoot=${run.artifactsRoot}`),
+				`runId=${run.runId}`,
+			);
+			continue;
+		}
+		// P2: clean up git worktrees BEFORE deleting state. Worktrees live at
+		// <crewRoot>/state/worktrees/<runId>/ — a separate path from stateRoot
+		// (<crewRoot>/state/runs/<runId>/) and artifactsRoot, so fs.rmSync below
+		// does NOT touch them. Without this, every pruned worktree-using run
+		// leaks its worktree dir + git branch. cleanupRunWorktrees (no force)
+		// preserves dirty worktrees by writing a diff artifact and skipping
+		// the removal — in that case we skip the whole prune of this run so
+		// the user can recover (no silent data loss). Compare handleForget
+		// which calls cleanupRunWorktrees.
+		const worktreeCleanup = cleanupRunWorktrees(run, { signal: options.signal });
+		if (worktreeCleanup.preserved.length > 0) {
+			logInternalError(
+				"prune.worktree-preserved",
+				new Error(
+					`Skipping prune: ${worktreeCleanup.preserved.length} dirty worktree(s) preserved for recovery: ${worktreeCleanup.preserved.map((p) => p.path).join(", ")}`,
+				),
 				`runId=${run.runId}`,
 			);
 			continue;
