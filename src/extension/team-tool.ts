@@ -314,6 +314,17 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "resume", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "resume", status: "error" }, true);
+	// R1: foreign-ownership check — mirrors handleRetry/handleCancel. Without it,
+	// another session can resume (and re-execute) a run it doesn't own, racing
+	// the owning session.
+	const foreignRun = typeof loaded.manifest.ownerSessionId === "string" && loaded.manifest.ownerSessionId !== ctx.sessionId;
+	if (foreignRun && !params.force) {
+		return result(
+			`Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
+			{ action: "resume", status: "error", runId: loaded.manifest.runId },
+			true,
+		);
+	}
 	if (!loaded.manifest.workflow)
 		return result(`Run '${params.runId}' has no workflow to resume.`, { action: "resume", status: "error" }, true);
 	const agents = allAgents(discoverAgents(ctx.cwd));
@@ -324,8 +335,18 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		direct?.workflow ?? allWorkflows(discoverWorkflows(ctx.cwd)).find((candidate) => candidate.name === loaded.manifest.workflow);
 	if (!workflow) return result(`Workflow '${loaded.manifest.workflow}' not found.`, { action: "resume", status: "error" }, true);
 	return await withRunLock(loaded.manifest, async () => {
+		// R2: re-read inside the lock so recovery + resetTasks reflect committed
+		// state, not the pre-lock snapshot. Between the pre-lock load and lock
+		// acquisition a task may have been cancelled (stale-reconciler) or
+		// completed (background runner); using the stale snapshot would reset
+		// running→queued and re-execute it (double execution: duplicate tokens +
+		// duplicate side effects). Sibling handlers (cancelOrphanedRuns,
+		// reconcileAllStaleRuns) re-read inside the lock for the same reason.
+		const fresh = loadRunManifestById(runCwd, loaded.manifest.runId);
+		const lockedManifest = fresh?.manifest ?? loaded.manifest;
+		const lockedTasks = fresh?.tasks ?? loaded.tasks;
 		const loadedConfig = loadConfig(ctx.cwd);
-		const recovered = recoverCheckpointedTasks(loaded.manifest, loaded.tasks);
+		const recovered = recoverCheckpointedTasks(lockedManifest, lockedTasks);
 		const resumeManifest = recovered.manifest;
 		const executedConfig = {
 			...effectiveRunConfig(loadedConfig.config, params.config),
