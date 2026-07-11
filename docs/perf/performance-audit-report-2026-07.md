@@ -204,9 +204,23 @@ return withRunLockSync(manifest, () => {
 
 #### [A5-C4] — `loadRunManifestById` called inside retry loop without lock
 
-**Severity**: MEDIUM  
-**Impact**: Low-probability zombie task during retry  
-**File**: `src/runtime/team-runner.ts:1254–1258`
+> **⛔ VERDICT (2026-07-11): WONTFIX — fully backstopped by the signal mechanism (verified end-to-end).**
+> Traced the cancel → retry path completely. The unlocked disk read is a
+> best-effort FIRST check, but two stronger guards backstop it: (1) `runTeamTask`
+> checks `input.signal?.aborted` at its **start** (`task-runner.ts:168`) and
+> returns a cancelled task **without spawning the worker**; (2) the retry loop
+> checks `input.signal?.aborted` (`team-runner.ts:1404`). The signal IS aborted
+> on user cancel — verified chain: `handleCancel` → `abortForegroundRun(runId)`
+> → `controller.abort()` on the EXACT controller from `startForegroundRun`
+> (register.ts:1413) → whose signal is passed as `executeTeamRun({signal})`
+> (run.ts:864). So even a 100%-stale disk read cannot produce a zombie: the
+> worker never runs. Background runs are killed via `killProcessPid`. The only
+> theoretical gap (cancel-without-signal-abort, e.g. in-process cascade) is
+> coordinated within the same event loop and unreachable in practice.
+
+**Severity**: ~~MEDIUM~~ → **WONTFIX (backstopped by signal.aborted)**  
+**Impact**: ~~Low-probability zombie task~~ → **No zombie: runTeamTask:168 catches signal.aborted before worker spawn**  
+**File**: `src/runtime/team-runner.ts:1296` (retry closure)
 
 ```typescript
 // PROBLEM: No lock around manifest read in retry loop
