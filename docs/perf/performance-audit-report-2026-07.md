@@ -141,15 +141,17 @@ saveRunManifest(manifest); // ← No withRunLock here!
 
 #### [NEW-C6] — Double lock acquisition in post-batch merge path
 
-> **⛔ VERDICT (2026-07-11): WONTFIX — read is defensively correct, cost is negligible.**
-> Scrutinized the merge path (`team-runner.ts:1471`). The `loadRunManifestById`
-> inside `withRunLock` reads committed artifact state so the artifact merge
-> reflects on-disk reality, not just in-memory state — this defends against
-> concurrent/external manifest mutation (stale-reconciler, crash recovery).
-> It runs **once per batch** (batches are minutes apart), so the ~15–50ms is
-> negligible in aggregate. The "double lock" framing is a misnomer (the worker
-> lock and the merge lock are sequential, not nested). The recommended
-> sequence-number tagging is complex/risky and unjustified for a per-batch cost.
+> **⛔ VERDICT (2026-07-11): WONTFIX — read is NECESSARY (orphan-artifact recovery); no double lock exists.**
+> Two audit claims verified false: (1) **No double lock** — `saveRunManifestAsync`
+> and `saveRunTasksAsync` (called inside the merge's `withRunLock`) do NOT
+> re-acquire the lock, so there is no nested/double acquisition. (2) The disk
+> read is **not redundant** — it recovers **orphan artifacts** from workers that
+> persisted via `saveRunManifest` then threw before returning (so they're absent
+> from `validResults`). Those artifacts exist only on disk; skipping the read
+> would silently lose them. (`mergeArtifacts` dedupes by path, so the read is a
+> strict union, never a duplicate-counting hazard.) The read runs once per batch
+> (batches are minutes apart). The recommended sequence-number tagging would
+> **regress correctness** (lose orphan artifacts) — do not apply.
 
 **Severity**: ~~HIGH~~ → **WONTFIX (re-evaluated)**  
 **Impact**: ~~10–50ms per merge × batch count~~ → **~15–50ms once per batch (minutes apart); defensively correct**  
@@ -466,19 +468,24 @@ if (yieldEnabled) {
 
 #### [A2-F1] — `taskUsageMap` global Map lacks auto-cleanup
 
-> **⛔ VERDICT (2026-07-11): WONTFIX — cleanup already runs reliably; no real leak.**
+> **✅ VERDICT (2026-07-11): leak claim wrong, but quality fix applied.**
 > Scrutinized the lifecycle: `trackTaskUsage` is called **only** in the
 > live-session path (`live-session-runtime.ts:829`), never for child-process
-> workers. `cleanupUsage()` runs in **both** the success path
-> (`team-runner.ts:719`) **and** the error path (`team-runner.ts:821`), clearing
-> every task in `input.tasks`. For live-session runs `input.task.id ∈ input.tasks`,
-> so entries are reclaimed. Hard process crashes reclaim the whole Map via GC.
-> The only theoretical gap is a crashed run skipping cleanup — but entries are
-> ~24 bytes each and bounded by task count. There is no meaningful leak to fix.
+> workers. `cleanupUsage()` ran in **both** the success path and the error
+> path, clearing every task in `input.tasks`. For live-session runs
+> `input.task.id ∈ input.tasks`, so entries were reclaimed; hard crashes
+> reclaim the Map via GC. So the original 'stale entries accumulate' leak claim
+> was **inaccurate**. **However**, cleanup was duplicated outside the `finally`
+> block — a future throw could skip both copies. Applied a quality fix
+> (commit e1273ab): consolidated `cleanupUsage()` into `finally` so cleanup is
+> guaranteed on every exit path (DRY + robustness, consistent with
+> `clearStablePrefixCache`). Verified safe: nothing in team-runner reads usage
+> after the run resolves, and the TUI widget reads live usage only while a task
+> is running.
 
-**Severity**: ~~MEDIUM~~ → **WONTFIX (re-evaluated; cleanup is reliable)**  
-**Impact**: ~~Stale entries accumulate~~ → **No real leak; cleanup runs on success + error paths; entries ~24B**  
-**File**: `src/runtime/usage-tracker.ts:38`
+**Severity**: ~~MEDIUM~~ → **quality fix applied (leak disproven; cleanup hardened)**  
+**Impact**: ~~Stale entries accumulate~~ → **no real leak; cleanup now guaranteed on all exit paths**  
+**File**: `src/runtime/usage-tracker.ts:38` + `team-runner.ts` (consolidated into `finally`)
 
 ```typescript
 // PROBLEM: No TTL-based eviction
