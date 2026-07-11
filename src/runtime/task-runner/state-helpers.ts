@@ -66,7 +66,24 @@ export function persistSingleTaskUpdate(
 				// overwrite our buffered write between our load and our (async)
 				// fsync, silently losing the intermediate update.
 				flushPendingAtomicWrites();
-				const latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
+				// FIX (perf): on the first attempt, reuse the caller-supplied
+				// fallbackTasks directly instead of calling loadRunManifestById.
+				// The caller already obtained the latest tasks via
+				// loadRunManifestById and handed them in as fallbackTasks, so a
+				// second load here is pure waste — it's another statSync pair
+				// (manifest + tasks) plus a possible JSON.parse. The CAS check
+				// below (currentMtime !== baseMtime) catches any concurrent
+				// writer that committed between fallbackTasks capture and now;
+				// when that fires we fall into the retry path which DOES call
+				// loadRunManifestById to pull the fresh state from disk. So we
+				// only pay the disk-read cost on actual contention, not on the
+				// common single-writer happy path.
+				let latest: TeamTaskState[];
+				if (attempt === 0) {
+					latest = fallbackTasks;
+				} else {
+					latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
+				}
 				merged = updateTask(latest, taskWithCheckpoint);
 
 				// F2: collapsed from 3 redundant statSync calls into 1. The previous

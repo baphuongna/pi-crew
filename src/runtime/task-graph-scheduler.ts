@@ -48,28 +48,31 @@ function dependencySatisfied(
 }
 
 function withQueue(task: TeamTaskState, index: TaskGraphIndex): TeamTaskState {
+	let resolvedQueue: "ready" | "blocked" | "running" | "done";
 	if (task.status === "queued") {
 		const isReady = dependencySatisfied(task, index.doneSteps, index.idMap, index.stepToTaskId);
-		return {
-			...task,
-			graph: task.graph ? { ...task.graph, queue: isReady ? "ready" : "blocked" } : task.graph,
-		};
+		resolvedQueue = isReady ? "ready" : "blocked";
+	} else if (task.status === "running") {
+		resolvedQueue = "running";
+	} else if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
+		resolvedQueue = "done";
+	} else {
+		resolvedQueue = "blocked";
 	}
-	if (task.status === "running") {
-		return {
-			...task,
-			graph: task.graph ? { ...task.graph, queue: "running" } : task.graph,
-		};
+
+	// FIX (incremental task graph refresh): return the SAME task reference when
+	// the computed queue already matches task.graph.queue. This eliminates the
+	// per-task per-call spread allocation that previously ran on every
+	// refreshTaskGraphQueues invocation. Common case (queue unchanged from the
+	// previous refresh) is now allocation-free; reference-stable tasks also let
+	// downstream selectors skip re-rendering when queues haven't moved.
+	if (task.graph && task.graph.queue === resolvedQueue) {
+		return task;
 	}
-	if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
-		return {
-			...task,
-			graph: task.graph ? { ...task.graph, queue: "done" } : task.graph,
-		};
-	}
+
 	return {
 		...task,
-		graph: task.graph ? { ...task.graph, queue: "blocked" } : task.graph,
+		graph: task.graph ? { ...task.graph, queue: resolvedQueue } : task.graph,
 	};
 }
 

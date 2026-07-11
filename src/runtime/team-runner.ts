@@ -328,11 +328,22 @@ function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): 
 
 // H4 fix: rename to descriptive name. Kept __test__ as alias for backward
 // compat test imports.
+// FIX (perf P10): replace O(N×M) .find() + .map() inside nested loops with a
+// single-pass Map-based merge. Build an index of `merged` once, then for each
+// incoming updated task do O(1) lookup; the final pass reassembles `merged`
+// preserving original order. For a 20-task run × 5-batch merger with
+// ~10 updates per result, this reduces from O(50×20) = 1000 ops to O(120).
+// Behavior is unchanged: skipped updates (shouldMergeTaskUpdate=false) still
+// leave the existing task in place.
 export function mergeTaskUpdatesPreservingTerminal(base: TeamTaskState[], results: Array<{ tasks: TeamTaskState[] }>): TeamTaskState[] {
-	let merged = base;
+	// Index current merged state by id for O(1) lookup during the merge pass.
+	const indexById = new Map<string, TeamTaskState>();
+	for (const task of base) indexById.set(task.id, task);
+
+	let skipped = 0;
 	for (const result of results) {
 		for (const updated of result.tasks) {
-			const current = merged.find((task) => task.id === updated.id);
+			const current = indexById.get(updated.id);
 			if (!current) continue;
 			if (!shouldMergeTaskUpdate(current, updated)) {
 				// Log skipped merges for visibility into rejected parallel updates.
@@ -344,11 +355,18 @@ export function mergeTaskUpdatesPreservingTerminal(base: TeamTaskState[], result
 					currentFinishedAt: current.finishedAt,
 					updatedFinishedAt: updated.finishedAt,
 				});
+				skipped += 1;
 				continue;
 			}
-			merged = merged.map((task) => (task.id === updated.id ? updated : task));
+			indexById.set(updated.id, updated);
 		}
 	}
+	// Reassemble in original `base` order so downstream snapshots stay stable.
+	const merged = base.map((task) => indexById.get(task.id) ?? task);
+	// `skipped` is intentional visibility — currently no caller reads it but
+	// we'd rather leave the count available for future instrumentation than
+	// remove the cumulative silent-rejection signal it provides.
+	void skipped;
 	return refreshTaskGraphQueues(merged);
 }
 /** @deprecated Use mergeTaskUpdatesPreservingTerminal. Kept for backward test import compat. */

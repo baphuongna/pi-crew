@@ -79,6 +79,30 @@ describe("OTLP SSRF endpoint validation", () => {
 		assert.throws(() => validateEndpoint("http://[fc00::1]:4318"), /private IPv6/);
 	});
 
+	it("rejects IPv6 link-local fe80::/10", () => {
+		assert.throws(() => validateEndpoint("http://[fe80::1]:4318"), /link-local/);
+		assert.throws(() => validateEndpoint("http://[fea0::1]:4318"), /link-local/);
+		assert.throws(() => validateEndpoint("http://[febf::1]:4318"), /link-local/);
+	});
+
+	it("rejects IPv6 site-local fec0::/10 (deprecated)", () => {
+		assert.throws(() => validateEndpoint("http://[fec0::1]:4318"), /site-local/);
+		assert.throws(() => validateEndpoint("http://[fed0::1]:4318"), /site-local/);
+		assert.throws(() => validateEndpoint("http://[fef0::1]:4318"), /site-local/);
+	});
+
+	it("rejects IPv6 multicast ff00::/8", () => {
+		assert.throws(() => validateEndpoint("http://[ff02::1]:4318"), /multicast/);
+	});
+
+	it("rejects IPv6 unspecified address ::", () => {
+		assert.throws(() => validateEndpoint("http://[::]:4318"), /unspecified/);
+	});
+
+	it("rejects IPv4-mapped IPv6 ::ffff:x.x.x.x", () => {
+		assert.throws(() => validateEndpoint("http://[::ffff:127.0.0.1]:4318"), /IPv4-mapped/);
+	});
+
 	it("allows public IPv4", () => {
 		assert.doesNotThrow(() => validateEndpoint("http://8.8.8.8:4318"));
 	});

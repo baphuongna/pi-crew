@@ -38,11 +38,33 @@ export function validateEndpoint(endpoint: string): void {
 	// Reject IPv6 loopback and private
 	if (hostname.startsWith("[")) {
 		const bare = hostname.replace(/^\[|\]$/g, "");
-		if (bare === "::1") {
+		const lower = bare.toLowerCase();
+		if (lower === "::1") {
 			throw new Error(`OTLP endpoint must not target loopback address: ${endpoint}`);
 		}
-		if (bare.toLowerCase().startsWith("fd") || bare.toLowerCase().startsWith("fc")) {
+		// Unique Local Addresses (fc00::/7) — fd and fc prefixes
+		if (lower.startsWith("fd") || lower.startsWith("fc")) {
 			throw new Error(`OTLP endpoint must not target private IPv6 address: ${endpoint}`);
+		}
+		// Link-Local (fe80::/10) — fe8x, fe9x, feax, febx prefixes
+		if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) {
+			throw new Error(`OTLP endpoint must not target IPv6 link-local address: ${endpoint}`);
+		}
+		// Site-Local (fec0::/10) — deprecated but still routable on misconfigured networks
+		if (lower.startsWith("fec") || lower.startsWith("fed") || lower.startsWith("fee") || lower.startsWith("fef")) {
+			throw new Error(`OTLP endpoint must not target IPv6 site-local address: ${endpoint}`);
+		}
+		// Multicast (ff00::/8) — prefix ff
+		if (lower.startsWith("ff")) {
+			throw new Error(`OTLP endpoint must not target IPv6 multicast address: ${endpoint}`);
+		}
+		// Unspecified address ::
+		if (lower === "::") {
+			throw new Error(`OTLP endpoint must not target IPv6 unspecified address: ${endpoint}`);
+		}
+		// IPv4-mapped IPv6 (::ffff:x.x.x.x)
+		if (lower.startsWith("::ffff:")) {
+			throw new Error(`OTLP endpoint must not target IPv4-mapped IPv6 address: ${endpoint}`);
 		}
 	}
 

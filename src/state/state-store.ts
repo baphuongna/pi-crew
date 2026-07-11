@@ -330,6 +330,21 @@ export function createRunManifest(params: {
 }
 
 export function saveRunManifest(manifest: TeamRunManifest): void {
+	// FIX: Capture the cached tasks array + mtime/size BEFORE we invalidate the
+	// cache. The previous implementation re-read tasks.json from disk after the
+	// manifest write (a JSON.parse + fs.readFileSync per call), which defeated
+	// the whole point of the manifest cache on the hot update path. Reusing the
+	// already-cached entry is safe because:
+	//   1. The cache entry's tasks array matches the tasks array reflected by
+	//      its tasksMtimeMs/tasksSize — the three values move together.
+	//   2. After invalidate, saveRunTasks (or any other writer) would bump the
+	//      per-stateRoot generation, so a stale cache hit cannot serve.
+	//   3. On cache miss, we fall back to tasks: [] with mtime/size 0 — the same
+	//      shape the original pre-FIX code produced — so behavior is unchanged.
+	const cachedBeforeInvalidate = manifestCache.get(manifest.stateRoot);
+	const cachedTasks = cachedBeforeInvalidate?.tasks ?? [];
+	const cachedTasksMtimeMs = cachedBeforeInvalidate?.tasksMtimeMs ?? 0;
+	const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
 	// FIX: Invalidate cache BEFORE atomic write. The order matters for crash
 	// safety: if we invalidated after the write and crashed before invalidation,
 	// the stale cache entry (up to MANIFEST_CACHE_TTL_MS old) could be served.
@@ -341,40 +356,29 @@ export function saveRunManifest(manifest: TeamRunManifest): void {
 	// FIX: Re-populate cache with actual mtime/size so loadRunManifestById
 	// doesn't miss the cache on next read. Without this, every load until
 	// TTL expires would hit disk because cached 0 !== any real mtime.
-	// NOTE: tasks is set to [] here because saveRunManifest only writes the
-	// manifest file, not tasks.json. Callers that need tasks should call
-	// saveRunTasks or loadRunTasks separately. If loadRunManifestById is called
-	// immediately after saveRunManifest, it may return empty tasks even if
-	// tasks.json exists on disk — the mtime/size cache check should invalidate
-	// on next read, but the returned empty tasks array could confuse callers
-	// that don't re-read.
+	// NOTE: tasks is reused from the pre-invalidate cache snapshot above; if no
+	// cache existed, tasks is [] (matching pre-FIX behavior). Callers that need
+	// fresh tasks should call saveRunTasks or loadRunTasks separately.
 	const manifestStat = fs.statSync(manifestPath);
-	// Read tasks.json if it exists to avoid cache inconsistency.
-	// Without this, loadRunManifestById returns empty tasks even when tasks.json
-	// has real data, causing incorrect task state display.
-	let tasks: TeamTaskState[] = [];
-	let tasksMtimeMs = 0;
-	let tasksSize = 0;
-	try {
-		const tasksPath = path.join(manifest.stateRoot, "tasks.json");
-		const tasksStat = fs.statSync(tasksPath);
-		tasks = JSON.parse(fs.readFileSync(tasksPath, "utf-8")) as TeamTaskState[];
-		tasksMtimeMs = tasksStat.mtimeMs;
-		tasksSize = tasksStat.size;
-	} catch {
-		// tasks.json doesn't exist or is invalid — leave tasks empty
-	}
 	setManifestCache(manifest.stateRoot, {
 		manifest,
-		tasks,
+		tasks: cachedTasks,
 		manifestMtimeMs: manifestStat.mtimeMs,
 		manifestSize: manifestStat.size,
-		tasksMtimeMs,
-		tasksSize,
+		tasksMtimeMs: cachedTasksMtimeMs,
+		tasksSize: cachedTasksSize,
 	});
 }
 
 export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<void> {
+	// FIX: Capture cached tasks array + mtime/size BEFORE invalidating, same
+	// rationale as the sync saveRunManifest above. The async path previously
+	// always set tasks: [] with mtime/size 0, so any cache hit was guaranteed
+	// to look stale to loadRunManifestById until something else wrote tasks.json.
+	const cachedBeforeInvalidate = manifestCache.get(manifest.stateRoot);
+	const cachedTasks = cachedBeforeInvalidate?.tasks ?? [];
+	const cachedTasksMtimeMs = cachedBeforeInvalidate?.tasksMtimeMs ?? 0;
+	const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving
 	// after a crash. See saveRunManifest for full explanation.
 	invalidateRunCache(manifest.stateRoot);
@@ -384,11 +388,11 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
 	const manifestStat = await fs.promises.stat(manifestPath);
 	setManifestCache(manifest.stateRoot, {
 		manifest,
-		tasks: [],
+		tasks: cachedTasks,
 		manifestMtimeMs: manifestStat.mtimeMs,
 		manifestSize: manifestStat.size,
-		tasksMtimeMs: 0,
-		tasksSize: 0,
+		tasksMtimeMs: cachedTasksMtimeMs,
+		tasksSize: cachedTasksSize,
 	});
 }
 
