@@ -2,9 +2,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { removeGuidance } from "../../config/markers.ts";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
+import { killProcessPid } from "../../runtime/child-pi.ts";
+import { terminateLiveAgentsForRun } from "../../runtime/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot, userPiRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { cleanupRunWorktrees } from "../../worktree/cleanup.ts";
@@ -217,6 +220,25 @@ export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext
 			intent,
 		},
 	});
+	// P1: terminate live agents + kill the background runner BEFORE deleting state.
+	// Without this, forgetting a running run orphans those processes (separate
+	// process groups via setsid) which keep executing and consuming tokens after
+	// their state directory is gone. Mirrors handleCancel's cleanup.
+	await terminateLiveAgentsForRun(loaded.manifest.runId, "cancelled", appendEvent, loaded.manifest.eventsPath);
+	const asyncPid = loaded.manifest.async?.pid;
+	if (asyncPid !== undefined && asyncPid > 0) {
+		try {
+			killProcessPid(asyncPid);
+			appendEvent(loaded.manifest.eventsPath, {
+				type: "async.kill_requested",
+				runId: loaded.manifest.runId,
+				message: "Sent SIGTERM to background runner process (forget).",
+				data: { pid: asyncPid },
+			});
+		} catch (error) {
+			logInternalError("team-tool.handleForget.killAsync", error, `runId=${loaded.manifest.runId},pid=${asyncPid}`);
+		}
+	}
 	// Determine scope from manifest paths (project vs user-level runs)
 	const crewRoot = loaded.manifest.stateRoot.startsWith(userCrewRoot() + path.sep)
 		? userCrewRoot()
