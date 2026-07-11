@@ -449,6 +449,7 @@ function normalizeOptions(arg: unknown): { expectedHash?: string; durability: Wr
 }
 
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
+	cancelPendingCoalescedWrite(filePath);
 	const { durability } = normalizeOptions(options);
 	if (!isSymlinkSafeDirCached(filePath))
 		throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
@@ -588,6 +589,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 }
 
 export async function atomicWriteFileAsync(filePath: string, content: string, options?: AtomicWriteOptions): Promise<void> {
+	cancelPendingCoalescedWrite(filePath);
 	const { durability } = normalizeOptions(options);
 	// Phase 1.5 (RFC 15): when the worker-thread atomic writer is enabled
 	// (PI_CREW_WORKER_ATOMIC_WRITER=1), dispatch to a dedicated worker thread
@@ -751,6 +753,27 @@ function flushOnePendingAtomicWrite(filePath: string): void {
 			timer.unref();
 			current.timer = timer;
 		}
+	}
+}
+
+/**
+ * Cancel any pending coalesced write for `filePath`. An immediate (durable)
+ * write supersedes a pending coalesced (buffered) write — the immediate write
+ * IS the freshest data, so the stale buffered content must not be allowed to
+ * fire later and clobber it.
+ *
+ * Without this, a sequence like persistSingleTaskUpdate (coalesced, 50ms) →
+ * merge saveRunTasksAsync (immediate) leaves the coalesced entry pending; when
+ * its timer fires it overwrites the merge result with a stale single-task
+ * snapshot, losing other workers' results / attempt enrichment / graph
+ * recompute. It also closes the crash window where tasks.json shows "running"
+ * while events.jsonl already shows "completed" (re-run on recovery).
+ */
+function cancelPendingCoalescedWrite(filePath: string): void {
+	const pending = pendingAtomicWrites.get(filePath);
+	if (pending) {
+		clearTimeout(pending.timer);
+		pendingAtomicWrites.delete(filePath);
 	}
 }
 
