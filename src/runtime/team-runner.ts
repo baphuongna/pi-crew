@@ -8,13 +8,12 @@ import { childCorrelation, withCorrelation } from "../observability/correlation.
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
+import { hashArtifactContent as hashContent, writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
 import { loadRunManifestById, saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { hashArtifactContent as hashContent } from "../state/artifact-store.ts";
 import { aggregateUsage, formatTokens, formatUsage } from "../state/usage.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";

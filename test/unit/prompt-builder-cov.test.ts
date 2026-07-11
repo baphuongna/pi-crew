@@ -253,7 +253,9 @@ describe("computeStablePrefixComponents — P9 cross-run cache", () => {
 
 	it("populates the per-run cache and short-circuits within the run", async () => {
 		const cwd = process.cwd();
-		const step = { id: "step-A", task: "explore the codebase", role: "explorer" } as Parameters<typeof computeStablePrefixComponents>[1];
+		const step = { id: "step-A", task: "explore the codebase", role: "explorer" } as Parameters<
+			typeof computeStablePrefixComponents
+		>[1];
 		const manifest = {
 			runId: "run-A",
 			goal: "find the bug",
@@ -267,7 +269,9 @@ describe("computeStablePrefixComponents — P9 cross-run cache", () => {
 
 	it("clearStablePrefixCache invalidates the per-run cache (forces re-compute)", async () => {
 		const cwd = process.cwd();
-		const step = { id: "step-B", task: "unique-task-per-test-1", role: "explorer" } as Parameters<typeof computeStablePrefixComponents>[1];
+		const step = { id: "step-B", task: "unique-task-per-test-1", role: "explorer" } as Parameters<
+			typeof computeStablePrefixComponents
+		>[1];
 		const manifest = {
 			runId: "run-B",
 			goal: "find the bug",
