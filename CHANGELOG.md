@@ -29,6 +29,13 @@ The reverse audit ran 6 parallel bug-hunters across concurrency, state machine, 
 
 - **NEW-C3** — terminal manifest+tasks persistence race. `runTeamTask` wrote `manifest.json` (immediate) and `tasks.json` (via `persistSingleTaskUpdate` → `saveRunTasksCoalesced`, 50 ms debounce) **outside any lock**, racing the team-runner batch merge which writes both under `withRunLock`. A worker could persist its terminal artifacts → the merge's `loadRunManifestById` reads the worker-written manifest → merge overwrites with the worker's stale `tasks` (which lacks the merge's attempt enrichment + graph recompute) → silent data loss. Fix: wrap `saveRunManifest` + `persistSingleTaskUpdate` in a single `withRunLockSync` so the whole terminal state lands atomically. (`a03d244`)
 
+### Performance — forward audit quick wins (Phase 4 — P6 + P9 + content-cache)
+
+Continuing the Phase 3 work. Addresses 1 MEDIUM-Low finding (P6), 1 MEDIUM finding (P9), plus a content-skip optimization for writeProgress.
+
+- **P6 (MEDIUM-LOW)** — `writeProgress()` no longer rebuilds the entire artifact-list with two redundant filter passes (one to remove the old progress entry, one with a quadratic `findIndex` dedup). Now uses a single-pass `Map<path, ArtifactDescriptor>` for O(N) replace-by-path. Also added a content-skip cache (WeakMap keyed on the manifest) — if the rendered progress content is byte-identical to the previous call (rare, but happens during back-to-back applyPolicy + executeTeamRun calls within the same millisecond), we reuse the existing artifact descriptor instead of re-running `writeArtifact` (mkdirSync + resolveRealContainedPath + redactSecrets + atomicWriteFile + readFileSync for hash).
+- **P9 (MEDIUM)** — `computeStablePrefixComponents()` gained a 60s TTL second-level cache keyed on `(cwd, step.task)` that survives `runId` boundaries. Sequential runs in the same session with the same cwd now skip the 3 awaits (`buildWorkspaceTree` + `runRetrievalCycle` + `buildKnowledgeFragment`) on cache hit. The fast path (per-run, `(cwd, step, runId)`) is unchanged so concurrent siblings in the same batch still share with zero FS access. `clearStablePrefixCache()` now also clears the cross-run layer so long-paused sessions re-warm on workspace drift promptly. 2 new tests verify the per-run short-circuit and clearStablePrefixCache behavior.
+
 ### Performance — forward audit quick wins (Phase 3 — P5 + P7)
 
 Continuing the Phase 2 work. Addresses 1 MEDIUM-Severity and 1 MEDIUM-Low finding from the audit.

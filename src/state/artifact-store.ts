@@ -10,6 +10,11 @@ function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
 
+/** Public alias used by writeProgress's content-skip cache. */
+export function hashArtifactContent(content: string): string {
+	return hashContent(content);
+}
+
 export const CLEANUP_MARKER_FILE = ".last-cleanup";
 
 export interface ArtifactWriteOptions {

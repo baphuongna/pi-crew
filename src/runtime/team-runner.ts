@@ -14,6 +14,7 @@ import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
 import { loadRunManifestById, saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import { hashArtifactContent as hashContent } from "../state/artifact-store.ts";
 import { aggregateUsage, formatTokens, formatUsage } from "../state/usage.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -401,6 +402,15 @@ function runEffectivenessLines(
 	);
 }
 
+// P6 (perf): Cache the last-rendered progress content so we can skip the
+// artifact write + redaction + atomic write + size/hash read when nothing
+// material changed (rare between batches, but happens between idle heartbeats).
+// The dedup filter also moved from O(N²) findIndex inside .filter(...)
+// (the previous implementation ran 2 redundant passes on every batch) to
+// a single-pass Map-based replacement: remove the existing entry by path, then
+// append the new one. Net complexity: O(N) build + O(1) replace per write.
+const lastProgressContentHash = new WeakMap<TeamRunManifest, string>();
+
 function writeProgress(
 	manifest: TeamRunManifest,
 	tasks: TeamTaskState[],
@@ -411,35 +421,80 @@ function writeProgress(
 	const counts = new Map<string, number>();
 	for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
 	const queue = taskGraphSnapshot(tasks);
-	const progress = writeArtifact(manifest.artifactsRoot, {
-		kind: "progress",
-		relativePath: "progress.md",
-		producer,
-		content: [
-			`# pi-crew progress ${manifest.runId}`,
-			"",
-			`Status: ${manifest.status}`,
-			`Team: ${manifest.team}`,
-			`Workflow: ${manifest.workflow ?? "(none)"}`,
-			`Updated: ${new Date().toISOString()}`,
-			`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
-			`Queue: ready=${queue.ready.length}, blocked=${queue.blocked.length}, running=${queue.running.length}, done=${queue.done.length}, failed=${queue.failed.length}, cancelled=${queue.cancelled.length}`,
-			"",
-			"## Tasks",
-			...tasks.map(formatTaskProgress),
-			"",
-			"## Effectiveness",
-			...runEffectivenessLines(manifest, tasks, executeWorkers, runtimeConfig),
-			"",
-		].join("\n"),
-	});
+	const updatedAt = new Date().toISOString();
+	const content = [
+		`# pi-crew progress ${manifest.runId}`,
+		"",
+		`Status: ${manifest.status}`,
+		`Team: ${manifest.team}`,
+		`Workflow: ${manifest.workflow ?? "(none)"}`,
+		`Updated: ${updatedAt}`,
+		`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
+		`Queue: ready=${queue.ready.length}, blocked=${queue.blocked.length}, running=${queue.running.length}, done=${queue.done.length}, failed=${queue.failed.length}, cancelled=${queue.cancelled.length}`,
+		"",
+		"## Tasks",
+		...tasks.map(formatTaskProgress),
+		"",
+		"## Effectiveness",
+		...runEffectivenessLines(manifest, tasks, executeWorkers, runtimeConfig),
+		"",
+	].join("\n");
+
+	// P6 content-cache: even with identical status / counts / queue, the
+	// `Updated:` timestamp ticks on every call so the content rarely matches
+	// byte-for-byte. We DO compare against the previous rendered byte-stream
+	// (which used the previous timestamp) — so this only hits on the
+	// back-to-back writeProgress calls during the applyPolicy phase, where
+	// both calls happen within the same millisecond. It's a minor win but
+	// matches the audit recommendation (skip artifact write when nothing
+	// material changed).
+	const prevHash = lastProgressContentHash.get(manifest);
+	// Cheap pre-check: avoid the redaction + atomicWrite + readback roundtrip
+	// when both the timestamp and the input args are identical to last time.
+	const canSkip = prevHash === hashContent(content);
+
+	const progress = canSkip
+		? (() => {
+				// Reuse the previous artifact descriptor rather than rebuilding one
+				// via writeArtifact. This skips mkdirSync, resolveRealContainedPath,
+				// redactSecrets, atomicWriteFile, and the post-write readFileSync +
+				// statSync.
+				const existing = manifest.artifacts.find((a) => a.kind === "progress");
+				if (existing) return existing;
+				// No prior progress artifact (rare; first call from a stale manifest
+				// view). Fall through to the normal write.
+				return writeArtifact(manifest.artifactsRoot, {
+					kind: "progress",
+					relativePath: "progress.md",
+					producer,
+					content,
+				});
+			})()
+		: writeArtifact(manifest.artifactsRoot, {
+				kind: "progress",
+				relativePath: "progress.md",
+				producer,
+				content,
+			});
+	lastProgressContentHash.set(manifest, hashContent(content));
+
+	// P6 dedup: replace by path in a single Map pass instead of
+	//   .filter(...)  // O(N) to remove the old entry
+	//   .filter((_, i, self) => self.findIndex(...) === i)  // O(N²) for dedup
+	// For an artifact list of size 30+ across a long run, this was the
+	// dominant cost of writeProgress between batches.
+	const byPath = new Map<string, ArtifactDescriptor>();
+	for (const artifact of manifest.artifacts) {
+		if (artifact.kind === "progress" && artifact.path === progress.path) continue;
+		byPath.set(artifact.path, artifact);
+	}
+	byPath.set(progress.path, progress);
+	const deduped = [...byPath.values()];
+
 	return {
 		...manifest,
-		updatedAt: new Date().toISOString(),
-		artifacts: [
-			...manifest.artifacts.filter((artifact) => !(artifact.kind === "progress" && artifact.path === progress.path)),
-			progress,
-		].filter((artifact, index, self) => self.findIndex((a) => a.path === artifact.path) === index),
+		updatedAt,
+		artifacts: deduped,
 	};
 }
 
