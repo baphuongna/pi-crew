@@ -1503,7 +1503,15 @@ async function executeTeamRunCore(
 				"running",
 				"Merged task updates from parallel batch.",
 			);
-			const resultTasks = mergeTaskUpdatesPreservingTerminal(tasks, validResults);
+			// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
+			// of the in-memory `tasks` closure variable. The in-memory tasks reflect
+			// only team-runner's view; an external cancel (handleCancel, background
+			// race with SIGTERM arriving after cancel wrote but before merge ran)
+			// writes 'cancelled' to disk.tasks — using disk.tasks as base preserves
+			// that cancellation through the merge instead of overwriting it with the
+			// stale in-memory view. disk was loaded inside this lock, so it reflects
+			// the freshest committed state.
+			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? tasks, validResults);
 			await saveRunManifestAsync(resultManifest);
 			await saveRunTasksAsync(resultManifest, resultTasks);
 			return { resultManifest, resultTasks };
