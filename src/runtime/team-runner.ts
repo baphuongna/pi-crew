@@ -1448,7 +1448,18 @@ async function executeTeamRunCore(
 				);
 			}
 		});
-		if (results.length === 0) break;
+		if (results.length === 0) {
+			// F1: results is empty ONLY when every ready task was hook-skipped
+			// (batchTasks -> dispatchUnits empty). The skipped tasks are now terminal,
+			// so their downstream dependents become ready on the next iteration.
+			// Re-loop (continue) instead of breaking: breaking would skip those
+			// downstream tasks and fall through to a false-green "completed" run
+			// with queued tasks left behind. Terminates: each skipped task leaves
+			// "queued", so the queued set strictly shrinks; a stuck graph (ready
+			// empty but queued remain) is caught by the readyBatch.length===0
+			// guard above which marks the run "blocked".
+			continue;
+		}
 		// FIX: Filter out undefined entries from partial results when error occurred
 		// during parallel execution. Other workers may have written partial results
 		// before one threw. Results may be partial - some tasks in-flight at error
@@ -1746,6 +1757,12 @@ async function executeTeamRunCore(
 		manifest = updateRunStatus(manifest, "blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
 	} else if (blockingDecision) {
 		manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
+	} else if (tasks.some((task) => task.status === "queued")) {
+		// F1 defense-in-depth: the loop exited with queued tasks still pending
+		// (e.g. a hook skipped all ready tasks and downstream tasks never became
+		// runnable). This is NOT a completed run — mark it blocked rather than
+		// false-green "completed".
+		manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
 	} else {
 		manifest = updateRunStatus(
 			manifest,
