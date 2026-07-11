@@ -265,6 +265,15 @@ function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): 
 	// but completed is the success terminal state and should not be reachable from
 	// failed via a stale merge. The check above only guards non-terminal→terminal.
 	if (current.status === "failed" && updated.status === "completed") return false;
+	// Mirror that guard for the other dangerous terminal→terminal flips (reverse
+	// audit CANCEL-3 + F3): a cancelled task must not be resurrected to completed,
+	// and a completed task must not be demoted to failed, by a stale worker merge.
+	// The task transition table (contracts.ts) only permits terminal→queued
+	// (retry); these flips are always stale results. A worker that completed after
+	// the task was cancelled, or a stale failed result arriving after completion,
+	// must not flip a settled terminal status.
+	if (current.status === "cancelled" && updated.status === "completed") return false;
+	if (current.status === "completed" && updated.status === "failed") return false;
 	// Guard: when current is "running" but has resultArtifact (another worker already
 	// completed it), a stale updated with status="running" and no resultArtifact
 	// must not overwrite the actual completed state.

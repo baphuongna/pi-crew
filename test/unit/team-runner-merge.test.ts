@@ -53,6 +53,37 @@ test("parallel task merge does not regress completed tasks from stale worker sna
 	assert.equal(merged.find((item) => item.id === "b")?.status, "completed");
 });
 
+test("merge does not resurrect a cancelled task to completed (CANCEL-3)", () => {
+	// A worker that completed AFTER the task was cancelled must not flip the
+	// settled "cancelled" terminal status back to "completed".
+	const base = [task("a", "cancelled")];
+	const staleCompleted = {
+		tasks: [
+			{
+				...task("a", "completed"),
+				finishedAt: "2026-01-01T00:00:05.000Z", // newer than the cancel
+			},
+		],
+	};
+	const merged = __test__mergeTaskUpdates([task("a", "cancelled")], [staleCompleted]);
+	assert.equal(merged.find((item) => item.id === "a")?.status, "cancelled");
+});
+
+test("merge does not demote a completed task to failed (F3)", () => {
+	// A stale failed result arriving after completion must not flip "completed"
+	// to "failed".
+	const staleFailed = {
+		tasks: [
+			{
+				...task("a", "failed"),
+				finishedAt: "2026-01-01T00:00:05.000Z", // newer than the completion
+			},
+		],
+	};
+	const merged = __test__mergeTaskUpdates([task("a", "completed")], [staleFailed]);
+	assert.equal(merged.find((item) => item.id === "a")?.status, "completed");
+});
+
 test("executeTeamRun records structured cancellation reason", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-cancel-run-"));
 	try {
