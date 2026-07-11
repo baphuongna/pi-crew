@@ -141,9 +141,19 @@ saveRunManifest(manifest); // ← No withRunLock here!
 
 #### [NEW-C6] — Double lock acquisition in post-batch merge path
 
-**Severity**: HIGH  
-**Impact**: ~10–50ms per merge × batch count; redundant disk reads  
-**File**: `src/runtime/team-runner.ts:1450–1458`
+> **⛔ VERDICT (2026-07-11): WONTFIX — read is defensively correct, cost is negligible.**
+> Scrutinized the merge path (`team-runner.ts:1471`). The `loadRunManifestById`
+> inside `withRunLock` reads committed artifact state so the artifact merge
+> reflects on-disk reality, not just in-memory state — this defends against
+> concurrent/external manifest mutation (stale-reconciler, crash recovery).
+> It runs **once per batch** (batches are minutes apart), so the ~15–50ms is
+> negligible in aggregate. The "double lock" framing is a misnomer (the worker
+> lock and the merge lock are sequential, not nested). The recommended
+> sequence-number tagging is complex/risky and unjustified for a per-batch cost.
+
+**Severity**: ~~HIGH~~ → **WONTFIX (re-evaluated)**  
+**Impact**: ~~10–50ms per merge × batch count~~ → **~15–50ms once per batch (minutes apart); defensively correct**  
+**File**: `src/runtime/team-runner.ts:1471`
 
 ```typescript
 // PROBLEM: Async lock + disk read after sync locks already committed
@@ -291,9 +301,19 @@ async function renderTaskPrompt(task) {
 
 #### [NEW-M2] — Skill cache stat on every cache hit
 
-**Severity**: MEDIUM  
-**Impact**: ~2.5–20ms per task × 4 parallel = 10–80ms total  
-**File**: `src/runtime/skill-instructions.ts:128–145`
+> **⛔ VERDICT (2026-07-11): WONTFIX — dirStamp is unsafe for content freshness; stat is cheap & correct.**
+> The recommended `dirStamp` (parent-directory mtime) optimization is **incorrect**
+> for skill *content* freshness: directory mtime changes only on add/remove/rename,
+> **not on in-place edits** of a `SKILL.md`. Using it would serve stale skill
+> content after an edit — a correctness bug. The current per-file `statSync`
+> correctly catches both add/remove and content edits. Actual cost is ~0.3ms per
+> stat × ~5 skills × ~4 tasks ≈ ~6ms/batch (stat is far cheaper than the
+> 10–80ms estimate, which assumed read+parse cost). Trading correctness for
+> negligible speed is not justified.
+
+**Severity**: ~~MEDIUM~~ → **WONTFIX (re-evaluated; recommended fix is incorrect)**  
+**Impact**: ~~10–80ms total~~ → **~6ms/batch; stat is ~0.3ms, not read-cost**  
+**File**: `src/runtime/skill-instructions.ts:155` (`cachedSkillFresh`)
 
 ```typescript
 // PROBLEM: fs.statSync on every cache hit
@@ -446,8 +466,18 @@ if (yieldEnabled) {
 
 #### [A2-F1] — `taskUsageMap` global Map lacks auto-cleanup
 
-**Severity**: MEDIUM  
-**Impact**: Stale entries accumulate over long-running sessions  
+> **⛔ VERDICT (2026-07-11): WONTFIX — cleanup already runs reliably; no real leak.**
+> Scrutinized the lifecycle: `trackTaskUsage` is called **only** in the
+> live-session path (`live-session-runtime.ts:829`), never for child-process
+> workers. `cleanupUsage()` runs in **both** the success path
+> (`team-runner.ts:719`) **and** the error path (`team-runner.ts:821`), clearing
+> every task in `input.tasks`. For live-session runs `input.task.id ∈ input.tasks`,
+> so entries are reclaimed. Hard process crashes reclaim the whole Map via GC.
+> The only theoretical gap is a crashed run skipping cleanup — but entries are
+> ~24 bytes each and bounded by task count. There is no meaningful leak to fix.
+
+**Severity**: ~~MEDIUM~~ → **WONTFIX (re-evaluated; cleanup is reliable)**  
+**Impact**: ~~Stale entries accumulate~~ → **No real leak; cleanup runs on success + error paths; entries ~24B**  
 **File**: `src/runtime/usage-tracker.ts:38`
 
 ```typescript
