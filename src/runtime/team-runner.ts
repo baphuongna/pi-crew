@@ -1651,8 +1651,24 @@ async function executeTeamRunCore(
 			const message = reason?.message ?? cancelledResult?.manifest.summary ?? "Run cancelled during task execution.";
 			manifest = { ...manifest, status: "running" };
 			manifest = updateRunStatus(manifest, "cancelled", message);
-			await saveRunTasksAsync(manifest, tasks);
-			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+			// CANCEL-2: re-cancel non-terminal tasks here, mirroring the batch-loop
+			// cancel check at team-runner.ts:~925. A manifest cancelled mid-merge
+			// (e.g. signal abort during the merge's awaits) would otherwise save
+			// tasks without the cancel applied, leaving status=cancelled but tasks
+			// showing completed/running -- inconsistent and breaks handleRetry's
+			// filter for failed/cancelled tasks. Terminal tasks are NOT clobbered.
+			const cancelMessage = reason ? `${message} (${reason.code})` : message;
+			const reCancelledTasks = tasks.map((task) => {
+				if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
+				return {
+					...task,
+					status: "cancelled" as const,
+					finishedAt: new Date().toISOString(),
+					error: cancelMessage,
+				};
+			});
+			await saveRunTasksAsync(manifest, reCancelledTasks);
+			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, reCancelledTasks, runtimeKind));
 			await saveRunManifestAsync(manifest);
 			await appendEventAsync(manifest.eventsPath, {
 				type: "run.cancelled",
@@ -1661,10 +1677,11 @@ async function executeTeamRunCore(
 				data: {
 					reason,
 					phase: "task-batch",
+
 					cancelledResultRunId: cancelledResult?.manifest.runId,
 				},
 			});
-			return { manifest, tasks };
+			return { manifest, tasks: reCancelledTasks };
 		}
 		queueIndex = buildTaskGraphIndex(tasks);
 		const injectedAfterBatch = attemptAdaptivePlan();
