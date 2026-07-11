@@ -7,8 +7,8 @@ import { errors } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync, appendEventBuffered, appendEventFireAndForget } from "../state/event-log.ts";
-import { saveRunManifest } from "../state/state-store.ts";
 import { withRunLockSync } from "../state/locks.ts";
+import { saveRunManifest } from "../state/state-store.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import type {
 	ArtifactDescriptor,

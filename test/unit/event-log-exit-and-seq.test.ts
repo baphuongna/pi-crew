@@ -4,12 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import {
-	__test__clearSequenceCache as clearSequenceCache,
-	__test__clearSeqCounters as clearSeqCounters,
-	__test__nextSequence as nextSequenceFn,
 	appendEvent,
 	appendEventBuffered,
+	__test__clearSeqCounters as clearSeqCounters,
+	__test__clearSequenceCache as clearSequenceCache,
 	flushBufferedQueuesSync,
+	__test__nextSequence as nextSequenceFn,
 	readEvents,
 	scanSequence,
 	sequencePath,

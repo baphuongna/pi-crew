@@ -28,11 +28,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
-import { createRunManifest, __test__clearManifestCache as clearManifestCache, saveRunManifest } from "../../src/state/state-store.ts";
 import { persistSingleTaskUpdate } from "../../src/runtime/task-runner/state-helpers.ts";
+import { __test__clearManifestCache as clearManifestCache, createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
+import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
-import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 
 const ITERS = Number(process.env.BENCH_ITERS ?? 50);
 const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY ?? 4);
