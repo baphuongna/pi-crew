@@ -716,7 +716,6 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			);
 		stopTeamHeartbeat();
 		resolveRunPromise(manifest.runId, result);
-		cleanupUsage();
 		// Terminate live agents for this run — agents are done when the run ends.
 		void terminateLiveAgentsForRun(manifest.runId, "completed", appendEvent, manifest.eventsPath).catch((error) =>
 			logInternalError("team-runner.completed.terminate", error, `runId=${manifest.runId}`),
@@ -818,7 +817,6 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			runId: manifest.runId,
 			data: { status: manifest.status, error: message },
 		});
-		cleanupUsage();
 		// M7: flush buffered events before returning on the error path so the
 		// final buffered progress events are durable alongside the failure state.
 		await flushEventLogBuffer();
@@ -831,6 +829,13 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// still has its own flush for M7 backward compat — flushEventLogBuffer
 		// is idempotent on an empty queue.
 		await flushEventLogBuffer();
+		// A2-F1: clear tracked usage for this run's tasks. Consolidated in finally
+		// (previously duplicated on the success + error paths) so cleanup is
+		// guaranteed on EVERY exit path — a future throw in the success tail or
+		// error handler can no longer leak entries. Safe to run last: nothing in
+		// team-runner reads usage after the run resolves, and the TUI widget reads
+		// live usage only while a task is running (before this point).
+		cleanupUsage();
 		// NEW-M1: clear the stable-prefix cache (keyed by runId) so it does not
 		// grow unbounded across runs in a long-lived session.
 		clearStablePrefixCache();
