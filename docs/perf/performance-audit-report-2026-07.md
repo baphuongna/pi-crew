@@ -3,6 +3,8 @@
 > **Scope**: Multi-agent orchestration runtime (task execution pipeline, memory management, I/O operations, prompt construction, concurrency patterns)
 > **Target**: pi-crew v0.9.x runtime (`src/runtime/`, `src/state/`, `src/utils/`)
 > **Status**: Analysis complete — 26 findings (6 CRITICAL/HIGH, 13 MEDIUM, 7 LOW); 6 previously-documented issues confirmed fixed; 9 new findings identified
+>
+> **Update 2026-07-11 (post-bench)**: Phase 1 shipped (NEW-M1, A1-F7, A4-F1) + NEW-C3 correctness fix shipped. **A5-C2 disproven by benchmark** (`test/bench/terminal-persist-blocking.bench.ts`): contentionRatio ≈ 0.93–0.98 across 4 runs proves NO lock contention exists between concurrent task completions (sync critical sections serialize naturally in the single-threaded event loop). The claimed 200–800ms impact does not occur. See §7 — Benchmark Findings.
 
 ---
 
@@ -24,11 +26,11 @@
 
 | Priority | Finding | Category | Estimated Impact | Risk |
 |----------|---------|----------|------------------|------|
-| **P0** | `saveRunManifest` write-write race (NEW-C3) | Concurrency | Silent artifact loss | CRITICAL |
-| **P1** | `persistSingleTaskUpdate` sync lock blocks event loop (A5-C2) | Concurrency | 200–800ms/4-parallel batch | HIGH |
-| **P2** | Sync `saveRunManifest` per task completion (A1-F14) | I/O | 100–1000ms total/run | HIGH |
-| **P3** | Stable prefix recomputed per parallel task (NEW-M1) | Prompt/I/O | 200–800ms/4-tasks | MEDIUM |
-| **P4** | Redundant skill compaction on cache hit (A4-F1) | Prompt | ~15% skill rendering waste | HIGH |
+| **P0** | `saveRunManifest` write-write race (NEW-C3) | Concurrency | Silent artifact loss | ✅ **FIXED** (commit a03d244) |
+| **P1** | `persistSingleTaskUpdate` sync lock blocks event loop (A5-C2) | Concurrency | 200–800ms/4-parallel batch | ❌ **DISPROVEN** — no contention (ratio 0.93–0.98) |
+| **P2** | Sync `saveRunManifest` per task completion (A1-F14) | I/O | 100–1000ms total/run | HIGH (open) |
+| **P3** | Stable prefix recomputed per parallel task (NEW-M1) | Prompt/I/O | 200–800ms/4-tasks | ✅ **FIXED** (commit 08d1a64) |
+| **P4** | Redundant skill compaction on cache hit (A4-F1) | Prompt | ~15% skill rendering waste | ✅ **FIXED** (commit 08d1a64) |
 
 ### Findings Fixed Since Prior Review
 
@@ -161,8 +163,17 @@ await withRunLock(runId, async () => {
 
 #### [A5-C2] — `persistSingleTaskUpdate` sync lock blocks event loop
 
-**Severity**: HIGH  
-**Impact**: 200–800ms total wait time for 4-way parallel completion  
+> **⛔ VERDICT (2026-07-11): DISPROVEN — do not apply.** A dedicated benchmark
+> (`test/bench/terminal-persist-blocking.bench.ts`, 4 runs) measured
+> **contentionRatio 0.93–0.98** (≈1.0), proving there is **NO lock contention**
+> between concurrent task completions. The original impact estimate was based
+> on an incorrect concurrency model (see §7). The per-completion cost is a
+> single ~30ms sync block, spread over time in real runs — not a concentrated
+> 200–800ms block. The async conversion (11+ call sites + `checkpointTask`
+> ripple) would relieve contention that does not exist, at real deadlock risk.
+
+**Severity**: ~~HIGH~~ → **WONTFIX (disproven)**  
+**Impact**: ~~200–800ms total wait time for 4-way parallel completion~~ → **~30ms p50 per completion, no inter-completion contention**  
 **File**: `src/runtime/task-runner/state-helpers.ts:36–112`
 
 ```typescript
@@ -803,3 +814,84 @@ npm test
 
 *Report generated: 2026-07-11*  
 *Source data: adaptive-01 through adaptive-05 exploration artifacts + existing `docs/perf/` documentation*
+
+---
+
+## 7. Benchmark Findings (2026-07-11, post-bench)
+
+A new benchmark `test/bench/terminal-persist-blocking.bench.ts` was added to
+empirically answer the A5-C2 question: *does `persistSingleTaskUpdate`'s sync
+run lock block the event loop 200–800ms during 4-way parallel completion?*
+
+### Method
+
+Measures the **real persist path** (not just the atomic-write primitive) in
+four scenarios, with `monitorEventLoopDelay` capturing true event-loop lag:
+
+1. **serialPersist** — full `persistSingleTaskUpdate` (lock + load + CAS + write), isolated.
+2. **saveManifestLarge** — `saveRunManifest` with 60 artifact descriptors (terminal size).
+3. **singleTerminalBlock** — ONE full terminal block (saveManifest + persist) = the actual
+   per-completion cost. In real runs completions are spread over minutes, so each runs
+   exactly one such block.
+4. **spacedBurst** — 4 completions spaced by 15ms setTimeout gaps (so the event loop turns
+   over between blocks), under `monitorEventLoopDelay`.
+
+### Results (captured in `test/bench/results.json`)
+
+| Metric | p50 | p95 | max |
+|--------|-----|-----|-----|
+| serialPersist (ms) | 15.17 | 19.28 | 42.96 |
+| saveManifestLarge (ms) | 13.99 | 22.18 | 38.94 |
+| **singleTerminalBlock (ms)** | **30.28** | **32.83** | **38.92** |
+| spacedBurstPerCall (ms) | 28.20 | 34.72 | 68.81 |
+| eventLoopDelay (ms) | 1.09 | 29.69 | 210.11 |
+| **contentionRatio** | **0.93** | — | — |
+
+**contentionRatio was 0.93 / 0.98 / 0.96 / 0.98 across four independent runs** —
+consistently ≈ 1.0.
+
+### Verdict: A5-C2 disproven
+
+- **contentionRatio ≈ 1.0** means a completion's per-call latency under a 4-way
+  burst is **statistically identical** to a single isolated block. There is
+  **no lock contention** to relieve. The audit's premise ("4 tasks serialize
+  on the lock → `sleepSync` blocks 200–800ms") does not hold.
+
+- **Why**: JavaScript is single-threaded. `withRunLockSync`'s critical section
+  is fully synchronous, so concurrent `mapConcurrent` completions **cannot
+  overlap** — worker A's persist runs atomically to completion, then worker B's
+  runs. By the time B runs, A has released the lock (re-entrance map cleared),
+  so B acquires fresh via `O_EXCL` on the first try — `sleepSync`/`Atomics.wait`
+  **never triggers** for same-process workers. It only triggers under genuine
+  *cross-process* contention (a separate OS process holding the lock file),
+  which doesn't happen for in-process task completion.
+
+- **Real per-completion cost**: ~30ms p50 (one sync block). Real runs spread
+  completions over minutes, so this is ~30ms of event-loop blocking per
+  completion — acceptable for a CLI tool (no sub-16ms interactive frame budget
+  during that moment). The `eventLoopDelay` max of ~210ms is an occasional
+  fsync/GC outlier, **not** lock contention — and is the same fsync-cost issue
+  already tracked as F3/F4 in the prior review.
+
+- **Why the async conversion wouldn't help even if applied**: `persistSingleTaskUpdate`'s
+  body is fully synchronous I/O (`loadRunManifestById`, `saveRunTasksCoalesced`,
+  `statSync`). Converting only the lock to async leaves the body I/O synchronous,
+  so event-loop blocking from the I/O persists regardless. Removing it would
+  require converting the entire persist path to async I/O — a much larger,
+  higher-risk refactor — for ~30ms of infrequent blocking that doesn't matter
+  in practice.
+
+### Recommendation
+
+**Do not implement A5-C2 as specified.** The 11+ call-site + `checkpointTask`
+ripple (with deadlock risk) buys nothing measurable. If event-loop blocking
+from the persist path ever becomes a real problem (e.g. a highly concurrent
+interactive TUI), the correct target is **async I/O throughout
+`persistSingleTaskUpdate`** + a benchmark proving the win — not the lock
+conversion.
+
+### What this benchmark is now good for
+
+`terminal-persist-blocking.bench.ts` is a durable regression guard: any future
+change to the persist/lock path can be re-benched to confirm `contentionRatio`
+stays ≈1.0 and `singleTerminalBlock` doesn't regress.
