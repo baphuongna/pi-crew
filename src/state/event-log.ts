@@ -225,6 +225,18 @@ export function __test__clearSequenceCache(): void {
 	sequenceCache.clear();
 }
 
+/** @internal — clear the in-process seqCounters Map so nextSequence seeds
+ *  fresh from the sidecar/file (simulates a process restart for testing). */
+export function __test__clearSeqCounters(): void {
+	seqCounters.clear();
+}
+
+/** @internal — the raw nextSequence for testing (forces re-seed from disk
+ *  by requiring the caller to have already cleared both caches). */
+export function __test__nextSequence(eventsPath: string): number {
+	return nextSequence(eventsPath);
+}
+
 /** @internal — the max sequence cache entries bound. */
 export const MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
 
@@ -277,13 +289,22 @@ function nextSequence(eventsPath: string): number {
 	const stored = readStoredSequence(eventsPath);
 	const fileShrunk = cached && stat.size < cached.size;
 	if (stored !== undefined && !fileShrunk) {
+		// EL-1: the sidecar can regress via sync/async interleave —
+		// appendEventAsync reserves a seq, yields during appendFile/fsync, a
+		// concurrent sync appendEvent reserves+persists a higher seq, then the
+		// async path persists its lower seq — regressing the sidecar below the
+		// file's true max. Trusting the regressed sidecar alone would return a
+		// duplicate seq on the next append. Take max with scanSequence so a
+		// regressed sidecar cannot cause duplicate sequence numbers.
+		const fileMax = scanSequence(eventsPath);
+		const safeSeq = Math.max(stored, fileMax);
 		sequenceCache.set(eventsPath, {
 			size: stat.size,
 			mtimeMs: stat.mtimeMs,
-			seq: stored,
+			seq: safeSeq,
 			lastAccessMs: Date.now(),
 		});
-		return stored + 1;
+		return safeSeq + 1;
 	}
 	const current = scanSequence(eventsPath);
 	sequenceCache.set(eventsPath, {
@@ -1041,6 +1062,40 @@ export async function flushEventLogBuffer(): Promise<void> {
 }
 
 /**
+ * EL-2: Synchronously flush every queued buffered event across all paths.
+ * Used by the `exit` / `uncaughtException` / `SIGTERM` / `SIGINT` handlers,
+ * which CANNOT await async work (process is terminating). The async
+ * flushEventLogBuffer() previously called from these handlers created
+ * floating promises that never resolved, and the process exited before
+ * any buffered events were written — losing all events buffered via
+ * appendEventBuffered (task.progress etc.). This sync variant writes the
+ * buffered batches using the sync event-log lock + appendFileSync + fsync
+ * + persistSequence, recovering buffered events before termination.
+ * In-flight asyncQueues (appendEventAsync writes already dispatched to
+ * the thread pool) remain best-effort and cannot be awaited on `exit` —
+ * we clear them to drop stale state. SIGKILL cannot be intercepted.
+ */
+export function flushBufferedQueuesSync(): void {
+	for (const eventsPath of [...bufferedQueues.keys()]) {
+		const queue = bufferedQueues.get(eventsPath);
+		bufferedQueues.delete(eventsPath);
+		if (!queue || queue.length === 0) continue;
+		try {
+			withEventLogLockSync(eventsPath, () => {
+				// appendEventBatchInsideLock is declared async but its body is fully
+				// synchronous (fs.appendFileSync + fs.fsyncSync + persistSequence,
+				// no awaits). Invoking without await runs the body synchronously and
+				// returns a resolved Promise that we discard.
+				void appendEventBatchInsideLock(eventsPath, queue);
+			});
+		} catch (error) {
+			logInternalError("event-log.sync-flush", error, eventsPath);
+		}
+	}
+	for (const eventsPath of [...bufferedTimers.keys()]) bufferedTimers.delete(eventsPath);
+}
+
+/**
  * Schedule an async event append without waiting for the result.
  * Uses the non-blocking async queue to avoid blocking the event loop.
  * Use only for events whose return value is ignored (high-frequency `task.progress`).
@@ -1059,20 +1114,13 @@ export function appendEventFireAndForget(eventsPath: string, event: AppendTeamEv
 // failing tests with "Promise resolution is still pending but the event loop
 // has already resolved" even when the test body completed cleanly.
 process.on("exit", () => {
-	if (bufferedQueues.size > 0) {
-		flushEventLogBuffer().catch(() => {
-			/* best-effort flush on exit */
-		});
-	}
-	// FIX (Issue 1): Drain asyncQueues on exit to minimize event loss.
-	// In-flight async writes are awaited (via Promise.allSettled) before
-	// the map is cleared. This reduces but does not eliminate event loss
-	// on crash — SIGKILL (kill -9) cannot be intercepted.
-	if (asyncQueues.size > 0) {
-		drainAsyncQueues().catch(() => {
-			/* best-effort drain on exit */
-		});
-	}
+	// EL-2: synchronously flush buffered events before the process terminates.
+	// `exit` is sync-only and cannot await async work; the previous async
+	// flushEventLogBuffer()/drainAsyncQueues() created floating promises that
+	// never resolved, and the process exited before any buffered events were
+	// written. flushBufferedQueuesSync uses the sync lock + appendFileSync +
+	// fsync + persistSequence to recover buffered events.
+	flushBufferedQueuesSync();
 	asyncQueues.clear();
 });
 
@@ -1099,20 +1147,18 @@ process.on("beforeExit", async () => {
 		}
 	}
 });
-process.on("SIGTERM", () => setImmediate(() => flushEventLogBuffer()));
-process.on("SIGINT", () => setImmediate(() => flushEventLogBuffer()));
+process.on("SIGTERM", () => setImmediate(() => flushBufferedQueuesSync()));
+process.on("SIGINT", () => setImmediate(() => flushBufferedQueuesSync()));
 // FIX (Issue 1): Handle uncaught exceptions to flush buffered events before
 // the process terminates. The async queues use promise chains that will be
 // abandoned on crash; clearing the map prevents memory leaks and stale state.
 // Note: SIGKILL (kill -9) cannot be intercepted and is not handled.
 process.on("uncaughtException", (error) => {
-	try {
-		flushEventLogBuffer();
-	} catch {
-		/* best-effort */
-	}
-	// FIX (Issue 1): Drain asyncQueues before clearing to minimize event loss.
-	drainAsyncQueues();
+	// EL-2: synchronously flush buffered events before re-throwing (which
+	// terminates the process). The previous async flushEventLogBuffer() +
+	// drainAsyncQueues() couldn't complete before process exit; use the sync
+	// variant to recover buffered events.
+	flushBufferedQueuesSync();
 	asyncQueues.clear();
 	// Re-throw to preserve default uncaught exception behavior (process exit)
 	throw error;
