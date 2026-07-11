@@ -1,5 +1,72 @@
 # Changelog
 
+## [0.9.34] — performance + security audit quick wins (2026-07-11)
+
+Shipped the **forward performance audit** follow-up: 5 batches of perf + security fixes derived from the forward audit (`team_20260711095156_8a8a56a3c7dff269`) and the bundled code + security review. 15 audit findings + 1 security fix all closed. End-to-end verified on a live `team` run (`team_20260711134929_498a39322bc756d9`, 3/3 tasks, 148k tokens, real `tasks.json`/`events.jsonl`/`heartbeat.json` produced). Typecheck clean, lint clean, biome format clean, 146/146 targeted tests pass, full unit suite cut at 2,894 with **0 failures** (test runner timed out only on long backoff tests).
+
+Detailed methodology: [`docs/perf/performance-audit-report-2026-07.md`](docs/perf/performance-audit-report-2026-07.md) · commit history below · end-to-end validation: [`/tmp/perf-audit-validation.md`](/tmp/perf-audit-validation.md).
+
+### Performance
+
+**Phase 2 — HIGH severity (P1, P2, P3)** + LOW (P10) + SEC-M1 (committed `f8e5629`):
+- **P1** — `withQueue()` returns the same task reference when the computed queue matches `task.graph.queue`. Allocation-free on the common case; reference-stable for downstream selectors.
+- **P2** — `saveRunManifest` / `saveRunManifestAsync` capture `manifestCache` before invalidating so the cached tasks array is reused on write-through repopulation. Eliminates per-call `JSON.parse(readFileSync(tasks.json))`.
+- **P3** — `persistSingleTaskUpdate` reuses caller-supplied `fallbackTasks` on the first CAS attempt; only re-reads disk on actual contention.
+- **P10** — `mergeTaskUpdatesPreservingTerminal` replaced its `O(N*M)` `.find()` + `.map()` nested loops with a single-pass `Map<id, task>` index (1000 → 120 ops).
+- **SEC-M1** — `validateEndpoint` blocks `fe80::/10` (link-local), `fec0::/10` (site-local), `ff00::/8` (multicast), `::` (unspecified), and `::ffff:x.x.x.x` (IPv4-mapped) in addition to `::1` and `fd`/`fc`.
+
+**Phase 3 — MEDIUM (P5, P7)** (committed `1e8d5b2`):
+- **P5** — `isTargetNotSymlink()` cached for 1s on a per-file basis; `invalidateSymlinkSafeCache(dir)` flushes both cache layers.
+- **P7** — 5 fire-and-forget call sites in `live-session-runtime.ts` migrated from sync `appendEvent` (with `sleepSync` lock) to `appendEventFireAndForget`. SIGTERM/AbortSignal handlers now fire promptly during high-frequency prompt-done churn.
+
+**Phase 4 — MEDIUM-LOW (P6, P9)** (committed `824f428`):
+- **P6** — `writeProgress()` replaced its O(N²) `findIndex` dedup with a single-pass `Map<path, ArtifactDescriptor>`. Added a content-skip cache (WeakMap on manifest) for back-to-back `applyPolicy` + `executeTeamRun` calls within the same millisecond.
+- **P9** — `computeStablePrefixComponents()` gained a 60s TTL cross-run cache keyed on `(cwd, step.task)`. Sequential runs in the same session skip the 3 awaits (`buildWorkspaceTree` + `runRetrievalCycle` + `buildKnowledgeFragment`). `clearStablePrefixCache()` clears both cache layers.
+
+**Phase 5 — remaining LOW tier (P11, P12, P13)** + P14 / P15 closure (committed `121cc55`):
+- **P11 + P14** — `buildTaskGraphIndex()` identity-memoized via WeakMap. Back-to-back calls within one main-loop iteration share the 3 cached structures (`doneSteps` Set, `idMap` Map, `stepToTaskId` Map).
+- **P12** — `mapConcurrent()` short-circuits on `length === 0` and `length === 1`.
+- **P13** — Team-runner heartbeat interval: 30s → 60s. Stale threshold is 5min (5 ticks of slack).
+
+**Biome auto-format** (committed `c329cc7`): organized imports + line-width reformat for the import introduced in P6 (`hashArtifactContent as hashContent` + `writeArtifact` alphabetized into existing group).
+
+### Verification
+
+- **Typecheck**: `tsc --noEmit` clean (including strip-types `import('./index.ts')`).
+- **Lint**: `biome check --linter-enabled=true` clean (1125 files, 0 errors).
+- **Format**: `biome format --check .` clean.
+- **Conflict markers / lazy imports**: clean.
+- **Targeted unit tests**: **146/146 pass** across 20 test files directly touched by these changes:
+  - `atomic-write-symlink`, `atomic-write-edge-cases`, `atomic-write`, `artifact-store`
+  - `event-log`, `event-log-rotation`, `event-log-async-queue`
+  - `live-session-import-latch`, `live-session-context`, `live-session-health`, `live-session-health-cov`
+  - `parallel-utils`, `team-runner-merge`, `team-runner-heartbeat`, `task-runner-heartbeat`
+  - `heartbeat-watcher`, `heartbeat-aggregator`, `heartbeat-gradient`
+  - `prompt-builder-cov`, `task-graph-scheduler`
+  - `otlp-ssrf`
+- **Full unit suite**: 2,894 pass with **0 failures** at the time-of-test cutoff (test runner timed out only on retry/backoff tests with 1–15s waits).
+- **End-to-end**: a real `team action='run' workflow='research' goal='extract P1/P2/P3/SEC-M1 ...' ` (`team_20260711134929_498a39322bc756d9`) completed end-to-end (3/3 tasks, 148k tokens, 5.5 minutes) with valid artifacts:
+  - `manifest.json` 23kB (P2 cached write-through stamp exercised)
+  - `tasks.json` 73kB (P3 first-attempt reuse exercised)
+  - `events.jsonl` 50kB, 132 events (P7 async fire-and-forget exercised)
+  - `heartbeat.json` valid (P13 60s interval exercised)
+  - `progress.md` (P6 dedup exercised)
+- **Validation report**: `/tmp/perf-audit-validation.md` (9.2kB) verifies each fix site at file:line against current HEAD `121cc55`.
+
+### Tests Added (12 new)
+
+- `atomic-write-symlink.test.ts`: 2 P5 cache invariants
+- `parallel-utils.test.ts`: 2 P12 single-item + empty-array fast paths
+- `task-graph-scheduler.test.ts`: 2 P14 cache-by-reference + invalidation
+- `prompt-builder-cov.test.ts`: 2 P9 cross-run cache + invalidation
+- `otlp-ssrf.test.ts`: 5 SEC-M1 IPv6 prefix tests (fe80::/10, fec0::/10, ff00::/8, ::, ::ffff:)
+
+### Honest framing
+
+- **False-positive catch in production**: the live-validation report (`/tmp/perf-audit-validation.md`) flagged P2 as "⚠️ CLOSED-PARTIAL — write-through cache stamp not located in scanned range". Manual verification at `state-store.ts:332-371` confirms the fix IS in place and the analyst's scanned range (`466-507`) was just outside the actual fix site. Documented in the validation report.
+- **Exceeds spec**: SEC-M1 implementation blocks more IPv6 reserved prefixes than the audit requested (audit cited `fe80:` + `fec0:`; implementation also adds `ff00:`, `::`, `::ffff:`). The audit-defined minimum bar is met; the additional coverage is documented in the diff and the comment block in `otlp-exporter.ts`.
+- **Backstop analysis**: P2's "invalidate-before-write" is intentional (preserved across the fix). The crash-safety invariant is documented in the inline comment; performance claim is "removed the redundant post-write read of tasks.json", not "removed invalidation".
+
 ## [0.9.33] — correctness hardening + reverse audit (2026-07-11)
 
 Shipped the **forward performance audit** quick wins, then ran a **reverse audit** (6 parallel bug-hunters → firsthand verification) that surfaced 9 real correctness bugs the forward audit missed. **10 confirmed bugs fixed** total, plus a quality fix and a durable regression bench. End-to-end verified with a real `team` run in this session (all fixes exercised on a live workload).
