@@ -87,6 +87,22 @@ test("mapConcurrent propagates errors", async () => {
 	}, /boom/);
 });
 
+// P12 (perf): single-item and empty-item fast paths skip the worker pool.
+test("mapConcurrent single-item fast path (P12)", async () => {
+	const calls: number[] = [];
+	const results = await mapConcurrent([42], 4, async (value) => {
+		calls.push(value);
+		return value * 2;
+	});
+	assert.deepEqual(results, [84]);
+	assert.deepEqual(calls, [42], "fn invoked exactly once with index 0");
+});
+
+test("mapConcurrent empty-item fast path (P12)", async () => {
+	const results = await mapConcurrent<number, number>([], 4, async () => 0);
+	assert.deepEqual(results, []);
+});
+
 test("aggregateParallelOutputs marks failures and skips", () => {
 	const text = aggregateParallelOutputs([
 		{ agent: "a", output: "ok", exitCode: 0 },

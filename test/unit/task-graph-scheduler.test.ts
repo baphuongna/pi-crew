@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	buildTaskGraphIndex,
 	cancelTaskSubtree,
 	failTaskAndBlockChildren,
 	getReadyTasks,
@@ -73,4 +74,31 @@ test("task graph scheduler fails parent and skips queued descendants", () => {
 	assert.equal(byId.get("02_b")?.status, "skipped");
 	assert.equal(byId.get("03_c")?.status, "skipped");
 	assert.equal(byId.get("04_d")?.status, "skipped");
+});
+
+// P14 (perf): buildTaskGraphIndex is identity-memoized so repeated calls on
+// the same array reference share the 3 data structures. A new array (e.g.
+// after markTaskRunning / markTaskDone) invalidates the cache naturally.
+test("buildTaskGraphIndex caches by array reference (P14)", () => {
+	const tasks = sampleTasks();
+	const a = buildTaskGraphIndex(tasks);
+	const b = buildTaskGraphIndex(tasks);
+	assert.strictEqual(a, b, "second call with same array reference returns the same index object");
+	const mutated = markTaskRunning(tasks, "01_a");
+	const c = buildTaskGraphIndex(mutated);
+	assert.notStrictEqual(c, a, "different array reference gets a fresh index");
+});
+
+test("markTaskRunning/markTaskDone preserve cache invalidation", () => {
+	const tasks = sampleTasks();
+	const t1 = markTaskRunning(tasks, "01_a");
+	const t2 = markTaskDone(t1, "01_a");
+	// Each step produces a new array → each gets its own index.
+	const i1 = buildTaskGraphIndex(t1);
+	const i2 = buildTaskGraphIndex(t2);
+	assert.notStrictEqual(i1, i2);
+	assert.ok(i1.doneSteps.size === 0 && i1.idMap.size === 4);
+	// t2 has "01_a" status="completed"; doneSteps is keyed by stepId (not task id).
+	// stepId for "01_a" in sampleTasks() is "a".
+	assert.ok(i2.doneSteps.has("a") && i2.idMap.size === 4);
 });

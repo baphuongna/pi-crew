@@ -106,7 +106,12 @@ function startTeamRunHeartbeat(stateRoot: string, runId: string): () => void {
 	// heartbeat and interrupt guard (both unref'd), the team heartbeat must keep
 	// the event loop alive so the stale reconciler does not cancel long-running
 	// team runs (>5 min) as "stale" while they are actively executing.
-	const interval = setInterval(writeHeartbeat, 30_000);
+	// P13 (perf): tick every 60s instead of 30s. The stale-reconciler threshold
+	// is 5min (300_000ms in crash-recovery.ts), so a 60s heartbeat still leaves
+	// 5 ticks of slack before a run is misidentified as stale. Cuts the per-run
+	// heartbeat.syscall count in half (1 write/30s → 1 write/60s) with no
+	// behavioral change.
+	const interval = setInterval(writeHeartbeat, 60_000);
 	return () => clearInterval(interval);
 }
 

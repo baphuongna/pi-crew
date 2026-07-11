@@ -43,6 +43,11 @@ export function flattenSteps(steps: RunnerStep[]): RunnerSubagentStep[] {
 }
 
 export async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+	// P12 (perf): single-item fast path. Skip the Promise.all + worker-pool
+	// setup when there's exactly one item — just call fn directly. Same return
+	// shape, no concurrency overhead, no micro-task allocation.
+	if (items.length === 1) return [await fn(items[0], 0)];
+	if (items.length === 0) return [];
 	const safeLimit = Math.max(1, Math.floor(limit) || 1);
 	const results: R[] = new Array(items.length);
 	let next = 0;

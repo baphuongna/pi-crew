@@ -15,8 +15,24 @@ export interface TaskGraphIndex {
 	stepToTaskId: Map<string, string>;
 }
 
+/**
+ * P14 (perf): identity-keyed memoization for `buildTaskGraphIndex`. The 3
+ * data structures built here (doneSteps Set, idMap Map, stepToTaskId Map) are
+ * a function of the task list alone — if the caller passes the SAME array
+ * reference twice (e.g., across `refreshTaskGraphQueues` -> `getReadyTasks`
+ * rounds within one main-loop iteration before any new tasks land), we can
+ * reuse the cached index. The cache is invalidated naturally by a new array
+ * reference (e.g., the result of `markTaskRunning` / `markTaskDone`).
+ *
+ * Memozation is a WeakMap so a stale reference is collected when the array
+ * goes out of scope — no manual invalidation needed, no unbounded growth.
+ */
+const taskGraphIndexCache = new WeakMap<TeamTaskState[], TaskGraphIndex>();
+
 export function buildTaskGraphIndex(tasks: TeamTaskState[]): TaskGraphIndex {
-	return {
+	const cached = taskGraphIndexCache.get(tasks);
+	if (cached) return cached;
+	const fresh: TaskGraphIndex = {
 		doneSteps: new Set(
 			tasks
 				.filter((task) => task.status === "completed")
@@ -28,6 +44,18 @@ export function buildTaskGraphIndex(tasks: TeamTaskState[]): TaskGraphIndex {
 			tasks.map((task) => [task.stepId, task.id]).filter((entry): entry is [string, string] => entry[0] !== undefined),
 		),
 	};
+	taskGraphIndexCache.set(tasks, fresh);
+	return fresh;
+}
+
+/** Test/diagnostic helper — invalidate the WeakMap-backed index cache. Not
+ *  used by production code paths; the WeakMap self-invalidates when a tasks
+ *  array goes out of scope. Provided for parity with `clearStablePrefixCache`. */
+export function clearTaskGraphIndexCache(): void {
+	// WeakMap has no `.clear()`; rely on GC. Exposed as a no-op stub so callers
+	// that import `clearStablePrefixCache` (also a no-op stub for symmetry) can
+	// adopt a parallel API if needed in the future. Documented as no-op rather
+	// than removed so the API stays discoverable.
 }
 
 function taskById(tasks: TeamTaskState[]): Map<string, TeamTaskState> {

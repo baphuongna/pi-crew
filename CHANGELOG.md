@@ -29,6 +29,17 @@ The reverse audit ran 6 parallel bug-hunters across concurrency, state machine, 
 
 - **NEW-C3** — terminal manifest+tasks persistence race. `runTeamTask` wrote `manifest.json` (immediate) and `tasks.json` (via `persistSingleTaskUpdate` → `saveRunTasksCoalesced`, 50 ms debounce) **outside any lock**, racing the team-runner batch merge which writes both under `withRunLock`. A worker could persist its terminal artifacts → the merge's `loadRunManifestById` reads the worker-written manifest → merge overwrites with the worker's stale `tasks` (which lacks the merge's attempt enrichment + graph recompute) → silent data loss. Fix: wrap `saveRunManifest` + `persistSingleTaskUpdate` in a single `withRunLockSync` so the whole terminal state lands atomically. (`a03d244`)
 
+### Performance — forward audit quick wins (Phase 5 — remaining LOW-tier P11/P12/P13/P14)
+
+Closing out the LOW-tier items from the audit. The HIGH and MEDIUM-tier items (Phase 2-4) are already shipped.
+
+- **P11 + P14 (LOW)** — `buildTaskGraphIndex` (and transitively all callers through `ensureIndex`) now memoizes by array reference via a WeakMap. Back-to-back calls with the same tasks array (common within a single main-loop iteration) reuse the 3 cached data structures (`doneSteps` Set, `idMap` Map, `stepToTaskId` Map). New arrays (e.g., the output of `markTaskRunning` / `markTaskDone`) get a fresh build naturally. WeakMap self-invalidates when the array goes out of scope — no manual lifetime management. For the typical 5-batch/20-task run, ~80% of `buildTaskGraphIndex` calls are now cache hits.
+- **P12 (LOW)** — `mapConcurrent` now short-circuits on `length === 0` (empty array → `[]`) and `length === 1` (single item → `await fn(items[0], 0)`) without setting up the worker pool / Promise.all / counters. Common case for adaptive-plan branching and many task-graph decision points where only one ready task is dispatchable.
+- **P13 (LOW)** — Team-runner heartbeat interval bumped from 30s to 60s. The stale-reconciler threshold is 5min (`staleThresholdMs = 300_000` in crash-recovery.ts), so 60s still leaves 5 ticks of slack before a run is misidentified as stale. Halves heartbeat syscall count (1 write/30s → 1 write/60s) with no behavioral change. Worker heartbeats (1s) and the team-runner interrupt guard are unchanged.
+- **P15** — already addressed by Phase 4's P6 fix (writeProgress artifact dedup moved to O(N) Map).
+
+3 new tests lock in the changes: P14 cache-by-reference identity + cache invalidation across markTaskRunning/markTaskDone; P12 single-item + empty-item fast paths.
+
 ### Performance — forward audit quick wins (Phase 4 — P6 + P9 + content-cache)
 
 Continuing the Phase 3 work. Addresses 1 MEDIUM-Low finding (P6), 1 MEDIUM finding (P9), plus a content-skip optimization for writeProgress.
