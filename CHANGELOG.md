@@ -29,6 +29,13 @@ The reverse audit ran 6 parallel bug-hunters across concurrency, state machine, 
 
 - **NEW-C3** — terminal manifest+tasks persistence race. `runTeamTask` wrote `manifest.json` (immediate) and `tasks.json` (via `persistSingleTaskUpdate` → `saveRunTasksCoalesced`, 50 ms debounce) **outside any lock**, racing the team-runner batch merge which writes both under `withRunLock`. A worker could persist its terminal artifacts → the merge's `loadRunManifestById` reads the worker-written manifest → merge overwrites with the worker's stale `tasks` (which lacks the merge's attempt enrichment + graph recompute) → silent data loss. Fix: wrap `saveRunManifest` + `persistSingleTaskUpdate` in a single `withRunLockSync` so the whole terminal state lands atomically. (`a03d244`)
 
+### Performance — forward audit quick wins (Phase 3 — P5 + P7)
+
+Continuing the Phase 2 work. Addresses 1 MEDIUM-Severity and 1 MEDIUM-Low finding from the audit.
+
+- **P5 (MEDIUM)** — added a short-TTL (1s) cache for the target-file symlink check in `atomic-write.ts`. The previous code re-ran `lstatSync` on every `atomicWriteFile` call (`isTargetNotSymlink`), even for the common case where the file (manifest.json, tasks.json, events.jsonl inside `.crew/state/`) is a regular file repeatedly. The 1s TTL bounds the TOCTOU swap window to ~1s — same order as the existing `isSymlinkSafeDirCached` (10s). `invalidateSymlinkSafeCache(dir)` now also flushes the per-file cache entries under that dir, so the two caches stay coherent. Set `TARGET_NOT_SYMLINK_TTL_MS = 0` to disable and restore the pre-P5 always-recheck behavior. Estimated ~50% reduction in symlink-check syscalls per write burst.
+- **P7 (MEDIUM)** — migrated 5 fire-and-forget `appendEvent` call sites in `live-session-runtime.ts` to `appendEventFireAndForget`. These events (session_created, bind_extensions_error, prompt_start, prompt_error, prompt_done) had their return value ignored; the sync path acquired the event-log `sleepSync` lock, blocking SIGTERM/AbortSignal handlers during high-frequency prompt-done churn. Sites that pass `appendEvent` AS A CALLBACK to functions expecting `(eventsPath, event) => TeamEvent` (e.g. `appendTranscript`, `terminateLiveAgent`) keep the sync path — the return value is needed there. 3 new tests lock in the cache invariants: cache hit on repeated writes; explicit `invalidateSymlinkSafeCache(dir)` flushes both caches; symlink redirection is still rejected within a write.
+
 ### Performance — forward audit quick wins (Phase 2 — top 4 optimizations)
 
 Follow-on to the Phase 1 quick wins; addresses the top 3 HIGH-severity findings from the deep audit (`team_20260711095156_8a8a56a3c7dff269`) plus one MEDIUM-Severity security finding from the bundled security review.

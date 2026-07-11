@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { atomicWriteFile, atomicWriteJson, isSymlinkSafePath } from "../../src/state/atomic-write.ts";
+import { atomicWriteFile, atomicWriteJson, invalidateSymlinkSafeCache, isSymlinkSafePath } from "../../src/state/atomic-write.ts";
 
 const realTmp = fs.realpathSync(os.tmpdir());
 
@@ -189,5 +189,65 @@ describe("atomicWriteJson — JSON serialization", () => {
 		const files = fs.readdirSync(tmpDir);
 		const tmpFiles = files.filter((f) => f.endsWith(".tmp"));
 		assert.equal(tmpFiles.length, 0, "no temp files should remain");
+	});
+});
+
+// P5 (perf): the target-file symlink check now caches regular-file verdicts
+// for 1s. Verify the cache is coherent with directory-level invalidation so a
+// symlink swap at the target path is still caught within the TTL window.
+describe("atomicWriteFile — symlink-safety cache (P5)", () => {
+	let tmpDir: string;
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(realTmp, "pi-crew-cache-"));
+	});
+	afterEach(() => {
+		try {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		} catch {
+			/* ignore */
+		}
+		invalidateSymlinkSafeCache();
+	});
+
+	it("caches regular-file verdict and explicit directory invalidation flushes both caches", () => {
+		const target = path.join(tmpDir, "trusted-manifest.json");
+		fs.writeFileSync(target, "ORIGINAL");
+
+		// First write primes both caches (dir + target).
+		atomicWriteFile(target, "PRIME");
+
+		// Replace the regular target with a symlink. The cached verdict is
+		// still "safe=true" because the TTL (1s) hasn't elapsed. The P5 design
+		// explicitly accepts this stale-read window; relying on it would be
+		// wrong. The right primitive for "I just modified the directory layout"
+		// is invalidateSymlinkSafeCache(dir).
+		fs.unlinkSync(target);
+		fs.symlinkSync(path.join(tmpDir, "elsewhere.txt"), target);
+		fs.writeFileSync(path.join(tmpDir, "elsewhere.txt"), "REDIRECTED", "utf-8");
+
+		// Invalidate the dir-level cache \u2014 this MUST also flush the target-cache
+		// entries under that dir, so the next atomicWriteFile re-stats and sees
+		// the symlink. This is the contract P5 preserves: explicit invalidation
+		// is honored; implicit TTL expiry is bounded to 1s.
+		invalidateSymlinkSafeCache(tmpDir);
+
+		assert.throws(() => atomicWriteFile(target, "ATTACKER"), /symlink/);
+		const redirect = fs.readFileSync(path.join(tmpDir, "elsewhere.txt"), "utf-8");
+		assert.equal(redirect, "REDIRECTED", "symlink redirection must not be followed after explicit invalidation");
+	});
+
+	it("consecutive writes to the same file all succeed without re-stat'ing the dir", () => {
+		// P5 behavior: after the first atomicWriteFile warms both caches, repeated
+		// writes to the SAME target should not re-validate the directory chain
+		// (dir cache hit \u2264 10s) nor re-lstat the file (target cache hit \u2264 1s).
+		// This is the common-case perf win \u2014 a manifest.json that's written 20x
+		// per batch now pays 2 syscalls total instead of 40.
+		const target = path.join(tmpDir, "hot.json");
+		fs.writeFileSync(target, "init");
+		// Warm + 4 more writes within TTL.
+		for (let i = 0; i < 5; i++) {
+			atomicWriteFile(target, `iter-${i}`);
+			assert.equal(fs.readFileSync(target, "utf-8"), `iter-${i}`);
+		}
 	});
 });

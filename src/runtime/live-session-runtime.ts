@@ -5,7 +5,7 @@ import { resolveToolPolicy } from "../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../config/config.ts";
 import { loadConfig } from "../config/config.ts";
 import { DEFAULT_LIVE_SESSION } from "../config/defaults.ts";
-import { appendEvent } from "../state/event-log.ts";
+import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
@@ -676,7 +676,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			customTools,
 		});
 		session = created.session;
-		appendEvent(input.manifest.eventsPath, {
+		// P7 (perf): fire-and-forget — return value not needed, blocks the
+		// event loop less than the sync appendEvent under file-lock contention.
+		appendEventFireAndForget(input.manifest.eventsPath, {
 			type: "live-session.session_created",
 			runId: input.manifest.runId,
 			taskId: input.task.id,
@@ -696,7 +698,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			]);
 		} catch (bindError) {
 			const msg = bindError instanceof Error ? bindError.message : String(bindError);
-			appendEvent(input.manifest.eventsPath, {
+			// P7: fire-and-forget — return value not needed.
+			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "live-session.bind_extensions_error",
 				runId: input.manifest.runId,
 				taskId: input.task.id,
@@ -879,7 +882,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 
 		// Diagnostic: log prompt size and timing
 		const promptStart = Date.now();
-		appendEvent(input.manifest.eventsPath, {
+		// P7: fire-and-forget — return value not needed.
+		appendEventFireAndForget(input.manifest.eventsPath, {
 			type: "live-session.prompt_start",
 			runId: input.manifest.runId,
 			taskId: input.task.id,
@@ -896,7 +900,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			await promptWithTimeout(session, effectivePrompt, sessionTimeoutMs, "Live-session");
 		} catch (promptError) {
 			const msg = promptError instanceof Error ? promptError.message : String(promptError);
-			appendEvent(input.manifest.eventsPath, {
+			// P7: fire-and-forget — return value not needed.
+			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "live-session.prompt_error",
 				runId: input.manifest.runId,
 				taskId: input.task.id,
@@ -916,7 +921,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			}
 			throw promptError;
 		}
-		appendEvent(input.manifest.eventsPath, {
+		// P7: fire-and-forget — return value not needed.
+		appendEventFireAndForget(input.manifest.eventsPath, {
 			type: "live-session.prompt_done",
 			runId: input.manifest.runId,
 			taskId: input.task.id,

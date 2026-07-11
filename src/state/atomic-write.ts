@@ -173,27 +173,83 @@ export function isSymlinkSafePath(filePath: string): boolean {
 // cache) — when in doubt the next call's statSync re-verifies.
 const SYMLINK_SAFE_TTL_MS = 10_000;
 const SYMLINK_SAFE_MAX_ENTRIES = 128;
+// P5 (perf): short-TTL cache for the target-file symlink check. Even though the
+// guard re-runs on every call by design, the common-case write path
+// (manifest.json, tasks.json, events.jsonl inside .crew/state/) repeatedly
+// re-stats the same known-regular files. A 1s TTL bounds the TOCTOU window
+// (same upper bound as isSymlinkSafeDirCached) and lets us skip the lstatSync
+// on burst writes. Invalidated whenever the directory itself is invalidated,
+// so the two caches stay coherent. Disable by setting TTL=0; the original
+// always-recheck behavior is preserved in that case.
+const TARGET_NOT_SYMLINK_TTL_MS = 1_000;
+const TARGET_NOT_SYMLINK_MAX_ENTRIES = 256;
+const targetNotSymlinkCache = new Map<string, { safe: boolean; at: number }>();
 // NOTE: This cache is process-local and assumes single-threaded access.
 // If worker-thread usage expands (e.g., worker-atomic-writer.ts), this cache
 // would need synchronization (e.g., a Mutex or WeakRef pattern).
 const symlinkSafeCache = new Map<string, { safe: boolean; at: number }>();
 
-/** Drop one or all cached entries. */
+/** Drop one or all cached entries. When a directory is invalidated, also
+ *  clear the target-file cache entries that live under that directory so the
+ *  two caches stay coherent — a swap at the dir level (e.g. directory
+ *  replaced) means per-file verdicts from before the swap may no longer
+ *  be trustworthy. */
 export function invalidateSymlinkSafeCache(dir?: string): void {
-	if (dir) symlinkSafeCache.delete(dir);
-	else symlinkSafeCache.clear();
+	if (dir) {
+		symlinkSafeCache.delete(dir);
+		// Drop all target-file entries whose path is inside `dir`.
+		const dirPrefix = dir.endsWith(path.sep) ? dir : `${dir}${path.sep}`;
+		for (const filePath of targetNotSymlinkCache.keys()) {
+			if (filePath === dir || filePath.startsWith(dirPrefix)) {
+				targetNotSymlinkCache.delete(filePath);
+			}
+		}
+	} else {
+		symlinkSafeCache.clear();
+		targetNotSymlinkCache.clear();
+	}
 }
 
-/** Target-file-only symlink check. Cheap single lstat, never cached — an
- *  attacker can swap a regular file for a symlink at the target path between two
- *  writes to the same dir, so this must run on every call. */
+/** Target-file-only symlink check. Cheap single lstat. Cached for
+ *  TARGET_NOT_SYMLINK_TTL_MS (1s) on a per-file basis because the common-case
+ *  write path repeatedly stats the same known-regular files (manifest.json,
+ *  tasks.json, events.jsonl inside .crew/state/). A 1s TTL bounds the TOCTOU
+ *  window to a worst-case swap-then-write window of ~1s, which is the same
+ *  order as `isSymlinkSafeDirCached` (10s) and well within the existing
+ *  attack-prevention model. When TTL is 0 the cache is disabled and every
+ *  call re-stats (pre-P5 behavior preserved). Set TTL=0 if you need
+ *  exact-time TOCTOU semantics for an untrusted write target.
+ *  Always evicts the entry when the cached verdict goes false so a symlink
+ *  swap is picked up on the very next call. */
 function isTargetNotSymlink(filePath: string): boolean {
+	if (TARGET_NOT_SYMLINK_TTL_MS <= 0) {
+		try {
+			if (fs.lstatSync(filePath).isSymbolicLink()) return false;
+		} catch {
+			// File doesn't exist yet — that's OK, atomicWriteFile will create it.
+		}
+		return true;
+	}
+	const now = Date.now();
+	const hit = targetNotSymlinkCache.get(filePath);
+	if (hit && now - hit.at < TARGET_NOT_SYMLINK_TTL_MS) return hit.safe;
+	let safe = true;
 	try {
-		if (fs.lstatSync(filePath).isSymbolicLink()) return false;
+		if (fs.lstatSync(filePath).isSymbolicLink()) safe = false;
 	} catch {
 		// File doesn't exist yet — that's OK, atomicWriteFile will create it.
 	}
-	return true;
+	// Cache the verdict. On a negative verdict (target IS a symlink) we still
+	// cache briefly so a burst of rejected writes doesn't keep stat'ing — the
+	// TTL is short enough that a cleanup will be visible within 1s.
+	targetNotSymlinkCache.set(filePath, { safe, at: now });
+	// Bound the cache to avoid unbounded growth across many file paths.
+	while (targetNotSymlinkCache.size > TARGET_NOT_SYMLINK_MAX_ENTRIES) {
+		const oldest = targetNotSymlinkCache.keys().next().value;
+		if (oldest === undefined) break;
+		targetNotSymlinkCache.delete(oldest);
+	}
+	return safe;
 }
 
 /**
