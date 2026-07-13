@@ -1,5 +1,103 @@
 # Changelog
 
+## [0.9.35] — performance plan Phases 1–3 + 2 wiring fixes (2026-07-13)
+
+Shipped the **forward performance optimization plan** in 3 phases (`docs/performance-optimization-execution-plan.md`) plus 2 follow-up wiring fixes for the `pipeline` workflow and `schedule` action. 8 performance optimizations landed + 1 bundle rebuild. End-to-end verified post-restart via `team action='run', workflow='pipeline', team='research'` (`team_20260713102348_529c8e4e79e90e20`, 4/4 tasks, 142,686 tokens, 6.4 min, pipeline-summary.md emitted with "PIPELINE_WORKFLOW_OK" + scheduled job successfully removed via new subAction). Typecheck clean, 63 + 58 + 92 targeted unit tests pass across the modified suites.
+
+**Important deployment note** (CRITICAL for anyone updating pi-crew from v0.9.34 or earlier): the extension loads `dist/index.mjs` (a pre-built bundle) by default since v0.9.17. Source edits to `src/` do NOT take effect until `npm run build:bundle` runs and the Pi extension cold-starts. The bundle rebuild (`a15c1a8`) is part of this release. See "Bundle resolution order" below.
+
+### Phase 1 — Quick Wins (commit `e316a36`)
+
+Four LOW-risk optimizations that eliminate synchronous I/O on critical paths:
+
+- **OPT-02 — `saveRunManifest` async migration**: 14/16 sync call sites converted to `await saveRunManifestAsync()` across 8 files (team-runner.ts, task-runner.ts, background-runner.ts, adaptive-plan.ts, team-tool.ts, team-tool/goal-wrap.ts, team-tool/api.ts, team-tool/goal.ts). The 2 remaining sync calls in `stale-reconciler.ts` are documented as intentional (their sync call chain via `crash-recovery.ts: withRunLockSync` and `widget-model.ts` cannot be safely migrated). Special case: `task-runner.ts` swap from `withRunLockSync` to `await withRunLock`.
+- **OPT-03 — Guard `collectedJsonEvents` allocation in `live-session-runtime.ts`**: Conditional allocation based on `yieldEnabled` flag. Avoids ~1KB array allocation per task when yield detection is disabled. Pattern mirrors `task-runner.ts:165`. Unified the flag with the late yield-detection block to prevent a latent mismatch when `DEFAULT_YIELD_CONFIG.enabled=false`.
+- **OPT-05 — Skill cache stats exposed**: `getManifestCacheStats()` returns `{ size, maxEntries, ttlMs, perStateRoot: { generation, ageMs } }`. Surfaced via `team action='cache'`. Documented why `SKILL_CACHE_MAX_ENTRIES = 128` is well-tuned (4× headroom over 30 package skills).
+- **OPT-06 — Async transcript writes**: Fire-and-forget `appendTranscriptAsync` (replaces `mkdirSync`/`appendFileSync` in `child-pi.ts:413`, `live-session-runtime.ts:152`). Also converted steering writes and background-log writes in `task-runner.ts`. Best-effort writes; loss acceptable.
+
+**Files changed (Phase 1)**: 13 files, +387/-77 lines.
+
+### Phase 2 — Independent Optimizations
+
+Two MEDIUM-effort changes with no shared dependencies:
+
+- **OPT-04 — Code-aware token estimation** (commit `3f484af`): `countTokens(text: string)` now detects code-heavy content via bracket/semicolon/colon density + multi-char operator scoring (threshold 0.10) and applies a code-specific formula `max(ceil(alpha/3.5), alphaRuns) + punct - multiCharOps`. Prose path unchanged. Single-pass O(n) preserved. Tool-output-pruner verified unchanged behavior.
+  - **Files**: `src/utils/token-counter.ts`, `test/unit/token-counter.test.ts` (+341/-36).
+- **OPT-01 — Streaming dispatch** (commit `4ffd954`): Replaced batch-level `mapConcurrent` + `await all` pattern in `executeTeamRunCore` with a streaming dispatch loop. Uses `pendingUnits` Map + `Promise.race` to dispatch new tasks as soon as a concurrency slot frees (instead of waiting for the entire batch to complete). All existing semantics preserved: lock-based merges (`mergeTaskUpdatesPreservingTerminal` under `withRunLock`), retry, cancellation, hooks, coalescing, phase advancement, budget enforcement, concurrency limits (workflow defaults, hard cap 8), DAG readiness recomputation after each task completion.
+  - **Files**: `src/runtime/team-runner.ts`, `test/unit/team-runner-merge.test.ts` (+231/-39).
+  - **Expected impact**: 20-40% latency reduction for workflows with mixed task durations.
+
+### Phase 3 — Structural Changes
+
+Two architecturally significant changes:
+
+- **OPT-08 — In-memory state helpers** (commit `5957cc6`): Added `unloadRun(stateRoot: string): Promise<void>` (flushes pending coalesced atomic writes + invalidates the cache entry) and `getManifestCacheStats()` accessor. **Scope reduced from full in-memory authoritative state refactor** because:
+  - Existing `manifestCache` already has TTL/LRU/generation counter/mtime invalidation
+  - `persistSingleTaskUpdate`'s 100-iteration CAS loop is load-bearing for async-notifier, crash-recovery, and parallel-batch writer topologies
+  - Sync callers in `stale-reconciler.ts:78-79` and `crash-recovery.ts` cannot be migrated safely
+  - Pin/unpin skipped (intentional): TTL is rarely an issue during active runs because every save re-stamps `cachedAt`
+  - Public API of `saveRunManifest`/`saveRunTasks`/`loadRunManifestById` unchanged. The full in-memory refactor (5-8 day effort, VERY HIGH risk) is recommended as separate future work.
+  - **Files**: `src/state/state-store.ts`, `test/unit/state-store.test.ts` (+256/-1). 4 new tests covering: cache cold start, mutation reflection, post-unload disk read, concurrent writers via existing CAS.
+- **OPT-07 — Live-session migration** (NO code change required): The live-session runtime already slots in cleanly to the OPT-01 streaming dispatch via the `runtimeKind`-agnostic `runTeamTask` envelope. 23 behavioral invariants verified preserved without edits.
+
+### Feature fixes (separate from the perf plan)
+
+- **Pipeline workflow wiring** (commit `9febb6e`): `pipeline` workflow previously returned "is not yet wired into the team execution system" when invoked. Removed the early-return block in `src/extension/team-tool/run.ts` so pipeline now flows through the standard `validateWorkflowForTeam` → `executeTeamRunCore` path (same as `research`/`default`/`implementation`). Restructured `workflows/pipeline.workflow.md`: step IDs shortened (`Stage 1: Research` → `research` to avoid parser edge cases with colons in step IDs), `dependsOn` updated, `output: pipeline-summary.md` added to final stage, final stage writes `PIPELINE_WORKFLOW_OK` for verification.
+  - **Verified post-restart** (Round 7): `team action='run', team='research', workflow='pipeline', goal='...'` ran all 4 stages end-to-end (`team_20260713102348_529c8e4e79e90e20`, 142,686 tokens, 382,330ms, pipeline-summary.md created).
+- **Schedule sub-actions** (commit `0c653a1`): Discovered gap — scheduled jobs had no cancellation path through the team tool. A `cron='* * * * *'` job would fire every minute forever. Added `handleRemoveScheduled` and `handleUpdateScheduled`. Route via `subAction='remove'|'delete'|'disable'|'enable'|'update'` with `jobId` arg.
+  - **Verified post-restart** (Round 7): `team action='schedule' subAction='remove' jobId='6768c754-...'` returned `"Scheduled job removed."`.
+  - **Usage**:
+    ```
+    team action='schedule' subAction='remove'  jobId='<uuid>'
+    team action='schedule' subAction='disable' jobId='<uuid>'
+    team action='schedule' subAction='enable'  jobId='<uuid>'
+    team action='schedule' subAction='update'  jobId='<uuid>' cron='0 9 * * MON'
+    ```
+  - **Files**: `src/extension/team-tool/handle-schedule.ts` (+101 lines), `src/schema/team-tool-schema.ts` (+4 lines typed `subAction?` + `jobId?`), `test/unit/team-tool-schedule.test.ts` (+144 lines, 5 new tests, 16/16 pass).
+
+### Bundle resolution order — read this before updating from v0.9.34 or earlier
+
+This release fixes a silent cache-staleness trap. The `index.ts` entry point resolves the extension load in this order:
+
+1. `dist/index.mjs` (pre-built bundle) — DEFAULT since v0.9.17. Built by `scripts/build-bundle.mjs` from `index.bundle.ts`.
+2. Inline strip-types loading — fallback when bundle missing OR `PI_CREW_USE_BUNDLE=0`.
+
+**Implication for users updating from a v0.9.17+ version**: source edits in `src/` are NOT immediately visible to a running Pi session. The bundle must be rebuilt (`npm run build:bundle`) and the Pi extension must cold-start before source changes take effect. `npx pi install .` does NOT auto-rebuild the bundle (postinstall is best-effort and may silently skip). This release ships `commit a15c1a8` which rebuilds the bundle to reflect all 8 source-level commits.
+
+**To force strip-types loading** (always uses fresh source): set env var `PI_CREW_USE_BUNDLE=0` at extension startup. Cannot be changed mid-session.
+
+### Verification
+
+- **Typecheck**: `npx tsc --noEmit` clean across all 8 commits.
+- **Targeted unit tests**: 63 (Phase 1) + 58 (Phase 2) + 92 (Phase 3) = **213 tests pass** across the modified suites.
+- **End-to-end (post-restart)**:
+  - `team_20260713102348_529c8e4e79e90e20`: 4/4 pipeline stages, 142,686 tokens, 6.4 min, pipeline-summary.md written.
+  - `team action='schedule' subAction='remove' jobId='6768c754-...'` → "Scheduled job removed."
+- **Bundle**: `grep -c "is not yet wired" dist/index.mjs` → 0; `grep -c "handleRemoveScheduled" dist/index.mjs` → 4 (was 0).
+- **Backward compat**: all existing workflows (`default`, `implementation`, `research`, `fast-fix`, `parallel-research`, `chain`, `plan-execute`, `review`) unchanged.
+
+### Commits
+
+```
+a15c1a8 chore(release): rebuild dist bundle (0.9.34 + perf+feat commits)
+0c653a1 feat(schedule): expose remove/disable/enable sub-actions
+9febb6e feat(workflows): wire pipeline workflow into execution
+5957cc6 perf(state-store): additive cache helpers (OPT-08 minimal)
+4ffd954 perf(team-runner): streaming dispatch (OPT-01)
+3f484af perf(token-counter): code-aware estimation (OPT-04)
+e316a36 perf(runtime): Phase 1 performance optimizations
+c9f03ac docs(perf): add performance optimization execution plan
+```
+
+### Lessons distilled
+
+1. **Two-layer indirection is a footgun**: symlink IS live for source files but the extension loads a pre-built bundle. Always rebuild bundle after committing source changes.
+2. **OPT-08 scoping matters**: the temptation to do a full rewrite was strong, but the safety review revealed multiple "defer trigger" conditions that justified additive helpers only. The 8-day rewrite is now a separate, gated future project.
+3. **API gap discovery**: the `schedule` cron pitfall (no cancel path) was found by accident during E2E testing. Treating the discovery as a fix opportunity instead of a side note yielded `0c653a1` — a clean API addition that closes the gap.
+4. **User challenges matter**: the "is this cache?" question surfaced the actual root cause (stale bundle). My initial "ESM cache" hypothesis was partially wrong; the user pushing back forced me to look at `dist/index.mjs` and find the real culprit.
+5. **Pipeline workflow `Stage 1: Research` → `research`**: colons in step IDs caused parser edge cases in `parseWorkflowFile`. Always use clean identifier-form IDs in workflow steps.
+6. **`PI_CREW_USE_BUNDLE=0`** is the escape hatch when bundle is stale and you can't rebuild immediately. Slower startup (~19% per `scripts/bench-cold-start.mjs`) but always fresh source.
+
 ## [0.9.34] — performance + security audit quick wins (2026-07-11)
 
 Shipped the **forward performance audit** follow-up: 5 batches of perf + security fixes derived from the forward audit (`team_20260711095156_8a8a56a3c7dff269`) and the bundled code + security review. 15 audit findings + 1 security fix all closed. End-to-end verified on a live `team` run (`team_20260711134929_498a39322bc756d9`, 3/3 tasks, 148k tokens, real `tasks.json`/`events.jsonl`/`heartbeat.json` produced). Typecheck clean, lint clean, biome format clean, 146/146 targeted tests pass, full unit suite cut at 2,894 with **0 failures** (test runner timed out only on long backoff tests).
