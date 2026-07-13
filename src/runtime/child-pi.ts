@@ -435,11 +435,25 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 	// We skip mkdirSync here for security — adding it would create parent
 	// directories during validation, contradicting the original design where
 	// resolveRealContainedPath validates a pre-existing path.
-	const fd = fs.openSync(safePath, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND, 0o600);
+	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
+	// The caller does not need to await this — transcript writes are best-effort telemetry.
+	void appendTranscriptAsync(safePath, line);
+}
+
+/** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
+async function appendTranscriptAsync(safePath: string, line: string): Promise<void> {
+	const content = `${redactJsonLine(line)}\n`;
 	try {
-		fs.writeSync(fd, `${redactJsonLine(line)}\n`, undefined, "utf-8");
-	} finally {
-		fs.closeSync(fd);
+		// Use async file handle for better performance when many writes occur.
+		// O_NOFOLLOW | O_CREAT | O_APPEND ensures security and atomicity.
+		const fd = await fs.promises.open(safePath, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND, 0o600);
+		try {
+			await fd.write(content, undefined, "utf-8");
+		} finally {
+			await fd.close();
+		}
+	} catch (error) {
+		logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
 	}
 }
 

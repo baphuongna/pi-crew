@@ -7,8 +7,8 @@ import { errors } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync, appendEventBuffered, appendEventFireAndForget } from "../state/event-log.ts";
-import { withRunLockSync } from "../state/locks.ts";
-import { saveRunManifest } from "../state/state-store.ts";
+import { withRunLock } from "../state/locks.ts";
+import { saveRunManifestAsync } from "../state/state-store.ts";
 import { createTaskClaim } from "../state/task-claims.ts";
 import type {
 	ArtifactDescriptor,
@@ -82,6 +82,33 @@ import {
 
 // Register the submit_result tool handler so subprocess events can extract yield data.
 registerYieldTool();
+
+/** Async helper for writing steering events — fire-and-forget for non-blocking writes. */
+async function appendSteeringAsync(steeringDir: string, taskId: string, steers: string[]): Promise<void> {
+	try {
+		await fs.promises.mkdir(steeringDir, { recursive: true });
+		const steeringPath = `${steeringDir}/${taskId}.jsonl`;
+		const lines = steers.map(msg =>
+			JSON.stringify({
+				type: "steer",
+				message: msg,
+				ts: new Date().toISOString(),
+			}) + "\n"
+		).join("");
+		await fs.promises.appendFile(steeringPath, lines, "utf-8");
+	} catch (error) {
+		logInternalError("task-runner.steering-write-failed", error as Error, `taskId=${taskId}`);
+	}
+}
+
+/** Async helper for writing background logs — fire-and-forget for non-blocking writes. */
+async function appendBackgroundLogAsync(bgLogPath: string, eventLine: string): Promise<void> {
+	try {
+		await fs.promises.appendFile(bgLogPath, `${eventLine}\n`, "utf-8");
+	} catch (error) {
+		logInternalError("task-runner.background-log-write-failed", error as Error, `path=${bgLogPath}`);
+	}
+}
 
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
@@ -413,7 +440,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				// Ensure transcripts/ subdirectory exists before child-pi appends
 				// to it. appendTranscript uses O_APPEND (no mkdir) for security,
 				// so the caller must create the directory.
-				fs.mkdirSync(path.join(manifest.artifactsRoot, "transcripts"), {
+				await fs.promises.mkdir(path.join(manifest.artifactsRoot, "transcripts"), {
 					recursive: true,
 				});
 				const model = attemptModels[i];
@@ -460,18 +487,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 							({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
 							if (task.pendingSteers?.length) {
 								const steeringDir = `${manifest.artifactsRoot}/steering`;
-								fs.mkdirSync(steeringDir, { recursive: true });
-								const steeringPath = `${steeringDir}/${task.id}.jsonl`;
-								for (const msg of task.pendingSteers) {
-									fs.appendFileSync(
-										steeringPath,
-										JSON.stringify({
-											type: "steer",
-											message: msg,
-											ts: new Date().toISOString(),
-										}) + "\n",
-									);
-								}
+								// Fire-and-forget async write for steering events
+								void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
 								task.pendingSteers = [];
 								tasks = persistSingleTaskUpdate(manifest, tasks, task);
 							}
@@ -533,7 +550,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 								const bgLogPath = `${manifest.stateRoot}/background.log`;
 								const eventLine =
 									typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
-								fs.appendFileSync(bgLogPath, `${eventLine}\n`);
+								// Fire-and-forget async write for background log
+								void appendBackgroundLogAsync(bgLogPath, eventLine);
 							}
 							// Always keep in-memory agentProgress fresh (cheap) so the UI/events see
 							// the latest progress, but THROTTLE the disk persist. Previously this
@@ -1201,9 +1219,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		// stale manifest and overwrite this task's freshly-written artifacts, silently
 		// losing them. persistSingleTaskUpdate is re-entrance-safe (runLockHeldByUs guard),
 		// so nesting it inside this lock is a no-op re-acquire, not a deadlock.
-		withRunLockSync(manifest, () => {
-			saveRunManifest(manifest);
-			tasks = persistSingleTaskUpdate(manifest, tasks, task);
+		tasks = await withRunLock(manifest, async () => {
+			await saveRunManifestAsync(manifest);
+			return persistSingleTaskUpdate(manifest, tasks, task);
 		});
 		upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
 		// Execute task_result hook before emitting terminal event

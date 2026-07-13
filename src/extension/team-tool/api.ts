@@ -11,7 +11,7 @@ import { touchWorkerHeartbeat } from "../../runtime/worker-heartbeat.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../state/contracts.ts";
 import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log.ts";
-import { withRunLockSync } from "../../state/locks.ts";
+import { withRunLock, withRunLockSync } from "../../state/locks.ts";
 import {
 	acknowledgeMailboxMessage,
 	appendFollowUpMessage,
@@ -24,7 +24,7 @@ import {
 	readMailboxMessage,
 	validateMailbox,
 } from "../../state/mailbox.ts";
-import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
+import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
 import { appendLiveAgentControlRequest } from "../../subagents/live/control.ts";
 import {
@@ -145,8 +145,8 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				true,
 			);
 		try {
-			return withRunLockSync(loaded.manifest, () => {
-				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded; // NOTE: inside withRunLockSync - consistent read
+			return await withRunLock(loaded.manifest, async () => {
+				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded; // NOTE: inside withRunLock - consistent read
 				const approval = current.manifest.planApproval;
 				if (!approval?.required || approval.status !== "pending")
 					return result(
@@ -169,7 +169,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 						updatedAt: now,
 					},
 				};
-				saveRunManifest(manifest);
+				await saveRunManifestAsync(manifest);
 				appendEvent(manifest.eventsPath, {
 					type: "plan.approved",
 					runId: manifest.runId,
@@ -210,8 +210,8 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				true,
 			);
 		try {
-			return withRunLockSync(loaded.manifest, () => {
-				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded; // NOTE: inside withRunLockSync - consistent read
+			return await withRunLock(loaded.manifest, async () => {
+				const current = loadRunManifestById(ctx.cwd, loaded.manifest.runId) ?? loaded; // NOTE: inside withRunLock - consistent read
 				const approval = current.manifest.planApproval;
 				if (!approval?.required || approval.status !== "pending")
 					return result(
@@ -244,7 +244,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 						updatedAt: now,
 					},
 				};
-				saveRunManifest(manifest);
+				await saveRunManifestAsync(manifest);
 				saveRunTasks(manifest, tasks);
 				appendEvent(manifest.eventsPath, {
 					type: "plan.cancelled",

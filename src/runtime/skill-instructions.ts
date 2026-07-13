@@ -20,7 +20,34 @@ const MAX_SKILL_CHARS = 1500;
 const MAX_TOTAL_CHARS = 6000;
 const MAX_SKILL_NAME_CHARS = 80;
 const MAX_SELECTED_SKILLS = 32;
+
+// ── Cache sizing rationale (OPT-05 analysis, 2026-07-13) ───────────────────
+// The package ships 30 SKILL.md files; 11 are referenced by DEFAULT_ROLE_SKILLS.
+// Cache key = `${cwd}:${skillName}`, so a single-cwd run needs ≤30 entries.
+// Multi-cwd scenarios (worktree isolation) multiply this, but rarely exceed 90.
+// 128 provides 4× headroom over the skill count, ~1.4× over a 3-cwd scenario.
+// Memory per entry ≈ 5KB (raw + compacted body), so 128 entries ≈ 640KB — negligible.
+// Conclusion: 128 is well-tuned. Evictions are near-zero in practice.
 const SKILL_CACHE_MAX_ENTRIES = 128;
+
+export interface SkillCacheStats {
+	hits: number;
+	misses: number;
+	evictions: number;
+	currentSize: number;
+	maxEntries: number;
+	/** Computed hit-rate: hits / (hits + misses), 0 when no lookups yet. */
+	hitRate: number;
+}
+
+const skillCacheStats: SkillCacheStats = {
+	hits: 0,
+	misses: 0,
+	evictions: 0,
+	currentSize: 0,
+	maxEntries: SKILL_CACHE_MAX_ENTRIES,
+	hitRate: 0,
+};
 
 const DEFAULT_ROLE_SKILLS: Record<string, string[]> = {
 	explorer: ["read-only-explorer", "context-artifact-hygiene"],
@@ -146,16 +173,43 @@ const skillReadCache = new Map<string, CachedSkillMarkdown>();
 function rememberSkill(key: string, value: CachedSkillMarkdown): CachedSkillMarkdown {
 	if (skillReadCache.has(key)) skillReadCache.delete(key);
 	skillReadCache.set(key, value);
-	while (skillReadCache.size > SKILL_CACHE_MAX_ENTRIES) {
+	while (skillReadCache.size > skillCacheStats.maxEntries) {
 		const oldest = skillReadCache.keys().next().value;
 		if (!oldest) break;
 		skillReadCache.delete(oldest);
+		skillCacheStats.evictions++;
 	}
+	skillCacheStats.currentSize = skillReadCache.size;
 	return value;
 }
 
 export function clearSkillInstructionCache(): void {
 	skillReadCache.clear();
+	skillCacheStats.currentSize = 0;
+}
+
+export function getSkillCacheStats(): SkillCacheStats {
+	const total = skillCacheStats.hits + skillCacheStats.misses;
+	return {
+		...skillCacheStats,
+		currentSize: skillReadCache.size,
+		hitRate: total > 0 ? skillCacheStats.hits / total : 0,
+	};
+}
+
+export function resetSkillCacheStats(): void {
+	skillCacheStats.hits = 0;
+	skillCacheStats.misses = 0;
+	skillCacheStats.evictions = 0;
+	skillCacheStats.currentSize = skillReadCache.size;
+}
+
+/**
+ * Test-only: temporarily override the cache capacity to exercise eviction logic.
+ * Always restore to `SKILL_CACHE_MAX_ENTRIES` after the test.
+ */
+export function _setSkillCacheMaxEntriesForTesting(max: number): void {
+	skillCacheStats.maxEntries = max;
 }
 
 function cachedSkillFresh(value: CachedSkillMarkdown): boolean {
@@ -181,8 +235,13 @@ function readSkillMarkdown(
 	if (!isValidSkillName(name)) return undefined;
 	const cacheKey = `${path.resolve(cwd)}:${name}`;
 	const cached = skillReadCache.get(cacheKey);
-	if (cached && cachedSkillFresh(cached)) return cached;
+	if (cached && cachedSkillFresh(cached)) {
+		skillCacheStats.hits++;
+		return cached;
+	}
 	if (cached) skillReadCache.delete(cacheKey);
+	skillCacheStats.misses++;
+	skillCacheStats.currentSize = skillReadCache.size;
 	for (const entry of candidateSkillDirs(cwd)) {
 		try {
 			const relative = path.join(name, "SKILL.md");

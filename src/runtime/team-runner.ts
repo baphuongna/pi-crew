@@ -12,7 +12,7 @@ import { hashArtifactContent as hashContent, writeArtifact } from "../state/arti
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
-import { loadRunManifestById, saveRunManifest, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
+import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatTokens, formatUsage } from "../state/usage.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
@@ -618,7 +618,7 @@ function isMutatingTask(task: TeamTaskState): boolean {
 	return permissionForRole(task.role) !== "read_only";
 }
 
-function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: TeamTaskState[]): TeamRunManifest {
+async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: TeamTaskState[]): Promise<TeamRunManifest> {
 	if (manifest.planApproval) return manifest;
 	const assessTask = tasks.find((task) => task.stepId === "assess" && task.status === "completed");
 	// ROADMAP T1.2: for non-adaptive workflows, fall back to the most recent
@@ -637,7 +637,7 @@ function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: TeamTaskS
 			planArtifactPath: planTask?.resultArtifact?.path,
 		},
 	};
-	saveRunManifest(updated);
+	await saveRunManifestAsync(updated);
 	appendEvent(updated.eventsPath, {
 		type: "plan.approval_required",
 		runId: updated.runId,
@@ -745,7 +745,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	if (input.budgetAbort !== undefined) manifest.budgetAbort = input.budgetAbort;
 	if (input.budgetUnlimited !== undefined) manifest.budgetUnlimited = input.budgetUnlimited;
 	if (manifest.budgetTotal !== undefined && manifest.budgetTotal > 0 && !manifest.budgetUnlimited) {
-		saveRunManifest(manifest);
+		await saveRunManifestAsync(manifest);
 	}
 
 	void registerRunPromise(manifest.runId);
@@ -773,7 +773,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		if (gaApplied.manifest !== result.manifest) {
 			result.manifest = gaApplied.manifest;
 			try {
-				saveRunManifest(result.manifest);
+				await saveRunManifestAsync(result.manifest);
 			} catch (persistError) {
 				logInternalError(
 					"team-runner.goalAchievement.persist",
@@ -948,9 +948,9 @@ async function executeTeamRunCore(
 	const canInjectAdaptivePlan = workflow.name === "implementation";
 	let adaptivePlanInjected = false;
 	let adaptivePlanMissing = false;
-	const attemptAdaptivePlan = () => {
+	const attemptAdaptivePlan = async () => {
 		if (!canInjectAdaptivePlan || adaptivePlanInjected || adaptivePlanMissing) return { injected: false, missing: false };
-		const adaptivePlan = injectAdaptivePlanIfReady({
+		const adaptivePlan = await injectAdaptivePlanIfReady({
 			manifest,
 			tasks,
 			workflow,
@@ -965,7 +965,7 @@ async function executeTeamRunCore(
 			missing: adaptivePlan.missingPlan,
 		};
 	};
-	const initialAdaptive = attemptAdaptivePlan();
+	const initialAdaptive = await attemptAdaptivePlan();
 	if (initialAdaptive.missing) {
 		tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
 		await saveRunTasksAsync(manifest, tasks);
@@ -973,13 +973,13 @@ async function executeTeamRunCore(
 		return { manifest, tasks };
 	}
 	if (initialAdaptive.injected) {
-		manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? ensurePlanApprovalRequested(manifest, tasks) : manifest;
+		manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? await ensurePlanApprovalRequested(manifest, tasks) : manifest;
 		queueIndex = buildTaskGraphIndex(tasks);
 	} else if (
 		requiresPlanApproval(workflow, input.runtimeConfig) &&
 		(hasPendingMutatingAdaptiveTask(tasks) || hasPendingMutatingTaskAtBoundary(tasks))
 	) {
-		manifest = ensurePlanApprovalRequested(manifest, tasks);
+		manifest = await ensurePlanApprovalRequested(manifest, tasks);
 	}
 	if (manifest.planApproval?.status === "cancelled") {
 		tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");
@@ -1761,7 +1761,7 @@ async function executeTeamRunCore(
 			return { manifest, tasks: reCancelledTasks };
 		}
 		queueIndex = buildTaskGraphIndex(tasks);
-		const injectedAfterBatch = attemptAdaptivePlan();
+		const injectedAfterBatch = await attemptAdaptivePlan();
 		if (injectedAfterBatch.missing) {
 			tasks = markBlocked(tasks, "Adaptive planner did not produce a valid subagent plan.");
 			await saveRunTasksAsync(manifest, tasks);
@@ -1770,13 +1770,13 @@ async function executeTeamRunCore(
 			return { manifest, tasks };
 		}
 		if (injectedAfterBatch.injected) {
-			manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? ensurePlanApprovalRequested(manifest, tasks) : manifest;
+			manifest = requiresPlanApproval(workflow, input.runtimeConfig) ? await ensurePlanApprovalRequested(manifest, tasks) : manifest;
 			queueIndex = buildTaskGraphIndex(tasks);
 		} else if (
 			requiresPlanApproval(workflow, input.runtimeConfig) &&
 			(hasPendingMutatingAdaptiveTask(tasks) || hasPendingMutatingTaskAtBoundary(tasks))
 		) {
-			manifest = ensurePlanApprovalRequested(manifest, tasks);
+			manifest = await ensurePlanApprovalRequested(manifest, tasks);
 		}
 		if (manifest.planApproval?.status === "cancelled") {
 			tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");

@@ -17,7 +17,7 @@
 import * as fs from "node:fs";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
-import { saveRunManifest } from "../state/state-store.ts";
+import { saveRunManifestAsync } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
@@ -369,7 +369,7 @@ export interface InjectAdaptivePlanResult {
 	missingPlan: boolean;
 }
 
-export function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput): InjectAdaptivePlanResult {
+export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput): Promise<InjectAdaptivePlanResult> {
 	if (input.workflow.name !== "implementation")
 		return {
 			tasks: input.tasks,
@@ -442,7 +442,7 @@ export function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput): Injec
 				producer: assessTask.id,
 				content: `${JSON.stringify({ reason: repair.reason, phases: repair.plan.phases.map((phase) => ({ name: phase.name, count: phase.tasks.length, roles: phase.tasks.map((task) => task.role) })) }, null, 2)}\n`,
 			});
-			saveRunManifest({
+			await saveRunManifestAsync({
 				...input.manifest,
 				updatedAt: new Date().toISOString(),
 				artifacts: [...input.manifest.artifacts, repairArtifact],

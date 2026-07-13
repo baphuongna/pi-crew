@@ -11,7 +11,7 @@ import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
 import { withRunLock } from "../state/locks.ts";
 import { replayPendingMailboxMessages } from "../state/mailbox.ts";
-import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
+import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
@@ -59,7 +59,7 @@ async function handleRun(...args: Parameters<HandleRunFn>): Promise<Awaited<Retu
 
 import { FileCheckpointStore } from "../runtime/checkpoint.ts";
 import { waitForRun } from "../runtime/run-tracker.ts";
-import { normalizeSkillOverride } from "../runtime/skill-instructions.ts";
+import { getSkillCacheStats, normalizeSkillOverride } from "../runtime/skill-instructions.ts";
 import { computeRunCacheKey, getCachedRun, getCacheStats } from "../state/run-cache.ts";
 import { listRunGraphs, loadRunGraph } from "../state/run-graph.ts";
 import { searchAgents, searchTeams } from "../utils/bm25-search.ts";
@@ -223,10 +223,10 @@ function artifactKey(artifact: ArtifactDescriptor): string {
 	return `${artifact.kind}:${artifact.path}`;
 }
 
-function recoverCheckpointedTasks(
+async function recoverCheckpointedTasks(
 	manifest: TeamRunManifest,
 	tasks: TeamTaskState[],
-): { manifest: TeamRunManifest; tasks: TeamTaskState[]; recovered: string[] } {
+): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[]; recovered: string[] }> {
 	const recovered: string[] = [];
 	let nextManifest = manifest;
 	const nextTasks = tasks.map((task) => {
@@ -302,7 +302,7 @@ function recoverCheckpointedTasks(
 			artifacts: [...artifacts.values()],
 			updatedAt: new Date().toISOString(),
 		};
-		saveRunManifest(nextManifest);
+		await saveRunManifestAsync(nextManifest);
 		saveRunTasks(nextManifest, nextTasks);
 	}
 	return { manifest: nextManifest, tasks: nextTasks, recovered };
@@ -346,7 +346,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		const lockedManifest = fresh?.manifest ?? loaded.manifest;
 		const lockedTasks = fresh?.tasks ?? loaded.tasks;
 		const loadedConfig = loadConfig(ctx.cwd);
-		const recovered = recoverCheckpointedTasks(lockedManifest, lockedTasks);
+		const recovered = await recoverCheckpointedTasks(lockedManifest, lockedTasks);
 		const resumeManifest = recovered.manifest;
 		const executedConfig = {
 			...effectiveRunConfig(loadedConfig.config, params.config),
@@ -372,7 +372,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			runtimeResolution,
 			updatedAt: new Date().toISOString(),
 		};
-		saveRunManifest(runtimeManifest);
+		await saveRunManifestAsync(runtimeManifest);
 		appendEvent(runtimeManifest.eventsPath, {
 			type: "runtime.resolved",
 			runId: runtimeManifest.runId,
@@ -974,7 +974,12 @@ export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamConte
 				});
 			}
 			const stats = getCacheStats(ctx.cwd);
-			return result(`Cache stats: ${stats.entries} entries, ${stats.sizeBytes} bytes`, { action: "cache", status: "ok" });
+			const skillStats = getSkillCacheStats();
+			return result(
+				`Run cache: ${stats.entries} entries, ${stats.sizeBytes} bytes\n` +
+					`Skill cache: ${skillStats.hits} hits, ${skillStats.misses} misses (${(skillStats.hitRate * 100).toFixed(1)}% hit rate), ${skillStats.currentSize}/${skillStats.maxEntries} entries, ${skillStats.evictions} evictions`,
+				{ action: "cache", status: "ok" },
+			);
 		}
 		case "checkpoint": {
 			if (!params.runId || !params.taskId) {

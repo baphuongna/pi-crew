@@ -151,8 +151,20 @@ type LiveSessionLike = {
 
 function appendTranscript(filePath: string | undefined, event: unknown): void {
 	if (!filePath) return;
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets(event))}\n`, "utf-8");
+	// Fire-and-forget async write to avoid blocking the event loop.
+	// Transcript writes are best-effort telemetry — callers do not need to await.
+	void appendTranscriptAsync(filePath, event);
+}
+
+/** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
+async function appendTranscriptAsync(filePath: string, event: unknown): Promise<void> {
+	try {
+		await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+		const content = `${JSON.stringify(redactSecrets(event))}\n`;
+		await fs.promises.appendFile(filePath, content, "utf-8");
+	} catch (error) {
+		logInternalError("live-session.transcript-write-failed", error as Error, `path=${filePath}`);
+	}
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -588,13 +600,20 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			jsonEvents: 0,
 			error: "createAgentSession export is unavailable.",
 		};
+	// OPT-03: compute yield-enabled flag early to conditionally allocate
+	// collectedJsonEvents — avoids ~1KB array allocation per task when yield
+	// detection is disabled. Pattern mirrors task-runner.ts:165. Uses the same
+	// `enabled !== false` semantics as the late yield-detection block below so
+	// the array is always allocated when (and only when) it will be read.
+	const yieldConfig = input.runtimeConfig?.yield ?? { enabled: DEFAULT_YIELD_CONFIG.enabled };
+	const yieldEnabled = yieldConfig.enabled !== false;
 	let session: LiveSessionLike | undefined;
 	let unsubscribe: (() => void) | undefined;
 	let unsubscribeControlRealtime: (() => void) | undefined;
 	let controlTimer: ReturnType<typeof setInterval> | undefined;
 	let stdout = "";
 	let jsonEvents = 0;
-	const collectedJsonEvents: Record<string, unknown>[] = [];
+	const collectedJsonEvents: Record<string, unknown>[] | undefined = yieldEnabled ? [] : undefined;
 	const maxCollectedJsonEvents = 1000;
 	let yieldResult: YieldResult | undefined;
 
@@ -854,7 +873,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					trackLiveAgentToolEnd(agentId, toolName);
 				}
 				// Phase 1: collect events for yield detection
-				if (event && typeof event === "object" && !Array.isArray(event)) {
+				if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event)) {
 					collectedJsonEvents.push(event as Record<string, unknown>);
 					if (collectedJsonEvents.length > maxCollectedJsonEvents)
 						collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
@@ -936,16 +955,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// --- Phase 1: Yield enforcement loop ---
 		// After the initial prompt completes, check if the worker called submit_result.
 		// Priority: 1) custom tool callback (G1), 2) JSON event detection (legacy).
-		const yieldConfig = input.runtimeConfig?.yield ?? {
-			enabled: DEFAULT_YIELD_CONFIG.enabled,
-		};
-		const yieldEnabled = yieldConfig.enabled !== false;
 		if (yieldEnabled && session) {
 			// Check custom tool callback first (G1)
 			if (customToolYieldResolved && customToolYieldResult) {
 				yieldResult = customToolYieldResult;
-			} else {
-				// Legacy: detect from JSON events
+			} else if (collectedJsonEvents) {
+				// Legacy: detect from JSON events (only when collection is enabled)
 				const alreadyYielded = hasYieldInOutput(collectedJsonEvents);
 				if (alreadyYielded) {
 					const yieldEvent = collectedJsonEvents.find((e) => isYieldEvent(e));
@@ -976,7 +991,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					// Check again after schema reminder
 					if (customToolYieldResolved && customToolYieldResult) {
 						yieldResult = customToolYieldResult;
-					} else {
+					} else if (collectedJsonEvents) {
 						const newEvents = collectedJsonEvents.slice(-10);
 						if (hasYieldInOutput(newEvents)) {
 							const yieldEvent = newEvents.find((e) => isYieldEvent(e));
@@ -1027,7 +1042,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					break;
 				}
 				// Legacy: check JSON events
-				if (hasYieldInOutput(collectedJsonEvents.slice(-10))) {
+				if (collectedJsonEvents && hasYieldInOutput(collectedJsonEvents.slice(-10))) {
 					const yieldEvent = collectedJsonEvents.slice(-10).find((e) => isYieldEvent(e));
 					if (yieldEvent) yieldResult = extractYieldResult(yieldEvent);
 					break;

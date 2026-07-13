@@ -19,7 +19,7 @@ import { snapshotManifests } from "../../runtime/verification-integrity.ts";
 import { acquireWorkspaceLock, isWorkspaceBusy, type WorkspaceLockHandle } from "../../runtime/workspace-lock.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";
-import { createRunPaths, saveRunManifest } from "../../state/state-store.ts";
+import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state/types.ts";
 import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -191,7 +191,7 @@ async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof
 			ownerSessionId,
 			runKind: "goal-loop",
 		};
-		saveRunManifest(goalLoopManifest);
+		await saveRunManifestAsync(goalLoopManifest);
 		appendEvent(paths.eventsPath, {
 			type: "goal.loop_start",
 			runId: goalId,

@@ -4,7 +4,7 @@ import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { withRunLockSync } from "../state/locks.ts";
-import { createRunPaths, loadRunManifestById, saveRunManifest, updateRunStatus } from "../state/state-store.ts";
+import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
@@ -621,7 +621,7 @@ async function main(): Promise<void> {
 					status: runStatus,
 					updatedAt: new Date().toISOString(),
 				};
-				saveRunManifest(finalGoalManifest);
+				await saveRunManifestAsync(finalGoalManifest);
 				earlyResult = {
 					manifest: finalGoalManifest,
 					tasks: goalResult.tasks,
@@ -642,7 +642,7 @@ async function main(): Promise<void> {
 					signal: abortController.signal,
 					tokenBudget: wf.maxTokenBudget,
 				});
-				saveRunManifest(dwfResult.manifest);
+				await saveRunManifestAsync(dwfResult.manifest);
 				earlyResult = dwfResult;
 			}
 			console.log(`[background-runner] ${manifest.runKind} returned, status=${earlyResult.manifest.status}`);
@@ -687,7 +687,7 @@ async function main(): Promise<void> {
 				runConfig,
 				updatedAt: new Date().toISOString(),
 			};
-			saveRunManifest(manifest);
+			await saveRunManifestAsync(manifest);
 			appendEvent(manifest.eventsPath, {
 				type: "runtime.resolved",
 				runId: manifest.runId,

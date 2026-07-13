@@ -5,10 +5,13 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import {
+	_setSkillCacheMaxEntriesForTesting,
 	clearSkillInstructionCache,
 	defaultSkillsForRole,
+	getSkillCacheStats,
 	normalizeSkillOverride,
 	renderSkillInstructions,
+	resetSkillCacheStats,
 	resolveTaskSkillNames,
 } from "../../src/runtime/skill-instructions.ts";
 import { renderTaskPrompt } from "../../src/runtime/task-runner/prompt-builder.ts";
@@ -327,4 +330,195 @@ test("renderSkillInstructions exposes skill directory via Path: pointer (effecti
 	assert.match(line!, /skills[\\/]verification-before-done$/);
 	// Path: must be the skill DIRECTORY (dirname of SKILL.md), not the file.
 	assert.ok(!line!.endsWith("SKILL.md"));
+});
+
+test("skill cache stats track hits, misses, and evictions", () => {
+	clearSkillInstructionCache();
+	resetSkillCacheStats();
+	const stats0 = getSkillCacheStats();
+	assert.equal(stats0.hits, 0);
+	assert.equal(stats0.misses, 0);
+	assert.equal(stats0.evictions, 0);
+	assert.equal(stats0.currentSize, 0);
+	assert.equal(stats0.maxEntries, 128);
+
+	// Use override with teamRole skills=false to get exactly one skill
+	// (verifier defaults have 2 skills; we want to test cache with 1)
+	renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "verifier",
+		teamRole: { skills: false },
+		override: ["verification-before-done"],
+	});
+	const stats1 = getSkillCacheStats();
+	assert.ok(stats1.misses >= 1, "should have at least one miss");
+	assert.equal(stats1.hits, 0);
+	assert.equal(stats1.currentSize, 1, "cache should contain exactly one entry");
+
+	// Second render should hit cache (same skill)
+	renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "verifier",
+		teamRole: { skills: false },
+		override: ["verification-before-done"],
+	});
+	const stats2 = getSkillCacheStats();
+	assert.ok(stats2.hits >= 1, "should have at least one hit");
+	assert.equal(stats2.misses, stats1.misses, "misses should not increase");
+	assert.equal(stats2.currentSize, 1);
+
+	// Clear cache and verify stats reset
+	clearSkillInstructionCache();
+	const stats3 = getSkillCacheStats();
+	assert.equal(stats3.currentSize, 0);
+	assert.equal(stats3.hits, stats2.hits, "hits should persist after clear");
+	assert.equal(stats3.misses, stats2.misses, "misses should persist after clear");
+
+	// Reset stats
+	resetSkillCacheStats();
+	const stats4 = getSkillCacheStats();
+	assert.equal(stats4.hits, 0);
+	assert.equal(stats4.misses, 0);
+	assert.equal(stats4.evictions, 0);
+});
+
+test("skill cache hit rate is high in a realistic multi-role team run workload", () => {
+	clearSkillInstructionCache();
+	resetSkillCacheStats();
+
+	// Simulate a team run: render skills for multiple roles, then render again
+	// (as subsequent tasks with the same role reuse the same skills).
+	const roles = ["explorer", "analyst", "planner", "critic", "executor", "reviewer", "writer", "verifier"];
+
+	// Phase 1: first pass — cold misses for each unique skill, but some hits
+	// from cross-role skill sharing (e.g., read-only-explorer is in 4 roles).
+	for (const role of roles) {
+		renderSkillInstructions({ cwd: process.cwd(), role });
+	}
+	const afterFirstPass = getSkillCacheStats();
+	assert.ok(afterFirstPass.misses > 0, "first pass should produce misses (cold loads)");
+	assert.ok(afterFirstPass.currentSize > 0, "cache should be populated after first pass");
+
+	// Phase 2: second pass — same roles, same skills → all hits, no new misses
+	for (const role of roles) {
+		renderSkillInstructions({ cwd: process.cwd(), role });
+	}
+	const afterSecondPass = getSkillCacheStats();
+	assert.equal(afterSecondPass.misses, afterFirstPass.misses, "no new misses on second pass");
+	assert.ok(afterSecondPass.hits > afterFirstPass.hits, "second pass should add hits");
+
+	// Phase 3: third pass — still all hits
+	for (const role of roles) {
+		renderSkillInstructions({ cwd: process.cwd(), role });
+	}
+	const final = getSkillCacheStats();
+	assert.ok(final.hitRate >= 0.6, `expected hit rate ≥60% across 3 passes, got ${(final.hitRate * 100).toFixed(1)}%`);
+	assert.equal(final.misses, afterFirstPass.misses, "no new misses in passes 2 and 3");
+	assert.equal(final.evictions, 0, "no evictions expected with 11 unique skills and max 128");
+
+	clearSkillInstructionCache();
+	resetSkillCacheStats();
+});
+
+test("skill cache evicts oldest entries when capacity is exceeded (LRU)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-evict-"));
+	try {
+		clearSkillInstructionCache();
+		resetSkillCacheStats();
+		_setSkillCacheMaxEntriesForTesting(2);
+
+		// Insert 3 skills — only 2 fit, so the first should be evicted
+		writeProjectSkill(cwd, "evict-a", "# A\n\nskill A body");
+		writeProjectSkill(cwd, "evict-b", "# B\n\nskill B body");
+		writeProjectSkill(cwd, "evict-c", "# C\n\nskill C body");
+
+		renderSkillInstructions({ cwd, role: "unknown", override: ["evict-a"] });
+		renderSkillInstructions({ cwd, role: "unknown", override: ["evict-b"] });
+		renderSkillInstructions({ cwd, role: "unknown", override: ["evict-c"] });
+
+		const stats = getSkillCacheStats();
+		assert.equal(stats.currentSize, 2, "cache should hold exactly maxEntries entries");
+		assert.ok(stats.evictions >= 1, `expected ≥1 eviction, got ${stats.evictions}`);
+
+		// evict-a was the first inserted and should have been evicted.
+		// Re-accessing it should be a miss (re-read from disk).
+		const missesBefore = stats.misses;
+		renderSkillInstructions({ cwd, role: "unknown", override: ["evict-a"] });
+		const afterReaccess = getSkillCacheStats();
+		assert.ok(afterReaccess.misses > missesBefore, "evicted entry should miss on re-access");
+	} finally {
+		_setSkillCacheMaxEntriesForTesting(128);
+		clearSkillInstructionCache();
+		resetSkillCacheStats();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("skill cache invalidation increments misses when file mtime changes", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-inval-"));
+	try {
+		clearSkillInstructionCache();
+		resetSkillCacheStats();
+
+		writeProjectSkill(cwd, "invalidate-me", "# V1\n\noriginal content");
+
+		// First read: cold miss
+		const r1 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+		assert.match(r1.block, /original content/);
+		const stats1 = getSkillCacheStats();
+		assert.equal(stats1.misses, 1);
+		assert.equal(stats1.hits, 0);
+
+		// Second read: cache hit
+		renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+		const stats2 = getSkillCacheStats();
+		assert.equal(stats2.hits, 1, "second read should be a cache hit");
+		assert.equal(stats2.misses, 1, "no new misses on cached read");
+
+		// Modify the file (update mtime + size + content)
+		writeProjectSkill(cwd, "invalidate-me", "# V2\n\nupdated content that is longer");
+		// Ensure mtime advances (some filesystems have coarse mtime granularity)
+		const skillFile = path.join(cwd, "skills", "invalidate-me", "SKILL.md");
+		const future = new Date(Date.now() + 2000);
+		fs.utimesSync(skillFile, future, future);
+
+		// Third read: should detect stale entry and re-read (miss)
+		const r3 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+		assert.match(r3.block, /updated content/);
+		assert.doesNotMatch(r3.block, /original content/);
+		const stats3 = getSkillCacheStats();
+		assert.equal(stats3.misses, 2, "stale entry should produce a new miss");
+		assert.equal(stats3.hits, 1, "hit count unchanged after invalidation");
+
+		// Fourth read: new entry cached, should hit
+		renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+		const stats4 = getSkillCacheStats();
+		assert.equal(stats4.hits, 2, "re-cached entry should hit on subsequent read");
+	} finally {
+		clearSkillInstructionCache();
+		resetSkillCacheStats();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("getSkillCacheStats returns hitRate field", () => {
+	clearSkillInstructionCache();
+	resetSkillCacheStats();
+
+	// No lookups → hitRate = 0
+	const s0 = getSkillCacheStats();
+	assert.equal(s0.hitRate, 0);
+
+	// 1 miss → hitRate = 0
+	renderSkillInstructions({ cwd: process.cwd(), role: "verifier", teamRole: { skills: false }, override: ["verification-before-done"] });
+	const s1 = getSkillCacheStats();
+	assert.equal(s1.hitRate, 0);
+
+	// 1 hit + 1 miss → hitRate = 0.5
+	renderSkillInstructions({ cwd: process.cwd(), role: "verifier", teamRole: { skills: false }, override: ["verification-before-done"] });
+	const s2 = getSkillCacheStats();
+	assert.ok(Math.abs(s2.hitRate - 0.5) < 0.001, `expected hitRate 0.5, got ${s2.hitRate}`);
+
+	clearSkillInstructionCache();
+	resetSkillCacheStats();
 });

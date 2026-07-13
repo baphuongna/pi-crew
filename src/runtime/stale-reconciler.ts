@@ -74,6 +74,9 @@ function checkResultFile(manifest: TeamRunManifest, tasks: TeamTaskState[]): { f
 		const onlyCancelledOrSkipped = tasks.every((t) => t.status === "cancelled" || t.status === "skipped");
 		manifest.status = hasFailed ? "failed" : onlyCancelledOrSkipped ? "cancelled" : "completed";
 		// Persist manifest status change immediately to make checkResultFile self-contained.
+		// NOTE (OPT-02): Remains sync — reconcileStaleRun → checkResultFile is called from
+		// withRunLockSync in crash-recovery.ts and from sync reconcileOrphanedTempWorkspaces.
+		// Converting to async would require cascading through all callers including sync UI hooks.
 		saveRunManifest(manifest);
 		// Sync agent records even when tasks are already terminal
 		// (e.g., a previous reconcile fixed tasks but crashed before updating agents)
@@ -329,6 +332,8 @@ export function reconcileStaleRun(manifest: TeamRunManifest, tasks: TeamTaskStat
 		// checkResultFile sets manifest.status='completed' and saves it,
 		// but we re-save to ensure the completed status is persisted
 		// before returning (avoids TOCTOU where caller might re-read stale data)
+		// NOTE (OPT-02): Remains sync — reconcileStaleRun is called from withRunLockSync in
+		// crash-recovery.ts and from sync reconcileOrphanedTempWorkspaces; cannot await here.
 		saveRunManifest(manifest);
 		return {
 			runId,
