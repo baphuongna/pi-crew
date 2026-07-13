@@ -11,7 +11,11 @@ function hashContent(content: string): string {
 }
 
 const RETRYABLE_RENAME_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
-const RETRYABLE_LINK_CODES = new Set(["EPERM", "EBUSY", "EACCES", "ENOENT"]);
+// EEXIST is retryable: two concurrent async saves (OPT-02 async saveRunManifest)
+// can race on unlink+link — the second link() hits EEXIST because the first
+// already created the destination. The retry loop unlinks and re-links,
+// resolving the race. Exponential backoff + jitter prevents starvation.
+const RETRYABLE_LINK_CODES = new Set(["EPERM", "EBUSY", "EACCES", "ENOENT", "EEXIST"]);
 
 /**
  * Symlink-safe file write guard (caveman-inspired).

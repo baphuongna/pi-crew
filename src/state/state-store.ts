@@ -385,7 +385,18 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
 	await atomicWriteJsonAsync(manifestPath, manifest);
 	// FIX: Re-populate cache with actual mtime/size. See saveRunManifest.
-	const manifestStat = await fs.promises.stat(manifestPath);
+	// RACE GUARD: another concurrent async save (OPT-02) may unlink+rewrite
+	// manifest.json between our atomicWriteJsonAsync and this stat. If stat
+	// hits ENOENT, use fallback values — the cache will look stale on the
+	// next load and re-read from disk, which is correct.
+	let manifestStat: { mtimeMs: number; size: number };
+	try {
+		manifestStat = await fs.promises.stat(manifestPath);
+	} catch (statError) {
+		const code = String((statError as NodeJS.ErrnoException).code ?? "");
+		if (code !== "ENOENT") throw statError;
+		manifestStat = { mtimeMs: 0, size: 0 };
+	}
 	setManifestCache(manifest.stateRoot, {
 		manifest,
 		tasks: cachedTasks,
