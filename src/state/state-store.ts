@@ -11,7 +11,7 @@ import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPat
 import { toPiSessionId } from "../utils/session-utils.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
-import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, readJsonFile } from "./atomic-write.ts";
+import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "./atomic-write.ts";
 import { canTransitionRunStatus } from "./contracts.ts";
 import { appendEvent } from "./event-log.ts";
 import { HealthStore } from "./health-store.ts";
@@ -622,6 +622,68 @@ export function __test__manifestCacheSize(): number {
 
 export function __test__clearManifestCache(): void {
 	manifestCache.clear();
+}
+
+/**
+ * OPT-08 additive helper: drop the manifest cache entry for `stateRoot` after
+ * flushing any pending coalesced atomic writes (process-wide). Forces the next
+ * `loadRunManifestById` / `loadRunManifestByIdAsync` for this run to hit disk
+ * instead of serving a possibly-stale cache hit. Idempotent: safe to call
+ * multiple times, including for unknown stateRoots.
+ *
+ * This is an additive helper ONLY — it does NOT replace the load-bearing CAS
+ * loop in `persistSingleTaskUpdate`, nor does it bypass `withRunLock` /
+ * `fs.statSync`-based invalidation. It is a safe exit hatch for callers that
+ * want a guaranteed cache drop (e.g. cleanup paths, end-of-run shutdown).
+ *
+ * Scope note: `flushPendingAtomicWrites()` flushes ALL pending coalesced
+ * writes process-wide, not just those under `stateRoot`. The coalescer has no
+ * per-stateRoot filter; flushing the whole queue is the simplest correct
+ * behavior and matches the existing `flushPendingAtomicWrites()` contract
+ * used by cleanupRuntime / process exit handlers.
+ */
+export async function unloadRun(stateRoot: string): Promise<void> {
+	// Flush first so any in-flight buffered write lands on disk before we drop
+	// the cache entry. Otherwise a coalesced write could fire AFTER unloadRun
+	// returns, re-populate the cache from disk, and re-stale it.
+	flushPendingAtomicWrites();
+	// invalidateRunCache bumps the per-stateRoot generation counter so even if
+	// some in-process reader has a stale reference, the next cache lookup
+	// misses (generation mismatch) and re-reads from disk.
+	invalidateRunCache(stateRoot);
+}
+
+/**
+ * OPT-08 additive helper: read-only inspection of the manifest cache.
+ * Returns current size, configured limits, and per-stateRoot observability
+ * (cache generation + age in ms). Pure read — never mutates cache state.
+ * Useful for `tests`, dashboards, and pre-shutdown sanity checks.
+ */
+export interface ManifestCacheStats {
+	size: number;
+	maxEntries: number;
+	ttlMs: number;
+	perStateRoot: Record<string, { generation: number; ageMs: number }>;
+}
+
+export function getManifestCacheStats(): ManifestCacheStats {
+	const now = Date.now();
+	const perStateRoot: Record<string, { generation: number; ageMs: number }> = {};
+	for (const [stateRoot, entry] of manifestCache.entries()) {
+		perStateRoot[stateRoot] = {
+			generation: entry.generation ?? genOf(stateRoot),
+			// ageMs is 0 when cachedAt is unset (defensive — setManifestCache
+			// always sets it today, but a future regression would otherwise
+			// surface as `undefined` in the stats object).
+			ageMs: entry.cachedAt ? now - entry.cachedAt : 0,
+		};
+	}
+	return {
+		size: manifestCache.size,
+		maxEntries: DEFAULT_CACHE.manifestMaxEntries,
+		ttlMs: MANIFEST_CACHE_TTL_MS,
+		perStateRoot,
+	};
 }
 
 async function readJsonFileAsync<T>(filePath: string): Promise<T | undefined> {

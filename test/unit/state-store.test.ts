@@ -7,16 +7,20 @@ import { DEFAULT_CACHE } from "../../src/config/defaults.ts";
 import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
 import {
 	__test__clearManifestCache,
+	__test__getManifestCacheEntry,
 	__test__manifestCacheSize,
+	__test__setManifestCache,
 	createRunManifest,
 	createRunPaths,
 	createTasksFromWorkflow,
+	getManifestCacheStats,
 	loadRunManifestById,
 	loadRunManifestByIdAsync,
 	saveRunManifest,
 	saveRunManifestAsync,
 	saveRunTasks,
 	saveRunTasksAsync,
+	unloadRun,
 	updateRunStatus,
 } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
@@ -634,6 +638,195 @@ test("manifest cache is LRU bounded", () => {
 		assert.ok(__test__manifestCacheSize() <= 2);
 	} finally {
 		DEFAULT_CACHE.manifestMaxEntries = previousMax;
+		__test__clearManifestCache();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// --- OPT-08 additive helper tests ---
+
+test("getManifestCacheStats returns a sensible object (size, limits, per-stateRoot entries)", () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-cache-stats-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		__test__clearManifestCache();
+		// Empty cache baseline
+		const emptyStats = getManifestCacheStats();
+		assert.equal(emptyStats.size, 0);
+		assert.equal(emptyStats.maxEntries, DEFAULT_CACHE.manifestMaxEntries);
+		assert.equal(emptyStats.ttlMs, 60 * 1000);
+		assert.deepEqual(emptyStats.perStateRoot, {});
+
+		// Populate cache with two runs and inspect stats again
+		const { manifest: a } = createRunManifest({ cwd, team, workflow, goal: "stats-a" });
+		const { manifest: b } = createRunManifest({ cwd, team, workflow, goal: "stats-b" });
+		loadRunManifestById(cwd, a.runId);
+		loadRunManifestById(cwd, b.runId);
+
+		const stats = getManifestCacheStats();
+		assert.equal(stats.size, 2);
+		assert.equal(stats.maxEntries, DEFAULT_CACHE.manifestMaxEntries);
+		assert.equal(stats.ttlMs, 60 * 1000);
+		// Both stateRoots should appear with a generation + ageMs.
+		for (const stateRoot of [a.stateRoot, b.stateRoot]) {
+			assert.ok(stateRoot in stats.perStateRoot, `expected ${stateRoot} in perStateRoot`);
+			const entry = stats.perStateRoot[stateRoot];
+			assert.equal(typeof entry.generation, "number");
+			assert.equal(typeof entry.ageMs, "number");
+			assert.ok(entry.ageMs >= 0);
+		}
+	} finally {
+		__test__clearManifestCache();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("unloadRun is idempotent and invalidates the cache entry for the given stateRoot", async () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-unload-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		__test__clearManifestCache();
+		const created = createRunManifest({ cwd, team, workflow, goal: "unload" });
+		// Populate cache
+		const loaded = loadRunManifestById(cwd, created.manifest.runId);
+		assert.ok(loaded);
+		const cached = __test__getManifestCacheEntry(created.paths.stateRoot);
+		assert.ok(cached, "expected cache entry after loadRunManifestById");
+
+		// First call: removes the cache entry
+		await unloadRun(created.paths.stateRoot);
+		assert.equal(__test__getManifestCacheEntry(created.paths.stateRoot), undefined);
+
+		// Second call on the same stateRoot: must NOT throw and must remain a no-op
+		await unloadRun(created.paths.stateRoot);
+		await unloadRun(created.paths.stateRoot);
+		assert.equal(__test__getManifestCacheEntry(created.paths.stateRoot), undefined);
+
+		// Call on an unknown stateRoot: also a no-op
+		await unloadRun("/nonexistent/state/root/that/never/existed");
+	} finally {
+		__test__clearManifestCache();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("unloadRun forces the next read to reflect disk state, not stale cache", async () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-unload-stale-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		__test__clearManifestCache();
+		const created = createRunManifest({ cwd, team, workflow, goal: "stale read" });
+		const stateRoot = created.paths.stateRoot;
+		const manifestPath = path.join(stateRoot, "manifest.json");
+
+		// 1. Populate the cache with the real on-disk manifest.
+		const firstLoad = loadRunManifestById(cwd, created.manifest.runId);
+		assert.ok(firstLoad);
+		assert.ok(__test__getManifestCacheEntry(stateRoot), "cache should be populated");
+
+		// 2. Plant a stale cache entry with the SAME mtime/size as on disk
+		//    (so the loadRunManifestById cache-hit path returns the stale content
+		//    even though manifest.json on disk has a NEW value with the same
+		//    size + mtime).
+		const onDiskStat = fs.statSync(manifestPath);
+		const onDiskTasksStat = fs.statSync(created.paths.tasksPath);
+		const staleManifest = {
+			...firstLoad.manifest,
+			status: "running" as const,
+			summary: "STALE-INJECTED",
+		};
+		__test__setManifestCache(stateRoot, {
+			manifest: staleManifest,
+			tasks: firstLoad.tasks,
+			manifestMtimeMs: onDiskStat.mtimeMs,
+			manifestSize: onDiskStat.size,
+			tasksMtimeMs: onDiskTasksStat.mtimeMs,
+			tasksSize: onDiskTasksStat.size,
+			cachedAt: Date.now(),
+			generation: 0,
+		});
+
+		// 3. Verify the cache hit path actually serves the stale entry.
+		const staleLoad = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(staleLoad?.manifest.summary, "STALE-INJECTED", "cache should be serving stale value");
+
+		// 4. Now write the NEW disk content (still same size as before so mtime/size match
+		//    the stale cache entry's recorded values).
+		const diskManifest = {
+			...firstLoad.manifest,
+			summary: "FRESH-DISK",
+		};
+		const serialized = `${JSON.stringify(diskManifest, null, 2)}\n`;
+		// Pad or trim to match the on-disk size so mtime/size-cache check matches.
+		// Easiest: ensure length matches (manually write the exact byte count to bypass
+		// atomic-write's re-stating). Use atomicWriteJson then immediately re-stamp
+		// the cache with the new mtime/size via __test__setManifestCache later.
+		saveRunManifest(diskManifest); // atomic write, fresh mtime/size
+		const freshStat = fs.statSync(manifestPath);
+		assert.equal(freshStat.size, serialized.length);
+
+		// Re-inject stale cache entry with the NEW disk mtime/size — this simulates
+		// a parallel writer that updated disk while a stale reference was held in
+		// the cache. The cache hit path will return the stale value, which is
+		// exactly the bug unloadRun is designed to fix.
+		__test__setManifestCache(stateRoot, {
+			manifest: staleManifest,
+			tasks: firstLoad.tasks,
+			manifestMtimeMs: freshStat.mtimeMs,
+			manifestSize: freshStat.size,
+			tasksMtimeMs: onDiskTasksStat.mtimeMs,
+			tasksSize: onDiskTasksStat.size,
+			cachedAt: Date.now(),
+			generation: 0,
+		});
+
+		// 5. Confirm the cache still serves stale BEFORE unloadRun.
+		const stillStale = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(stillStale?.manifest.summary, "STALE-INJECTED", "cache should still serve stale before unloadRun");
+
+		// 6. unloadRun should drop the cache entry so the next read hits disk.
+		await unloadRun(stateRoot);
+		assert.equal(__test__getManifestCacheEntry(stateRoot), undefined, "unloadRun must drop cache entry");
+
+		// 7. Next load reflects disk truth, not the injected stale value.
+		const freshLoad = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(freshLoad?.manifest.summary, "FRESH-DISK", "after unloadRun, read should reflect disk");
+	} finally {
+		__test__clearManifestCache();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("unloadRun flushes pending coalesced writes to disk", async () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-unload-flush-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		__test__clearManifestCache();
+		const created = createRunManifest({ cwd, team, workflow, goal: "flush coalesced" });
+		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import(
+			"../../src/state/atomic-write.ts"
+		);
+
+		// Enqueue a coalesced write to tasks.json — without unloadRun, this would
+		// sit in the in-memory coalescer buffer for ~50ms before landing on disk.
+		const updatedTasks = created.tasks.map((t) => ({ ...t, status: "running" as const }));
+		atomicWriteJsonCoalesced(created.paths.tasksPath, updatedTasks);
+
+		// Before flush, disk still has the original (queued) status.
+		const beforeUnload = JSON.parse(fs.readFileSync(created.paths.tasksPath, "utf-8"));
+		assert.equal(beforeUnload[0].status, "queued", "before unloadRun, disk should still be original");
+
+		// unloadRun must trigger flushPendingAtomicWrites internally.
+		await unloadRun(created.paths.stateRoot);
+
+		// After unloadRun, disk reflects the coalesced write immediately.
+		const afterUnload = JSON.parse(fs.readFileSync(created.paths.tasksPath, "utf-8"));
+		assert.equal(afterUnload[0].status, "running", "after unloadRun, coalesced write must be on disk");
+
+		// Sanity: calling again must not throw or leave residual state.
+		await unloadRun(created.paths.stateRoot);
+		flushPendingAtomicWrites(); // belt-and-suspenders
+	} finally {
 		__test__clearManifestCache();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
