@@ -6129,7 +6129,7 @@
       "format": "esm"
     },
     "src/state/atomic-write.ts": {
-      "bytes": 38846,
+      "bytes": 39163,
       "imports": [
         {
           "path": "node:crypto",
@@ -6598,7 +6598,7 @@
       "format": "esm"
     },
     "src/state/state-store.ts": {
-      "bytes": 39824,
+      "bytes": 40339,
       "imports": [
         {
           "path": "node:fs",
@@ -7387,7 +7387,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 66737,
+      "bytes": 71886,
       "imports": [
         {
           "path": "node:child_process",
@@ -13019,7 +13019,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-schedule.ts": {
-      "bytes": 11816,
+      "bytes": 11817,
       "imports": [
         {
           "path": "node:crypto",
@@ -14182,7 +14182,7 @@
       "format": "esm"
     },
     "src/utils/token-counter.ts": {
-      "bytes": 6208,
+      "bytes": 6198,
       "imports": [],
       "format": "esm"
     },
@@ -14748,7 +14748,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/tail-read.ts": {
-      "bytes": 859,
+      "bytes": 1594,
       "imports": [
         {
           "path": "node:fs",
@@ -14866,7 +14866,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 56716,
+      "bytes": 56743,
       "imports": [
         {
           "path": "node:fs",
@@ -15180,7 +15180,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 87719,
+      "bytes": 87743,
       "imports": [
         {
           "path": "node:fs",
@@ -18415,7 +18415,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6687977
+      "bytes": 6696933
     },
     "dist/index.mjs": {
       "imports": [
@@ -20628,7 +20628,7 @@
           "bytesInOutput": 5243
         },
         "src/state/atomic-write.ts": {
-          "bytesInOutput": 18848
+          "bytesInOutput": 18858
         },
         "src/config/defaults.ts": {
           "bytesInOutput": 4426
@@ -20694,7 +20694,7 @@
           "bytesInOutput": 1803
         },
         "src/state/state-store.ts": {
-          "bytesInOutput": 20199
+          "bytesInOutput": 20386
         },
         "src/utils/file-coalescer.ts": {
           "bytesInOutput": 1204
@@ -20805,7 +20805,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 45656
+          "bytesInOutput": 47895
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 953
@@ -21555,7 +21555,7 @@
           "bytesInOutput": 17021
         },
         "src/extension/team-tool/handle-schedule.ts": {
-          "bytesInOutput": 8713
+          "bytesInOutput": 8715
         },
         "src/extension/team-tool/health-monitor.ts": {
           "bytesInOutput": 9274
@@ -21690,7 +21690,7 @@
           "bytesInOutput": 2922
         },
         "src/utils/token-counter.ts": {
-          "bytesInOutput": 2475
+          "bytesInOutput": 2457
         },
         "src/runtime/tool-output-pruner.ts": {
           "bytesInOutput": 5527
@@ -21789,7 +21789,7 @@
           "bytesInOutput": 2862
         },
         "src/runtime/task-runner/tail-read.ts": {
-          "bytesInOutput": 762
+          "bytesInOutput": 810
         },
         "src/runtime/verification-gates.ts": {
           "bytesInOutput": 7561
@@ -21819,7 +21819,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 61966
+          "bytesInOutput": 62012
         },
         "src/runtime/parallel-research.ts": {
           "bytesInOutput": 2683
@@ -22125,7 +22125,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3170372
+      "bytes": 3172886
     }
   }
 }

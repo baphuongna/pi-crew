@@ -9182,7 +9182,7 @@ var init_atomic_write = __esm({
     init_sleep();
     init_worker_atomic_writer();
     RETRYABLE_RENAME_CODES = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES"]);
-    RETRYABLE_LINK_CODES = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES", "ENOENT"]);
+    RETRYABLE_LINK_CODES = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES", "ENOENT", "EEXIST"]);
     SYMLINK_SAFE_TTL_MS = 1e4;
     SYMLINK_SAFE_MAX_ENTRIES = 128;
     TARGET_NOT_SYMLINK_TTL_MS = 1e3;
@@ -13609,7 +13609,14 @@ async function saveRunManifestAsync(manifest) {
   invalidateRunCache(manifest.stateRoot);
   const manifestPath = path11.join(manifest.stateRoot, "manifest.json");
   await atomicWriteJsonAsync(manifestPath, manifest);
-  const manifestStat = await fs13.promises.stat(manifestPath);
+  let manifestStat;
+  try {
+    manifestStat = await fs13.promises.stat(manifestPath);
+  } catch (statError) {
+    const code = String(statError.code ?? "");
+    if (code !== "ENOENT") throw statError;
+    manifestStat = { mtimeMs: 0, size: 0 };
+  }
   setManifestCache(manifest.stateRoot, {
     manifest,
     tasks: cachedTasks,
@@ -18687,13 +18694,17 @@ function appendTranscript(input, line4) {
     logInternalError("child-pi.transcript-path-rejected", error, `transcriptPath=${input.transcriptPath}`);
     return;
   }
-  void appendTranscriptAsync(safePath, line4);
+  trackTranscriptWrite(safePath, line4);
 }
 async function appendTranscriptAsync(safePath, line4) {
   const content = `${redactJsonLine(line4)}
 `;
   try {
-    const fd = await fs28.promises.open(safePath, fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND, 384);
+    const fd = await fs28.promises.open(
+      safePath,
+      fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND,
+      384
+    );
     try {
       await fd.write(content, void 0, "utf-8");
     } finally {
@@ -18701,6 +18712,18 @@ async function appendTranscriptAsync(safePath, line4) {
     }
   } catch (error) {
     logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
+  }
+}
+function trackTranscriptWrite(safePath, line4) {
+  const p = appendTranscriptAsync(safePath, line4).finally(() => {
+    pendingTranscriptWrites.delete(p);
+  });
+  pendingTranscriptWrites.add(p);
+}
+async function flushPendingTranscriptWrites() {
+  while (pendingTranscriptWrites.size > 0) {
+    const drained = [...pendingTranscriptWrites];
+    await Promise.allSettled(drained);
   }
 }
 function compactString(value, maxChars = MAX_COMPACT_CONTENT_CHARS, opts = {}) {
@@ -18820,10 +18843,10 @@ function compactChildPiLine(line4) {
     return { json: false, persistedLine: line4, displayLine: line4 };
   }
 }
-function observeStdoutChunk(input, text) {
+async function observeStdoutChunk(input, text) {
   const observer = new ChildPiLineObserver(input);
   observer.observe(text);
-  observer.flush();
+  await observer.flush();
 }
 function asRecord3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
@@ -18866,7 +18889,7 @@ ${input.task}` : input.task;
     if (mock === "success") {
       const stdout = `[MOCK] Success for ${input.agent.name}
 `;
-      observeStdoutChunk(input, stdout);
+      await observeStdoutChunk(input, stdout);
       return { exitCode: 0, stdout, stderr: "" };
     }
     if (mock === "json-success" || mock === "adaptive-plan") {
@@ -18923,7 +18946,7 @@ ADAPTIVE_PLAN_JSON_END` : `[MOCK] JSON success for ${input.agent.name}`;
       const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
 ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
 `;
-      observeStdoutChunk(input, stdout);
+      await observeStdoutChunk(input, stdout);
       return { exitCode: 0, stdout, stderr: "" };
     }
     if (mock === "retryable-failure")
@@ -18959,14 +18982,14 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         };
         const stdout2 = `${JSON.stringify(failureEvent)}
 `;
-        observeStdoutChunk(input, stdout2);
+        await observeStdoutChunk(input, stdout2);
         return { exitCode: 0, stdout: stdout2, stderr: "" };
       }
       const text = `[MOCK] JSON success for ${input.agent.name}`;
       const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
 ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
 `;
-      observeStdoutChunk(input, stdout);
+      await observeStdoutChunk(input, stdout);
       return { exitCode: 0, stdout, stderr: "" };
     }
     return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
@@ -19118,7 +19141,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
             try {
               process.kill(child.pid, 0);
               const timeoutErr = `Child Pi produced no new output for ${responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
-              settle({
+              void settle({
                 exitCode: null,
                 stdout,
                 stderr,
@@ -19298,42 +19321,86 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         clearPostExitGuard();
       };
       const settle = (result4) => {
-        if (settled) return;
+        if (settled) return Promise.resolve();
         settled = true;
         clearChildPiTimeouts();
-        lineObserver.flush();
-        input.signal?.removeEventListener("abort", abort);
-        input.signal?.removeEventListener("abort", onParentAbort);
-        try {
-          cleanupTempDir(built.tempDir);
-        } catch (error) {
-          cleanupErrors.push(error instanceof Error ? error.message : String(error));
-        }
-        try {
-          resolve22({
-            ...result4,
-            rawFinalText: lineObserver.getRawFinalText(),
-            intermediateFindings: lineObserver.getIntermediateFindings(),
-            exitStatus: result4.exitStatus ?? {
-              exitCode: result4.exitCode,
-              cancelled: abortRequested,
-              timedOut: responseTimeoutHit,
-              killed: hardKilled,
-              // Phase-0 diagnostic (HB-003a): surface the final-drain race state.
-              // finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
-              // should be treated as a forced final drain. READ-ONLY for now.
-              ...finalDrainArmed || forcedFinalDrain ? {
-                finalDrainArmed,
-                forcedFinalDrain,
-                finalDrainFiredMonotonicMs
-              } : {},
-              cleanupErrors,
-              finalDrainMs
-            }
-          });
-        } catch (resolveError) {
-          logInternalError("child-pi.settle-resolve", resolveError, `result=${JSON.stringify({ exitCode: result4.exitCode })}`);
-        }
+        return lineObserver.flush().then(() => {
+          input.signal?.removeEventListener("abort", abort);
+          input.signal?.removeEventListener("abort", onParentAbort);
+          try {
+            cleanupTempDir(built.tempDir);
+          } catch (error) {
+            cleanupErrors.push(error instanceof Error ? error.message : String(error));
+          }
+          try {
+            resolve22({
+              ...result4,
+              rawFinalText: lineObserver.getRawFinalText(),
+              intermediateFindings: lineObserver.getIntermediateFindings(),
+              exitStatus: result4.exitStatus ?? {
+                exitCode: result4.exitCode,
+                cancelled: abortRequested,
+                timedOut: responseTimeoutHit,
+                killed: hardKilled,
+                // Phase-0 diagnostic (HB-003a): surface the final-drain race state.
+                // finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
+                // should be treated as a forced final drain. READ-ONLY for now.
+                ...finalDrainArmed || forcedFinalDrain ? {
+                  finalDrainArmed,
+                  forcedFinalDrain,
+                  finalDrainFiredMonotonicMs
+                } : {},
+                cleanupErrors,
+                finalDrainMs
+              }
+            });
+          } catch (resolveError) {
+            logInternalError(
+              "child-pi.settle-resolve",
+              resolveError,
+              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+            );
+          }
+        }).catch((flushError) => {
+          logInternalError(
+            "child-pi.settle-flush-failed",
+            flushError,
+            `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+          );
+          input.signal?.removeEventListener("abort", abort);
+          input.signal?.removeEventListener("abort", onParentAbort);
+          try {
+            cleanupTempDir(built.tempDir);
+          } catch (error) {
+            cleanupErrors.push(error instanceof Error ? error.message : String(error));
+          }
+          try {
+            resolve22({
+              ...result4,
+              rawFinalText: lineObserver.getRawFinalText(),
+              intermediateFindings: lineObserver.getIntermediateFindings(),
+              exitStatus: result4.exitStatus ?? {
+                exitCode: result4.exitCode,
+                cancelled: abortRequested,
+                timedOut: responseTimeoutHit,
+                killed: hardKilled,
+                ...finalDrainArmed || forcedFinalDrain ? {
+                  finalDrainArmed,
+                  forcedFinalDrain,
+                  finalDrainFiredMonotonicMs
+                } : {},
+                cleanupErrors,
+                finalDrainMs
+              }
+            });
+          } catch (resolveError) {
+            logInternalError(
+              "child-pi.settle-resolve",
+              resolveError,
+              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+            );
+          }
+        });
       };
       const abort = () => {
         abortRequested = true;
@@ -19405,7 +19472,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         } catch (err2) {
           logInternalError("child-pi.on-lifecycle-event", err2, `event=error, pid=${child.pid}`);
         }
-        settle({
+        void settle({
           exitCode: null,
           stdout,
           stderr,
@@ -19515,7 +19582,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
           spawnError: void 0,
           stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1e3) : void 0
         });
-        settle({
+        void settle({
           exitCode: finalExitCode,
           stdout,
           stderr,
@@ -19541,7 +19608,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, BASE_ALLOWLIST, ChildPiLineObserver;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, BASE_ALLOWLIST, pendingTranscriptWrites, ChildPiLineObserver;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -19623,6 +19690,7 @@ var init_child_pi = __esm({
       "PI_CREW_MAX_OUTPUT",
       "PI_CREW_STEERING_FILE"
     ];
+    pendingTranscriptWrites = /* @__PURE__ */ new Set();
     ChildPiLineObserver = class _ChildPiLineObserver {
       buffer = "";
       input;
@@ -19653,10 +19721,12 @@ var init_child_pi = __esm({
         for (const line4 of lines) this.emitLine(line4);
       }
       flush() {
-        if (!this.buffer) return;
-        const line4 = this.buffer;
-        this.buffer = "";
-        this.emitLine(line4);
+        if (this.buffer) {
+          const line4 = this.buffer;
+          this.buffer = "";
+          this.emitLine(line4);
+        }
+        return flushPendingTranscriptWrites();
       }
       /** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
        *  finalText semantics but uncapped). Undefined when no assistant text was
@@ -49207,10 +49277,11 @@ function handleRemoveScheduled(params, ctx) {
   if (!removed) {
     return result(`No scheduled job with id '${jobId}'.`, { action: "schedule", status: "error" }, true);
   }
-  return result(
-    [`Scheduled job removed.`, `  Job ID: ${jobId}`].join("\n"),
-    { action: "schedule", status: "ok", data: { jobId, removed: true } }
-  );
+  return result([`Scheduled job removed.`, `  Job ID: ${jobId}`].join("\n"), {
+    action: "schedule",
+    status: "ok",
+    data: { jobId, removed: true }
+  });
 }
 function handleUpdateScheduled(params, ctx) {
   const jobId = getJobIdParam(params);
@@ -54253,10 +54324,7 @@ function countTokens(text) {
   if (total === 0) return 0;
   const codeIndicators = codePunct + multiCharOps;
   if (codeIndicators / total >= CODE_DENSITY_THRESHOLD) {
-    const alphaTokens = Math.max(
-      Math.ceil(alphaChars / CODE_ALPHA_DIVISOR),
-      alphaRuns
-    );
+    const alphaTokens = Math.max(Math.ceil(alphaChars / CODE_ALPHA_DIVISOR), alphaRuns);
     return alphaTokens + punctChars - multiCharOps;
   }
   return Math.ceil(alphaChars / PROSE_ALPHA_DIVISOR) + punctChars;
@@ -57934,6 +58002,7 @@ import * as fs81 from "node:fs";
 function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
   if (!fs81.existsSync(filePath)) return fallbackContent;
   const stat2 = fs81.statSync(filePath);
+  if (stat2.size === 0) return fallbackContent;
   if (stat2.size <= maxBytes) return fs81.readFileSync(filePath, "utf-8");
   const fd = fs81.openSync(filePath, "r");
   try {
@@ -61395,7 +61464,11 @@ async function executeTeamRunCore(input, manifest, workflow) {
       [...pendingUnits.entries()].map(async ([key, pending2]) => {
         try {
           const result4 = await pending2.promise;
-          return { unitKey: key, result: result4, error: void 0 };
+          return {
+            unitKey: key,
+            result: result4,
+            error: void 0
+          };
         } catch (error) {
           return { unitKey: key, result: void 0, error: error instanceof Error ? error : new Error(String(error)) };
         }

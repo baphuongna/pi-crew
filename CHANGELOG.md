@@ -55,6 +55,17 @@ Two architecturally significant changes:
     ```
   - **Files**: `src/extension/team-tool/handle-schedule.ts` (+101 lines), `src/schema/team-tool-schema.ts` (+4 lines typed `subAction?` + `jobId?`), `test/unit/team-tool-schedule.test.ts` (+144 lines, 5 new tests, 16/16 pass).
 
+### Regression fixes (caught by CI)
+
+Three regressions from the performance optimizations were caught by CI's full test matrix and fixed before publish:
+
+- **Transcript flush race** (commit `4f3b005`): OPT-06 (async transcripts) broke 3 integration tests that read the transcript file immediately after `runChildPi` returns — the async file handle had not yet been opened or flushed, so tests saw ENOENT or empty content. Fix: module-scoped `Set<Promise<void>>` tracks in-flight writes; `flushPendingTranscriptWrites()` drains them before lifecycle boundaries (`ChildPiLineObserver.flush()` and `runChildPi` settle). Also: `tailReadWithLineSnap` falls back to `fallbackContent` when the file exists but is empty (fire-and-forget file may exist before content flushes). This also fixed `implementation-fanout.test.ts` which relied on the adaptive mock's transcript.
+- **Atomic-write EEXIST + ENOENT stat races** (commit `e59b129`): OPT-02 (async `saveRunManifest`) introduced two interleaving races in `renameWithLinkAsync` (unlink+link as separate async syscalls):
+  1. Two concurrent saves race on `link(tmp, dest)` — the second hits EEXIST. Fix: add EEXIST to `RETRYABLE_LINK_CODES`; the retry loop unlinks+re-links.
+  2. After EEXIST retry, the retry's `unlink(dest)` removes the file between another save's `atomicWriteJsonAsync` and its `stat(dest)` cache update. Fix: catch ENOENT on stat, use fallback `{0,0}` values — cache re-reads from disk on next load.
+  - This fixed the `parallel-research-dynamic.test.ts` macOS/Ubuntu CI flake.
+- **Import sort + format** (commits `538138e`, `3e43f3b`): biome lint/format CI checks.
+
 ### Bundle resolution order — read this before updating from v0.9.34 or earlier
 
 This release fixes a silent cache-staleness trap. The `index.ts` entry point resolves the extension load in this order:
