@@ -271,10 +271,50 @@ test("streaming dispatch: DAG with dependencies completes all tasks", async () =
 		});
 		// Build tasks matching the DAG: a,b ready; c depends on a; d depends on b
 		const tasks: TeamTaskState[] = [
-			{ id: "01_a", runId: created.manifest.runId, stepId: "a", role: "worker", agent: "worker", title: "A", status: "queued", dependsOn: [], cwd },
-			{ id: "02_b", runId: created.manifest.runId, stepId: "b", role: "worker", agent: "worker", title: "B", status: "queued", dependsOn: [], cwd },
-			{ id: "03_c", runId: created.manifest.runId, stepId: "c", role: "worker", agent: "worker", title: "C", status: "queued", dependsOn: ["a"], cwd },
-			{ id: "04_d", runId: created.manifest.runId, stepId: "d", role: "worker", agent: "worker", title: "D", status: "queued", dependsOn: ["b"], cwd },
+			{
+				id: "01_a",
+				runId: created.manifest.runId,
+				stepId: "a",
+				role: "worker",
+				agent: "worker",
+				title: "A",
+				status: "queued",
+				dependsOn: [],
+				cwd,
+			},
+			{
+				id: "02_b",
+				runId: created.manifest.runId,
+				stepId: "b",
+				role: "worker",
+				agent: "worker",
+				title: "B",
+				status: "queued",
+				dependsOn: [],
+				cwd,
+			},
+			{
+				id: "03_c",
+				runId: created.manifest.runId,
+				stepId: "c",
+				role: "worker",
+				agent: "worker",
+				title: "C",
+				status: "queued",
+				dependsOn: ["a"],
+				cwd,
+			},
+			{
+				id: "04_d",
+				runId: created.manifest.runId,
+				stepId: "d",
+				role: "worker",
+				agent: "worker",
+				title: "D",
+				status: "queued",
+				dependsOn: ["b"],
+				cwd,
+			},
 		];
 		saveRunTasks(created.manifest, tasks);
 		const result = await executeTeamRun({
@@ -288,10 +328,7 @@ test("streaming dispatch: DAG with dependencies completes all tasks", async () =
 		});
 		// All tasks should be terminal (completed in mock mode)
 		for (const task of result.tasks) {
-			assert.ok(
-				task.status === "completed" || task.status === "skipped",
-				`Task ${task.id} should be terminal, got ${task.status}`,
-			);
+			assert.ok(task.status === "completed" || task.status === "skipped", `Task ${task.id} should be terminal, got ${task.status}`);
 		}
 		assert.equal(result.manifest.status, "completed");
 	} finally {
@@ -338,9 +375,39 @@ test("streaming dispatch: respects DAG ordering — dependent tasks complete aft
 			goal: "chain test",
 		});
 		const tasks: TeamTaskState[] = [
-			{ id: "01_first", runId: created.manifest.runId, stepId: "first", role: "worker", agent: "worker", title: "F", status: "queued", dependsOn: [], cwd },
-			{ id: "02_second", runId: created.manifest.runId, stepId: "second", role: "worker", agent: "worker", title: "S", status: "queued", dependsOn: ["first"], cwd },
-			{ id: "03_third", runId: created.manifest.runId, stepId: "third", role: "worker", agent: "worker", title: "T", status: "queued", dependsOn: ["second"], cwd },
+			{
+				id: "01_first",
+				runId: created.manifest.runId,
+				stepId: "first",
+				role: "worker",
+				agent: "worker",
+				title: "F",
+				status: "queued",
+				dependsOn: [],
+				cwd,
+			},
+			{
+				id: "02_second",
+				runId: created.manifest.runId,
+				stepId: "second",
+				role: "worker",
+				agent: "worker",
+				title: "S",
+				status: "queued",
+				dependsOn: ["first"],
+				cwd,
+			},
+			{
+				id: "03_third",
+				runId: created.manifest.runId,
+				stepId: "third",
+				role: "worker",
+				agent: "worker",
+				title: "T",
+				status: "queued",
+				dependsOn: ["second"],
+				cwd,
+			},
 		];
 		saveRunTasks(created.manifest, tasks);
 		const result = await executeTeamRun({

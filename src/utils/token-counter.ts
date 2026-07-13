@@ -29,18 +29,30 @@ const PROSE_ALPHA_DIVISOR = 4;
  */
 function isMultiCharOp(c1: number, c2: number): boolean {
 	switch (c1) {
-		case 0x3d: return c2 === 0x3e || c2 === 0x3d; // = → => or ==
-		case 0x21: return c2 === 0x3d; // ! → !=
-		case 0x3c: return c2 === 0x3d; // < → <=
-		case 0x3e: return c2 === 0x3d; // > → >=
-		case 0x26: return c2 === 0x26; // & → &&
-		case 0x7c: return c2 === 0x7c; // | → ||
-		case 0x3f: return c2 === 0x2e || c2 === 0x3f; // ? → ?. or ??
-		case 0x2b: return c2 === 0x2b || c2 === 0x3d; // + → ++ or +=
-		case 0x2d: return c2 === 0x2d || c2 === 0x3d; // - → -- or -=
-		case 0x2a: return c2 === 0x3d; // * → *=
-		case 0x2f: return c2 === 0x3d; // / → /=
-		default: return false;
+		case 0x3d:
+			return c2 === 0x3e || c2 === 0x3d; // = → => or ==
+		case 0x21:
+			return c2 === 0x3d; // ! → !=
+		case 0x3c:
+			return c2 === 0x3d; // < → <=
+		case 0x3e:
+			return c2 === 0x3d; // > → >=
+		case 0x26:
+			return c2 === 0x26; // & → &&
+		case 0x7c:
+			return c2 === 0x7c; // | → ||
+		case 0x3f:
+			return c2 === 0x2e || c2 === 0x3f; // ? → ?. or ??
+		case 0x2b:
+			return c2 === 0x2b || c2 === 0x3d; // + → ++ or +=
+		case 0x2d:
+			return c2 === 0x2d || c2 === 0x3d; // - → -- or -=
+		case 0x2a:
+			return c2 === 0x3d; // * → *=
+		case 0x2f:
+			return c2 === 0x3d; // / → /=
+		default:
+			return false;
 	}
 }
 
@@ -68,21 +80,20 @@ export function detectCodeContent(text: string): boolean {
 			skipOpCheck = false;
 			continue;
 		}
-		if (
-			(c >= 0x30 && c <= 0x39) ||
-			(c >= 0x41 && c <= 0x5a) ||
-			(c >= 0x61 && c <= 0x7a) ||
-			c === 0x5f
-		) {
+		if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f) {
 			alphaChars++;
 			skipOpCheck = false;
 		} else {
 			punctChars++;
 			if (
-				c === 0x7b || c === 0x7d || // { }
-				c === 0x5b || c === 0x5d || // [ ]
-				c === 0x28 || c === 0x29 || // ( )
-				c === 0x3b || c === 0x3a    // ; :
+				c === 0x7b ||
+				c === 0x7d || // { }
+				c === 0x5b ||
+				c === 0x5d || // [ ]
+				c === 0x28 ||
+				c === 0x29 || // ( )
+				c === 0x3b ||
+				c === 0x3a // ; :
 			) {
 				codePunct++;
 			}
@@ -142,12 +153,7 @@ export function countTokens(text: string): number {
 		}
 
 		// Inline alphanumeric check (hot path)
-		if (
-			(c >= 0x30 && c <= 0x39) ||
-			(c >= 0x41 && c <= 0x5a) ||
-			(c >= 0x61 && c <= 0x7a) ||
-			c === 0x5f
-		) {
+		if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f) {
 			alphaChars++;
 			if (!inAlphaRun) {
 				alphaRuns++;
@@ -162,12 +168,7 @@ export function countTokens(text: string): number {
 		punctChars++;
 
 		// Code-specific punctuation: { } [ ] ( ) ; :
-		if (
-			c === 0x7b || c === 0x7d ||
-			c === 0x5b || c === 0x5d ||
-			c === 0x28 || c === 0x29 ||
-			c === 0x3b || c === 0x3a
-		) {
+		if (c === 0x7b || c === 0x7d || c === 0x5b || c === 0x5d || c === 0x28 || c === 0x29 || c === 0x3b || c === 0x3a) {
 			codePunct++;
 		}
 
@@ -189,10 +190,7 @@ export function countTokens(text: string): number {
 		// Code content: shorter identifiers and more operators mean more
 		// tokens per character than prose. Use the larger of word-count
 		// and char/3.5 to handle both short and long identifiers.
-		const alphaTokens = Math.max(
-			Math.ceil(alphaChars / CODE_ALPHA_DIVISOR),
-			alphaRuns,
-		);
+		const alphaTokens = Math.max(Math.ceil(alphaChars / CODE_ALPHA_DIVISOR), alphaRuns);
 		return alphaTokens + punctChars - multiCharOps;
 	}
 

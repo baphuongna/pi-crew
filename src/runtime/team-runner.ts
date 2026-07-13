@@ -1576,7 +1576,11 @@ async function executeTeamRunCore(
 			[...pendingUnits.entries()].map(async ([key, pending]) => {
 				try {
 					const result = await pending.promise;
-					return { unitKey: key, result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined, error: undefined as Error | undefined };
+					return {
+						unitKey: key,
+						result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined,
+						error: undefined as Error | undefined,
+					};
 				} catch (error) {
 					return { unitKey: key, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
 				}

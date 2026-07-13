@@ -6,7 +6,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleListScheduled, handleRemoveScheduled, handleSchedule, handleUpdateScheduled, registerCrewScheduler } from "../../src/extension/team-tool/handle-schedule.ts";
+import {
+	handleListScheduled,
+	handleRemoveScheduled,
+	handleSchedule,
+	handleUpdateScheduled,
+	registerCrewScheduler,
+} from "../../src/extension/team-tool/handle-schedule.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
@@ -352,10 +358,7 @@ describe("handleUpdateScheduled", () => {
 			};
 			registerCrewScheduler(scheduler);
 
-			const res = handleUpdateScheduled(
-				makeParams({ jobId: "abc-123", subAction: "disable" }),
-				makeCtx(tmp),
-			);
+			const res = handleUpdateScheduled(makeParams({ jobId: "abc-123", subAction: "disable" }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, false);
 			assert.ok((updatedPatch as { enabled?: boolean })?.enabled === false);

@@ -803,9 +803,7 @@ test("unloadRun flushes pending coalesced writes to disk", async () => {
 	try {
 		__test__clearManifestCache();
 		const created = createRunManifest({ cwd, team, workflow, goal: "flush coalesced" });
-		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import(
-			"../../src/state/atomic-write.ts"
-		);
+		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import("../../src/state/atomic-write.ts");
 
 		// Enqueue a coalesced write to tasks.json — without unloadRun, this would
 		// sit in the in-memory coalescer buffer for ~50ms before landing on disk.

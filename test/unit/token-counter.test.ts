@@ -178,11 +178,7 @@ describe("countTokens — code-aware estimation accuracy", () => {
 
 	it("estimates multi-line function within ±15%", () => {
 		// Larger sample with long identifiers — slightly wider tolerance
-		const code = [
-			"function process(items) {",
-			"  return items.filter(x => x.active).map(x => x.value);",
-			"}",
-		].join("\n");
+		const code = ["function process(items) {", "  return items.filter(x => x.active).map(x => x.value);", "}"].join("\n");
 		const count = countTokens(code);
 		// BPE reference: function(1) process(1) items(1) ((1) items(1) )(1) {(1)
 		// return(1) items(1) .(1) filter(1) ((1) x(1) =>(1) x(1) .(1) active(1)

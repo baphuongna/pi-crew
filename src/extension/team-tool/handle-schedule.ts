@@ -11,9 +11,10 @@ type SchedulerRef = {
 	add(job: import("../../runtime/scheduler.ts").ScheduledJob): void;
 	list(): import("../../runtime/scheduler.ts").ScheduledJob[];
 	remove(id: string): boolean;
-	update(id: string, patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob>):
-		| import("../../runtime/scheduler.ts").ScheduledJob
-		| undefined;
+	update(
+		id: string,
+		patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob>,
+	): import("../../runtime/scheduler.ts").ScheduledJob | undefined;
 };
 
 function getCrewScheduler(): SchedulerRef | undefined {
@@ -289,10 +290,11 @@ export function handleRemoveScheduled(params: TeamToolParamsValue, ctx: TeamCont
 	if (!removed) {
 		return result(`No scheduled job with id '${jobId}'.`, { action: "schedule", status: "error" }, true);
 	}
-	return result(
-		[`Scheduled job removed.`, `  Job ID: ${jobId}`].join("\n"),
-		{ action: "schedule", status: "ok", data: { jobId, removed: true } },
-	);
+	return result([`Scheduled job removed.`, `  Job ID: ${jobId}`].join("\n"), {
+		action: "schedule",
+		status: "ok",
+		data: { jobId, removed: true },
+	});
 }
 
 /**
@@ -339,4 +341,3 @@ export function handleUpdateScheduled(params: TeamToolParamsValue, ctx: TeamCont
 		{ action: "schedule", status: "ok", data: { jobId, enabled: updated.enabled, schedule: updated.schedule } },
 	);
 }
-

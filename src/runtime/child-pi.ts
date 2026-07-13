@@ -446,7 +446,11 @@ async function appendTranscriptAsync(safePath: string, line: string): Promise<vo
 	try {
 		// Use async file handle for better performance when many writes occur.
 		// O_NOFOLLOW | O_CREAT | O_APPEND ensures security and atomicity.
-		const fd = await fs.promises.open(safePath, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND, 0o600);
+		const fd = await fs.promises.open(
+			safePath,
+			fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
+			0o600,
+		);
 		try {
 			await fd.write(content, undefined, "utf-8");
 		} finally {

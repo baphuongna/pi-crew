@@ -88,13 +88,16 @@ async function appendSteeringAsync(steeringDir: string, taskId: string, steers: 
 	try {
 		await fs.promises.mkdir(steeringDir, { recursive: true });
 		const steeringPath = `${steeringDir}/${taskId}.jsonl`;
-		const lines = steers.map(msg =>
-			JSON.stringify({
-				type: "steer",
-				message: msg,
-				ts: new Date().toISOString(),
-			}) + "\n"
-		).join("");
+		const lines = steers
+			.map(
+				(msg) =>
+					JSON.stringify({
+						type: "steer",
+						message: msg,
+						ts: new Date().toISOString(),
+					}) + "\n",
+			)
+			.join("");
 		await fs.promises.appendFile(steeringPath, lines, "utf-8");
 	} catch (error) {
 		logInternalError("task-runner.steering-write-failed", error as Error, `taskId=${taskId}`);
