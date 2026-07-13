@@ -437,7 +437,13 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 	// resolveRealContainedPath validates a pre-existing path.
 	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
 	// The caller does not need to await this — transcript writes are best-effort telemetry.
-	void appendTranscriptAsync(safePath, line);
+	// OPT-06 follow-up: we still track the write promise in a module-scoped Set so
+	// lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle) can drain
+	// them before returning. Without that drain, callers that immediately read the
+	// transcript file post-flush (e.g. integration tests at phase3-runtime:50 and
+	// phase4-runtime:37/:68/:103) would see ENOENT or empty content because the
+	// async file handle had not yet been opened / flushed.
+	trackTranscriptWrite(safePath, line);
 }
 
 /** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
@@ -458,6 +464,46 @@ async function appendTranscriptAsync(safePath: string, line: string): Promise<vo
 		}
 	} catch (error) {
 		logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
+	}
+}
+
+/**
+ * Module-scoped set of in-flight transcript-write promises. Each call to
+ * {@link trackTranscriptWrite} registers its promise here; the promise
+ * removes itself on completion via `.finally`. Lifecycle boundaries
+ * (ChildPiLineObserver.flush, runChildPi settle) call
+ * {@link flushPendingTranscriptWrites} before returning so callers that
+ * immediately read the transcript file after `runChildPi` / `observer.flush()`
+ * await see the full content (and a non-ENOENT file).
+ *
+ * Module-scoped rather than per-input because all transcript writes for a
+ * given run share the same Node fs event loop and serialise through a single
+ * fs handle per path; one drain per lifecycle boundary is sufficient.
+ */
+const pendingTranscriptWrites: Set<Promise<void>> = new Set();
+
+function trackTranscriptWrite(safePath: string, line: string): void {
+	const p = appendTranscriptAsync(safePath, line).finally(() => {
+		pendingTranscriptWrites.delete(p);
+	});
+	pendingTranscriptWrites.add(p);
+}
+
+/**
+ * Drain all currently-pending transcript writes. Awaits every promise in the
+ * set; if new writes are scheduled during the drain (i.e. the `.finally`
+ * callback has not yet removed them), the loop re-checks `size > 0` and
+ * awaits them too. Idempotent and safe to call concurrently / reentrantly —
+ * each pending promise is tracked exactly once.
+ *
+ * Exported so external callers (e.g. integration tests that construct a
+ * ChildPiLineObserver directly) can drain explicitly if they need to read
+ * the transcript file outside of the observer's lifecycle.
+ */
+export async function flushPendingTranscriptWrites(): Promise<void> {
+	while (pendingTranscriptWrites.size > 0) {
+		const drained = [...pendingTranscriptWrites];
+		await Promise.allSettled(drained);
 	}
 }
 
@@ -650,11 +696,18 @@ export class ChildPiLineObserver {
 		for (const line of lines) this.emitLine(line);
 	}
 
-	flush(): void {
-		if (!this.buffer) return;
-		const line = this.buffer;
-		this.buffer = "";
-		this.emitLine(line);
+	flush(): Promise<void> {
+		if (this.buffer) {
+			const line = this.buffer;
+			this.buffer = "";
+			this.emitLine(line);
+		}
+		// OPT-06 follow-up: appendTranscript is fire-and-forget async, so the file
+		// may not exist on disk by the time this returns. Drain the module-scoped
+		// pending-write set before resolving so callers that immediately read the
+		// transcript file (e.g. integration tests at phase4-runtime:37/:68/:103
+		// after `await observer.flush()`) see the full content.
+		return flushPendingTranscriptWrites();
 	}
 
 	/** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
@@ -733,11 +786,15 @@ export class ChildPiLineObserver {
 	}
 }
 
-/** Mock-only path — real code path reuses a single observer. */
-function observeStdoutChunk(input: ChildPiRunInput, text: string): void {
+/** Mock-only path — real code path reuses a single observer.
+ *  OPT-06 follow-up: returns a Promise so callers can await the transcript
+ *  drain before resolving runChildPi. Without this, mock-mode callers that
+ *  read the transcript file post-run see ENOENT (the async file handle had
+ *  not yet been opened). */
+async function observeStdoutChunk(input: ChildPiRunInput, text: string): Promise<void> {
 	const observer = new ChildPiLineObserver(input);
 	observer.observe(text);
-	observer.flush();
+	await observer.flush();
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -797,7 +854,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 		logInternalError("child-pi.mock", new Error(`Mock mode active: ${mock}`), "NOT running real agents");
 		if (mock === "success") {
 			const stdout = `[MOCK] Success for ${input.agent.name}\n`;
-			observeStdoutChunk(input, stdout);
+			await observeStdoutChunk(input, stdout);
 			return { exitCode: 0, stdout, stderr: "" };
 		}
 		if (mock === "json-success" || mock === "adaptive-plan") {
@@ -852,7 +909,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						})}\nADAPTIVE_PLAN_JSON_END`
 					: `[MOCK] JSON success for ${input.agent.name}`;
 			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
-			observeStdoutChunk(input, stdout);
+			await observeStdoutChunk(input, stdout);
 			return { exitCode: 0, stdout, stderr: "" };
 		}
 		if (mock === "retryable-failure")
@@ -900,14 +957,14 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					},
 				};
 				const stdout = `${JSON.stringify(failureEvent)}\n`;
-				observeStdoutChunk(input, stdout);
+				await observeStdoutChunk(input, stdout);
 				return { exitCode: 0, stdout, stderr: "" };
 			}
 			// Subsequent invocations: delegate to json-success shape so the
 			// fallback chain's second attempt succeeds and the run completes.
 			const text = `[MOCK] JSON success for ${input.agent.name}`;
 			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
-			observeStdoutChunk(input, stdout);
+			await observeStdoutChunk(input, stdout);
 			return { exitCode: 0, stdout, stderr: "" };
 		}
 		return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
@@ -1125,7 +1182,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 							process.kill(child.pid!, 0);
 							// Child still alive — force settle with timeout error.
 							const timeoutErr = `Child Pi produced no new output for ${responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
-							settle({
+							void settle({
 								exitCode: null,
 								stdout,
 								stderr,
@@ -1338,46 +1395,106 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				clearPostExitGuard();
 			};
 
-			const settle = (result: ChildPiRunResult): void => {
-				if (settled) return;
+			const settle = (result: ChildPiRunResult): Promise<void> => {
+				if (settled) return Promise.resolve();
 				settled = true;
 				clearChildPiTimeouts();
-				lineObserver.flush();
-				input.signal?.removeEventListener("abort", abort);
-				input.signal?.removeEventListener("abort", onParentAbort);
-				try {
-					cleanupTempDir(built.tempDir);
-				} catch (error) {
-					cleanupErrors.push(error instanceof Error ? error.message : String(error));
-				}
-				// Catch all errors from settle to prevent unhandled rejection from propagating
-				try {
-					resolve({
-						...result,
-						rawFinalText: lineObserver.getRawFinalText(),
-						intermediateFindings: lineObserver.getIntermediateFindings(),
-						exitStatus: result.exitStatus ?? {
-							exitCode: result.exitCode,
-							cancelled: abortRequested,
-							timedOut: responseTimeoutHit,
-							killed: hardKilled,
-							// Phase-0 diagnostic (HB-003a): surface the final-drain race state.
-							// finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
-							// should be treated as a forced final drain. READ-ONLY for now.
-							...(finalDrainArmed || forcedFinalDrain
-								? {
-										finalDrainArmed,
-										forcedFinalDrain,
-										finalDrainFiredMonotonicMs,
-									}
-								: {}),
-							cleanupErrors,
-							finalDrainMs,
-						},
+				// OPT-06 follow-up: lineObserver.flush() is now async (returns
+				// Promise<void>) and drains the module-scoped pending-write set
+				// before resolving. We must await it before calling `resolve()`
+				// below so callers that read the transcript file post-`runChildPi`
+				// see all written lines. Caller invocations of `settle` from
+				// sync event handlers (`child.on('close'|'exit'|'error')`,
+				// safety timer) use `void settle(...)` — errors are caught and
+				// logged inside, and `resolve()` only fires after the drain
+				// completes, so runChildPi's outer Promise resolves with a
+				// durable transcript on disk.
+				return lineObserver
+					.flush()
+					.then(() => {
+						input.signal?.removeEventListener("abort", abort);
+						input.signal?.removeEventListener("abort", onParentAbort);
+						try {
+							cleanupTempDir(built.tempDir);
+						} catch (error) {
+							cleanupErrors.push(error instanceof Error ? error.message : String(error));
+						}
+						// Catch all errors from settle to prevent unhandled rejection from propagating
+						try {
+							resolve({
+								...result,
+								rawFinalText: lineObserver.getRawFinalText(),
+								intermediateFindings: lineObserver.getIntermediateFindings(),
+								exitStatus: result.exitStatus ?? {
+									exitCode: result.exitCode,
+									cancelled: abortRequested,
+									timedOut: responseTimeoutHit,
+									killed: hardKilled,
+									// Phase-0 diagnostic (HB-003a): surface the final-drain race state.
+									// finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
+									// should be treated as a forced final drain. READ-ONLY for now.
+									...(finalDrainArmed || forcedFinalDrain
+										? {
+												finalDrainArmed,
+												forcedFinalDrain,
+												finalDrainFiredMonotonicMs,
+											}
+										: {}),
+									cleanupErrors,
+									finalDrainMs,
+								},
+							});
+						} catch (resolveError) {
+							logInternalError(
+								"child-pi.settle-resolve",
+								resolveError,
+								`result=${JSON.stringify({ exitCode: result.exitCode })}`,
+							);
+						}
+					})
+					.catch((flushError) => {
+						// Drain failed — log and still resolve so runChildPi doesn't hang.
+						logInternalError(
+							"child-pi.settle-flush-failed",
+							flushError,
+							`result=${JSON.stringify({ exitCode: result.exitCode })}`,
+						);
+						input.signal?.removeEventListener("abort", abort);
+						input.signal?.removeEventListener("abort", onParentAbort);
+						try {
+							cleanupTempDir(built.tempDir);
+						} catch (error) {
+							cleanupErrors.push(error instanceof Error ? error.message : String(error));
+						}
+						try {
+							resolve({
+								...result,
+								rawFinalText: lineObserver.getRawFinalText(),
+								intermediateFindings: lineObserver.getIntermediateFindings(),
+								exitStatus: result.exitStatus ?? {
+									exitCode: result.exitCode,
+									cancelled: abortRequested,
+									timedOut: responseTimeoutHit,
+									killed: hardKilled,
+									...(finalDrainArmed || forcedFinalDrain
+										? {
+												finalDrainArmed,
+												forcedFinalDrain,
+												finalDrainFiredMonotonicMs,
+											}
+										: {}),
+									cleanupErrors,
+									finalDrainMs,
+								},
+							});
+						} catch (resolveError) {
+							logInternalError(
+								"child-pi.settle-resolve",
+								resolveError,
+								`result=${JSON.stringify({ exitCode: result.exitCode })}`,
+							);
+						}
 					});
-				} catch (resolveError) {
-					logInternalError("child-pi.settle-resolve", resolveError, `result=${JSON.stringify({ exitCode: result.exitCode })}`);
-				}
 			};
 
 			const abort = (): void => {
@@ -1464,7 +1581,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				} catch (err) {
 					logInternalError("child-pi.on-lifecycle-event", err, `event=error, pid=${child.pid}`);
 				}
-				settle({
+				void settle({
 					exitCode: null,
 					stdout,
 					stderr,
@@ -1603,7 +1720,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					spawnError: undefined,
 					stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1000) : undefined,
 				});
-				settle({
+				void settle({
 					exitCode: finalExitCode,
 					stdout,
 					stderr,

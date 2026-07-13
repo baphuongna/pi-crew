@@ -34,7 +34,7 @@ const workflow: WorkflowConfig = {
 	],
 };
 
-test("child Pi line observer preserves JSON events split across chunks", () => {
+test("child Pi line observer preserves JSON events split across chunks", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-line-observer-"));
 	try {
 		const transcriptPath = path.join(dir, "transcript.jsonl");
@@ -56,7 +56,11 @@ test("child Pi line observer preserves JSON events split across chunks", () => {
 		});
 		observer.observe('{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"hel');
 		observer.observe('lo"}]}}\nraw');
-		observer.flush();
+		// OPT-06 follow-up: flush() is now async and drains the module-scoped
+		// pending-write set before resolving. Without `await`, the post-flush
+		// fs.readFileSync sees an empty file because the async file handle
+		// had not yet been opened.
+		await observer.flush();
 		assert.equal(events.length, 1);
 		assert.deepEqual(lines, ["hello", "raw"]);
 		assert.match(fs.readFileSync(transcriptPath, "utf-8"), /hello/);
@@ -65,7 +69,7 @@ test("child Pi line observer preserves JSON events split across chunks", () => {
 	}
 });
 
-test("child Pi line observer does not mirror user prompts into output log", () => {
+test("child Pi line observer does not mirror user prompts into output log", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-line-observer-user-"));
 	try {
 		const transcriptPath = path.join(dir, "transcript.jsonl");
@@ -91,7 +95,9 @@ test("child Pi line observer does not mirror user prompts into output log", () =
 		observer.observe(
 			`${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "answer" }] } })}\n`,
 		);
-		observer.flush();
+		// OPT-06 follow-up: await flush so the transcript file exists on disk
+		// before the post-flush fs.readFileSync below.
+		await observer.flush();
 		assert.deepEqual(lines, ["answer"]);
 		assert.equal(events.length, 1);
 		assert.doesNotMatch(fs.readFileSync(transcriptPath, "utf-8"), /task prompt/);
@@ -100,7 +106,7 @@ test("child Pi line observer does not mirror user prompts into output log", () =
 	}
 });
 
-test("child Pi line observer drops noisy message updates from durable logs", () => {
+test("child Pi line observer drops noisy message updates from durable logs", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-line-observer-noise-"));
 	try {
 		const transcriptPath = path.join(dir, "transcript.jsonl");
@@ -126,7 +132,9 @@ test("child Pi line observer drops noisy message updates from durable logs", () 
 		observer.observe(
 			`${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } })}\n`,
 		);
-		observer.flush();
+		// OPT-06 follow-up: await flush so the transcript file is durable on disk
+		// before the post-flush fs.readFileSync below reads it.
+		await observer.flush();
 		assert.equal(events.length, 1);
 		assert.equal(lines.length, 1);
 		const transcript = fs.readFileSync(transcriptPath, "utf-8");
