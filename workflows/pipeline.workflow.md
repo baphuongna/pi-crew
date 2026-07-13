@@ -1,28 +1,29 @@
 ---
 name: pipeline
-description: Multi-stage pipeline with automatic fan-out for array inputs
+description: Multi-stage pipeline (research → analyze → synthesize → document) producing pipeline-summary.md
 topology: sequential
 ---
 
-## Stage 1: Research
+## research
 role: explorer
 
-Perform initial research on: {goal}. Gather relevant information, identify key concepts, and provide a structured summary.
+Gather relevant facts for: {goal}. Identify key concepts and provide a structured summary.
 
-## Stage 2: Analysis
+## analyze
 role: analyst
-dependsOn: Stage 1
+dependsOn: research
 
-Analyze the research findings from Stage 1. Identify patterns, relationships, and insights. Provide structured analysis with supporting evidence.
+Analyze and organize the research findings. Identify patterns, relationships, and insights with supporting evidence.
 
-## Stage 3: Synthesis
+## synthesize
 role: analyst
-dependsOn: Stage 2
+dependsOn: analyze
 
-Synthesize the analysis into actionable recommendations. Prioritize findings and provide clear next steps.
+Synthesize the analysis into prioritized, actionable recommendations with clear next steps.
 
-## Stage 4: Documentation
+## document
 role: writer
-dependsOn: Synthesis
+dependsOn: synthesize
+output: pipeline-summary.md
 
-Document the complete findings in a clear, well-structured format. Include executive summary, detailed findings, and recommendations.
+Write the final pipeline summary combining research, analysis, and synthesis. Include executive summary, detailed findings, and recommendations. End the output with a final line that reads exactly: PIPELINE_WORKFLOW_OK

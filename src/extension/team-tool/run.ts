@@ -1,6 +1,5 @@
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
-import { PipelineRunner, type PipelineWorkflow } from "../../runtime/pipeline-runner.ts";
 import { sanitizeTaskText } from "../../runtime/task-packet.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
@@ -372,47 +371,6 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				`workflow=${workflow.name} reason=${decision.reason}`,
 			);
 		}
-	}
-
-	// Check if this is a pipeline workflow - special handling for multi-stage execution
-	const isPipelineWorkflow = workflowName === "pipeline" && !directAgent;
-	if (isPipelineWorkflow) {
-		// For pipeline workflows, use PipelineRunner for execution
-		const pipelineRunner = new PipelineRunner();
-		const pipelineWorkflow: PipelineWorkflow = {
-			name: workflow.name,
-			description: workflow.description,
-			goal,
-			stages: workflow.steps.map((step) => ({
-				name: step.id,
-				team: step.role,
-				inputs: step.task,
-				usePreviousResults: step.dependsOn && step.dependsOn.length > 0,
-			})),
-			stopOnError: true,
-			defaultMaxConcurrency: workflow.maxConcurrency ?? 5,
-		};
-
-		// For now, show pipeline workflow info - full integration would require
-		// connecting PipelineRunner to the actual team execution system
-		const stageInfo = pipelineWorkflow.stages.map((s) => `- ${s.name} (${s.team})`).join("\n");
-		return result(
-			[
-				`Pipeline workflow '${workflow.name}' is not yet wired into the team execution system.`,
-				`Goal: ${goal}`,
-				`Defined stages (${pipelineWorkflow.stages.length}):`,
-				stageInfo,
-				"",
-				"To actually run work right now, use a supported workflow instead:",
-				"  - action='run' workflow='default'  (explore → plan → execute → verify)",
-				"  - action='run' workflow='implementation'  (adaptive, parallel specialists)",
-				"  - action='run' workflow='research'  (explore → analyze → write)",
-				"",
-				"Run action='list' resource='workflow' to see all available workflows.",
-			].join("\n"),
-			{ action: "run", status: "ok" },
-			false,
-		);
 	}
 
 	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { validateWorkflowForTeam }` above (issue #28, RFC 17).
