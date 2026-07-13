@@ -382,6 +382,10 @@ export interface TeamToolParamsValue {
 	cron?: string;
 	interval?: number;
 	once?: string | number;
+
+	// schedule sub-actions (removal/toggle/update of an existing job)
+	subAction?: string;
+	jobId?: string;
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens (default: false). */
 	excludeContextBash?: boolean;
 	/** Total token budget for the run. When set, enables budget tracking (minimum 1000). */

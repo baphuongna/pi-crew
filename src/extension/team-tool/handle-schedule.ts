@@ -10,6 +10,10 @@ const CREW_SCHEDULER_KEY = Symbol.for("pi-crew:scheduler");
 type SchedulerRef = {
 	add(job: import("../../runtime/scheduler.ts").ScheduledJob): void;
 	list(): import("../../runtime/scheduler.ts").ScheduledJob[];
+	remove(id: string): boolean;
+	update(id: string, patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob>):
+		| import("../../runtime/scheduler.ts").ScheduledJob
+		| undefined;
 };
 
 function getCrewScheduler(): SchedulerRef | undefined {
@@ -65,7 +69,27 @@ function buildScheduleSpec(params: ScheduleParams): {
 	throw new Error("schedule requires one of: cron, interval, or once.");
 }
 
+function getSubAction(params: TeamToolParamsValue): string | undefined {
+	const raw = params.subAction ?? (params.config as { subAction?: unknown } | undefined)?.subAction;
+	return typeof raw === "string" ? raw.toLowerCase() : undefined;
+}
+
+function getJobIdParam(params: TeamToolParamsValue): string {
+	const fromTop = typeof params.jobId === "string" ? params.jobId : "";
+	const fromConfig = ((params.config as { jobId?: unknown } | undefined)?.jobId as string | undefined) ?? "";
+	return (fromTop || fromConfig).trim();
+}
+
 export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+	// Route subactions FIRST so remove/disable/enable don't require a goal.
+	const subAction = getSubAction(params);
+	if (subAction === "remove" || subAction === "delete") {
+		return handleRemoveScheduled(params, ctx);
+	}
+	if (subAction === "disable" || subAction === "enable" || subAction === "update") {
+		return handleUpdateScheduled(params, ctx);
+	}
+
 	const team = params.team ?? "default";
 	const goal = params.goal ?? params.task ?? "";
 	if (!goal) return result("Schedule requires goal or task.", { action: "schedule", status: "error" }, true);
@@ -239,3 +263,80 @@ export function handleListScheduled(_params: TeamToolParamsValue, ctx: TeamConte
 	}
 	return result(lines.join("\n"), { action: "scheduled", status: "ok" });
 }
+
+/**
+ * Remove a scheduled job. Mirrors the `cancel` action for runs.
+ *
+ * Usage:
+ *   team action='schedule' subAction='remove' jobId='<uuid>'
+ *   team action='schedule' subAction='delete' jobId='<uuid>'
+ */
+export function handleRemoveScheduled(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+	const jobId = getJobIdParam(params);
+	if (!jobId) {
+		return result(
+			"subAction=remove requires jobId. Usage: team action='schedule' subAction='remove' jobId='<uuid>'",
+			{ action: "schedule", status: "error" },
+			true,
+		);
+	}
+	const scheduler = getCrewScheduler();
+	if (!scheduler) {
+		return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
+	}
+	const removed = scheduler.remove(jobId);
+	persistScheduledJobRemove(ctx.cwd, jobId);
+	if (!removed) {
+		return result(`No scheduled job with id '${jobId}'.`, { action: "schedule", status: "error" }, true);
+	}
+	return result(
+		[`Scheduled job removed.`, `  Job ID: ${jobId}`].join("\n"),
+		{ action: "schedule", status: "ok", data: { jobId, removed: true } },
+	);
+}
+
+/**
+ * Update a scheduled job — toggle enabled flag or apply patches.
+ *
+ * Usage:
+ *   team action='schedule' subAction='disable' jobId='<uuid>'
+ *   team action='schedule' subAction='enable'  jobId='<uuid>'
+ *   team action='schedule' subAction='update'  jobId='<uuid>' cron='0 9 * * *'
+ */
+export function handleUpdateScheduled(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+	const jobId = getJobIdParam(params);
+	if (!jobId) {
+		return result(
+			"subAction=update requires jobId. Usage: team action='schedule' subAction='update|enable|disable' jobId='<uuid>'",
+			{ action: "schedule", status: "error" },
+			true,
+		);
+	}
+	const subAction = typeof params.subAction === "string" ? params.subAction.toLowerCase() : "update";
+	const scheduler = getCrewScheduler();
+	if (!scheduler) {
+		return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
+	}
+
+	const patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob> = {};
+	if (subAction === "disable") patch.enabled = false;
+	if (subAction === "enable") patch.enabled = true;
+	// For generic "update", allow patch of cron / interval / goal.
+	if (subAction === "update") {
+		if (typeof params.cron === "string") patch.schedule = params.cron;
+		if (typeof params.goal === "string" || typeof params.task === "string") {
+			patch.description = typeof params.task === "string" ? params.task : params.goal;
+		}
+	}
+
+	const updated = scheduler.update(jobId, patch);
+	if (!updated) {
+		return result(`No scheduled job with id '${jobId}'.`, { action: "schedule", status: "error" }, true);
+	}
+	persistScheduledJobUpdate(ctx.cwd, updated);
+	return result(
+		[`Scheduled job updated.`, `  Job ID: ${jobId}`, `  Enabled: ${updated.enabled}`, `  Schedule: ${updated.schedule}`].join("\n"),
+		{ action: "schedule", status: "ok", data: { jobId, enabled: updated.enabled, schedule: updated.schedule } },
+	);
+}
+

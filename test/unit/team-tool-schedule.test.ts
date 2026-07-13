@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleListScheduled, handleSchedule, registerCrewScheduler } from "../../src/extension/team-tool/handle-schedule.ts";
+import { handleListScheduled, handleRemoveScheduled, handleSchedule, handleUpdateScheduled, registerCrewScheduler } from "../../src/extension/team-tool/handle-schedule.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
@@ -199,6 +199,8 @@ describe("handleListScheduled", () => {
 			const emptyScheduler = {
 				add: () => {},
 				list: () => [] as Array<never>,
+				remove: () => false,
+				update: () => undefined,
 			};
 			registerCrewScheduler(emptyScheduler);
 
@@ -232,6 +234,8 @@ describe("handleListScheduled", () => {
 			const scheduler = {
 				add: () => {},
 				list: () => jobs,
+				remove: () => false,
+				update: () => undefined,
 			};
 			registerCrewScheduler(scheduler);
 
@@ -241,6 +245,144 @@ describe("handleListScheduled", () => {
 			assert.ok(text.includes("Scheduled jobs (1)"));
 			assert.ok(text.includes("job-1"));
 			assert.ok(text.includes("test job"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});
+
+// ─── handleRemoveScheduled ─────────────────────────────────────────────────────
+
+describe("handleRemoveScheduled", () => {
+	it("removes a job from the scheduler", () => {
+		const tmp = createTrackedTempDir("sched-remove-");
+		try {
+			let removedId: string | undefined;
+			const scheduler = {
+				add: () => {},
+				list: () => [] as Array<never>,
+				remove: (id: string) => {
+					removedId = id;
+					return true;
+				},
+				update: () => undefined,
+			};
+			registerCrewScheduler(scheduler);
+
+			const res = handleRemoveScheduled(makeParams({ jobId: "abc-123" }), makeCtx(tmp));
+
+			assert.strictEqual(res.isError, false);
+			assert.strictEqual(removedId, "abc-123");
+			const text = textFromToolResult(res);
+			assert.ok(text.includes("removed"));
+			assert.ok(text.includes("abc-123"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("returns error when jobId is missing", () => {
+		const tmp = createTrackedTempDir("sched-remove-");
+		try {
+			const scheduler = {
+				add: () => {},
+				list: () => [] as Array<never>,
+				remove: () => false,
+				update: () => undefined,
+			};
+			registerCrewScheduler(scheduler);
+
+			const res = handleRemoveScheduled(makeParams(), makeCtx(tmp));
+
+			assert.strictEqual(res.isError, true);
+			const text = textFromToolResult(res);
+			assert.ok(text.includes("jobId"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("returns error when scheduler has no job with that id", () => {
+		const tmp = createTrackedTempDir("sched-remove-");
+		try {
+			const scheduler = {
+				add: () => {},
+				list: () => [] as Array<never>,
+				remove: () => false,
+				update: () => undefined,
+			};
+			registerCrewScheduler(scheduler);
+
+			const res = handleRemoveScheduled(makeParams({ jobId: "does-not-exist" }), makeCtx(tmp));
+
+			assert.strictEqual(res.isError, true);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});
+
+// ─── handleUpdateScheduled ─────────────────────────────────────────────────────
+
+describe("handleUpdateScheduled", () => {
+	it("disables an enabled job", () => {
+		const tmp = createTrackedTempDir("sched-update-");
+		try {
+			let updatedPatch: unknown;
+			const scheduler = {
+				add: () => {},
+				list: () => [] as Array<never>,
+				remove: () => false,
+				update: (_id: string, patch: unknown) => {
+					updatedPatch = patch;
+					return {
+						id: _id,
+						name: "test",
+						description: "",
+						schedule: "* * * * *",
+						scheduleType: "cron" as const,
+						subagentType: "team",
+						prompt: "{}",
+						enabled: false,
+						createdAt: new Date().toISOString(),
+						nextRun: new Date().toISOString(),
+						runCount: 0,
+					};
+				},
+			};
+			registerCrewScheduler(scheduler);
+
+			const res = handleUpdateScheduled(
+				makeParams({ jobId: "abc-123", subAction: "disable" }),
+				makeCtx(tmp),
+			);
+
+			assert.strictEqual(res.isError, false);
+			assert.ok((updatedPatch as { enabled?: boolean })?.enabled === false);
+			const text = textFromToolResult(res);
+			assert.ok(text.includes("updated"));
+			assert.ok(text.includes("Enabled: false"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("returns error when jobId is missing for update", () => {
+		const tmp = createTrackedTempDir("sched-update-");
+		try {
+			const scheduler = {
+				add: () => {},
+				list: () => [] as Array<never>,
+				remove: () => false,
+				update: () => undefined,
+			};
+			registerCrewScheduler(scheduler);
+
+			const res = handleUpdateScheduled(makeParams({ subAction: "disable" }), makeCtx(tmp));
+
+			assert.strictEqual(res.isError, true);
+			const text = textFromToolResult(res);
+			assert.ok(text.includes("jobId"));
 		} finally {
 			removeTrackedTempDir(tmp);
 		}
