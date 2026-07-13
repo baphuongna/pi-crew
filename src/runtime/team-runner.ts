@@ -20,7 +20,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
-import { buildDispatchUnits, planCoalescedGroups, type DispatchUnit } from "./coalesce-tasks.ts";
+import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./coalesce-tasks.ts";
 import { resolveBatchConcurrency } from "./concurrency.ts";
 import { readCrewAgents, saveCrewAgents } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
