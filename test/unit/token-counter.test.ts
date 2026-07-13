@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { countTokens } from "../../src/utils/token-counter.ts";
+import { countTokens, detectCodeContent } from "../../src/utils/token-counter.ts";
 
 describe("countTokens", () => {
 	it("returns 0 for empty string", () => {
@@ -98,5 +98,175 @@ describe("countTokens", () => {
 		// Punctuation: 0
 		// Total should be ~6 tokens
 		assert.ok(count >= 6 && count <= 7, `Expected 6-7 tokens, got ${count}`);
+	});
+});
+
+describe("detectCodeContent", () => {
+	it("returns false for empty string", () => {
+		assert.equal(detectCodeContent(""), false);
+	});
+
+	it("returns false for whitespace-only string", () => {
+		assert.equal(detectCodeContent("   "), false);
+	});
+
+	it("detects code-heavy strings as code", () => {
+		const codeSamples = [
+			"function add(a, b) { return a + b; }",
+			"const result = arr.filter(x => x > 0).map(x => x * 2);",
+			"export function process(data: string): void { console.log(data); }",
+			"if (x === 0 && y !== null) { return x + y; }",
+			"import { foo } from './bar';",
+			"class MyComponent extends React.Component { render() { return null; } }",
+		];
+		for (const code of codeSamples) {
+			assert.equal(detectCodeContent(code), true, `Should detect as code: ${code.slice(0, 40)}...`);
+		}
+	});
+
+	it("detects prose strings as not code", () => {
+		const proseSamples = [
+			"The quick brown fox jumps over the lazy dog.",
+			"Hello! How are you? I'm fine, thanks.",
+			"Line one\nLine two\nLine three",
+			"Here is some code: const x = 42;", // low code density → prose
+			"This is a paragraph of English text that discusses various topics.",
+		];
+		for (const prose of proseSamples) {
+			assert.equal(detectCodeContent(prose), false, `Should detect as prose: ${prose.slice(0, 40)}...`);
+		}
+	});
+});
+
+describe("countTokens — code-aware estimation accuracy", () => {
+	/**
+	 * Helper: compute percent error between estimated and reference token count.
+	 */
+	function pctError(estimated: number, reference: number): number {
+		return (Math.abs(estimated - reference) / reference) * 100;
+	}
+
+	it("estimates TypeScript function declaration within ±10%", () => {
+		const code = "export function add(a: number, b: number): number {\n\treturn a + b;\n}";
+		const count = countTokens(code);
+		// BPE reference: export(1) function(1) add(1) ((1) a(1) :(1) number(1)
+		// ,(1) b(1) :(1) number(1) )(1) :(1) number(1) {(1) return(1) a(1) +(1)
+		// b(1) ;(1) }(1) ≈ 23 tokens
+		const reference = 23;
+		const error = pctError(count, reference);
+		assert.ok(error <= 10, `Expected ≤10% error vs ${reference}, got ${count} (${error.toFixed(1)}%)`);
+	});
+
+	it("estimates method chaining within ±10%", () => {
+		const code = "const result = arr.filter(x => x > 0).map(x => x * 2);";
+		const count = countTokens(code);
+		// BPE reference ≈ 21-24 tokens (each identifier/operator/bracket = ~1 token)
+		const reference = 22;
+		const error = pctError(count, reference);
+		assert.ok(error <= 10, `Expected ≤10% error vs ${reference}, got ${count} (${error.toFixed(1)}%)`);
+	});
+
+	it("estimates conditional with operators within ±10%", () => {
+		const code = "if (x === 0 && y !== null) { return x + y; }";
+		const count = countTokens(code);
+		// BPE reference: if(1) ((1) x(1) ===(~2) 0(1) &&(1) y(1) !==(~2) null(1)
+		// )(1) {(1) return(1) x(1) +(1) y(1) ;(1) }(1) ≈ 19 tokens
+		const reference = 19;
+		const error = pctError(count, reference);
+		assert.ok(error <= 10, `Expected ≤10% error vs ${reference}, got ${count} (${error.toFixed(1)}%)`);
+	});
+
+	it("estimates multi-line function within ±15%", () => {
+		// Larger sample with long identifiers — slightly wider tolerance
+		const code = [
+			"function process(items) {",
+			"  return items.filter(x => x.active).map(x => x.value);",
+			"}",
+		].join("\n");
+		const count = countTokens(code);
+		// BPE reference: function(1) process(1) items(1) ((1) items(1) )(1) {(1)
+		// return(1) items(1) .(1) filter(1) ((1) x(1) =>(1) x(1) .(1) active(1)
+		// )(1) .(1) map(1) ((1) x(1) =>(1) x(1) .(1) value(1) )(1) ;(1) }(1) ≈ 32
+		const reference = 32;
+		const error = pctError(count, reference);
+		assert.ok(error <= 15, `Expected ≤15% error vs ${reference}, got ${count} (${error.toFixed(1)}%)`);
+	});
+
+	it("does not regress prose estimation", () => {
+		// Prose should still use the original ceil(alpha/4) + punct formula.
+		// These samples must produce the same results as before the change.
+		const proseSamples: Array<[string, number, number]> = [
+			["The quick brown fox jumps over the lazy dog.", 9, 11],
+			["Hello! How are you? I'm fine, thanks.", 12, 14],
+			["Line one\nLine two\nLine three", 6, 7],
+		];
+		for (const [text, lo, hi] of proseSamples) {
+			const count = countTokens(text);
+			assert.ok(count >= lo && count <= hi, `Prose "${text.slice(0, 30)}..." expected ${lo}-${hi}, got ${count}`);
+		}
+	});
+});
+
+describe("countTokens — mixed content", () => {
+	it("handles prose-dominant content with minor code elements", () => {
+		// Mostly prose, a few code-like tokens — should stay as prose estimation
+		const text = "The function returns a value: return x + y; done.";
+		const count = countTokens(text);
+		// Low code-punctuation density → prose path.
+		// Prose formula: ceil(36/4) + 4 = 9 + 4 = 13
+		assert.ok(count >= 11 && count <= 15, `Expected 11-15 tokens, got ${count}`);
+		assert.equal(detectCodeContent(text), false);
+	});
+
+	it("handles code-dominant content with short comment", () => {
+		// Code with a brief comment — still detected as code
+		const text = "// helper\nfunction add(a, b) { return a + b; }";
+		assert.equal(detectCodeContent(text), true);
+		const count = countTokens(text);
+		assert.ok(count > 0, "Should produce a positive token count");
+	});
+
+	it("handles markdown with embedded code", () => {
+		// Markdown code block — should be detected as code due to high density
+		const text = "```ts\nconst x = 42;\nfunction foo() { return x; }\n```";
+		assert.equal(detectCodeContent(text), true);
+		const count = countTokens(text);
+		assert.ok(count > 0, "Should produce a positive token count");
+	});
+});
+
+describe("countTokens — code performance", () => {
+	/**
+	 * Measure best-of-N batches to filter out system-load spikes.
+	 * Returns the minimum per-call time across all batches.
+	 */
+	function bestPerCall(text: string, warmup: number, batches: number, itersPerBatch: number): number {
+		for (let i = 0; i < warmup; i++) countTokens(text);
+		let best = Infinity;
+		for (let b = 0; b < batches; b++) {
+			const start = performance.now();
+			for (let i = 0; i < itersPerBatch; i++) countTokens(text);
+			const perCall = (performance.now() - start) / itersPerBatch;
+			if (perCall < best) best = perCall;
+		}
+		return best;
+	}
+
+	it("handles 10KB of code within <1ms", () => {
+		// Generate ~10KB of repetitive code
+		const codeLine = "const x = arr.filter(y => y > 0).map(z => z * 2);\n";
+		const largeCode = codeLine.repeat(200); // ~10KB
+		const perCall = bestPerCall(largeCode, 10, 5, 20);
+
+		assert.ok(perCall < 1, `Expected <1ms per call for 10KB code, got ${perCall.toFixed(2)}ms`);
+	});
+
+	it("handles 10KB of mixed content within <1ms", () => {
+		// Generate ~10KB of mixed content
+		const segment = "Some prose here. const x = 42; More text follows.\n";
+		const largeMixed = segment.repeat(180); // ~10KB
+		const perCall = bestPerCall(largeMixed, 10, 5, 20);
+
+		assert.ok(perCall < 1, `Expected <1ms per call for 10KB mixed, got ${perCall.toFixed(2)}ms`);
 	});
 });
