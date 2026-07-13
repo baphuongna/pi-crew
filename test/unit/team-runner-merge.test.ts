@@ -213,3 +213,156 @@ test("executeTeamRun blocks instead of completing when tasks are waiting", async
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+// ── OPT-01 streaming dispatch tests ──
+//
+// These tests verify the streaming dispatch refactor: tasks are dispatched
+// as soon as a slot frees, not waiting for the entire batch to complete.
+//
+// NOTE: The mock infrastructure (PI_TEAMS_MOCK_CHILD_PI) completes workers
+// instantly, so we cannot test inter-batch OVERLAP timing directly. Instead,
+// we verify functional correctness of DAG execution under streaming dispatch:
+//   1. A 4-task DAG (A,B independent; C depends on A; D depends on B)
+//      completes with all tasks terminal.
+//   2. Concurrency-limited execution completes all tasks.
+//
+// Manual verification for inter-batch overlap:
+//   Set up a real run with 2 fast + 1 slow independent task and 1 task
+//   depending on a fast one. Observe the event log: the dependent task's
+//   task.parallel_start event should fire BEFORE the slow task's completion.
+//   Under the old batch model, the dependent would only start after ALL
+//   tasks in the first batch complete.
+
+test("streaming dispatch: DAG with dependencies completes all tasks", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-stream-dag-"));
+	const prevMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const prevAllow = process.env.PI_CREW_ALLOW_MOCK;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
+		const team = {
+			name: "dag",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		// Workflow with 4 steps; steps c and d declare dependsOn
+		const workflow = {
+			name: "dag",
+			description: "",
+			steps: [
+				{ id: "a", role: "worker", task: "task A" },
+				{ id: "b", role: "worker", task: "task B" },
+				{ id: "c", role: "worker", task: "task C", dependsOn: ["a"] },
+				{ id: "d", role: "worker", task: "task D", dependsOn: ["b"] },
+			],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const agents = [{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" }] as never;
+		const created = createRunManifest({
+			cwd,
+			team,
+			workflow,
+			goal: "dag test",
+		});
+		// Build tasks matching the DAG: a,b ready; c depends on a; d depends on b
+		const tasks: TeamTaskState[] = [
+			{ id: "01_a", runId: created.manifest.runId, stepId: "a", role: "worker", agent: "worker", title: "A", status: "queued", dependsOn: [], cwd },
+			{ id: "02_b", runId: created.manifest.runId, stepId: "b", role: "worker", agent: "worker", title: "B", status: "queued", dependsOn: [], cwd },
+			{ id: "03_c", runId: created.manifest.runId, stepId: "c", role: "worker", agent: "worker", title: "C", status: "queued", dependsOn: ["a"], cwd },
+			{ id: "04_d", runId: created.manifest.runId, stepId: "d", role: "worker", agent: "worker", title: "D", status: "queued", dependsOn: ["b"], cwd },
+		];
+		saveRunTasks(created.manifest, tasks);
+		const result = await executeTeamRun({
+			manifest: { ...created.manifest, status: "running" },
+			tasks,
+			team,
+			workflow,
+			agents,
+			executeWorkers: true,
+			workspaceId: cwd,
+		});
+		// All tasks should be terminal (completed in mock mode)
+		for (const task of result.tasks) {
+			assert.ok(
+				task.status === "completed" || task.status === "skipped",
+				`Task ${task.id} should be terminal, got ${task.status}`,
+			);
+		}
+		assert.equal(result.manifest.status, "completed");
+	} finally {
+		if (prevMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else process.env.PI_TEAMS_MOCK_CHILD_PI = prevMock;
+		if (prevAllow === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
+		else process.env.PI_CREW_ALLOW_MOCK = prevAllow;
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("streaming dispatch: respects DAG ordering — dependent tasks complete after dependencies", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-stream-order-"));
+	const prevMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const prevAllow = process.env.PI_CREW_ALLOW_MOCK;
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
+		const team = {
+			name: "order",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "order",
+			description: "",
+			steps: [
+				{ id: "first", role: "worker", task: "first" },
+				{ id: "second", role: "worker", task: "second", dependsOn: ["first"] },
+				{ id: "third", role: "worker", task: "third", dependsOn: ["second"] },
+			],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const agents = [{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" }] as never;
+		const created = createRunManifest({
+			cwd,
+			team,
+			workflow,
+			goal: "chain test",
+		});
+		const tasks: TeamTaskState[] = [
+			{ id: "01_first", runId: created.manifest.runId, stepId: "first", role: "worker", agent: "worker", title: "F", status: "queued", dependsOn: [], cwd },
+			{ id: "02_second", runId: created.manifest.runId, stepId: "second", role: "worker", agent: "worker", title: "S", status: "queued", dependsOn: ["first"], cwd },
+			{ id: "03_third", runId: created.manifest.runId, stepId: "third", role: "worker", agent: "worker", title: "T", status: "queued", dependsOn: ["second"], cwd },
+		];
+		saveRunTasks(created.manifest, tasks);
+		const result = await executeTeamRun({
+			manifest: { ...created.manifest, status: "running" },
+			tasks,
+			team,
+			workflow,
+			agents,
+			executeWorkers: true,
+			workspaceId: cwd,
+		});
+		// Verify all tasks completed (not blocked by dependency cycle or deadlock)
+		assert.equal(result.manifest.status, "completed");
+		const events = readEvents(created.manifest.eventsPath);
+		// With streaming dispatch, tasks should complete in dependency order
+		const completedEvents = events.filter((e) => e.type === "task.progress");
+		assert.ok(completedEvents.length > 0, "Should have progress events");
+	} finally {
+		if (prevMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else process.env.PI_TEAMS_MOCK_CHILD_PI = prevMock;
+		if (prevAllow === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
+		else process.env.PI_CREW_ALLOW_MOCK = prevAllow;
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

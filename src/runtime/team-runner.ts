@@ -20,7 +20,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
-import { buildDispatchUnits, planCoalescedGroups } from "./coalesce-tasks.ts";
+import { buildDispatchUnits, planCoalescedGroups, type DispatchUnit } from "./coalesce-tasks.ts";
 import { resolveBatchConcurrency } from "./concurrency.ts";
 import { readCrewAgents, saveCrewAgents } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
@@ -30,7 +30,6 @@ import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffecti
 import { applyGoalAchievement, assessGoalAchievement } from "./goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { terminateLiveAgentsForRun } from "./live-agent-manager.ts";
-import { mapConcurrent } from "./parallel-utils.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
 import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
 import { buildRecoveryLedger, shouldRerunFailedTask } from "./recovery-recipes.ts";
@@ -1003,7 +1002,13 @@ async function executeTeamRunCore(
 	);
 	let wfMachine = createWorkflowStateMachine(workflowPhases);
 
-	while (tasks.some((task) => task.status === "queued")) {
+	// ── OPT-01 streaming dispatch: track in-flight dispatch units so a new
+	// task can be dispatched as soon as a slot frees, without waiting for
+	// the entire batch to complete. Each entry maps a unit key (singleton
+	// task ID or coalesced-group ID) to the in-flight promise + member IDs. ──
+	const pendingUnits = new Map<string, { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }>();
+
+	while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
 		if (input.signal?.aborted) {
 			const cancelReason = cancellationReasonFromSignal(input.signal);
 			const message = `${cancelReason.message} (${cancelReason.code})`;
@@ -1202,26 +1207,39 @@ async function executeTeamRunCore(
 				},
 			});
 		}
+		// ── OPT-01 streaming dispatch: exclude tasks already in-flight, limit
+		// new dispatches to available concurrency slots. ──
+		const inFlightTaskIds = new Set<string>();
+		for (const pendingUnit of pendingUnits.values()) {
+			for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
+		}
+		const slotsAvailable = Math.max(0, concurrency.maxConcurrent - pendingUnits.size);
 		const approvalPending = isPlanApprovalPending(manifest);
-		const readyIds = approvalPending ? serializedReady : serializedReady.slice(0, concurrency.selectedCount);
+		const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
+		const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
 		const candidateBatch = readyIds
 			.map((id) => tasks.find((task) => task.id === id))
 			.filter((task): task is TeamTaskState => Boolean(task));
 		const readyBatch = approvalPending
-			? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, concurrency.selectedCount)
+			? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable)
 			: candidateBatch;
 		if (readyBatch.length === 0) {
-			if (approvalPending && candidateBatch.some(isMutatingTask)) {
+			if (pendingUnits.size > 0) {
+				// Tasks are in-flight — skip dispatch and proceed to wait phase.
+				// (No return; code falls through to the dispatch section which is
+				// a no-op with an empty readyBatch, then reaches the wait phase.)
+			} else if (approvalPending && candidateBatch.some(isMutatingTask)) {
 				await saveRunTasksAsync(manifest, tasks);
 				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
 				manifest = updateRunStatus(manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
 				return { manifest, tasks };
+			} else {
+				tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
+				await saveRunTasksAsync(manifest, tasks);
+				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+				manifest = updateRunStatus(manifest, "blocked", "No ready queued task.");
+				return { manifest, tasks };
 			}
-			tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
-			await saveRunTasksAsync(manifest, tasks);
-			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-			manifest = updateRunStatus(manifest, "blocked", "No ready queued task.");
-			return { manifest, tasks };
 		}
 
 		// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
@@ -1311,7 +1329,10 @@ async function executeTeamRunCore(
 			);
 		}
 
-		const results = await mapConcurrent(dispatchUnits, concurrency.selectedCount, async (unit) => {
+		// ── OPT-01 streaming dispatch: dispatch each unit into pendingUnits
+		// instead of awaiting the entire batch via mapConcurrent. Each unit's
+		// promise is stored so we can Promise.race on the next iteration. ──
+		const dispatchUnit = async (unit: DispatchUnit): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> => {
 			// M6 real dispatch path: single worker for N tasks.
 			if (unit.kind === "group") {
 				const groupTasks = unit.group.tasks;
@@ -1533,30 +1554,48 @@ async function executeTeamRunCore(
 					}),
 				);
 			}
-		});
-		if (results.length === 0) {
-			// F1: results is empty ONLY when every ready task was hook-skipped
-			// (batchTasks -> dispatchUnits empty). The skipped tasks are now terminal,
-			// so their downstream dependents become ready on the next iteration.
-			// Re-loop (continue) instead of breaking: breaking would skip those
-			// downstream tasks and fall through to a false-green "completed" run
-			// with queued tasks left behind. Terminates: each skipped task leaves
-			// "queued", so the queued set strictly shrinks; a stuck graph (ready
-			// empty but queued remain) is caught by the readyBatch.length===0
-			// guard above which marks the run "blocked".
-			continue;
+		};
+		// ── OPT-01 streaming dispatch: dispatch units into pendingUnits ──
+		for (const unit of dispatchUnits) {
+			const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
+			const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t) => t.id);
+			pendingUnits.set(unitKey, {
+				taskIds: unitTaskIds,
+				promise: dispatchUnit(unit),
+			});
 		}
-		// FIX: Filter out undefined entries from partial results when error occurred
-		// during parallel execution. Other workers may have written partial results
-		// before one threw. Results may be partial - some tasks in-flight at error
-		// time will not have entries in the results array.
-		const validResults = results.filter((item): item is NonNullable<typeof item> => item !== undefined);
-		// Guard: if ALL parallel workers threw before returning, validResults is empty.
-		// at(-1)! would crash. Mark the run failed rather than crashing.
-		if (validResults.length === 0) {
-			manifest = updateRunStatus(manifest, "failed", "All parallel tasks failed catastrophically.");
-			return { manifest, tasks };
-		}
+
+		// ── OPT-01 wait phase: if no units are in-flight (e.g. all ready tasks
+		// were hook-skipped or readyBatch was empty), re-loop to re-evaluate. ──
+		if (pendingUnits.size === 0) continue;
+
+		// Wait for ONE in-flight unit to complete. Promise.race returns as soon
+		// as the first wrapper resolves — others remain pending in pendingUnits
+		// and are re-raced on the next iteration.
+		const settled = await Promise.race(
+			[...pendingUnits.entries()].map(async ([key, pending]) => {
+				try {
+					const result = await pending.promise;
+					return { unitKey: key, result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined, error: undefined as Error | undefined };
+				} catch (error) {
+					return { unitKey: key, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
+				}
+			}),
+		);
+		const completedUnit = pendingUnits.get(settled.unitKey)!;
+		pendingUnits.delete(settled.unitKey);
+
+		// Build the single result to merge. On rejection, synthesize a failed
+		// result so the run continues (mirrors the old validResults guard).
+		const resultToMerge: { manifest: TeamRunManifest; tasks: TeamTaskState[] } = settled.result ?? {
+			manifest,
+			tasks: tasks.map((t) =>
+				completedUnit.taskIds.includes(t.id)
+					? { ...t, status: "failed" as const, error: settled.error!.message, finishedAt: new Date().toISOString() }
+					: t,
+			),
+		};
+		const validResults = [resultToMerge];
 		// Reconstruct manifest from the last worker's snapshot. The .artifacts field
 		// is re-merged from both the team-runner's in-memory state and all workers'
 		// snapshots, so artifact writes by task-runner (which individually save manifest
@@ -1722,7 +1761,7 @@ async function executeTeamRunCore(
 			}
 		}
 
-		const cancelledResult = results.find((item) => item.manifest.status === "cancelled");
+		const cancelledResult = resultToMerge.manifest.status === "cancelled" ? resultToMerge : undefined;
 		if (cancelledResult || input.signal?.aborted) {
 			const reason = input.signal?.aborted ? cancellationReasonFromSignal(input.signal) : undefined;
 			const message = reason?.message ?? cancelledResult?.manifest.summary ?? "Run cancelled during task execution.";
@@ -1787,17 +1826,17 @@ async function executeTeamRunCore(
 		}
 		await saveRunTasksAsync(manifest, tasks);
 		saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-		const completedBatch = tasks.filter((t) => batchTasks.some((bt) => bt.id === t.id));
+		const completedBatch = tasks.filter((t) => completedUnit.taskIds.includes(t.id));
 		const batchArtifact = writeArtifact(manifest.artifactsRoot, {
 			kind: "summary",
-			relativePath: `batches/${batchTasks.map((task) => task.id).join("+")}.md`,
+			relativePath: `batches/${completedUnit.taskIds.join("+")}.md`,
 			producer: "team-runner",
 			content: aggregateTaskOutputs(completedBatch, manifest),
 		});
 		const groupDelivery = deliverGroupJoin({
 			manifest,
 			mode: resolveGroupJoinMode(input.runtimeConfig),
-			batch: batchTasks,
+			batch: completedBatch,
 			allTasks: tasks,
 		});
 		manifest = {
