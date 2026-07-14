@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.37] — cold context + subagent streaming (2026-07-14)
+
+Two performance improvements targeting perceived subagent slowness:
+
+### Phase 1: Cold Context (inheritContext default → true)
+
+- **`inheritContext` default changed from `false` → `true`** — subagents now receive parent conversation context by default, eliminating redundant re-exploration of files the main session already processed. Configurable via `runtime.inheritContext`.
+- **`buildParentContext()` token budget** — 12K char budget with most-recent-first retention prevents token bloat on large parent sessions.
+- **Noisy content filtering** — skips file dumps (code blocks, `ls` output, import lists >1K chars) and truncates long assistant messages to 200 chars. Compaction summaries kept in full.
+- **Tests**: `test/unit/build-parent-context.test.ts` (10 cases).
+
+### Phase 2: Subagent Streaming (child-process → widget)
+
+- **`ProgressTracker.handleWorkerEvent()`** — bridges child-process JSON events (from `onJsonEvent`) into `crewEventBus`, enabling real-time widget display of tool calls, assistant text, and token usage for BOTH runtimes (previously only live-session had streaming).
+- **`register.ts` onJsonEvent** — now forwards events to `globalProgressTracker` (was only feeding `overflowTracker`).
+- **`subagent-tools.ts` inline progress** — enriched with real-time worker progress: ⚡ current tool, 📊 tokens, 💬 partial assistant text.
+- **Throttled to 500ms per worker** to prevent widget flooding.
+- **Tests**: `test/unit/progress-tracker-worker.test.ts` (8 cases).
+
 ## [0.9.36] — security audit round 1 (2026-07-14)
 
 Three security hardening fixes from the first formal security audit pass (run via `team_20260714045239_bb49d72211b966a2` + verified via `team_20260714062932_638dbb0310cc9f77`, 12/12 targeted tests pass, typecheck clean):
