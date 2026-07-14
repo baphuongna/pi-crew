@@ -17732,8 +17732,13 @@
       "format": "esm"
     },
     "src/runtime/progress-tracker.ts": {
-      "bytes": 7543,
+      "bytes": 7806,
       "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/observability/event-bus.ts",
           "kind": "import-statement",
@@ -17743,7 +17748,7 @@
       "format": "esm"
     },
     "src/extension/registration/subagent-tools.ts": {
-      "bytes": 18292,
+      "bytes": 18643,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -17754,6 +17759,11 @@
           "path": "src/extension/team-tool/context.ts",
           "kind": "import-statement",
           "original": "../team-tool/context.ts"
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
         },
         {
           "path": "@earendil-works/pi-tui",
@@ -18447,7 +18457,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6718051
+      "bytes": 6719201
     },
     "dist/index.mjs": {
       "imports": [
@@ -19897,7 +19907,17 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         }
@@ -22136,16 +22156,16 @@
           "bytesInOutput": 647
         },
         "src/extension/registration/subagent-tools.ts": {
-          "bytesInOutput": 16197
+          "bytesInOutput": 16553
         },
         "src/i18n.ts": {
           "bytesInOutput": 6837
         },
+        "src/runtime/progress-tracker.ts": {
+          "bytesInOutput": 6914
+        },
         "src/observability/event-bus.ts": {
           "bytesInOutput": 1170
-        },
-        "src/runtime/progress-tracker.ts": {
-          "bytesInOutput": 6660
         },
         "src/extension/session-summary.ts": {
           "bytesInOutput": 512
@@ -22163,7 +22183,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3182715
+      "bytes": 3183361
     }
   }
 }

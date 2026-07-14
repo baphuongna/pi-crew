@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { crewEventBus } from "../observability/event-bus.ts";
 
@@ -139,6 +140,13 @@ export class ProgressTracker {
 	 * Processes tool_execution_start/end, agent_start/end, and assistant text.
 	 */
 	handleWorkerEvent(taskId: string, runId: string, event: Record<string, unknown>): void {
+		// DEBUG: log to /tmp/pi-crew-streaming-debug.log
+		try {
+			appendFileSync(
+				"/tmp/pi-crew-streaming-debug.log",
+				`[event] taskId=${taskId} type=${event.type} tool=${event.toolName ?? "-"}\n`,
+			);
+		} catch {}
 		let progress = this.workerProgress.get(taskId);
 		if (!progress) {
 			progress = {

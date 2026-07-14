@@ -18,6 +18,7 @@ async function handleTeamTool(
 	return _cachedHandleTeamTool(params, ctx);
 }
 
+import { appendFileSync } from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../config/config.ts";
 import { t } from "../../i18n.ts";
@@ -451,6 +452,13 @@ function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: On
 			let progressLine = text;
 			if (tasks && tasks.length > 0) {
 				const wp = globalProgressTracker.getWorkerProgress(tasks[0].id);
+				// DEBUG: log to /tmp/pi-crew-streaming-debug.log
+				try {
+					appendFileSync(
+						"/tmp/pi-crew-streaming-debug.log",
+						`[tick] tasks[0].id=${tasks[0]?.id} wp=${wp ? JSON.stringify({ tool: wp.currentTool, tokens: wp.tokens, textLen: wp.partialText?.length }) : "null"}\n`,
+					);
+				} catch {}
 				if (wp) {
 					const toolLine = wp.currentTool ? `\n  ⚡ tool: ${wp.currentTool}` : "";
 					const tokenLine =
