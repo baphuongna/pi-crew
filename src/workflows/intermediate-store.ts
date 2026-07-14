@@ -56,6 +56,11 @@ export function ensureIntermediateDir(config: Partial<IntermediateStoreConfig> =
  * @returns Path to the written file
  */
 export function writeIntermediate(config: Partial<IntermediateStoreConfig>, phase: string, stepId: string, data: unknown): string {
+	// Security: validate phase/stepId before building the filename to prevent
+	// path traversal via poisoned phase or stepId.
+	if (!isSafePathId(phase) || !isSafePathId(stepId)) {
+		throw new Error("Invalid phase or stepId for intermediate store");
+	}
 	const dir = ensureIntermediateDir(config);
 	const filename = `${phase}-${stepId}.json`;
 	const filePath = path.join(dir, filename);

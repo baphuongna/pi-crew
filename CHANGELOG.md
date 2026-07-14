@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.36] — security audit round 1 (2026-07-14)
+
+Three security hardening fixes from the first formal security audit pass (run via `team_20260714045239_bb49d72211b966a2` + verified via `team_20260714062932_638dbb0310cc9f77`, 12/12 targeted tests pass, typecheck clean):
+
+- **`writeIntermediate()` path-traversal guard** — `src/workflows/intermediate-store.ts`. `writeIntermediate()` previously had no validation on `phase`/`stepId` before constructing the filename, while the sibling `readIntermediate()` was already hardened (M-2 fix 2026-06-23). An attacker-controlled `phase` or `stepId` could write JSON to arbitrary paths. Fix: added `isSafePathId(phase) && isSafePathId(stepId)` guard at the top of `writeIntermediate()` — throws `Error("Invalid phase or stepId for intermediate store")` on bad input. Closes the write/read asymmetry.
+  - **Tests**: `test/unit/intermediate-store-traversal.test.ts` (+3 cases).
+- **`InstinctStore` `projectId` validation** — `src/state/instinct-store.ts`. All 4 public methods that accept `projectId` (`saveInstinct`, `getProjectInstincts`, `promoteInstinct`, `deleteInstinct`) now call `assertSafePathId("projectId", projectId)` before using the value in `path.join()`.
+  - **Tests**: `test/unit/instinct-store-projectid-guard.test.ts` (+4 cases).
+- **Verification env sanitization default → opt-out** — `src/runtime/verification-gates.ts`. `isVerificationEnvSanitizeEnabled()` flipped from opt-in (`PI_CREW_VERIFICATION_SANITIZE_ENV=1`) to opt-out (default `true`, explicitly disabled via env var set to `"0"`). Prevents accidental secret leakage to verification commands in untrusted repos — the safe path is now the default. `PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2,...` remains the escape hatch for tests/flows that legitimately need specific secrets.
+  - **Tests**: `test/unit/verification-gates-env-sanitize.test.ts` (5 cases) + `test/unit/verification-env-sanitize.test.ts` (7 integration cases).
+
+**False positives eliminated during the audit** (documented so they don't reappear):
+
+- `runtime/run-cache.ts` — cache keys are SHA-256 hex hashes (16 chars) — inherently safe from path injection.
+- `runtime/task-runner/retrieval-orchestrator.ts` — `rg` invocations use `node:child_process.spawn()` with structured args, no shell. No injection vector.
+- `runtime/pi-spawn.ts:159` `execSync("npm root -g")` — hardcoded command, `execSync` is intentional for Windows `PATHEXT` resolution.
+
+**Files changed**: 4 src files, 3 test files, 1 comment-only update. +100 / -13 net.
+
+### Audit findings (security survey, see `.gsd/AUDIT-PLAN.md` for full detail)
+
+Surveyed 36 process-execution call sites (`execSync`/`spawn`/`execFileSync`), 100+ `import()` sites, 13 `require()` sites, 9 `__proto__` references, path-traversal patterns, env sanitization, and unbounded data structures.
+
+- **Path traversal**: 2 real issues fixed (`intermediate-store.ts`, `instinct-store.ts`); 1 false positive (`run-cache.ts`).
+- **Process execution**: 1 critical-pattern (`sh -c` in `verification-gates.ts` — properly guarded by `validateGateCommand()`), 1 `execSync` with hardcoded command (intentional), 34 safe `spawn`/`execFileSync` with args arrays.
+- **Env handling**: 1 real issue fixed (verification env default flipped to opt-out); 2 low/info items (rg inherits full env, `diagnostic-export` writes non-secret env vars — both by design).
+- **Code injection**: 0 `eval`, 0 `new Function`, 0 `vm.*` usage, 0 `prototype[`. 9 `__proto__` references — all prototype-pollution defenses (`POLLUTED_KEYS` deny-lists).
+- **Memory safety**: all major Maps/Sets have MAX_* caps + LRU eviction (workflowCache=32, teamCache=32, asyncAgentReaderCache=128, agentEventSeqCache=1000, liveAgents=5000, NotificationRouter.seen=10000, etc.).
+
 ## [0.9.35] — performance plan Phases 1–3 + 2 wiring fixes (2026-07-13)
 
 Shipped the **forward performance optimization plan** in 3 phases (`docs/performance-optimization-execution-plan.md`) plus 2 follow-up wiring fixes for the `pipeline` workflow and `schedule` action. 8 performance optimizations landed + 1 bundle rebuild. End-to-end verified post-restart via `team action='run', workflow='pipeline', team='research'` (`team_20260713102348_529c8e4e79e90e20`, 4/4 tasks, 142,686 tokens, 6.4 min, pipeline-summary.md emitted with "PIPELINE_WORKFLOW_OK" + scheduled job successfully removed via new subAction). Typecheck clean, 63 + 58 + 92 targeted unit tests pass across the modified suites.

@@ -55,6 +55,30 @@ describe("InstinctStore", () => {
 				/projectId/,
 			);
 		});
+
+		it("throws if projectId contains path traversal characters", () => {
+			assert.throws(
+				() =>
+					store.saveInstinct({
+						...BASE_INSTINCT,
+						scope: "project",
+						projectId: "../../etc/passwd",
+					}),
+				/Invalid projectId/,
+			);
+		});
+
+		it("throws if projectId contains other unsafe characters", () => {
+			assert.throws(
+				() =>
+					store.saveInstinct({
+						...BASE_INSTINCT,
+						scope: "project",
+						projectId: "../secret",
+					}),
+				/Invalid projectId/,
+			);
+		});
 	});
 
 	describe("getInstincts", () => {
@@ -123,6 +147,10 @@ describe("InstinctStore", () => {
 
 		it("returns empty if nothing exists", () => {
 			assert.deepEqual(store.getProjectInstincts("proj-x"), []);
+		});
+
+		it("throws if projectId contains path traversal characters", () => {
+			assert.throws(() => store.getProjectInstincts("../../etc/passwd"), /Invalid projectId/);
 		});
 	});
 

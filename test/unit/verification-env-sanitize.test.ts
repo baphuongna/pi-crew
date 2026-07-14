@@ -4,8 +4,8 @@
  *
  * P1f redaction at artifact-write + judge-bound is regex-best-effort against
  * adversarial workers. Phase 1.5 #1 closes the leak at the SOURCE by stripping
- * model-provider secrets from the env passed to verification commands. Opt-in
- * via PI_CREW_VERIFICATION_SANITIZE_ENV=1; escape hatch via
+ * model-provider secrets from the env passed to verification commands. Opt-out
+ * via PI_CREW_VERIFICATION_SANITIZE_ENV=0; escape hatch via
  * PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2.
  */
 
@@ -31,14 +31,14 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<voi
 	});
 }
 
-test("isVerificationEnvSanitizeEnabled: defaults to false (opt-in)", () => {
+test("isVerificationEnvSanitizeEnabled: defaults to true (opt-out)", () => {
 	return withEnv(
 		{
 			PI_CREW_VERIFICATION_SANITIZE_ENV: undefined,
 			PI_TEAMS_VERIFICATION_SANITIZE_ENV: undefined,
 		},
 		() => {
-			assert.equal(isVerificationEnvSanitizeEnabled(), false);
+			assert.equal(isVerificationEnvSanitizeEnabled(), true);
 		},
 	);
 });
@@ -96,11 +96,11 @@ test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verificat
 	);
 });
 
-test("INTEGRATION: with sanitize OFF (default), secret env var DOES reach the verification subprocess", async () => {
-	// Without opt-in, behavior is unchanged — secret is visible (regression guard).
+test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES reach the verification subprocess", async () => {
+	// Explicit opt-out: sanitize disabled via env var set to '0'.
 	return withEnv(
 		{
-			PI_CREW_VERIFICATION_SANITIZE_ENV: undefined,
+			PI_CREW_VERIFICATION_SANITIZE_ENV: "0",
 			FAKE_SECRET_API_KEY: "sk-visible-default",
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
@@ -118,7 +118,7 @@ test("INTEGRATION: with sanitize OFF (default), secret env var DOES reach the ve
 			assert.equal(
 				content.includes("sk-visible-default"),
 				true,
-				"default (no sanitize) preserves existing behavior — secret visible",
+				"explicit opt-out (sanitize=0) preserves existing behavior — secret visible",
 			);
 			fs.rmSync(path.join(process.cwd(), ".test-artifacts-tmp"), {
 				recursive: true,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { assertSafePathId } from "../utils/safe-paths.ts";
 
 /**
  * Represents a learned instinct that guides agent behavior.
@@ -120,6 +121,7 @@ export class InstinctStore {
 			if (!savedInstinct.projectId) {
 				throw new Error("Project-scoped instinct requires a projectId");
 			}
+			assertSafePathId("projectId", savedInstinct.projectId);
 			this.appendInstinctToFile(this.getProjectInstinctPath(savedInstinct.projectId), savedInstinct);
 		}
 
@@ -163,6 +165,7 @@ export class InstinctStore {
 	 * @returns Array of instincts for the project
 	 */
 	getProjectInstincts(projectId: string): Instinct[] {
+		assertSafePathId("projectId", projectId);
 		const projectInstincts = this.readInstinctsFromFile(this.getProjectInstinctPath(projectId));
 		const globalInstincts = this.readInstinctsFromFile(this.getGlobalInstinctPath());
 		return [...projectInstincts, ...globalInstincts];
@@ -183,6 +186,7 @@ export class InstinctStore {
 				.readdirSync(projectsDir, { withFileTypes: true })
 				.filter((e) => e.isDirectory())
 				.map((e) => e.name)) {
+				assertSafePathId("projectId", projectId);
 				const filePath = path.join(projectsDir, projectId, INSTINCT_FILE);
 				const instincts = this.readInstinctsFromFile(filePath);
 				const index = instincts.findIndex((i) => i.id === instinctId);
@@ -239,6 +243,7 @@ export class InstinctStore {
 				.readdirSync(projectsDir, { withFileTypes: true })
 				.filter((e) => e.isDirectory())
 				.map((e) => e.name)) {
+				assertSafePathId("projectId", projectId);
 				const filePath = path.join(projectsDir, projectId, INSTINCT_FILE);
 				instincts = this.readInstinctsFromFile(filePath);
 				index = instincts.findIndex((i) => i.id === instinctId);

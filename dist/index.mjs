@@ -48581,7 +48581,7 @@ var init_async_runner = __esm({
       // Phase 1.5: worker-thread atomic writer opt-in (RFC 15).
       "PI_CREW_WORKER_ATOMIC_WRITER",
       "PI_TEAMS_WORKER_ATOMIC_WRITER",
-      // Phase 1.5 #1: verification env sanitization opt-in (RFC 13 §6).
+      // Phase 1.5 #1: verification env sanitization opt-out (RFC 13 §6).
       "PI_CREW_VERIFICATION_SANITIZE_ENV",
       "PI_TEAMS_VERIFICATION_SANITIZE_ENV",
       "PI_CREW_VERIFICATION_PRESERVE_ENV",
@@ -58026,7 +58026,10 @@ import { spawn as spawn4 } from "node:child_process";
 import * as fs82 from "node:fs";
 import * as path69 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
-  return process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "1" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "1";
+  if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
+    return false;
+  }
+  return true;
 }
 function buildVerificationEnv() {
   if (!isVerificationEnvSanitizeEnabled()) {

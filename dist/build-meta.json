@@ -12891,7 +12891,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 14704,
+      "bytes": 14705,
       "imports": [
         {
           "path": "node:child_process",
@@ -14759,7 +14759,7 @@
       "format": "esm"
     },
     "src/runtime/verification-gates.ts": {
-      "bytes": 17042,
+      "bytes": 17191,
       "imports": [
         {
           "path": "node:child_process",
@@ -18415,7 +18415,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6696933
+      "bytes": 6697128
     },
     "dist/index.mjs": {
       "imports": [
@@ -21546,7 +21546,7 @@
           "bytesInOutput": 2699
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 8942
+          "bytesInOutput": 8943
         },
         "src/subagents/async-entry.ts": {
           "bytesInOutput": 119
@@ -21792,7 +21792,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/verification-gates.ts": {
-          "bytesInOutput": 7561
+          "bytesInOutput": 7597
         },
         "src/runtime/worker-startup.ts": {
           "bytesInOutput": 2344
@@ -22125,7 +22125,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3172886
+      "bytes": 3172923
     }
   }
 }

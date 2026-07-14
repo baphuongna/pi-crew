@@ -173,6 +173,47 @@ describe("cleanupIntermediates", () => {
 	});
 });
 
+describe("writeIntermediate path traversal guard", () => {
+	it("throws when phase contains path traversal characters", () => {
+		const tmp = createTrackedTempDir("pi-crew-inter-");
+		try {
+			const config = { intermediateDir: `${tmp}/inter` };
+			assert.throws(
+				() => writeIntermediate(config, "../secret", "step1", {}),
+				{ message: "Invalid phase or stepId for intermediate store" },
+				"Should throw for path traversal in phase",
+			);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("throws when stepId contains path traversal characters", () => {
+		const tmp = createTrackedTempDir("pi-crew-inter-");
+		try {
+			const config = { intermediateDir: `${tmp}/inter` };
+			assert.throws(
+				() => writeIntermediate(config, "explore", "../../etc/passwd", {}),
+				{ message: "Invalid phase or stepId for intermediate store" },
+				"Should throw for path traversal in stepId",
+			);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("succeeds with valid phase and stepId", () => {
+		const tmp = createTrackedTempDir("pi-crew-inter-");
+		try {
+			const config = { intermediateDir: `${tmp}/inter` };
+			const filePath = writeIntermediate(config, "explore", "step1", { data: "test" });
+			assert.ok(filePath.includes("explore-step1.json"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});
+
 describe("hasPhaseCompleted", () => {
 	it("returns true when phase has an intermediate", () => {
 		const tmp = createTrackedTempDir("pi-crew-inter-");

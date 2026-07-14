@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-pi-crew v0.9.0 has undergone **38 rounds of security review**. All known vulnerabilities have been fixed:
+pi-crew v0.9.0 has undergone **38 rounds of security review**, plus a focused **audit round 1 (v0.9.36, 2026-07-14)** that scanned process execution, env sanitization, path traversal, code injection, and memory-safety patterns. All known vulnerabilities have been fixed:
 
 | Round | Version | Issues Fixed | Severity |
 |-------|---------|-------------|----------|
@@ -18,8 +18,28 @@ pi-crew v0.9.0 has undergone **38 rounds of security review**. All known vulnera
 | 20-33 | v0.5.15–v0.5.17 | ReDoS, prototype pollution, path traversal, env leaks | CRITICAL + HIGH |
 | 34-36 | v0.5.18–v0.5.19 | CI exit code, sandbox scope, shell injection, ReDoS regression | HIGH + MEDIUM |
 | 37-38 | v0.5.20–v0.9.0 | Safe-bash bypass, bounded reads, frozen config | HIGH + MEDIUM |
+| 39 (audit round 1) | v0.9.36 | Path traversal (`intermediate-store.writeIntermediate`, `InstinctStore.projectId`), verification env opt-out default | HIGH |
 
-**Total: 3 CRITICAL + 6 HIGH + 3 MEDIUM security issues resolved.**
+**Total: 3 CRITICAL + 7 HIGH + 3 MEDIUM security issues resolved** (round 39 added 1 HIGH for the path-traversal guards + 1 HIGH for the env default flip).
+
+### Round 39 (v0.9.36) — Audit Round 1
+
+Survey scope: 36 process-execution call sites (`execSync`/`spawn`/`execFileSync`), 100+ `import()` sites, 13 `require()` sites, 9 `__proto__` references, all path-traversal patterns, env sanitization, and unbounded data structures.
+
+**Findings (3 real, 3 false positive)**:
+
+| Finding | File:Line | Severity | Action |
+|---------|-----------|----------|--------|
+| `writeIntermediate()` missing path-traversal guard | `src/workflows/intermediate-store.ts:60-63` | HIGH | ✅ Added `isSafePathId(phase/stepId)` guard |
+| `InstinctStore` `projectId` unvalidated in 4 methods | `src/state/instinct-store.ts:124/168/189/246` | HIGH | ✅ Added `assertSafePathId("projectId", ...)` calls |
+| Verification env full leak by default (opt-in gate) | `src/runtime/verification-gates.ts:66-73` | HIGH | ✅ Flipped to opt-out (`PI_CREW_VERIFICATION_SANITIZE_ENV=0` disables) |
+| `run-cache.ts` cache keys unsafe in filename | `src/state/run-cache.ts` | (false positive) | SHA-256 hex, 16 chars — inherently safe |
+| `retrieval-orchestrator.ts` rg env leak | `src/runtime/task-runner/retrieval-orchestrator.ts` | (false positive) | `spawn()` with structured args, no shell |
+| `pi-spawn.ts:159` `execSync("npm root -g")` | `src/runtime/pi-spawn.ts:159` | (informational) | Hardcoded command; intentional for Windows `PATHEXT` resolution |
+
+**Confirmed safe** (audit-surveyed): 0 `eval`, 0 `new Function`, 0 `vm.*`, 0 `prototype[`. 9 `__proto__` references are all prototype-pollution defenses (`POLLUTED_KEYS` deny-lists in `config-patch.ts`, `hooks/registry.ts`, `i18n.ts`, `anchor.ts`, `metric-parser.ts`, `pipeline-runner.ts`, `config.ts`). All major Maps/Sets have MAX_* caps + LRU eviction.
+
+**Verified end-to-end**: `team_20260714062932_638dbb0310cc9f77` ran 3 test-engineer tasks + verifier cold-check. 12/12 tests pass. Typecheck clean.
 
 **Original advisory (SEC-001 – SEC-004) is preserved below for reference.**
 

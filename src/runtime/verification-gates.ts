@@ -25,8 +25,9 @@ import { redactSecretString } from "../utils/redaction.ts";
  * against adversarial workers; this kills the leak at the source by never
  * giving the verification process the secret in the first place.
  *
- * Opt-in via `PI_CREW_VERIFICATION_SANITIZE_ENV=1` to avoid breaking existing
- * flows whose tests legitimately need API access. Escape hatch:
+ * Opt-out via `PI_CREW_VERIFICATION_SANITIZE_ENV=0` or
+ * `PI_TEAMS_VERIFICATION_SANITIZE_ENV=0` to disable sanitization (e.g. for
+ * tests that legitimately need API access). Escape hatch:
  * `PI_CREW_VERIFICATION_PRESERVE_ENV=KEY1,KEY2,...` lets users explicitly opt
  * specific secrets back in (audited via the allowlist validator).
  */
@@ -62,9 +63,13 @@ const VERIFICATION_ENV_ALLOWLIST: readonly string[] = [
 	"NPM_CONFIG_GLOBALCONFIG",
 ];
 
-/** Whether env sanitization for verification is enabled (env var opt-in). */
+/** Whether env sanitization for verification is enabled (opt-out: enabled by default). */
 export function isVerificationEnvSanitizeEnabled(): boolean {
-	return process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "1" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "1";
+	// Opt-out: explicitly disabled via env var set to '0'.
+	if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
+		return false;
+	}
+	return true;
 }
 
 /**
