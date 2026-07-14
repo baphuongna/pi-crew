@@ -1486,6 +1486,14 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		ownerSessionGeneration: captureSessionGeneration,
 		startForegroundRun: (ctx, runner, runId) => startForegroundRun(ctx as ExtensionContext, runner, runId),
 		batchBarrier,
+		onJsonEvent: (taskId, runId, event) => {
+			const record = event as Record<string, unknown>;
+			const eventType = typeof record.type === "string" ? record.type : undefined;
+			if (eventType) lifecycleState.overflowTracker?.feedEvent(taskId, runId, eventType);
+			if (record && typeof record === "object") {
+				globalProgressTracker.handleWorkerEvent(taskId, runId, record);
+			}
+		},
 	});
 	time("register.tools");
 

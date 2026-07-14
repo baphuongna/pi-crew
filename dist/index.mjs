@@ -83982,7 +83982,6 @@ init_subagent_helpers();
 init_esm();
 init_context();
 init_config();
-import { appendFileSync as appendFileSync15 } from "node:fs";
 import { Text as Text6 } from "@earendil-works/pi-tui";
 
 // src/i18n.ts
@@ -84119,9 +84118,6 @@ function initI18n(pi) {
 
 // src/extension/registration/subagent-tools.ts
 init_crew_agent_records();
-
-// src/runtime/progress-tracker.ts
-import { appendFileSync as appendFileSync14 } from "node:fs";
 
 // src/observability/event-bus.ts
 init_internal_error();
@@ -84269,14 +84265,6 @@ var ProgressTracker = class _ProgressTracker {
    * Processes tool_execution_start/end, agent_start/end, and assistant text.
    */
   handleWorkerEvent(taskId, runId, event) {
-    try {
-      appendFileSync14(
-        "/tmp/pi-crew-streaming-debug.log",
-        `[event] taskId=${taskId} type=${event.type} tool=${event.toolName ?? "-"}
-`
-      );
-    } catch {
-    }
     let progress = this.workerProgress.get(taskId);
     if (!progress) {
       progress = {
@@ -84484,6 +84472,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
         {
           ...ctxWithSession,
           signal: childSignal,
+          ...options.onJsonEvent ? { onJsonEvent: options.onJsonEvent } : {},
           ...options.startForegroundRun ? {
             startForegroundRun: (runRunner, runId) => options.startForegroundRun(ctxWithSession, runRunner, runId)
           } : {}
@@ -84753,14 +84742,6 @@ function startAgentToolProgress(cwd, agentRecordId, onUpdate, manager) {
       let progressLine = text;
       if (tasks && tasks.length > 0) {
         const wp = globalProgressTracker.getWorkerProgress(tasks[0].id);
-        try {
-          appendFileSync15(
-            "/tmp/pi-crew-streaming-debug.log",
-            `[tick] tasks[0].id=${tasks[0]?.id} wp=${wp ? JSON.stringify({ tool: wp.currentTool, tokens: wp.tokens, textLen: wp.partialText?.length }) : "null"}
-`
-          );
-        } catch {
-        }
         if (wp) {
           const toolLine = wp.currentTool ? `
   \u26A1 tool: ${wp.currentTool}` : "";
@@ -85911,7 +85892,15 @@ Subagent may need manual intervention.`
   registerSubagentTools(pi, subagentManager, {
     ownerSessionGeneration: captureSessionGeneration,
     startForegroundRun: (ctx, runner, runId) => startForegroundRun(ctx, runner, runId),
-    batchBarrier
+    batchBarrier,
+    onJsonEvent: (taskId, runId, event) => {
+      const record = event;
+      const eventType = typeof record.type === "string" ? record.type : void 0;
+      if (eventType) lifecycleState.overflowTracker?.feedEvent(taskId, runId, eventType);
+      if (record && typeof record === "object") {
+        globalProgressTracker.handleWorkerEvent(taskId, runId, record);
+      }
+    }
   });
   time("register.tools");
   registerCleanupHandler(pi);

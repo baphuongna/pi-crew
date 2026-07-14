@@ -18,7 +18,6 @@ async function handleTeamTool(
 	return _cachedHandleTeamTool(params, ctx);
 }
 
-import { appendFileSync } from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../config/config.ts";
 import { t } from "../../i18n.ts";
@@ -54,6 +53,9 @@ export interface SubagentToolRegistrationOptions {
 	/** Rule 1 batch barrier. When present, agents spawned with a batchId are
 	 * registered here so their completion notifications are coalesced. */
 	batchBarrier?: BatchBarrier;
+	/** Forwarded to handleTeamTool so child-process worker events (tool calls,
+	 * assistant text) reach the progress tracker for real-time streaming. */
+	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 }
 
 export function registerSubagentTools(
@@ -153,6 +155,7 @@ export function registerSubagentTools(
 					{
 						...ctxWithSession,
 						signal: childSignal,
+						...(options.onJsonEvent ? { onJsonEvent: options.onJsonEvent } : {}),
 						...(options.startForegroundRun
 							? {
 									startForegroundRun: (runRunner: (sig?: AbortSignal) => Promise<void>, runId?: string) =>
@@ -452,13 +455,6 @@ function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: On
 			let progressLine = text;
 			if (tasks && tasks.length > 0) {
 				const wp = globalProgressTracker.getWorkerProgress(tasks[0].id);
-				// DEBUG: log to /tmp/pi-crew-streaming-debug.log
-				try {
-					appendFileSync(
-						"/tmp/pi-crew-streaming-debug.log",
-						`[tick] tasks[0].id=${tasks[0]?.id} wp=${wp ? JSON.stringify({ tool: wp.currentTool, tokens: wp.tokens, textLen: wp.partialText?.length }) : "null"}\n`,
-					);
-				} catch {}
 				if (wp) {
 					const toolLine = wp.currentTool ? `\n  ⚡ tool: ${wp.currentTool}` : "";
 					const tokenLine =
