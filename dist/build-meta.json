@@ -8410,7 +8410,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/context.ts": {
-      "bytes": 3419,
+      "bytes": 5581,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -8577,7 +8577,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-settings.ts": {
-      "bytes": 17990,
+      "bytes": 17989,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -16950,7 +16950,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31026,
+      "bytes": 31025,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -17720,8 +17720,30 @@
       ],
       "format": "esm"
     },
+    "src/observability/event-bus.ts": {
+      "bytes": 2219,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/progress-tracker.ts": {
+      "bytes": 7543,
+      "imports": [
+        {
+          "path": "src/observability/event-bus.ts",
+          "kind": "import-statement",
+          "original": "../observability/event-bus.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/registration/subagent-tools.ts": {
-      "bytes": 17386,
+      "bytes": 18292,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -17752,6 +17774,11 @@
           "path": "src/runtime/crew-agent-records.ts",
           "kind": "import-statement",
           "original": "../../runtime/crew-agent-records.ts"
+        },
+        {
+          "path": "src/runtime/progress-tracker.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/progress-tracker.ts"
         },
         {
           "path": "src/runtime/role-permission.ts",
@@ -17993,7 +18020,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 68063,
+      "bytes": 68402,
       "imports": [
         {
           "path": "node:fs",
@@ -18316,6 +18343,11 @@
           "original": "../i18n.ts"
         },
         {
+          "path": "src/runtime/progress-tracker.ts",
+          "kind": "import-statement",
+          "original": "../runtime/progress-tracker.ts"
+        },
+        {
           "path": "src/runtime/session-resources.ts",
           "kind": "import-statement",
           "original": "../runtime/session-resources.ts"
@@ -18415,7 +18447,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6697128
+      "bytes": 6717985
     },
     "dist/index.mjs": {
       "imports": [
@@ -20931,7 +20963,7 @@
           "bytesInOutput": 1541
         },
         "src/extension/team-tool/context.ts": {
-          "bytesInOutput": 2198
+          "bytesInOutput": 3237
         },
         "src/extension/team-tool/intent-policy.ts": {
           "bytesInOutput": 1245
@@ -20952,7 +20984,7 @@
           "bytesInOutput": 1876
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 16052
+          "bytesInOutput": 16051
         },
         "src/workflows/validate-workflow.ts": {
           "bytesInOutput": 1927
@@ -21960,7 +21992,7 @@
           "bytesInOutput": 15659
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30589
+          "bytesInOutput": 30588
         },
         "src/extension/registration/commands.ts": {
           "bytesInOutput": 40488
@@ -22020,7 +22052,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 45555
+          "bytesInOutput": 45685
         },
         "src/runtime/batch-barrier.ts": {
           "bytesInOutput": 3060
@@ -22104,10 +22136,16 @@
           "bytesInOutput": 647
         },
         "src/extension/registration/subagent-tools.ts": {
-          "bytesInOutput": 15548
+          "bytesInOutput": 16197
         },
         "src/i18n.ts": {
           "bytesInOutput": 6837
+        },
+        "src/observability/event-bus.ts": {
+          "bytesInOutput": 1170
+        },
+        "src/runtime/progress-tracker.ts": {
+          "bytesInOutput": 6660
         },
         "src/extension/session-summary.ts": {
           "bytesInOutput": 512
@@ -22125,7 +22163,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3172923
+      "bytes": 3182689
     }
   }
 }

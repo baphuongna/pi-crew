@@ -327,7 +327,7 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"runtime.mode": "auto",
 	"runtime.maxTurns": 10000,
 	"runtime.graceTurns": 5,
-	"runtime.inheritContext": false,
+	"runtime.inheritContext": true,
 	"runtime.promptMode": "replace",
 	"runtime.completionMutationGuard": "warn",
 	"runtime.isolationPolicy": undefined,

@@ -130,6 +130,7 @@ function purgeStaleActiveRunIndexSyncIfLoaded(): void {
 
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../extension/run-maintenance.ts";
 import { initI18n } from "../i18n.ts";
+import { globalProgressTracker } from "../runtime/progress-tracker.ts";
 // H3-L2 split: DeliveryCoordinator + OverflowRecoveryTracker moved to registration/lifecycle.ts.
 import { tryRegisterSessionCleanup } from "../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../runtime/session-snapshot.ts";
@@ -1474,6 +1475,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 			const record = event as Record<string, unknown>;
 			const eventType = typeof record.type === "string" ? record.type : undefined;
 			if (eventType) lifecycleState.overflowTracker?.feedEvent(taskId, runId, eventType);
+			// Phase 2: forward worker events to progress tracker for real-time
+			// widget display (tool calls, assistant text) on child-process runtime.
+			if (record && typeof record === "object") {
+				globalProgressTracker.handleWorkerEvent(taskId, runId, record);
+			}
 		},
 	});
 	registerSubagentTools(pi, subagentManager, {

@@ -47,6 +47,40 @@ function extractTextContent(content: unknown): string {
 		.join("\n");
 }
 
+/**
+ * Maximum character budget for inherited parent context (~3K tokens).
+ * When exceeded, oldest messages are dropped first (most-recent-first retention).
+ */
+export const MAX_PARENT_CONTEXT_CHARS = 12_000;
+
+/** Maximum chars for a single assistant message before truncation. */
+const MAX_ASSISTANT_MSG_CHARS = 500;
+
+/** Truncated length for oversized assistant messages. */
+const TRUNCATED_ASSISTANT_CHARS = 200;
+
+/** Messages starting with these patterns and exceeding this size are likely
+ *  file dumps / bash output — skip them to keep context relevant and compact. */
+const NOISY_THRESHOLD = 1_000;
+const NOISY_PREFIXES = ["```", "total ", "drwx", "-rw", "import ", "export "];
+
+/**
+ * Check if a message looks like noisy file/tool output (code dumps, ls output,
+ * import lists) that bloats context without helping the subagent.
+ */
+function isNoisyContent(text: string): boolean {
+	if (text.length < NOISY_THRESHOLD) return false;
+	return NOISY_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
+/**
+ * Build a compact parent conversation context for subagent inheritance.
+ *
+ * Extracts recent user messages, assistant reasoning, and compaction summaries
+ * from the parent session. Applies a character budget (most-recent-first
+ * retention) and filters noisy content (file dumps, long bash output) to keep
+ * the inherited context relevant without bloating the subagent's token budget.
+ */
 export function buildParentContext(ctx: TeamContext): string | undefined {
 	const branch = ctx.sessionManager?.getBranch?.();
 	if (!Array.isArray(branch) || branch.length === 0) return undefined;
@@ -58,21 +92,43 @@ export function buildParentContext(ctx: TeamContext): string | undefined {
 			message?: unknown;
 			summary?: unknown;
 		};
-		if (record.type === "compaction" && typeof record.summary === "string") parts.push(`[Summary]: ${record.summary}`);
+		// Compaction summaries are always valuable — keep in full.
+		if (record.type === "compaction" && typeof record.summary === "string") {
+			parts.push(`[Summary]: ${record.summary}`);
+			continue;
+		}
 		const message =
 			record.message && typeof record.message === "object" && !Array.isArray(record.message)
 				? (record.message as { role?: unknown; content?: unknown })
 				: undefined;
 		if (!message || (message.role !== "user" && message.role !== "assistant")) continue;
-		const text = extractTextContent(message.content).trim();
-		if (text) parts.push(`[${message.role === "user" ? "User" : "Assistant"}]: ${text}`);
+		let text = extractTextContent(message.content).trim();
+		if (!text) continue;
+		// Filter: skip noisy content (file dumps, long bash output).
+		if (isNoisyContent(text)) continue;
+		// Truncate: long assistant messages get shortened to key points.
+		if (message.role === "assistant" && text.length > MAX_ASSISTANT_MSG_CHARS) {
+			text = `${text.slice(0, TRUNCATED_ASSISTANT_CHARS)}…`;
+		}
+		parts.push(`[${message.role === "user" ? "User" : "Assistant"}]: ${text}`);
 	}
 	if (!parts.length) return undefined;
+
+	// Budget: keep most-recent messages first, drop oldest when over budget.
+	let totalChars = 0;
+	const budgeted: string[] = [];
+	for (const part of [...parts].reverse()) {
+		if (totalChars + part.length > MAX_PARENT_CONTEXT_CHARS) break;
+		budgeted.unshift(part);
+		totalChars += part.length;
+	}
+	if (!budgeted.length) return undefined;
+
 	return [
 		`# Parent Conversation Context`,
 		"The following context was inherited from the parent Pi session. Treat it as reference-only.",
 		"",
-		parts.join("\n\n"),
+		budgeted.join("\n\n"),
 	].join("\n");
 }
 

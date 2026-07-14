@@ -24757,6 +24757,7 @@ var init_workflow_serializer = __esm({
 // src/extension/team-tool/context.ts
 var context_exports = {};
 __export(context_exports, {
+  MAX_PARENT_CONTEXT_CHARS: () => MAX_PARENT_CONTEXT_CHARS,
   buildParentContext: () => buildParentContext,
   configRecord: () => configRecord,
   formatScoped: () => formatScoped,
@@ -24780,6 +24781,10 @@ function extractTextContent(content) {
     (part) => part && typeof part === "object" && !Array.isArray(part) && typeof part.text === "string" ? part.text : ""
   ).filter(Boolean).join("\n");
 }
+function isNoisyContent(text) {
+  if (text.length < NOISY_THRESHOLD) return false;
+  return NOISY_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
 function buildParentContext(ctx) {
   const branch = ctx.sessionManager?.getBranch?.();
   if (!Array.isArray(branch) || branch.length === 0) return void 0;
@@ -24787,28 +24792,50 @@ function buildParentContext(ctx) {
   for (const entry of branch.slice(-20)) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const record = entry;
-    if (record.type === "compaction" && typeof record.summary === "string") parts.push(`[Summary]: ${record.summary}`);
+    if (record.type === "compaction" && typeof record.summary === "string") {
+      parts.push(`[Summary]: ${record.summary}`);
+      continue;
+    }
     const message = record.message && typeof record.message === "object" && !Array.isArray(record.message) ? record.message : void 0;
     if (!message || message.role !== "user" && message.role !== "assistant") continue;
-    const text = extractTextContent(message.content).trim();
-    if (text) parts.push(`[${message.role === "user" ? "User" : "Assistant"}]: ${text}`);
+    let text = extractTextContent(message.content).trim();
+    if (!text) continue;
+    if (isNoisyContent(text)) continue;
+    if (message.role === "assistant" && text.length > MAX_ASSISTANT_MSG_CHARS) {
+      text = `${text.slice(0, TRUNCATED_ASSISTANT_CHARS)}\u2026`;
+    }
+    parts.push(`[${message.role === "user" ? "User" : "Assistant"}]: ${text}`);
   }
   if (!parts.length) return void 0;
+  let totalChars = 0;
+  const budgeted = [];
+  for (const part of [...parts].reverse()) {
+    if (totalChars + part.length > MAX_PARENT_CONTEXT_CHARS) break;
+    budgeted.unshift(part);
+    totalChars += part.length;
+  }
+  if (!budgeted.length) return void 0;
   return [
     `# Parent Conversation Context`,
     "The following context was inherited from the parent Pi session. Treat it as reference-only.",
     "",
-    parts.join("\n\n")
+    budgeted.join("\n\n")
   ].join("\n");
 }
 function configRecord(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return {};
   return config;
 }
+var MAX_PARENT_CONTEXT_CHARS, MAX_ASSISTANT_MSG_CHARS, TRUNCATED_ASSISTANT_CHARS, NOISY_THRESHOLD, NOISY_PREFIXES;
 var init_context = __esm({
   "src/extension/team-tool/context.ts"() {
     "use strict";
     init_tool_result();
+    MAX_PARENT_CONTEXT_CHARS = 12e3;
+    MAX_ASSISTANT_MSG_CHARS = 500;
+    TRUNCATED_ASSISTANT_CHARS = 200;
+    NOISY_THRESHOLD = 1e3;
+    NOISY_PREFIXES = ["```", "total ", "drwx", "-rw", "import ", "export "];
   }
 });
 
@@ -26191,7 +26218,7 @@ var init_handle_settings = __esm({
       "runtime.mode": "auto",
       "runtime.maxTurns": 1e4,
       "runtime.graceTurns": 5,
-      "runtime.inheritContext": false,
+      "runtime.inheritContext": true,
       "runtime.promptMode": "replace",
       "runtime.completionMutationGuard": "warn",
       "runtime.isolationPolicy": void 0,
@@ -75794,7 +75821,7 @@ var init_settings_overlay = __esm({
       "runtime.mode": "auto",
       "runtime.maxTurns": 1e4,
       "runtime.graceTurns": 5,
-      "runtime.inheritContext": false,
+      "runtime.inheritContext": true,
       "runtime.promptMode": "replace",
       "runtime.completionMutationGuard": "warn",
       "runtime.isolationPolicy": void 0,
@@ -84091,6 +84118,259 @@ function initI18n(pi) {
 
 // src/extension/registration/subagent-tools.ts
 init_crew_agent_records();
+
+// src/observability/event-bus.ts
+init_internal_error();
+var EventBus = class _EventBus {
+  listeners = /* @__PURE__ */ new Map();
+  static _instance;
+  static getInstance() {
+    if (!_EventBus._instance) {
+      _EventBus._instance = new _EventBus();
+    }
+    return _EventBus._instance;
+  }
+  /**
+   * Dispose of the EventBus instance and clear all listeners.
+   * Resets the singleton so a new instance can be created.
+   */
+  dispose() {
+    this.listeners.clear();
+    _EventBus._instance = void 0;
+  }
+  emit(event) {
+    const listeners2 = this.listeners.get(event.type);
+    if (listeners2) {
+      for (const listener of listeners2) {
+        try {
+          listener(event);
+        } catch (e) {
+          logInternalError("event-bus.listener", e, `type=${event.type} runId=${event.runId}`);
+        }
+      }
+    }
+  }
+  on(type, listener) {
+    if (!this.listeners.has(type)) {
+      this.listeners.set(type, /* @__PURE__ */ new Set());
+    }
+    this.listeners.get(type).add(listener);
+    return () => {
+      this.listeners.get(type)?.delete(listener);
+    };
+  }
+  off(type, listener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+};
+var crewEventBus = EventBus.getInstance();
+
+// src/runtime/progress-tracker.ts
+var ProgressTracker = class _ProgressTracker {
+  sessions = /* @__PURE__ */ new Map();
+  track(session, agentId, runId) {
+    if (this.sessions.has(agentId)) {
+      return this.sessions.get(agentId).progress;
+    }
+    const progress = {
+      toolCalls: 0,
+      currentTool: null,
+      toolStartTime: null,
+      errors: [],
+      turns: 0,
+      tokens: { input: 0, output: 0 },
+      status: "running"
+    };
+    const unsubscribe = session.subscribe((event) => {
+      this.handleEvent(event, progress, agentId, runId);
+    });
+    this.sessions.set(agentId, { unsubscribe, progress });
+    return progress;
+  }
+  handleEvent(event, progress, agentId, runId) {
+    switch (event.type) {
+      case "tool_execution_start":
+        progress.toolCalls++;
+        progress.currentTool = event.toolName;
+        progress.toolStartTime = Date.now();
+        crewEventBus.emit({
+          type: "agent:progress",
+          runId,
+          agentId,
+          payload: { ...progress },
+          timestamp: Date.now()
+        });
+        break;
+      case "tool_execution_end":
+        progress.currentTool = null;
+        progress.toolStartTime = null;
+        if (event.isError) {
+          progress.errors.push(String(event.result ?? "Unknown error"));
+          crewEventBus.emit({
+            type: "agent:error",
+            runId,
+            agentId,
+            payload: String(event.result ?? "Unknown error"),
+            timestamp: Date.now()
+          });
+        }
+        crewEventBus.emit({
+          type: "agent:progress",
+          runId,
+          agentId,
+          payload: { ...progress },
+          timestamp: Date.now()
+        });
+        break;
+      case "turn_start":
+        progress.turns++;
+        break;
+      case "agent_end":
+        progress.status = "completed";
+        crewEventBus.emit({
+          type: "agent:complete",
+          runId,
+          agentId,
+          payload: { ...progress },
+          timestamp: Date.now()
+        });
+        break;
+      case "agent_start":
+        progress.status = "running";
+        break;
+    }
+  }
+  untrack(agentId) {
+    const tracked = this.sessions.get(agentId);
+    if (tracked) {
+      tracked.unsubscribe();
+      this.sessions.delete(agentId);
+    }
+  }
+  getProgress(agentId) {
+    return this.sessions.get(agentId)?.progress;
+  }
+  // ── Child-process worker event bridge ──────────────────────────────────
+  //
+  // For child-process runtime, events arrive as raw JSON from the child pi
+  // process's stdout (via onJsonEvent). These methods bridge those events into
+  // the same crewEventBus stream that live-session uses, so the widget shows
+  // real-time tool calls and assistant text for BOTH runtimes.
+  workerProgress = /* @__PURE__ */ new Map();
+  /** Throttle: don't emit more than 1 progress event per 500ms per worker. */
+  lastEmitTs = /* @__PURE__ */ new Map();
+  static EMIT_THROTTLE_MS = 500;
+  /**
+   * Handle a raw child-process JSON event (from onJsonEvent callback).
+   * Processes tool_execution_start/end, agent_start/end, and assistant text.
+   */
+  handleWorkerEvent(taskId, runId, event) {
+    let progress = this.workerProgress.get(taskId);
+    if (!progress) {
+      progress = {
+        toolCalls: 0,
+        currentTool: null,
+        toolStartTime: null,
+        errors: [],
+        turns: 0,
+        tokens: { input: 0, output: 0 },
+        status: "running"
+      };
+      this.workerProgress.set(taskId, progress);
+    }
+    const eventType = typeof event.type === "string" ? event.type : void 0;
+    switch (eventType) {
+      case "tool_execution_start": {
+        progress.toolCalls++;
+        progress.currentTool = typeof event.toolName === "string" ? event.toolName : "unknown";
+        progress.toolStartTime = Date.now();
+        this.emitThrottled(taskId, runId, progress);
+        break;
+      }
+      case "tool_execution_end": {
+        progress.currentTool = null;
+        progress.toolStartTime = null;
+        if (event.isError) {
+          progress.errors.push(String(event.result ?? "Unknown error"));
+          crewEventBus.emit({
+            type: "agent:error",
+            runId,
+            agentId: taskId,
+            payload: String(event.result ?? "Unknown error"),
+            timestamp: Date.now()
+          });
+        }
+        this.emitThrottled(taskId, runId, progress);
+        break;
+      }
+      case "turn_start":
+      case "turn_end":
+        progress.turns++;
+        break;
+      case "agent_start":
+        progress.status = "running";
+        break;
+      case "agent_end":
+      case "agent_settled":
+        progress.status = "completed";
+        this.emitThrottled(taskId, runId, progress);
+        break;
+      case "message":
+      case "message_end": {
+        const message = event.message;
+        if (message?.role === "assistant") {
+          const text = extractWorkerText(message.content);
+          if (text) {
+            progress.partialText = text.slice(-2e3);
+            this.emitThrottled(taskId, runId, progress);
+          }
+        }
+        if (eventType === "message_end" && event.usage && typeof event.usage === "object") {
+          const usage = event.usage;
+          if (typeof usage.input === "number") progress.tokens.input += usage.input;
+          if (typeof usage.output === "number") progress.tokens.output += usage.output;
+        }
+        break;
+      }
+    }
+  }
+  /** Get the accumulated progress for a child-process worker task. */
+  getWorkerProgress(taskId) {
+    return this.workerProgress.get(taskId);
+  }
+  /** Remove a worker from tracking after completion. */
+  untrackWorker(taskId) {
+    this.workerProgress.delete(taskId);
+    this.lastEmitTs.delete(taskId);
+  }
+  /**
+   * Emit a progress event to crewEventBus, throttled to avoid flooding
+   * the widget with re-renders (max 1 event per EMIT_THROTTLE_MS per worker).
+   */
+  emitThrottled(taskId, runId, progress) {
+    const now = Date.now();
+    const last = this.lastEmitTs.get(taskId) ?? 0;
+    if (now - last < _ProgressTracker.EMIT_THROTTLE_MS) return;
+    this.lastEmitTs.set(taskId, now);
+    crewEventBus.emit({
+      type: "agent:progress",
+      runId,
+      agentId: taskId,
+      payload: { ...progress },
+      timestamp: now
+    });
+  }
+};
+var globalProgressTracker = new ProgressTracker();
+function extractWorkerText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map(
+    (part) => part && typeof part === "object" && !Array.isArray(part) && typeof part.text === "string" ? part.text : ""
+  ).filter(Boolean).join("\n");
+}
+
+// src/extension/registration/subagent-tools.ts
 init_role_permission();
 init_state_store();
 init_manager();
@@ -84458,7 +84738,20 @@ function startAgentToolProgress(cwd, agentRecordId, onUpdate, manager) {
         agents,
         error: record.error
       });
-      onUpdate({ content: [{ type: "text", text }] });
+      let progressLine = text;
+      if (tasks && tasks.length > 0) {
+        const wp = globalProgressTracker.getWorkerProgress(tasks[0].id);
+        if (wp) {
+          const toolLine = wp.currentTool ? `
+  \u26A1 tool: ${wp.currentTool}` : "";
+          const tokenLine = wp.tokens.input + wp.tokens.output > 0 ? `
+  \u{1F4CA} tokens: ${(wp.tokens.input / 1e3).toFixed(1)}K in, ${(wp.tokens.output / 1e3).toFixed(1)}K out` : "";
+          const textLine = wp.partialText ? `
+  \u{1F4AC} ${wp.partialText.slice(-150).replace(/\n/g, " ")}` : "";
+          progressLine = `${text}${toolLine}${tokenLine}${textLine}`;
+        }
+      }
+      onUpdate({ content: [{ type: "text", text: progressLine }] });
     } catch (error) {
       logInternalError("subagent-tools.progress", error, `agentId=${agentRecordId}`);
     }
@@ -85590,6 +85883,9 @@ Subagent may need manual intervention.`
       const record = event;
       const eventType = typeof record.type === "string" ? record.type : void 0;
       if (eventType) lifecycleState.overflowTracker?.feedEvent(taskId, runId, eventType);
+      if (record && typeof record === "object") {
+        globalProgressTracker.handleWorkerEvent(taskId, runId, record);
+      }
     }
   });
   registerSubagentTools(pi, subagentManager, {
