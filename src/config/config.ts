@@ -694,7 +694,7 @@ function parseIsolationPolicy(value: unknown): CrewRuntimeConfig["isolationPolic
 
 function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 	const obj = asRecord(value);
-	if (!obj) return undefined;
+	if (!obj) return { inheritContext: true } as CrewRuntimeConfig;
 	const runtime: CrewRuntimeConfig = {
 		mode: parseWithSchema(
 			Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")]),
@@ -704,7 +704,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		allowChildProcessFallback: parseWithSchema(Type.Boolean(), obj.allowChildProcessFallback),
 		maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
 		graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
-		inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext),
+		inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext) ?? true,
 		promptMode: parseWithSchema(Type.Union([Type.Literal("replace"), Type.Literal("append")]), obj.promptMode),
 		groupJoin: parseWithSchema(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")]), obj.groupJoin),
 		groupJoinAckTimeoutMs: parsePositiveInteger(obj.groupJoinAckTimeoutMs, 86_400_000),

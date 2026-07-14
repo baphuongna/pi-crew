@@ -10277,7 +10277,7 @@ function parseIsolationPolicy(value) {
 }
 function parseRuntimeConfig(value) {
   const obj = asRecord(value);
-  if (!obj) return void 0;
+  if (!obj) return { inheritContext: true };
   const runtime = {
     mode: parseWithSchema(
       Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")]),
@@ -10287,7 +10287,7 @@ function parseRuntimeConfig(value) {
     allowChildProcessFallback: parseWithSchema(Type.Boolean(), obj.allowChildProcessFallback),
     maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
     graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
-    inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext),
+    inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext) ?? true,
     promptMode: parseWithSchema(Type.Union([Type.Literal("replace"), Type.Literal("append")]), obj.promptMode),
     groupJoin: parseWithSchema(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")]), obj.groupJoin),
     groupJoinAckTimeoutMs: parsePositiveInteger(obj.groupJoinAckTimeoutMs, 864e5),

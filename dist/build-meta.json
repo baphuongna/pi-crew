@@ -6242,7 +6242,7 @@
       "format": "esm"
     },
     "src/config/config.ts": {
-      "bytes": 49492,
+      "bytes": 49536,
       "imports": [
         {
           "path": "node:fs",
@@ -18447,7 +18447,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6717985
+      "bytes": 6718051
     },
     "dist/index.mjs": {
       "imports": [
@@ -20675,7 +20675,7 @@
           "bytesInOutput": 1330
         },
         "src/config/config.ts": {
-          "bytesInOutput": 39089
+          "bytesInOutput": 39115
         },
         "src/errors.ts": {
           "bytesInOutput": 8094
@@ -22163,7 +22163,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3182689
+      "bytes": 3182715
     }
   }
 }
