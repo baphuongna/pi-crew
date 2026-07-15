@@ -1,5 +1,24 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requestRender, setFooter } from "../../ui/pi-ui-compat.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+
+/**
+ * Wrap a pi UI call in try/catch. If the call throws (e.g. terminal doesn't
+ * support PUA glyphs, theme helper returns undefined, or pi's API signature
+ * changed), log it and silently fall back to pi's default behavior — which
+ * is simply "do nothing", letting pi show its own built-in indicator.
+ *
+ * Crew-vibes must NEVER break the user's session. A broken spinner is not
+ * worth a crashed pi.
+ */
+function safeUiCall(scope: string, fn: () => void): void {
+	try {
+		fn();
+	} catch (error) {
+		logInternalError(`crew-vibes.${scope}`, error, undefined, "warn");
+	}
+}
+
 import { type CrewVibesConfig, loadConfig, PROVIDER_STATUS_ID, saveConfig } from "./config.ts";
 import { intervalForSpeed } from "./figures.ts";
 import { type CrewVibesFooterSource, createCrewVibesFooter } from "./footer.ts";
@@ -72,44 +91,48 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	function installFooter(ctx: ExtensionContext): void {
 		if (!ctx?.hasUI) return;
 		if (!metersActive()) {
-			setFooter(ctx, undefined);
+			safeUiCall("clear-footer", () => setFooter(ctx, undefined));
 			return;
 		}
-		setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
-		requestRender(ctx);
+		safeUiCall("install-footer", () => {
+			setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
+			requestRender(ctx);
+		});
 	}
 
 	/** Trigger a footer repaint; the footer recomputes capacity/quota on render. */
 	function refreshFooter(ctx: ExtensionContext): void {
-		if (ctx?.hasUI) requestRender(ctx);
+		if (ctx?.hasUI) safeUiCall("refresh-footer", () => requestRender(ctx));
 	}
 
 	function publishSpeedFooter(ctx: ExtensionContext, speed = footerAnimator.value()): void {
 		if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-			setSpeedStatus(ctx, config, undefined);
+			safeUiCall("clear-speed-status", () => setSpeedStatus(ctx, config, undefined));
 			return;
 		}
-		setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed));
+		safeUiCall("publish-speed-status", () => setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed)));
 	}
 
 	function applyIndicator(ctx: ExtensionContext, speed: number | null, force = false): void {
 		if (!ctx.hasUI || !ctx.ui.setWorkingIndicator) return;
 		if (!config.enabled || !config.speed.enabled || !config.speed.indicator) {
-			ctx.ui.setWorkingIndicator();
+			safeUiCall("reset-indicator", () => ctx.ui.setWorkingIndicator?.());
 			return;
 		}
 		const next = intervalForSpeed(config.speed, speed);
 		if (!force && Math.abs(next - currentIntervalMs) < 10) return;
-		ctx.ui.setWorkingIndicator({
-			frames: crewIndicatorFrames(themeOf(ctx)),
-			intervalMs: next,
-		});
+		safeUiCall("set-indicator", () =>
+			ctx.ui.setWorkingIndicator?.({
+				frames: crewIndicatorFrames(themeOf(ctx)),
+				intervalMs: next,
+			}),
+		);
 		currentIntervalMs = next;
 	}
 
 	function renderWorking(ctx: ExtensionContext, speed: number | null): void {
 		if (!config.enabled || !config.speed.enabled || !ctx.hasUI) return;
-		ctx.ui.setWorkingMessage(renderWorkingMessage(themeOf(ctx), config.speed, speed));
+		safeUiCall("set-working-message", () => ctx.ui.setWorkingMessage?.(renderWorkingMessage(themeOf(ctx), config.speed, speed)));
 	}
 
 	function stopLiveTimer(): void {
@@ -315,7 +338,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		stopLiveTimer();
 		if (ctx && config.enabled && ctx.hasUI) {
 			applyIndicator(ctx, speedTracker.lastTokS);
-			ctx.ui.setWorkingMessage();
+			safeUiCall("clear-working-message", () => ctx.ui.setWorkingMessage?.());
 		}
 	});
 

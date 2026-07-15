@@ -82212,6 +82212,7 @@ var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 
 // src/extension/crew-vibes/index.ts
 init_pi_ui_compat();
+init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 import { existsSync as existsSync77, mkdirSync as mkdirSync43, readFileSync as readFileSync75, writeFileSync as writeFileSync33 } from "node:fs";
@@ -83230,6 +83231,13 @@ var SpeedAnimator = class {
 };
 
 // src/extension/crew-vibes/index.ts
+function safeUiCall(scope, fn) {
+  try {
+    fn();
+  } catch (error) {
+    logInternalError(`crew-vibes.${scope}`, error, void 0, "warn");
+  }
+}
 function isAssistantMessage(message) {
   return typeof message === "object" && message !== null && message.role === "assistant";
 }
@@ -83272,39 +83280,44 @@ function registerCrewVibes(pi) {
   function installFooter(ctx) {
     if (!ctx?.hasUI) return;
     if (!metersActive()) {
-      setFooter(ctx, void 0);
+      safeUiCall("clear-footer", () => setFooter(ctx, void 0));
       return;
     }
-    setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
-    requestRender(ctx);
+    safeUiCall("install-footer", () => {
+      setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
+      requestRender(ctx);
+    });
   }
   function refreshFooter(ctx) {
-    if (ctx?.hasUI) requestRender(ctx);
+    if (ctx?.hasUI) safeUiCall("refresh-footer", () => requestRender(ctx));
   }
   function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
     if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-      setSpeedStatus(ctx, config, void 0);
+      safeUiCall("clear-speed-status", () => setSpeedStatus(ctx, config, void 0));
       return;
     }
-    setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed));
+    safeUiCall("publish-speed-status", () => setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed)));
   }
   function applyIndicator(ctx, speed, force = false) {
     if (!ctx.hasUI || !ctx.ui.setWorkingIndicator) return;
     if (!config.enabled || !config.speed.enabled || !config.speed.indicator) {
-      ctx.ui.setWorkingIndicator();
+      safeUiCall("reset-indicator", () => ctx.ui.setWorkingIndicator?.());
       return;
     }
     const next = intervalForSpeed(config.speed, speed);
     if (!force && Math.abs(next - currentIntervalMs) < 10) return;
-    ctx.ui.setWorkingIndicator({
-      frames: crewIndicatorFrames(themeOf(ctx)),
-      intervalMs: next
-    });
+    safeUiCall(
+      "set-indicator",
+      () => ctx.ui.setWorkingIndicator?.({
+        frames: crewIndicatorFrames(themeOf(ctx)),
+        intervalMs: next
+      })
+    );
     currentIntervalMs = next;
   }
   function renderWorking(ctx, speed) {
     if (!config.enabled || !config.speed.enabled || !ctx.hasUI) return;
-    ctx.ui.setWorkingMessage(renderWorkingMessage(themeOf(ctx), config.speed, speed));
+    safeUiCall("set-working-message", () => ctx.ui.setWorkingMessage?.(renderWorkingMessage(themeOf(ctx), config.speed, speed)));
   }
   function stopLiveTimer() {
     if (!liveTimer) return;
@@ -83475,7 +83488,7 @@ function registerCrewVibes(pi) {
     stopLiveTimer();
     if (ctx && config.enabled && ctx.hasUI) {
       applyIndicator(ctx, speedTracker.lastTokS);
-      ctx.ui.setWorkingMessage();
+      safeUiCall("clear-working-message", () => ctx.ui.setWorkingMessage?.());
     }
   });
   pi.on("model_select", (event, ctx) => {
