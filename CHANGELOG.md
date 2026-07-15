@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.38] — cold context activation + UI polish (2026-07-15)
+
+Fixes and UX polish following v0.9.37's cold-context groundwork:
+
+### Fixes
+
+- **`parseRuntimeConfig()` default activation** — `src/config/config.ts`. The v0.9.37 cold-context feature shipped with `inheritContext: true` as default in `settings-overlay.ts` and `handle-settings.ts`, but `parseRuntimeConfig(undefined)` was returning `undefined` (not the default config), so the default never reached `buildParentContext()`. Now returns `{ inheritContext: true }` for missing/invalid input. Cold context inheritance now actually works on first subagent spawn.
+- **Crew-vibes animation resilience** — `src/extension/crew-vibes/`. Three layered fixes:
+  - `figures.ts`: `crewFrames()` default flipped `"pua"` → `"braille"` (Windows Terminal can't reliably do PUA font fallback).
+  - `figures.ts`: added `hasCrewFontFile()` runtime check — falls back to braille when `assets/crew-vibes.ttf` is missing.
+  - `index.ts`: `safeUiCall()` wrapper around all pi UI calls (`setWorkingIndicator`, `setWorkingMessage`, `setFooter`, `requestRender`, `setSpeedStatus`). Any throw is logged + falls back to pi default. "A broken spinner is not worth a crashed pi."
+- **Test fix**: `test/unit/resilient-config-parser.test.ts` updated to match the new `parseConfig({})` output (now includes the `runtime.inheritContext=true` default).
+
+### UX Polish
+
+- **Animated spinner in agent loading display** — `src/ui/tool-renderers/index.ts`. The static `"◉ agent working..."` line is now replaced with an animated `spinnerFrame(agentId)` + parsed elapsed/tokens/tool from `formatCompactToolProgress`. Live feedback while subagents run.
+- **Widget tok/s metric** — `src/ui/widget/widget-formatters.ts`. Agent stats line now shows throughput (`tok/s = tokens / elapsed_sec`) for both live-session and child-process paths. `TPS_METRIC_WIDTH=9` reserved for layout stability.
+
+### Cleanup
+
+- **Dead streaming code removed** — `-643 lines net`. The v0.9.37 Phase 2 (subagent streaming via `crewEventBus`) added `ProgressTracker.handleWorkerEvent()`, `register.ts` onJsonEvent bridge, and inline progress enrichment. Audit confirmed `crewEventBus` had ZERO subscribers and `getWorkerProgress` polling never rendered in pi TUI. Removed all related code + `test/unit/progress-tracker-worker.test.ts`. Cold context (Phase 1) kept and verified working.
+
 ## [0.9.37] — cold context + subagent streaming (2026-07-14)
 
 Two performance improvements targeting perceived subagent slowness:

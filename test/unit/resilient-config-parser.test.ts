@@ -6,7 +6,8 @@ test("parseConfigResilient: returns valid for empty object", () => {
 	const result = parseConfigResilient({});
 	assert.equal(result.valid, true);
 	assert.deepEqual(result.errors, []);
-	assert.deepEqual(result.config, {});
+	// Empty object still surfaces default runtime.inheritContext=true
+	assert.deepEqual(result.config, { runtime: { inheritContext: true } });
 });
 
 test("parseConfigResilient: returns valid for correct config", () => {

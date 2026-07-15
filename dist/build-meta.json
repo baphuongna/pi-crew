@@ -7659,7 +7659,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 7431,
+      "bytes": 7962,
       "imports": [
         {
           "path": "src/runtime/usage-tracker.ts",
@@ -8410,7 +8410,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/context.ts": {
-      "bytes": 5581,
+      "bytes": 5582,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -13586,7 +13586,7 @@
       "format": "esm"
     },
     "src/ui/tool-renderers/index.ts": {
-      "bytes": 28409,
+      "bytes": 29280,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -13597,6 +13597,11 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/spinner.ts",
+          "kind": "import-statement",
+          "original": "../spinner.ts"
         },
         {
           "path": "src/ui/tool-render.ts",
@@ -15834,7 +15839,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 42552,
+      "bytes": 42553,
       "imports": [
         {
           "path": "src/agents/discover-agents.ts",
@@ -17200,7 +17205,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/figures.ts": {
-      "bytes": 3603,
+      "bytes": 4043,
       "imports": [
         {
           "path": "src/extension/crew-vibes/font-detect.ts",
@@ -17284,12 +17289,17 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/index.ts": {
-      "bytes": 13575,
+      "bytes": 14595,
       "imports": [
         {
           "path": "src/ui/pi-ui-compat.ts",
           "kind": "import-statement",
           "original": "../../ui/pi-ui-compat.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
         },
         {
           "path": "src/extension/crew-vibes/config.ts",
@@ -18415,7 +18425,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6700101
+      "bytes": 6704580
     },
     "dist/index.mjs": {
       "imports": [
@@ -20847,7 +20857,7 @@
           "bytesInOutput": 793
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 5162
+          "bytesInOutput": 5712
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 9964
@@ -21612,7 +21622,7 @@
           "bytesInOutput": 1873
         },
         "src/ui/tool-renderers/index.ts": {
-          "bytesInOutput": 20722
+          "bytesInOutput": 21497
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2691
@@ -22068,7 +22078,7 @@
           "bytesInOutput": 1204
         },
         "src/extension/crew-vibes/index.ts": {
-          "bytesInOutput": 10897
+          "bytesInOutput": 11458
         },
         "src/extension/crew-vibes/config.ts": {
           "bytesInOutput": 5221
@@ -22077,7 +22087,7 @@
           "bytesInOutput": 1467
         },
         "src/extension/crew-vibes/figures.ts": {
-          "bytesInOutput": 1218
+          "bytesInOutput": 1246
         },
         "src/extension/crew-vibes/footer.ts": {
           "bytesInOutput": 8220
@@ -22125,7 +22135,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3173986
+      "bytes": 3175900
     }
   }
 }
