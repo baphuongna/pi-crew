@@ -17,6 +17,30 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 // dist/ entry points.
 const PROMPT_RUNTIME_EXTENSION_PATH = path.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
 const TASK_ARG_LIMIT = 8000;
+
+/**
+ * User-declared extension paths to always load in every spawned child/worker,
+ * on top of the pi-crew-internal prompt-runtime and any per-agent extensions.
+ *
+ * Child workers always run with `--no-extensions` (see below) so a user's
+ * normal `~/.pi/agent/extensions/` auto-discovery never fires for them — by
+ * design, since arbitrary user extensions may have missing deps or unwanted
+ * side effects in a headless worker. But some extensions ARE required for
+ * workers to function at all: e.g. a custom LLM-gateway/proxy extension that
+ * registers provider auth (baseUrl/apiKey/headers) for a non-default setup.
+ * Without it, workers silently have no working provider.
+ *
+ * Set PI_CREW_EXTRA_EXTENSIONS (or PI_TEAMS_EXTRA_EXTENSIONS) to a
+ * comma-separated list of absolute extension file/directory paths, e.g.:
+ *   PI_CREW_EXTRA_EXTENSIONS=/Users/me/.pi/agent/extensions/my-proxy-auth
+ */
+function getExtraExtensionPaths(): string[] {
+	const raw = process.env.PI_CREW_EXTRA_EXTENSIONS ?? process.env.PI_TEAMS_EXTRA_EXTENSIONS ?? "";
+	return raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
 const DEFAULT_MAX_CREW_DEPTH = 2;
 
 // Track every temp dir created in this process so we can clean them up
@@ -300,6 +324,7 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	// Always add --no-extensions before --extension to prevent user extensions from being auto-loaded.
 	// User extensions in ~/.pi/agent/extensions/ may fail due to missing dependencies.
 	args.push("--no-extensions");
+	const extraExtensions = getExtraExtensionPaths();
 	if (input.agent.extensions !== undefined) {
 		// F1 (v0.7.9): apply `excludeExtensions` denylist (case-insensitive
 		// basename match) BEFORE the trusted PROMPT_RUNTIME_EXTENSION_PATH is
@@ -309,9 +334,9 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// with the rest of the agent loader's best-effort semantics).
 		const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
 		const allowed = input.agent.extensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
-		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
+		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...extraExtensions, ...allowed]) args.push("--extension", extension);
 	} else {
-		args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
+		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...extraExtensions]) args.push("--extension", extension);
 	}
 	if (!input.agent.inheritSkills) args.push("--no-skills");
 	for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);

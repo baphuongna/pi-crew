@@ -16527,6 +16527,10 @@ var init_agent_config = __esm({
 import * as fs25 from "node:fs";
 import * as os7 from "node:os";
 import * as path21 from "node:path";
+function getExtraExtensionPaths() {
+  const raw = process.env.PI_CREW_EXTRA_EXTENSIONS ?? process.env.PI_TEAMS_EXTRA_EXTENSIONS ?? "";
+  return raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
 function getPiTempBase() {
   return path21.join(userPiRoot(), "tmp");
 }
@@ -16695,12 +16699,13 @@ function buildPiWorkerArgs(input) {
     if (excludeTools?.length) args.push("--exclude-tools", excludeTools.join(","));
   }
   args.push("--no-extensions");
+  const extraExtensions = getExtraExtensionPaths();
   if (input.agent.extensions !== void 0) {
     const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path21.basename(name).toLowerCase()));
     const allowed = input.agent.extensions.filter((ext) => !excluded.has(path21.basename(ext).toLowerCase()));
-    for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
+    for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...extraExtensions, ...allowed]) args.push("--extension", extension);
   } else {
-    args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
+    for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...extraExtensions]) args.push("--extension", extension);
   }
   if (!input.agent.inheritSkills) args.push("--no-skills");
   for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
@@ -17867,6 +17872,13 @@ var init_env_allowlist = __esm({
 function isKnownProviderKey(key) {
   return KNOWN_PROVIDER_KEYS.has(key);
 }
+function getExtraEnvAllowlist(env = process.env) {
+  const raw = env.PI_CREW_EXTRA_ENV_ALLOWLIST ?? env.PI_TEAMS_EXTRA_ENV_ALLOWLIST ?? "";
+  return raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+function isUserDeclaredExtraKey(key) {
+  return getExtraEnvAllowlist().includes(key);
+}
 function providerEnvKeys(modelId) {
   if (!modelId) return [];
   const separatorIndex = modelId.indexOf("/");
@@ -17902,7 +17914,7 @@ function sanitizeEnvSecrets(env, options) {
       if (isDangerousGlob(pattern)) {
         throw new Error(`Allowlist pattern "${pattern}" could match secret env vars. Use a more specific pattern.`);
       }
-      if (!pattern.endsWith("*") && isSecretKey(pattern) && !(pattern in env) && !isKnownProviderKey(pattern)) {
+      if (!pattern.endsWith("*") && isSecretKey(pattern) && !(pattern in env) && !isKnownProviderKey(pattern) && !isUserDeclaredExtraKey(pattern)) {
         throw new Error(`Allowlist entry "${pattern}" looks like a secret key. Use a more specific pattern.`);
       }
     }
@@ -18654,7 +18666,8 @@ function buildChildPiSpawnOptions(cwd, env, model) {
       throw new Error(`Invalid cwd: ${cwd} \u2014 ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
+  const baseAllowList = [...BASE_ALLOWLIST, ...getExtraEnvAllowlist()];
+  const allowList = model ? buildScopedAllowList(baseAllowList, [model]) : baseAllowList;
   const filteredEnv = sanitizeEnvSecrets(env, { allowList });
   if (filteredEnv.NODE_PATH) {
     const validPrefixes = ["/opt/", "/lib/", "/usr/local/", "/usr/", "/home/"];
@@ -48480,7 +48493,7 @@ async function spawnBackgroundTeamRun(manifest) {
   const logPath = path53.join(manifest.stateRoot, "background.log");
   fs61.mkdirSync(manifest.stateRoot, { recursive: true });
   const filteredEnv = sanitizeEnvSecrets(process.env, {
-    allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST
+    allowList: [...BACKGROUND_RUNNER_ENV_ALLOWLIST, ...getExtraEnvAllowlist()]
   });
   const peerDepDir = resolvePeerDepDir();
   const childEnv = peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv;

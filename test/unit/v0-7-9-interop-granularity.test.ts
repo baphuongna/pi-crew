@@ -222,3 +222,50 @@ describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
 		assert.ok(extensionFlags.includes("foo"));
 	});
 });
+
+describe("PI_CREW_EXTRA_EXTENSIONS — always-inherited worker extensions", () => {
+	const ENV_KEY = "PI_CREW_EXTRA_EXTENSIONS";
+	let prevValue: string | undefined;
+
+	afterEach(() => {
+		if (prevValue === undefined) delete process.env[ENV_KEY];
+		else process.env[ENV_KEY] = prevValue;
+	});
+
+	function extensionFlagsOf(args: string[]): string[] {
+		const flags: string[] = [];
+		for (let i = 0; i < args.length; i++) {
+			if (args[i] === "--extension") flags.push(args[i + 1] ?? "");
+		}
+		return flags;
+	}
+
+	it("appends PI_CREW_EXTRA_EXTENSIONS paths when agent has no explicit extensions", () => {
+		prevValue = process.env[ENV_KEY];
+		process.env[ENV_KEY] = "/opt/my-proxy-auth,/opt/other-ext";
+		const agent = makeAgentConfig();
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(flags.includes("/opt/my-proxy-auth"));
+		assert.ok(flags.includes("/opt/other-ext"));
+	});
+
+	it("appends PI_CREW_EXTRA_EXTENSIONS paths alongside agent-declared extensions", () => {
+		prevValue = process.env[ENV_KEY];
+		process.env[ENV_KEY] = "/opt/my-proxy-auth";
+		const agent = makeAgentConfig({ extensions: ["foo"] });
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(flags.includes("/opt/my-proxy-auth"));
+		assert.ok(flags.includes("foo"));
+	});
+
+	it("is a no-op when unset", () => {
+		prevValue = process.env[ENV_KEY];
+		delete process.env[ENV_KEY];
+		const agent = makeAgentConfig();
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(!flags.some((f) => f.includes("/opt/")));
+	});
+});

@@ -42,6 +42,32 @@ function isKnownProviderKey(key: string): boolean {
 }
 
 /**
+ * User-declared extra env var names to trust for pass-through to child/worker
+ * processes, even though their names look secret-like (contain KEY/TOKEN/etc.)
+ * and aren't already in KNOWN_PROVIDER_KEYS.
+ *
+ * Use case: custom LLM gateways/proxies (e.g. an internal auth extension that
+ * reads `$MY_PROXY_API_KEY`) that aren't one of the built-in providers above.
+ * This is an explicit, user-controlled opt-in — the caller is declaring "I know
+ * this name is safe to forward", the same trust model as PI_TEAMS_PI_BIN.
+ *
+ * Set PI_CREW_EXTRA_ENV_ALLOWLIST (or PI_TEAMS_EXTRA_ENV_ALLOWLIST) to a
+ * comma-separated list of env var names, e.g.:
+ *   PI_CREW_EXTRA_ENV_ALLOWLIST=MY_PROXY_API_KEY,MY_PROXY_AUTH_HEADER
+ */
+export function getExtraEnvAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
+	const raw = env.PI_CREW_EXTRA_ENV_ALLOWLIST ?? env.PI_TEAMS_EXTRA_ENV_ALLOWLIST ?? "";
+	return raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+function isUserDeclaredExtraKey(key: string): boolean {
+	return getExtraEnvAllowlist().includes(key);
+}
+
+/**
  * Extract provider prefix from a model ID string and return the corresponding
  * env var names. Returns empty array for unknown/custom providers or invalid input.
  *
@@ -127,7 +153,13 @@ export function sanitizeEnvSecrets(env: NodeJS.ProcessEnv, options?: SanitizeEnv
 			// Exception 2: known provider keys (MINIMAX_API_KEY, etc.) are always
 			// allowed because they are standard provider credentials explicitly
 			// listed in async-runner.ts / child-pi.ts allowlists.
-			if (!pattern.endsWith("*") && isSecretKey(pattern) && !(pattern in env) && !isKnownProviderKey(pattern)) {
+			if (
+				!pattern.endsWith("*") &&
+				isSecretKey(pattern) &&
+				!(pattern in env) &&
+				!isKnownProviderKey(pattern) &&
+				!isUserDeclaredExtraKey(pattern)
+			) {
 				throw new Error(`Allowlist entry "${pattern}" looks like a secret key. Use a more specific pattern.`);
 			}
 		}

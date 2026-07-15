@@ -7,7 +7,7 @@ import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
+import { buildScopedAllowList, getExtraEnvAllowlist, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactJsonLine, redactSecretString } from "../utils/redaction.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -368,7 +368,8 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 	// PER-TASK KEY SCOPING: when a model is provided, only the env keys for that
 	// provider are injected (via buildScopedAllowList). When no model is given,
 	// only BASE_ALLOWLIST system vars pass through — no provider keys leak.
-	const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
+	const baseAllowList = [...BASE_ALLOWLIST, ...getExtraEnvAllowlist()];
+	const allowList = model ? buildScopedAllowList(baseAllowList, [model]) : baseAllowList;
 	const filteredEnv = sanitizeEnvSecrets(env, { allowList });
 	// FIX: Removed delete workarounds — with explicit allowlist, these vars
 	// are no longer auto-leaked. The wildcard approach was fragile.

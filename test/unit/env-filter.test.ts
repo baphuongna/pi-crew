@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildScopedAllowList, providerEnvKeys, sanitizeEnvSecrets } from "../../src/utils/env-filter.ts";
+import { buildScopedAllowList, getExtraEnvAllowlist, providerEnvKeys, sanitizeEnvSecrets } from "../../src/utils/env-filter.ts";
 
 test("default deny-list strips secret-like keys", () => {
 	const result = sanitizeEnvSecrets({
@@ -112,4 +112,25 @@ test("buildScopedAllowList with custom provider returns no extra keys", () => {
 	// No provider keys for custom provider
 	assert.ok(!result.includes("OPENAI_API_KEY"));
 	assert.ok(!result.includes("ANTHROPIC_API_KEY"));
+});
+
+test("getExtraEnvAllowlist parses comma-separated PI_CREW_EXTRA_ENV_ALLOWLIST", () => {
+	const result = getExtraEnvAllowlist({ PI_CREW_EXTRA_ENV_ALLOWLIST: "MY_PROXY_API_KEY, MY_PROXY_AUTH_HEADER" });
+	assert.deepEqual(result, ["MY_PROXY_API_KEY", "MY_PROXY_AUTH_HEADER"]);
+});
+
+test("getExtraEnvAllowlist returns empty array when unset", () => {
+	assert.deepEqual(getExtraEnvAllowlist({}), []);
+});
+
+test("sanitizeEnvSecrets allows a secret-looking name declared via user allowlist option", () => {
+	const extra = getExtraEnvAllowlist({ PI_CREW_EXTRA_ENV_ALLOWLIST: "MY_PROXY_API_KEY" });
+	const result = sanitizeEnvSecrets({ PATH: "/usr/bin", MY_PROXY_API_KEY: "custom-secret-value" }, { allowList: ["PATH", ...extra] });
+	assert.equal(result.MY_PROXY_API_KEY, "custom-secret-value");
+});
+
+test("sanitizeEnvSecrets still rejects undeclared secret-looking allowlist entries", () => {
+	assert.throws(() => {
+		sanitizeEnvSecrets({ PATH: "/usr/bin" }, { allowList: ["PATH", "SOME_RANDOM_API_KEY"] });
+	}, /looks like a secret key/);
 });

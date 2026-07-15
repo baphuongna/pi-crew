@@ -7134,7 +7134,7 @@
       "format": "esm"
     },
     "src/runtime/pi-args.ts": {
-      "bytes": 27494,
+      "bytes": 28759,
       "imports": [
         {
           "path": "node:fs",
@@ -7279,7 +7279,7 @@
       "format": "esm"
     },
     "src/utils/env-filter.ts": {
-      "bytes": 6523,
+      "bytes": 7677,
       "imports": [
         {
           "path": "src/utils/redaction.ts",
@@ -7387,7 +7387,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 71886,
+      "bytes": 71977,
       "imports": [
         {
           "path": "node:child_process",
@@ -12891,7 +12891,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 14705,
+      "bytes": 14759,
       "imports": [
         {
           "path": "node:child_process",
@@ -18425,7 +18425,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6704580
+      "bytes": 6707853
     },
     "dist/index.mjs": {
       "imports": [
@@ -20752,7 +20752,7 @@
           "bytesInOutput": 1291
         },
         "src/runtime/pi-args.ts": {
-          "bytesInOutput": 15095
+          "bytesInOutput": 15435
         },
         "src/runtime/runtime-warmup.ts": {
           "bytesInOutput": 1998
@@ -20776,7 +20776,7 @@
           "bytesInOutput": 291
         },
         "src/utils/env-filter.ts": {
-          "bytesInOutput": 3511
+          "bytesInOutput": 3851
         },
         "src/runtime/compact-pipeline.ts": {
           "bytesInOutput": 517
@@ -20815,7 +20815,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 47895
+          "bytesInOutput": 47965
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 953
@@ -21556,7 +21556,7 @@
           "bytesInOutput": 2699
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 8943
+          "bytesInOutput": 8975
         },
         "src/subagents/async-entry.ts": {
           "bytesInOutput": 119
@@ -22135,7 +22135,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3175900
+      "bytes": 3176682
     }
   }
 }

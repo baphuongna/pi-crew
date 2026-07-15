@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { appendEvent, appendEventAsync } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
+import { getExtraEnvAllowlist, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { packageRoot } from "../utils/paths.ts";
 import { registerWorker, unregisterWorker } from "./orphan-worker-registry.ts";
@@ -242,7 +242,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	// to prevent leaking all env vars (including secrets) to detached background runner.
 	// Previously, destructuring only removed PI_CREW_PARENT_PID but kept everything else.
 	const filteredEnv = sanitizeEnvSecrets(process.env, {
-		allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST,
+		allowList: [...BACKGROUND_RUNNER_ENV_ALLOWLIST, ...getExtraEnvAllowlist()],
 	});
 	// FIX: removed delete workarounds — with explicit allowlist, these vars
 	// are no longer auto-leaked. Matches child-pi.ts.
