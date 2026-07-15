@@ -23,7 +23,6 @@ import { loadConfig } from "../../config/config.ts";
 import { t } from "../../i18n.ts";
 import type { BatchBarrier } from "../../runtime/batch-barrier.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
-import { globalProgressTracker } from "../../runtime/progress-tracker.ts";
 import { checkSubagentSpawnPermission, currentCrewRole } from "../../runtime/role-permission.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import {
@@ -53,9 +52,6 @@ export interface SubagentToolRegistrationOptions {
 	/** Rule 1 batch barrier. When present, agents spawned with a batchId are
 	 * registered here so their completion notifications are coalesced. */
 	batchBarrier?: BatchBarrier;
-	/** Forwarded to handleTeamTool so child-process worker events (tool calls,
-	 * assistant text) reach the progress tracker for real-time streaming. */
-	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 }
 
 export function registerSubagentTools(
@@ -155,7 +151,6 @@ export function registerSubagentTools(
 					{
 						...ctxWithSession,
 						signal: childSignal,
-						...(options.onJsonEvent ? { onJsonEvent: options.onJsonEvent } : {}),
 						...(options.startForegroundRun
 							? {
 									startForegroundRun: (runRunner: (sig?: AbortSignal) => Promise<void>, runId?: string) =>
@@ -449,23 +444,7 @@ function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: On
 				agents,
 				error: record.error,
 			});
-			// Phase 2C: enrich with real-time worker progress (tool calls, partial text)
-			// from globalProgressTracker. For foreground agents, find the task ID from
-			// the manifest and look up streaming progress.
-			let progressLine = text;
-			if (tasks && tasks.length > 0) {
-				const wp = globalProgressTracker.getWorkerProgress(tasks[0].id);
-				if (wp) {
-					const toolLine = wp.currentTool ? `\n  ⚡ tool: ${wp.currentTool}` : "";
-					const tokenLine =
-						wp.tokens.input + wp.tokens.output > 0
-							? `\n  📊 tokens: ${(wp.tokens.input / 1000).toFixed(1)}K in, ${(wp.tokens.output / 1000).toFixed(1)}K out`
-							: "";
-					const textLine = wp.partialText ? `\n  💬 ${wp.partialText.slice(-150).replace(/\n/g, " ")}` : "";
-					progressLine = `${text}${toolLine}${tokenLine}${textLine}`;
-				}
-			}
-			onUpdate({ content: [{ type: "text", text: progressLine }] });
+			onUpdate({ content: [{ type: "text", text }] });
 		} catch (error) {
 			logInternalError("subagent-tools.progress", error, `agentId=${agentRecordId}`);
 		}

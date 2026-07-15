@@ -17720,35 +17720,8 @@
       ],
       "format": "esm"
     },
-    "src/observability/event-bus.ts": {
-      "bytes": 2219,
-      "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/progress-tracker.ts": {
-      "bytes": 7806,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/observability/event-bus.ts",
-          "kind": "import-statement",
-          "original": "../observability/event-bus.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/extension/registration/subagent-tools.ts": {
-      "bytes": 18643,
+      "bytes": 17386,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -17759,11 +17732,6 @@
           "path": "src/extension/team-tool/context.ts",
           "kind": "import-statement",
           "original": "../team-tool/context.ts"
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
         },
         {
           "path": "@earendil-works/pi-tui",
@@ -17784,11 +17752,6 @@
           "path": "src/runtime/crew-agent-records.ts",
           "kind": "import-statement",
           "original": "../../runtime/crew-agent-records.ts"
-        },
-        {
-          "path": "src/runtime/progress-tracker.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/progress-tracker.ts"
         },
         {
           "path": "src/runtime/role-permission.ts",
@@ -18030,7 +17993,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 68402,
+      "bytes": 68063,
       "imports": [
         {
           "path": "node:fs",
@@ -18353,11 +18316,6 @@
           "original": "../i18n.ts"
         },
         {
-          "path": "src/runtime/progress-tracker.ts",
-          "kind": "import-statement",
-          "original": "../runtime/progress-tracker.ts"
-        },
-        {
           "path": "src/runtime/session-resources.ts",
           "kind": "import-statement",
           "original": "../runtime/session-resources.ts"
@@ -18457,7 +18415,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6719201
+      "bytes": 6700101
     },
     "dist/index.mjs": {
       "imports": [
@@ -19907,17 +19865,7 @@
           "external": true
         },
         {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "@earendil-works/pi-tui",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         }
@@ -22072,7 +22020,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 45685
+          "bytesInOutput": 45555
         },
         "src/runtime/batch-barrier.ts": {
           "bytesInOutput": 3060
@@ -22156,16 +22104,10 @@
           "bytesInOutput": 647
         },
         "src/extension/registration/subagent-tools.ts": {
-          "bytesInOutput": 16553
+          "bytesInOutput": 15548
         },
         "src/i18n.ts": {
           "bytesInOutput": 6837
-        },
-        "src/runtime/progress-tracker.ts": {
-          "bytesInOutput": 6914
-        },
-        "src/observability/event-bus.ts": {
-          "bytesInOutput": 1170
         },
         "src/extension/session-summary.ts": {
           "bytesInOutput": 512
@@ -22183,7 +22125,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3183361
+      "bytes": 3173986
     }
   }
 }
