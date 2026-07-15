@@ -24804,7 +24804,15 @@ function buildParentContext(ctx) {
       `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}
 `
     );
-  } catch {
+  } catch (err2) {
+    try {
+      appendFileSync7(
+        "/tmp/pi-crew-cold-error.log",
+        `[error] ${err2 instanceof Error ? err2.message : String(err2)} stack=${err2 instanceof Error ? err2.stack : ""}
+`
+      );
+    } catch {
+    }
   }
   if (!Array.isArray(branch) || branch.length === 0) return void 0;
   const parts = [];
@@ -24850,6 +24858,11 @@ var init_context = __esm({
   "src/extension/team-tool/context.ts"() {
     "use strict";
     init_tool_result();
+    try {
+      appendFileSync7("/tmp/pi-crew-cold-debug.log", `[module-load] context.ts loaded at ${(/* @__PURE__ */ new Date()).toISOString()}
+`);
+    } catch {
+    }
     MAX_PARENT_CONTEXT_CHARS = 12e3;
     MAX_ASSISTANT_MSG_CHARS = 500;
     TRUNCATED_ASSISTANT_CHARS = 200;

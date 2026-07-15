@@ -1,5 +1,9 @@
 import { appendFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+// DEBUG: module-load marker
+try { appendFileSync("/tmp/pi-crew-cold-debug.log", `[module-load] context.ts loaded at ${new Date().toISOString()}\n`); } catch {}
+
 import type { PiTeamsConfig } from "../../config/config.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import type { RunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
@@ -90,7 +94,14 @@ export function buildParentContext(ctx: TeamContext): string | undefined {
 			"/tmp/pi-crew-cold-debug.log",
 			`[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}\n`,
 		);
-	} catch {}
+	} catch (err) {
+		try {
+			appendFileSync(
+				"/tmp/pi-crew-cold-error.log",
+				`[error] ${err instanceof Error ? err.message : String(err)} stack=${err instanceof Error ? err.stack : ""}\n`,
+			);
+		} catch {}
+	}
 	if (!Array.isArray(branch) || branch.length === 0) return undefined;
 	const parts: string[] = [];
 	for (const entry of branch.slice(-20)) {
