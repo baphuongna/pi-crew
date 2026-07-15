@@ -9,6 +9,7 @@
 import { type Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { truncateToWidth } from "../../utils/visual.ts";
+import { spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import { formatDuration, formatTokens, truncLine } from "../tool-render.ts";
 import { briefToolResult, isBrief } from "./brief-mode.ts";
@@ -373,9 +374,25 @@ function renderAgentResult(result: Record<string, unknown>, options: unknown, th
 	// isPartial = agent still running
 	const isPartial = (options as Record<string, unknown>)?.isPartial === true;
 	if (isPartial && !ctx.expanded) {
-		const spinner = theme.fg("warning", "◉");
-		const label = theme.fg("muted", "agent working...");
-		contentLines.push(padVisual(` ${spinner} ${label}`, innerW));
+		const spinner = theme.fg("accent", spinnerFrame(d.agentId as string));
+		const parts: string[] = [theme.fg("muted", "working")];
+
+		// Extract progress from onUpdate content (formatCompactToolProgress output)
+		const progressText = extractContentText(result?.content);
+		if (progressText) {
+			const elapsedMatch = progressText.match(/elapsed=(\d+)s/);
+			const tokenMatch = progressText.match(/tokens=(\d+)/);
+			const toolMatch = progressText.match(/tool:\s+(\S+)/);
+			const elapsedSec = elapsedMatch ? parseInt(elapsedMatch[1]!, 10) : 0;
+			const tokens = tokenMatch ? parseInt(tokenMatch[1]!, 10) : 0;
+			const tps = elapsedSec > 0 ? Math.round(tokens / elapsedSec) : 0;
+
+			if (elapsedSec > 0) parts.push(theme.fg("dim", formatDuration(elapsedSec * 1000)));
+			if (tps > 0) parts.push(theme.fg("dim", `${formatTokens(tps)} tok/s`));
+			if (toolMatch) parts.push(theme.fg("dim", `· ${toolMatch[1]}`));
+		}
+
+		contentLines.push(padVisual(` ${spinner} ${parts.join("  ")}`, innerW));
 		return buildFrameBottom(contentLines, w, theme, "borderAccent", "borderAccent");
 	}
 

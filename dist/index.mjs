@@ -52049,9 +52049,21 @@ function renderAgentResult(result4, options, theme, ctx) {
   const contentLines = [];
   const isPartial = options?.isPartial === true;
   if (isPartial && !ctx.expanded) {
-    const spinner = theme.fg("warning", "\u25C9");
-    const label = theme.fg("muted", "agent working...");
-    contentLines.push(padVisual(` ${spinner} ${label}`, innerW));
+    const spinner = theme.fg("accent", spinnerFrame(d.agentId));
+    const parts = [theme.fg("muted", "working")];
+    const progressText = extractContentText(result4?.content);
+    if (progressText) {
+      const elapsedMatch = progressText.match(/elapsed=(\d+)s/);
+      const tokenMatch = progressText.match(/tokens=(\d+)/);
+      const toolMatch = progressText.match(/tool:\s+(\S+)/);
+      const elapsedSec = elapsedMatch ? parseInt(elapsedMatch[1], 10) : 0;
+      const tokens = tokenMatch ? parseInt(tokenMatch[1], 10) : 0;
+      const tps = elapsedSec > 0 ? Math.round(tokens / elapsedSec) : 0;
+      if (elapsedSec > 0) parts.push(theme.fg("dim", formatDuration2(elapsedSec * 1e3)));
+      if (tps > 0) parts.push(theme.fg("dim", `${formatTokens2(tps)} tok/s`));
+      if (toolMatch) parts.push(theme.fg("dim", `\xB7 ${toolMatch[1]}`));
+    }
+    contentLines.push(padVisual(` ${spinner} ${parts.join("  ")}`, innerW));
     return buildFrameBottom(contentLines, w, theme, "borderAccent", "borderAccent");
   }
   if (!results?.length && !d.agentId) {
@@ -52292,6 +52304,7 @@ var init_tool_renderers = __esm({
   "src/ui/tool-renderers/index.ts"() {
     "use strict";
     init_visual();
+    init_spinner();
     init_tool_render();
     init_brief_mode();
     init_card_colors();
