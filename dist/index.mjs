@@ -24774,7 +24774,6 @@ __export(context_exports, {
   result: () => result,
   withSessionId: () => withSessionId
 });
-import { appendFileSync as appendFileSync7 } from "node:fs";
 function withSessionId(ctx) {
   const sessionId = ctx.sessionManager?.getSessionId?.();
   return sessionId ? { ...ctx, sessionId } : { ...ctx };
@@ -24798,22 +24797,6 @@ function isNoisyContent(text) {
 }
 function buildParentContext(ctx) {
   const branch = ctx.sessionManager?.getBranch?.();
-  try {
-    appendFileSync7(
-      "/tmp/pi-crew-cold-debug.log",
-      `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}
-`
-    );
-  } catch (err2) {
-    try {
-      appendFileSync7(
-        "/tmp/pi-crew-cold-error.log",
-        `[error] ${err2 instanceof Error ? err2.message : String(err2)} stack=${err2 instanceof Error ? err2.stack : ""}
-`
-      );
-    } catch {
-    }
-  }
   if (!Array.isArray(branch) || branch.length === 0) return void 0;
   const parts = [];
   for (const entry of branch.slice(-20)) {
@@ -24858,11 +24841,6 @@ var init_context = __esm({
   "src/extension/team-tool/context.ts"() {
     "use strict";
     init_tool_result();
-    try {
-      appendFileSync7("/tmp/pi-crew-cold-debug.log", `[module-load] context.ts loaded at ${(/* @__PURE__ */ new Date()).toISOString()}
-`);
-    } catch {
-    }
     MAX_PARENT_CONTEXT_CHARS = 12e3;
     MAX_ASSISTANT_MSG_CHARS = 500;
     TRUNCATED_ASSISTANT_CHARS = 200;
