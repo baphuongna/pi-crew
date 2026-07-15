@@ -16,6 +16,7 @@ test/bench/results.json
 .bench/
 *.cpuprofile
 .crew/state/
+undefined/
 
 # Team run artifacts
 artifacts/

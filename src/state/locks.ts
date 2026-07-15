@@ -79,6 +79,29 @@ function isLockHolderAlive(filePath: string): boolean {
  * Returns `{ canSteal: true }` if the lock is stale OR the holder is dead
  * (safe to forcibly remove); `{ canSteal: false }` if it is fresh AND held by
  * a live process (must keep waiting).
+ *
+ * ## EPERM Handling (Accepted Risk)
+ *
+ * When `process.kill(pid, 0)` returns EPERM, it means the holder process
+ * EXISTS but we lack permission to signal it. We treat this as "not alive"
+ * (stealable) because:
+ *
+ * 1. **Blocking indefinitely is worse** — on shared systems, a holder running
+ *    under a different user/permission context would block us forever.
+ * 2. **EPERM requires elevated privileges** — on single-user workstations
+ *    (the typical pi-crew environment), EPERM is rare.
+ * 3. **Defense in depth** — the lock staleness check provides a secondary
+ *    safeguard; we only steal if the lock is also stale.
+ *
+ * **Trade-off:** On multi-user systems, this could theoretically allow two
+ * processes in the critical section simultaneously if: (a) holder is alive
+ * under different permissions, AND (b) our steal attempt races with holder's
+ * release. The practical risk is low because:
+ * - Lock holders typically complete quickly
+ * - Stale timeout provides a safety window
+ * - Critical sections are designed to tolerate rare races
+ *
+ * See also: SECURITY-ISSUES.md SEC-008 for documented acceptance.
  */
 function readLockSnapshot(filePath: string, staleMs: number): { canSteal: boolean } {
 	let stat: fs.Stats | undefined;

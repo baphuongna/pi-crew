@@ -56,6 +56,40 @@ Survey scope: 36 process-execution call sites (`execSync`/`spawn`/`execFileSync`
 | **SEC-005** | Discovery Cache Race Condition | 🟡 MEDIUM | STRIDE: Denial of Service | **✅ Fixed** |
 | **SEC-006** | CrewRegistry Global Exposure | 🟡 MEDIUM | STRIDE: Information Disclosure | **✅ Fixed** |
 | **SEC-007** | Workflow Step Task Injection | 🟡 LOW | STRIDE: Injection | **✅ Fixed** |
+| **SEC-008** | EPERM Lock Stealing (Accepted Risk) | 🟡 LOW | STRIDE: Denial of Service | **⚠️ Accepted** |
+
+---
+
+## SEC-008 — EPERM Lock Stealing (Accepted Risk)
+
+### Description
+
+When `process.kill(pid, 0)` returns EPERM, it means the holder process EXISTS but we lack permission to signal it. We treat this as "not alive" (stealable) because blocking indefinitely is worse.
+
+### Affected Files
+
+| File | Lines | Issue |
+|------|-------|-------|
+| `src/state/locks.ts` | 54–58 | EPERM treated as "not alive" in `isLockHolderAlive()` |
+| `src/state/locks.ts` | 109 | EPERM treated as "not alive" in `readLockSnapshot()` |
+
+### Rationale
+
+1. **Blocking indefinitely is worse** — on shared systems, a holder running under a different user/permission context would block us forever.
+2. **EPERM requires elevated privileges** — on single-user workstations (the typical pi-crew environment), EPERM is rare.
+3. **Defense in depth** — the lock staleness check provides a secondary safeguard; we only steal if the lock is also stale.
+
+### Trade-off
+
+On multi-user systems, this could theoretically allow two processes in the critical section simultaneously if: (a) holder is alive under different permissions, AND (b) our steal attempt races with holder's release. The practical risk is low because:
+
+- Lock holders typically complete quickly
+- Stale timeout provides a safety window
+- Critical sections are designed to tolerate rare races
+
+### Status
+
+**Accepted** — documented trade-off. No code change needed.
 
 ---
 

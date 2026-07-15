@@ -203,6 +203,9 @@ function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunM
 }
 
 export function createRunPaths(cwd: string, runId = createRunId()): RunPaths {
+	if (!cwd || typeof cwd !== "string") {
+		throw new Error(`Invalid cwd: ${cwd}`);
+	}
 	assertSafePathId("runId", runId);
 	const baseRoot = scopeBaseRoot(cwd);
 	const stateRoot = resolveContainedRelativePath(path.join(baseRoot, DEFAULT_PATHS.state.runsSubdir), runId, "runId");

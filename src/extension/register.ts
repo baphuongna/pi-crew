@@ -702,6 +702,58 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		};
 	});
 
+	/**
+	 * Cleanup session resources WITHOUT aborting foreground team runs.
+	 * Used during session switch (reason="resume"/"new"/"fork") to let foreground
+	 * runs complete naturally when the session context is torn down.
+	 */
+	const cleanupSessionResourcesOnly = (): void => {
+		if (cleanedUp) return;
+		cleanedUp = true;
+		if (preloadTimer) {
+			clearTimeout(preloadTimer);
+			preloadTimer = undefined;
+		}
+		crewRunWatchers?.closeAll();
+		crewRunWatchers = undefined;
+		userCrewWatchers?.closeAll();
+		userCrewWatchers = undefined;
+		stopSessionBoundSubagents();
+		// P0 fix: Do NOT abort foreground team runs on session switch.
+		// Foreground team runs run in the same process as the session; they naturally clean up
+		// when the session context is torn down. Only subagents need explicit abort on switch.
+		// Foreground runs will be aborted by cleanupRuntime() during actual session shutdown.
+		crewScheduler?.stop();
+		stopAsyncRunNotifier(notifierState);
+
+		// P0: Purge all stale active-run-index entries on session cleanup.
+		purgeStaleActiveRunIndexSyncIfLoaded();
+
+		stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : undefined);
+		clearPiCrewPowerbar(pi.events);
+		disposePowerbarCoalescer();
+		disposeObservability(observabilityState, cleanedUp);
+		lifecycleState.deliveryCoordinator?.dispose();
+		clearHooksScoped();
+		uninstallCrewGlobalRegistry();
+		lifecycleState.overflowTracker?.dispose();
+		lifecycleState.deliveryCoordinator = undefined;
+		lifecycleState.overflowTracker = undefined;
+		manifestCache.dispose();
+		runSnapshotCache.dispose?.();
+		clearProjectRootCache();
+		renderScheduler?.dispose();
+		renderScheduler = undefined;
+		autoRecoveryLast.clear();
+		disposeNotifications(lifecycleState);
+		rpcHandle?.unsubscribe();
+		rpcHandle = undefined;
+		disposeI18n();
+		sessionGeneration += 1;
+		currentCtx = undefined;
+		if (globalStore[runtimeCleanupStoreKey] === cleanupSessionResourcesOnly) delete globalStore[runtimeCleanupStoreKey];
+	};
+
 	const cleanupRuntime = (): void => {
 		if (cleanedUp) return;
 		cleanedUp = true;
@@ -773,6 +825,20 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		if (globalStore[runtimeCleanupStoreKey] === cleanupRuntime) delete globalStore[runtimeCleanupStoreKey];
 	};
 	globalStore[runtimeCleanupStoreKey] = cleanupRuntime;
+
+	// P0 fix: Check session_shutdown reason to determine whether to abort foreground runs.
+	// - reason="quit" or "reload": Actual shutdown — abort foreground runs.
+	// - reason="resume"/"new"/"fork": Session switch — let foreground runs complete.
+	pi.on("session_shutdown", (event) => {
+		const reason = typeof event === "object" && event !== null && "reason" in event ? (event as { reason: string }).reason : undefined;
+		if (reason === "quit" || reason === "reload") {
+			// Actual shutdown — abort foreground runs and cleanup everything
+			cleanupRuntime();
+		} else {
+			// Session switch (resume/new/fork) — cleanup resources but preserve foreground runs
+			cleanupSessionResourcesOnly();
+		}
+	});
 
 	pi.on("session_start", (_event, ctx) => {
 		runArtifactCleanup(ctx.cwd);
@@ -1385,7 +1451,6 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		stopAsyncRunNotifier(notifierState);
 		stopSessionBoundSubagents();
 	});
-	pi.on("session_shutdown", () => cleanupRuntime());
 
 	// Phase 11a: Dynamic resource discovery — inject pi-crew skill paths.
 	try {
