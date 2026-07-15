@@ -832,6 +832,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					runtime,
 					runtimeConfig: executedConfig.runtime,
 					parentContext: buildParentContext(ctx),
+
 					parentModel: ctx.model,
 					modelRegistry: ctx.modelRegistry,
 					modelOverride: params.model,
