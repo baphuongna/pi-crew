@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.39] — foreground abort fix + security hardening (2026-07-15)
+
+### Fixes
+
+- **Foreground abort semantics** — `src/extension/register.ts`. The `session_shutdown` handler now checks `event.reason` before aborting foreground team runs. Session switch (`reason="resume"/"new"/"fork"`) preserves foreground runs per P0 fix intent; only actual shutdown (`reason="quit"/"reload"`) aborts them. Extracted `cleanupSessionResourcesOnly()` for session-switch cleanup path.
+- **`createRunPaths` cwd validation** — `src/state/state-store.ts`. Added defensive check rejecting `undefined`/empty/null `cwd` to prevent accidental `undefined/` directory creation.
+- **EPERM lock handling documented** — `src/state/locks.ts`. Added detailed JSDoc explaining the EPERM-as-stealable trade-off rationale. Added `SEC-008` entry in `SECURITY-ISSUES.md` as accepted risk.
+
+### Cleanup
+
+- Removed stale `undefined/` directory and added to `.gitignore`.
+
 ## [0.9.38] — cold context activation + UI polish (2026-07-15)
 
 Fixes and UX polish following v0.9.37's cold-context groundwork:
