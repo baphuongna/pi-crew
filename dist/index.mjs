@@ -24797,6 +24797,12 @@ function isNoisyContent(text) {
 }
 function buildParentContext(ctx) {
   const branch = ctx.sessionManager?.getBranch?.();
+  try {
+    const fs102 = __require("node:fs");
+    fs102.appendFileSync("/tmp/pi-crew-cold-debug.log", `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}
+`);
+  } catch {
+  }
   if (!Array.isArray(branch) || branch.length === 0) return void 0;
   const parts = [];
   for (const entry of branch.slice(-20)) {

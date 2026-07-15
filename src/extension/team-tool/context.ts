@@ -83,6 +83,11 @@ function isNoisyContent(text: string): boolean {
  */
 export function buildParentContext(ctx: TeamContext): string | undefined {
 	const branch = ctx.sessionManager?.getBranch?.();
+	// DEBUG: log to /tmp/pi-crew-cold-debug.log
+	try {
+		const fs = require("node:fs");
+		fs.appendFileSync("/tmp/pi-crew-cold-debug.log", `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}\n`);
+	} catch {}
 	if (!Array.isArray(branch) || branch.length === 0) return undefined;
 	const parts: string[] = [];
 	for (const entry of branch.slice(-20)) {
