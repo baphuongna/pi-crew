@@ -20964,10 +20964,19 @@ function agentStats(agent, liveHandle) {
     } catch {
     }
     const ms = computeLiveDurationMs(act);
+    if (total > 0 && ms > 1e3) {
+      const tps = Math.round(total / (ms / 1e3));
+      if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
+    }
     parts.push(alignMetric(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH));
   } else {
     if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
     if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+    const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
+    if (agent.progress?.tokens && ageMs > 1e3) {
+      const tps = Math.round(agent.progress.tokens / (ageMs / 1e3));
+      if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
+    }
     const age = elapsed(agent.completedAt ?? agent.startedAt);
     if (age) parts.push(alignMetric(age, DURATION_METRIC_WIDTH));
   }
@@ -20980,7 +20989,7 @@ function notificationBadge(count2, env = process.env) {
   const label = count2 > NOTIFICATION_BADGE_CAP ? `${NOTIFICATION_BADGE_CAP}+ alerts` : `${count2} alerts`;
   return supportsEmoji ? ` \xB7 ${label}` : ` [${label}]`;
 }
-var TOOLS_METRIC_WIDTH, TOKENS_METRIC_WIDTH, CTX_METRIC_WIDTH, DURATION_METRIC_WIDTH, TOOL_LABELS, TOOL_ICONS, NOTIFICATION_BADGE_CAP;
+var TOOLS_METRIC_WIDTH, TOKENS_METRIC_WIDTH, TPS_METRIC_WIDTH, CTX_METRIC_WIDTH, DURATION_METRIC_WIDTH, TOOL_LABELS, TOOL_ICONS, NOTIFICATION_BADGE_CAP;
 var init_widget_formatters = __esm({
   "src/ui/widget/widget-formatters.ts"() {
     "use strict";
@@ -20989,6 +20998,7 @@ var init_widget_formatters = __esm({
     init_live_duration();
     TOOLS_METRIC_WIDTH = 8;
     TOKENS_METRIC_WIDTH = 10;
+    TPS_METRIC_WIDTH = 9;
     CTX_METRIC_WIDTH = 7;
     DURATION_METRIC_WIDTH = 6;
     TOOL_LABELS = {

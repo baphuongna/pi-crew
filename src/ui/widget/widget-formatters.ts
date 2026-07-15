@@ -18,6 +18,7 @@ import { computeLiveDurationMs } from "../live-duration.ts";
 // verbatim (no truncation/crash) — these are rare one-off states, not jitter.
 const TOOLS_METRIC_WIDTH = 8; // "127 tools"
 const TOKENS_METRIC_WIDTH = 10; // "1.2k tok", "12.3M tok"
+const TPS_METRIC_WIDTH = 9; // "411 tok/s"
 const CTX_METRIC_WIDTH = 7; // "100% ctx"
 const DURATION_METRIC_WIDTH = 6; // "120.0s"
 
@@ -139,10 +140,19 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 			/* ignore */
 		}
 		const ms = computeLiveDurationMs(act);
+		if (total > 0 && ms > 1000) {
+			const tps = Math.round(total / (ms / 1000));
+			if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
+		}
 		parts.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
 	} else {
 		if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
 		if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+		const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
+		if (agent.progress?.tokens && ageMs > 1000) {
+			const tps = Math.round(agent.progress.tokens / (ageMs / 1000));
+			if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
+		}
 		const age = elapsed(agent.completedAt ?? agent.startedAt);
 		if (age) parts.push(alignMetric(age, DURATION_METRIC_WIDTH));
 	}
