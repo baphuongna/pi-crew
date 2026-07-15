@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PiTeamsConfig } from "../../config/config.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
@@ -85,8 +86,10 @@ export function buildParentContext(ctx: TeamContext): string | undefined {
 	const branch = ctx.sessionManager?.getBranch?.();
 	// DEBUG: log to /tmp/pi-crew-cold-debug.log
 	try {
-		const fs = require("node:fs");
-		fs.appendFileSync("/tmp/pi-crew-cold-debug.log", `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}\n`);
+		appendFileSync(
+			"/tmp/pi-crew-cold-debug.log",
+			`[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}\n`,
+		);
 	} catch {}
 	if (!Array.isArray(branch) || branch.length === 0) return undefined;
 	const parts: string[] = [];

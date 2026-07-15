@@ -24774,6 +24774,7 @@ __export(context_exports, {
   result: () => result,
   withSessionId: () => withSessionId
 });
+import { appendFileSync as appendFileSync7 } from "node:fs";
 function withSessionId(ctx) {
   const sessionId = ctx.sessionManager?.getSessionId?.();
   return sessionId ? { ...ctx, sessionId } : { ...ctx };
@@ -24798,9 +24799,11 @@ function isNoisyContent(text) {
 function buildParentContext(ctx) {
   const branch = ctx.sessionManager?.getBranch?.();
   try {
-    const fs102 = __require("node:fs");
-    fs102.appendFileSync("/tmp/pi-crew-cold-debug.log", `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}
-`);
+    appendFileSync7(
+      "/tmp/pi-crew-cold-debug.log",
+      `[ctx] hasSessionMgr=${!!ctx.sessionManager} hasGetBranch=${!!ctx.sessionManager?.getBranch} branchLen=${Array.isArray(branch) ? branch.length : "not-array"} branchType=${typeof branch}
+`
+    );
   } catch {
   }
   if (!Array.isArray(branch) || branch.length === 0) return void 0;
