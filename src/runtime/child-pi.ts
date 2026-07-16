@@ -447,64 +447,80 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 }
 
 /** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
-async function appendTranscriptAsync(safePath: string, line: string): Promise<void> {
-	const content = `${redactJsonLine(line)}\n`;
-	try {
-		// Use async file handle for better performance when many writes occur.
-		// O_NOFOLLOW | O_CREAT | O_APPEND ensures security and atomicity.
-		const fd = await fs.promises.open(
-			safePath,
-			fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
-			0o600,
-		);
-		try {
-			await fd.write(content, undefined, "utf-8");
-		} finally {
-			await fd.close();
-		}
-	} catch (error) {
-		logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
-	}
+// ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────
+// Instead of open/write/close per line (3 syscalls × N), accumulate lines
+// in a module-scoped buffer and flush them in one open/write/close per path
+// every TRANSCRIPT_FLUSH_MS. Lifecycle boundaries (observer.flush, settle)
+// force-flush the buffer before returning so transcript reads are complete.
+//
+// Ordering: lines are appended to the per-path array in call order. The flush
+// writes the joined array, preserving intra-batch ordering. Inter-batch
+// ordering is not guaranteed but transcript is append-only telemetry.
+//
+// Security: O_NOFOLLOW | O_CREAT | O_APPEND flags preserved on every flush.
+const transcriptBatches = new Map<string, string[]>();
+let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined;
+const TRANSCRIPT_FLUSH_MS = 50;
+
+function scheduleTranscriptFlush(): void {
+	if (transcriptFlushTimer) return;
+	transcriptFlushTimer = setTimeout(() => {
+		transcriptFlushTimer = undefined;
+		void flushTranscriptBatches();
+	}, TRANSCRIPT_FLUSH_MS);
+	transcriptFlushTimer.unref?.();
 }
 
-/**
- * Module-scoped set of in-flight transcript-write promises. Each call to
- * {@link trackTranscriptWrite} registers its promise here; the promise
- * removes itself on completion via `.finally`. Lifecycle boundaries
- * (ChildPiLineObserver.flush, runChildPi settle) call
- * {@link flushPendingTranscriptWrites} before returning so callers that
- * immediately read the transcript file after `runChildPi` / `observer.flush()`
- * await see the full content (and a non-ENOENT file).
- *
- * Module-scoped rather than per-input because all transcript writes for a
- * given run share the same Node fs event loop and serialise through a single
- * fs handle per path; one drain per lifecycle boundary is sufficient.
- */
-const pendingTranscriptWrites: Set<Promise<void>> = new Set();
+async function flushTranscriptBatches(): Promise<void> {
+	const entries = [...transcriptBatches.entries()];
+	transcriptBatches.clear();
+	await Promise.allSettled(entries.map(async ([safePath, lines]) => {
+		if (lines.length === 0) return;
+		const content = lines.join("");
+		try {
+			const fd = await fs.promises.open(
+				safePath,
+				fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
+				0o600,
+			);
+			try {
+				await fd.write(content, undefined, "utf-8");
+			} finally {
+				await fd.close();
+			}
+		} catch (error) {
+			logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
+		}
+	}));
+}
 
 function trackTranscriptWrite(safePath: string, line: string): void {
-	const p = appendTranscriptAsync(safePath, line).finally(() => {
-		pendingTranscriptWrites.delete(p);
-	});
-	pendingTranscriptWrites.add(p);
+	const content = `${redactJsonLine(line)}\n`;
+	let batch = transcriptBatches.get(safePath);
+	if (!batch) {
+		batch = [];
+		transcriptBatches.set(safePath, batch);
+	}
+	batch.push(content);
+	scheduleTranscriptFlush();
 }
 
 /**
- * Drain all currently-pending transcript writes. Awaits every promise in the
- * set; if new writes are scheduled during the drain (i.e. the `.finally`
- * callback has not yet removed them), the loop re-checks `size > 0` and
- * awaits them too. Idempotent and safe to call concurrently / reentrantly —
- * each pending promise is tracked exactly once.
+ * Drain the transcript batch buffer and await any remaining in-flight writes.
+ * Called by lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle)
+ * so that transcript files are complete before callers read them.
  *
  * Exported so external callers (e.g. integration tests that construct a
  * ChildPiLineObserver directly) can drain explicitly if they need to read
  * the transcript file outside of the observer's lifecycle.
  */
 export async function flushPendingTranscriptWrites(): Promise<void> {
-	while (pendingTranscriptWrites.size > 0) {
-		const drained = [...pendingTranscriptWrites];
-		await Promise.allSettled(drained);
+	// Force-flush the buffer synchronously (clear timer, write immediately).
+	if (transcriptFlushTimer) {
+		clearTimeout(transcriptFlushTimer);
+		transcriptFlushTimer = undefined;
 	}
+	await flushTranscriptBatches();
 }
 
 export function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS, opts: { preserveImportant?: boolean } = {}): string {
