@@ -1,0 +1,6 @@
+# Phase 0 baseline — ChildPiLineObserver hot path
+# node v22.23.1, date 2026-07-16T15:29:15.694Z
+
+50 events: 0.43 ms, 100 JSON.parse (2.00/line)
+200 events: 1.75 ms, 400 JSON.parse (2.00/line)
+1000 events: 8.98 ms, 2000 JSON.parse (2.00/line)
