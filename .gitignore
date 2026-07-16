@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+# strip-types emits .js companions to every .ts file; never committed
+src/**/*.js
 *.log
 *.tmp
 # Test temp dirs (verification-env-sanitize.test.ts) — created and removed by tests, but left behind on cancel.
