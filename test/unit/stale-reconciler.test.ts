@@ -87,6 +87,31 @@ describe("reconcileStaleRun", () => {
 		assert.equal(manifest.status, "completed");
 	});
 
+	it("marks run failed (not completed) when all tasks need_attention (T1)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const attentionTask: TeamTaskState = {
+			...runningTask,
+			status: "needs_attention",
+			finishedAt: new Date().toISOString(),
+		};
+		const result = reconcileStaleRun(manifest, [attentionTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "failed");
+	});
+
+	it("marks run failed when mix of needs_attention + completed tasks (T1)", () => {
+		const manifest: TeamRunManifest = { ...baseManifest, status: "running" };
+		const attentionTask: TeamTaskState = {
+			...runningTask,
+			id: "task-attn",
+			status: "needs_attention",
+			finishedAt: new Date().toISOString(),
+		};
+		const result = reconcileStaleRun(manifest, [completedTask, attentionTask]);
+		assert.equal(result.verdict, "result_exists");
+		assert.equal(manifest.status, "failed");
+	});
+
 	// Regression: PR #32 / gustavo-pelissaro — a run blocked on human plan
 	// approval must never be stale-repaired or marked failed, even if its
 	// owning session died or its async PID is no longer live.
