@@ -90,6 +90,11 @@ export class HeartbeatWatcher {
 			if (!fs.existsSync(run.stateRoot)) continue;
 			const loaded = loadRunManifestById(this.opts.cwd, run.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
 			if (!loaded) continue;
+			// Defensive guard: cache may return stale "running" while disk says terminal.
+			// Re-read manifest from disk to verify before entering the heavy loop.
+			// This closes the false-positive alert loop when a run completes but the
+			// manifestCache.list(50) still serves a pre-completion snapshot.
+			if (loaded.manifest.status !== "running") continue;
 			for (const task of loaded.tasks) {
 				if (task.status !== "running") continue;
 				const key = `${run.runId}:${task.id}`;
