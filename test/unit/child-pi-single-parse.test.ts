@@ -107,4 +107,30 @@ describe("Phase 2: single JSON.parse per stdout line", () => {
 		observer.observe(`${line}\n`);
 		assert.equal(observer.getRawFinalText(), text);
 	});
+
+	test("whitespace-only line triggers zero parse calls", () => {
+		const observer = new ChildPiLineObserver(buildInput());
+		let count = 0;
+		const orig = JSON.parse;
+		(JSON as { parse: typeof JSON.parse }).parse = function (...args: Parameters<typeof JSON.parse>) {
+			count++;
+			return orig.apply(JSON, args);
+		};
+		try {
+			observer.observe("  \t  \n");
+		} finally {
+			(JSON as { parse: typeof JSON.parse }).parse = orig;
+		}
+		assert.equal(count, 0, `whitespace-only line should produce 0 parses, got ${count}`);
+	});
+
+	test("message_update produces no event (compactChildPiEvent returns undefined)", () => {
+		const events: unknown[] = [];
+		const input = buildInput();
+		input.onJsonEvent = (e) => events.push(e);
+		const line = JSON.stringify({ type: "message_update" });
+		const observer = new ChildPiLineObserver(input);
+		observer.observe(`${line}\n`);
+		assert.equal(events.length, 0, "message_update should produce no onJsonEvent");
+	});
 });

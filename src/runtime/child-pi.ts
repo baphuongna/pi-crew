@@ -659,32 +659,27 @@ function compactChildPiLine(line: string, preParsed?: unknown): {
 	displayLine?: string;
 	json: boolean;
 } {
-	// OPT-PHASE2: accept a pre-parsed object so emitLine can avoid a second
-	// JSON.parse on the same line. When preParsed is provided the value already
-	// parsed successfully, so we skip directly to compaction and never return
-	// the json:false (catch) path. The standalone parse+catch path is retained
-	// for callers that do not pre-parse (e.g. observeStdoutChunk mock path).
+	// OPT-PHASE2: when the caller (emitLine) already parsed the line, pass the
+	// result via preParsed to avoid a redundant JSON.parse. Standalone callers
+	// without a preParsed fall back to their own parse+catch (DRY: single
+	// compact+return path for both branches).
+	let parsed: unknown;
 	if (preParsed !== undefined) {
-		const compact = compactChildPiEvent(preParsed);
-		return {
-			json: true,
-			event: compact,
-			persistedLine: compact ? JSON.stringify(compact) : "",
-			displayLine: displayTextFromCompactEvent(compact),
-		};
+		parsed = preParsed;
+	} else {
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			return nonJsonLineResult(line);
+		}
 	}
-	try {
-		const parsed = JSON.parse(line);
-		const compact = compactChildPiEvent(parsed);
-		return {
-			json: true,
-			event: compact,
-			persistedLine: compact ? JSON.stringify(compact) : "",
-			displayLine: displayTextFromCompactEvent(compact),
-		};
-	} catch {
-		return nonJsonLineResult(line);
-	}
+	const compact = compactChildPiEvent(parsed);
+	return {
+		json: true,
+		event: compact,
+		persistedLine: compact ? JSON.stringify(compact) : "",
+		displayLine: displayTextFromCompactEvent(compact),
+	};
 }
 
 export class ChildPiLineObserver {
