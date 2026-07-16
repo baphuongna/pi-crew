@@ -337,3 +337,30 @@ appendEventFireAndForget(eventsPath, { type: "task.needs_attention", ... });
 - `review`: review diff trước merge.
 - `security-review`: bắt buộc cho Phase 5/7.
 - `tdd`: Phase 2-5 nên red-green (viết test snapshot trước, refactor sau).
+
+## Phase 5 outcome (2026-07-16): DEFERRED
+
+Phase 5 (pollRunToTerminal → fs.watch) was attempted but reverted before review rounds. Reasons:
+- Test path resolution issue: `loadRunManifestById` uses `resolveRunStateRoot` internally; test setup didn't match the real path scheme
+- Implementation complexity: async watcher coordination with promise-based wake + polling fallback is high-risk
+- Time/context budget: debugging the test setup would have consumed resources better spent on the remaining phases
+
+**Recommendation**: Phase 5 is a good follow-up but requires dedicated test infrastructure (a helper to set up a run stateRoot correctly) before it's safe to implement. The polling code works correctly; the win is latency reduction (1s → <100ms) for subagent terminal detection, not correctness.
+
+## Phases 6-8 outcome (2026-07-16): SKIPPED (context budget)
+
+- **Phase 6** (coalesce steer+control poll): optional per plan, skipped
+- **Phase 7** (redaction trust-boundary): explicitly DEFER per plan
+- **Phase 8** (build bundle + full verification): completed in final commit
+
+## Final summary
+
+- ✅ Phase 0: Baseline (2.0 parse/line)
+- ✅ Phase 1: Dead code (3 functions removed)
+- ✅ Phase 2: Double-parse → 1.0 parse/line (~27% faster)
+- ✅ Phase 3: Transcript batching (3 syscalls/line → 3/flush)
+- ✅ Phase 4: Event-log async migration (4 calls, 1 upgraded, 2 reverted after review)
+- ⚠️ Phase 5: DEFERRED (reverted before review — see above)
+- ⏭️ Phase 6: SKIPPED (optional)
+- ⏭️ Phase 7: SKIPPED (explicitly DEFER)
+- ✅ Phase 8: Build bundle + final verification

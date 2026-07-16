@@ -6751,7 +6751,7 @@
       "format": "esm"
     },
     "src/runtime/live-agent-manager.ts": {
-      "bytes": 24685,
+      "bytes": 23837,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -7387,7 +7387,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 71886,
+      "bytes": 73952,
       "imports": [
         {
           "path": "node:child_process",
@@ -15133,7 +15133,7 @@
       "format": "esm"
     },
     "src/runtime/adaptive-plan.ts": {
-      "bytes": 18288,
+      "bytes": 18395,
       "imports": [
         {
           "path": "node:fs",
@@ -17643,7 +17643,7 @@
       "format": "esm"
     },
     "src/runtime/heartbeat-watcher.ts": {
-      "bytes": 8071,
+      "bytes": 8429,
       "imports": [
         {
           "path": "node:fs",
@@ -18425,7 +18425,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6709812
+      "bytes": 6712339
     },
     "dist/index.mjs": {
       "imports": [
@@ -20815,7 +20815,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 47895
+          "bytesInOutput": 48823
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 953
@@ -21472,7 +21472,7 @@
           "bytesInOutput": 4743
         },
         "src/runtime/live-session-runtime.ts": {
-          "bytesInOutput": 30989
+          "bytesInOutput": 30987
         },
         "src/subagents/live/session-runtime.ts": {
           "bytesInOutput": 140
@@ -21820,7 +21820,7 @@
           "bytesInOutput": 3799
         },
         "src/runtime/adaptive-plan.ts": {
-          "bytesInOutput": 15447
+          "bytesInOutput": 15523
         },
         "src/workflows/topology-analyzer.ts": {
           "bytesInOutput": 4262
@@ -22009,7 +22009,7 @@
           "bytesInOutput": 2463
         },
         "src/runtime/heartbeat-watcher.ts": {
-          "bytesInOutput": 5931
+          "bytesInOutput": 5993
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7512
@@ -22135,7 +22135,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3177730
+      "bytes": 3178794
     }
   }
 }

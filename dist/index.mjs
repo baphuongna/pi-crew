@@ -18699,34 +18699,54 @@ function appendTranscript(input, line4) {
   }
   trackTranscriptWrite(safePath, line4);
 }
-async function appendTranscriptAsync(safePath, line4) {
-  const content = `${redactJsonLine(line4)}
-`;
-  try {
-    const fd = await fs28.promises.open(
-      safePath,
-      fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND,
-      384
-    );
+function scheduleTranscriptFlush() {
+  if (transcriptFlushTimer) return;
+  transcriptFlushTimer = setTimeout(() => {
+    transcriptFlushTimer = void 0;
+    void flushTranscriptBatches();
+  }, TRANSCRIPT_FLUSH_MS);
+  transcriptFlushTimer.unref?.();
+}
+async function flushTranscriptBatches() {
+  const entries = [...transcriptBatches.entries()];
+  transcriptBatches.clear();
+  await Promise.allSettled(entries.map(async ([safePath, lines]) => {
+    if (lines.length === 0) return;
+    const content = lines.join("");
     try {
-      await fd.write(content, void 0, "utf-8");
-    } finally {
-      await fd.close();
+      const fd = await fs28.promises.open(
+        safePath,
+        fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND,
+        384
+      );
+      try {
+        await fd.write(content, void 0, "utf-8");
+      } finally {
+        await fd.close();
+      }
+    } catch (error) {
+      logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
     }
-  } catch (error) {
-    logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
-  }
+  }));
 }
 function trackTranscriptWrite(safePath, line4) {
-  const p = appendTranscriptAsync(safePath, line4).finally(() => {
-    pendingTranscriptWrites.delete(p);
-  });
-  pendingTranscriptWrites.add(p);
+  const content = `${redactJsonLine(line4)}
+`;
+  let batch = transcriptBatches.get(safePath);
+  if (!batch) {
+    batch = [];
+    transcriptBatches.set(safePath, batch);
+  }
+  batch.push(content);
+  scheduleTranscriptFlush();
 }
 async function flushPendingTranscriptWrites() {
-  while (pendingTranscriptWrites.size > 0) {
-    const drained = [...pendingTranscriptWrites];
-    await Promise.allSettled(drained);
+  if (transcriptFlushTimer) {
+    clearTimeout(transcriptFlushTimer);
+    transcriptFlushTimer = void 0;
+  }
+  while (transcriptBatches.size > 0) {
+    await flushTranscriptBatches();
   }
 }
 function compactString(value, maxChars = MAX_COMPACT_CONTENT_CHARS, opts = {}) {
@@ -18832,19 +18852,27 @@ function displayTextFromCompactEvent(event) {
   }).join("\n").trim();
   return text || (typeof record.text === "string" ? record.text : void 0);
 }
-function compactChildPiLine(line4) {
-  try {
-    const parsed = JSON.parse(line4);
-    const compact = compactChildPiEvent(parsed);
-    return {
-      json: true,
-      event: compact,
-      persistedLine: compact ? JSON.stringify(compact) : "",
-      displayLine: displayTextFromCompactEvent(compact)
-    };
-  } catch {
-    return { json: false, persistedLine: line4, displayLine: line4 };
+function nonJsonLineResult(line4) {
+  return { json: false, persistedLine: line4, displayLine: line4 };
+}
+function compactChildPiLine(line4, preParsed) {
+  let parsed;
+  if (preParsed !== void 0) {
+    parsed = preParsed;
+  } else {
+    try {
+      parsed = JSON.parse(line4);
+    } catch {
+      return nonJsonLineResult(line4);
+    }
   }
+  const compact = compactChildPiEvent(parsed);
+  return {
+    json: true,
+    event: compact,
+    persistedLine: compact ? JSON.stringify(compact) : "",
+    displayLine: displayTextFromCompactEvent(compact)
+  };
 }
 async function observeStdoutChunk(input, text) {
   const observer = new ChildPiLineObserver(input);
@@ -19611,7 +19639,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, BASE_ALLOWLIST, pendingTranscriptWrites, ChildPiLineObserver;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, BASE_ALLOWLIST, transcriptBatches, transcriptFlushTimer, TRANSCRIPT_FLUSH_MS, ChildPiLineObserver;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -19693,7 +19721,8 @@ var init_child_pi = __esm({
       "PI_CREW_MAX_OUTPUT",
       "PI_CREW_STEERING_FILE"
     ];
-    pendingTranscriptWrites = /* @__PURE__ */ new Set();
+    transcriptBatches = /* @__PURE__ */ new Map();
+    TRANSCRIPT_FLUSH_MS = 50;
     ChildPiLineObserver = class _ChildPiLineObserver {
       buffer = "";
       input;
@@ -19753,9 +19782,14 @@ var init_child_pi = __esm({
       }
       emitLine(line4) {
         if (!line4.trim()) return;
+        let parsed;
         try {
-          const rawParsed = JSON.parse(line4);
-          const rawTexts = extractText(rawParsed);
+          parsed = JSON.parse(line4);
+        } catch {
+          parsed = void 0;
+        }
+        if (parsed !== void 0) {
+          const rawTexts = extractText(parsed);
           if (rawTexts.length > 0) {
             this.rawTextEvents.push(...rawTexts);
             const rawOverflow = this.rawTextEvents.length - _ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
@@ -19767,9 +19801,8 @@ var init_child_pi = __esm({
               if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
             }
           }
-        } catch {
         }
-        const compact = compactChildPiLine(line4);
+        const compact = parsed !== void 0 ? compactChildPiLine(line4, parsed) : nonJsonLineResult(line4);
         if (compact.event !== void 0) {
           try {
             this.input.onJsonEvent?.(compact.event);
@@ -42511,9 +42544,9 @@ function loadLiveSessionModule() {
 }
 function appendTranscript2(filePath, event) {
   if (!filePath) return;
-  void appendTranscriptAsync2(filePath, event);
+  void appendTranscriptAsync(filePath, event);
 }
-async function appendTranscriptAsync2(filePath, event) {
+async function appendTranscriptAsync(filePath, event) {
   try {
     await fs49.promises.mkdir(path42.dirname(filePath), { recursive: true });
     const content = `${JSON.stringify(redactSecrets(event))}
@@ -60054,7 +60087,7 @@ async function injectAdaptivePlanIfReady(input) {
       missingPlan: false
     };
   if (!completedAssess.resultArtifact?.path) {
-    appendEvent(input.manifest.eventsPath, {
+    appendEventFireAndForget(input.manifest.eventsPath, {
       type: "adaptive.plan_missing",
       runId: input.manifest.runId,
       taskId: completedAssess.id,
@@ -60073,7 +60106,7 @@ async function injectAdaptivePlanIfReady(input) {
   try {
     text = fs85.readFileSync(resultPath, "utf-8");
   } catch {
-    appendEvent(input.manifest.eventsPath, {
+    appendEventFireAndForget(input.manifest.eventsPath, {
       type: "adaptive.plan_missing",
       runId: input.manifest.runId,
       taskId: assessTask.id,
@@ -60104,7 +60137,7 @@ async function injectAdaptivePlanIfReady(input) {
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         artifacts: [...input.manifest.artifacts, repairArtifact]
       });
-      appendEvent(input.manifest.eventsPath, {
+      appendEventFireAndForget(input.manifest.eventsPath, {
         type: "adaptive.plan_repaired",
         runId: input.manifest.runId,
         taskId: assessTask.id,
@@ -60112,14 +60145,14 @@ async function injectAdaptivePlanIfReady(input) {
         data: { reason: repair.reason }
       });
     } else {
-      appendEvent(input.manifest.eventsPath, {
+      appendEventFireAndForget(input.manifest.eventsPath, {
         type: "adaptive.plan_repair_failed",
         runId: input.manifest.runId,
         taskId: assessTask.id,
         message: "Adaptive planner output could not be repaired.",
         data: { reason: repair.reason }
       });
-      appendEvent(input.manifest.eventsPath, {
+      appendEventFireAndForget(input.manifest.eventsPath, {
         type: "adaptive.plan_missing",
         runId: input.manifest.runId,
         taskId: assessTask.id,
@@ -60186,7 +60219,7 @@ async function injectAdaptivePlanIfReady(input) {
     } : task.graph
   }));
   const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
-  appendEvent(input.manifest.eventsPath, {
+  await appendEventAsync(input.manifest.eventsPath, {
     type: "adaptive.plan_injected",
     runId: input.manifest.runId,
     taskId: assessTask.id,
@@ -79032,6 +79065,7 @@ var init_heartbeat_watcher = __esm({
           if (!fs99.existsSync(run.stateRoot)) continue;
           const loaded = loadRunManifestById(this.opts.cwd, run.runId);
           if (!loaded) continue;
+          if (loaded.manifest.status !== "running") continue;
           for (const task of loaded.tasks) {
             if (task.status !== "running") continue;
             const key = `${run.runId}:${task.id}`;
