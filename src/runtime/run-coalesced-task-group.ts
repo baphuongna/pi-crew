@@ -14,7 +14,7 @@ import path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync } from "../state/event-log.ts";
-import { saveRunTasks, updateRunStatus } from "../state/state-store.ts";
+import { saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { runChildPi } from "./child-pi.ts";
@@ -62,7 +62,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		}
 		return t;
 	});
-	saveRunTasks(manifest, updatedTasks);
+	await saveRunTasksAsync(manifest, updatedTasks);
 	await appendEventAsync(manifest.eventsPath, {
 		type: "task.coalesced_dispatch_start",
 		runId: manifest.runId,
@@ -87,7 +87,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			heartbeat: t.heartbeat ?? createWorkerHeartbeat(t.id),
 		};
 	});
-	saveRunTasks(manifest, updatedTasks);
+	await saveRunTasksAsync(manifest, updatedTasks);
 
 	let rawOutput = "";
 	let success = false;
@@ -98,7 +98,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		// Heartbeat refresher: touch every task's heartbeat every 15s while the
 		// worker is alive. Set `alive: true` explicitly so post-completion
 		// staleness checks immediately recognize liveness.
-		const heartbeatTimer = setInterval(() => {
+		const heartbeatTimer = setInterval(async () => {
 			const now = new Date().toISOString();
 			updatedTasks = updatedTasks.map((t) => {
 				if (!taskIds.includes(t.id)) return t;
@@ -108,7 +108,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 				};
 			});
 			try {
-				saveRunTasks(manifest, updatedTasks);
+				await saveRunTasksAsync(manifest, updatedTasks);
 			} catch {
 				// Run may have been pruned mid-dispatch — best-effort only.
 			}
@@ -168,7 +168,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			resultArtifact,
 		};
 	});
-	saveRunTasks(manifest, updatedTasks);
+	await saveRunTasksAsync(manifest, updatedTasks);
 	let updatedManifest: TeamRunManifest = {
 		...manifest,
 		artifacts: mergeArtifacts([...manifest.artifacts, ...newArtifacts]),
