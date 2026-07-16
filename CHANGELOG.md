@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] — communication-layer optimization (2026-07-16)
+
+### Cleanup
+
+- **Removed dead code in `live-agent-manager.ts`** — deleted `drainIrcMessages`, `removeLiveAgentHandle`, and `listActiveLiveAgentsByWorkspace`, three internal functions with zero callers (verified via repo-wide grep; `removeLiveAgentHandle` logic was already inlined into `terminateLiveAgent`). Updated stale test comments. No behavioral change.
+- **Added child-pi parse benchmark** — `bench/child-pi-parse.bench.ts` establishes a baseline (2.0 JSON.parse/line) for the hot-path optimization phases.
+
 ## [0.9.40] — stale-reconciler fix + async dispatch + gitignore cleanup (2026-07-16)
 
 ### Fixes

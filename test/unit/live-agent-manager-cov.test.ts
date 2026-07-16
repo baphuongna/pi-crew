@@ -147,8 +147,8 @@ describe("live-agent-manager", () => {
 		});
 	});
 
-	// removeLiveAgentHandle is internal, tested via terminateLiveAgent
-	describe("removeLiveAgentHandle (via terminateLiveAgent)", () => {
+	// handle removal is tested via terminateLiveAgent (inlines liveAgents.delete)
+	describe("handle removal (via terminateLiveAgent)", () => {
 		it("removes agent on termination", async () => {
 			clearLiveAgentsForTest();
 			registerLiveAgent(makeHandle({ agentId: "rem1" }));
@@ -377,7 +377,7 @@ describe("live-agent-manager", () => {
 		});
 	});
 
-	// IRC messaging (drainIrcMessages is internal, test via pendingMessages)
+	// IRC messaging (pendingMessages is internal bookkeeping; delivery is inline via sendIrcMessage)
 	describe("IRC messaging", () => {
 		it("sendIrcMessage queues message for agent", () => {
 			clearLiveAgentsForTest();
