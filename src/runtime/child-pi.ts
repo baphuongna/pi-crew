@@ -644,12 +644,35 @@ function displayTextFromCompactEvent(event: unknown): string | undefined {
 	return text || (typeof record.text === "string" ? record.text : undefined);
 }
 
-function compactChildPiLine(line: string): {
+function nonJsonLineResult(line: string): {
 	persistedLine: string;
 	event?: unknown;
 	displayLine?: string;
 	json: boolean;
 } {
+	return { json: false, persistedLine: line, displayLine: line };
+}
+
+function compactChildPiLine(line: string, preParsed?: unknown): {
+	persistedLine: string;
+	event?: unknown;
+	displayLine?: string;
+	json: boolean;
+} {
+	// OPT-PHASE2: accept a pre-parsed object so emitLine can avoid a second
+	// JSON.parse on the same line. When preParsed is provided the value already
+	// parsed successfully, so we skip directly to compaction and never return
+	// the json:false (catch) path. The standalone parse+catch path is retained
+	// for callers that do not pre-parse (e.g. observeStdoutChunk mock path).
+	if (preParsed !== undefined) {
+		const compact = compactChildPiEvent(preParsed);
+		return {
+			json: true,
+			event: compact,
+			persistedLine: compact ? JSON.stringify(compact) : "",
+			displayLine: displayTextFromCompactEvent(compact),
+		};
+	}
 	try {
 		const parsed = JSON.parse(line);
 		const compact = compactChildPiEvent(parsed);
@@ -660,7 +683,7 @@ function compactChildPiLine(line: string): {
 			displayLine: displayTextFromCompactEvent(compact),
 		};
 	} catch {
-		return { json: false, persistedLine: line, displayLine: line };
+		return nonJsonLineResult(line);
 	}
 }
 
@@ -736,12 +759,20 @@ export class ChildPiLineObserver {
 
 	private emitLine(line: string): void {
 		if (!line.trim()) return;
-		// Parse the RAW line once so we can BOTH compact it (telemetry transcript,
-		// 16K-capped memory bound) AND capture the uncapped assistant text for the
-		// authoritative result. Non-JSON lines contribute no assistant text.
+		// OPT-PHASE2: parse the line EXACTLY ONCE. The parsed value feeds both
+		// (a) raw assistant-text extraction for the authoritative result and
+		// (b) compaction for the telemetry transcript — previously each path
+		// called JSON.parse independently (2 parses/line). When the line is not
+		// valid JSON, parsed stays undefined and compactChildPiLine runs its own
+		// catch path to produce the json:false fallback.
+		let parsed: unknown;
 		try {
-			const rawParsed = JSON.parse(line);
-			const rawTexts = extractText(rawParsed);
+			parsed = JSON.parse(line);
+		} catch {
+			parsed = undefined;
+		}
+		if (parsed !== undefined) {
+			const rawTexts = extractText(parsed);
 			if (rawTexts.length > 0) {
 				// F9: trim from the front if the push would exceed the cap. Slice's
 				// second arg excludes the index, so this drops the oldest entries
@@ -758,10 +789,10 @@ export class ChildPiLineObserver {
 					if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
 				}
 			}
-		} catch {
-			// Not valid JSON — compactChildPiLine handles the raw-text fallback below.
 		}
-		const compact = compactChildPiLine(line);
+		// OPT-PHASE2: construct the non-JSON fallback directly when parsing failed,
+		// so a broken line triggers exactly ONE (failed) parse instead of two.
+		const compact = parsed !== undefined ? compactChildPiLine(line, parsed) : nonJsonLineResult(line);
 		if (compact.event !== undefined) {
 			try {
 				this.input.onJsonEvent?.(compact.event);
