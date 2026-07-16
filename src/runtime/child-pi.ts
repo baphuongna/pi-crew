@@ -437,9 +437,9 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 	// resolveRealContainedPath validates a pre-existing path.
 	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
 	// The caller does not need to await this — transcript writes are best-effort telemetry.
-	// OPT-06 follow-up: we still track the write promise in a module-scoped Set so
-	// lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle) can drain
-	// them before returning. Without that drain, callers that immediately read the
+	// OPT-06 follow-up: lines are buffered in a module-scoped Map and flushed
+	// periodically (50ms debounce) or on lifecycle boundaries (ChildPiLineObserver.flush,
+	// runChildPi settle). Without that drain, callers that immediately read the
 	// transcript file post-flush (e.g. integration tests at phase3-runtime:50 and
 	// phase4-runtime:37/:68/:103) would see ENOENT or empty content because the
 	// async file handle had not yet been opened / flushed.
@@ -510,6 +510,9 @@ function trackTranscriptWrite(safePath: string, line: string): void {
  * Called by lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle)
  * so that transcript files are complete before callers read them.
  *
+ * Uses a while loop to re-check the buffer after each flush — new lines may
+ * arrive during the async I/O window (trackTranscriptWrite → scheduleTranscriptFlush).
+ *
  * Exported so external callers (e.g. integration tests that construct a
  * ChildPiLineObserver directly) can drain explicitly if they need to read
  * the transcript file outside of the observer's lifecycle.
@@ -520,7 +523,23 @@ export async function flushPendingTranscriptWrites(): Promise<void> {
 		clearTimeout(transcriptFlushTimer);
 		transcriptFlushTimer = undefined;
 	}
-	await flushTranscriptBatches();
+	// Re-check loop: new lines may be appended to transcriptBatches during
+	// the async flushTranscriptBatches I/O. Loop until the buffer is empty.
+	while (transcriptBatches.size > 0) {
+		await flushTranscriptBatches();
+	}
+}
+
+/**
+ * Reset the module-scoped transcript batch state. Exported for test isolation
+ * only — production code should never call this.
+ */
+export function resetTranscriptBatchState(): void {
+	if (transcriptFlushTimer) {
+		clearTimeout(transcriptFlushTimer);
+		transcriptFlushTimer = undefined;
+	}
+	transcriptBatches.clear();
 }
 
 export function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS, opts: { preserveImportant?: boolean } = {}): string {
@@ -738,7 +757,7 @@ export class ChildPiLineObserver {
 		}
 		// OPT-06 follow-up: appendTranscript is fire-and-forget async, so the file
 		// may not exist on disk by the time this returns. Drain the module-scoped
-		// pending-write set before resolving so callers that immediately read the
+		// transcript batch buffer before resolving so callers that immediately read the
 		// transcript file (e.g. integration tests at phase4-runtime:37/:68/:103
 		// after `await observer.flush()`) see the full content.
 		return flushPendingTranscriptWrites();
@@ -1442,7 +1461,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				settled = true;
 				clearChildPiTimeouts();
 				// OPT-06 follow-up: lineObserver.flush() is now async (returns
-				// Promise<void>) and drains the module-scoped pending-write set
+				// Promise<void>) and drains the module-scoped transcript batch buffer
 				// before resolving. We must await it before calling `resolve()`
 				// below so callers that read the transcript file post-`runChildPi`
 				// see all written lines. Caller invocations of `settle` from

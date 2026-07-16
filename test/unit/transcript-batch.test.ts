@@ -11,8 +11,12 @@ import assert from "node:assert";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, test, before, after } from "node:test";
-import { ChildPiLineObserver, flushPendingTranscriptWrites } from "../../src/runtime/child-pi.ts";
+import { describe, test, before, after, afterEach } from "node:test";
+import {
+	ChildPiLineObserver,
+	flushPendingTranscriptWrites,
+	resetTranscriptBatchState,
+} from "../../src/runtime/child-pi.ts";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import type { ChildPiRunInput } from "../../src/runtime/child-pi.ts";
 
@@ -28,6 +32,11 @@ let tmpDir: string;
 
 before(() => {
 	tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-batch-test-"));
+});
+
+afterEach(() => {
+	// Reset module-scoped batch state between tests (H1 from review Round 2).
+	resetTranscriptBatchState();
 });
 
 after(() => {
@@ -46,10 +55,10 @@ function makeObserver(transcriptPath: string): ChildPiLineObserver {
 	return new ChildPiLineObserver(input);
 }
 
-function makeLine(type = "message"): string {
+function makeLine(text = "hello"): string {
 	return JSON.stringify({
-		type,
-		message: { role: "assistant", content: [{ type: "text", text: `event-${Date.now()}` }] },
+		type: "message",
+		message: { role: "assistant", content: [{ type: "text", text }] },
 	});
 }
 
@@ -58,7 +67,7 @@ describe("Phase 3: transcript batching", () => {
 		const transcriptPath = path.join(tmpDir, "batch-test.jsonl");
 		const observer = makeObserver(transcriptPath);
 
-		const lines = [makeLine(), makeLine(), makeLine()];
+		const lines = [makeLine("a"), makeLine("b"), makeLine("c")];
 		for (const line of lines) {
 			observer.observe(`${line}\n`);
 		}
@@ -69,17 +78,52 @@ describe("Phase 3: transcript batching", () => {
 		assert.equal(fileLines.length, 3, `expected 3 transcript lines, got ${fileLines.length}`);
 	});
 
+	test("lines appear in correct order (M1: ordering verification)", async () => {
+		const transcriptPath = path.join(tmpDir, "order-test.jsonl");
+		const observer = makeObserver(transcriptPath);
+
+		const payloads = ["first", "second", "third"];
+		for (const text of payloads) {
+			observer.observe(`${makeLine(text)}\n`);
+		}
+		await observer.flush();
+
+		const content = fs.readFileSync(transcriptPath, "utf-8");
+		const fileLines = content.split("\n").filter(Boolean);
+		assert.equal(fileLines.length, 3);
+		for (let i = 0; i < payloads.length; i++) {
+			const parsed = JSON.parse(fileLines[i]);
+			const text = parsed.message?.content?.[0]?.text;
+			assert.equal(text, payloads[i], `line ${i}: expected "${payloads[i]}", got "${text}"`);
+		}
+	});
+
 	test("flushPendingTranscriptWrites drains buffer", async () => {
 		const transcriptPath = path.join(tmpDir, "drain-test.jsonl");
 		const observer = makeObserver(transcriptPath);
 
 		observer.observe(`${makeLine()}\n`);
-		// Don't call observer.flush — use flushPendingTranscriptWrites directly
 		await flushPendingTranscriptWrites();
 
 		const content = fs.readFileSync(transcriptPath, "utf-8");
 		const fileLines = content.split("\n").filter(Boolean);
 		assert.equal(fileLines.length, 1, `expected 1 transcript line after flush, got ${fileLines.length}`);
+	});
+
+	test("timer-based auto-flush writes content without explicit flush", async () => {
+		const transcriptPath = path.join(tmpDir, "timer-test.jsonl");
+		const observer = makeObserver(transcriptPath);
+
+		observer.observe(`${makeLine("timer")}\n`);
+		// Do NOT call flush — wait for the 50ms debounce timer to fire.
+		await new Promise((r) => setTimeout(r, 150));
+
+		const content = fs.readFileSync(transcriptPath, "utf-8");
+		const fileLines = content.split("\n").filter(Boolean);
+		assert.equal(fileLines.length, 1, `timer flush should write 1 line, got ${fileLines.length}`);
+		const parsed = JSON.parse(fileLines[0]);
+		const text = parsed.message?.content?.[0]?.text;
+		assert.equal(text, "timer", `expected "timer", got "${text}"`);
 	});
 
 	test("file has O_APPEND-compatible content (lines end with newline)", async () => {
@@ -90,7 +134,6 @@ describe("Phase 3: transcript batching", () => {
 		await observer.flush();
 
 		const raw = fs.readFileSync(transcriptPath, "utf-8");
-		// Every line should end with \n (O_APPEND writes are newline-terminated)
 		assert.ok(raw.endsWith("\n"), "transcript file should end with newline");
 		const fileLines = raw.split("\n").filter(Boolean);
 		assert.equal(fileLines.length, 2, `expected 2 lines, got ${fileLines.length}`);
