@@ -16,7 +16,7 @@
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
 import { saveRunManifestAsync } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
@@ -531,7 +531,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 			: task.graph,
 	}));
 	const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
-	appendEventFireAndForget(input.manifest.eventsPath, {
+	await appendEventAsync(input.manifest.eventsPath, {
 		type: "adaptive.plan_injected",
 		runId: input.manifest.runId,
 		taskId: assessTask.id,

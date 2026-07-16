@@ -1,4 +1,4 @@
-import { appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEvent } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
@@ -22,7 +22,7 @@ export function recordSupervisorContact(manifest: TeamRunManifest, payload: Omit
 		timestamp: new Date().toISOString(),
 	};
 	try {
-		appendEventFireAndForget(manifest.eventsPath, {
+		appendEvent(manifest.eventsPath, {
 			type: "supervisor.contact",
 			runId: manifest.runId,
 			taskId: payload.taskId,
