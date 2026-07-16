@@ -1,4 +1,4 @@
-import { appendEvent, readEvents } from "../state/event-log.ts";
+import { appendEventFireAndForget, readEvents } from "../state/event-log.ts";
 import type { CrewAttentionEventData, TeamRunManifest } from "../state/types.ts";
 
 export interface AppendTaskAttentionInput {
@@ -17,7 +17,7 @@ export function appendTaskAttentionEvent(input: AppendTaskAttentionInput): boole
 			`${event.taskId ?? ""}:${event.data?.reason ?? ""}:${event.data?.activityState ?? ""}` === dedupKey,
 	);
 	if (duplicate) return false;
-	appendEvent(input.manifest.eventsPath, {
+	appendEventFireAndForget(input.manifest.eventsPath, {
 		type: "task.attention",
 		runId: input.manifest.runId,
 		taskId: input.taskId,

@@ -1,4 +1,4 @@
-import { appendEvent } from "../state/event-log.ts";
+import { appendEventFireAndForget } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
 import type { HookContext, HookDefinition, HookExecutionReport, HookName, HookResult } from "./types.ts";
@@ -176,7 +176,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 }
 
 export function appendHookEvent(manifest: TeamRunManifest, report: HookExecutionReport): void {
-	appendEvent(manifest.eventsPath, {
+	appendEventFireAndForget(manifest.eventsPath, {
 		type: "hook.executed",
 		runId: manifest.runId,
 		message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
