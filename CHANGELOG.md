@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.40] — stale-reconciler fix + async dispatch + gitignore cleanup (2026-07-16)
+
+### Fixes
+
+- **Stale-reconciler `needs_attention` status inference** — `src/runtime/stale-reconciler.ts`. When all tasks end in `needs_attention` (no explicit failure), `reconcileStaleRun` previously marked the run `completed`. This contradicted the codebase convention in `chain-executor.ts:147` (treating `needs_attention` as a non-clean terminal). Now includes `needs_attention` in the `hasFailed` predicate, marking the run `failed` instead. Tests cover: all-`needs_attention` → failed; mix `needs_attention`+completed → failed.
+
+### Performance
+
+- **Async `saveRunTasks` in `runCoalescedTaskGroup`** — `src/runtime/run-coalesced-task-group.ts`. Replaced 4 synchronous `saveRunTasks` calls with `await saveRunTasksAsync` (from `state-store.ts:493`). The heartbeat `setInterval` callback was promoted to `async () =>` to support the await. With many coalesced groups running in parallel these sync writes blocked the event loop briefly; the async version uses `withRunLock` (non-blocking). No behavioral change.
+
+### Cleanup
+
+- **`src/**/*.js` gitignored** — `.gitignore`. 290 strip-types companion files in `src/` were untracked noise in `git status`. Added `src/**/*.js` rule. No runtime impact.
+
 ## [0.9.39] — foreground abort fix + security hardening (2026-07-15)
 
 ### Fixes

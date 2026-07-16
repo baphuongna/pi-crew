@@ -13483,6 +13483,9 @@ function validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath) {
   return true;
 }
 function createRunPaths(cwd, runId = createRunId()) {
+  if (!cwd || typeof cwd !== "string") {
+    throw new Error(`Invalid cwd: ${cwd}`);
+  }
   assertSafePathId("runId", runId);
   const baseRoot = scopeBaseRoot(cwd);
   const stateRoot = resolveContainedRelativePath(path11.join(baseRoot, DEFAULT_PATHS.state.runsSubdir), runId, "runId");
@@ -14998,7 +15001,7 @@ function checkResultFile(manifest, tasks) {
     (t2) => t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled" || t2.status === "skipped" || t2.status === "needs_attention"
   );
   if (allTerminal) {
-    const hasFailed = tasks.some((t2) => t2.status === "failed");
+    const hasFailed = tasks.some((t2) => t2.status === "failed" || t2.status === "needs_attention");
     const onlyCancelledOrSkipped = tasks.every((t2) => t2.status === "cancelled" || t2.status === "skipped");
     manifest.status = hasFailed ? "failed" : onlyCancelledOrSkipped ? "cancelled" : "completed";
     saveRunManifest(manifest);
@@ -55557,7 +55560,7 @@ async function runCoalescedTaskGroup(input) {
     }
     return t2;
   });
-  saveRunTasks(manifest, updatedTasks);
+  await saveRunTasksAsync(manifest, updatedTasks);
   await appendEventAsync(manifest.eventsPath, {
     type: "task.coalesced_dispatch_start",
     runId: manifest.runId,
@@ -55572,14 +55575,14 @@ async function runCoalescedTaskGroup(input) {
       heartbeat: t2.heartbeat ?? createWorkerHeartbeat(t2.id)
     };
   });
-  saveRunTasks(manifest, updatedTasks);
+  await saveRunTasksAsync(manifest, updatedTasks);
   let rawOutput = "";
   let success = false;
   if (!executeWorkers) {
     rawOutput = buildScaffoldOutput(groupTasks);
     success = true;
   } else {
-    const heartbeatTimer = setInterval(() => {
+    const heartbeatTimer = setInterval(async () => {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       updatedTasks = updatedTasks.map((t2) => {
         if (!taskIds.includes(t2.id)) return t2;
@@ -55589,7 +55592,7 @@ async function runCoalescedTaskGroup(input) {
         };
       });
       try {
-        saveRunTasks(manifest, updatedTasks);
+        await saveRunTasksAsync(manifest, updatedTasks);
       } catch {
       }
     }, 15e3);
@@ -55639,7 +55642,7 @@ async function runCoalescedTaskGroup(input) {
       resultArtifact
     };
   });
-  saveRunTasks(manifest, updatedTasks);
+  await saveRunTasksAsync(manifest, updatedTasks);
   let updatedManifest = {
     ...manifest,
     artifacts: mergeArtifacts([...manifest.artifacts, ...newArtifacts])
@@ -85061,6 +85064,45 @@ Subagent may need manual intervention.`
       return loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
     };
   });
+  const cleanupSessionResourcesOnly = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (preloadTimer) {
+      clearTimeout(preloadTimer);
+      preloadTimer = void 0;
+    }
+    crewRunWatchers?.closeAll();
+    crewRunWatchers = void 0;
+    userCrewWatchers?.closeAll();
+    userCrewWatchers = void 0;
+    stopSessionBoundSubagents();
+    crewScheduler?.stop();
+    stopAsyncRunNotifier(notifierState);
+    purgeStaleActiveRunIndexSyncIfLoaded();
+    stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : void 0);
+    clearPiCrewPowerbar(pi.events);
+    disposePowerbarCoalescer();
+    disposeObservability(observabilityState, cleanedUp);
+    lifecycleState.deliveryCoordinator?.dispose();
+    clearHooksScoped();
+    uninstallCrewGlobalRegistry();
+    lifecycleState.overflowTracker?.dispose();
+    lifecycleState.deliveryCoordinator = void 0;
+    lifecycleState.overflowTracker = void 0;
+    manifestCache2.dispose();
+    runSnapshotCache.dispose?.();
+    clearProjectRootCache();
+    renderScheduler?.dispose();
+    renderScheduler = void 0;
+    autoRecoveryLast.clear();
+    disposeNotifications(lifecycleState);
+    rpcHandle?.unsubscribe();
+    rpcHandle = void 0;
+    disposeI18n();
+    sessionGeneration += 1;
+    currentCtx = void 0;
+    if (globalStore[runtimeCleanupStoreKey] === cleanupSessionResourcesOnly) delete globalStore[runtimeCleanupStoreKey];
+  };
   const cleanupRuntime = () => {
     if (cleanedUp) return;
     cleanedUp = true;
@@ -85103,6 +85145,14 @@ Subagent may need manual intervention.`
     if (globalStore[runtimeCleanupStoreKey] === cleanupRuntime) delete globalStore[runtimeCleanupStoreKey];
   };
   globalStore[runtimeCleanupStoreKey] = cleanupRuntime;
+  pi.on("session_shutdown", (event) => {
+    const reason = typeof event === "object" && event !== null && "reason" in event ? event.reason : void 0;
+    if (reason === "quit" || reason === "reload") {
+      cleanupRuntime();
+    } else {
+      cleanupSessionResourcesOnly();
+    }
+  });
   pi.on("session_start", (_event, ctx) => {
     runArtifactCleanup(ctx.cwd);
     try {
@@ -85583,7 +85633,6 @@ Subagent may need manual intervention.`
     stopAsyncRunNotifier(notifierState);
     stopSessionBoundSubagents();
   });
-  pi.on("session_shutdown", () => cleanupRuntime());
   try {
     pi.on("resources_discover", () => {
       const sessionCwd = currentCtx?.cwd ?? process.cwd();

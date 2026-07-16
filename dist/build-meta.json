@@ -6175,7 +6175,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 15906,
+      "bytes": 17045,
       "imports": [
         {
           "path": "node:crypto",
@@ -6598,7 +6598,7 @@
       "format": "esm"
     },
     "src/state/state-store.ts": {
-      "bytes": 40339,
+      "bytes": 40424,
       "imports": [
         {
           "path": "node:fs",
@@ -6794,7 +6794,7 @@
       "format": "esm"
     },
     "src/runtime/stale-reconciler.ts": {
-      "bytes": 28660,
+      "bytes": 28694,
       "imports": [
         {
           "path": "node:fs",
@@ -14343,7 +14343,7 @@
       "format": "esm"
     },
     "src/runtime/run-coalesced-task-group.ts": {
-      "bytes": 9226,
+      "bytes": 9281,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -18003,7 +18003,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 68063,
+      "bytes": 70731,
       "imports": [
         {
           "path": "node:fs",
@@ -18425,7 +18425,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6704580
+      "bytes": 6709812
     },
     "dist/index.mjs": {
       "imports": [
@@ -20704,7 +20704,7 @@
           "bytesInOutput": 1803
         },
         "src/state/state-store.ts": {
-          "bytesInOutput": 20386
+          "bytesInOutput": 20475
         },
         "src/utils/file-coalescer.ts": {
           "bytesInOutput": 1204
@@ -20725,7 +20725,7 @@
           "bytesInOutput": 4162
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 16497
+          "bytesInOutput": 16532
         },
         "src/runtime/worker-heartbeat.ts": {
           "bytesInOutput": 580
@@ -21733,7 +21733,7 @@
           "bytesInOutput": 7286
         },
         "src/runtime/run-coalesced-task-group.ts": {
-          "bytesInOutput": 6313
+          "bytesInOutput": 6363
         },
         "src/runtime/runtime-policy.ts": {
           "bytesInOutput": 575
@@ -22030,7 +22030,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 45555
+          "bytesInOutput": 47211
         },
         "src/runtime/batch-barrier.ts": {
           "bytesInOutput": 3060
@@ -22135,7 +22135,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3175900
+      "bytes": 3177730
     }
   }
 }
