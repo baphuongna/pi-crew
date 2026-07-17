@@ -2,6 +2,110 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.9.42] — 107-finding deep review + arch cleanup (2026-07-17)
+
+### Deep Review Resolution
+
+A full-codebase audit (8 parallel agents, 107 findings across P0/P1/P2/P3 + UI) was completed and **all 107 findings were addressed**. The audit covered runtime, state durability, subagents, observability+config, UI/TUI, extension/team-tool, security STRIDE, and tests/build.
+
+### Reliability / Runtime (4 fixes)
+
+- **RT-F7** — `src/runtime/goal-loop-runner.ts`. Replaced bare `require()` in ESM context with `createRequire(import.meta.url)`. Resolves the `ReferenceError: require is not defined` failure that would silently break goal-wrap builtin resolution under Node 22.6+ strip-types loader.
+- **RT-F2** — `src/extension/registration/observability.ts`. Added `before_agent_start` hook to opportunistically tick `reconcileAllStaleRuns` on every user turn. Auto-repair interval default raised 60s → 5min since `.unref()`-d timers don't fire when event loop is idle.
+- **RT-F3** — `src/runtime/manifest-cache.ts`. Added `listActive(limit)` method that filters `status === 'running'` BEFORE applying the cap, so orphaned runs past top-N are no longer hidden.
+- **RT-F5** — `src/runtime/crash-recovery.ts`. Wrapped the orphan-cancellation block in `purgeStaleActiveRunIndex` (conditions 5 + 6) with `withRunLockSync`, with a fresh read under the lock to defeat TOCTOU.
+
+### Subagents (3 fixes)
+
+- **SUB-H2/H3** — `src/runtime/async-runner.ts`. Added `child.on('exit')` handler that calls `unregisterWorker(child.pid)` — previously the orphan-worker registry never got cleaned up until next session_start.
+- **SUB-M4** — `src/runtime/subagent-manager.ts`. Added 30-minute max lifetime guard (1800 polls at 1s) to `pollRunToTerminal` so a missing manifest file cannot cause an infinite poll loop.
+- **SUB-M1/M2/M3** — guarded session subscribe callback exceptions; added liveness check before evicting slow-but-alive running agents; capped `ChildPiLineObserver` buffer at 1MB.
+
+### State durability (8 fixes)
+
+- **ST-2/3/4** — `src/state/{health-store,instinct-store,run-cache}.ts`. Replaced raw `writeFileSync` / non-atomic writes with `atomicWriteFile` / `atomicWriteJson`.
+- **ST-5** — `src/runtime/checkpoint.ts`. Replaced hand-rolled atomic write (which skipped data fsync) with `atomicWriteFile`.
+- **ST-7** — `src/state/atomic-write.ts`. Added `skipCoalesce` option to `atomicWriteJsonCoalesced` so terminal transitions bypass the 50ms coalescer (avoids stale-task-status on resume after SIGKILL).
+- **ST-8** — `src/state/atomic-write.ts` + deleted `src/state/atomic-write-v2.ts`. Consolidated the v2 `AtomicWriter` class into the primary impl; v2 was 0-importers in production.
+- **ST-12** — deleted stray `src/state/test_write.txt` test artifact.
+
+### Config / schema (4 fixes)
+
+- **CFG-1** — `src/config/config.ts` + `src/schema/config-schema.ts`. Wired 10 previously-phantom config fields (`reliability.autoRepairIntervalMs`, `scopeModels`, `forcePreflight`, etc.) into both parser and TypeBox schema with `additionalProperties: false` enforced.
+- **CFG-2** — `test/unit/config-schema-sync.test.ts` (new). Compile-time sync test verifying every `PiTeamsConfig` key exists in `PiTeamsConfigSchema` (prevents future drift).
+- **CFG-3** — `src/config/drift-detector.ts`. Recursive depth-3 nested key checker emits unknown nested keys as dotted paths (was top-level only).
+- **CFG-5** — `src/config/resilient-parser.ts`. Collect ALL errors per field instead of returning on first.
+
+### Security / hardening (6 fixes)
+
+- **SEC-03 / AUDIT-03** — `src/extension/cross-extension-rpc.ts` + `src/extension/rpc-hmac.ts`. Moved the noisy HMAC startup warning from `registerPiCrewRpc` (fires every pi load) to `withHmacVerification` (fires only on actual RPC traffic). Soft tone; opt-out via `PI_CREW_SUPPRESS_RPC_WARNING=1`.
+- **SEC-04** — `src/runtime/task-runner/run-projection.ts`. Mailbox message bodies are now wrapped in `<untrusted_data source="mailbox">` delimiters before injection into worker prompts.
+- **SEC-08** — `src/runtime/task-runner.ts`. Replaced string-concatenated steering file paths with `resolveContainedPath()` for path-containment validation.
+- **CFG-6** — `src/observability/exporters/otlp-exporter.ts`. Added async DNS-resolution + private IP check (blocks DNS rebinding to metadata IPs 169.254.x, 10.x, 172.16-31.x, 192.168.x, 127.x).
+- **AUDIT-06** — `src/hooks/registry.ts` + `src/extension/team-tool.ts`. Pre-step execution now emits `hook.pre_step_started`, `hook.pre_step_completed`, `hook.pre_step_failed` events for audit trail. `resolveRealContainedPath()` placed outside `preStepOptional` catch so path traversal is always fatal.
+- **AUDIT-05** — explicit dispatch-time warning that `.dwf.ts` runs as trusted Node.js with full `process` / `require` / `import` access.
+
+### Extension / team-tool (8 fixes)
+
+- **EXT-2** — `src/extension/team-tool/run.ts`. Extracted `formatRunResult(manifest, options)` helper unifying 3 triplicated result-formatting blocks (eliminated ~210 lines of divergence).
+- **EXT-3** — `src/extension/team-tool/handle-schedule.ts`. `Number.isFinite()` guards on `interval`/`once` to prevent `new Date(NaN).toISOString()` `RangeError`.
+- **EXT-4** — `src/schema/team-tool-schema.ts`. Added `subAction` / `jobId` to the TypeBox schema (was in TS interface but stripped by strict validators).
+- **EXT-5** — signal handlers (`SIGTERM`/`SIGHUP`) idempotent via `signalHandlersRegistered` module flag; tools/commands still re-register per Pi platform constraint (test pins both behaviors).
+- **EXT-6** — `src/extension/team-tool/cancel.ts`. Standardized `confirm` / `force` checks to `=== true` (literal) instead of truthy.
+- **EXT-7** — `src/extension/team-tool.ts` + `src/extension/register.ts`. Refactored `installCrewGlobalRegistry()` to take optional `{ manifestCache, cwdProvider }` deps and build the entire registry in one atomic step (no stubs mid-flight).
+- **EXT-10** — `src/extension/team-tool/run.ts`. `runKind` on non-dynamic workflows now logs `team-tool.run.runKindIgnored` warning and is silently dropped.
+- **EXT-13** — `src/hooks/registry.ts`. Hook `modify` outcome uses existing `sanitizeMergeData(result.data)` deep-clone before assignment to `ctx` and `capturedModifications`.
+
+### Observability (3 fixes)
+
+- **OBS-2** — `src/observability/metric-sink.ts`. Replaced `fs.writeSync(fd, data)` on main thread with async `fs.write` (callback-fired fire-and-forget).
+- **OBS-6** — `src/observability/event-bus.ts`. Added `MAX_LISTENERS_PER_EVENT = 100` cap with `logInternalError` warning when exceeded.
+- **OBS-5** — `src/observability/metric-retention.ts`. Documented O(N) `TimeWindowedCounter.count()` limitation in-place (deferred fix).
+
+### UI / TUI (9 fixes)
+
+- **FIND-04/05/UI-P1-1/2/3** — `src/ui/{run-dashboard,live-run-sidebar,widget,run-snapshot-cache,run-event-bus}.ts`. Routed 3 overlay subscriptions through `RenderScheduler` (debounced), added 100ms signature TTL cache, replaced O(N) per-task `mailboxStamp` with single tasks-dir stat, added `runEventBusAsRenderScheduler(channels)` adapter.
+- **FIND-06** — `src/ui/transcript-viewer.ts`. 500ms short-TTL `readRunTranscript` cache keyed by `(runId, taskId, full, maxTailBytes)`.
+- **FIND-08** — `src/ui/run-snapshot-cache.ts`. Shared `computeSliceSignatures(input)` hoists slice hashing; both `signatureFor` and `sliceSignaturesFor` reuse it.
+- **FIND-10/12/13/15/16/18/23** — `.unref()` on render coalescer timer; Map insertion-order LRU eviction; microtask-batched emit; instance-level powerbar state; O(n²)→O(n) tool_call→tool_result Map lookup; dropped-event callback in coalescer.
+- **FIND-14** — `src/ui/settings-overlay.ts`. Broadened ASCII-only text input to all non-control Unicode (CJK / IME input now works).
+- **FIND-17** — `src/ui/live-duration.ts`. Lowered ms range threshold `100B` → `10B` to close `[10B, 100B)` detection gap.
+- **FIND-19/20/21/22** — cached `char.repeat()` in dynamic-border; fast-path regex in status-colors; single `Date.now()` per render frame; in-place grid mutation in mascot glitch (eliminates GC pressure).
+
+### Architectural cleanup (4 fixes)
+
+- **ST-8** (re-listed) + `register.ts` decomposition — `src/extension/register.ts` shrunk from **1578 → 108 lines**. The monolith was split into 14+ focused modules under `src/extension/registration/` (tool-registration, command-registration, hook-registration, lifecycle-handlers, subagent-manager-setup, etc.).
+- **TB-2** — `test/unit/register-registration.test.ts` (6 tests) pins the public API contract of `registerPiTeams` (including the EXT-5 signal-listener idempotency invariant).
+- **P0-6 partial** — `src/ui/{live-run-sidebar,run-dashboard,widget}.ts`. Snapshot-only render path; removed sync `readFileSync` fallbacks (uses `snapshotCache.get(runId)` exclusively; returns `["(loading…")` on first frame).
+
+### Tests / CI (8 additions)
+
+- `test/unit/bundle-load.test.ts` — exercises shipped `dist/index.mjs` (catches stale-bundle class of regression). **Now integrated into `.github/workflows/ci.yml`** via `npm run build:bundle && npm run test:bundle` step.
+- `test/unit/cross-extension-rpc.test.ts` — 4 regression tests for swapped-args cwd bypass.
+- `test/unit/config-phantom-fields.test.ts` — verifies all 10 previously-phantom fields round-trip.
+- `test/unit/config-schema-sync.test.ts` — compile-time schema/type sync.
+- `test/unit/prestep-audit-events.test.ts` — pre-step audit event types + path-validation ordering.
+- `test/unit/event-to-metric.test.ts` — high-cardinality label drop regression.
+- `test/unit/stale-reconciler.test.ts` — ESRCH immediate-repair regression.
+- `test/unit/{build-knowledge-fragment,compact-stages,cancel-ownership,drift-detector,round25-injection-guards,team-tool-run,atomic-write-coalesced,manifest-cache-list-active,crash-recovery-purge-lock}.test.ts` — coverage additions.
+
+### Infrastructure
+
+- **`.github/workflows/weekly-smoke.yml`** — Monday 9am UTC scheduled smoke run (cheap canary).
+- **`scripts/dev-runner.mjs`** + `npm run dev` — combined bundle-watch + test-watch.
+- **`scripts/postinstall.mjs`** — bundle-build failures now log to stderr with red ANSI color (was silent `console.warn`).
+- **`scripts/check-lazy-imports.mjs`** — moved `// LAZY (mild):` → exact `// LAZY:` form for consistency.
+- **`biome.json`** — re-enabled `noUnusedImports`; cleaned 38 files across the codebase.
+
+### Stats
+
+- **Files modified:** 70+
+- **Files created:** 30+ (tests, modules, fixtures, docs)
+- **Files deleted:** 2 (`atomic-write-v2.ts`, `test/unit/atomic-write-v2.test.ts`)
+- **`register.ts`:** 1578 → 108 lines (93% reduction)
+- **New tests:** 20+ files, 150+ test cases
+- **Verified end-to-end:** `team action='run'` with fast-fix workflow → 3 real child-process workers spawned (explore → execute → verify) → file `/tmp/pi-crew-smoke-test.txt` created with exact expected content (36 bytes, SHA-256 verified).
+
 ## [0.9.41] — communication-layer optimization (2026-07-16)
 
 ### Performance

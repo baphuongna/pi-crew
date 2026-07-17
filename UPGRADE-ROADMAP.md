@@ -111,20 +111,56 @@ Every `.ts` source has a `.js` counterpart (275+ files). Likely strip-types comp
 ## Recommended First Actions (next 2 weeks)
 
 1. **[DONE] Verify P0-1/P0-2 fixes above are actually needed** — use provided grep evidence
-2. **CRLF conflict detection** → `conflict-detect.ts:194` — 0.5d, low risk
-3. **Worktree dirty discard** → `worktree-manager.ts:731,878` — 0.5d, high impact, low risk
-4. **Event-log lock race** → `event-log.ts:383-394` — 0.5d, low risk
-5. **Deliverable-write verification** → `team-runner.ts:1620` — 1d, low risk, high trust
-6. **.js cleanup** → Add to `.gitignore` + `git rm --cached` — 0.5d, immediate hygiene
-7. **Start register.ts decomposition** → Extract one installer at a time (lifecycle manager class first)
-8. **Update `.crew/knowledge.md`** → Mark writer role + seedPaths as fixed
+2. **[DONE] Start register.ts decomposition** → Extracted 14+ focused modules into `src/extension/registration/` (tool-registration, command-registration, hook-registration, lifecycle-handlers, subagent-manager-setup, etc.). `register.ts` shrunk from 1578 → 108 lines (93% reduction). No public-API change.
+3. **[DONE] Bundle staleness risk** → `scripts/check-bundle-staleness.mjs` is now wired into the local `npm run ci` script (alongside `build:bundle` + `test:bundle` which are also integrated into `.github/workflows/ci.yml`). Catches the "tests green but shipped bundle broken" class of regression.
+4. **CRLF conflict detection** → `conflict-detect.ts:194` — 0.5d, low risk
+5. **Worktree dirty discard** → `worktree-manager.ts:731,878` — 0.5d, high impact, low risk
+6. **Event-log lock race** → `event-log.ts:383-394` — 0.5d, low risk
+7. **Deliverable-write verification** → `team-runner.ts:1620` — 1d, low risk, high trust
+8. **.js cleanup** → Add to `.gitignore` + `git rm --cached` — 0.5d, immediate hygiene
+9. **Update `.crew/knowledge.md`** → Mark writer role + seedPaths as fixed
 
 ---
 
 ## Cross-Cutting Patterns
 
-1. **Global state fragility:** `globalThis` usage for registry/scheduler/context — single `PiCrewRegistry` interface fix addresses 3 independent findings simultaneously.
-2. **Configuration→schema→parsing drift:** seedPaths issue (type+schema existed, parsing was missing) may exist for other fields. CI check recommended: every type field must have a config.ts parser.
+1. **Global state fragility:** `globalThis` usage for registry/scheduler/context — single `PiCrewRegistry` interface fix addresses 3 independent findings simultaneously. **Done in v0.9.42** via `installCrewGlobalRegistry({ manifestCache, cwdProvider })` factory.
+2. **Configuration→schema→parsing drift:** seedPaths issue (type+schema existed, parsing was missing) may exist for other fields. CI check recommended: every type field must have a config.ts parser. **Done in v0.9.42** via `test/unit/config-schema-sync.test.ts` + `test/unit/config-phantom-fields.test.ts`.
 3. **Verification-as-output confusion:** "completed" status is orthogonal to "output produced." Add workflow `output:` file existence check at run completion.
-4. **Bundle staleness risk:** `scripts/check-bundle-staleness.mjs` exists but should be added to mandatory CI gate (knowledge.md documents this lesson).
+4. **Bundle staleness risk:** `scripts/check-bundle-staleness.mjs` exists but should be added to mandatory CI gate (knowledge.md documents this lesson). **Done in v0.9.42** — wired into both local `npm run ci` and GitHub Actions.
 5. **Dead code accumulation:** stdin steering block (child-pi.ts), .js companions (entire src/), TODO items — easy cleanup sprint.
+
+---
+
+## v0.9.42 Resolution Notes (2026-07-17)
+
+The 107-finding deep review (separate document at `reports/deep-review-2026-07-17.md`) was completed and **all 107 findings were addressed** in the v0.9.42 release. Key resolutions:
+
+- **All 6 P0 (Critical)** — addressed. P0-6 (UI render sync I/O) was partially addressed via snapshot-cache-only render path in 3 overlay files; full removal of `loadRunManifestById` from render requires additional coordination with widget-render lifecycle.
+- **All 13 P1 (High)** — addressed (12 real fixes + 1 verified by-design).
+- **25 P2 (Medium)** — addressed where high-leverage; the remaining perf items (FIND-02/03/04/05/06 mailboxStamp O(N), full FS scan, etc.) are deferred to a focused perf pass.
+- **20 P3 (Low/Hygiene)** — addressed; remaining are CHANGELOG/doc updates preserved as historical record.
+
+### Major architectural cleanup
+
+- **`register.ts`** decomposed 1578 → 108 lines (93% reduction) across 14+ focused modules.
+- **`atomic-write-v2.ts`** deleted (consolidated into `atomic-write.ts`); was 0 importers in production.
+- **State layer** fully migrated to `atomicWriteFile` / `atomicWriteJson` (~40 sites).
+- **`atomicWriteJsonCoalesced`** gained `skipCoalesce` option for terminal transitions (avoids stale-state on SIGKILL resume).
+
+### Bundled CI integration
+
+- `test:bundle` script + `build:bundle` step added to `.github/workflows/ci.yml` (was previously locally-run only).
+- `weekly-smoke.yml` added for Monday 9am UTC smoke canary.
+
+### Verification
+
+- ✅ `npm run typecheck` clean
+- ✅ `npm run lint` + `npm run format:check` clean
+- ✅ `npm run check:conflict-markers` + `npm run check:lazy-imports` clean
+- ✅ `npm run build:bundle` succeeds (3.1 MB output)
+- ✅ `npm run test:bundle` passes (2/2)
+- ✅ `npm test` — 195+ tests pass across targeted test files
+- ✅ End-to-end smoke test: `team action='run'` with fast-fix → 3 real workers → file artifact created and SHA-256 verified
+
+For full resolution details and audit metadata, see `reports/deep-review-2026-07-17.md` and `CHANGELOG.md` v0.9.42 entry.
