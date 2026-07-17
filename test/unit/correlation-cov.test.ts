@@ -40,20 +40,19 @@ describe("getCurrentContext", () => {
 describe("newSpanId", () => {
 	it("generates span ID with runId and taskId", () => {
 		const spanId = newSpanId("run-abc", "task-1");
-		assert.match(spanId, /^run-abc:task-1:\d+$/);
+		// OBS-4: 8-hex-char random suffix (was numeric counter)
+		assert.match(spanId, /^run-abc:task-1:[0-9a-f]{8}$/);
 	});
 
 	it("defaults taskId to 'main'", () => {
 		const spanId = newSpanId("run-xyz");
-		assert.match(spanId, /^run-xyz:main:\d+$/);
+		assert.match(spanId, /^run-xyz:main:[0-9a-f]{8}$/);
 	});
 
-	it("increments counter across calls", () => {
+	it("produces unique span IDs across calls", () => {
 		const a = newSpanId("r", "t");
 		const b = newSpanId("r", "t");
-		const numA = Number(a.split(":")[2]);
-		const numB = Number(b.split(":")[2]);
-		assert.ok(numB > numA, "span counter should increment");
+		assert.notEqual(a, b, "random suffix should differ");
 	});
 });
 
@@ -64,7 +63,7 @@ describe("childCorrelation", () => {
 			const child = childCorrelation("run-1", "subtask");
 			assert.equal(child.traceId, "parent-trace");
 			assert.equal(child.parentSpanId, "parent-span");
-			assert.match(child.spanId, /^run-1:subtask:\d+$/);
+			assert.match(child.spanId, /^run-1:subtask:[0-9a-f]{8}$/);
 		});
 	});
 

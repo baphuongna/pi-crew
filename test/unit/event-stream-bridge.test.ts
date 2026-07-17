@@ -27,7 +27,7 @@ test("unregisterStreamBridge removes handler", () => {
 	next.dispose();
 });
 
-test("bridge handler emits worker_status via runEventBus", () => {
+test("bridge handler emits worker_status via runEventBus", async () => {
 	const received: unknown[] = [];
 	const unsub = runEventBus.on("test-emit-1", (event) => received.push(event));
 	const { handler, dispose } = registerStreamBridge("test-emit-1");
@@ -38,6 +38,9 @@ test("bridge handler emits worker_status via runEventBus", () => {
 		toolName: "read",
 		timestamp: 1000,
 	});
+	// FIND-13: runEventBus.emit() is microtask-batched. Wait for the queue to flush
+	// before asserting on the received array.
+	await new Promise<void>((resolve) => setImmediate(resolve));
 	assert.equal(received.length, 1);
 	const emitted = received[0] as {
 		type: string;
