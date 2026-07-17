@@ -13,7 +13,7 @@
  * per-turn usage stays on each turn's TeamRunManifest/tasks.json.
  */
 
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, } from "node:fs";
 import { dirname } from "node:path";
 import { atomicWriteJson } from "../state/atomic-write.ts";
 import { appendEvent } from "../state/event-log.ts";

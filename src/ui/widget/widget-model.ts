@@ -8,7 +8,7 @@ import { listRecentRuns } from "../../extension/run-index.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import { evictStaleLiveAgentHandles, listLiveAgents } from "../../runtime/live-agent-manager.ts";
+import { evictStaleLiveAgentHandles, } from "../../runtime/live-agent-manager.ts";
 import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import { isDisplayActiveRun } from "../../runtime/process-status.ts";
 import type { TeamRunManifest } from "../../state/types.ts";

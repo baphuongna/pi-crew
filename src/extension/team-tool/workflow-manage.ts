@@ -15,7 +15,7 @@
  */
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { packageRoot, projectCrewRoot, userPiRoot } from "../../utils/paths.ts";

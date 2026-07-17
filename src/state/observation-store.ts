@@ -1,16 +1,5 @@
-/**
- * Observation capture and compression system.
- *
- * Pattern origin: claude-mem — captures tool usage across sessions,
- * compresses via AI, injects into future sessions.
- *
- * This module provides the observation store and compression logic.
- * Actual capture hooks into the lifecycle events (Pattern 12).
- */
 
-import * as fs from "node:fs";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
-import * as path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { logInternalError } from "../utils/internal-error.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 

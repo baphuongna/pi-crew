@@ -10,7 +10,6 @@ import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
-import { validateWorkflowForTeam } from "../../workflows/validate-workflow.ts";
 import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktree-manager.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
@@ -29,9 +28,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 	return _cachedExecuteTeamRun(...args);
 }
 
-import { expandParallelResearchWorkflow } from "../../runtime/parallel-research.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtime-resolver.ts";
-import { normalizeSkillOverride } from "../../runtime/skill-instructions.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import type { RunMetrics } from "../../state/run-metrics.ts";

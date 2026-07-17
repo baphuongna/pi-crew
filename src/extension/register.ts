@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { asRecord, loadConfig } from "../config/config.ts";
-import { DEFAULT_NOTIFICATIONS, DEFAULT_UI } from "../config/defaults.ts";
+import { DEFAULT_UI } from "../config/defaults.ts";
 import { clearHooksScoped } from "../hooks/registry.ts";
 // 2.7: Lazy-load OTLPExporter — moved to registration/observability.ts (H3-L2 split).
 import { BatchBarrier, type BatchMember } from "../runtime/batch-barrier.ts";
@@ -46,9 +46,8 @@ import {
 import { RenderScheduler } from "../ui/render-scheduler.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
 import { createRunSnapshotCache } from "../ui/run-snapshot-cache.ts";
-import { createTerminalStatusController, type TerminalStatusController } from "../ui/terminal-status.ts";
+import { type TerminalStatusController } from "../ui/terminal-status.ts";
 import { type CrewWidgetState, stopCrewWidget, updateCrewWidget } from "../ui/widget/index.ts";
-import { closeWatcher } from "../utils/fs-watch.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { clearProjectRootCache, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { RunWatcherRegistry } from "../utils/run-watcher-registry.ts";
@@ -77,21 +76,18 @@ import { registerCompactionGuard } from "./registration/compaction-guard.ts";
 import {
 	configureDeliveryCoordinator as configureDeliveryCoordinatorFromRegistration,
 	configureNotifications as configureNotificationsFromRegistration,
-	disposeDeliveryCoordinator,
 	disposeNotifications,
 	type LifecycleState,
-	startLifecycleWatchers,
-	stopLifecycleWatchers,
 } from "./registration/lifecycle.ts";
 // H3-L2 split: observability installer extracted to registration/observability.ts.
 // This module owns metric registry, OTLP, heartbeat-watcher, and auto-repair timers.
-import { configureObservability, disposeObservability, type ObservabilityState } from "./registration/observability.ts";
+import { disposeObservability, type ObservabilityState } from "./registration/observability.ts";
 import { __test__subagentSpawnParams, sendAgentWakeUp, sendFollowUp } from "./registration/subagent-helpers.ts";
 import { registerSubagentTools } from "./registration/subagent-tools.ts";
 import { registerTeamTool } from "./registration/team-tool.ts";
 // H3-L2 split: ui installer extracted to registration/ui.ts.
 // This module owns live-run sidebar + powerbar overlay logic.
-import { clearDashboardPowerbar, installLiveSidebar, pushPowerbarUpdate, type UiState } from "./registration/ui.ts";
+import { type UiState } from "./registration/ui.ts";
 import { notifyActiveRuns } from "./session-summary.ts";
 import { shouldBlockDestructiveTeamAction } from "./team-tool/destructive-gate.ts";
 import { persistScheduledJobUpdate } from "./team-tool/handle-schedule.ts";

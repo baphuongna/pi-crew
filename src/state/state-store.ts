@@ -14,7 +14,6 @@ import { unregisterActiveRun } from "./active-run-registry.ts";
 import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "./atomic-write.ts";
 import { canTransitionRunStatus } from "./contracts.ts";
 import { appendEvent } from "./event-log.ts";
-import { HealthStore } from "./health-store.ts";
 import { withRunLock, withRunLockSync } from "./locks.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
 

@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { DEFAULT_MAILBOX } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { withEventLogLockSync } from "./event-log.ts";
 import { withFileLockSync } from "./locks.ts";

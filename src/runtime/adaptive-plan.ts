@@ -21,7 +21,7 @@ import { saveRunManifestAsync } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
-import { getPlanTemplate, listPlanTemplates, renderPlanTemplate } from "./plan-templates.ts";
+import { getPlanTemplate, renderPlanTemplate } from "./plan-templates.ts";
 import { refreshTaskGraphQueues } from "./task-graph-scheduler.ts";
 
 export interface AdaptivePlanTask {

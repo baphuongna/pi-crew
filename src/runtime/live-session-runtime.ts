@@ -27,7 +27,7 @@ import {
 } from "./live-agent-manager.ts";
 import { subscribeLiveControlRealtime } from "./live-control-realtime.ts";
 import { buildExtensionBridge } from "./live-extension-bridge.ts";
-import { collectLiveSessionHealth, formatLiveSessionDiagnostics, type LiveSessionHealth } from "./live-session-health.ts";
+import { collectLiveSessionHealth, formatLiveSessionDiagnostics, } from "./live-session-health.ts";
 import { buildMcpProxyFromSession } from "./mcp-proxy.ts";
 import { buildConfiguredModelRouting } from "./model-fallback.ts";
 import { readEnabledModelsPatterns } from "./model-scope.ts";

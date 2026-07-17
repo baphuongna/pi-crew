@@ -17,7 +17,7 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "@sinclair/typebox";
+import type { TSchema } from "@sinclair/typebox";
 
 export interface McpProxyConfig {
 	/** Whether to enable MCP in the child session. */

@@ -71,6 +71,7 @@
     "test:bundle": "node --experimental-strip-types --test --test-force-exit test/unit/bundle-load.test.ts",
     "watch:bundle": "node scripts/watch-bundle.mjs",
     "build:bundle:once": "node scripts/watch-bundle.mjs --once",
+    "dev": "node scripts/dev-runner.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "install:crew-font": "node scripts/install-crew-vibes-font.mjs",
     "build:crew-font": "python scripts/build-crew-vibes-font.py",

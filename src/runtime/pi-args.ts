@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { resolveToolPolicy } from "../agents/agent-config.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";

@@ -8,7 +8,6 @@
  * The actual tool registration happens in task-runner.ts.
  */
 
-import { logInternalError } from "../utils/internal-error.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

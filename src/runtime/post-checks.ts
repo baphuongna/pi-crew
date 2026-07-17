@@ -5,7 +5,6 @@
  * Distilled from pi-autoresearch's post-check / backpressure pattern.
  */
 import { execFileSync } from "node:child_process";
-import * as path from "node:path";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { resolveShellForScript } from "../utils/resolve-shell.ts";

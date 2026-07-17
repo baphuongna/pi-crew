@@ -4,7 +4,6 @@
  * Parses a plan document and outputs agent chain commands.
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { resolveContainedPath } from "../../utils/safe-paths.ts";
 import {

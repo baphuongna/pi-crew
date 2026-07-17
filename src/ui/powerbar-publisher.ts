@@ -10,7 +10,6 @@ import { aggregateUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { RenderCoalescer } from "./render-coalescer.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { notificationBadge } from "./widget/widget-formatters.ts";

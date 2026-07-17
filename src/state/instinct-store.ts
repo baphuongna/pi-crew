@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { assertSafePathId } from "../utils/safe-paths.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
-import { withFileLockSync } from "./locks.ts";
 
 /**
  * Represents a learned instinct that guides agent behavior.

@@ -15,7 +15,6 @@ import type {
 	OperationTerminalEvidence,
 	TeamRunManifest,
 	TeamTaskState,
-	UsageState,
 	VerificationEvidence,
 } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -35,7 +34,7 @@ import {
 	recordFromTask,
 	upsertCrewAgent,
 } from "./crew-agent-records.ts";
-import type { CrewAgentProgress, CrewRuntimeKind } from "./crew-agent-runtime.ts";
+import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { bridgeEventFromJsonEvent, registerStreamBridge } from "./event-stream-bridge.ts";
 import { createVerificationEvidence } from "./green-contract.ts";

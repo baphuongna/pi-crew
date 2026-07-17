@@ -1,9 +1,9 @@
-import { type SpawnOptions, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { appendEvent, appendEventAsync } from "../state/event-log.ts";
+import { appendEventAsync } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";

@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { sleepSync } from "../utils/sleep.ts";
 import { atomicWriteFile, renameWithRetry } from "./atomic-write.ts";
 import { withFileLockSync } from "./locks.ts";
 

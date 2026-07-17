@@ -22,7 +22,7 @@
  * writes from causing lost updates.
  */
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync, } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { atomicWriteFile, isSymlinkSafePath } from "../state/atomic-write.ts";

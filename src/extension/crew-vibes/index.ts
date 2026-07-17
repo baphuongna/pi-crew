@@ -19,7 +19,7 @@ function safeUiCall(scope: string, fn: () => void): void {
 	}
 }
 
-import { type CrewVibesConfig, loadConfig, PROVIDER_STATUS_ID, saveConfig } from "./config.ts";
+import { type CrewVibesConfig, loadConfig, saveConfig } from "./config.ts";
 import { intervalForSpeed } from "./figures.ts";
 import { type CrewVibesFooterSource, createCrewVibesFooter } from "./footer.ts";
 import { clearProviderUsageCache, fetchProviderUsage, type ProviderUsage } from "./provider-usage.ts";

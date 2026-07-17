@@ -443,7 +443,6 @@ export class RunDashboard implements DashboardComponent {
 		this.done = done;
 		this.theme = asCrewTheme(theme);
 		this.options = options;
-		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidateAndRender());
 		// 1.10 (UI-P1-1): route run:state / worker:lifecycle / ui:invalidate
 		// through a RenderScheduler (debounce + fallback) instead of registering
 		// 3 raw runEventBus subscriptions that each schedule an immediate
@@ -451,6 +450,14 @@ export class RunDashboard implements DashboardComponent {
 		// a single event triggered up to 9 callbacks and ~150 invalidates/sec.
 		// The scheduler keeps the per-channel subscriptions but collapses them
 		// into one debounced render + one coalesced invalidate per runId.
+		//
+		// FIND-07: scheduler must be constructed BEFORE the theme subscription
+		// and the input-handler paths so they can route their invalidate+render
+		// calls through `this.scheduleRender()` (debounced + coalesced) instead
+		// of bypassing it with direct `invalidateAndRender()` calls. Each direct
+		// call would otherwise skip the scheduler's debounce window and force
+		// a synchronous repaint, recreating the burst-storm that this scheduler
+		// was introduced to eliminate.
 		const renderTick = (): void => {
 			this.invalidateAndRender();
 		};
@@ -469,6 +476,28 @@ export class RunDashboard implements DashboardComponent {
 				},
 			},
 		);
+		// FIND-07: route theme changes through the scheduler so they coalesce
+		// with run:state / worker:lifecycle / ui:invalidate bursts instead of
+		// each firing their own immediate invalidate+requestRender.
+		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.scheduleRender());
+	}
+
+	/**
+	 * FIND-07: route an external invalidation through the RenderScheduler.
+	 *
+	 * Use this for any caller-driven invalidation (theme change, input
+	 * handler action) instead of calling `invalidateAndRender()` directly.
+	 * The scheduler debounces + coalesces these so a theme change arriving
+	 * in the middle of a run:state burst doesn't force a separate synchronous
+	 * repaint. Falls back to a direct render if the scheduler was not created
+	 * (defensive — currently always created in the constructor).
+	 */
+	private scheduleRender(): void {
+		if (this.renderScheduler) {
+			this.renderScheduler.schedule();
+			return;
+		}
+		this.invalidateAndRender();
 	}
 
 	/**
@@ -791,12 +820,12 @@ export class RunDashboard implements DashboardComponent {
 		// (including Esc) just dismisses it first instead of acting.
 		if (action === "help") {
 			this.showHelp = !this.showHelp;
-			this.invalidateAndRender();
+			this.scheduleRender();
 			return;
 		}
 		if (this.showHelp) {
 			this.showHelp = false;
-			this.invalidateAndRender();
+			this.scheduleRender();
 			return;
 		}
 		const selectedRunId = this.selectedRunId();
@@ -858,7 +887,7 @@ export class RunDashboard implements DashboardComponent {
 		}
 		if (action) {
 			lastActivePane = this.activePane;
-			this.invalidateAndRender();
+			this.scheduleRender();
 		}
 	}
 }

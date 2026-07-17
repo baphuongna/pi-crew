@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ManifestSummary, RunHealth } from "../runtime/task-health.ts";
+import type { ManifestSummary, } from "../runtime/task-health.ts";
 import { computeRunHealth } from "../runtime/task-health.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 

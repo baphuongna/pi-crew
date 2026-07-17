@@ -5,16 +5,13 @@
  */
 
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
-import { computePhaseProgress, formatPhaseProgressLine } from "../../runtime/phase-progress.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
-import { getTaskUsage } from "../../runtime/usage-tracker.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
-import { computeLiveDurationMs } from "../live-duration.ts";
 import { spinnerFrame } from "../spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../status-colors.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
-import { agentActivity, agentStats, elapsed, formatTokensCompact, notificationBadge } from "./widget-formatters.ts";
+import { agentActivity, agentStats, notificationBadge } from "./widget-formatters.ts";
 import { activeWidgetRuns, shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
