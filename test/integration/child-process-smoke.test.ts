@@ -95,7 +95,11 @@ test("fake-pi fixture emits multiple message pairs in deterministic order", asyn
 });
 
 // ── 3. SIGTERM cooperative shutdown ─────────────────────────────────────
-test("fake-pi fixture handles SIGTERM cooperatively (emits cancelled + exits 143)", async () => {
+// TB-5: Windows doesn't have proper SIGTERM semantics — kill() with SIGTERM
+// either no-ops or terminates abruptly with exit-code=null, so this test
+// only runs on POSIX. The fake-pi fixture's signal handler emits exit 143
+// on POSIX; on Windows we use a separate test that verifies abrupt termination.
+test("fake-pi fixture handles SIGTERM cooperatively (emits cancelled + exits 143)", { skip: process.platform === "win32" }, async () => {
 	const child = spawn(process.execPath, [FIXTURE_PATH, "--mode", "json", "-p", "long", "--emit-count", "20", "--idle-ms", "100"], {
 		stdio: ["ignore", "pipe", "pipe"],
 	});
