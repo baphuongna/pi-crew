@@ -81,7 +81,7 @@ export function formatCompactToolProgress(input: ToolProgressInput): string {
 			lines.push(`  tool: ${active.progress.currentTool}${count}`);
 		}
 		const recent = active.progress?.recentOutput?.at(-1);
-		if (recent && recent.trim()) lines.push(`  ${trimLine(recent)}`);
+		if (recent?.trim()) lines.push(`  ${trimLine(recent)}`);
 	} else if (input.runId && !counts) {
 		lines.push(`  run=${input.runId} (starting)`);
 	} else if (input.error) {

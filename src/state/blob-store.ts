@@ -151,14 +151,9 @@ export function writeBlob(
 	// FIX: Write blob content FIRST, then metadata. If blob write fails, no orphan metadata.
 	// Previous order was metadata first, then blob - causing orphan metadata on blob failure.
 	let blobContentWritten = false;
-	try {
-		// Write blob content first (immutable, content-addressed)
-		atomicWriteBuffer(blobPath, Buffer.isBuffer(content) ? content : Buffer.from(content, "utf-8"));
-		blobContentWritten = true;
-	} catch (error) {
-		// Blob write failed - no metadata to clean up since we haven't written it yet
-		throw error;
-	}
+	// Write blob content first (immutable, content-addressed)
+	atomicWriteBuffer(blobPath, Buffer.isBuffer(content) ? content : Buffer.from(content, "utf-8"));
+	blobContentWritten = true;
 
 	// Metadata only after blob content is successfully written
 	// Issue 3 fix: Use two-phase commit for metadata - write to temp file first,

@@ -10,8 +10,8 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
-import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
+import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { registerTeamCommands } from "./commands.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 

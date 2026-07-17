@@ -54,7 +54,6 @@ export function isValidHandoffSummary(value: unknown): value is HandoffSummary {
  * @see docs/pi-boomerang-integration-plan.md
  */
 
-
 /**
  * Represents a key decision made during task execution.
  */

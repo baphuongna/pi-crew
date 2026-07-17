@@ -12,9 +12,9 @@
  * the orchestrator-level wrapper that calls them with the right deps.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { RegistrationContext } from "./registration-types.ts";
 import { registerSubagentTools } from "./subagent-tools.ts";
 import { registerTeamTool } from "./team-tool.ts";
-import type { RegistrationContext } from "./registration-types.ts";
 
 /**
  * Register all pi-crew tools on the ExtensionAPI.

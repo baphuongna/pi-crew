@@ -42,7 +42,7 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
 	const issues: string[] = [];
 
 	// Empty output always fails
-	if (!output || !output.trim()) {
+	if (!output?.trim()) {
 		return {
 			valid: false,
 			formatMatch: false,

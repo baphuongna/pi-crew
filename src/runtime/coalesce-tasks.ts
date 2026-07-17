@@ -78,7 +78,7 @@ export function planCoalescedGroups(
 	const buckets = new Map<string, TeamTaskState[]>();
 	for (const taskId of readyTaskIds) {
 		const task = taskById.get(taskId);
-		if (!task || !task.stepId) continue;
+		if (!task?.stepId) continue;
 		const step = stepById.get(task.stepId);
 		if (!step) continue;
 

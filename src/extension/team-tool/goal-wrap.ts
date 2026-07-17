@@ -152,7 +152,7 @@ export function shouldGoalWrap(
 			message?: string;
 	  } {
 	const wc = readGoalWrapConfig(cwd, workflow.name);
-	if (!wc || wc.enabled !== true) {
+	if (wc?.enabled !== true) {
 		return { enabled: false, reason: "config-off" };
 	}
 	const validationError = validateGoalWrapConfig(wc);
@@ -181,7 +181,7 @@ export async function startGoalWrappedRun(
 ): Promise<ReturnType<typeof result>> {
 	const cwd = ctx.cwd;
 	const wc = readGoalWrapConfig(cwd, workflow.name);
-	if (!wc || wc.enabled !== true) {
+	if (wc?.enabled !== true) {
 		return result(
 			`goal-wrap is not enabled for workflow '${workflow.name}' in .crew/config.json.`,
 			{ action: "run", status: "error" },

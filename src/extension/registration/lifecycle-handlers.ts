@@ -17,47 +17,44 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_UI } from "../../config/defaults.ts";
 import { loadConfig } from "../../config/config.ts";
-import type { TeamRunManifest } from "../../state/types.ts";
+import { DEFAULT_UI } from "../../config/defaults.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
+import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
+import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
+import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs } from "../../runtime/pi-args.ts";
-import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduler.ts";
-import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
-import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
+import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
+import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
+import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
-import { setExtensionWidget, setWorkingIndicator } from "../../ui/pi-ui-compat.ts";
-import { runEventBus } from "../../ui/run-event-bus.ts";
-import { RenderScheduler } from "../../ui/render-scheduler.ts";
+import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";
 import {
-	clearPiCrewPowerbar,
-	disposePowerbarCoalescer,
 	registerPiCrewPowerbarSegments,
 	requestPowerbarUpdate,
 	resetPowerbarDedupState,
 	updatePiCrewPowerbar,
 } from "../../ui/powerbar-publisher.ts";
-import { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
-import type { createManifestCache } from "../../runtime/manifest-cache.ts";
-import { stopCrewWidget, updateCrewWidget } from "../../ui/widget/index.ts";
-import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
-import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
-import { clearProjectRootCache, projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
-import { extractSessionId } from "../../utils/session-utils.ts";
+import { RenderScheduler } from "../../ui/render-scheduler.ts";
+import { runEventBus } from "../../ui/run-event-bus.ts";
+import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
+import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
+import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
+import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
+import { extractSessionId } from "../../utils/session-utils.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
 import { notifyActiveRuns } from "../session-summary.ts";
 import { persistScheduledJobUpdate } from "../team-tool/handle-schedule.ts";
 import { handleTeamTool } from "../team-tool.ts";
-import { requestRender } from "../../ui/pi-ui-compat.ts";
-import type { RegistrationContext } from "./registration-types.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
+import type { RegistrationContext } from "./registration-types.ts";
 
 /**
  * Register all session-lifecycle handlers on the ExtensionAPI. The caller
@@ -188,9 +185,7 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// Start scheduler with event-based executor
 		const sessionId =
 			extensionCtx.sessionManager?.getSessionId?.() ??
-			(typeof extensionCtx === "object" &&
-			extensionCtx !== null &&
-			"sessionId" in extensionCtx
+			(typeof extensionCtx === "object" && extensionCtx !== null && "sessionId" in extensionCtx
 				? (extensionCtx as Record<string, unknown>).sessionId
 				: undefined);
 		ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
@@ -218,24 +213,12 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 			ctx.cleanupRuntime();
 		});
 		registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
-		startAsyncRunNotifier(
-			extensionCtx,
-			ctx.notifierState,
-			loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs,
-			{
-				generation: ownerGeneration,
-				isCurrent: (generation) =>
-					generation === ctx.sessionGeneration && ctx.currentCtx === extensionCtx && !ctx.cleanedUp,
-			},
-		);
+		startAsyncRunNotifier(extensionCtx, ctx.notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, {
+			generation: ownerGeneration,
+			isCurrent: (generation) => generation === ctx.sessionGeneration && ctx.currentCtx === extensionCtx && !ctx.cleanedUp,
+		});
 		const cache = ctx.getManifestCache(extensionCtx.cwd);
-		updateCrewWidget(
-			extensionCtx,
-			ctx.widgetState,
-			loadedConfig.config.ui,
-			cache,
-			ctx.getRunSnapshotCache(extensionCtx.cwd),
-		);
+		updateCrewWidget(extensionCtx, ctx.widgetState, loadedConfig.config.ui, cache, ctx.getRunSnapshotCache(extensionCtx.cwd));
 		updatePiCrewPowerbar(
 			pi.events,
 			extensionCtx.cwd,
@@ -279,11 +262,13 @@ async function runDeferredSessionCleanup(
 	// Auto-cancel orphaned runs
 	if (currentSessionId) {
 		try {
-			const { cancelled } = (cancelOrphanedRunsFn as (
-				cwd: string,
-				cache: ReturnType<typeof createManifestCache>,
-				sessionId: string,
-			) => { cancelled: string[] })(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), currentSessionId);
+			const { cancelled } = (
+				cancelOrphanedRunsFn as (
+					cwd: string,
+					cache: ReturnType<typeof createManifestCache>,
+					sessionId: string,
+				) => { cancelled: string[] }
+			)(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), currentSessionId);
 			if (cancelled.length > 0) {
 				ctx.notifyOperator({
 					id: `orphan_cleanup`,
@@ -680,9 +665,7 @@ function setupRenderLoop(
 	const liveRefreshMs = 160;
 	const hasActiveWork = (): boolean => {
 		if (listLiveAgents().some((a) => a.status === "running")) return true;
-		return lastPreloadedManifests.some(
-			(r) => r.status === "running" || r.status === "queued" || r.status === "planning",
-		);
+		return lastPreloadedManifests.some((r) => r.status === "running" || r.status === "queued" || r.status === "planning");
 	};
 	const effectiveRefreshMs = () => (hasActiveWork() ? liveRefreshMs : fallbackMs);
 	ctx.renderScheduler = new RenderScheduler(pi.events, renderTick, {

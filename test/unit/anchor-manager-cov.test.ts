@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Anchor, AnchorManagerOptions } from "../../src/runtime/anchor-manager.ts";
 import { AnchorManager, AnchorNotFoundError, createAnchorManager, NoHandoffsError } from "../../src/runtime/anchor-manager.ts";
 import type { HandoffSummary } from "../../src/runtime/handoff-manager.ts";
 

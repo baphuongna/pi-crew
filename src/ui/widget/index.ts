@@ -14,12 +14,12 @@ import { truncate } from "../../utils/visual.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
 import { RenderScheduler } from "../render-scheduler.ts";
 import { runEventBusAsRenderScheduler } from "../run-event-bus.ts";
-import type { RunSnapshotCache, } from "../snapshot-types.ts";
+import type { RunSnapshotCache } from "../snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "../theme-adapter.ts";
 import { activeWidgetRuns, statusSummary } from "./widget-model.ts";
-import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines, } from "./widget-renderer.ts";
+import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines } from "./widget-renderer.ts";
 import type { CrewWidgetModel, CrewWidgetState, WidgetRun } from "./widget-types.ts";
 
 export { activeWidgetRuns, statusSummary } from "./widget-model.ts";

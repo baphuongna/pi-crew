@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type { PlanTemplate } from "../../src/runtime/plan-templates.ts";
 import { getPlanTemplate, listPlanTemplates, registerPlanTemplate, renderPlanTemplate } from "../../src/runtime/plan-templates.ts";
 

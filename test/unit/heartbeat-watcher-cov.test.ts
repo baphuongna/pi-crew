@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MetricRegistry } from "../../src/observability/metric-registry.ts";
-import type { GradientThresholds } from "../../src/runtime/heartbeat-gradient.ts";
-import { HeartbeatWatcher, type HeartbeatWatcherOptions } from "../../src/runtime/heartbeat-watcher.ts";
+import { HeartbeatWatcher } from "../../src/runtime/heartbeat-watcher.ts";
 import type { ManifestCache } from "../../src/runtime/manifest-cache.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 /** Minimal mock metric registry for testing. */
 function mockRegistry(): MetricRegistry {

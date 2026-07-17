@@ -641,7 +641,7 @@ async function main(): Promise<void> {
 				// LAZY: defer dynamic import of ../workflows/discover-workflows.ts to its call site.
 				const { allWorkflows, discoverWorkflows } = await import("../workflows/discover-workflows.ts");
 				const wf = allWorkflows(discoverWorkflows(manifest.cwd)).find((w) => w.name === manifest.workflow);
-				if (!wf || wf.runtime !== "dynamic" || !wf.dynamicScript)
+				if (wf?.runtime !== "dynamic" || !wf.dynamicScript)
 					throw new Error(
 						`runKind="dynamic-workflow" but workflow '${manifest.workflow}' is not dynamic (runId=${manifest.runId})`,
 					);

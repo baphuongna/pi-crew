@@ -47,7 +47,7 @@ test("needs_attention is a terminal task status", () => {
 });
 
 test("needs_attention can transition to queued and running", () => {
-	const allowed = TEAM_TASK_STATUS_TRANSITIONS["needs_attention"];
+	const allowed = TEAM_TASK_STATUS_TRANSITIONS.needs_attention;
 	assert.deepEqual(allowed, ["queued", "running"]);
 });
 
@@ -66,7 +66,7 @@ test("canTransitionTaskStatus rejects needs_attention -> completed", () => {
 test("running can transition to needs_attention (via noYield)", () => {
 	// running -> queued, completed, failed, cancelled, waiting — NOT directly to needs_attention
 	// needs_attention is set at finalize, not via normal transition
-	const allowed = TEAM_TASK_STATUS_TRANSITIONS["running"];
+	const allowed = TEAM_TASK_STATUS_TRANSITIONS.running;
 	assert.ok(!allowed.includes("needs_attention"), "running should not directly transition to needs_attention; it is set at finalize");
 });
 

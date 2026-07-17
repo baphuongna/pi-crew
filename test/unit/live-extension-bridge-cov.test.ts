@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildExtensionBridge, type ExtensionBridgeApis, type ExtensionHostApis } from "../../src/runtime/live-extension-bridge.ts";
+import { buildExtensionBridge } from "../../src/runtime/live-extension-bridge.ts";
 
 /** Minimal mock session that satisfies PiSdkSession interface. */
 function mockSession(overrides: Record<string, unknown> = {}) {

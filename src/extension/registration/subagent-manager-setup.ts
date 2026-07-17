@@ -12,11 +12,11 @@
  * stays focused on wiring, not subagent policy.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadConfig } from "../../config/config.ts";
 import type { BatchMember } from "../../runtime/batch-barrier.ts";
 import { readPersistedSubagentRecord, SubagentManager } from "../../subagents/manager.ts";
-import { sendAgentWakeUp, sendFollowUp } from "./subagent-helpers.ts";
-import { loadConfig } from "../../config/config.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { sendAgentWakeUp } from "./subagent-helpers.ts";
 
 const MAX_CONCURRENT_SUBAGENTS = 4;
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 1000;
@@ -184,12 +184,7 @@ function onTerminalStatus(
  * to its own bus onto the orchestrator's notification sink + Pi events.
  * Currently only handles `subagent.stuck-blocked` — the rest are passthrough.
  */
-function onInternalEvent(
-	pi: ExtensionAPI,
-	ctx: RegistrationContext,
-	event: string,
-	payload: unknown,
-): void {
+function onInternalEvent(pi: ExtensionAPI, ctx: RegistrationContext, event: string, payload: unknown): void {
 	const ownerGeneration =
 		typeof (payload as { ownerSessionGeneration?: unknown })?.ownerSessionGeneration === "number"
 			? ((payload as { ownerSessionGeneration?: number }).ownerSessionGeneration as number)

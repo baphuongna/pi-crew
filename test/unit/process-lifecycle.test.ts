@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
-import * as cp from "node:child_process";
 import { test } from "node:test";
 import {
 	disposeAllOwnedProcesses,
 	disposeAllOwners,
 	disposeOwner,
 	liveOwnedProcessCount,
-	type OwnedProcess,
 	registerResourceOwner,
 	resourceOwnerCount,
 	spawnOwnedProcess,

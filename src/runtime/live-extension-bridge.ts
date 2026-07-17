@@ -29,7 +29,6 @@
  *   - setActiveTools / getActiveTools / getAllTools
  */
 
-
 export interface ExtensionBridgeApis {
 	sendMessage: (message: unknown, options?: Record<string, unknown>) => void;
 	sendUserMessage: (content: unknown, options?: Record<string, unknown>) => void;

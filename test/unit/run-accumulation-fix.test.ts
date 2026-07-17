@@ -12,7 +12,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { DEFAULT_PATHS } from "../../src/config/defaults.ts";
 import { pruneUserLevelRuns } from "../../src/extension/run-maintenance.ts";
-import { readActiveRunRegistry, registerActiveRun, unregisterActiveRun } from "../../src/state/active-run-registry.ts";
+import { readActiveRunRegistry, registerActiveRun } from "../../src/state/active-run-registry.ts";
 import { createRunManifest, updateRunStatus } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import { userCrewRoot } from "../../src/utils/paths.ts";

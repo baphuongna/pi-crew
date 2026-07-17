@@ -36,7 +36,7 @@ describe("InstinctStore projectId path-traversal guard", () => {
 			evidence: [],
 		};
 
-		let captured: unknown = undefined;
+		let captured: unknown;
 		assert.throws(
 			() => {
 				try {

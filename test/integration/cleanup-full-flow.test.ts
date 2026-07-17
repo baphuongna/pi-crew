@@ -28,7 +28,6 @@ import {
 	__test_resetTrackedTempDirs,
 	cleanupLegacyOrphanTempDirs,
 	cleanupOrphanTempDirs,
-	cleanupTempDir,
 	createSafeTempDir,
 } from "../../src/runtime/pi-args.ts";
 

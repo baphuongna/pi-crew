@@ -30,9 +30,9 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtime-resolver.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
-import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import type { RunMetrics } from "../../state/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 
 /**
  * Module-scoped latch for the crew-init dynamic import.
@@ -283,10 +283,7 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 	}
 
 	// mode === "waited" — detailed per-task summary.
-	const lines: string[] = [
-		`pi-crew run ${manifest.status}: ${manifest.runId} (${team})`,
-		`Goal: ${goal.slice(0, 100)}`,
-	];
+	const lines: string[] = [`pi-crew run ${manifest.status}: ${manifest.runId} (${team})`, `Goal: ${goal.slice(0, 100)}`];
 	if (metrics) {
 		lines.push("");
 		lines.push(
@@ -325,8 +322,7 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 				}
 			}
 			const shortResult = resultExcerpt.slice(0, 500);
-			const statusTag =
-				task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
+			const statusTag = task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
 			taskLines.push(
 				`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
 			);

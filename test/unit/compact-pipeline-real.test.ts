@@ -31,7 +31,6 @@ import {
 	BLANK_COLLAPSE_STAGE,
 	BlankCollapseStage,
 	DEDUPLICATE_STAGE,
-	DeduplicateStage,
 	TruncationStage,
 } from "../../src/runtime/compact-stages/index.ts";
 import { readIfSmall } from "../../src/runtime/task-output-context.ts";

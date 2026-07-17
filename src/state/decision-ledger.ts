@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
 import { atomicWriteFile } from "./atomic-write.ts";

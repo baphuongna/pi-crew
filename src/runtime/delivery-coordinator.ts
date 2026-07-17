@@ -21,7 +21,6 @@ export interface DeliveryCoordinatorDeps {
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export class DeliveryCoordinator {
-	private ownerSessionId: string | undefined;
 	private active = false;
 	private generation = 0;
 	private pending: PendingDelivery[] = [];
@@ -29,6 +28,7 @@ export class DeliveryCoordinator {
 	private readonly deps: DeliveryCoordinatorDeps;
 	private ttlTimer: ReturnType<typeof setInterval> | undefined;
 	private timerStarted = false;
+	private ownerSessionId: string | undefined = undefined;
 
 	constructor(deps: DeliveryCoordinatorDeps) {
 		this.deps = deps;

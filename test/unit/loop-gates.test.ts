@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type { AutoResumeRuntime, TaskProgressSignal } from "../../src/runtime/loop-gates.ts";
 import { computeTaskProgressSignal, shouldAutoResume } from "../../src/runtime/loop-gates.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";

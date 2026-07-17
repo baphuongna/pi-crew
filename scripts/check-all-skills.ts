@@ -9,9 +9,9 @@
  *   node scripts/check-all-skills.ts
  */
 
-import { spawnSync } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 interface SkillSummary {
 	name: string;

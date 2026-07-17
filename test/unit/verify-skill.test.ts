@@ -3,10 +3,9 @@
  */
 
 import assert from "node:assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import test from "node:test";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 
 // Import verification functions by re-implementing the logic for testing
 // This allows testing the pattern matching logic without running the script

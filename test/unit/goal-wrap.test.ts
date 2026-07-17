@@ -153,14 +153,14 @@ test("FIX: persistAsyncOnGoalLoopManifest writes async.pid on the goal-loop mani
 			logPath: "/tmp/fake.log",
 		});
 		const persisted = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as Record<string, unknown>;
-		const asyncField = persisted["async"] as Record<string, unknown> | undefined;
+		const asyncField = persisted.async as Record<string, unknown> | undefined;
 		assert.ok(asyncField, "manifest.async must be set so async-notifier can detect dead runner");
-		assert.equal(asyncField["pid"], 99_999_999);
-		assert.equal(asyncField["logPath"], "/tmp/fake.log");
-		assert.ok(typeof asyncField["spawnedAt"] === "string", "spawnedAt must be ISO timestamp");
+		assert.equal(asyncField.pid, 99_999_999);
+		assert.equal(asyncField.logPath, "/tmp/fake.log");
+		assert.ok(typeof asyncField.spawnedAt === "string", "spawnedAt must be ISO timestamp");
 		// Other fields preserved.
-		assert.equal(persisted["runId"], "goal_test");
-		assert.equal(persisted["runKind"], "goal-loop");
+		assert.equal(persisted.runId, "goal_test");
+		assert.equal(persisted.runKind, "goal-loop");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

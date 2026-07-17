@@ -103,7 +103,7 @@ describe("createSessionSnapshot", () => {
 
 	it("builds task summary from run statuses", () => {
 		const snapshot = createSessionSnapshot(activeRuns, 0, 1);
-		assert.equal(snapshot.taskSummary["running"], 1);
+		assert.equal(snapshot.taskSummary.running, 1);
 	});
 
 	it("has valid capturedAt timestamp", () => {

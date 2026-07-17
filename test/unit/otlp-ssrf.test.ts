@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	assertResolvedAddressSafe,
-	isPrivateIpAddress,
-	validateEndpoint,
-} from "../../src/observability/exporters/otlp-exporter.ts";
+import { assertResolvedAddressSafe, isPrivateIpAddress, validateEndpoint } from "../../src/observability/exporters/otlp-exporter.ts";
 
 describe("OTLP SSRF endpoint validation", () => {
 	it("allows valid public https URL", () => {

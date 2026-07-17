@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import * as os from "os";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";

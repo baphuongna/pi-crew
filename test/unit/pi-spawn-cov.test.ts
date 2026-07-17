@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { PiSpawnCommand } from "../../src/runtime/pi-spawn.ts";
 import { getPiSpawnCommand } from "../../src/runtime/pi-spawn.ts";
 
 // ── getPiSpawnCommand ──

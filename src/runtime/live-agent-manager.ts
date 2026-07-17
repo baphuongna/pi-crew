@@ -1,8 +1,8 @@
 import type { appendEvent } from "../state/event-log.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { checkProcessLiveness } from "./process-status.ts";
 import type { CrewAgentRecord } from "./crew-agent-runtime.ts";
 import type { IrcMessage } from "./live-irc.ts";
+import { checkProcessLiveness } from "./process-status.ts";
 
 const MAX_PENDING_MESSAGES = 1000;
 
@@ -289,7 +289,7 @@ export function listActiveLiveAgents(): LiveAgentHandle[] {
 
 export function getLiveAgentContextPercent(agentIdOrTaskId: string): number | null {
 	const handle = getLiveAgent(agentIdOrTaskId);
-	if (!handle || handle.status !== "running") return null;
+	if (handle?.status !== "running") return null;
 	try {
 		return handle.session.getSessionStats?.().contextUsage?.percent ?? null;
 	} catch {

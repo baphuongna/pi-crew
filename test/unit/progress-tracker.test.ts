@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { crewEventBus } from "../../src/observability/event-bus.ts";
-import { type AgentProgress, ProgressTracker } from "../../src/runtime/progress-tracker.ts";
+import { ProgressTracker } from "../../src/runtime/progress-tracker.ts";
 
 test("ProgressTracker counts tool calls", () => {
 	const tracker = new ProgressTracker();

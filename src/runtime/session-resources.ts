@@ -9,7 +9,7 @@ import { logInternalError } from "../utils/internal-error.ts";
  */
 export function tryRegisterSessionCleanup(pi: ExtensionAPI, cleanup: () => void): (() => void) | undefined {
 	const api = pi as unknown as Record<string, unknown>;
-	const registerFn = api["registerSessionResourceCleanup"];
+	const registerFn = api.registerSessionResourceCleanup;
 	if (typeof registerFn === "function") {
 		try {
 			const unregister = (registerFn as (fn: () => void) => (() => void) | void)(cleanup);

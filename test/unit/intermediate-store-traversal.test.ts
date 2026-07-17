@@ -33,10 +33,7 @@ describe("writeIntermediate path-traversal guard", () => {
 			}
 		};
 		assert.throws(fn, /Invalid phase or stepId/);
-		assert.ok(
-			observed !== undefined && observed.includes("Invalid phase or stepId"),
-			`expected message to include 'Invalid phase or stepId', got: ${observed}`,
-		);
+		assert.ok(observed?.includes("Invalid phase or stepId"), `expected message to include 'Invalid phase or stepId', got: ${observed}`);
 	});
 
 	it("throws when stepId='../passwd'", () => {
@@ -50,10 +47,7 @@ describe("writeIntermediate path-traversal guard", () => {
 			}
 		};
 		assert.throws(fn, /Invalid phase or stepId/);
-		assert.ok(
-			observed !== undefined && observed.includes("Invalid phase or stepId"),
-			`expected message to include 'Invalid phase or stepId', got: ${observed}`,
-		);
+		assert.ok(observed?.includes("Invalid phase or stepId"), `expected message to include 'Invalid phase or stepId', got: ${observed}`);
 	});
 
 	it("writes <dir>/explore-step1.json on valid input", () => {

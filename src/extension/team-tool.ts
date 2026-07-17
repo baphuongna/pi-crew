@@ -250,8 +250,8 @@ async function recoverCheckpointedTasks(
 				if (files.length > 0) {
 					// Sort by attempt index descending to get the most recent
 					files.sort((a, b) => {
-						const idxA = parseInt(a.match(/\.attempt-(\d+)\./)?.[1] ?? "0");
-						const idxB = parseInt(b.match(/\.attempt-(\d+)\./)?.[1] ?? "0");
+						const idxA = parseInt(a.match(/\.attempt-(\d+)\./)?.[1] ?? "0", 10);
+						const idxB = parseInt(b.match(/\.attempt-(\d+)\./)?.[1] ?? "0", 10);
 						return idxB - idxA;
 					});
 					transcriptPath = path.join(transcriptsDir, files[0]);
@@ -1060,9 +1060,7 @@ interface ManifestCacheForRegistry {
  * real dependencies up-front, we install the registry once with no stub phase —
  * callers see either no registry (pre-init) or the fully-real registry.
  */
-export function installCrewGlobalRegistry(
-	deps?: { manifestCache: ManifestCacheForRegistry; cwdProvider: () => string },
-): void {
+export function installCrewGlobalRegistry(deps?: { manifestCache: ManifestCacheForRegistry; cwdProvider: () => string }): void {
 	const manifestCache = deps?.manifestCache;
 	const cwdProvider = deps?.cwdProvider ?? ((): string => process.cwd());
 	const registry: CrewRegistry = {
@@ -1078,10 +1076,7 @@ export function installCrewGlobalRegistry(
 			if (manifest) {
 				// LAZY: event-log is already loaded at module top, so use the
 				// pre-resolved appendEventFireAndForget instead of re-importing.
-				appendEventFireAndForget(
-					manifest.eventsPath,
-					event as Parameters<typeof appendEventFireAndForget>[1],
-				);
+				appendEventFireAndForget(manifest.eventsPath, event as Parameters<typeof appendEventFireAndForget>[1]);
 			}
 		},
 		waitForAll: async (runId: string) => {

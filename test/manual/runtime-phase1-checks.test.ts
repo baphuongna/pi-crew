@@ -3,7 +3,6 @@ import * as os from "node:os";
 import { join } from "node:path";
 import { handleGoal } from "../../src/extension/team-tool/goal.ts";
 import { GoalStore } from "../../src/runtime/goal-state-store.ts";
-import { workspaceLockPath } from "../../src/runtime/workspace-lock.ts";
 
 function fakeCtx(cwd: string): { cwd: string; sessionId: string } {
 	return { cwd, sessionId: "rt-test-session" };

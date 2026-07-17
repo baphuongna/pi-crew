@@ -13,7 +13,6 @@ import {
 	registerLiveAgent,
 	steerLiveAgent,
 	stopLiveAgent,
-	terminateLiveAgent,
 	terminateLiveAgentsForRun,
 	trackLiveAgentResponseText,
 	trackLiveAgentToolEnd,

@@ -9,9 +9,6 @@ import {
 	createHandoffManager,
 	type Decision,
 	HandoffManager,
-	type HandoffManagerOptions,
-	type HandoffSummary,
-	type SummarizeDecision,
 	type TaskPacket,
 	type TaskResult,
 } from "../../src/runtime/handoff-manager.ts";

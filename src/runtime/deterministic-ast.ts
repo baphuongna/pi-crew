@@ -120,9 +120,9 @@ function isNewDateExpression(node: AstNode): boolean {
  */
 function isMemberExpression(node: AstNode, childKey: string, objectName: string, propertyName: string): boolean {
 	const child = asAstNode(node[childKey]);
-	if (!child || child.type !== "MemberExpression") return false;
+	if (child?.type !== "MemberExpression") return false;
 	const object = asAstNode(child.object);
-	if (!object || object.type !== "Identifier" || object.name !== objectName) return false;
+	if (object?.type !== "Identifier" || object.name !== objectName) return false;
 	return propertyNameOf(child) === propertyName;
 }
 

@@ -5,13 +5,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	type AutoSummarizeConfig,
-	type AutoSummarizeDecision,
-	AutoSummarizeService,
-	createAutoSummarizeService,
-	DEFAULT_AUTO_SUMMARIZE_CONFIG,
-} from "../../src/runtime/auto-summarize.ts";
+import { AutoSummarizeService, createAutoSummarizeService, DEFAULT_AUTO_SUMMARIZE_CONFIG } from "../../src/runtime/auto-summarize.ts";
 import type { TaskPacket, TaskResult } from "../../src/runtime/handoff-manager.ts";
 
 // Test helpers

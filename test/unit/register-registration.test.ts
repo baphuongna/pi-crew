@@ -127,19 +127,13 @@ test("registerPiTeams is callable with a fake Pi API (no throw, no hang)", () =>
 test("registerPiTeams registers at least one tool via the fake Pi API", () => {
 	const pi = createFakePi();
 	registerPiTeams(pi as unknown as Parameters<typeof registerPiTeams>[0]);
-	assert.ok(
-		pi.registeredTools.length >= 1,
-		`expected at least 1 tool registration, got ${pi.registeredTools.length}`,
-	);
+	assert.ok(pi.registeredTools.length >= 1, `expected at least 1 tool registration, got ${pi.registeredTools.length}`);
 });
 
 test("registerPiTeams registers at least one slash command via the fake Pi API", () => {
 	const pi = createFakePi();
 	registerPiTeams(pi as unknown as Parameters<typeof registerPiTeams>[0]);
-	assert.ok(
-		pi.registeredCommands.length >= 1,
-		`expected at least 1 command registration, got ${pi.registeredCommands.length}`,
-	);
+	assert.ok(pi.registeredCommands.length >= 1, `expected at least 1 command registration, got ${pi.registeredCommands.length}`);
 	// Spot-check: the teams-list command should be among them — this is the
 	// canonical user-facing entry point that everything else augments. (The
 	// command is pluralised to "teams" to disambiguate from the upcoming
@@ -157,10 +151,7 @@ test("registerPiTeams registers lifecycle event hooks via pi.on(...)", () => {
 	// for every session; registerPiTeams wires handlers to both. Pinning these
 	// catches regressions where a hook gets accidentally dropped from the
 	// orchestrator (e.g., a refactor splits the function and forgets one).
-	assert.ok(
-		pi.registeredCommands.length > 0 ? pi.emitLifecycle : null,
-		"fake pi surface intact",
-	);
+	assert.ok(pi.registeredCommands.length > 0 ? pi.emitLifecycle : null, "fake pi surface intact");
 	// Calling emitLifecycle('session_shutdown', ctx) must not throw — that
 	// would mean registerPiTeams registered a handler that throws synchronously
 	// on the empty event we feed it. Use the typed fake Pi method instead of
@@ -188,14 +179,8 @@ test("registerPiTeams is safe to call twice — SIGTERM/SIGHUP listeners do not 
 	const afterFirstSIGHUP = process.listenerCount("SIGHUP");
 
 	// First call adds the signal listeners (one each).
-	assert.ok(
-		afterFirstSIGTERM - beforeSIGTERM <= 1,
-		`first call stacked SIGTERM listeners: delta=${afterFirstSIGTERM - beforeSIGTERM}`,
-	);
-	assert.ok(
-		afterFirstSIGHUP - beforeSIGHUP <= 1,
-		`first call stacked SIGHUP listeners: delta=${afterFirstSIGHUP - beforeSIGHUP}`,
-	);
+	assert.ok(afterFirstSIGTERM - beforeSIGTERM <= 1, `first call stacked SIGTERM listeners: delta=${afterFirstSIGTERM - beforeSIGTERM}`);
+	assert.ok(afterFirstSIGHUP - beforeSIGHUP <= 1, `first call stacked SIGHUP listeners: delta=${afterFirstSIGHUP - beforeSIGHUP}`);
 
 	// Second call must not throw.
 	assert.doesNotThrow(() => registerPiTeams(pi as unknown as Parameters<typeof registerPiTeams>[0]));

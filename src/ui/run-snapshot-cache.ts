@@ -673,9 +673,7 @@ type SliceSignatures = NonNullable<RunUiSnapshot["sliceSignatures"]>;
  * changes (collision risk: 1 in 16^16 per build, well within tolerance for
  * cache-invalidation use).
  */
-function computeSliceSignatures(
-	input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">,
-): SliceSignatures {
+function computeSliceSignatures(input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">): SliceSignatures {
 	const hash = (value: unknown): string => {
 		try {
 			return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 12);

@@ -124,7 +124,7 @@ export function filterReadyByWriteOverlap(
 	for (const taskId of readyTaskIds) {
 		if (pickedTaskIds.length >= maxCount) break;
 		const task = taskById.get(taskId);
-		if (!task || !task.stepId) {
+		if (!task?.stepId) {
 			// No step reference: treat as no declared write path → never conflicts.
 			pickedTaskIds.push(taskId);
 			continue;

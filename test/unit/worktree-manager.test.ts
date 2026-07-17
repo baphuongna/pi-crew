@@ -6,7 +6,7 @@ import * as path from "node:path";
 import test from "node:test";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import { cleanupRunWorktrees } from "../../src/worktree/cleanup.ts";
-import { assertCleanLeader, findGitRoot, prepareTaskWorkspace } from "../../src/worktree/worktree-manager.ts";
+import { assertCleanLeader, prepareTaskWorkspace } from "../../src/worktree/worktree-manager.ts";
 
 function makeRepoTemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

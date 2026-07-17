@@ -25,14 +25,14 @@ export function handleAutoSummarizeOn(params: TeamToolParamsValue, ctx: TeamCont
 	// Apply config updates if provided
 	if (cfg.threshold !== undefined) {
 		const threshold = typeof cfg.threshold === "number" ? cfg.threshold : parseInt(String(cfg.threshold), 10);
-		if (!isNaN(threshold) && threshold >= 0) {
+		if (!Number.isNaN(threshold) && threshold >= 0) {
 			service.setThreshold(threshold);
 		}
 	}
 
 	if (cfg.minTools !== undefined) {
 		const minTools = typeof cfg.minTools === "number" ? cfg.minTools : parseInt(String(cfg.minTools), 10);
-		if (!isNaN(minTools) && minTools >= 0) {
+		if (!Number.isNaN(minTools) && minTools >= 0) {
 			service.setMinToolsUsed(minTools);
 		}
 	}
@@ -103,14 +103,14 @@ export function handleAutoSummarizeConfig(params: TeamToolParamsValue, ctx: Team
 
 	if (cfg.threshold !== undefined) {
 		const threshold = typeof cfg.threshold === "number" ? cfg.threshold : parseInt(String(cfg.threshold), 10);
-		if (!isNaN(threshold) && threshold >= 0) {
+		if (!Number.isNaN(threshold) && threshold >= 0) {
 			updates.threshold = threshold;
 		}
 	}
 
 	if (cfg.minTools !== undefined) {
 		const minTools = typeof cfg.minTools === "number" ? cfg.minTools : parseInt(String(cfg.minTools), 10);
-		if (!isNaN(minTools) && minTools >= 0) {
+		if (!Number.isNaN(minTools) && minTools >= 0) {
 			updates.minTools = minTools;
 		}
 	}

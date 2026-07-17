@@ -172,7 +172,7 @@ function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?:
 	// progress artifact on every render. The progress artifact content is captured
 	// into the snapshot's recent events / output pipeline upstream.
 	const snapshot = snapshotFor(run, snapshotCache);
-	if (snapshot && snapshot.recentOutputLines?.length) {
+	if (snapshot?.recentOutputLines?.length) {
 		return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
 	}
 	if (snapshotCache) return ["Progress: (loading…)"];

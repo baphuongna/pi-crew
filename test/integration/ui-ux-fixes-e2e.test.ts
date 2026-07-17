@@ -32,7 +32,7 @@ import { HelpOverlay } from "../../src/ui/overlays/help-overlay.ts";
 import { RunDashboard } from "../../src/ui/run-dashboard.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../../src/ui/status-colors.ts";
 import type { CrewTheme } from "../../src/ui/theme-adapter.ts";
-import { agentStats, formatTokensCompact } from "../../src/ui/widget/widget-formatters.ts";
+import { agentStats } from "../../src/ui/widget/widget-formatters.ts";
 import { pad, truncate, visibleWidth } from "../../src/utils/visual.ts";
 
 // ── Test helpers ──────────────────────────────────────────────────────

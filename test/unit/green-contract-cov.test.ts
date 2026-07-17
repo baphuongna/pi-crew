@@ -6,7 +6,7 @@ import {
 	greenLevelSatisfies,
 	inferGreenLevelFromTask,
 } from "../../src/runtime/green-contract.ts";
-import type { VerificationContract, VerificationEvidence } from "../../src/state/types.ts";
+import type { VerificationContract } from "../../src/state/types.ts";
 
 function makeContract(overrides: Partial<VerificationContract> = {}): VerificationContract {
 	return {

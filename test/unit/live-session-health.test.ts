@@ -66,7 +66,7 @@ test("collectLiveSessionHealth: handles missing usage gracefully", () => {
 
 test("collectLiveSessionHealth: timestamp is valid ISO string", () => {
 	const health = collectLiveSessionHealth([], () => undefined);
-	assert.ok(!isNaN(Date.parse(health.timestamp)));
+	assert.ok(!Number.isNaN(Date.parse(health.timestamp)));
 });
 
 // ─── formatLiveSessionDiagnostics ──────────────────────────────────────────

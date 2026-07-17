@@ -13,15 +13,15 @@ import { initI18n } from "../../i18n.ts";
 import { BatchBarrier } from "../../runtime/batch-barrier.ts";
 import { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
-import { type CrewWidgetState } from "../../ui/widget/index.ts";
+import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { type AsyncNotifierState } from "../async-notifier.ts";
-import { type NotificationDescriptor } from "../notification-router.ts";
-import { type LifecycleState } from "./lifecycle.ts";
-import { type ObservabilityState } from "./observability.ts";
-import { type RegistrationContext } from "./registration-types.ts";
+import type { AsyncNotifierState } from "../async-notifier.ts";
+import type { NotificationDescriptor } from "../notification-router.ts";
+import type { LifecycleState } from "./lifecycle.ts";
+import type { ObservabilityState } from "./observability.ts";
+import type { RegistrationContext } from "./registration-types.ts";
 import { sendFollowUp } from "./subagent-helpers.ts";
-import { type UiState } from "./ui.ts";
+import type { UiState } from "./ui.ts";
 
 /** Module-level slot for `disposeI18n` so the cleanup helpers can find it. */
 const RUNTIME_CLEANUP_STORE_KEY = Symbol("__piCrewRuntimeCleanup");
@@ -88,8 +88,7 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 		captureSessionGeneration: () => ctx.sessionGeneration,
 		isOwnerSessionCurrent: (gen) => !ctx.cleanedUp && (gen === undefined || gen === ctx.sessionGeneration),
 		isContextCurrent: (c, gen) => !ctx.cleanedUp && ctx.currentCtx === c && ctx.sessionGeneration === gen,
-		telemetryEnabled: () =>
-			loadConfig(ctx.currentCtx?.cwd ?? process.cwd()).config.telemetry?.enabled !== false,
+		telemetryEnabled: () => loadConfig(ctx.currentCtx?.cwd ?? process.cwd()).config.telemetry?.enabled !== false,
 		notifyOperator: undefined as never,
 		cleanupSessionResourcesOnly: () => {},
 		cleanupRuntime: () => {},
@@ -110,12 +109,7 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 			ctx.lifecycleState.notificationRouter?.enqueue(notification);
 		} catch (error) {
 			logInternalError("register.notification", error);
-			void sendFollowUp(
-				pi,
-				[notification.title, notification.body]
-					.filter((line): line is string => Boolean(line))
-					.join("\n"),
-			);
+			void sendFollowUp(pi, [notification.title, notification.body].filter((line): line is string => Boolean(line)).join("\n"));
 		}
 	};
 

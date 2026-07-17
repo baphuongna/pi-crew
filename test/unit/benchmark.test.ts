@@ -280,11 +280,11 @@ test("aggregateBenchmarkMetrics buckets by taskType", () => {
 		},
 	];
 	const metrics = aggregateBenchmarkMetrics(results);
-	assert.equal(metrics["unit"]?.totalTasks, 2);
-	assert.equal(metrics["unit"]?.passedTasks, 1);
-	assert.equal(metrics["unit"]?.passRate, 0.5);
-	assert.equal(metrics["integration"]?.totalTasks, 1);
-	assert.equal(metrics["integration"]?.passedTasks, 1);
+	assert.equal(metrics.unit?.totalTasks, 2);
+	assert.equal(metrics.unit?.passedTasks, 1);
+	assert.equal(metrics.unit?.passRate, 0.5);
+	assert.equal(metrics.integration?.totalTasks, 1);
+	assert.equal(metrics.integration?.passedTasks, 1);
 });
 
 test("aggregateBenchmarkMetrics groups untagged under __default__", () => {
@@ -305,7 +305,7 @@ test("aggregateBenchmarkMetrics groups untagged under __default__", () => {
 		},
 	];
 	const metrics = aggregateBenchmarkMetrics(results);
-	assert.equal(metrics["__default__"]?.totalTasks, 2);
+	assert.equal(metrics.__default__?.totalTasks, 2);
 });
 
 test("aggregateBenchmarkMetrics handles empty results", () => {
@@ -333,8 +333,8 @@ test("aggregateBenchmarkMetrics computes avg cost per task", () => {
 		},
 	];
 	const metrics = aggregateBenchmarkMetrics(results);
-	assert.equal(metrics["unit"]?.avgCost, 0.003);
-	assert.equal(metrics["unit"]?.totalCost, 0.006);
+	assert.equal(metrics.unit?.avgCost, 0.003);
+	assert.equal(metrics.unit?.totalCost, 0.006);
 });
 
 test("generateBenchmarkReport produces markdown table", () => {

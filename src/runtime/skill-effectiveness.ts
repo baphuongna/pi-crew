@@ -10,8 +10,8 @@
  * @module skill-effectiveness
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { crewHooks } from "./crew-hooks.ts";
 
