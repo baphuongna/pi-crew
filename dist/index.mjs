@@ -51223,26 +51223,31 @@ function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now()) {
         try {
           const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
           if (fullLoaded) {
-            const now_iso = new Date(now).toISOString();
-            const repairedTasks = fullLoaded.tasks.map((task) => {
-              if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-                return {
-                  ...task,
-                  status: "cancelled",
-                  finishedAt: now_iso,
-                  error: "Orphaned run: worker process dead and no recent activity"
-                };
+            withRunLockSync(fullLoaded.manifest, () => {
+              const fresh = loadRunManifestById(entry.cwd, entry.runId);
+              if (!fresh) return;
+              if (fresh.manifest.status !== "running") return;
+              const now_iso = new Date(now).toISOString();
+              const repairedTasks = fresh.tasks.map((task) => {
+                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+                  return {
+                    ...task,
+                    status: "cancelled",
+                    finishedAt: now_iso,
+                    error: "Orphaned run: worker process dead and no recent activity"
+                  };
+                }
+                return task;
+              });
+              saveRunTasks(fresh.manifest, repairedTasks);
+              for (const task of repairedTasks) {
+                try {
+                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+                } catch {
+                }
               }
-              return task;
+              updateRunStatus(fresh.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
             });
-            saveRunTasks(fullLoaded.manifest, repairedTasks);
-            for (const task of repairedTasks) {
-              try {
-                upsertCrewAgent(fullLoaded.manifest, recordFromTask(fullLoaded.manifest, task, "scaffold"));
-              } catch {
-              }
-            }
-            updateRunStatus(fullLoaded.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
             void terminateLiveAgentsForRun(
               fullLoaded.manifest.runId,
               "cancelled",
@@ -51264,30 +51269,34 @@ function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now()) {
         try {
           const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
           if (fullLoaded && fullLoaded.manifest.status === "running") {
-            const now_iso = new Date(now).toISOString();
-            const repairedTasks = fullLoaded.tasks.map((task) => {
-              if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-                return {
-                  ...task,
-                  status: "cancelled",
-                  finishedAt: now_iso,
-                  error: "Orphaned run: workflow completed but manifest never updated to terminal status"
-                };
+            withRunLockSync(fullLoaded.manifest, () => {
+              const fresh = loadRunManifestById(entry.cwd, entry.runId);
+              if (!fresh || fresh.manifest.status !== "running") return;
+              const now_iso = new Date(now).toISOString();
+              const repairedTasks = fresh.tasks.map((task) => {
+                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+                  return {
+                    ...task,
+                    status: "cancelled",
+                    finishedAt: now_iso,
+                    error: "Orphaned run: workflow completed but manifest never updated to terminal status"
+                  };
+                }
+                return task;
+              });
+              saveRunTasks(fresh.manifest, repairedTasks);
+              for (const task of repairedTasks) {
+                try {
+                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+                } catch {
+                }
               }
-              return task;
+              updateRunStatus(
+                fresh.manifest,
+                "cancelled",
+                "Orphaned run: no async worker and no manifest update in over " + Math.round(staleThresholdMs / 6e4) + " minutes"
+              );
             });
-            saveRunTasks(fullLoaded.manifest, repairedTasks);
-            for (const task of repairedTasks) {
-              try {
-                upsertCrewAgent(fullLoaded.manifest, recordFromTask(fullLoaded.manifest, task, "scaffold"));
-              } catch {
-              }
-            }
-            updateRunStatus(
-              fullLoaded.manifest,
-              "cancelled",
-              "Orphaned run: no async worker and no manifest update in over " + Math.round(staleThresholdMs / 6e4) + " minutes"
-            );
             void terminateLiveAgentsForRun(
               fullLoaded.manifest.runId,
               "cancelled",
@@ -79874,7 +79883,18 @@ async function configureObservability(ctx, state, deps) {
     }
   });
   state.heartbeatWatcher.start();
-  const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 6e4;
+  try {
+    deps.pi.on?.("before_agent_start", () => {
+      if (deps.isCleanedUp()) return;
+      try {
+        deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd));
+      } catch (error) {
+        logInternalError("register.autoRepair.turnHook", error);
+      }
+    });
+  } catch {
+  }
+  const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 3e5;
   if (autoRepairIntervalMs > 0) {
     state.autoRepairTimer = setInterval(() => {
       if (deps.isCleanedUp()) return;
@@ -83116,6 +83136,30 @@ function createManifestCache(cwd, options = {}) {
     if (cached) return cached.manifest;
     return void 0;
   }
+  function listActive(limit) {
+    const cap = Math.max(0, limit);
+    const parsedEntries = [
+      ...roots.flatMap((root) => collectRoots(root)),
+      ...activeRunEntries().map((entry) => ({
+        runId: entry.runId,
+        path: entry.manifestPath
+      }))
+    ];
+    const unique2 = /* @__PURE__ */ new Map();
+    for (const entry of parsedEntries) {
+      if (entry.runId.length === 0) continue;
+      let cached = manifestIndex.get(entry.runId);
+      const root = path74.dirname(path74.dirname(entry.path));
+      const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached);
+      if (parsed) {
+        cached = parsed;
+        manifestIndex.set(entry.runId, cached);
+      }
+      if (cached) unique2.set(entry.runId, cached);
+    }
+    const running = [...unique2.values()].filter((value) => value !== void 0).map((value) => value.manifest).filter((manifest) => manifest.status === "running");
+    return running.slice(0, cap);
+  }
   if (options.watch ?? true) {
     for (const root of roots) {
       const watcher = watchWithErrorHandler(
@@ -83135,6 +83179,7 @@ function createManifestCache(cwd, options = {}) {
   }
   return {
     list: list2,
+    listActive,
     get,
     clear(runId) {
       invalidate(runId);

@@ -118,8 +118,7 @@ async function configureObservabilityImpl(
  */
 async function configureDeliveryCoordinatorImpl(pi: ExtensionAPI, ctx: RegistrationContext): Promise<void> {
 	try {
-		// LAZY (mild): lifecycle.ts may not be loaded yet if configureNotifications
-		// hasn't fired; either way, dynamic import is safe.
+		// LAZY: lifecycle.ts may not be loaded yet if configureNotifications hasn't fired.
 		const lifecycleModule = await import("./lifecycle.ts");
 		await lifecycleModule.configureDeliveryCoordinator(ctx.lifecycleState, {
 			pi,

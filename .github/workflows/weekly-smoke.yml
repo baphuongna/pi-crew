@@ -1,0 +1,61 @@
+name: Weekly Smoke Tests
+
+# TB-12: weekly scheduled smoke-test run. The smoke suite shells out to the
+# real `pi` binary and exercises the actual orchestrator paths. Trigger via
+# Actions tab → "Weekly Smoke Tests" → Run workflow, OR let the cron run
+# automatically Monday 9am UTC to catch regressions before they accumulate.
+#
+# NOTE: the smoke suite bills tokens if PI_AUTH_JSON is configured as a repo
+# secret. To stay a free weekly canary, leave PI_AUTH_JSON unset in the repo
+# settings — the argv-flags smoke test does NOT need LLM credentials, but
+# the agent-* and dwf-workflow smoke tests will skip without auth. If you
+# want to exercise those, configure the secret and re-enable them below.
+#
+# Distinct from .github/workflows/smoke.yml (manual LLM-billed suite) and
+# .github/workflows/ci.yml (per-PR push gate). This is the cheapest,
+# fastest weekly canary that exercises the bundle + cold-start path.
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'  # Monday 9am UTC
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PI_CREW_SMOKE: "1"
+
+jobs:
+  smoke:
+    name: ubuntu-latest / Node 22
+    runs-on: ubuntu-latest
+    # Fail loud: if the bundle build or smoke step fails, surface it
+    # immediately. No continue-on-error — this is the weekly canary.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Print platform diagnostics
+        run: |
+          node -p "JSON.stringify({ platform: process.platform, arch: process.arch, node: process.version, cwd: process.cwd() }, null, 2)"
+          npm --version
+      - name: Install dependencies
+        run: npm ci
+      - name: Build bundle
+        # Bundle must be present before the smoke suite runs because the
+        # test harness loads dist/index.mjs, not src/.
+        run: npm run build:bundle
+      - name: Run smoke tests
+        run: npm run test:smoke
+      - name: Upload smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-smoke-logs
+          path: |
+            test/smoke/*.log
+            .crew/state/runs/team_smoke_*/
+          if-no-files-found: ignore
+          retention-days: 14

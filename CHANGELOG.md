@@ -1,5 +1,7 @@
 # Changelog
 
+> **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
+
 ## [0.9.41] — communication-layer optimization (2026-07-16)
 
 ### Performance

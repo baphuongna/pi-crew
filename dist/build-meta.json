@@ -13090,7 +13090,7 @@
       "format": "esm"
     },
     "src/runtime/crash-recovery.ts": {
-      "bytes": 22655,
+      "bytes": 23358,
       "imports": [
         {
           "path": "node:fs",
@@ -17168,7 +17168,7 @@
       "format": "esm"
     },
     "src/runtime/manifest-cache.ts": {
-      "bytes": 9378,
+      "bytes": 11387,
       "imports": [
         {
           "path": "node:fs",
@@ -17618,7 +17618,7 @@
       "format": "esm"
     },
     "src/extension/registration/observability.ts": {
-      "bytes": 12667,
+      "bytes": 13810,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18012,7 +18012,7 @@
       "format": "esm"
     },
     "src/extension/registration/lazy-configurers.ts": {
-      "bytes": 5545,
+      "bytes": 5497,
       "imports": [
         {
           "path": "src/runtime/deadletter.ts",
@@ -18786,7 +18786,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6773268
+      "bytes": 6778737
     },
     "dist/index.mjs": {
       "imports": [
@@ -21967,7 +21967,7 @@
           "bytesInOutput": 15685
         },
         "src/runtime/crash-recovery.ts": {
-          "bytesInOutput": 15304
+          "bytesInOutput": 15804
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2413
@@ -22396,7 +22396,7 @@
           "bytesInOutput": 5992
         },
         "src/extension/registration/observability.ts": {
-          "bytesInOutput": 7530
+          "bytesInOutput": 7830
         },
         "src/ui/live-run-sidebar.ts": {
           "bytesInOutput": 9969
@@ -22468,7 +22468,7 @@
           "bytesInOutput": 3062
         },
         "src/runtime/manifest-cache.ts": {
-          "bytesInOutput": 7460
+          "bytesInOutput": 8440
         },
         "src/utils/fs-watch.ts": {
           "bytesInOutput": 382
@@ -22546,7 +22546,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3202003
+      "bytes": 3203783
     }
   }
 }
