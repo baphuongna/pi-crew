@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
+import { atomicWriteJson } from "./atomic-write.ts";
 
 import type { ScheduledTask, ScheduleStoreData } from "./types.ts";
 
@@ -112,7 +113,12 @@ export class ScheduleStore {
 	private save(): void {
 		try {
 			fs.mkdirSync(path.dirname(this.path), { recursive: true });
-			fs.writeFileSync(this.path, JSON.stringify(this.data, null, 2), "utf-8");
+			// Atomic (temp + rename + fsync) — matches the class docstring's "atomic JSON
+			// persistence" claim. A raw writeFileSync could truncate schedules.json on
+			// crash and the constructor silently resets to {jobs:[]} on parse failure.
+			// NOTE: this class is currently not instantiated in production (scheduling
+			// persists via settings-store updateCrewSettings); kept consistent for safety.
+			atomicWriteJson(this.path, this.data);
 		} catch (error) {
 			// FIX (Round 21, L1): Use logInternalError for consistency with
 			// the rest of the codebase. Previously console.warn may not be

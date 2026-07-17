@@ -732,7 +732,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(pi.events);
 		disposePowerbarCoalescer();
-		disposeObservability(observabilityState, cleanedUp);
+		void disposeObservability(observabilityState, cleanedUp);
 		lifecycleState.deliveryCoordinator?.dispose();
 		clearHooksScoped();
 		uninstallCrewGlobalRegistry();
@@ -801,7 +801,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		clearPiCrewPowerbar(pi.events);
 		disposePowerbarCoalescer();
 		// H3-L2 split: observability disposal delegated to registration/observability.ts.
-		disposeObservability(observabilityState, cleanedUp);
+		void disposeObservability(observabilityState, cleanedUp);
 		lifecycleState.deliveryCoordinator?.dispose();
 		clearHooksScoped();
 		uninstallCrewGlobalRegistry();

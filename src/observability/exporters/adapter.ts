@@ -3,7 +3,7 @@ import type { MetricSnapshot } from "../metrics-primitives.ts";
 export interface MetricExporter {
 	name: string;
 	push(snapshots: MetricSnapshot[]): Promise<void>;
-	dispose(): void;
+	dispose(): Promise<void>;
 }
 
 export class CompositeExporter implements MetricExporter {
@@ -18,13 +18,10 @@ export class CompositeExporter implements MetricExporter {
 		await Promise.allSettled(this.exporters.map((exporter) => exporter.push(snapshots)));
 	}
 
-	dispose(): void {
-		for (const exporter of this.exporters) {
-			try {
-				exporter.dispose();
-			} catch {
-				// Best-effort cleanup; one exporter failing shouldn't prevent others.
-			}
-		}
+	async dispose(): Promise<void> {
+		// OBS-3: await allSettled so an async exporter cleanup (e.g. OTLPExporter awaiting
+		// an in-flight HTTP push) isn't cut short. Interface contract changed from `void`
+		// to `Promise<void>` because exporters may have async teardown.
+		await Promise.allSettled(this.exporters.map((exporter) => exporter.dispose()));
 	}
 }

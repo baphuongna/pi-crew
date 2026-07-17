@@ -109,7 +109,7 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 			// (reduced from 120s) is appropriate.
 			fs.mkdirSync(lockDir);
 			try {
-				fs.writeFileSync(pidFile, String(process.pid), "utf-8");
+				atomicWriteFile(pidFile, String(process.pid));
 			} catch {
 				/* best-effort */
 			}

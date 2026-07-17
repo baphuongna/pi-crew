@@ -220,7 +220,7 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		// copyFileSync + writeFileSync("") ensures eventsPath ALWAYS exists
 		// (no missing-file window for concurrent readers).
 		fs.copyFileSync(eventsPath, archivePath);
-		fs.writeFileSync(eventsPath, "", "utf-8");
+		atomicWriteFile(eventsPath, "");
 		return true;
 	} catch (error) {
 		logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);

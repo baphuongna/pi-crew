@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { appendEvent } from "../state/event-log.ts";
 import { withRunLockSync } from "../state/locks.ts";
 import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/state-store.ts";
@@ -70,7 +71,7 @@ function startHeartbeat(stateRoot: string, eventsPath: string, runId: string): (
 	const writeHeartbeat = (): void => {
 		try {
 			const mem = process.memoryUsage();
-			fs.writeFileSync(
+			atomicWriteFile(
 				heartbeatPath,
 				JSON.stringify({
 					pid: process.pid,
@@ -81,7 +82,6 @@ function startHeartbeat(stateRoot: string, eventsPath: string, runId: string): (
 						rssMb: Math.round(mem.rss / 1024 / 1024),
 					},
 				}),
-				"utf-8",
 			);
 		} catch {
 			/* ignore — best-effort */

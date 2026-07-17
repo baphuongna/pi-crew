@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
-import { resolveContainedPath } from "../utils/safe-paths.ts";
-import { withHmacVerification } from "./rpc-hmac.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { isHmacEnabled, withHmacVerification } from "./rpc-hmac.ts";
 // Lazy-loaded to avoid pulling team-tool.ts (and its entire runtime chain) into module load.
 import type { handleTeamTool as HandleTeamToolFn } from "./team-tool.ts";
 
@@ -31,6 +31,8 @@ export const PI_CREW_RPC_VERSION = 1;
 export interface PiCrewRpcHandle {
 	unsubscribe(): void;
 }
+
+let rpcHmacWarningEmitted = false;
 
 function requestId(raw: unknown): string | undefined {
 	return raw && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as { requestId?: unknown }).requestId === "string"
@@ -109,7 +111,10 @@ export function resetRpcRateLimit(): void {
 	rpcRunTimestamps.length = 0;
 }
 
-function isAllowedRpcRunParams(params: TeamToolParamsValue): {
+export function isAllowedRpcRunParams(
+	params: TeamToolParamsValue,
+	ctx: ExtensionContext,
+): {
 	ok: boolean;
 	error?: string;
 } {
@@ -123,10 +128,16 @@ function isAllowedRpcRunParams(params: TeamToolParamsValue): {
 			error: "RPC run requires config.intent (a non-empty intent string)",
 		};
 	}
-	// SECURITY: Validate cwd is within the project directory if provided.
+	// SECURITY: Validate cwd, if provided, resolves WITHIN the project directory (ctx.cwd).
+	// Arg order is (baseDir=ctx.cwd, targetPath=params.cwd): the project dir is the container,
+	// the caller-supplied cwd is the contained target. (Previously the args were swapped —
+	// resolveContainedPath(params.cwd, ".") — which validates that "." is inside params.cwd,
+	// trivially true for ANY path, so the check never rejected anything.)
+	// NOTE: defense-in-depth — handleTeamTool currently uses ctx.cwd and ignores params.cwd,
+	// but a correct guard here prevents a future regression from silently enabling cwd escape.
 	if (params.cwd && typeof params.cwd === "string") {
 		try {
-			resolveContainedPath(params.cwd, ".");
+			resolveRealContainedPath(ctx.cwd, params.cwd);
 		} catch {
 			return {
 				ok: false,
@@ -152,6 +163,13 @@ export function registerPiCrewRpc(
 	getCtx: () => ExtensionContext | undefined,
 ): PiCrewRpcHandle | undefined {
 	if (!events) return undefined;
+	if (!isHmacEnabled() && !rpcHmacWarningEmitted) {
+		rpcHmacWarningEmitted = true;
+		console.warn(
+			"[pi-crew SECURITY] PI_CREW_RPC_SECRET is not configured; cross-extension RPC HMAC authentication is disabled. " +
+				"RPC requests rely on operation allowlists and session checks. Set PI_CREW_RPC_SECRET to authenticate their origin.",
+		);
+	}
 	const unsubs = [
 		on(
 			events,
@@ -214,7 +232,7 @@ export function registerPiCrewRpc(
 					} else {
 						params = { action: "run" };
 					}
-					const permission = isAllowedRpcRunParams(params);
+					const permission = isAllowedRpcRunParams(params, ctx);
 					if (!permission.ok) {
 						reply(events, "pi-crew:rpc:run", id, {
 							success: false,

@@ -97,7 +97,7 @@ async function importOTLPExporter(): Promise<OTLPExporterCtor> {
  */
 export async function configureObservability(ctx: ExtensionContext, state: ObservabilityState, deps: ObservabilityDeps): Promise<void> {
 	// Always start from a clean slate: dispose any prior-session state first.
-	disposeObservability(state, deps.isCleanedUp());
+	await disposeObservability(state, deps.isCleanedUp());
 
 	const config = loadConfig(ctx.cwd).config;
 	if (config.observability?.enabled === false) return;
@@ -271,7 +271,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
  * partially or fully disposed. Caller passes `isCleanedUp` so timers can be
  * gated by the orchestrator's overall cleanup state.
  */
-export function disposeObservability(state: ObservabilityState, _isCleanedUp: boolean): void {
+export async function disposeObservability(state: ObservabilityState, _isCleanedUp: boolean): Promise<void> {
 	state.heartbeatWatcher?.dispose();
 	state.heartbeatWatcher = undefined;
 	if (state.autoRepairTimer) {
@@ -286,7 +286,12 @@ export function disposeObservability(state: ObservabilityState, _isCleanedUp: bo
 	state.metricSink = undefined;
 	state.eventMetricSub?.dispose();
 	state.eventMetricSub = undefined;
-	state.otlpExporter?.dispose();
+	// OBS-3: await OTLPExporter.dispose() so an in-flight HTTP push isn't cut short on
+	// shutdown (interface contract changed to Promise<void>; OTLPExporter awaits its
+	// in-flight push). The async work still completes even when callers discard the
+	// returned promise (fire-and-forget cleanup), because Node keeps the event loop
+	// alive for pending I/O.
+	await state.otlpExporter?.dispose();
 	state.otlpExporter = undefined;
 	state.metricRegistry?.dispose();
 	state.metricRegistry = undefined;

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
-import { atomicWriteJson } from "../state/atomic-write.ts";
+import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
 import { saveRunManifest } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
@@ -152,29 +152,32 @@ function checkPidLiveness(
 	}
 	// If process is alive per kill(0), we're done.
 	if (liveness.alive) return { alive: true, detail: liveness.detail };
-	// Process is dead per kill(0). Check heartbeat as corroborating evidence.
+	// Process is dead per kill(0). ESRCH is AUTHORITATIVE — the PID does not exist.
+	// A frozen/zombie process still has a PID (kill(0) returns 0, or EPERM if we lack
+	// permission to signal it), so reaching here with alive=false means the process
+	// is genuinely gone. PID recycling is already handled above via the startTime
+	// TOCTOU check, so the heartbeat file must NOT override the dead verdict.
+	//
+	// HISTORY: a <5min-old heartbeat.json previously OVERRRODE this verdict (returned
+	// alive:true "process dead but heartbeat Xs old"), delaying repair by ~5min.
+	// Combined with the 60s reconcile cadence this produced a ~300-360s detection lag
+	// for dead workers (observed 353s in production). The heartbeat is now used only
+	// to enrich the detail string, never to override the authoritative kill(0) verdict.
+	let heartbeatNote = "";
 	if (stateRoot) {
-		const heartbeatPath = path.join(stateRoot, "heartbeat.json");
 		try {
+			const heartbeatPath = path.join(stateRoot, "heartbeat.json");
 			if (fs.existsSync(heartbeatPath)) {
 				const hb = JSON.parse(fs.readFileSync(heartbeatPath, "utf-8")) as { pid?: number; at?: number };
 				if (hb?.pid === pid && hb?.at) {
-					const ageMs = Date.now() - hb.at;
-					// Heartbeat written < 5 min ago → process was alive recently.
-					// Don't repair yet; let the next reconciliation cycle catch it.
-					if (ageMs < 5 * 60_000) {
-						return {
-							alive: true,
-							detail: `process dead but heartbeat ${Math.round(ageMs / 1000)}s old`,
-						};
-					}
+					heartbeatNote = ` (heartbeat was ${Math.round((Date.now() - hb.at) / 1000)}s old)`;
 				}
 			}
 		} catch {
 			/* ignore — best-effort */
 		}
 	}
-	return { alive: liveness.alive, detail: liveness.detail };
+	return { alive: false, detail: `${liveness.detail}${heartbeatNote}` };
 }
 
 /**
@@ -592,9 +595,13 @@ export function reconcileOrphanedTempWorkspaces(
 					if (!fs.existsSync(workspaceDir)) {
 						fs.mkdirSync(workspaceDir, { recursive: true });
 					}
-					fs.writeFileSync(sentinelPath, JSON.stringify({ startedAt: now }), {
-						flag: "wx",
-					});
+					// Atomic exclusive-create: reserve the sentinel (fails with EEXIST if
+					// another cleanup is in progress), then fill it atomically. The brief
+					// empty-file window is safe — the sentinel "exists" (correctly
+					// signalling in-progress cleanup).
+					const sentinelFd = fs.openSync(sentinelPath, "wx");
+					fs.closeSync(sentinelFd);
+					atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
 				} catch {
 					// Sentinel already exists (another cleanup in progress) — skip
 					canCleanup = false;

@@ -10,7 +10,7 @@ test("CompositeExporter pushes to all exporters and disposes all", async () => {
 			calls.push(`push:${name}`);
 			if (fail) throw new Error("boom");
 		},
-		dispose() {
+		async dispose() {
 			calls.push(`dispose:${name}`);
 		},
 	});

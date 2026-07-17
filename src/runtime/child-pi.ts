@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { WorkerExitStatus } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
@@ -1002,7 +1003,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			}
 			count += 1;
 			try {
-				fs.writeFileSync(counterFile, String(count));
+				atomicWriteFile(counterFile, String(count));
 			} catch (error) {
 				logInternalError("child-pi.mock-counter-write", error as Error, `file=${counterFile}`);
 			}

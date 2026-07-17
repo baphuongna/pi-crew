@@ -135,5 +135,15 @@ export function buildParentContext(ctx: TeamContext): string | undefined {
 
 export function configRecord(config: unknown): Record<string, unknown> {
 	if (!config || typeof config !== "object" || Array.isArray(config)) return {};
-	return config as Record<string, unknown>;
+	// AUDIT-07 defense-in-depth: filter prototype-pollution keys. Callers (api, doctor,
+	// lifecycle-actions, intent-policy, team-tool) pass `params.config` from the team-tool
+	// invocation which is NOT sanitized by the same loadConfig/sanitizeObject path.
+	const obj = config as Record<string, unknown>;
+	const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+	const safe: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(obj)) {
+		if (DANGEROUS_KEYS.has(k)) continue;
+		safe[k] = v;
+	}
+	return safe;
 }

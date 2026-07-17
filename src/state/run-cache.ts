@@ -109,18 +109,18 @@ export function saveRunToCache(
 	};
 
 	const entryPath = path.join(dir, `${cacheKey}.json`);
-	fs.writeFileSync(entryPath, JSON.stringify(entry), "utf-8");
+	// ST-4: atomic entry write (was raw writeFileSync — inverted priority vs the index).
+	atomicWriteFile(entryPath, JSON.stringify(entry));
 
-	// Update index with atomic write: write to temp file then rename
+	// Update index under a file lock (prevents concurrent saveCache from racing on the
+	// RMW) and write atomically (unique temp + rename — fixes the fixed "index.json.tmp"
+	// name collision the old manual temp+rename had).
 	const indexPath = path.join(dir, "index.json");
-	const index: CacheIndex = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf-8")) : {};
-
-	index[cacheKey] = entryPath;
-
-	// Atomic write: write to temp file first, then rename
-	const tempPath = path.join(dir, "index.json.tmp");
-	fs.writeFileSync(tempPath, JSON.stringify(index), "utf-8");
-	fs.renameSync(tempPath, indexPath);
+	withFileLockSync(indexPath, () => {
+		const index: CacheIndex = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf-8")) : {};
+		index[cacheKey] = entryPath;
+		atomicWriteFile(indexPath, JSON.stringify(index));
+	});
 }
 
 /**

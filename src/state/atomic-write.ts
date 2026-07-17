@@ -496,21 +496,21 @@ export type WriteDurability = "full" | "best-effort";
 /** Options accepted by atomicWriteFile (forward-compatible string | object form). */
 export type AtomicWriteOptions =
 	| string // legacy: expectedHash
-	| { expectedHash?: string; durability?: WriteDurability };
+	| { expectedHash?: string; durability?: WriteDurability; mode?: number };
 
-function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability } {
-	if (typeof arg === "string") return { expectedHash: arg, durability: "full" };
+function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability; mode?: number } {
+	if (typeof arg === "string") return { expectedHash: arg, durability: "full", mode: undefined };
 	if (arg && typeof arg === "object") {
-		const o = arg as { expectedHash?: string; durability?: WriteDurability };
+		const o = arg as { expectedHash?: string; durability?: WriteDurability; mode?: number };
 		const durability: WriteDurability = o.durability === "best-effort" ? "best-effort" : "full";
-		return { expectedHash: o.expectedHash, durability };
+		return { expectedHash: o.expectedHash, durability, mode: o.mode };
 	}
-	return { durability: "full" };
+	return { durability: "full", mode: undefined };
 }
 
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
 	cancelPendingCoalescedWrite(filePath);
-	const { durability } = normalizeOptions(options);
+	const { durability, mode } = normalizeOptions(options);
 	if (!isSymlinkSafeDirCached(filePath))
 		throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
 	// On Windows the parent directory may be referenced via a short-name alias
@@ -556,7 +556,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 	const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
 	let fd: number | undefined;
 	try {
-		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, 0o600);
+		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = fs.fstatSync(fd);
 		if (!openedStat.isFile()) {

@@ -55,7 +55,7 @@
   ],
   "scripts": {
     "check": "npm run ci",
-    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run check:conflict-markers && npm run check:lazy-imports && npm run check:bundle-staleness && npm test && npm pack --dry-run",
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run check:conflict-markers && npm run check:lazy-imports && npm run check:bundle-staleness && npm run build:bundle && npm run test:bundle && npm test && npm pack --dry-run",
     "check:lazy-imports": "node scripts/check-lazy-imports.mjs",
     "check:bundle-staleness": "node scripts/check-bundle-staleness.mjs",
     "check:conflict-markers": "node scripts/check-conflict-markers.mjs",
@@ -68,6 +68,7 @@
     "test:integration": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=300000 test/integration/*.test.ts",
     "test:smoke": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=180000 test/smoke/*.smoke.ts",
     "build:bundle": "node scripts/build-bundle.mjs",
+    "test:bundle": "node --experimental-strip-types --test --test-force-exit test/unit/bundle-load.test.ts",
     "watch:bundle": "node scripts/watch-bundle.mjs",
     "build:bundle:once": "node scripts/watch-bundle.mjs --once",
     "postinstall": "node scripts/postinstall.mjs",

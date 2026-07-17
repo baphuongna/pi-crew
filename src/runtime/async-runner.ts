@@ -356,8 +356,17 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		);
 		// Best-effort: unregister when child exits. Background-runner writes
 		// the marker file before it dies, so we unregister on the next
-		// cleanup tick. But the child "exit" event won't fire because we
-		// unref'd and the stdio is piped + ignored.
+		// cleanup tick. The child "exit" event may fire after unref() when
+		// stdio is piped; register handler defensively.
+		if (child.pid) {
+			child.on("exit", () => {
+				try {
+					unregisterWorker(child.pid!);
+				} catch {
+					/* best-effort */
+				}
+			});
+		}
 	}
 
 	return { pid: child.pid, logPath };

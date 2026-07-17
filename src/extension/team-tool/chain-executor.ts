@@ -30,6 +30,7 @@ import type { ChainTaskRunner } from "../../runtime/chain-runner.ts";
 import type { Decision, TaskPacket, TaskResult } from "../../runtime/handoff-manager.ts";
 import { readIfSmallWithTee } from "../../runtime/task-output-context.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { createRunPaths, loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -361,7 +362,7 @@ export function writeRunFixture(
 	if (opts.resultText) {
 		const resultDir = path.join(paths.artifactsRoot, "results");
 		fs.mkdirSync(resultDir, { recursive: true });
-		fs.writeFileSync(path.join(resultDir, `${taskId}.txt`), opts.resultText, "utf-8");
+		atomicWriteFile(path.join(resultDir, `${taskId}.txt`), opts.resultText);
 		manifest.artifacts.push({
 			kind: "result",
 			path: `results/${taskId}.txt`,
@@ -371,8 +372,8 @@ export function writeRunFixture(
 		});
 	}
 
-	fs.writeFileSync(paths.manifestPath, JSON.stringify(manifest), "utf-8");
-	fs.writeFileSync(paths.tasksPath, JSON.stringify(tasks ?? []), "utf-8");
-	fs.writeFileSync(paths.eventsPath, "", "utf-8");
+	atomicWriteFile(paths.manifestPath, JSON.stringify(manifest));
+	atomicWriteFile(paths.tasksPath, JSON.stringify(tasks ?? []));
+	atomicWriteFile(paths.eventsPath, "");
 	return manifest;
 }

@@ -16,6 +16,7 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { loadConfig } from "../config/config.ts";
 import { effectiveRunConfig } from "../extension/team-tool/config-patch.ts";
@@ -260,8 +261,10 @@ function resolveGoalTurnWorkflow(goal: GoalLoopState): WorkflowConfig {
 	const wrapName = (goal as GoalLoopState & { goalWrapWorkflow?: string }).goalWrapWorkflow;
 	if (!wrapName) return buildTurnWorkflow();
 	try {
+		// LAZY: createRequire for synchronous module resolution in ESM context
+		const requireFromHere = createRequire(import.meta.url);
 		const { discoverWorkflows, allWorkflows } =
-			require("../workflows/discover-workflows.ts") as typeof import("../workflows/discover-workflows.ts");
+			requireFromHere("../workflows/discover-workflows.ts") as typeof import("../workflows/discover-workflows.ts");
 		const found = allWorkflows(discoverWorkflows(goal.cwd)).find((w) => w.name === wrapName && w.source === "builtin");
 		if (found) return found;
 		logInternalError(

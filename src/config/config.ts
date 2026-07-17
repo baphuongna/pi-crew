@@ -676,6 +676,7 @@ function parseLimitsConfig(value: unknown): CrewLimitsConfig | undefined {
 		maxRetriesPerTask: parsePositiveInteger(obj.maxRetriesPerTask, LIMIT_CEILINGS.maxRetriesPerTask),
 		maxTasksPerRun: parsePositiveInteger(obj.maxTasksPerRun, LIMIT_CEILINGS.maxTasksPerRun),
 		heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs, LIMIT_CEILINGS.heartbeatStaleMs),
+		serializeOnPathOverlap: parseWithSchema(Type.Boolean(), obj.serializeOnPathOverlap),
 	};
 	return Object.values(limits).some((entry) => entry !== undefined) ? limits : undefined;
 }
@@ -717,6 +718,17 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 			Type.Union([Type.Literal("off"), Type.Literal("warn"), Type.Literal("block"), Type.Literal("fail")]),
 			obj.effectivenessGuard,
 		),
+		yield: (() => {
+			const y = asRecord(obj.yield);
+			if (!y) return undefined;
+			const parsed: NonNullable<CrewRuntimeConfig["yield"]> = {
+				enabled: parseWithSchema(Type.Boolean(), y.enabled),
+				maxReminders: parseWithSchema(Type.Integer({ minimum: 0 }), y.maxReminders),
+				reminderPrompt: parseWithSchema(Type.String({ maxLength: 1000 }), y.reminderPrompt),
+			};
+			return Object.values(parsed).some((v) => v !== undefined) ? parsed : undefined;
+		})(),
+		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
@@ -815,6 +827,7 @@ function parseUiConfig(value: unknown): CrewUiConfig | undefined {
 		dashboardLiveRefreshMs: parseIntegerInRange(obj.dashboardLiveRefreshMs, 250, 60_000),
 		autoOpenDashboard: parseWithSchema(Type.Boolean(), obj.autoOpenDashboard),
 		autoOpenDashboardForForegroundRuns: parseWithSchema(Type.Boolean(), obj.autoOpenDashboardForForegroundRuns),
+		autoCloseDashboardMs: parseWithSchema(Type.Integer({ minimum: 0 }), obj.autoCloseDashboardMs),
 		showModel: parseWithSchema(Type.Boolean(), obj.showModel),
 		showTokens: parseWithSchema(Type.Boolean(), obj.showTokens),
 		showTools: parseWithSchema(Type.Boolean(), obj.showTools),
@@ -932,6 +945,11 @@ function parseReliabilityConfig(value: unknown): CrewReliabilityConfig | undefin
 		autoRecover: parseWithSchema(Type.Boolean(), obj.autoRecover),
 		deadletterThreshold: parsePositiveInteger(obj.deadletterThreshold),
 		cleanupOrphanedTempDirs: parseWithSchema(Type.Boolean(), obj.cleanupOrphanedTempDirs),
+		autoRepairIntervalMs: parseWithSchema(Type.Integer({ minimum: 0 }), obj.autoRepairIntervalMs),
+		forcePreflight: parseWithSchema(Type.Boolean(), obj.forcePreflight),
+		ambientStatusInjection: parseWithSchema(Type.Boolean(), obj.ambientStatusInjection),
+		perWriteValidation: parseWithSchema(Type.Boolean(), obj.perWriteValidation),
+		scopeModels: parseWithSchema(Type.Boolean(), obj.scopeModels),
 	};
 	return Object.values(reliability).some((entry) => entry !== undefined) ? reliability : undefined;
 }
@@ -985,6 +1003,7 @@ export function parseConfig(raw: unknown): PiTeamsConfig {
 		executeWorkers: parseWithSchema(Type.Boolean(), obj.executeWorkers),
 		notifierIntervalMs: parseWithSchema(Type.Number({ minimum: 1_000 }), obj.notifierIntervalMs),
 		requireCleanWorktreeLeader: parseWithSchema(Type.Boolean(), obj.requireCleanWorktreeLeader),
+		ignoreMethod: parseWithSchema(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")]), obj.ignoreMethod),
 		autonomous: parseAutonomousConfig(obj.autonomous),
 		limits: parseLimitsConfig(obj.limits),
 		runtime: parseRuntimeConfig(obj.runtime),

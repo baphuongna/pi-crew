@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduler.ts";
-import { loadCrewSettings, saveCrewSettings } from "../../runtime/settings-store.ts";
+import { type CrewSettings, updateCrewSettings } from "../../runtime/settings-store.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -183,21 +183,16 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 	);
 }
 
+function scheduledJobsOf(settings: CrewSettings): import("../../runtime/scheduler.ts").ScheduledJob[] {
+	return Array.isArray(settings.scheduledJobs) ? (settings.scheduledJobs as import("../../runtime/scheduler.ts").ScheduledJob[]) : [];
+}
+
 function persistScheduledJob(cwd: string, job: import("../../runtime/scheduler.ts").ScheduledJob): void {
 	try {
-		const settings = loadCrewSettings(cwd);
-		const existingJobs: import("../../runtime/scheduler.ts").ScheduledJob[] = Array.isArray(
-			(settings as Record<string, unknown>).scheduledJobs,
-		)
-			? ((settings as Record<string, unknown>).scheduledJobs as import("../../runtime/scheduler.ts").ScheduledJob[])
-			: [];
-		saveCrewSettings(
-			{
-				...settings,
-				scheduledJobs: [...existingJobs, job],
-			} as Parameters<typeof saveCrewSettings>[0],
-			cwd,
-		);
+		updateCrewSettings(cwd, (settings) => ({
+			...settings,
+			scheduledJobs: [...scheduledJobsOf(settings), job],
+		}));
 	} catch {
 		/* best-effort persistence */
 	}
@@ -206,14 +201,10 @@ function persistScheduledJob(cwd: string, job: import("../../runtime/scheduler.t
 /** Update an existing scheduled job in persistent settings. */
 export function persistScheduledJobUpdate(cwd: string, job: import("../../runtime/scheduler.ts").ScheduledJob): void {
 	try {
-		const settings = loadCrewSettings(cwd);
-		const existingJobs: import("../../runtime/scheduler.ts").ScheduledJob[] = Array.isArray(
-			(settings as Record<string, unknown>).scheduledJobs,
-		)
-			? ((settings as Record<string, unknown>).scheduledJobs as import("../../runtime/scheduler.ts").ScheduledJob[])
-			: [];
-		const updated = existingJobs.map((j) => (j.id === job.id ? job : j));
-		saveCrewSettings({ ...settings, scheduledJobs: updated } as Parameters<typeof saveCrewSettings>[0], cwd);
+		updateCrewSettings(cwd, (settings) => ({
+			...settings,
+			scheduledJobs: scheduledJobsOf(settings).map((j) => (j.id === job.id ? job : j)),
+		}));
 	} catch {
 		/* best-effort persistence */
 	}
@@ -222,19 +213,10 @@ export function persistScheduledJobUpdate(cwd: string, job: import("../../runtim
 /** Remove a scheduled job from persistent settings. */
 function persistScheduledJobRemove(cwd: string, jobId: string): void {
 	try {
-		const settings = loadCrewSettings(cwd);
-		const existingJobs: import("../../runtime/scheduler.ts").ScheduledJob[] = Array.isArray(
-			(settings as Record<string, unknown>).scheduledJobs,
-		)
-			? ((settings as Record<string, unknown>).scheduledJobs as import("../../runtime/scheduler.ts").ScheduledJob[])
-			: [];
-		saveCrewSettings(
-			{
-				...settings,
-				scheduledJobs: existingJobs.filter((j) => j.id !== jobId),
-			} as Parameters<typeof saveCrewSettings>[0],
-			cwd,
-		);
+		updateCrewSettings(cwd, (settings) => ({
+			...settings,
+			scheduledJobs: scheduledJobsOf(settings).filter((j) => j.id !== jobId),
+		}));
 	} catch {
 		/* best-effort persistence */
 	}

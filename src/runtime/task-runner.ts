@@ -254,10 +254,18 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		if (input.step.preStepScript) {
 			const scriptTimeout = input.step.preStepTimeout ?? 30_000;
 			const scriptArgs = input.step.preStepArgs ?? [];
+			appendEventFireAndForget(manifest.eventsPath, {
+				type: "hook.pre_step_started",
+				runId: manifest.runId,
+				taskId: task.id,
+				data: { script: input.step.preStepScript, argCount: scriptArgs.length, timeoutMs: scriptTimeout },
+			});
 			// SECURITY (M-1 fix, code-review 2026-06-23): use the project's safe-path
 			// primitive instead of a hand-rolled path.resolve + startsWith check.
 			// The lexical check passed a symlinked ancestor, letting execFileSync
 			// follow it and execute a script outside cwd. Throws on escape.
+			// Keep validation outside the optional-execution catch: preStepOptional
+			// must never bypass a path-containment failure.
 			resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
 			try {
 				// LAZY: defer dynamic import of node:child_process to its call site.
@@ -268,9 +276,22 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					cwd: manifest.cwd,
 					maxBuffer: 1024 * 1024, // 1MB cap
 				});
+				appendEventFireAndForget(manifest.eventsPath, {
+					type: "hook.pre_step_completed",
+					runId: manifest.runId,
+					taskId: task.id,
+					data: { script: input.step.preStepScript, outputBytes: Buffer.byteLength(preStepOutput, "utf8") },
+				});
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				const exitCode = (err as NodeJS.ErrnoException & { status?: number }).status;
+				appendEventFireAndForget(manifest.eventsPath, {
+					type: "hook.pre_step_failed",
+					runId: manifest.runId,
+					taskId: task.id,
+					message: `pre-step hook failed (exit ${exitCode ?? "?"})`,
+					data: { script: input.step.preStepScript, exitCode: exitCode ?? null, optional: input.step.preStepOptional === true },
+				});
 				// E1 (Round 15): structured CrewError with code E009 + help hint,
 				// instead of a raw Error. Surfaces the script path, exit code, and stderr.
 				// Round 21 (E4): if preStepOptional is set, a failing hook is NON-FATAL.

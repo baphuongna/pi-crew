@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
@@ -73,22 +74,11 @@ export class FileCheckpointStore implements CheckpointStore {
 		// other's data (silent corruption) and the second rename hits ENOENT
 		// (silent data loss). Including taskId + pid + timestamp guarantees
 		// uniqueness across processes and across tasks.
-		const tmp = path.join(
-			this.checkpointDir(),
-			`.tmp.${checkpoint.taskId}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`,
-		);
-		fs.writeFileSync(tmp, JSON.stringify(checkpoint, null, 2), "utf-8");
-		fs.renameSync(tmp, p);
-		// fsync parent directory to ensure the rename is durable
-		const dirFd = fs.openSync(this.checkpointDir(), "r");
-		try {
-			fs.fsyncSync(dirFd);
-		} catch {
-			// EPERM on Windows: opening a directory and fsync-ing it is not supported
-			// on all Windows configurations. Best-effort — the rename is still atomic.
-		} finally {
-			fs.closeSync(dirFd);
-		}
+		// atomicWriteFile handles temp + write + fsync(data) + rename + fsync(parent)
+		// with a UUID-based unique temp name (cross-process safe). The previous
+		// hand-rolled version missed data-fsync (ST-5), risking empty/stale content
+		// after power loss.
+		atomicWriteFile(p, JSON.stringify(checkpoint, null, 2));
 	}
 
 	load(runId: string, taskId: string): Checkpoint | null {

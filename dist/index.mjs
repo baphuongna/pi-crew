@@ -8267,7 +8267,8 @@ var init_config_schema = __esm({
         maxRunMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
         maxRetriesPerTask: Type.Optional(Type.Integer({ minimum: 1 })),
         maxTasksPerRun: Type.Optional(Type.Integer({ minimum: 1 })),
-        heartbeatStaleMs: Type.Optional(Type.Integer({ minimum: 1 }))
+        heartbeatStaleMs: Type.Optional(Type.Integer({ minimum: 1 })),
+        serializeOnPathOverlap: Type.Optional(Type.Boolean())
       },
       { additionalProperties: false }
     );
@@ -8289,6 +8290,17 @@ var init_config_schema = __esm({
         effectivenessGuard: Type.Optional(
           Type.Union([Type.Literal("off"), Type.Literal("warn"), Type.Literal("block"), Type.Literal("fail")])
         ),
+        yield: Type.Optional(
+          Type.Object(
+            {
+              enabled: Type.Optional(Type.Boolean()),
+              maxReminders: Type.Optional(Type.Integer({ minimum: 0 })),
+              reminderPrompt: Type.Optional(Type.String({ maxLength: 1e3 }))
+            },
+            { additionalProperties: false }
+          )
+        ),
+        excludeContextBash: Type.Optional(Type.Boolean()),
         isolationPolicy: Type.Optional(
           Type.Object(
             {
@@ -8393,7 +8405,7 @@ var init_config_schema = __esm({
       {
         enabled: Type.Optional(Type.Boolean()),
         pollIntervalMs: Type.Optional(Type.Integer({ minimum: 1e3, maximum: 6e4 })),
-        metricRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 }))
+        metricRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 }))
       },
       { additionalProperties: false }
     );
@@ -8414,7 +8426,12 @@ var init_config_schema = __esm({
         ),
         autoRecover: Type.Optional(Type.Boolean()),
         deadletterThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
-        cleanupOrphanedTempDirs: Type.Optional(Type.Boolean())
+        cleanupOrphanedTempDirs: Type.Optional(Type.Boolean()),
+        autoRepairIntervalMs: Type.Optional(Type.Integer({ minimum: 0 })),
+        forcePreflight: Type.Optional(Type.Boolean()),
+        ambientStatusInjection: Type.Optional(Type.Boolean()),
+        perWriteValidation: Type.Optional(Type.Boolean()),
+        scopeModels: Type.Optional(Type.Boolean())
       },
       { additionalProperties: false }
     );
@@ -8443,6 +8460,7 @@ var init_config_schema = __esm({
         dashboardLiveRefreshMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 6e4 })),
         autoOpenDashboard: Type.Optional(Type.Boolean()),
         autoOpenDashboardForForegroundRuns: Type.Optional(Type.Boolean()),
+        autoCloseDashboardMs: Type.Optional(Type.Integer({ minimum: 0 })),
         showModel: Type.Optional(Type.Boolean()),
         showTokens: Type.Optional(Type.Boolean()),
         showTools: Type.Optional(Type.Boolean()),
@@ -8971,17 +8989,17 @@ async function renameWithRetryAsync(tempPath, filePath, retries = 8, rename = (s
   throw lastError;
 }
 function normalizeOptions(arg) {
-  if (typeof arg === "string") return { expectedHash: arg, durability: "full" };
+  if (typeof arg === "string") return { expectedHash: arg, durability: "full", mode: void 0 };
   if (arg && typeof arg === "object") {
     const o = arg;
     const durability = o.durability === "best-effort" ? "best-effort" : "full";
-    return { expectedHash: o.expectedHash, durability };
+    return { expectedHash: o.expectedHash, durability, mode: o.mode };
   }
-  return { durability: "full" };
+  return { durability: "full", mode: void 0 };
 }
 function atomicWriteFile(filePath, content, options) {
   cancelPendingCoalescedWrite(filePath);
-  const { durability } = normalizeOptions(options);
+  const { durability, mode } = normalizeOptions(options);
   if (!isSymlinkSafeDirCached(filePath))
     throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
   const canonicalize = (p) => {
@@ -9011,7 +9029,7 @@ function atomicWriteFile(filePath, content, options) {
   const O_NOFOLLOW = typeof fs2.constants.O_NOFOLLOW === "number" ? fs2.constants.O_NOFOLLOW : 0;
   let fd;
   try {
-    fd = fs2.openSync(tempPath, fs2.constants.O_WRONLY | fs2.constants.O_CREAT | fs2.constants.O_EXCL | O_NOFOLLOW, 384);
+    fd = fs2.openSync(tempPath, fs2.constants.O_WRONLY | fs2.constants.O_CREAT | fs2.constants.O_EXCL | O_NOFOLLOW, mode ?? 384);
     const openedStat = fs2.fstatSync(fd);
     if (!openedStat.isFile()) {
       fs2.closeSync(fd);
@@ -10260,7 +10278,8 @@ function parseLimitsConfig(value) {
     maxRunMinutes: parsePositiveInteger(obj.maxRunMinutes, LIMIT_CEILINGS.maxRunMinutes),
     maxRetriesPerTask: parsePositiveInteger(obj.maxRetriesPerTask, LIMIT_CEILINGS.maxRetriesPerTask),
     maxTasksPerRun: parsePositiveInteger(obj.maxTasksPerRun, LIMIT_CEILINGS.maxTasksPerRun),
-    heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs, LIMIT_CEILINGS.heartbeatStaleMs)
+    heartbeatStaleMs: parsePositiveInteger(obj.heartbeatStaleMs, LIMIT_CEILINGS.heartbeatStaleMs),
+    serializeOnPathOverlap: parseWithSchema(Type.Boolean(), obj.serializeOnPathOverlap)
   };
   return Object.values(limits).some((entry) => entry !== void 0) ? limits : void 0;
 }
@@ -10300,6 +10319,17 @@ function parseRuntimeConfig(value) {
       Type.Union([Type.Literal("off"), Type.Literal("warn"), Type.Literal("block"), Type.Literal("fail")]),
       obj.effectivenessGuard
     ),
+    yield: (() => {
+      const y = asRecord(obj.yield);
+      if (!y) return void 0;
+      const parsed = {
+        enabled: parseWithSchema(Type.Boolean(), y.enabled),
+        maxReminders: parseWithSchema(Type.Integer({ minimum: 0 }), y.maxReminders),
+        reminderPrompt: parseWithSchema(Type.String({ maxLength: 1e3 }), y.reminderPrompt)
+      };
+      return Object.values(parsed).some((v) => v !== void 0) ? parsed : void 0;
+    })(),
+    excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
     isolationPolicy: parseIsolationPolicy(obj.isolationPolicy)
   };
   return Object.values(runtime).some((entry) => entry !== void 0) ? runtime : void 0;
@@ -10389,6 +10419,7 @@ function parseUiConfig(value) {
     dashboardLiveRefreshMs: parseIntegerInRange(obj.dashboardLiveRefreshMs, 250, 6e4),
     autoOpenDashboard: parseWithSchema(Type.Boolean(), obj.autoOpenDashboard),
     autoOpenDashboardForForegroundRuns: parseWithSchema(Type.Boolean(), obj.autoOpenDashboardForForegroundRuns),
+    autoCloseDashboardMs: parseWithSchema(Type.Integer({ minimum: 0 }), obj.autoCloseDashboardMs),
     showModel: parseWithSchema(Type.Boolean(), obj.showModel),
     showTokens: parseWithSchema(Type.Boolean(), obj.showTokens),
     showTools: parseWithSchema(Type.Boolean(), obj.showTools),
@@ -10496,7 +10527,12 @@ function parseReliabilityConfig(value) {
     retryPolicy: retryPolicy && Object.values(retryPolicy).some((entry) => entry !== void 0) ? retryPolicy : void 0,
     autoRecover: parseWithSchema(Type.Boolean(), obj.autoRecover),
     deadletterThreshold: parsePositiveInteger(obj.deadletterThreshold),
-    cleanupOrphanedTempDirs: parseWithSchema(Type.Boolean(), obj.cleanupOrphanedTempDirs)
+    cleanupOrphanedTempDirs: parseWithSchema(Type.Boolean(), obj.cleanupOrphanedTempDirs),
+    autoRepairIntervalMs: parseWithSchema(Type.Integer({ minimum: 0 }), obj.autoRepairIntervalMs),
+    forcePreflight: parseWithSchema(Type.Boolean(), obj.forcePreflight),
+    ambientStatusInjection: parseWithSchema(Type.Boolean(), obj.ambientStatusInjection),
+    perWriteValidation: parseWithSchema(Type.Boolean(), obj.perWriteValidation),
+    scopeModels: parseWithSchema(Type.Boolean(), obj.scopeModels)
   };
   return Object.values(reliability).some((entry) => entry !== void 0) ? reliability : void 0;
 }
@@ -10530,6 +10566,7 @@ function parseConfig(raw) {
     executeWorkers: parseWithSchema(Type.Boolean(), obj.executeWorkers),
     notifierIntervalMs: parseWithSchema(Type.Number({ minimum: 1e3 }), obj.notifierIntervalMs),
     requireCleanWorktreeLeader: parseWithSchema(Type.Boolean(), obj.requireCleanWorktreeLeader),
+    ignoreMethod: parseWithSchema(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")]), obj.ignoreMethod),
     autonomous: parseAutonomousConfig(obj.autonomous),
     limits: parseLimitsConfig(obj.limits),
     runtime: parseRuntimeConfig(obj.runtime),
@@ -11544,7 +11581,7 @@ function rotateEventLogUnlocked(eventsPath) {
       collision++;
     }
     fs7.copyFileSync(eventsPath, archivePath);
-    fs7.writeFileSync(eventsPath, "", "utf-8");
+    atomicWriteFile(eventsPath, "");
     return true;
   } catch (error) {
     logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);
@@ -11611,7 +11648,7 @@ function withEventLogLockSync(eventsPath, fn, options) {
     try {
       fs8.mkdirSync(lockDir);
       try {
-        fs8.writeFileSync(pidFile, String(process.pid), "utf-8");
+        atomicWriteFile(pidFile, String(process.pid));
       } catch {
       }
       acquired = true;
@@ -13318,6 +13355,7 @@ var init_health_store = __esm({
   "src/state/health-store.ts"() {
     "use strict";
     init_task_health();
+    init_atomic_write();
     HEALTH_DIR = "state/health";
     HealthStore = class {
       crewRoot;
@@ -13339,7 +13377,7 @@ var init_health_store = __esm({
         const dir = this.healthDir();
         fs12.mkdirSync(dir, { recursive: true });
         const file = path10.join(dir, `${manifest.runId}.json`);
-        fs12.writeFileSync(file, JSON.stringify(snapshot, null, 2) + "\n", "utf8");
+        atomicWriteFile(file, JSON.stringify(snapshot, null, 2) + "\n");
         return snapshot;
       }
       loadLatestSnapshot() {
@@ -15039,25 +15077,20 @@ function checkPidLiveness(pid, stateRoot) {
     return { alive: false, detail: "pid_recycled" };
   }
   if (liveness.alive) return { alive: true, detail: liveness.detail };
+  let heartbeatNote = "";
   if (stateRoot) {
-    const heartbeatPath = path14.join(stateRoot, "heartbeat.json");
     try {
+      const heartbeatPath = path14.join(stateRoot, "heartbeat.json");
       if (fs17.existsSync(heartbeatPath)) {
         const hb = JSON.parse(fs17.readFileSync(heartbeatPath, "utf-8"));
         if (hb?.pid === pid && hb?.at) {
-          const ageMs = Date.now() - hb.at;
-          if (ageMs < 5 * 6e4) {
-            return {
-              alive: true,
-              detail: `process dead but heartbeat ${Math.round(ageMs / 1e3)}s old`
-            };
-          }
+          heartbeatNote = ` (heartbeat was ${Math.round((Date.now() - hb.at) / 1e3)}s old)`;
         }
       }
     } catch {
     }
   }
-  return { alive: liveness.alive, detail: liveness.detail };
+  return { alive: false, detail: `${liveness.detail}${heartbeatNote}` };
 }
 function evaluateStaleness(manifest, pidAlive, now) {
   if (!pidAlive) {
@@ -15301,9 +15334,9 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
           if (!fs17.existsSync(workspaceDir)) {
             fs17.mkdirSync(workspaceDir, { recursive: true });
           }
-          fs17.writeFileSync(sentinelPath, JSON.stringify({ startedAt: now }), {
-            flag: "wx"
-          });
+          const sentinelFd = fs17.openSync(sentinelPath, "wx");
+          fs17.closeSync(sentinelFd);
+          atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
         } catch {
           canCleanup = false;
         }
@@ -15963,7 +15996,7 @@ function writeRegistry(entries) {
     fs22.mkdirSync(dir, { recursive: true, mode: 448 });
   }
   try {
-    fs22.writeFileSync(p, JSON.stringify(entries, null, 2), { mode: 384 });
+    atomicWriteFile(p, JSON.stringify(entries, null, 2), { mode: 384 });
   } catch (error) {
     logInternalError("orphan-worker-registry.write", error, `path=${p} entries=${entries.length}`);
   }
@@ -15986,6 +16019,16 @@ function registerWorker(pid, sessionId, runId, parentPid, options) {
       startTime
     });
     writeRegistry(filtered);
+  });
+}
+function unregisterWorker(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  withFileLockSync(getRegistryPath(), () => {
+    const entries = readRegistry();
+    const filtered = entries.filter((e) => e.pid !== pid);
+    if (filtered.length !== entries.length) {
+      writeRegistry(filtered);
+    }
   });
 }
 function cleanupOrphanWorkers(currentSessionId) {
@@ -16712,7 +16755,7 @@ function buildPiWorkerArgs(input) {
     const tmpBase = getPiTempBase();
     tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
     const promptPath = path21.join(tempDir, `${input.agent.name.replace(/[^\w.-]/g, "_")}.md`);
-    fs25.writeFileSync(promptPath, input.agent.systemPrompt, { mode: 384 });
+    atomicWriteFile(promptPath, input.agent.systemPrompt, { mode: 384 });
     args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
   }
   if (input.task.length > TASK_ARG_LIMIT) {
@@ -16721,7 +16764,7 @@ function buildPiWorkerArgs(input) {
       tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
     }
     const taskPath = path21.join(tempDir, "task.md");
-    fs25.writeFileSync(taskPath, input.task, { mode: 384 });
+    atomicWriteFile(taskPath, input.task, { mode: 384 });
     args.push(`@${taskPath}`);
   } else {
     args.push(`Task: ${input.task}`);
@@ -16904,6 +16947,7 @@ var init_pi_args = __esm({
   "src/runtime/pi-args.ts"() {
     "use strict";
     init_agent_config();
+    init_atomic_write();
     init_paths();
     THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
     PROMPT_RUNTIME_EXTENSION_PATH = path21.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
@@ -17314,15 +17358,15 @@ function loadCrewSettings(cwd = process.cwd()) {
     ...readSettingsFile(projectPath(cwd))
   };
 }
-function saveCrewSettings(s, cwd = process.cwd()) {
+function updateCrewSettings(cwd, mutator) {
   const p = projectPath(cwd);
-  try {
-    fs26.mkdirSync(path22.dirname(p), { recursive: true });
-    fs26.writeFileSync(p, JSON.stringify(s, null, 2), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
+  fs26.mkdirSync(path22.dirname(p), { recursive: true });
+  return withFileLockSync(p, () => {
+    const fresh = loadCrewSettings(cwd);
+    const next = mutator(fresh);
+    atomicWriteJson(p, next);
+    return next;
+  });
 }
 function applyCrewSettingsToConfig(config, settings) {
   if (settings.maxConcurrent != null && config.limits) config.limits.maxConcurrentWorkers = settings.maxConcurrent;
@@ -17335,6 +17379,8 @@ var MAX_CONCURRENT_CEILING, MAX_TURNS_CEILING, GRACE_TURNS_CEILING, VALID_JOIN_M
 var init_settings_store = __esm({
   "src/runtime/settings-store.ts"() {
     "use strict";
+    init_atomic_write();
+    init_locks();
     init_internal_error();
     MAX_CONCURRENT_CEILING = 1024;
     MAX_TURNS_CEILING = 1e4;
@@ -17658,7 +17704,21 @@ var init_subagent_manager = __esm({
         }
       }
       async pollRunToTerminal(cwd, record) {
+        const MAX_POLL_COUNT = 1800;
+        let pollCount = 0;
         while (record.runId && (record.status === "running" || record.status === "blocked")) {
+          if (++pollCount > MAX_POLL_COUNT) {
+            logInternalError(
+              "subagent-manager.poll-timeout",
+              new Error(`pollRunToTerminal exceeded ${MAX_POLL_COUNT} polls for runId=${record.runId}`),
+              `id=${record.id}`
+            );
+            record.status = "error";
+            record.error = `Poll timeout: run did not reach terminal state after ${MAX_POLL_COUNT} seconds`;
+            record.completedAt = Date.now();
+            savePersistedSubagentRecord(cwd, record);
+            return;
+          }
           const loaded = loadRunManifestById(cwd, record.runId);
           if (!loaded) {
             await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
@@ -17791,10 +17851,12 @@ function registerCleanupHandler(pi) {
 }
 async function cleanupChildProcesses() {
   const pids = childProcessRegistry.getAllPids();
+  if (pids.length === 0) return;
+  const { killProcessPid: killProcessPid2 } = await Promise.resolve().then(() => (init_child_pi(), child_pi_exports));
   for (const pid of pids) {
     try {
-      process.kill(pid, "SIGTERM");
-      console.log(`[pi-crew] Sent SIGTERM to child process ${pid}`);
+      killProcessPid2(pid);
+      console.log(`[pi-crew] Sent group SIGTERM (+SIGKILL escalation) to child process ${pid}`);
     } catch (error) {
       const err2 = error;
       if (err2.code !== "ESRCH" && err2.code !== "ENOENT") {
@@ -18538,6 +18600,19 @@ var init_post_exit_stdio_guard = __esm({
 });
 
 // src/runtime/child-pi.ts
+var child_pi_exports = {};
+__export(child_pi_exports, {
+  ChildPiLineObserver: () => ChildPiLineObserver,
+  buildChildPiSpawnOptions: () => buildChildPiSpawnOptions,
+  compactString: () => compactString,
+  compactValue: () => compactValue,
+  flushPendingTranscriptWrites: () => flushPendingTranscriptWrites,
+  killProcessPid: () => killProcessPid,
+  redactStderrExcerpt: () => redactStderrExcerpt,
+  resetTranscriptBatchState: () => resetTranscriptBatchState,
+  runChildPi: () => runChildPi,
+  terminateActiveChildPiProcesses: () => terminateActiveChildPiProcesses
+});
 import { spawn } from "node:child_process";
 import * as fs28 from "node:fs";
 import * as os8 from "node:os";
@@ -18750,6 +18825,13 @@ async function flushPendingTranscriptWrites() {
   while (transcriptBatches.size > 0) {
     await flushTranscriptBatches();
   }
+}
+function resetTranscriptBatchState() {
+  if (transcriptFlushTimer) {
+    clearTimeout(transcriptFlushTimer);
+    transcriptFlushTimer = void 0;
+  }
+  transcriptBatches.clear();
 }
 function compactString(value, maxChars = MAX_COMPACT_CONTENT_CHARS, opts = {}) {
   if (value.length <= maxChars) return value;
@@ -18999,7 +19081,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       }
       count2 += 1;
       try {
-        fs28.writeFileSync(counterFile, String(count2));
+        atomicWriteFile(counterFile, String(count2));
       } catch (error) {
         logInternalError("child-pi.mock-counter-write", error, `file=${counterFile}`);
       }
@@ -19647,6 +19729,7 @@ var init_child_pi = __esm({
     "use strict";
     init_defaults();
     init_crew_cleanup();
+    init_atomic_write();
     init_env_allowlist();
     init_env_filter();
     init_internal_error();
@@ -23602,8 +23685,8 @@ async function exportDiagnostic(ctx, runId, options = {}) {
   const dir = path31.join(loaded.manifest.artifactsRoot, "diagnostic");
   fs36.mkdirSync(dir, { recursive: true });
   const filePath = path31.join(dir, `diagnostic-${safeTimestamp}.json`);
-  fs36.writeFileSync(filePath, `${JSON.stringify(report, null, 2)}
-`, "utf-8");
+  atomicWriteFile(filePath, `${JSON.stringify(report, null, 2)}
+`);
   return { path: filePath, report };
 }
 function listRecentDiagnostic(dir, windowMs, now = Date.now()) {
@@ -23621,6 +23704,7 @@ var ENV_DEBUG_ALLOWLIST;
 var init_diagnostic_export = __esm({
   "src/runtime/diagnostic-export.ts"() {
     "use strict";
+    init_atomic_write();
     init_event_log();
     init_state_store();
     init_heartbeat_aggregator();
@@ -24196,14 +24280,14 @@ function ensureRunMailbox(manifest) {
     const filePath = mailboxFile(manifest, direction, void 0, true);
     if (!fs38.existsSync(filePath)) {
       fs38.mkdirSync(path33.dirname(filePath), { recursive: true });
-      fs38.writeFileSync(filePath, "", "utf-8");
+      atomicWriteFile(filePath, "");
     }
   }
   const delivery = deliveryFile(manifest, true);
   if (!fs38.existsSync(delivery)) {
     fs38.mkdirSync(path33.dirname(delivery), { recursive: true });
-    fs38.writeFileSync(delivery, `${JSON.stringify({ messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
-`, "utf-8");
+    atomicWriteFile(delivery, `${JSON.stringify({ messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
+`);
   }
 }
 function ensureTaskMailbox(manifest, taskId) {
@@ -24295,7 +24379,7 @@ function rotateMailboxFileIfNeeded(filePath, thresholdBytes = MAILBOX_ARCHIVE_TH
     const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     const archivePath = `${filePath}.${ts}.archive.jsonl`;
     fs38.renameSync(filePath, archivePath);
-    fs38.writeFileSync(filePath, "", "utf-8");
+    atomicWriteFile(filePath, "");
     pruneOldMailboxArchives(filePath);
     return true;
   } catch (error) {
@@ -24872,7 +24956,14 @@ function buildParentContext(ctx) {
 }
 function configRecord(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return {};
-  return config;
+  const obj = config;
+  const DANGEROUS_KEYS2 = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  const safe = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (DANGEROUS_KEYS2.has(k)) continue;
+    safe[k] = v;
+  }
+  return safe;
 }
 var MAX_PARENT_CONTEXT_CHARS, MAX_ASSISTANT_MSG_CHARS, TRUNCATED_ASSISTANT_CHARS, NOISY_THRESHOLD, NOISY_PREFIXES;
 var init_context = __esm({
@@ -25103,7 +25194,7 @@ function updateReferencesForRename(ctx, resource, oldName, newName, scope, dryRu
     changed.push(team.filePath);
     if (!dryRun) {
       backupFile(team.filePath);
-      fs39.writeFileSync(team.filePath, serializeTeam(nextTeam), "utf-8");
+      atomicWriteFile(team.filePath, serializeTeam(nextTeam));
     }
   }
   for (const workflow of allWorkflows(discoverWorkflows(ctx.cwd)).filter((w) => w.source === scope)) {
@@ -25119,7 +25210,7 @@ function updateReferencesForRename(ctx, resource, oldName, newName, scope, dryRu
     changed.push(workflow.filePath);
     if (!dryRun) {
       backupFile(workflow.filePath);
-      fs39.writeFileSync(workflow.filePath, serializeWorkflow({ ...workflow, steps: newSteps }), "utf-8");
+      atomicWriteFile(workflow.filePath, serializeWorkflow({ ...workflow, steps: newSteps }));
     }
   }
   const testDir = scope === "user" ? path34.join(projectCrewRoot(ctx.cwd), "test") : path34.join(ctx.cwd, "test", "fixtures");
@@ -25132,7 +25223,7 @@ function updateReferencesForRename(ctx, resource, oldName, newName, scope, dryRu
       if (newContent !== content) {
         changed.push(fixture);
         if (!dryRun) {
-          fs39.writeFileSync(fixture, newContent, "utf-8");
+          atomicWriteFile(fixture, newContent);
         }
       }
     }
@@ -25225,7 +25316,7 @@ function handleCreate(params, ctx) {
 
 ${content}`);
   try {
-    fs39.writeFileSync(filePath, content, "utf-8");
+    atomicWriteFile(filePath, content);
   } catch (writeError) {
     return result2(
       `Failed to create ${params.resource}: ${writeError instanceof Error ? writeError.message : String(writeError)}`,
@@ -25329,7 +25420,7 @@ function handleUpdate(params, ctx) {
         }
       }
     }
-    fs39.writeFileSync(nextPath, content, "utf-8");
+    atomicWriteFile(nextPath, content);
   } catch (updateError) {
     return result2(
       `Failed to update ${params.resource}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,
@@ -25385,6 +25476,7 @@ var init_management = __esm({
     "use strict";
     init_agent_serializer();
     init_discover_agents();
+    init_atomic_write();
     init_discover_teams();
     init_team_serializer();
     init_names();
@@ -34348,6 +34440,7 @@ import * as path37 from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function listSkillDirs(cwd) {
   return [
+    { root: PACKAGE_SKILLS_DIR, source: "package" },
     { root: path37.resolve(cwd, ".pi", "skills"), source: "project-pi" },
     {
       root: path37.resolve(cwd, ".agents", "skills"),
@@ -34359,8 +34452,7 @@ function listSkillDirs(cwd) {
       root: path37.join(os10.homedir(), ".agents", "skills"),
       source: "user-agents"
     },
-    { root: path37.join(os10.homedir(), ".pi", "skills"), source: "user-pi" },
-    { root: PACKAGE_SKILLS_DIR, source: "package" }
+    { root: path37.join(os10.homedir(), ".pi", "skills"), source: "user-pi" }
   ];
 }
 function readDescription(content) {
@@ -34614,7 +34706,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       try {
         fs44.mkdirSync(lockDir, { recursive: true });
         try {
-          fs44.writeFileSync(pidFile, String(process.pid), "utf-8");
+          atomicWriteFile(pidFile, String(process.pid));
         } catch {
         }
         break;
@@ -34698,8 +34790,8 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       acknowledged: false
     };
     fs44.mkdirSync(path38.dirname(controlPath), { recursive: true });
-    fs44.writeFileSync(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
-`, "utf-8");
+    atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
+`);
     appendEvent(manifest.eventsPath, {
       type: "foreground.interrupt_requested",
       runId: manifest.runId,
@@ -34714,6 +34806,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
 var init_foreground_control = __esm({
   "src/runtime/foreground-control.ts"() {
     "use strict";
+    init_atomic_write();
     init_event_log();
     init_internal_error();
     init_sleep();
@@ -44584,6 +44677,7 @@ var FileCheckpointStore;
 var init_checkpoint = __esm({
   "src/runtime/checkpoint.ts"() {
     "use strict";
+    init_atomic_write();
     init_internal_error();
     init_paths();
     init_safe_paths();
@@ -44608,19 +44702,7 @@ var init_checkpoint = __esm({
         assertSafePathId("taskId", checkpoint.taskId);
         this.ensureDir();
         const p = this.checkpointPath(checkpoint.taskId);
-        const tmp = path43.join(
-          this.checkpointDir(),
-          `.tmp.${checkpoint.taskId}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`
-        );
-        fs51.writeFileSync(tmp, JSON.stringify(checkpoint, null, 2), "utf-8");
-        fs51.renameSync(tmp, p);
-        const dirFd = fs51.openSync(this.checkpointDir(), "r");
-        try {
-          fs51.fsyncSync(dirFd);
-        } catch {
-        } finally {
-          fs51.closeSync(dirFd);
-        }
+        atomicWriteFile(p, JSON.stringify(checkpoint, null, 2));
       }
       load(runId, taskId) {
         assertSafePathId("taskId", taskId);
@@ -44875,7 +44957,7 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync39, mkdirSync as mkdirSync26, readFileSync as readFileSync41, writeFileSync as writeFileSync19 } from "fs";
+import { existsSync as existsSync39, mkdirSync as mkdirSync26, readFileSync as readFileSync41, writeFileSync as writeFileSync7 } from "fs";
 import { dirname as dirname24, join as join44 } from "path";
 function getSkillMetricsPath(cwd, runId) {
   return join44(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
@@ -44930,7 +45012,7 @@ function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
   const path81 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync19(path81, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync7(path81, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
@@ -45496,6 +45578,7 @@ var init_run_graph = __esm({
     "use strict";
     init_paths();
     init_safe_paths();
+    init_atomic_write();
   }
 });
 
@@ -47611,7 +47694,7 @@ function checkWritableDir(dir) {
     if (!fs58.statSync(dir).isDirectory()) return { ok: false, detail: `${dir}: not a directory` };
     const probePath = `${dir}/.pi-crew-write-test`;
     try {
-      fs58.writeFileSync(probePath, "ok", "utf-8");
+      atomicWriteFile(probePath, "ok");
       fs58.rmSync(probePath, { force: true });
     } catch {
       return {
@@ -47910,6 +47993,7 @@ var init_doctor = __esm({
     init_runtime_warmup();
     init_zombie_scanner();
     init_team_tool_schema();
+    init_atomic_write();
     init_discover_teams();
     init_paths();
     init_discover_workflows();
@@ -48356,7 +48440,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash7 } from "node:crypto";
-import { closeSync as closeSync13, existsSync as existsSync47, mkdirSync as mkdirSync30, openSync as openSync13, readdirSync as readdirSync25, readFileSync as readFileSync49, statSync as statSync33, unlinkSync as unlinkSync10, writeFileSync as writeFileSync24 } from "node:fs";
+import { closeSync as closeSync13, existsSync as existsSync47, mkdirSync as mkdirSync30, openSync as openSync13, readdirSync as readdirSync25, readFileSync as readFileSync49, statSync as statSync33, unlinkSync as unlinkSync10, writeFileSync as writeFileSync9 } from "node:fs";
 import * as path52 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path52.resolve(cwd);
@@ -48593,6 +48677,14 @@ async function spawnBackgroundTeamRun(manifest) {
       process.pid
       // parentPid — used by cleanup to verify session is dead
     );
+    if (child.pid) {
+      child.on("exit", () => {
+        try {
+          unregisterWorker(child.pid);
+        } catch {
+        }
+      });
+    }
   }
   return { pid: child.pid, logPath };
 }
@@ -49267,46 +49359,33 @@ function handleSchedule(params, ctx) {
     }
   );
 }
+function scheduledJobsOf(settings) {
+  return Array.isArray(settings.scheduledJobs) ? settings.scheduledJobs : [];
+}
 function persistScheduledJob(cwd, job) {
   try {
-    const settings = loadCrewSettings(cwd);
-    const existingJobs = Array.isArray(
-      settings.scheduledJobs
-    ) ? settings.scheduledJobs : [];
-    saveCrewSettings(
-      {
-        ...settings,
-        scheduledJobs: [...existingJobs, job]
-      },
-      cwd
-    );
+    updateCrewSettings(cwd, (settings) => ({
+      ...settings,
+      scheduledJobs: [...scheduledJobsOf(settings), job]
+    }));
   } catch {
   }
 }
 function persistScheduledJobUpdate(cwd, job) {
   try {
-    const settings = loadCrewSettings(cwd);
-    const existingJobs = Array.isArray(
-      settings.scheduledJobs
-    ) ? settings.scheduledJobs : [];
-    const updated = existingJobs.map((j) => j.id === job.id ? job : j);
-    saveCrewSettings({ ...settings, scheduledJobs: updated }, cwd);
+    updateCrewSettings(cwd, (settings) => ({
+      ...settings,
+      scheduledJobs: scheduledJobsOf(settings).map((j) => j.id === job.id ? job : j)
+    }));
   } catch {
   }
 }
 function persistScheduledJobRemove(cwd, jobId) {
   try {
-    const settings = loadCrewSettings(cwd);
-    const existingJobs = Array.isArray(
-      settings.scheduledJobs
-    ) ? settings.scheduledJobs : [];
-    saveCrewSettings(
-      {
-        ...settings,
-        scheduledJobs: existingJobs.filter((j) => j.id !== jobId)
-      },
-      cwd
-    );
+    updateCrewSettings(cwd, (settings) => ({
+      ...settings,
+      scheduledJobs: scheduledJobsOf(settings).filter((j) => j.id !== jobId)
+    }));
   } catch {
   }
 }
@@ -50657,9 +50736,9 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
   for (const target of [targetJson, targetSummary]) {
     if (fs67.existsSync(target) && fs67.lstatSync(target).isSymbolicLink()) throw new Error(`Invalid import target: ${target}`);
   }
-  fs67.writeFileSync(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}
-`, "utf-8");
-  fs67.writeFileSync(
+  atomicWriteFile(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}
+`);
+  atomicWriteFile(
     targetSummary,
     [
       `# Imported pi-crew run ${runId}`,
@@ -50677,8 +50756,7 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
         (task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`
       ),
       ""
-    ].join("\n"),
-    "utf-8"
+    ].join("\n")
   );
   return {
     runId,
@@ -50693,6 +50771,7 @@ var init_run_import = __esm({
     "use strict";
     init_defaults();
     init_delta_conflict();
+    init_atomic_write();
     init_paths();
     init_safe_paths();
     init_run_bundle_schema();
@@ -52754,7 +52833,12 @@ async function spawnSingleTask(task, ctx, allAgentsList, team, workflow, runtime
       cwd: taskCwd,
       team,
       workflow,
-      goal
+      goal,
+      // EXT F1: mirror handleRun — without ownerSessionId, the foreign-run check in
+      // cancel/retry/resume (cancel.ts:50: `typeof ownerSessionId === "string"`) is
+      // skipped and any session can cancel/retry parallel-dispatched runs.
+      ownerSessionId: ctx.sessionId,
+      runKind: "team-run"
     });
     appendEvent(created.manifest.eventsPath, {
       type: "run.started",
@@ -53640,7 +53724,7 @@ var init_status = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync59, readFileSync as readFileSync58, rmSync as rmSync16, writeFileSync as writeFileSync27 } from "node:fs";
+import { existsSync as existsSync59, readFileSync as readFileSync58, rmSync as rmSync16, writeFileSync as writeFileSync11 } from "node:fs";
 import { dirname as dirname33, join as join60 } from "node:path";
 function allowedWorkflowDirs(cwd) {
   return [join60(projectCrewRoot(cwd), "workflows"), join60(userPiRoot(), "workflows"), join60(packageRoot(), "workflows")];
@@ -53685,7 +53769,7 @@ function handleWorkflowCreate(params, ctx) {
   try {
     const scope = params.scope === "user" ? "user" : "project";
     const filePath = resolveWorkflowWritePath(ctx.cwd, name, scope);
-    writeFileSync27(filePath, script, "utf-8");
+    writeFileSync11(filePath, script, "utf-8");
     return result(
       `Dynamic workflow '${name}' created at ${filePath}.
 
@@ -53783,7 +53867,7 @@ function handleWorkflowSave(params, ctx) {
   if (validationError) return result(`workflow-save rejected: ${validationError}`, { action: "workflow-save", status: "error" }, true);
   try {
     const filePath = resolveWorkflowWritePath(ctx.cwd, name, "project");
-    writeFileSync27(filePath, script, "utf-8");
+    writeFileSync11(filePath, script, "utf-8");
     return result(
       `Saved dynamic workflow '${name}' \u2192 ${filePath}.`,
       { action: "workflow-save", status: "ok", data: { name, filePath } },
@@ -53865,6 +53949,7 @@ var init_workflow_manage = __esm({
 
 // src/observability/correlation.ts
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes as randomBytes2 } from "node:crypto";
 function withCorrelation(ctx, fn) {
   return storage.run(ctx, fn);
 }
@@ -53872,8 +53957,7 @@ function getCurrentContext() {
   return storage.getStore();
 }
 function newSpanId(runId, taskId = "main") {
-  spanCounter += 1;
-  return `${runId}:${taskId}:${spanCounter}`;
+  return `${runId}:${taskId}:${randomBytes2(4).toString("hex")}`;
 }
 function childCorrelation(runId, taskId) {
   const parent = getCurrentContext();
@@ -53884,12 +53968,11 @@ function childCorrelation(runId, taskId) {
     spanId
   };
 }
-var storage, spanCounter;
+var storage;
 var init_correlation = __esm({
   "src/observability/correlation.ts"() {
     "use strict";
     storage = new AsyncLocalStorage();
-    spanCounter = 0;
   }
 });
 
@@ -54593,7 +54676,7 @@ function teePathForArtifact(artifactsRoot, taskId, artifactName) {
 function writeTeeFile(fullOutputPath, content) {
   try {
     fs73.mkdirSync(path61.dirname(fullOutputPath), { recursive: true });
-    fs73.writeFileSync(fullOutputPath, content, "utf-8");
+    atomicWriteFile(fullOutputPath, content);
     return true;
   } catch {
     return false;
@@ -54866,6 +54949,7 @@ var init_task_output_context = __esm({
     "use strict";
     init_defaults();
     init_artifact_store();
+    init_atomic_write();
     init_safe_paths();
     init_compact_pipeline();
     init_compact_stages();
@@ -56803,7 +56887,7 @@ var init_prompt_builder = __esm({
 
 // src/worktree/worktree-manager.ts
 import { execFile, execFileSync as execFileSync6, spawnSync as spawnSync3 } from "node:child_process";
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import * as fs78 from "node:fs";
 import * as path67 from "node:path";
 import { promisify } from "node:util";
@@ -57402,7 +57486,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
     if (diff.trim() && !diff.startsWith("Failed to capture worktree diff")) {
       writeArtifact(manifest.artifactsRoot, {
         kind: "diff",
-        relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes2(2).toString("hex")}.diff`,
+        relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes3(2).toString("hex")}.diff`,
         content: diff,
         producer: "dynamic-workflow"
       });
@@ -58694,6 +58778,12 @@ async function runTeamTask(input) {
     if (input.step.preStepScript) {
       const scriptTimeout = input.step.preStepTimeout ?? 3e4;
       const scriptArgs = input.step.preStepArgs ?? [];
+      appendEventFireAndForget(manifest.eventsPath, {
+        type: "hook.pre_step_started",
+        runId: manifest.runId,
+        taskId: task.id,
+        data: { script: input.step.preStepScript, argCount: scriptArgs.length, timeoutMs: scriptTimeout }
+      });
       resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
       try {
         const { execFileSync: execFileSync7 } = await import("node:child_process");
@@ -58704,9 +58794,22 @@ async function runTeamTask(input) {
           maxBuffer: 1024 * 1024
           // 1MB cap
         });
+        appendEventFireAndForget(manifest.eventsPath, {
+          type: "hook.pre_step_completed",
+          runId: manifest.runId,
+          taskId: task.id,
+          data: { script: input.step.preStepScript, outputBytes: Buffer.byteLength(preStepOutput, "utf8") }
+        });
       } catch (err2) {
         const msg = err2 instanceof Error ? err2.message : String(err2);
         const exitCode2 = err2.status;
+        appendEventFireAndForget(manifest.eventsPath, {
+          type: "hook.pre_step_failed",
+          runId: manifest.runId,
+          taskId: task.id,
+          message: `pre-step hook failed (exit ${exitCode2 ?? "?"})`,
+          data: { script: input.step.preStepScript, exitCode: exitCode2 ?? null, optional: input.step.preStepOptional === true }
+        });
         if (input.step.preStepOptional) {
           const warnMsg = `[preStepOptional] pre-step hook '${input.step.preStepScript}' failed (exit ${exitCode2 ?? "?"}) but preStepOptional=true; continuing without its output.`;
           try {
@@ -60516,7 +60619,7 @@ function startTeamRunHeartbeat(stateRoot, runId) {
   const writeHeartbeat = () => {
     try {
       const now = (/* @__PURE__ */ new Date()).toISOString();
-      fs86.writeFileSync(
+      atomicWriteFile(
         heartbeatPath,
         JSON.stringify({
           pid: process.pid,
@@ -60525,7 +60628,7 @@ function startTeamRunHeartbeat(stateRoot, runId) {
           kind: "team-runner",
           lastTaskUpdateAt: now
         }),
-        { encoding: "utf-8", mode: 384 }
+        { mode: 384 }
       );
     } catch {
     }
@@ -61897,6 +62000,7 @@ var init_team_runner = __esm({
     init_plugin_registry();
     init_plugins();
     init_artifact_store();
+    init_atomic_write();
     init_event_log();
     init_health_store();
     init_locks();
@@ -62286,7 +62390,7 @@ __export(gitignore_manager_exports, {
 import * as fs88 from "node:fs";
 async function updateGitignore(gitignorePath) {
   if (!fs88.existsSync(gitignorePath)) {
-    fs88.writeFileSync(gitignorePath, CREW_GITIGNORE_ENTRIES.join("\n") + "\n", "utf-8");
+    atomicWriteFile(gitignorePath, CREW_GITIGNORE_ENTRIES.join("\n") + "\n");
     return;
   }
   const current2 = fs88.readFileSync(gitignorePath, "utf-8");
@@ -62306,6 +62410,7 @@ var CREW_GITIGNORE_ENTRIES;
 var init_gitignore_manager = __esm({
   "src/state/gitignore-manager.ts"() {
     "use strict";
+    init_atomic_write();
     CREW_GITIGNORE_ENTRIES = [
       "/.crew/",
       "/.crew",
@@ -62447,10 +62552,10 @@ async function ensureCrewDirectory(cwd) {
   ];
   for (const placeholder of placeholders) {
     if (!fs89.existsSync(placeholder)) {
-      fs89.writeFileSync(placeholder, "", "utf-8");
+      atomicWriteFile(placeholder, "");
     }
   }
-  fs89.writeFileSync(safeJoin(crewRoot, "README.md"), buildCrewReadme(), "utf-8");
+  atomicWriteFile(safeJoin(crewRoot, "README.md"), buildCrewReadme());
   const repoRoot = findProjectRoot(cwd);
   if (repoRoot) {
     const gitignorePath = safeJoin(repoRoot, ".gitignore");
@@ -62462,6 +62567,7 @@ var __test__internals;
 var init_crew_init = __esm({
   "src/state/crew-init.ts"() {
     "use strict";
+    init_atomic_write();
     init_gitignore_manager();
     __test__internals = {
       parseRoot,
@@ -63514,6 +63620,7 @@ var init_chain_executor = __esm({
   "src/extension/team-tool/chain-executor.ts"() {
     "use strict";
     init_task_output_context();
+    init_atomic_write();
     init_state_store();
     init_tool_result();
     ChainTeamRunExecutor = class {
@@ -69724,7 +69831,7 @@ var init_semaphore = __esm({
 });
 
 // src/runtime/dynamic-workflow-context.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes4 } from "node:crypto";
 function resolveAgentForRole(roleName, opts) {
   const cwd = opts.cwd;
   if (opts.explicitAgent) {
@@ -69819,7 +69926,7 @@ function makeWorkflowCtx(manifest, opts) {
         const task = composeAgentTask(call);
         let agentCwd = manifest.cwd;
         if (call.worktree === true) {
-          const wt = await prepareAgentWorktreeAsync(manifest, `dwf-agent-${Date.now()}-${randomBytes3(4).toString("hex")}`);
+          const wt = await prepareAgentWorktreeAsync(manifest, `dwf-agent-${Date.now()}-${randomBytes4(4).toString("hex")}`);
           if (wt?.worktreePath) {
             agentCwd = wt.cwd;
             worktreePath = wt.worktreePath;
@@ -69858,7 +69965,7 @@ function makeWorkflowCtx(manifest, opts) {
           text = extractTextFallback(childResult.stdout);
         }
         const extracted = extractStructuredResult(text, call.schema);
-        const rel = `wf/${Date.now()}-${randomBytes3(4).toString("hex")}.md`;
+        const rel = `wf/${Date.now()}-${randomBytes4(4).toString("hex")}.md`;
         const artifact = writeArtifact(manifest.artifactsRoot, {
           kind: "result",
           relativePath: rel,
@@ -70747,6 +70854,9 @@ Commit or stash changes before using worktree mode, or use workspaceMode: 'singl
   atomicWriteJson(paths.manifestPath, updatedManifest);
   registerActiveRun(updatedManifest);
   if (!directAgent && workflow.runtime === "dynamic") {
+    console.warn(
+      `[pi-crew SECURITY] Dynamic workflow '${workflow.name}' executes as trusted Node.js code with full process/require/import access; run only reviewed .dwf.ts files.`
+    );
     const { runDynamicWorkflow: runDynamicWorkflow2 } = await Promise.resolve().then(() => (init_dynamic_workflow_runner(), dynamic_workflow_runner_exports));
     const dwfTeam = {
       name: `dwf-${manifest.runId.slice(-12)}`,
@@ -71716,10 +71826,8 @@ function handleSteer(params, ctx) {
   try {
     const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
     fs91.mkdirSync(steeringDir, { recursive: true });
-    fs91.appendFileSync(
-      `${steeringDir}/${taskId}.jsonl`,
-      JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
-    );
+    const safeSteeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
+    fs91.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
   } catch {
   }
   appendEvent(loaded.manifest.eventsPath, {
@@ -72656,6 +72764,7 @@ var init_live_conversation_overlay = __esm({
   "src/ui/live-conversation-overlay.ts"() {
     "use strict";
     init_visual();
+    init_live_duration();
     init_spinner();
     init_status_colors();
     CHROME_LINES = 6;
@@ -72720,26 +72829,9 @@ var init_live_conversation_overlay = __esm({
       }
       static SUMMARY_PREFIX = "\u200B";
       // zero-width space as summary sentinel
-      safeElapsedMs(act) {
-        const rawStarted = act.startedAtMs || 0;
-        const rawCompleted = act.completedAtMs || 0;
-        const nowMs3 = Date.now();
-        const nowSec = Math.floor(nowMs3 / 1e3);
-        const toMs2 = (v) => {
-          if (v <= 0) return 0;
-          if (v > 1e9 && v < 1e10) return v * 1e3;
-          if (v > 1e11 && v < 1e13) return v;
-          return v;
-        };
-        const startedMs = toMs2(rawStarted);
-        const completedMs = rawCompleted > 0 ? toMs2(rawCompleted) : 0;
-        const isValidStarted = startedMs > 0 && startedMs < nowMs3 + 6e4 && startedMs > nowMs3 - 31556926e5;
-        const isValidCompleted = completedMs === 0 || completedMs > 0 && completedMs < nowMs3 + 6e4;
-        return (isValidCompleted ? completedMs : nowMs3) - (isValidStarted ? startedMs : nowMs3);
-      }
       refreshSummary() {
         const act = this.handle.activity;
-        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${act.turnCount} turns \xB7 ${act.toolUses} tools \xB7 ${(this.safeElapsedMs(act) / 1e3).toFixed(1)}s]`;
+        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${act.turnCount} turns \xB7 ${act.toolUses} tools \xB7 ${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s]`;
         const lastLine = this.cachedLines[this.cachedLines.length - 1];
         if (lastLine?.startsWith(_LiveConversationOverlay.SUMMARY_PREFIX)) {
           this.cachedLines[this.cachedLines.length - 1] = summary;
@@ -72765,7 +72857,7 @@ var init_live_conversation_overlay = __esm({
         const statusIcon4 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId)) : iconForStatus(this.handle.status);
         const name = this.handle.agent ?? this.handle.taskId;
         const act = this.handle.activity;
-        const elapsed3 = `${(this.safeElapsedMs(act) / 1e3).toFixed(1)}s`;
+        const elapsed3 = `${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`;
         const headerParts = [];
         if (act.maxTurns != null) headerParts.push(`turn ${act.turnCount}/${act.maxTurns}`);
         else if (act.turnCount > 0) headerParts.push(`turn ${act.turnCount}`);
@@ -77391,7 +77483,7 @@ function registerTeamCommands(pi, deps) {
       const skillPath = path76.join(skillDir, "SKILL.md");
       try {
         fs95.mkdirSync(skillDir, { recursive: true });
-        fs95.writeFileSync(skillPath, instantiated.content, "utf-8");
+        atomicWriteFile(skillPath, instantiated.content);
         await notifyCommandResult(
           ctx,
           `Created skill '${template.id}' at:
@@ -77438,6 +77530,7 @@ var init_commands = __esm({
   "src/extension/registration/commands.ts"() {
     "use strict";
     init_config();
+    init_atomic_write();
     init_defaults();
     init_crew_agent_records();
     init_diagnostic_export();
@@ -78785,7 +78878,7 @@ function wireEventToMetrics(events, registry2) {
   const taskCount = registry2.counter("crew.task.count", "Total tasks by status");
   const subagentCount = registry2.counter("crew.subagent.count", "Total subagent records by status");
   const mailboxCount = registry2.counter("crew.mailbox.count", "Total mailbox messages by direction");
-  const retryAttemptCount = registry2.counter("crew.task.retry_attempt_total", "Retry attempts by run and task");
+  const retryAttemptCount = registry2.counter("crew.task.retry_attempt_total", "Total retry attempts");
   const deadletterCount = registry2.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
   const overflowCount = registry2.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
   const supervisorContactCount = registry2.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
@@ -78836,12 +78929,8 @@ function wireEventToMetrics(events, registry2) {
     [
       "crew.task.retry_attempt",
       (data2) => {
-        const item = recordValue(data2);
         taskCount.inc({ status: "retry" });
-        retryAttemptCount.inc({
-          runId: stringValue(item.runId, "unknown"),
-          taskId: stringValue(item.taskId, "unknown")
-        });
+        retryAttemptCount.inc({});
       }
     ],
     [
@@ -78868,8 +78957,9 @@ function wireEventToMetrics(events, registry2) {
       (data2) => {
         const item = recordValue(data2);
         supervisorContactCount.inc({
-          reason: stringValue(item.reason, "unknown"),
-          taskId: stringValue(item.taskId, "unknown")
+          // reason is low-cardinality; taskId is NOT (unique per task) — dropped to
+          // avoid cardinality blowup (OBS-1). Per-task detail is in the event log.
+          reason: stringValue(item.reason, "unknown")
         });
       }
     ],
@@ -79171,7 +79261,7 @@ async function importOTLPExporter() {
   return _cachedOTLPExporter;
 }
 async function configureObservability(ctx, state, deps) {
-  disposeObservability(state, deps.isCleanedUp());
+  await disposeObservability(state, deps.isCleanedUp());
   const config = loadConfig(ctx.cwd).config;
   if (config.observability?.enabled === false) return;
   const { createMetricRegistry: createMetricRegistry2 } = await Promise.resolve().then(() => (init_metric_registry(), metric_registry_exports));
@@ -79312,7 +79402,7 @@ async function configureObservability(ctx, state, deps) {
     }).catch((error) => logInternalError("register.crash-recovery-lazy-import", error));
   }
 }
-function disposeObservability(state, _isCleanedUp) {
+async function disposeObservability(state, _isCleanedUp) {
   state.heartbeatWatcher?.dispose();
   state.heartbeatWatcher = void 0;
   if (state.autoRepairTimer) {
@@ -79327,7 +79417,7 @@ function disposeObservability(state, _isCleanedUp) {
   state.metricSink = void 0;
   state.eventMetricSub?.dispose();
   state.eventMetricSub = void 0;
-  state.otlpExporter?.dispose();
+  await state.otlpExporter?.dispose();
   state.otlpExporter = void 0;
   state.metricRegistry?.dispose();
   state.metricRegistry = void 0;
@@ -82254,7 +82344,7 @@ init_pi_ui_compat();
 init_internal_error();
 
 // src/extension/crew-vibes/config.ts
-import { existsSync as existsSync77, mkdirSync as mkdirSync43, readFileSync as readFileSync75, writeFileSync as writeFileSync33 } from "node:fs";
+import { existsSync as existsSync77, mkdirSync as mkdirSync43, readFileSync as readFileSync75, writeFileSync as writeFileSync13 } from "node:fs";
 import { dirname as dirname39, join as join76 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
@@ -82428,7 +82518,7 @@ function loadConfig2() {
 function saveConfig(config) {
   const path81 = configPath2();
   mkdirSync43(dirname39(path81), { recursive: true });
-  writeFileSync33(path81, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  writeFileSync13(path81, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -83599,7 +83689,7 @@ function registerCrewVibes(pi) {
 init_safe_paths();
 
 // src/extension/rpc-hmac.ts
-import { createHmac, randomBytes as randomBytes4, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
 var RPC_HMAC_VERSION = 1;
 var SECRET_ENV_VAR = "PI_CREW_RPC_SECRET";
 var CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1e3;
@@ -83705,6 +83795,7 @@ async function handleTeamTool6(params, ctx) {
   return _cachedHandleTeamTool5(params, ctx);
 }
 var PI_CREW_RPC_VERSION = 1;
+var rpcHmacWarningEmitted = false;
 function requestId2(raw) {
   return raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.requestId === "string" ? raw.requestId : void 0;
 }
@@ -83760,7 +83851,7 @@ function checkRpcRateLimit() {
 function recordRpcRun() {
   rpcRunTimestamps.push(Date.now());
 }
-function isAllowedRpcRunParams(params) {
+function isAllowedRpcRunParams(params, ctx) {
   const cfg = params.config;
   const intent = cfg?.intent;
   if (!intent || typeof intent !== "string" || intent.trim().length === 0) {
@@ -83771,7 +83862,7 @@ function isAllowedRpcRunParams(params) {
   }
   if (params.cwd && typeof params.cwd === "string") {
     try {
-      resolveContainedPath(params.cwd, ".");
+      resolveRealContainedPath(ctx.cwd, params.cwd);
     } catch {
       return {
         ok: false,
@@ -83788,6 +83879,12 @@ function on(events, channel, handler) {
 }
 function registerPiCrewRpc(events, getCtx) {
   if (!events) return void 0;
+  if (!isHmacEnabled() && !rpcHmacWarningEmitted) {
+    rpcHmacWarningEmitted = true;
+    console.warn(
+      "[pi-crew SECURITY] PI_CREW_RPC_SECRET is not configured; cross-extension RPC HMAC authentication is disabled. RPC requests rely on operation allowlists and session checks. Set PI_CREW_RPC_SECRET to authenticate their origin."
+    );
+  }
   const unsubs = [
     on(
       events,
@@ -83846,7 +83943,7 @@ function registerPiCrewRpc(events, getCtx) {
           } else {
             params = { action: "run" };
           }
-          const permission = isAllowedRpcRunParams(params);
+          const permission = isAllowedRpcRunParams(params, ctx);
           if (!permission.ok) {
             reply(events, "pi-crew:rpc:run", id, {
               success: false,
@@ -85118,7 +85215,7 @@ Subagent may need manual intervention.`
     stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : void 0);
     clearPiCrewPowerbar(pi.events);
     disposePowerbarCoalescer();
-    disposeObservability(observabilityState, cleanedUp);
+    void disposeObservability(observabilityState, cleanedUp);
     lifecycleState.deliveryCoordinator?.dispose();
     clearHooksScoped();
     uninstallCrewGlobalRegistry();
@@ -85159,7 +85256,7 @@ Subagent may need manual intervention.`
     stopCrewWidget(currentCtx, widgetState, currentCtx ? loadConfig(currentCtx.cwd).config.ui : void 0);
     clearPiCrewPowerbar(pi.events);
     disposePowerbarCoalescer();
-    disposeObservability(observabilityState, cleanedUp);
+    void disposeObservability(observabilityState, cleanedUp);
     lifecycleState.deliveryCoordinator?.dispose();
     clearHooksScoped();
     uninstallCrewGlobalRegistry();

@@ -61,3 +61,23 @@ test("wireEventToMetrics labels cancelled runs by structured reason", () => {
 		1,
 	);
 });
+
+test("wireEventToMetrics does NOT use high-cardinality runId/taskId as metric labels (OBS-1)", () => {
+	const bus = eventBus();
+	const registry = createMetricRegistry();
+	wireEventToMetrics(bus, registry);
+	// 100 distinct run+task pairs must aggregate into ONE series, not 100 — otherwise
+	// each unique pair creates a metric series that silently LRU-evicts at the 10k cap.
+	for (let i = 0; i < 100; i++) {
+		bus.emit("crew.task.retry_attempt", { runId: `run-${i}`, taskId: `task-${i}` });
+		bus.emit("supervisor.contact", { reason: "stuck", taskId: `task-${i}` });
+	}
+	const retryValues = (registry.get("crew.task.retry_attempt_total")?.snapshot().values ?? []) as Array<{ value: number }>;
+	const supervisorValues = (registry.get("crew.task.supervisor_contact_total")?.snapshot().values ?? []) as Array<{
+		value: number;
+	}>;
+	assert.equal(retryValues.length, 1, "retry counter must be label-less (1 series), not per-run/task");
+	assert.equal(retryValues[0]?.value, 100);
+	assert.equal(supervisorValues.length, 1, "supervisor counter must group by reason only (taskId dropped)");
+	assert.equal(supervisorValues[0]?.value, 100);
+});

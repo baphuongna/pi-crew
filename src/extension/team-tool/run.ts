@@ -432,6 +432,9 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	// orchestrates subagents via ctx.agent(); only ctx.setResult() reaches the main context.
 	// Placed AFTER manifest creation so runId/paths/artifactsRoot are available.
 	if (!directAgent && (workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig).runtime === "dynamic") {
+		console.warn(
+			`[pi-crew SECURITY] Dynamic workflow '${workflow.name}' executes as trusted Node.js code with full process/require/import access; run only reviewed .dwf.ts files.`,
+		);
 		// LAZY: defer dynamic import of ../../runtime/dynamic-workflow-runner.ts to its call site.
 		const { runDynamicWorkflow } = await import("../../runtime/dynamic-workflow-runner.ts");
 		// Re-synthesize a dynamic-team (§0c C9) for role resolution.

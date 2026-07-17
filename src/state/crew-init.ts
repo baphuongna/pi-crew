@@ -17,6 +17,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { atomicWriteFile } from "./atomic-write.ts";
 import { updateGitignore } from "./gitignore-manager.ts";
 
 // Re-export updateGitignore for backwards compatibility with tests.
@@ -238,12 +239,12 @@ export async function ensureCrewDirectory(cwd: string): Promise<void> {
 
 	for (const placeholder of placeholders) {
 		if (!fs.existsSync(placeholder)) {
-			fs.writeFileSync(placeholder, "", "utf-8");
+			atomicWriteFile(placeholder, "");
 		}
 	}
 
 	// 3. Write README.md (always overwrite to keep it current)
-	fs.writeFileSync(safeJoin(crewRoot, "README.md"), buildCrewReadme(), "utf-8");
+	atomicWriteFile(safeJoin(crewRoot, "README.md"), buildCrewReadme());
 
 	// 4. Update .gitignore at project root
 	const repoRoot = findProjectRoot(cwd);
