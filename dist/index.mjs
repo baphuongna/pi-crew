@@ -18710,24 +18710,26 @@ function scheduleTranscriptFlush() {
 async function flushTranscriptBatches() {
   const entries = [...transcriptBatches.entries()];
   transcriptBatches.clear();
-  await Promise.allSettled(entries.map(async ([safePath, lines]) => {
-    if (lines.length === 0) return;
-    const content = lines.join("");
-    try {
-      const fd = await fs28.promises.open(
-        safePath,
-        fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND,
-        384
-      );
+  await Promise.allSettled(
+    entries.map(async ([safePath, lines]) => {
+      if (lines.length === 0) return;
+      const content = lines.join("");
       try {
-        await fd.write(content, void 0, "utf-8");
-      } finally {
-        await fd.close();
+        const fd = await fs28.promises.open(
+          safePath,
+          fs28.constants.O_WRONLY | fs28.constants.O_NOFOLLOW | fs28.constants.O_CREAT | fs28.constants.O_APPEND,
+          384
+        );
+        try {
+          await fd.write(content, void 0, "utf-8");
+        } finally {
+          await fd.close();
+        }
+      } catch (error) {
+        logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
       }
-    } catch (error) {
-      logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
-    }
-  }));
+    })
+  );
 }
 function trackTranscriptWrite(safePath, line4) {
   const content = `${redactJsonLine(line4)}

@@ -9,8 +9,8 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { ChildPiLineObserver } from "../../src/runtime/child-pi.ts";
 import type { ChildPiRunInput } from "../../src/runtime/child-pi.ts";
+import { ChildPiLineObserver } from "../../src/runtime/child-pi.ts";
 
 const SAMPLE_AGENT: AgentConfig = {
 	name: "explorer",
@@ -47,7 +47,7 @@ describe("Phase 2: single JSON.parse per stdout line", () => {
 
 		let count = 0;
 		const orig = JSON.parse;
-		(JSON as { parse: typeof JSON.parse }).parse = function (...args: Parameters<typeof JSON.parse>) {
+		(JSON as { parse: typeof JSON.parse }).parse = (...args: Parameters<typeof JSON.parse>) => {
 			count++;
 			return orig.apply(JSON, args);
 		};
@@ -65,7 +65,7 @@ describe("Phase 2: single JSON.parse per stdout line", () => {
 		const observer = new ChildPiLineObserver(buildInput());
 		let count = 0;
 		const orig = JSON.parse;
-		(JSON as { parse: typeof JSON.parse }).parse = function (...args: Parameters<typeof JSON.parse>) {
+		(JSON as { parse: typeof JSON.parse }).parse = (...args: Parameters<typeof JSON.parse>) => {
 			count++;
 			return orig.apply(JSON, args);
 		};
@@ -84,7 +84,7 @@ describe("Phase 2: single JSON.parse per stdout line", () => {
 		const observer = new ChildPiLineObserver(buildInput());
 		let count = 0;
 		const orig = JSON.parse;
-		(JSON as { parse: typeof JSON.parse }).parse = function (...args: Parameters<typeof JSON.parse>) {
+		(JSON as { parse: typeof JSON.parse }).parse = (...args: Parameters<typeof JSON.parse>) => {
 			count++;
 			return orig.apply(JSON, args);
 		};
@@ -112,7 +112,7 @@ describe("Phase 2: single JSON.parse per stdout line", () => {
 		const observer = new ChildPiLineObserver(buildInput());
 		let count = 0;
 		const orig = JSON.parse;
-		(JSON as { parse: typeof JSON.parse }).parse = function (...args: Parameters<typeof JSON.parse>) {
+		(JSON as { parse: typeof JSON.parse }).parse = (...args: Parameters<typeof JSON.parse>) => {
 			count++;
 			return orig.apply(JSON, args);
 		};
