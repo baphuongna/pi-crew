@@ -38,11 +38,7 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 		/while\s*\(\s*ctx\.autoRecoveryLast\.size\s*>=\s*ctx\.AUTO_RECOVERY_LAST_MAX_ENTRIES\s*\)/,
 		"lifecycle-handlers.ts should evict oldest entries when the cap is reached",
 	);
-	assert.match(
-		lifecycleSource,
-		/lastAccessAt/,
-		"lifecycle-handlers.ts should reference lastAccessAt for LRU-style eviction",
-	);
+	assert.match(lifecycleSource, /lastAccessAt/, "lifecycle-handlers.ts should reference lastAccessAt for LRU-style eviction");
 });
 
 test("crew-agent-records.ts implements an agentEventSeqCache defensive cap (Round 22)", () => {
