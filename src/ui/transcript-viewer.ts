@@ -18,6 +18,38 @@ type Component = {
 
 type TranscriptTheme = CrewTheme;
 
+interface ReadRunTranscriptResult {
+	title: string;
+	path: string;
+	lines: string[];
+	bytesRead: number;
+	size: number;
+	truncated: boolean;
+}
+
+// FIND-06: short-TTL cache keyed by (runId, taskId, readOptions) so the ~500ms
+// render tick of `DurableTranscriptViewer` does not re-stat / re-read / re-parse
+// the underlying transcript on every call. The deeper `transcriptCache` only
+// reuses parsed lines when mtime/size are stable; during an actively-written
+// run, the file's mtime changes on every tick and the inner cache is
+// invalidated. This outer cache caps the per-tick re-parse cost at one parse
+// per ~500ms even while the file is growing.
+const READ_RUN_TRANSCRIPT_TTL_MS = 500;
+const READ_RUN_TRANSCRIPT_CACHE_MAX = 32;
+interface ReadRunTranscriptCacheEntry {
+	parsedAt: number;
+	result: ReadRunTranscriptResult;
+}
+const readRunTranscriptCache = new Map<string, ReadRunTranscriptCacheEntry>();
+
+function readRunTranscriptCacheKey(
+	manifest: TeamRunManifest,
+	taskId: string | undefined,
+	readOptions: { full: boolean; maxTailBytes: number },
+): string {
+	return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
@@ -140,14 +172,16 @@ export function readRunTranscript(
 	manifest: TeamRunManifest,
 	taskId?: string,
 	options: { full?: boolean; maxTailBytes?: number } = {},
-): {
-	title: string;
-	path: string;
-	lines: string[];
-	bytesRead: number;
-	size: number;
-	truncated: boolean;
-} {
+): ReadRunTranscriptResult {	const now = Date.now();
+	const readOptions = {
+		full: options.full === true,
+		maxTailBytes: options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES,
+	};
+	const cacheKey = readRunTranscriptCacheKey(manifest, taskId, readOptions);
+	const cached = readRunTranscriptCache.get(cacheKey);
+	if (cached && now - cached.parsedAt < READ_RUN_TRANSCRIPT_TTL_MS) {
+		return cached.result;
+	}
 	const agents = readCrewAgents(manifest);
 	const agent = taskId
 		? agents.find((item) => item.taskId === taskId || item.id === taskId)
@@ -172,13 +206,9 @@ export function readRunTranscript(
 			// Ignore untrusted transcript paths from mutable agent state and fall back to durable agent output.
 		}
 	}
-	const readOptions = {
-		full: options.full === true,
-		maxTailBytes: options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES,
-	};
-	const lines = readTranscriptLinesCached(transcriptPath, (text) => formatTranscriptText(text), Date.now(), readOptions);
+	const lines = readTranscriptLinesCached(transcriptPath, (text) => formatTranscriptText(text), now, readOptions);
 	const entry = getTranscriptCacheEntry(transcriptPath, readOptions);
-	return {
+	const result: ReadRunTranscriptResult = {
 		title: `${manifest.runId}:${selectedTaskId}`,
 		path: transcriptPath,
 		lines: lines.length ? lines : ["(no transcript content)"],
@@ -186,6 +216,15 @@ export function readRunTranscript(
 		size: entry?.size ?? 0,
 		truncated: entry?.truncated ?? false,
 	};
+	// Map preserves insertion order; the first key is the oldest entry. Evict
+	// before insert so the cache stays at most READ_RUN_TRANSCRIPT_CACHE_MAX.
+	while (readRunTranscriptCache.size >= READ_RUN_TRANSCRIPT_CACHE_MAX) {
+		const oldest = readRunTranscriptCache.keys().next().value;
+		if (oldest === undefined) break;
+		readRunTranscriptCache.delete(oldest);
+	}
+	readRunTranscriptCache.set(cacheKey, { parsedAt: now, result });
+	return result;
 }
 
 interface ViewerState {

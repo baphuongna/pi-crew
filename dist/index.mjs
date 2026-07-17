@@ -11029,6 +11029,14 @@ var init_run_event_bus = __esm({
       #globalListeners = /* @__PURE__ */ new Set();
       #channelListeners = /* @__PURE__ */ new Map();
       #channelRunListeners = /* @__PURE__ */ new Map();
+      // 1.10 (FIND-13): microtask-batched listener fan-out. Events emitted in
+      // the same synchronous tick are coalesced into a single microtask flush
+      // instead of one synchronous fan-out per emit. Reduces listener dispatch
+      // overhead when many events arrive back-to-back (e.g. from a single
+      // appendEvent chain that emits several derived events).
+      #emitQueue = [];
+      #flushScheduled = false;
+      #disposed = false;
       on(runId, callback) {
         const listeners2 = this.#listeners.get(runId) ?? /* @__PURE__ */ new Set();
         listeners2.add(callback);
@@ -11134,9 +11142,31 @@ var init_run_event_bus = __esm({
         return this.on(runId, liveCallback);
       }
       emit(event) {
+        if (this.#disposed) return;
         if (!event.channel) {
           event.channel = classifyEventChannel(event.type);
         }
+        this.#emitQueue.push(event);
+        if (this.#flushScheduled) return;
+        this.#flushScheduled = true;
+        queueMicrotask(() => {
+          this.#flushScheduled = false;
+          if (this.#disposed) {
+            this.#emitQueue.length = 0;
+            return;
+          }
+          const queue = this.#emitQueue;
+          this.#emitQueue = [];
+          for (const queued of queue) this.#dispatchSync(queued);
+        });
+      }
+      /**
+       * Synchronous per-event listener fan-out. Called from the microtask flush
+       * scheduled by emit(); not part of the public API. Mirrors the original
+       * (pre-batching) emit body so a single emit still visits every listener
+       * registered for the event's runId / channel / global set.
+       */
+      #dispatchSync(event) {
         const channel = event.channel;
         const listeners2 = this.#listeners.get(event.runId);
         if (listeners2) {
@@ -11178,10 +11208,13 @@ var init_run_event_bus = __esm({
       }
       /** Dispose all subscriptions including channel-based ones. */
       dispose() {
+        this.#disposed = true;
         this.#listeners.clear();
         this.#globalListeners.clear();
         this.#channelListeners.clear();
         this.#channelRunListeners.clear();
+        this.#emitQueue.length = 0;
+        this.#flushScheduled = false;
       }
       listenerCount(runId) {
         if (runId) return this.#listeners.get(runId)?.size ?? 0;
@@ -12507,8 +12540,9 @@ async function executeHook(name, ctx) {
         };
       }
       if (result4.outcome === "modify" && result4.data) {
-        Object.assign(ctx, sanitizeMergeData(result4.data));
-        capturedModifications = { ...result4.data };
+        const clonedData = sanitizeMergeData(result4.data);
+        Object.assign(ctx, clonedData);
+        capturedModifications = clonedData;
       }
     } catch (error) {
       const message = sanitizeErrorMessage(error instanceof Error ? error.message : String(error));
@@ -20684,22 +20718,44 @@ var RenderCoalescer;
 var init_render_coalescer = __esm({
   "src/ui/render-coalescer.ts"() {
     "use strict";
+    init_internal_error();
     RenderCoalescer = class {
       #pending = false;
       #timerId = null;
       #callback;
       #intervalMs;
-      constructor(callback, intervalMs = 32) {
+      #onDrop;
+      #dropped = 0;
+      constructor(callback, intervalMs = 32, options = {}) {
         this.#callback = callback;
         this.#intervalMs = intervalMs;
+        this.#onDrop = options.onDrop ?? ((count2) => {
+          logInternalError(
+            "render-coalescer",
+            new Error(`coalesced ${count2} dropped request(s) into a single render`),
+            void 0,
+            "debug"
+          );
+        });
       }
       /** Request a render. Will be coalesced with other requests within the interval. */
       request() {
-        if (this.#pending) return;
+        if (this.#pending) {
+          this.#dropped += 1;
+          return;
+        }
         this.#pending = true;
         const timer = setTimeout(() => {
           this.#pending = false;
           this.#timerId = null;
+          const dropped = this.#dropped;
+          this.#dropped = 0;
+          if (dropped > 0) {
+            try {
+              this.#onDrop(dropped);
+            } catch {
+            }
+          }
           this.#callback();
         }, this.#intervalMs);
         timer.unref();
@@ -21203,109 +21259,16 @@ function registerPiCrewPowerbarSegments(events, config) {
   });
 }
 function updatePiCrewPowerbar(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
-  if (config?.powerbar === false) return;
-  const useStatusFallback = !hasPowerbarConsumer(events);
-  const runs = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
-  const active = runs.map((run) => {
-    let snapshot;
-    try {
-      snapshot = snapshotCache?.get(run.runId);
-    } catch (error) {
-      logInternalError("powerbar.snapshot", error, run.runId);
-    }
-    if (snapshot)
-      return {
-        run: snapshot.manifest,
-        agents: snapshot.agents,
-        tasks: snapshot.tasks,
-        snapshot
-      };
-    let agents2 = [];
-    try {
-      agents2 = readCrewAgents(run);
-    } catch (error) {
-      logInternalError("powerbar.readCrewAgents", error, run.runId);
-    }
-    return { run, agents: agents2, tasks: readTasks(run.tasksPath), snapshot };
-  }).filter((item) => isDisplayActiveRun(item.run, item.agents));
-  if (!active.length) {
-    lastActiveKey = void 0;
-    lastProgressKey = void 0;
-    lastStepsKey = void 0;
-    safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
-    safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
-    safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
-    return;
-  }
-  const agents = active.flatMap((item) => item.agents);
-  const tasks = active.flatMap((item) => item.tasks);
-  const running = agents.filter((agent) => agent.status === "running").length;
-  const waiting = active.reduce(
-    (sum, item) => sum + (item.snapshot ? item.snapshot.progress.queued + (item.snapshot.progress.waiting ?? 0) : item.tasks.reduce((s, t2) => s + (t2.status === "queued" || t2.status === "waiting" ? 1 : 0), 0)),
-    0
+  powerbarPublisher.update(
+    events,
+    cwd,
+    config,
+    manifestCache2,
+    snapshotCache,
+    ctx,
+    notificationCount,
+    preloadedManifests
   );
-  const completed = active.reduce(
-    (sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t2) => s + (t2.status === "completed" ? 1 : 0), 0)),
-    0
-  );
-  const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
-  const usage = aggregateUsage(tasks);
-  const snapshotTokens = active.reduce(
-    (sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
-    0
-  );
-  const hasUsage = usage && (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0;
-  const tokenTotal = hasUsage ? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : snapshotTokens;
-  const model = config?.showModel === false ? void 0 : agents.find((agent) => agent.model)?.model?.split("/").at(-1);
-  const tokenText = config?.showTokens === false || !tokenTotal ? void 0 : compactTokens(tokenTotal);
-  const liveRunning = listLiveAgents().filter((a) => a.status === "running").length;
-  const runningCount = agents.filter((a) => a.status === "running").length;
-  const queuedCount = active.reduce(
-    (sum, item) => sum + item.tasks.reduce((s, t2) => s + (t2.status === "queued" || t2.status === "waiting" ? 1 : 0), 0),
-    0
-  );
-  const runningLabel = runningCount === 1 ? "1 running" : `${runningCount} running`;
-  const queuedLabel = queuedCount === 1 ? "1 queued" : `${queuedCount} queued`;
-  const crewStatus = runningCount > 0 && queuedCount > 0 ? `${runningLabel} \xB7 ${queuedLabel}` : runningCount > 0 ? runningLabel : queuedCount > 0 ? queuedLabel : "idle";
-  const liveSuffix = liveRunning > 0 ? ` (${liveRunning} live)` : "";
-  const notificationText = notificationBadge(notificationCount);
-  const suffixParts = [model, tokenText].filter(Boolean);
-  const activeSuffix = suffixParts.length > 0 ? suffixParts.join(" \xB7 ") : void 0;
-  const progressSuffix = `${completed}/${total}${tokenText ? ` \xB7 ${tokenText}` : ""}`;
-  const progressPart = `${completed}/${total}`;
-  const allParts = [`\u2699 ${crewStatus}`, model ?? "", tokenText ?? "", progressPart].filter(Boolean);
-  const unifiedText = allParts.join(" \xB7 ");
-  const activePayload = {
-    id: "pi-crew-active",
-    icon: "\u2699",
-    text: `\u2699 ${crewStatus}${liveSuffix}${notificationText}${activeSuffix ? ` \xB7 ${activeSuffix}` : ""}`,
-    suffix: activeSuffix,
-    color: running ? "accent" : "warning"
-  };
-  const progressPayload = {
-    id: "pi-crew-progress",
-    text: active[0]?.run?.team ?? "crew",
-    bar: Math.round(completed / total * 100),
-    suffix: progressSuffix,
-    color: completed === total ? "success" : "accent",
-    barSegments: 8
-  };
-  const stepsPayload = buildStepsPayload(active, tasks);
-  const activeKey = powerbarKey(activePayload);
-  const progressKey = powerbarKey(progressPayload);
-  const stepsKey = powerbarKey(stepsPayload);
-  if (activeKey !== lastActiveKey) {
-    lastActiveKey = activeKey;
-    safeEmit(events, "powerbar:update", activePayload);
-  }
-  if (progressKey !== lastProgressKey) {
-    lastProgressKey = progressKey;
-    safeEmit(events, "powerbar:update", progressPayload);
-  }
-  if (stepsKey !== lastStepsKey) {
-    lastStepsKey = stepsKey;
-    safeEmit(events, "powerbar:update", stepsPayload);
-  }
 }
 function powerbarKey(payload) {
   return `${payload.text ?? ""}|${payload.suffix ?? ""}|${payload.bar ?? ""}|${payload.color ?? ""}|${payload.icon ?? ""}|${payload.barSegments ?? ""}`;
@@ -21350,37 +21313,27 @@ function buildStepsPayload(active, allTasks) {
   };
 }
 function requestPowerbarUpdate(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
-  if (config?.powerbar === false) return;
-  latestArgs = {
+  powerbarPublisher.request(
     events,
     cwd,
     config,
-    manifestCache: manifestCache2,
+    manifestCache2,
     snapshotCache,
     ctx,
     notificationCount,
     preloadedManifests
-  };
-  powerbarCoalescer.request();
+  );
 }
 function disposePowerbarCoalescer() {
-  powerbarCoalescer.flush();
-  powerbarCoalescer.dispose();
+  powerbarPublisher.dispose();
 }
 function clearPiCrewPowerbar(events) {
-  lastActiveKey = void 0;
-  lastProgressKey = void 0;
-  lastStepsKey = void 0;
-  safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
-  safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
-  safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+  powerbarPublisher.clear(events);
 }
 function resetPowerbarDedupState() {
-  lastActiveKey = void 0;
-  lastProgressKey = void 0;
-  lastStepsKey = void 0;
+  powerbarPublisher.resetDedupState();
 }
-var TASK_READ_TTL_MS, lastActiveKey, lastProgressKey, lastStepsKey, latestArgs, powerbarCoalescer;
+var TASK_READ_TTL_MS, PowerbarPublisher, powerbarPublisher;
 var init_powerbar_publisher = __esm({
   "src/ui/powerbar-publisher.ts"() {
     "use strict";
@@ -21395,13 +21348,173 @@ var init_powerbar_publisher = __esm({
     init_render_coalescer();
     init_widget_formatters();
     TASK_READ_TTL_MS = 200;
-    latestArgs = null;
-    powerbarCoalescer = new RenderCoalescer(() => {
-      if (!latestArgs) return;
-      const a = latestArgs;
-      latestArgs = null;
-      updatePiCrewPowerbar(a.events, a.cwd, a.config, a.manifestCache, a.snapshotCache, a.ctx, a.notificationCount, a.preloadedManifests);
-    }, 200);
+    PowerbarPublisher = class {
+      #lastActiveKey;
+      #lastProgressKey;
+      #lastStepsKey;
+      #latestArgs = null;
+      #coalescer;
+      constructor() {
+        this.#coalescer = new RenderCoalescer(() => {
+          const a = this.#latestArgs;
+          this.#latestArgs = null;
+          if (!a) return;
+          this.update(
+            a.events,
+            a.cwd,
+            a.config,
+            a.manifestCache,
+            a.snapshotCache,
+            a.ctx,
+            a.notificationCount,
+            a.preloadedManifests
+          );
+        }, 200);
+      }
+      update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
+        if (config?.powerbar === false) return;
+        const useStatusFallback = !hasPowerbarConsumer(events);
+        const runs = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
+        const active = runs.map((run) => {
+          let snapshot;
+          try {
+            snapshot = snapshotCache?.get(run.runId);
+          } catch (error) {
+            logInternalError("powerbar.snapshot", error, run.runId);
+          }
+          if (snapshot)
+            return {
+              run: snapshot.manifest,
+              agents: snapshot.agents,
+              tasks: snapshot.tasks,
+              snapshot
+            };
+          let agents2 = [];
+          try {
+            agents2 = readCrewAgents(run);
+          } catch (error) {
+            logInternalError("powerbar.readCrewAgents", error, run.runId);
+          }
+          return { run, agents: agents2, tasks: readTasks(run.tasksPath), snapshot };
+        }).filter((item) => isDisplayActiveRun(item.run, item.agents));
+        if (!active.length) {
+          this.#lastActiveKey = void 0;
+          this.#lastProgressKey = void 0;
+          this.#lastStepsKey = void 0;
+          safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
+          safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
+          safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+          return;
+        }
+        const agents = active.flatMap((item) => item.agents);
+        const tasks = active.flatMap((item) => item.tasks);
+        const running = agents.filter((agent) => agent.status === "running").length;
+        const waiting = active.reduce(
+          (sum, item) => sum + (item.snapshot ? item.snapshot.progress.queued + (item.snapshot.progress.waiting ?? 0) : item.tasks.reduce((s, t2) => s + (t2.status === "queued" || t2.status === "waiting" ? 1 : 0), 0)),
+          0
+        );
+        const completed = active.reduce(
+          (sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t2) => s + (t2.status === "completed" ? 1 : 0), 0)),
+          0
+        );
+        const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
+        const usage = aggregateUsage(tasks);
+        const snapshotTokens = active.reduce(
+          (sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
+          0
+        );
+        const hasUsage = usage && (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0;
+        const tokenTotal = hasUsage ? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : snapshotTokens;
+        const model = config?.showModel === false ? void 0 : agents.find((agent) => agent.model)?.model?.split("/").at(-1);
+        const tokenText = config?.showTokens === false || !tokenTotal ? void 0 : compactTokens(tokenTotal);
+        const liveRunning = listLiveAgents().filter((a) => a.status === "running").length;
+        const runningCount = agents.filter((a) => a.status === "running").length;
+        const queuedCount = active.reduce(
+          (sum, item) => sum + item.tasks.reduce((s, t2) => s + (t2.status === "queued" || t2.status === "waiting" ? 1 : 0), 0),
+          0
+        );
+        const runningLabel = runningCount === 1 ? "1 running" : `${runningCount} running`;
+        const queuedLabel = queuedCount === 1 ? "1 queued" : `${queuedCount} queued`;
+        const crewStatus = runningCount > 0 && queuedCount > 0 ? `${runningLabel} \xB7 ${queuedLabel}` : runningCount > 0 ? runningLabel : queuedCount > 0 ? queuedLabel : "idle";
+        const liveSuffix = liveRunning > 0 ? ` (${liveRunning} live)` : "";
+        const notificationText = notificationBadge(notificationCount);
+        const suffixParts = [model, tokenText].filter(Boolean);
+        const activeSuffix = suffixParts.length > 0 ? suffixParts.join(" \xB7 ") : void 0;
+        const progressSuffix = `${completed}/${total}${tokenText ? ` \xB7 ${tokenText}` : ""}`;
+        const progressPart = `${completed}/${total}`;
+        const allParts = [`\u2699 ${crewStatus}`, model ?? "", tokenText ?? "", progressPart].filter(Boolean);
+        const unifiedText = allParts.join(" \xB7 ");
+        const activePayload = {
+          id: "pi-crew-active",
+          icon: "\u2699",
+          text: `\u2699 ${crewStatus}${liveSuffix}${notificationText}${activeSuffix ? ` \xB7 ${activeSuffix}` : ""}`,
+          suffix: activeSuffix,
+          color: running ? "accent" : "warning"
+        };
+        const progressPayload = {
+          id: "pi-crew-progress",
+          text: active[0]?.run?.team ?? "crew",
+          bar: Math.round(completed / total * 100),
+          suffix: progressSuffix,
+          color: completed === total ? "success" : "accent",
+          barSegments: 8
+        };
+        const stepsPayload = buildStepsPayload(active, tasks);
+        const activeKey = powerbarKey(activePayload);
+        const progressKey = powerbarKey(progressPayload);
+        const stepsKey = powerbarKey(stepsPayload);
+        if (activeKey !== this.#lastActiveKey) {
+          this.#lastActiveKey = activeKey;
+          safeEmit(events, "powerbar:update", activePayload);
+        }
+        if (progressKey !== this.#lastProgressKey) {
+          this.#lastProgressKey = progressKey;
+          safeEmit(events, "powerbar:update", progressPayload);
+        }
+        if (stepsKey !== this.#lastStepsKey) {
+          this.#lastStepsKey = stepsKey;
+          safeEmit(events, "powerbar:update", stepsPayload);
+        }
+      }
+      /**
+       * Request a coalesced powerbar update. Multiple rapid calls are batched
+       * into a single render pass within 200ms, preventing UI flicker from
+       * event bursts.
+       */
+      request(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
+        if (config?.powerbar === false) return;
+        this.#latestArgs = {
+          events,
+          cwd,
+          config,
+          manifestCache: manifestCache2,
+          snapshotCache,
+          ctx,
+          notificationCount,
+          preloadedManifests
+        };
+        this.#coalescer.request();
+      }
+      clear(events) {
+        this.#lastActiveKey = void 0;
+        this.#lastProgressKey = void 0;
+        this.#lastStepsKey = void 0;
+        safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
+        safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
+        safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+      }
+      /** Reset dedup state on session lifecycle events. */
+      resetDedupState() {
+        this.#lastActiveKey = void 0;
+        this.#lastProgressKey = void 0;
+        this.#lastStepsKey = void 0;
+      }
+      dispose() {
+        this.#coalescer.flush();
+        this.#coalescer.dispose();
+      }
+    };
+    powerbarPublisher = new PowerbarPublisher();
   }
 });
 
@@ -72453,20 +72566,45 @@ Skill cache: ${skillStats.hits} hits, ${skillStats.misses} misses (${(skillStats
 function registerCrewGlobalRegistry(registry2) {
   globalThis[CREW_REGISTRY_KEY] = registry2;
 }
-function installCrewGlobalRegistry() {
-  registerCrewGlobalRegistry({
+function installCrewGlobalRegistry(deps) {
+  const manifestCache2 = deps?.manifestCache;
+  const cwdProvider = deps?.cwdProvider ?? (() => process.cwd());
+  const registry2 = {
     version: 2,
-    getRecord: (runId) => void 0,
-    listRuns: () => [],
-    appendEvent: () => {
+    getRecord: (runId) => manifestCache2?.get(runId),
+    listRuns: () => manifestCache2 ? manifestCache2.list(100).map((m) => ({ runId: m.runId, status: m.status, goal: m.goal })) : [],
+    appendEvent: (runId, event) => {
+      if (!manifestCache2) return;
+      const manifest = manifestCache2.get(runId);
+      if (manifest) {
+        appendEventFireAndForget(
+          manifest.eventsPath,
+          event
+        );
+      }
     },
-    waitForAll: async () => {
+    waitForAll: async (runId) => {
+      if (!manifestCache2) return;
+      const check = () => {
+        const loaded = loadRunManifestById(cwdProvider(), runId);
+        if (!loaded) return true;
+        return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
+      };
+      while (!check()) await new Promise((resolve22) => setTimeout(resolve22, 500));
     },
-    hasRunning: () => false,
+    hasRunning: (runId) => {
+      if (!manifestCache2) return false;
+      const manifest = manifestCache2.get(runId);
+      if (!manifest) return false;
+      const loaded = loadRunManifestById(cwdProvider(), runId);
+      if (!loaded) return false;
+      return loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
+    },
     registerAgent: registerDynamicAgent,
     unregisterAgent: unregisterDynamicAgent,
     listDynamicAgents
-  });
+  };
+  registerCrewGlobalRegistry(registry2);
 }
 function uninstallCrewGlobalRegistry() {
   delete globalThis[CREW_REGISTRY_KEY];
@@ -72961,7 +73099,6 @@ var init_live_conversation_overlay = __esm({
       scrollOffset = 0;
       autoScroll = true;
       closed = false;
-      frame = 0;
       pollTimer;
       cachedLines = [];
       // H-4 fix (code-review 2026-06-23): cap the in-memory line buffer to avoid
@@ -72995,7 +73132,7 @@ var init_live_conversation_overlay = __esm({
         }
         this.pollTimer = setInterval(() => {
           if (this.closed) return;
-          this.frame++;
+          if (!this.autoScroll) return;
           try {
             this.refreshSummary();
           } catch {
@@ -73226,15 +73363,8 @@ function readTranscriptLinesCached(path81, parse6, now = Date.now(), options = {
     };
     transcriptCache.set(key, entry);
     if (transcriptCache.size > MAX_CACHE_SIZE) {
-      let oldestKey = null;
-      let oldestParsedAt = Infinity;
-      for (const [k, v] of transcriptCache.entries()) {
-        if (v.parsedAt < oldestParsedAt) {
-          oldestParsedAt = v.parsedAt;
-          oldestKey = k;
-        }
-      }
-      if (oldestKey) transcriptCache.delete(oldestKey);
+      const oldestKey = transcriptCache.keys().next().value;
+      if (oldestKey !== void 0) transcriptCache.delete(oldestKey);
     }
     return lines;
   } catch {
@@ -73263,6 +73393,9 @@ __export(transcript_viewer_exports, {
   readRunTranscript: () => readRunTranscript
 });
 import * as fs93 from "node:fs";
+function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
+  return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
+}
 function asRecord9(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
@@ -73370,6 +73503,16 @@ function formatTranscriptText(text, themeLike = void 0) {
   return lines.length ? lines : ["(no transcript content)"];
 }
 function readRunTranscript(manifest, taskId, options = {}) {
+  const now = Date.now();
+  const readOptions = {
+    full: options.full === true,
+    maxTailBytes: options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES
+  };
+  const cacheKey2 = readRunTranscriptCacheKey(manifest, taskId, readOptions);
+  const cached = readRunTranscriptCache.get(cacheKey2);
+  if (cached && now - cached.parsedAt < READ_RUN_TRANSCRIPT_TTL_MS) {
+    return cached.result;
+  }
   const agents = readCrewAgents(manifest);
   const agent = taskId ? agents.find((item) => item.taskId === taskId || item.id === taskId) : agents.find((item) => item.transcriptPath) ?? agents[0];
   const selectedTaskId = agent?.taskId ?? taskId ?? "unknown";
@@ -73390,13 +73533,9 @@ function readRunTranscript(manifest, taskId, options = {}) {
     } catch {
     }
   }
-  const readOptions = {
-    full: options.full === true,
-    maxTailBytes: options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES
-  };
-  const lines = readTranscriptLinesCached(transcriptPath, (text) => formatTranscriptText(text), Date.now(), readOptions);
+  const lines = readTranscriptLinesCached(transcriptPath, (text) => formatTranscriptText(text), now, readOptions);
   const entry = getTranscriptCacheEntry(transcriptPath, readOptions);
-  return {
+  const result4 = {
     title: `${manifest.runId}:${selectedTaskId}`,
     path: transcriptPath,
     lines: lines.length ? lines : ["(no transcript content)"],
@@ -73404,6 +73543,13 @@ function readRunTranscript(manifest, taskId, options = {}) {
     size: entry?.size ?? 0,
     truncated: entry?.truncated ?? false
   };
+  while (readRunTranscriptCache.size >= READ_RUN_TRANSCRIPT_CACHE_MAX) {
+    const oldest = readRunTranscriptCache.keys().next().value;
+    if (oldest === void 0) break;
+    readRunTranscriptCache.delete(oldest);
+  }
+  readRunTranscriptCache.set(cacheKey2, { parsedAt: now, result: result4 });
+  return result4;
 }
 function renderViewerBase(state, width, lines, title, subtitle) {
   const inner = Math.max(20, width - 4);
@@ -73431,7 +73577,7 @@ function renderViewerBase(state, width, lines, title, subtitle) {
   }
   return linesOut.map((line4) => truncate(line4, width));
 }
-var DurableTextViewer, DurableTranscriptViewer;
+var READ_RUN_TRANSCRIPT_TTL_MS, READ_RUN_TRANSCRIPT_CACHE_MAX, readRunTranscriptCache, DurableTextViewer, DurableTranscriptViewer;
 var init_transcript_viewer = __esm({
   "src/ui/transcript-viewer.ts"() {
     "use strict";
@@ -73443,6 +73589,9 @@ var init_transcript_viewer = __esm({
     init_syntax_highlight();
     init_theme_adapter();
     init_transcript_cache();
+    READ_RUN_TRANSCRIPT_TTL_MS = 500;
+    READ_RUN_TRANSCRIPT_CACHE_MAX = 32;
+    readRunTranscriptCache = /* @__PURE__ */ new Map();
     DurableTextViewer = class {
       scroll = 0;
       lastHeight = 16;
@@ -78600,9 +78749,12 @@ var init_lifecycle = __esm({
 var otlp_exporter_exports = {};
 __export(otlp_exporter_exports, {
   OTLPExporter: () => OTLPExporter,
+  assertResolvedAddressSafe: () => assertResolvedAddressSafe,
   convertToOTLP: () => convertToOTLP,
+  isPrivateIpAddress: () => isPrivateIpAddress,
   validateEndpoint: () => validateEndpoint
 });
+import { lookup } from "node:dns/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
 function validateEndpoint(endpoint) {
@@ -78664,6 +78816,52 @@ function validateEndpoint(endpoint) {
     }
     if (octets[0] === 0) {
       throw new Error(`OTLP endpoint must not target this-network address (0.0.0.0/8): ${endpoint}`);
+    }
+  }
+}
+function isPrivateIpAddress(address) {
+  const lower = address.toLowerCase();
+  const ipv4 = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const o0 = Number(ipv4[1]);
+    const o1 = Number(ipv4[2]);
+    if (o0 === 127 || o0 === 0) return true;
+    if (o0 === 10) return true;
+    if (o0 === 172 && o1 >= 16 && o1 <= 31) return true;
+    if (o0 === 192 && o1 === 168) return true;
+    if (o0 === 169 && o1 === 254) return true;
+    return false;
+  }
+  if (lower === "::1" || lower === "::") return true;
+  if (lower.startsWith("fd") || lower.startsWith("fc")) return true;
+  if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
+  if (lower.startsWith("fec") || lower.startsWith("fed") || lower.startsWith("fee") || lower.startsWith("fef")) return true;
+  if (lower.startsWith("ff")) return true;
+  if (lower.startsWith("::ffff:")) return true;
+  return false;
+}
+async function assertResolvedAddressSafe(endpoint) {
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname) return;
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return;
+  if (hostname.startsWith("[")) return;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return;
+  let addresses;
+  try {
+    addresses = await lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    return;
+  }
+  for (const { address } of addresses) {
+    if (isPrivateIpAddress(address)) {
+      throw new Error(`OTLP endpoint resolves to private/reserved address ${address} (DNS rebinding blocked): ${endpoint}`);
     }
   }
 }
@@ -78765,6 +78963,12 @@ var init_otlp_exporter = __esm({
       }
       async push(snapshots) {
         try {
+          try {
+            await assertResolvedAddressSafe(this.opts.endpoint);
+          } catch (error) {
+            logInternalError("otlp-export-ssrf", error);
+            return;
+          }
           let toSend = snapshots;
           if (snapshots.length > MAX_SNAPSHOTS_PER_PUSH) {
             logInternalError(
@@ -81501,47 +81705,7 @@ async function mailboxFromAsync(manifest, agents) {
 function cancellationReasonFromEvents(events) {
   return [...events].reverse().find((event) => event.type === "run.cancelled" && typeof event.data?.reason === "string")?.data?.reason;
 }
-function signatureFor(input, stamps) {
-  try {
-    const digest = createHash3("sha256");
-    digest.update(
-      JSON.stringify({
-        run: [input.manifest.runId, input.manifest.status, input.manifest.updatedAt, input.manifest.artifacts.length],
-        tasks: input.tasks.map((task) => [task.id, task.status, task.startedAt, task.finishedAt, task.agentProgress, task.usage]),
-        agents: input.agents.map((agent) => [
-          agent.id,
-          agent.status,
-          agent.startedAt,
-          agent.completedAt,
-          agent.toolUses,
-          agent.progress,
-          agent.usage,
-          agent.model
-        ]),
-        progress: input.progress,
-        usage: input.usage,
-        mailbox: input.mailbox,
-        groupJoins: input.groupJoins,
-        events: input.recentEvents.map((event) => [
-          event.metadata?.seq,
-          event.time,
-          event.type,
-          event.taskId,
-          event.message,
-          event.data?.reason
-        ]),
-        cancellationReason: input.cancellationReason,
-        dwfPhaseState: input.dwfPhaseState,
-        output: input.recentOutputLines,
-        stamps
-      })
-    );
-    return digest.digest("hex").slice(0, 16);
-  } catch {
-    return String(Date.now());
-  }
-}
-function sliceSignaturesFor(input) {
+function computeSliceSignatures(input) {
   const hash = (value) => {
     try {
       return createHash3("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 12);
@@ -81576,6 +81740,30 @@ function sliceSignaturesFor(input) {
       ])
     )
   };
+}
+function signatureFor(input, stamps, sliceSignatures) {
+  try {
+    const digest = createHash3("sha256");
+    digest.update(
+      JSON.stringify({
+        run: [input.manifest.runId, input.manifest.status, input.manifest.updatedAt, input.manifest.artifacts.length],
+        tasks: sliceSignatures.tasks,
+        agents: sliceSignatures.agents,
+        progress: input.progress,
+        usage: input.usage,
+        mailbox: input.mailbox,
+        groupJoins: input.groupJoins,
+        events: sliceSignatures.events,
+        cancellationReason: input.cancellationReason,
+        dwfPhaseState: input.dwfPhaseState,
+        output: input.recentOutputLines,
+        stamps
+      })
+    );
+    return digest.digest("hex").slice(0, 16);
+  } catch {
+    return String(Date.now());
+  }
 }
 function stampsFor(manifest, _agents) {
   return {
@@ -81618,8 +81806,14 @@ function createRunSnapshotCache(cwd, options = {}) {
   }
   function evictIfNeeded() {
     while (entries.size > maxEntries) {
-      const oldestInactive = [...entries.entries()].find(([, entry]) => !isActiveRunStatus(entry.snapshot.manifest.status));
-      const key = oldestInactive?.[0] ?? entries.keys().next().value;
+      let key;
+      for (const [k, entry] of entries) {
+        if (!isActiveRunStatus(entry.snapshot.manifest.status)) {
+          key = k;
+          break;
+        }
+      }
+      if (!key) key = entries.keys().next().value;
       if (!key) break;
       entries.delete(key);
     }
@@ -81664,11 +81858,12 @@ function createRunSnapshotCache(cwd, options = {}) {
       recentOutputLines: recentOutputLines(loaded.manifest, agents, recentOutputLimit)
     };
     const stamps = stampsFor(loaded.manifest, agents);
+    const sliceSignatures = computeSliceSignatures(base);
     const snapshot = {
       ...base,
       fetchedAt: Date.now(),
-      signature: signatureFor(base, stamps),
-      sliceSignatures: sliceSignaturesFor(base)
+      signature: signatureFor(base, stamps, sliceSignatures),
+      sliceSignatures
     };
     return {
       snapshot,
@@ -81720,11 +81915,12 @@ function createRunSnapshotCache(cwd, options = {}) {
       recentOutputLines: recentOutput
     };
     const stamps = await stampsForAsync(loaded.manifest, agents);
+    const sliceSignatures = computeSliceSignatures(base);
     const snapshot = {
       ...base,
       fetchedAt: Date.now(),
-      signature: signatureFor(base, stamps),
-      sliceSignatures: sliceSignaturesFor(base)
+      signature: signatureFor(base, stamps, sliceSignatures),
+      sliceSignatures
     };
     return {
       snapshot,
@@ -85204,48 +85400,12 @@ Subagent may need manual intervention.`
   }
   rpcHandle = registerPiCrewRpc(getPiEvents(), () => currentCtx);
   time("register.globalRegistry");
-  void Promise.resolve().then(() => (init_team_tool2(), team_tool_exports)).then(({ registerCrewGlobalRegistry: registerCrewGlobalRegistry2, installCrewGlobalRegistry: installCrewGlobalRegistry2 }) => {
+  void Promise.resolve().then(() => (init_team_tool2(), team_tool_exports)).then(({ installCrewGlobalRegistry: installCrewGlobalRegistry2 }) => {
     const manifestCacheForRegistry = getManifestCache(currentCtx?.cwd ?? process.cwd());
-    installCrewGlobalRegistry2();
-    const CREW_REGISTRY_KEY2 = /* @__PURE__ */ Symbol.for("pi-crew:registry");
-    const registry2 = globalThis[CREW_REGISTRY_KEY2];
-    if (registry2 === null || typeof registry2 !== "object" || Array.isArray(registry2)) {
-      globalThis[CREW_REGISTRY_KEY2] = {};
-    }
-    const validatedRegistry = globalThis[CREW_REGISTRY_KEY2];
-    validatedRegistry.getRecord = (runId) => manifestCacheForRegistry.get(runId);
-    validatedRegistry.listRuns = () => manifestCacheForRegistry.list(100).map((m) => ({
-      runId: m.runId,
-      status: m.status,
-      goal: m.goal
-    }));
-    validatedRegistry.appendEvent = (runId, event) => {
-      const manifest = manifestCacheForRegistry.get(runId);
-      if (manifest)
-        void Promise.resolve().then(() => (init_event_log(), event_log_exports)).then(
-          ({ appendEventFireAndForget: appendEventFireAndForget2 }) => appendEventFireAndForget2(manifest.eventsPath, event)
-        );
-    };
-    validatedRegistry.waitForAll = async (runId) => {
-      const { loadRunManifestById: loadRunManifestById2 } = await Promise.resolve().then(() => (init_state_store(), state_store_exports));
-      const check = () => {
-        const loaded = loadRunManifestById2(currentCtx?.cwd ?? process.cwd(), runId);
-        if (!loaded) return true;
-        return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
-      };
-      while (!check()) await new Promise((resolve22) => setTimeout(resolve22, 500));
-    };
-    validatedRegistry.hasRunning = async (runId) => {
-      const manifest = manifestCacheForRegistry.get(runId);
-      if (!manifest) return false;
-      const { loadRunManifestById: loadRunForHasRunning } = (
-        // LAZY: defer dynamic import of ../state/state-store.ts to its call site.
-        await Promise.resolve().then(() => (init_state_store(), state_store_exports))
-      );
-      const loaded = loadRunForHasRunning(currentCtx?.cwd ?? process.cwd(), runId);
-      if (!loaded) return false;
-      return loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
-    };
+    installCrewGlobalRegistry2({
+      manifestCache: manifestCacheForRegistry,
+      cwdProvider: () => currentCtx?.cwd ?? process.cwd()
+    });
   });
   const cleanupSessionResourcesOnly = () => {
     if (cleanedUp) return;

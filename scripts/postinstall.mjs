@@ -32,8 +32,12 @@ function main() {
 		// dist/index.mjs, so this best-effort build simply no-ops.
 		const bundleStatus = run("scripts/build-bundle.mjs");
 		if (bundleStatus !== 0) {
-			console.warn(
-				"[pi-crew] postinstall: bundle build skipped or failed; using committed dist/ (or strip-types fallback). Run npm run build:bundle to retry.",
+			// TB-11: Surface bundle failures loudly to stderr instead of console.warn,
+			// which can scroll off in noisy install logs. We still don't `process.exit(1)`
+			// here — the install itself must succeed via the strip-types fallback —
+			// but the failure must be obvious to whoever runs `npm install`.
+			process.stderr.write(
+				"\u001b[31m[pi-crew] postinstall: bundle build FAILED\u001b[0m — using committed dist/ (or strip-types fallback). Run 'npm run build:bundle' to retry. See logs above for esbuild errors.\n",
 			);
 		}
 		// Font install is best-effort and must never fail the install.

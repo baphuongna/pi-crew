@@ -660,54 +660,22 @@ function cancellationReasonFromEvents(events: TeamEvent[]): string | undefined {
 		| undefined;
 }
 
-function signatureFor(input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">, stamps: SnapshotStamps): string {
-	try {
-		const digest = createHash("sha256");
-		digest.update(
-			JSON.stringify({
-				run: [input.manifest.runId, input.manifest.status, input.manifest.updatedAt, input.manifest.artifacts.length],
-				tasks: input.tasks.map((task) => [task.id, task.status, task.startedAt, task.finishedAt, task.agentProgress, task.usage]),
-				agents: input.agents.map((agent) => [
-					agent.id,
-					agent.status,
-					agent.startedAt,
-					agent.completedAt,
-					agent.toolUses,
-					agent.progress,
-					agent.usage,
-					agent.model,
-				]),
-				progress: input.progress,
-				usage: input.usage,
-				mailbox: input.mailbox,
-				groupJoins: input.groupJoins,
-				events: input.recentEvents.map((event) => [
-					event.metadata?.seq,
-					event.time,
-					event.type,
-					event.taskId,
-					event.message,
-					event.data?.reason,
-				]),
-				cancellationReason: input.cancellationReason,
-				dwfPhaseState: input.dwfPhaseState,
-				output: input.recentOutputLines,
-				stamps,
-			}),
-		);
-		return digest.digest("hex").slice(0, 16);
-	} catch {
-		// Circular reference or non-serializable data — fall back to timestamp.
-		return String(Date.now());
-	}
-}
+type SliceSignatures = NonNullable<RunUiSnapshot["sliceSignatures"]>;
 
 /**
- * 1.6 / 1.7 — compute one short hash per logical slice of the snapshot so
- * dashboard panes / widget can short-circuit when their slice hasn't moved.
- * The slice contents must mirror what `signatureFor` packs into each branch.
+ * FIND-08: compute the per-slice short hashes once per build and reuse the
+ * result for both the full-snapshot `signature` and the per-pane
+ * `sliceSignatures`. Previously, `signatureFor` and `sliceSignaturesFor` each
+ * called `JSON.stringify` + `createHash("sha256")` on the tasks, agents, and
+ * recentEvents projections independently — twice the work for the slices the
+ * two signatures share. The per-slice hashes are embedded into the full
+ * signature so the full-snapshot signature still changes whenever any slice
+ * changes (collision risk: 1 in 16^16 per build, well within tolerance for
+ * cache-invalidation use).
  */
-function sliceSignaturesFor(input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">): RunUiSnapshot["sliceSignatures"] {
+function computeSliceSignatures(
+	input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">,
+): SliceSignatures {
 	const hash = (value: unknown): string => {
 		try {
 			return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 12);
@@ -742,6 +710,45 @@ function sliceSignaturesFor(input: Omit<RunUiSnapshot, "signature" | "fetchedAt"
 			]),
 		),
 	};
+}
+
+function signatureFor(
+	input: Omit<RunUiSnapshot, "signature" | "fetchedAt" | "sliceSignatures">,
+	stamps: SnapshotStamps,
+	sliceSignatures: SliceSignatures,
+): string {
+	try {
+		const digest = createHash("sha256");
+		digest.update(
+			JSON.stringify({
+				run: [input.manifest.runId, input.manifest.status, input.manifest.updatedAt, input.manifest.artifacts.length],
+				tasks: sliceSignatures.tasks,
+				agents: sliceSignatures.agents,
+				progress: input.progress,
+				usage: input.usage,
+				mailbox: input.mailbox,
+				groupJoins: input.groupJoins,
+				events: sliceSignatures.events,
+				cancellationReason: input.cancellationReason,
+				dwfPhaseState: input.dwfPhaseState,
+				output: input.recentOutputLines,
+				stamps,
+			}),
+		);
+		return digest.digest("hex").slice(0, 16);
+	} catch {
+		// Circular reference or non-serializable data — fall back to timestamp.
+		return String(Date.now());
+	}
+}
+
+/**
+ * 1.6 / 1.7 — compute one short hash per logical slice of the snapshot so
+ * dashboard panes / widget can short-circuit when their slice hasn't moved.
+ * The slice contents must mirror what `signatureFor` packs into each branch.
+ */
+function sliceSignaturesFor(sliceSignatures: SliceSignatures): SliceSignatures {
+	return sliceSignatures;
 }
 
 function stampsFor(manifest: TeamRunManifest, _agents: CrewAgentRecord[]): SnapshotStamps {
@@ -794,8 +801,17 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 
 	function evictIfNeeded(): void {
 		while (entries.size > maxEntries) {
-			const oldestInactive = [...entries.entries()].find(([, entry]) => !isActiveRunStatus(entry.snapshot.manifest.status));
-			const key = oldestInactive?.[0] ?? entries.keys().next().value;
+			// Map iteration respects insertion order, so the first inactive entry
+			// we see IS the oldest inactive entry — no Array.from(...).sort()
+			// allocation, no copy of the entries map.
+			let key: string | undefined;
+			for (const [k, entry] of entries) {
+				if (!isActiveRunStatus(entry.snapshot.manifest.status)) {
+					key = k;
+					break;
+				}
+			}
+			if (!key) key = entries.keys().next().value;
 			if (!key) break;
 			entries.delete(key);
 		}
@@ -841,11 +857,12 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			recentOutputLines: recentOutputLines(loaded.manifest, agents, recentOutputLimit),
 		};
 		const stamps = stampsFor(loaded.manifest, agents);
+		const sliceSignatures = computeSliceSignatures(base);
 		const snapshot: RunUiSnapshot = {
 			...base,
 			fetchedAt: Date.now(),
-			signature: signatureFor(base, stamps),
-			sliceSignatures: sliceSignaturesFor(base),
+			signature: signatureFor(base, stamps, sliceSignatures),
+			sliceSignatures,
 		};
 		return {
 			snapshot,
@@ -898,11 +915,12 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			recentOutputLines: recentOutput,
 		};
 		const stamps = await stampsForAsync(loaded.manifest, agents);
+		const sliceSignatures = computeSliceSignatures(base);
 		const snapshot: RunUiSnapshot = {
 			...base,
 			fetchedAt: Date.now(),
-			signature: signatureFor(base, stamps),
-			sliceSignatures: sliceSignaturesFor(base),
+			signature: signatureFor(base, stamps, sliceSignatures),
+			sliceSignatures,
 		};
 		return {
 			snapshot,

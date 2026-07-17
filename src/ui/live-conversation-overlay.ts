@@ -18,7 +18,6 @@ export class LiveConversationOverlay {
 	private scrollOffset = 0;
 	private autoScroll = true;
 	private closed = false;
-	private frame = 0;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	cachedLines: string[] = [];
 	// H-4 fix (code-review 2026-06-23): cap the in-memory line buffer to avoid
@@ -54,10 +53,12 @@ export class LiveConversationOverlay {
 				/* ignore */
 			}
 		}
-		// Also poll for summary updates
+		// Also poll for summary updates. Skip when the user has scrolled up
+		// (autoScroll === false): the summary refresh also bumps scrollOffset
+		// to the tail, which would yank the viewport out from under them.
 		this.pollTimer = setInterval(() => {
 			if (this.closed) return;
-			this.frame++;
+			if (!this.autoScroll) return;
 			try {
 				this.refreshSummary();
 			} catch {

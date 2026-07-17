@@ -3,22 +3,25 @@ import test from "node:test";
 import type { TeamEvent } from "../../src/state/event-log.ts";
 import { classifyEventChannel, emitFromTeamEvent, runEventBus, teamEventToRunEventType } from "../../src/ui/run-event-bus.ts";
 
-test("runEventBus on/off delivers events to subscribed listeners", () => {
+test("runEventBus on/off delivers events to subscribed listeners", async () => {
 	const received: string[] = [];
 	const unsub = runEventBus.on("test-run-1", (event) => received.push(event.type));
 	runEventBus.emit({ type: "task_started", runId: "test-run-1" });
+	await Promise.resolve();
 	assert.equal(received.length, 1);
 	assert.equal(received[0], "task_started");
 	unsub();
 	runEventBus.emit({ type: "task_completed", runId: "test-run-1" });
+	await Promise.resolve();
 	assert.equal(received.length, 1);
 });
 
-test("runEventBus onAny receives events from all runs", () => {
+test("runEventBus onAny receives events from all runs", async () => {
 	const received: string[] = [];
 	const unsub = runEventBus.onAny((event) => received.push(event.runId));
 	runEventBus.emit({ type: "task_started", runId: "run-a" });
 	runEventBus.emit({ type: "task_completed", runId: "run-b" });
+	await Promise.resolve();
 	assert.equal(received.length, 2);
 	assert.equal(received[0], "run-a");
 	assert.equal(received[1], "run-b");
@@ -134,7 +137,7 @@ test("classifyEventChannel falls back to worker:progress for unknown types", () 
 	assert.equal(classifyEventChannel("something_unknown"), "worker:progress");
 });
 
-test("onChannel receives only events for that channel", () => {
+test("onChannel receives only events for that channel", async () => {
 	const lifecycleReceived: string[] = [];
 	const streamReceived: string[] = [];
 	const unsubLifecycle = runEventBus.onChannel("worker:lifecycle", (e) => lifecycleReceived.push(e.type));
@@ -147,6 +150,8 @@ test("onChannel receives only events for that channel", () => {
 	// Emit a non-lifecycle event (worker_status → worker:progress channel)
 	runEventBus.emit({ type: "worker_status", runId: "ch-test-1" });
 
+	await Promise.resolve();
+
 	assert.equal(lifecycleReceived.length, 2);
 	assert.equal(lifecycleReceived[0], "task_started");
 	assert.equal(lifecycleReceived[1], "run_completed");
@@ -156,7 +161,7 @@ test("onChannel receives only events for that channel", () => {
 	unsubStream();
 });
 
-test("onChannelForRun receives filtered by runId + channel", () => {
+test("onChannelForRun receives filtered by runId + channel", async () => {
 	const received: string[] = [];
 	const unsub = runEventBus.onChannelForRun("worker:lifecycle", "run-filter-test", (e) => received.push(e.type));
 
@@ -170,6 +175,8 @@ test("onChannelForRun receives filtered by runId + channel", () => {
 	// Should NOT match: same runId but different channel
 	runEventBus.emit({ type: "worker_status", runId: "run-filter-test" });
 
+	await Promise.resolve();
+
 	assert.equal(received.length, 2);
 	assert.equal(received[0], "task_started");
 	assert.equal(received[1], "run_completed");
@@ -177,13 +184,15 @@ test("onChannelForRun receives filtered by runId + channel", () => {
 	unsub();
 });
 
-test("emit auto-classifies channel when not set", () => {
+test("emit auto-classifies channel when not set", async () => {
 	const channels: (string | undefined)[] = [];
 	const unsub = runEventBus.onAny((e) => channels.push(e.channel));
 
 	runEventBus.emit({ type: "task_started", runId: "auto-ch" });
 	runEventBus.emit({ type: "effectiveness_changed", runId: "auto-ch" });
 	runEventBus.emit({ type: "mailbox_updated", runId: "auto-ch" });
+
+	await Promise.resolve();
 
 	assert.equal(channels[0], "worker:lifecycle");
 	assert.equal(channels[1], "ui:invalidate");

@@ -6308,7 +6308,7 @@
       "format": "esm"
     },
     "src/ui/run-event-bus.ts": {
-      "bytes": 12183,
+      "bytes": 13817,
       "imports": [
         {
           "path": "src/state/event-log.ts",
@@ -6432,7 +6432,7 @@
       "format": "esm"
     },
     "src/hooks/registry.ts": {
-      "bytes": 6857,
+      "bytes": 7167,
       "imports": [
         {
           "path": "src/state/event-log.ts",
@@ -6804,7 +6804,7 @@
       "format": "esm"
     },
     "src/runtime/stale-reconciler.ts": {
-      "bytes": 28511,
+      "bytes": 28257,
       "imports": [
         {
           "path": "node:fs",
@@ -7674,8 +7674,14 @@
       "format": "esm"
     },
     "src/ui/render-coalescer.ts": {
-      "bytes": 1350,
-      "imports": [],
+      "bytes": 2540,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/runtime/usage-tracker.ts": {
@@ -7715,7 +7721,7 @@
       "format": "esm"
     },
     "src/ui/powerbar-publisher.ts": {
-      "bytes": 14448,
+      "bytes": 16772,
       "imports": [
         {
           "path": "node:fs",
@@ -7792,7 +7798,7 @@
       "format": "esm"
     },
     "src/ui/run-snapshot-cache.ts": {
-      "bytes": 35960,
+      "bytes": 36718,
       "imports": [
         {
           "path": "node:crypto",
@@ -16125,7 +16131,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 43004,
+      "bytes": 45408,
       "imports": [
         {
           "path": "node:fs",
@@ -16539,7 +16545,7 @@
       "format": "esm"
     },
     "src/ui/live-conversation-overlay.ts": {
-      "bytes": 6280,
+      "bytes": 6454,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -16581,7 +16587,7 @@
       "format": "esm"
     },
     "src/ui/transcript-cache.ts": {
-      "bytes": 3807,
+      "bytes": 3815,
       "imports": [
         {
           "path": "node:fs",
@@ -16592,7 +16598,7 @@
       "format": "esm"
     },
     "src/ui/transcript-viewer.ts": {
-      "bytes": 13695,
+      "bytes": 15519,
       "imports": [
         {
           "path": "node:fs",
@@ -17685,8 +17691,13 @@
       "format": "esm"
     },
     "src/observability/exporters/otlp-exporter.ts": {
-      "bytes": 9725,
+      "bytes": 13187,
       "imports": [
+        {
+          "path": "node:dns/promises",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "node:util",
           "kind": "import-statement",
@@ -18128,7 +18139,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 70741,
+      "bytes": 68275,
       "imports": [
         {
           "path": "node:fs",
@@ -18496,21 +18507,6 @@
           "original": "./team-tool.ts"
         },
         {
-          "path": "src/state/event-log.ts",
-          "kind": "dynamic-import",
-          "original": "../state/event-log.ts"
-        },
-        {
-          "path": "src/state/state-store.ts",
-          "kind": "dynamic-import",
-          "original": "../state/state-store.ts"
-        },
-        {
-          "path": "src/state/state-store.ts",
-          "kind": "dynamic-import",
-          "original": "../state/state-store.ts"
-        },
-        {
           "path": "src/ui/tool-renderers/brief-mode.ts",
           "kind": "dynamic-import",
           "original": "../ui/tool-renderers/brief-mode.ts"
@@ -18550,7 +18546,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6739247
+      "bytes": 6754324
     },
     "dist/index.mjs": {
       "imports": [
@@ -19845,6 +19841,11 @@
           "external": true
         },
         {
+          "path": "node:dns/promises",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:util",
           "kind": "import-statement",
           "external": true
@@ -20789,7 +20790,7 @@
           "bytesInOutput": 8094
         },
         "src/ui/run-event-bus.ts": {
-          "bytesInOutput": 9471
+          "bytesInOutput": 10871
         },
         "src/utils/incremental-reader.ts": {
           "bytesInOutput": 2161
@@ -20804,7 +20805,7 @@
           "bytesInOutput": 27962
         },
         "src/hooks/registry.ts": {
-          "bytesInOutput": 4422
+          "bytesInOutput": 4452
         },
         "src/utils/safe-paths.ts": {
           "bytesInOutput": 8574
@@ -20975,7 +20976,7 @@
           "bytesInOutput": 8611
         },
         "src/ui/render-coalescer.ts": {
-          "bytesInOutput": 1382
+          "bytesInOutput": 1979
         },
         "src/runtime/usage-tracker.ts": {
           "bytesInOutput": 901
@@ -20990,7 +20991,7 @@
           "bytesInOutput": 5712
         },
         "src/ui/powerbar-publisher.ts": {
-          "bytesInOutput": 9964
+          "bytesInOutput": 12122
         },
         "src/ui/render-scheduler.ts": {
           "bytesInOutput": 6482
@@ -22022,7 +22023,7 @@
           "bytesInOutput": 31181
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 36540
+          "bytesInOutput": 37712
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4137
@@ -22037,16 +22038,16 @@
           "bytesInOutput": 2094
         },
         "src/ui/live-conversation-overlay.ts": {
-          "bytesInOutput": 6109
+          "bytesInOutput": 6108
         },
         "src/ui/syntax-highlight.ts": {
           "bytesInOutput": 2229
         },
         "src/ui/transcript-cache.ts": {
-          "bytesInOutput": 3129
+          "bytesInOutput": 2955
         },
         "src/ui/transcript-viewer.ts": {
-          "bytesInOutput": 13161
+          "bytesInOutput": 14134
         },
         "src/extension/registration/viewers.ts": {
           "bytesInOutput": 3185
@@ -22127,7 +22128,7 @@
           "bytesInOutput": 6698
         },
         "src/observability/exporters/otlp-exporter.ts": {
-          "bytesInOutput": 8282
+          "bytesInOutput": 10380
         },
         "src/observability/metrics-primitives.ts": {
           "bytesInOutput": 5869
@@ -22163,7 +22164,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 47246
+          "bytesInOutput": 45216
         },
         "src/runtime/batch-barrier.ts": {
           "bytesInOutput": 3060
@@ -22184,7 +22185,7 @@
           "bytesInOutput": 1200
         },
         "src/ui/run-snapshot-cache.ts": {
-          "bytesInOutput": 29003
+          "bytesInOutput": 28670
         },
         "src/ui/terminal-status.ts": {
           "bytesInOutput": 27
@@ -22265,7 +22266,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3185205
+      "bytes": 3191095
     }
   }
 }

@@ -649,57 +649,16 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	// Register global RPC registry for cross-extension access (mirrors pi-subagents3's Symbol.for pattern)
 	// Uses lazy import to avoid pulling team-tool.ts into module load.
 	// Other extensions access via: const reg = globalThis[Symbol.for("pi-crew:registry")];
-	void import("./team-tool.ts").then(({ registerCrewGlobalRegistry, installCrewGlobalRegistry }) => {
-		// Phase 3b: installCrewGlobalRegistry creates a v2 registry with agent registration API.
-		// We then patch the manifest-backed methods with real implementations below.
+	void import("./team-tool.ts").then(({ installCrewGlobalRegistry }) => {
+		// EXT-7 (Round 3): Build and install the global registry in a single atomic
+		// step (no stubs-then-patch dance). Cross-extension consumers either see the
+		// fully-real registry or no registry — never a stub mid-flight. See
+		// `installCrewGlobalRegistry()` in team-tool.ts for the construction.
 		const manifestCacheForRegistry = getManifestCache(currentCtx?.cwd ?? process.cwd());
-		installCrewGlobalRegistry();
-		const CREW_REGISTRY_KEY = Symbol.for("pi-crew:registry");
-		const registry = (globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] as Record<string, unknown>;
-		// Phase 3b (defensive): Validate registry structure before patching methods.
-		// If a previous occupant left a non-conforming object, replace it entirely.
-		// This prevents runtime failures if getRecord/listRuns/etc. are called on a
-		// malformed predecessor value.
-		if (registry === null || typeof registry !== "object" || Array.isArray(registry)) {
-			(globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] = {};
-		}
-		const validatedRegistry = (globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] as Record<string, unknown>;
-		validatedRegistry.getRecord = (runId: string) => manifestCacheForRegistry.get(runId);
-		validatedRegistry.listRuns = () =>
-			manifestCacheForRegistry.list(100).map((m: { runId: string; status: string; goal: string }) => ({
-				runId: m.runId,
-				status: m.status,
-				goal: m.goal,
-			}));
-		validatedRegistry.appendEvent = (runId: string, event: Record<string, unknown>) => {
-			const manifest = manifestCacheForRegistry.get(runId);
-			if (manifest)
-				void import("../state/event-log.ts").then(({ appendEventFireAndForget }) =>
-					appendEventFireAndForget(manifest.eventsPath, event as Parameters<typeof appendEventFireAndForget>[1]),
-				);
-		};
-		validatedRegistry.waitForAll = async (runId: string) => {
-			// LAZY: state-store only needed for post-completion polling (waitForAll) and sync hasRunning check; avoid at startup.
-			const { loadRunManifestById } = await import("../state/state-store.ts");
-			const check = (): boolean => {
-				const loaded = loadRunManifestById(currentCtx?.cwd ?? process.cwd(), runId);
-				if (!loaded) return true;
-				return !loaded.tasks.some((t: { status: string }) => t.status === "running" || t.status === "queued");
-			};
-			while (!check()) await new Promise((resolve) => setTimeout(resolve, 500));
-		};
-		validatedRegistry.hasRunning = async (runId: string) => {
-			const manifest = manifestCacheForRegistry.get(runId);
-			if (!manifest) return false;
-			// LAZY: state-store only needed in hasRunning; avoid at startup.
-			// Use dynamic import to avoid CJS/ESM mixed module issues.
-			const { loadRunManifestById: loadRunForHasRunning } =
-				// LAZY: defer dynamic import of ../state/state-store.ts to its call site.
-				await import("../state/state-store.ts");
-			const loaded = loadRunForHasRunning(currentCtx?.cwd ?? process.cwd(), runId);
-			if (!loaded) return false;
-			return loaded.tasks.some((t: { status: string }) => t.status === "running" || t.status === "queued");
-		};
+		installCrewGlobalRegistry({
+			manifestCache: manifestCacheForRegistry,
+			cwdProvider: () => currentCtx?.cwd ?? process.cwd(),
+		});
 	});
 
 	/**

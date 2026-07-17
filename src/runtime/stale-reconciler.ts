@@ -270,11 +270,6 @@ function buildStaleReconcileError(task: TeamTaskState, reason: string): Error {
 	return errors.runStale(reason, heartbeatAgeSeconds);
 }
 
-/** @deprecated use buildStaleReconcileError (returns a structured CrewError). Kept for any external callers. */
-function formatStaleReconcileError(task: TeamTaskState, reason: string): string {
-	return buildStaleReconcileError(task, reason).message;
-}
-
 function repairStaleRun(manifest: TeamRunManifest, tasks: TeamTaskState[], reason: string): TeamTaskState[] {
 	const now = new Date().toISOString();
 	const repairedTasks = tasks.map((task) => {

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { validateEndpoint } from "../../src/observability/exporters/otlp-exporter.ts";
+import {
+	assertResolvedAddressSafe,
+	isPrivateIpAddress,
+	validateEndpoint,
+} from "../../src/observability/exporters/otlp-exporter.ts";
 
 describe("OTLP SSRF endpoint validation", () => {
 	it("allows valid public https URL", () => {
@@ -117,5 +121,60 @@ describe("OTLP SSRF endpoint validation", () => {
 
 	it("rejects invalid URL", () => {
 		assert.throws(() => validateEndpoint("not-a-url"), /Invalid OTLP endpoint/);
+	});
+
+	// CFG-6: DNS-rebinding guard — the pure classifier.
+	it("isPrivateIpAddress flags loopback IPv4", () => {
+		assert.equal(isPrivateIpAddress("127.0.0.1"), true);
+		assert.equal(isPrivateIpAddress("127.255.255.254"), true);
+	});
+
+	it("isPrivateIpAddress flags RFC1918 IPv4", () => {
+		assert.equal(isPrivateIpAddress("10.0.0.1"), true);
+		assert.equal(isPrivateIpAddress("172.16.0.1"), true);
+		assert.equal(isPrivateIpAddress("172.31.255.255"), true);
+		assert.equal(isPrivateIpAddress("192.168.1.1"), true);
+	});
+
+	it("isPrivateIpAddress flags link-local / metadata IPv4 (169.254.x.x)", () => {
+		assert.equal(isPrivateIpAddress("169.254.169.254"), true);
+		assert.equal(isPrivateIpAddress("169.254.0.1"), true);
+	});
+
+	it("isPrivateIpAddress flags loopback / private / link-local IPv6", () => {
+		assert.equal(isPrivateIpAddress("::1"), true);
+		assert.equal(isPrivateIpAddress("fd00::1"), true);
+		assert.equal(isPrivateIpAddress("fc00::1"), true);
+		assert.equal(isPrivateIpAddress("fe80::1"), true);
+		assert.equal(isPrivateIpAddress("ff02::1"), true);
+		assert.equal(isPrivateIpAddress("::"), true);
+		assert.equal(isPrivateIpAddress("::ffff:127.0.0.1"), true);
+	});
+
+	it("isPrivateIpAddress allows public IPv4 / IPv6", () => {
+		assert.equal(isPrivateIpAddress("8.8.8.8"), false);
+		assert.equal(isPrivateIpAddress("172.15.0.1"), false);
+		assert.equal(isPrivateIpAddress("172.32.0.1"), false);
+		assert.equal(isPrivateIpAddress("2606:4700:4700::1111"), false);
+	});
+
+	// CFG-6: DNS-rebinding guard — the runtime async guard.
+	it("assertResolvedAddressSafe skips hostnames already covered by validateEndpoint", async () => {
+		await assert.doesNotReject(async () => {
+			await assertResolvedAddressSafe("http://localhost:4318");
+			await assertResolvedAddressSafe("http://127.0.0.1:4318");
+			await assertResolvedAddressSafe("http://[::1]:4318");
+		});
+	});
+
+	it("assertResolvedAddressSafe does not throw on unresolvable hostnames (fail open)", async () => {
+		// ".invalid" is a guaranteed-unresolvable TLD (RFC 6761).
+		await assert.doesNotReject(assertResolvedAddressSafe("http://nonexistent.invalid:4318"));
+	});
+
+	it("assertResolvedAddressSafe allows public hostnames", async () => {
+		// example.com is owned by IANA and resolves to a public IP; the guard
+		// must therefore allow it.
+		await assert.doesNotReject(assertResolvedAddressSafe("https://example.com/v1/metrics"));
 	});
 });
