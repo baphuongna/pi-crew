@@ -50,10 +50,92 @@ export interface ConfigReferences {
 	workflows: Set<string>;
 }
 
+const MAX_CONFIG_KEY_DEPTH = 3;
+
+type ConfigSchemaNode = Record<string, unknown>;
+
+interface SchemaKeyResolution {
+	allowed: boolean;
+	childSchema?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function schemaAlternatives(schema: unknown): ConfigSchemaNode[] {
+	if (!isRecord(schema)) return [];
+	const alternatives = Array.isArray(schema.anyOf) ? schema.anyOf.flatMap((entry) => schemaAlternatives(entry)) : [];
+	return [schema, ...alternatives];
+}
+
+function resolveSchemaKey(schema: unknown, key: string): SchemaKeyResolution {
+	let sawObjectSchema = false;
+	let allowsAdditionalProperties = false;
+	const childSchemas: unknown[] = [];
+
+	for (const candidate of schemaAlternatives(schema)) {
+		const properties = isRecord(candidate.properties) ? candidate.properties : undefined;
+		const patternProperties = isRecord(candidate.patternProperties) ? candidate.patternProperties : undefined;
+		if (candidate.type !== "object" && !properties && !patternProperties) continue;
+		sawObjectSchema = true;
+
+		if (properties && Object.hasOwn(properties, key)) {
+			childSchemas.push(properties[key]);
+			continue;
+		}
+
+		let matchedPattern = false;
+		if (patternProperties) {
+			for (const [pattern, childSchema] of Object.entries(patternProperties)) {
+				try {
+					if (new RegExp(pattern).test(key)) {
+						childSchemas.push(childSchema);
+						matchedPattern = true;
+						break;
+					}
+				} catch {
+					// Schema patterns are trusted constants; an invalid one simply cannot match.
+				}
+			}
+		}
+		if (!matchedPattern && candidate.additionalProperties !== false) {
+			allowsAdditionalProperties = true;
+		}
+	}
+
+	return {
+		allowed: !sawObjectSchema || childSchemas.length > 0 || allowsAdditionalProperties,
+		childSchema: childSchemas[0],
+	};
+}
+
 /**
- * Known top-level config keys allowed by the schema.
+ * Recursively compare object keys with their TypeBox schema nodes. Root is
+ * depth 0; nested objects are traversed through depth 3, which covers the
+ * deepest current config shapes (`goalWrap.<workflow>.verification` and
+ * `agents.overrides.<agent>`) without allowing attacker-controlled recursion.
  */
-const SCHEMA_KEYS: ReadonlySet<string> = new Set<string>(Object.keys(PiTeamsConfigSchema.properties ?? {}));
+function findUnknownConfigKeyPaths(value: unknown, schema: unknown, depth = 0, path: readonly string[] = []): string[][] {
+	if (!isRecord(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
+	const unknownPaths: string[][] = [];
+	for (const [key, childValue] of Object.entries(value)) {
+		const childPath = [...path, key];
+		const resolution = resolveSchemaKey(schema, key);
+		if (!resolution.allowed) {
+			unknownPaths.push(childPath);
+			continue;
+		}
+		if (resolution.childSchema !== undefined && depth < MAX_CONFIG_KEY_DEPTH) {
+			unknownPaths.push(...findUnknownConfigKeyPaths(childValue, resolution.childSchema, depth + 1, childPath));
+		}
+	}
+	return unknownPaths;
+}
+
+function isAgentOverrideKeyPath(path: readonly string[]): boolean {
+	return path.length === 4 && path[0] === "agents" && path[1] === "overrides";
+}
 
 /**
  * Extract all agent, team, and workflow names referenced in a raw config object.
@@ -94,7 +176,7 @@ function extractConfigReferences(config: Record<string, unknown>): ConfigReferen
  * 1. **Missing**: resource referenced in config (e.g. agents.overrides) but not discovered → error
  * 2. **Extra**: discovered resource not referenced anywhere in config → warning
  * 3. **Mismatched**: resource exists in both but with structural differences → warning
- * 4. **Config keys**: config keys not present in the schema → warning
+ * 4. **Config keys**: config keys not present in the schema, recursively through depth 3 → warning
  *
  * For agents: compares against `agents.overrides` in config. Discovered agents not in overrides
  * are NOT considered extra (they may be built-in). Only agents referenced in overrides but not
@@ -140,18 +222,18 @@ export function detectDrift(discovered: DiscoveredResources, config: PiTeamsConf
 	// No extra/missing checks for workflows from config alone.
 
 	// --- Config-key drift ---
-	const configKeys = Object.keys(configRaw);
-	for (const key of configKeys) {
-		if (!SCHEMA_KEYS.has(key)) {
-			items.push({
-				kind: "config-key",
-				name: key,
-				status: "extra",
-				expected: `key not in schema`,
-				actual: `present in config`,
-				severity: "warning",
-			});
-		}
+	for (const keyPath of findUnknownConfigKeyPaths(configRaw, PiTeamsConfigSchema)) {
+		// Preserve the existing, more specific agent/mismatched finding for
+		// agents.overrides.<agent>.<key> instead of reporting the same key twice.
+		if (isAgentOverrideKeyPath(keyPath)) continue;
+		items.push({
+			kind: "config-key",
+			name: keyPath.join("."),
+			status: "extra",
+			expected: `key not in schema`,
+			actual: `present in config`,
+			severity: "warning",
+		});
 	}
 
 	// --- Mismatched config-key check ---

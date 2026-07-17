@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { type ConflictReport, detectImportConflicts } from "../runtime/delta-conflict.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { assertRunBundle } from "./run-bundle-schema.ts";
@@ -116,8 +117,8 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 	for (const target of [targetJson, targetSummary]) {
 		if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error(`Invalid import target: ${target}`);
 	}
-	fs.writeFileSync(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}\n`, "utf-8");
-	fs.writeFileSync(
+	atomicWriteFile(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}\n`);
+	atomicWriteFile(
 		targetSummary,
 		[
 			`# Imported pi-crew run ${runId}`,
@@ -136,7 +137,6 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 			),
 			"",
 		].join("\n"),
-		"utf-8",
 	);
 	return {
 		runId,

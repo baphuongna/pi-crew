@@ -1,4 +1,5 @@
 import type { MailboxMessage } from "../../state/mailbox.ts";
+import { sanitizeTaskText } from "../task-packet.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 export interface RunProjectionSource {
@@ -64,7 +65,8 @@ export function transformRunContextBeforeWorkerStart(input: {
 		});
 		lines.push(`Pending messages (${messages.length}/${input.pendingMailbox.length}):`);
 		for (const msg of messages) {
-			lines.push(`- ${msg.kind ?? "message"}: ${msg.body.slice(0, 100)}`);
+			const safeBody = sanitizeTaskText(msg.body.slice(0, 100));
+			lines.push(`- ${msg.kind ?? "message"}: ${safeBody}`);
 		}
 	}
 

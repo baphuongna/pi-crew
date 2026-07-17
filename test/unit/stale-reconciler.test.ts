@@ -252,6 +252,31 @@ describe("reconcileStaleRun", () => {
 		assert.equal(result.repaired, true);
 	});
 
+	it("repairs dead PID immediately even with a fresh heartbeat.json (F1: 353s pid_dead lag)", () => {
+		// Regression: a <5min-old heartbeat.json USED to override the authoritative
+		// kill(0) ESRCH verdict (returning alive:true), delaying repair ~5min and
+		// producing the observed ~353s pid_dead detection lag. Now ESRCH wins → repaired
+		// on the next reconcile tick instead of ~5min later.
+		const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "stale-hb-"));
+		try {
+			const deadPid = 99999125;
+			fs.writeFileSync(
+				path.join(tmpRoot, "heartbeat.json"),
+				JSON.stringify({ pid: deadPid, at: Date.now() - 10_000 }), // 10s old — within the old 5min grace
+			);
+			const manifest = {
+				...baseManifest,
+				stateRoot: tmpRoot,
+				async: { pid: deadPid, logPath: "/tmp/log", spawnedAt: new Date().toISOString() },
+			};
+			const result = reconcileStaleRun(manifest, [runningTask], Date.now());
+			assert.equal(result.verdict, "pid_dead");
+			assert.equal(result.repaired, true);
+		} finally {
+			fs.rmSync(tmpRoot, { recursive: true, force: true });
+		}
+	});
+
 	it("returns healthy for alive PID with recent updatedAt even with running tasks", () => {
 		const manifest = {
 			...baseManifest,

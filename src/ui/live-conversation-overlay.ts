@@ -6,6 +6,7 @@
  */
 import type { LiveAgentHandle } from "../runtime/live-agent-manager.ts";
 import { pad, truncate } from "../utils/visual.ts";
+import { computeLiveDurationMs } from "./live-duration.ts";
 import { spinnerFrame } from "./spinner.ts";
 import { iconForStatus } from "./status-colors.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
@@ -17,7 +18,6 @@ export class LiveConversationOverlay {
 	private scrollOffset = 0;
 	private autoScroll = true;
 	private closed = false;
-	private frame = 0;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	cachedLines: string[] = [];
 	// H-4 fix (code-review 2026-06-23): cap the in-memory line buffer to avoid
@@ -53,10 +53,12 @@ export class LiveConversationOverlay {
 				/* ignore */
 			}
 		}
-		// Also poll for summary updates
+		// Also poll for summary updates. Skip when the user has scrolled up
+		// (autoScroll === false): the summary refresh also bumps scrollOffset
+		// to the tail, which would yank the viewport out from under them.
 		this.pollTimer = setInterval(() => {
 			if (this.closed) return;
-			this.frame++;
+			if (!this.autoScroll) return;
 			try {
 				this.refreshSummary();
 			} catch {
@@ -82,31 +84,9 @@ export class LiveConversationOverlay {
 
 	private static readonly SUMMARY_PREFIX = "\u200B"; // zero-width space as summary sentinel
 
-	private safeElapsedMs(act: typeof this.handle.activity): number {
-		const rawStarted = act.startedAtMs || 0;
-		const rawCompleted = act.completedAtMs || 0;
-		const nowMs = Date.now();
-		const nowSec = Math.floor(nowMs / 1000);
-		// Simple fix: detect if value is Unix seconds and convert properly
-		const toMs = (v: number): number => {
-			if (v <= 0) return 0;
-			// If 10 digits (or 9 with recent), treat as seconds
-			if (v > 1000000000 && v < 10000000000) return v * 1000;
-			// If 13 digits, treat as ms
-			if (v > 100000000000 && v < 10000000000000) return v;
-			// Fallback: use as-is
-			return v;
-		};
-		const startedMs = toMs(rawStarted);
-		const completedMs = rawCompleted > 0 ? toMs(rawCompleted) : 0;
-		// Validate bounds
-		const isValidStarted = startedMs > 0 && startedMs < nowMs + 60000 && startedMs > nowMs - 3155692600000;
-		const isValidCompleted = completedMs === 0 || (completedMs > 0 && completedMs < nowMs + 60000);
-		return (isValidCompleted ? completedMs : nowMs) - (isValidStarted ? startedMs : nowMs);
-	}
 	private refreshSummary(): void {
 		const act = this.handle.activity;
-		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${act.turnCount} turns · ${act.toolUses} tools · ${(this.safeElapsedMs(act) / 1000).toFixed(1)}s]`;
+		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${act.turnCount} turns · ${act.toolUses} tools · ${(computeLiveDurationMs(act) / 1000).toFixed(1)}s]`;
 		const lastLine = this.cachedLines[this.cachedLines.length - 1];
 		if (lastLine?.startsWith(LiveConversationOverlay.SUMMARY_PREFIX)) {
 			this.cachedLines[this.cachedLines.length - 1] = summary;
@@ -140,7 +120,7 @@ export class LiveConversationOverlay {
 				: iconForStatus(this.handle.status);
 		const name = this.handle.agent ?? this.handle.taskId;
 		const act = this.handle.activity;
-		const elapsed = `${(this.safeElapsedMs(act) / 1000).toFixed(1)}s`;
+		const elapsed = `${(computeLiveDurationMs(act) / 1000).toFixed(1)}s`;
 		const headerParts: string[] = [];
 		if (act.maxTurns != null) headerParts.push(`turn ${act.turnCount}/${act.maxTurns}`);
 		else if (act.turnCount > 0) headerParts.push(`turn ${act.turnCount}`);

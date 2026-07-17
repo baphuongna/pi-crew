@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeArtifact } from "../state/artifact-store.ts";
-import type { ArtifactDescriptor, GreenLevel, VerificationCommandResult, VerificationContract } from "../state/types.ts";
+import type { GreenLevel, VerificationCommandResult, VerificationContract } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { redactSecretString } from "../utils/redaction.ts";
@@ -154,13 +154,61 @@ export const CARGO_RUST_GATES: Array<{
 // `npm test > ~/.ssh/authorized_keys`) and used char-class semantics instead of
 // a lookahead. Now `[<>](?![&\d])` blocks BOTH `<` and `>` file redirects while
 // still permitting fd-duplication forms (`2>&1`, `1>&2`, `>&2`, `<&3`) via the
-// negative lookahead (a `>`/`<` followed by `&` or a digit is allowed).
-const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\$\w|\b(eval|exec)\b|[<>](?![&\d])|[\r\n])/;
+// negative lookahead (a `>`/`<` followed by `&` or a digit is allowed). A bare
+// `&` is also blocked so an allowed gate cannot background itself and start a
+// second command.
+const DANGEROUS_SHELL_PATTERNS = /(?:;|&&|\|\||\$\(|`|\$\{|\$\w|\b(eval|exec)\b|[<>](?![&\d])|(?<![<>])&|[\r\n])/;
+
+/**
+ * Verification gates intentionally execute project-controlled code, but they
+ * must enter through a known build/test runner. Interpreter eval modes and
+ * arbitrary utilities are excluded: `node -e`, `python -c`, `curl`, etc. can
+ * otherwise execute attacker-provided code without any shell metacharacters.
+ *
+ * Prefixes are token-bound and each side of a pipeline is checked separately,
+ * preventing an allowed prefix such as `npm test | node -e ...` from bypassing
+ * the restriction. Keep this list focused on common verification commands.
+ */
+const ALLOWED_GATE_COMMAND_PATTERNS: readonly RegExp[] = [
+	/^npm\s+(?:test(?:\s|$)|run(?:-script)?\s+[A-Za-z0-9_.:-]+(?:\s|$))/,
+	/^pnpm\s+(?:test(?:\s|$)|run\s+[A-Za-z0-9_.:-]+(?:\s|$))/,
+	/^yarn\s+(?:test(?:\s|$)|run\s+[A-Za-z0-9_.:-]+(?:\s|$))/,
+	/^npx\s+(?:--no-install\s+)?(?:biome|eslint|tsc)(?:\s|$)/,
+	/^(?:biome|eslint|tsc)(?:\s|$)/,
+	/^node\s+(?:(?:--experimental-strip-types|--no-warnings)\s+)*--test(?:\s|$)/,
+	/^python(?:3(?:\.\d+)*)?\s+-m\s+(?:pytest|unittest)(?:\s|$)/,
+	/^pytest(?:\s|$)/,
+	/^cargo\s+(?:build|check|clippy|fmt|test)(?:\s|$)/,
+	/^go\s+(?:build|test|vet)(?:\s|$)/,
+	/^bun\s+test(?:\s|$)/,
+	/^deno\s+(?:check|lint|test)(?:\s|$)/,
+	/^dotnet\s+(?:build|test)(?:\s|$)/,
+	/^(?:gradle|\.\/gradlew)\s+(?:build|check|test)(?:\s|$)/,
+	/^(?:mvn|\.\/mvnw)\s+(?:package|test|verify)(?:\s|$)/,
+	/^make\s+(?:build|check|lint|test)(?:\s|$)/,
+	/^(?:echo|false|printenv|printf|true)(?:\s|$)/,
+	/^(?:grep|head|rg|tail)(?:\s|$)/,
+];
+
+const NODE_EVAL_MODE_PATTERN = /(?:^|\s)["']?(?:(?:-e|-p)(?!-)|--(?:eval|print)(?:=|\s|["']|$))/;
+
+function validateAllowedGateCommands(normalized: string, original: string): void {
+	const pipelineCommands = normalized.split("|").map((part) => part.trim());
+	for (const pipelineCommand of pipelineCommands) {
+		if (/^node(?:\s|$)/.test(pipelineCommand) && NODE_EVAL_MODE_PATTERN.test(pipelineCommand)) {
+			throw new Error(`Security: verification gate command rejected (Node eval/print mode is not allowed): ${original}`);
+		}
+		if (!pipelineCommand || !ALLOWED_GATE_COMMAND_PATTERNS.some((pattern) => pattern.test(pipelineCommand))) {
+			throw new Error(`Security: verification gate command rejected (command is not allowlisted): ${original}`);
+		}
+	}
+}
 
 /**
  * Validate a verification gate command is safe to execute.
- * Rejects commands with shell metacharacters that could enable injection.
- * Allows: pipes (|), redirection of stderr (2>&1), and basic npm/cargo/npx commands.
+ * Rejects commands with shell metacharacters that could enable injection and
+ * commands outside the verification-runner allowlist. Allows safe pipelines
+ * and stderr fd duplication (`2>&1`).
  */
 /** @internal — exported for injection-guard unit testing (Round 25). */
 export function __test__validateGateCommand(command: string): void {
@@ -187,6 +235,7 @@ function validateGateCommand(command: string): void {
 	if (DANGEROUS_SHELL_PATTERNS.test(normalized)) {
 		throw new Error(`Security: verification gate command rejected (dangerous shell pattern): ${command}`);
 	}
+	validateAllowedGateCommands(normalized, command);
 }
 
 async function executeCommand(

@@ -8,7 +8,6 @@ import {
 	runPhaseGates,
 } from "../../src/runtime/verification-gates.ts";
 import type { VerificationCommandResult } from "../../src/state/types.ts";
-import { ECHO_CMD, FAIL_CMD, OK_CMD, pickCmd } from "../fixtures/cross-platform-cmd.ts";
 
 test("verification-gates: NPM_TYPESCRIPT_GATES has expected phases", () => {
 	assert.equal(NPM_TYPESCRIPT_GATES.length, 4);
@@ -21,11 +20,9 @@ test("verification-gates: CARGO_RUST_GATES has expected phases", () => {
 });
 
 test("verification-gates: runPhaseGates executes commands sequentially", async () => {
-	// Simple test: echo command that always succeeds.
-	// Use cross-platform helper: `echo 'X'` on POSIX, `node -e "process.stdout.write('X\n')"` on win32.
 	const gates = [
-		{ name: "echo", command: pickCmd(ECHO_CMD("hello")), critical: true },
-		{ name: "echo2", command: pickCmd(ECHO_CMD("world")), critical: true },
+		{ name: "echo", command: "echo 'hello'", critical: true },
+		{ name: "echo2", command: "echo 'world'", critical: true },
 	];
 	const result = await runPhaseGates(gates, process.cwd());
 	assert.equal(result.results.length, 2);
@@ -36,11 +33,11 @@ test("verification-gates: runPhaseGates executes commands sequentially", async (
 
 test("verification-gates: runPhaseGates stops on critical failure", async () => {
 	const gates = [
-		{ name: "success", command: pickCmd(OK_CMD), critical: true },
-		{ name: "fails", command: pickCmd(FAIL_CMD), critical: true },
+		{ name: "success", command: "true", critical: true },
+		{ name: "fails", command: "false", critical: true },
 		{
 			name: "would-run",
-			command: pickCmd(ECHO_CMD("should not run")),
+			command: "echo 'should not run'",
 			critical: true,
 		},
 	];
@@ -55,11 +52,11 @@ test("verification-gates: runPhaseGates stops on critical failure", async () => 
 
 test("verification-gates: runPhaseGates continues on non-critical failure", async () => {
 	const gates = [
-		{ name: "success", command: pickCmd(OK_CMD), critical: true },
-		{ name: "fails", command: pickCmd(FAIL_CMD), critical: false },
+		{ name: "success", command: "true", critical: true },
+		{ name: "fails", command: "false", critical: false },
 		{
 			name: "continues",
-			command: pickCmd(ECHO_CMD("still going")),
+			command: "echo 'still going'",
 			critical: true,
 		},
 	];

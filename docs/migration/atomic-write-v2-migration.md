@@ -1,5 +1,7 @@
 # atomic-write-v2 migration plan
 
+> **Note:** `atomic-write-v2.ts` was consolidated into `atomic-write.ts` as of v0.9.42. This document is preserved as historical record — the migration was completed with v1 winning on simplicity + symlink-safety + link+unlink atomicity. The v2 class was never adopted; no v2 API surface ships with pi-crew.
+
 > Status: **PROPOSED** — decision RECOMMEND MIGRATE (staged, feature-flagged).
 > Source: performance review `docs/perf/performance-review-2026-07.md` (findings F3–F6).
 > Scope: replace the standalone-function module `src/state/atomic-write.ts`

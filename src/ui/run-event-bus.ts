@@ -1,5 +1,6 @@
 import type { TeamEvent } from "../state/event-log.ts";
 import { readEventsCursor } from "../state/event-log.ts";
+import type { RenderSchedulerEventBus } from "./render-scheduler.ts";
 
 export type RunEventType =
 	| "task_started"
@@ -80,6 +81,14 @@ class RunEventBus {
 	#globalListeners = new Set<RunEventCallback>();
 	#channelListeners = new Map<EventChannel, Set<RunEventCallback>>();
 	#channelRunListeners = new Map<string, Map<EventChannel, Set<RunEventCallback>>>();
+	// 1.10 (FIND-13): microtask-batched listener fan-out. Events emitted in
+	// the same synchronous tick are coalesced into a single microtask flush
+	// instead of one synchronous fan-out per emit. Reduces listener dispatch
+	// overhead when many events arrive back-to-back (e.g. from a single
+	// appendEvent chain that emits several derived events).
+	#emitQueue: RunEventPayload[] = [];
+	#flushScheduled = false;
+	#disposed = false;
 
 	on(runId: string, callback: RunEventCallback): () => void {
 		const listeners = this.#listeners.get(runId) ?? new Set();
@@ -202,12 +211,41 @@ class RunEventBus {
 	}
 
 	emit(event: RunEventPayload): void {
+		if (this.#disposed) return;
 		// Auto-classify channel if not already set.
 		// M2: Use local variable for routing, but also set on event
 		// for subscriber API contract (listeners read event.channel).
 		if (!event.channel) {
 			(event as { channel?: EventChannel }).channel = classifyEventChannel(event.type);
 		}
+		// 1.10 (FIND-13): queue and defer fan-out to a microtask so multiple
+		// emits in the same synchronous tick collapse into one listener-pass
+		// each (one per emit, all in the same microtask).
+		this.#emitQueue.push(event);
+		if (this.#flushScheduled) return;
+		this.#flushScheduled = true;
+		queueMicrotask(() => {
+			this.#flushScheduled = false;
+			if (this.#disposed) {
+				this.#emitQueue.length = 0;
+				return;
+			}
+			// Swap the queue before dispatching so a listener that re-emits
+			// enqueues into a fresh queue (scheduled by its own emit() call)
+			// instead of stomping the current iteration.
+			const queue = this.#emitQueue;
+			this.#emitQueue = [];
+			for (const queued of queue) this.#dispatchSync(queued);
+		});
+	}
+
+	/**
+	 * Synchronous per-event listener fan-out. Called from the microtask flush
+	 * scheduled by emit(); not part of the public API. Mirrors the original
+	 * (pre-batching) emit body so a single emit still visits every listener
+	 * registered for the event's runId / channel / global set.
+	 */
+	#dispatchSync(event: RunEventPayload): void {
 		const channel = event.channel!;
 
 		// Existing: runId-specific listeners
@@ -262,10 +300,13 @@ class RunEventBus {
 
 	/** Dispose all subscriptions including channel-based ones. */
 	dispose(): void {
+		this.#disposed = true;
 		this.#listeners.clear();
 		this.#globalListeners.clear();
 		this.#channelListeners.clear();
 		this.#channelRunListeners.clear();
+		this.#emitQueue.length = 0;
+		this.#flushScheduled = false;
 	}
 
 	listenerCount(runId?: string): number {
@@ -282,6 +323,31 @@ class RunEventBus {
 
 /** Global singleton run event bus for UI-first event delivery. */
 export const runEventBus = new RunEventBus();
+
+/**
+ * 1.10 (UI-P1-1): adapt `runEventBus.onChannel` to the
+ * `RenderSchedulerEventBus` interface so overlays can route their
+ * `run:state` / `worker:lifecycle` / `ui:invalidate` subscriptions through
+ * a `RenderScheduler` (debounce + fallback + per-runId coalescing) instead of
+ * calling `runEventBus.onChannel(...)` directly three times. Without the
+ * scheduler, a single event triggers up to 9 callbacks across the 3 overlays
+ * (dashboard + sidebar + widget) and bursts into ~150 invalidate+requestRender
+ * /sec under load.
+ *
+ * Returns a fresh adapter whose `on(event, handler)` is a thin shim over
+ * `runEventBus.onChannel`. The channels list is closed-over so we can do a
+ * defensive membership check without re-reading the channel set on every
+ * subscription.
+ */
+export function runEventBusAsRenderScheduler(channels: readonly EventChannel[]): RenderSchedulerEventBus {
+	const allowed = new Set<EventChannel>(channels);
+	return {
+		on: (event: string, handler: (payload: unknown) => void): (() => void) | void => {
+			if (!allowed.has(event as EventChannel)) return undefined;
+			return runEventBus.onChannel(event as EventChannel, handler);
+		},
+	};
+}
 
 /** Derive a RunEventType from a TeamEvent. */
 export function teamEventToRunEventType(event: TeamEvent): RunEventType | undefined {

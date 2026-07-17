@@ -97,7 +97,7 @@ async function importOTLPExporter(): Promise<OTLPExporterCtor> {
  */
 export async function configureObservability(ctx: ExtensionContext, state: ObservabilityState, deps: ObservabilityDeps): Promise<void> {
 	// Always start from a clean slate: dispose any prior-session state first.
-	disposeObservability(state, deps.isCleanedUp());
+	await disposeObservability(state, deps.isCleanedUp());
 
 	const config = loadConfig(ctx.cwd).config;
 	if (config.observability?.enabled === false) return;
@@ -176,8 +176,32 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 	});
 	state.heartbeatWatcher.start();
 
+	// RT-F2: opportunistic stale-run reconcile hook.
+	// The .unref()'d setInterval below never fires while the event loop is idle
+	// (e.g. user has the editor open but hasn't sent a turn in an hour). Pair it
+	// with a before_agent_start hook so reconcileAllStaleRuns also fires when
+	// the user actually drives the session — bounded by user activity.
+	try {
+		deps.pi.on?.("before_agent_start", () => {
+			if (deps.isCleanedUp()) return;
+			try {
+				deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd));
+			} catch (error) {
+				logInternalError("register.autoRepair.turnHook", error);
+			}
+		});
+	} catch {
+		/* older Pi without before_agent_start — rely on the interval alone */
+	}
+
 	// Auto-repair timers: stale-run reconcile + orphan-temp cleanup.
-	const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 60_000;
+	// RT-F2: default raised from 60_000ms to 5 minutes (300_000ms). The previous
+	// 60s default was wasted work for idle sessions (Pi never had a UI to render
+	// between user turns), and .unref() meant it never fired at all when the
+	// event loop was idle. 5min balances "catch up after idle gap" against
+	// "don't waste cycles on sessions that aren't doing anything". The
+	// before_agent_start hook above covers the user-active case.
+	const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 300_000;
 	if (autoRepairIntervalMs > 0) {
 		state.autoRepairTimer = setInterval(() => {
 			if (deps.isCleanedUp()) return;
@@ -271,7 +295,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
  * partially or fully disposed. Caller passes `isCleanedUp` so timers can be
  * gated by the orchestrator's overall cleanup state.
  */
-export function disposeObservability(state: ObservabilityState, _isCleanedUp: boolean): void {
+export async function disposeObservability(state: ObservabilityState, _isCleanedUp: boolean): Promise<void> {
 	state.heartbeatWatcher?.dispose();
 	state.heartbeatWatcher = undefined;
 	if (state.autoRepairTimer) {
@@ -286,7 +310,12 @@ export function disposeObservability(state: ObservabilityState, _isCleanedUp: bo
 	state.metricSink = undefined;
 	state.eventMetricSub?.dispose();
 	state.eventMetricSub = undefined;
-	state.otlpExporter?.dispose();
+	// OBS-3: await OTLPExporter.dispose() so an in-flight HTTP push isn't cut short on
+	// shutdown (interface contract changed to Promise<void>; OTLPExporter awaits its
+	// in-flight push). The async work still completes even when callers discard the
+	// returned promise (fire-and-forget cleanup), because Node keeps the event loop
+	// alive for pending I/O.
+	await state.otlpExporter?.dispose();
 	state.otlpExporter = undefined;
 	state.metricRegistry?.dispose();
 	state.metricRegistry = undefined;

@@ -6,6 +6,7 @@ import { serializeAgent } from "../agents/agent-serializer.ts";
 import { discoverAgents, invalidateAgentDiscoveryCache } from "../agents/discover-agents.ts";
 import type { PiTeamsConfig } from "../config/config.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { allTeams, discoverTeams, invalidateTeamDiscoveryCache } from "../teams/discover-teams.ts";
 import type { TeamConfig, TeamRole } from "../teams/team-config.ts";
 import { serializeTeam } from "../teams/team-serializer.ts";
@@ -258,7 +259,7 @@ function updateReferencesForRename(
 		changed.push(team.filePath);
 		if (!dryRun) {
 			backupFile(team.filePath);
-			fs.writeFileSync(team.filePath, serializeTeam(nextTeam), "utf-8");
+			atomicWriteFile(team.filePath, serializeTeam(nextTeam));
 		}
 	}
 	// L12 fix: also update workflow step role references when renaming agents.
@@ -276,7 +277,7 @@ function updateReferencesForRename(
 		changed.push(workflow.filePath);
 		if (!dryRun) {
 			backupFile(workflow.filePath);
-			fs.writeFileSync(workflow.filePath, serializeWorkflow({ ...workflow, steps: newSteps }), "utf-8");
+			atomicWriteFile(workflow.filePath, serializeWorkflow({ ...workflow, steps: newSteps }));
 		}
 	}
 	// L12 fix: update agent references in test fixtures.
@@ -290,7 +291,7 @@ function updateReferencesForRename(
 			if (newContent !== content) {
 				changed.push(fixture);
 				if (!dryRun) {
-					fs.writeFileSync(fixture, newContent, "utf-8");
+					atomicWriteFile(fixture, newContent);
 				}
 			}
 		}
@@ -388,7 +389,7 @@ export function handleCreate(params: TeamToolParamsValue, ctx: ManagementContext
 
 	if (params.dryRun) return result(`[dry-run] Would create ${params.resource} '${name}' at ${filePath}:\n\n${content}`);
 	try {
-		fs.writeFileSync(filePath, content, "utf-8");
+		atomicWriteFile(filePath, content);
 	} catch (writeError) {
 		return result(
 			`Failed to create ${params.resource}: ${writeError instanceof Error ? writeError.message : String(writeError)}`,
@@ -513,7 +514,7 @@ export function handleUpdate(params: TeamToolParamsValue, ctx: ManagementContext
 				}
 			}
 		}
-		fs.writeFileSync(nextPath, content, "utf-8");
+		atomicWriteFile(nextPath, content);
 	} catch (updateError) {
 		return result(
 			`Failed to update ${params.resource}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,

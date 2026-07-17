@@ -93,11 +93,25 @@ export function registerCleanupHandler(pi: ExtensionAPI): void {
 
 async function cleanupChildProcesses(): Promise<void> {
 	const pids = childProcessRegistry.getAllPids();
-
+	if (pids.length === 0) return;
+	// Lazy-import to avoid eagerly pulling the heavy runtime/child-pi chain into the
+	// extension load path (check-lazy-imports) AND to avoid a static import cycle
+	// (child-pi.ts already imports registerChildProcess from this module).
+	// LAZY: defer child-pi.ts load (heavy runtime chain) + avoid static import cycle.
+	const { killProcessPid } = await import("../runtime/child-pi.ts");
 	for (const pid of pids) {
+		// killProcessPid signals the whole process GROUP (-pid on POSIX, taskkill /T on
+		// Windows) and escalates to SIGKILL after HARD_KILL_MS. A bare
+		// process.kill(pid, "SIGTERM") only reaches the direct child — grandchildren
+		// (bash/MCP the worker spawned) in the child's group survive as orphans, and
+		// a child that lags SIGTERM would linger forever with no escalation.
+		// NOTE: on graceful session_shutdown (reason=quit/reload) register.ts ALSO runs
+		// terminateActiveChildPiProcesses(); both are idempotent for a dying pid. This
+		// signal handler (SIGTERM/SIGHUP) is the SOLE teardown path when the Pi process
+		// is killed by signal, so it must be robust on its own.
 		try {
-			process.kill(pid, "SIGTERM");
-			console.log(`[pi-crew] Sent SIGTERM to child process ${pid}`);
+			killProcessPid(pid);
+			console.log(`[pi-crew] Sent group SIGTERM (+SIGKILL escalation) to child process ${pid}`);
 		} catch (error: unknown) {
 			// Process may already be dead or not exist
 			const err = error as NodeJS.ErrnoException;

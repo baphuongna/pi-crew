@@ -14,7 +14,7 @@ import { replayPendingMailboxMessages } from "../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
-import { assertSafePathId } from "../utils/safe-paths.ts";
+import { assertSafePathId, resolveContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { piTeamsHelp } from "./help.ts";
 import { handleCreate, handleDelete, handleUpdate } from "./management.ts";
@@ -523,10 +523,12 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 	try {
 		const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
 		fs.mkdirSync(steeringDir, { recursive: true });
-		fs.appendFileSync(
-			`${steeringDir}/${taskId}.jsonl`,
-			JSON.stringify({ type: "steer", message, ts: new Date().toISOString() }) + "\n",
-		);
+		// AUDIT-08 defense-in-depth: validate the steering-file path is contained
+		// within steeringDir. taskId is currently sanitized via createTaskId, but this
+		// guards against future changes to task-id generation (e.g. if it ever
+		// accepted user input).
+		const safeSteeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
+		fs.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: new Date().toISOString() }) + "\n");
 	} catch {
 		// Best-effort: file write failure doesn't block the steer from pending array
 	}
@@ -1042,19 +1044,70 @@ function getCrewGlobalRegistry(): CrewRegistry | undefined {
 	return (globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] as CrewRegistry | undefined;
 }
 
-/** Create and install the global CrewRegistry singleton. Call once at extension init. */
-export function installCrewGlobalRegistry(): void {
-	registerCrewGlobalRegistry({
+/** Manifest cache shape needed to construct the global registry's read-side. */
+interface ManifestCacheForRegistry {
+	get: (runId: string) => TeamRunManifest | undefined;
+	list: (limit: number) => TeamRunManifest[];
+}
+
+/**
+ * Build and install the global CrewRegistry singleton in a single atomic step.
+ *
+ * EXT-7 (Round 3): The previous design called `installCrewGlobalRegistry()` to
+ * install stubs, then patched the manifest-backed methods asynchronously inside
+ * `register.ts`. That left a window where cross-extension consumers could observe
+ * the stub object on `globalThis[Symbol.for("pi-crew:registry")]`. By taking the
+ * real dependencies up-front, we install the registry once with no stub phase —
+ * callers see either no registry (pre-init) or the fully-real registry.
+ */
+export function installCrewGlobalRegistry(
+	deps?: { manifestCache: ManifestCacheForRegistry; cwdProvider: () => string },
+): void {
+	const manifestCache = deps?.manifestCache;
+	const cwdProvider = deps?.cwdProvider ?? ((): string => process.cwd());
+	const registry: CrewRegistry = {
 		version: 2,
-		getRecord: (runId: string) => undefined as unknown as TeamRunManifest,
-		listRuns: () => [],
-		appendEvent: () => {},
-		waitForAll: async () => {},
-		hasRunning: () => false,
+		getRecord: (runId: string) => manifestCache?.get(runId),
+		listRuns: () =>
+			manifestCache
+				? manifestCache.list(100).map((m) => ({ runId: m.runId, status: m.status, goal: m.goal }))
+				: ([] as Array<{ runId: string; status: string; goal: string }>),
+		appendEvent: (runId: string, event: Record<string, unknown>) => {
+			if (!manifestCache) return;
+			const manifest = manifestCache.get(runId);
+			if (manifest) {
+				// LAZY: event-log is already loaded at module top, so use the
+				// pre-resolved appendEventFireAndForget instead of re-importing.
+				appendEventFireAndForget(
+					manifest.eventsPath,
+					event as Parameters<typeof appendEventFireAndForget>[1],
+				);
+			}
+		},
+		waitForAll: async (runId: string) => {
+			if (!manifestCache) return;
+			// LAZY: state-store is already loaded at module top; use the pre-resolved loadRunManifestById.
+			const check = (): boolean => {
+				const loaded = loadRunManifestById(cwdProvider(), runId);
+				if (!loaded) return true;
+				return !loaded.tasks.some((t: { status: string }) => t.status === "running" || t.status === "queued");
+			};
+			while (!check()) await new Promise((resolve) => setTimeout(resolve, 500));
+		},
+		hasRunning: (runId: string) => {
+			if (!manifestCache) return false;
+			const manifest = manifestCache.get(runId);
+			if (!manifest) return false;
+			// LAZY: state-store is already loaded at module top; use the pre-resolved loadRunManifestById.
+			const loaded = loadRunManifestById(cwdProvider(), runId);
+			if (!loaded) return false;
+			return loaded.tasks.some((t: { status: string }) => t.status === "running" || t.status === "queued");
+		},
 		registerAgent: registerDynamicAgent,
 		unregisterAgent: unregisterDynamicAgent,
 		listDynamicAgents,
-	});
+	};
+	registerCrewGlobalRegistry(registry);
 }
 
 /** Remove the global CrewRegistry singleton. Call during session cleanup. */

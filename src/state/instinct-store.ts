@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { assertSafePathId } from "../utils/safe-paths.ts";
+import { atomicWriteFile } from "./atomic-write.ts";
 
 /**
  * Represents a learned instinct that guides agent behavior.
@@ -87,7 +88,13 @@ export class InstinctStore {
 	private appendInstinctToFile(filePath: string, instinct: Instinct): void {
 		const dir = path.dirname(filePath);
 		this.ensureDir(dir);
-		fs.appendFileSync(filePath, `${JSON.stringify(instinct)}\n`, "utf-8");
+		// ST-3: read existing + append + atomic rewrite. appendFileSync has no fsync and
+		// can interleave bytes on concurrent writes. Callers should wrap this in
+		// withFileLockSync(filePath) to serialize concurrent RMW on the same file.
+		const existing = fs.existsSync(filePath) ? this.readInstinctsFromFile(filePath) : [];
+		existing.push(instinct);
+		const content = existing.map((i) => JSON.stringify(i)).join("\n") + "\n";
+		atomicWriteFile(filePath, content);
 	}
 
 	/**
@@ -97,7 +104,9 @@ export class InstinctStore {
 		const dir = path.dirname(filePath);
 		this.ensureDir(dir);
 		const content = instincts.map((i) => JSON.stringify(i)).join("\n") + "\n";
-		fs.writeFileSync(filePath, content, "utf-8");
+		// ST-3: atomic write (temp + rename + fsync) — crash mid-writeFileSync truncates
+		// the JSONL and readInstinctsFromFile silently returns [] (all instincts lost).
+		atomicWriteFile(filePath, content);
 	}
 
 	/**

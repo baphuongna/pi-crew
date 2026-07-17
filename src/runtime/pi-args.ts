@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { resolveToolPolicy } from "../agents/agent-config.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { packageRoot, userPiRoot } from "../utils/paths.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -323,7 +323,7 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		const tmpBase = getPiTempBase();
 		tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
 		const promptPath = path.join(tempDir, `${input.agent.name.replace(/[^\w.-]/g, "_")}.md`);
-		fs.writeFileSync(promptPath, input.agent.systemPrompt, { mode: 0o600 });
+		atomicWriteFile(promptPath, input.agent.systemPrompt, { mode: 0o600 });
 		args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
 	}
 
@@ -333,7 +333,7 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 			tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
 		}
 		const taskPath = path.join(tempDir, "task.md");
-		fs.writeFileSync(taskPath, input.task, { mode: 0o600 });
+		atomicWriteFile(taskPath, input.task, { mode: 0o600 });
 		args.push(`@${taskPath}`);
 	} else {
 		args.push(`Task: ${input.task}`);

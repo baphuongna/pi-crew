@@ -9,6 +9,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/artifact-store.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
@@ -84,7 +85,7 @@ function startTeamRunHeartbeat(stateRoot: string, runId: string): () => void {
 			// captured manifest.updatedAt once at startup, making the value
 			// permanently stale throughout the run.
 			const now = new Date().toISOString();
-			fs.writeFileSync(
+			atomicWriteFile(
 				heartbeatPath,
 				JSON.stringify({
 					pid: process.pid,
@@ -93,7 +94,7 @@ function startTeamRunHeartbeat(stateRoot: string, runId: string): () => void {
 					kind: "team-runner",
 					lastTaskUpdateAt: now,
 				}),
-				{ encoding: "utf-8", mode: 0o600 },
+				{ mode: 0o600 },
 			);
 		} catch {
 			// best-effort

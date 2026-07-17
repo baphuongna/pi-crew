@@ -9,6 +9,15 @@ import { isSafePathId, resolveContainedRelativePath, resolveRealContainedPath } 
 
 export interface ManifestCache {
 	list(limit?: number): TeamRunManifest[];
+	/**
+	 * Return ONLY running manifests, capped only by `limit`.
+	 *
+	 * RT-F3: unlike `list(limit)`, this filters `status === "running"` BEFORE
+	 * the limit is applied so stale orphaned runs that have been pushed past
+	 * the top-N by recent activity are not silently hidden from crash-recovery
+	 * and zombie-detection scans.
+	 */
+	listActive(limit: number): TeamRunManifest[];
 	get(runId: string): TeamRunManifest | undefined;
 	clear(runId?: string): void;
 	dispose(): void;
@@ -203,6 +212,15 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		return undefined;
 	}
 
+	/**
+	 * NOTE (RT-F10): This function performs a full FS scan + JSON.parse of all
+	 * manifests on every TTL expiry (default 500ms). This is a known performance
+	 * tradeoff: fs.watch provides real-time invalidation (see constructor above)
+	 * so the TTL cache is only consulted when the watcher fires, but the list()
+	 * call itself still re-reads all entries to pick up changes. Incremental
+	 * updates via fs.watch-driven delta tracking are planned for a future
+	 * iteration to avoid the full scan on each expiry.
+	 */
 	function list(limit = DEFAULT_CACHE.manifestMaxEntries): TeamRunManifest[] {
 		const now = Date.now();
 		const cached = listCache.get(limit);
@@ -248,6 +266,46 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		return undefined;
 	}
 
+	/**
+	 * RT-F3: filter to `status === "running"` BEFORE applying the limit so an
+	 * orphaned run that has been pushed past the top-N by recent successful
+	 * runs is still surfaced to crash-recovery. The cap is the LIMIT, not the
+	 * "top-N most recent"; callers (e.g. zombie detection) explicitly want
+	 * EVERY currently-running run, in any order.
+	 *
+	 * Internally performs a full scan (NOT via list()) so the cap doesn't
+	 * silently drop "running" runs that fell past the top-N createdAt cutoff.
+	 * Still goes through parseManifestIfChanged for stat+size memoization, so
+	 * the per-run I/O cost is the same as list().
+	 */
+	function listActive(limit: number): TeamRunManifest[] {
+		const cap = Math.max(0, limit);
+		const parsedEntries = [
+			...roots.flatMap((root) => collectRoots(root)),
+			...activeRunEntries().map((entry) => ({
+				runId: entry.runId,
+				path: entry.manifestPath,
+			})),
+		];
+		const unique = new Map<string, CachedManifest | undefined>();
+		for (const entry of parsedEntries) {
+			if (entry.runId.length === 0) continue;
+			let cached = manifestIndex.get(entry.runId);
+			const root = path.dirname(path.dirname(entry.path));
+			const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached);
+			if (parsed) {
+				cached = parsed;
+				manifestIndex.set(entry.runId, cached);
+			}
+			if (cached) unique.set(entry.runId, cached);
+		}
+		const running = [...unique.values()]
+			.filter((value): value is CachedManifest => value !== undefined)
+			.map((value) => value.manifest)
+			.filter((manifest) => manifest.status === "running");
+		return running.slice(0, cap);
+	}
+
 	if (options.watch ?? true) {
 		for (const root of roots) {
 			const watcher = watchWithErrorHandler(
@@ -268,6 +326,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 
 	return {
 		list,
+		listActive,
 		get,
 		clear(runId) {
 			invalidate(runId);

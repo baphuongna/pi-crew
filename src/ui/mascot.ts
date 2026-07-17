@@ -307,23 +307,29 @@ export class AnimatedMascot {
 		const state = this.effectState;
 		if (state.phase === undefined || state.glitchFrames === undefined) return true;
 		if (state.phase < state.glitchFrames) {
-			this.currentArminGrid = this.finalArminGrid.map((row) => {
-				const offset = Math.floor(Math.random() * 7) - 3;
-				const glitchRow = [...row];
-				if (Math.random() < 0.3) {
-					const shifted = glitchRow.slice(offset).concat(glitchRow.slice(0, offset));
-					return shifted.slice(0, ARMIN_WIDTH);
+			const offset = Math.floor(Math.random() * 7) - 3;
+			const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
+			const doShift = Math.random() < 0.3;
+			const doSwap = !doShift && Math.random() < 0.2;
+			for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
+				const src = doSwap ? this.finalArminGrid[swapRow] : this.finalArminGrid[row];
+				for (let x = 0; x < ARMIN_WIDTH; x++) {
+					if (doShift) {
+						this.currentArminGrid[row][x] = src[(x + offset + ARMIN_WIDTH) % ARMIN_WIDTH];
+					} else {
+						this.currentArminGrid[row][x] = src[x];
+					}
 				}
-				if (Math.random() < 0.2) {
-					const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
-					return [...this.finalArminGrid[swapRow]];
-				}
-				return glitchRow;
-			});
+			}
 			state.phase++;
 			return false;
 		}
-		this.currentArminGrid = this.finalArminGrid.map((row) => [...row]);
+		// Restore final grid in-place
+		for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
+			for (let x = 0; x < ARMIN_WIDTH; x++) {
+				this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
+			}
+		}
 		return true;
 	}
 

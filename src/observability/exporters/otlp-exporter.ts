@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -96,6 +97,76 @@ export function validateEndpoint(endpoint: string): void {
 		// 0.x.x.x - this network
 		if (octets[0] === 0) {
 			throw new Error(`OTLP endpoint must not target this-network address (0.0.0.0/8): ${endpoint}`);
+		}
+	}
+}
+
+/**
+ * CFG-6: classify a single IP address (IPv4 or IPv6) as private / reserved /
+ * loopback / link-local. Used by the runtime DNS-rebinding guard below to
+ * verify the addresses the endpoint hostname resolves to. Returns true for
+ * addresses that must never receive a metrics push. The full literal checks
+ * in `validateEndpoint` use the same predicates for direct IP targets.
+ */
+export function isPrivateIpAddress(address: string): boolean {
+	const lower = address.toLowerCase();
+	// IPv4 literal
+	const ipv4 = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (ipv4) {
+		const o0 = Number(ipv4[1]);
+		const o1 = Number(ipv4[2]);
+		if (o0 === 127 || o0 === 0) return true;
+		if (o0 === 10) return true;
+		if (o0 === 172 && o1 >= 16 && o1 <= 31) return true;
+		if (o0 === 192 && o1 === 168) return true;
+		if (o0 === 169 && o1 === 254) return true;
+		return false;
+	}
+	// IPv6 (without surrounding brackets, as `dns.lookup` returns them)
+	if (lower === "::1" || lower === "::") return true;
+	if (lower.startsWith("fd") || lower.startsWith("fc")) return true;
+	if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
+	if (lower.startsWith("fec") || lower.startsWith("fed") || lower.startsWith("fee") || lower.startsWith("fef")) return true;
+	if (lower.startsWith("ff")) return true;
+	if (lower.startsWith("::ffff:")) return true;
+	return false;
+}
+
+/**
+ * CFG-6: DNS-rebinding guard. `validateEndpoint` runs once at exporter
+ * construction and only inspects the literal hostname; an attacker who
+ * controls the DNS for a public hostname can rebind it to a private IP
+ * (e.g. 169.254.169.254 cloud metadata) between construction and the actual
+ * fetch. Re-resolve the hostname at push time and reject if any returned
+ * address falls into a private/reserved range. Resolution failures are
+ * allowed to fall through so the underlying `fetch` surfaces the error.
+ */
+export async function assertResolvedAddressSafe(endpoint: string): Promise<void> {
+	let url: URL;
+	try {
+		url = new URL(endpoint);
+	} catch {
+		return;
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return;
+	const hostname = url.hostname.toLowerCase();
+	if (!hostname) return;
+	// Locals and literal IPs are covered by `validateEndpoint`; skip the DNS
+	// round-trip so we don't double-report errors the sync check already
+	// produces.
+	if (hostname === "localhost" || hostname.endsWith(".localhost")) return;
+	if (hostname.startsWith("[")) return;
+	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return;
+	let addresses: { address: string }[];
+	try {
+		addresses = await lookup(hostname, { all: true, verbatim: true });
+	} catch {
+		// Let the fetch fail with a clearer error from the network layer.
+		return;
+	}
+	for (const { address } of addresses) {
+		if (isPrivateIpAddress(address)) {
+			throw new Error(`OTLP endpoint resolves to private/reserved address ${address} (DNS rebinding blocked): ${endpoint}`);
 		}
 	}
 }
@@ -210,6 +281,16 @@ export class OTLPExporter implements MetricExporter {
 
 	async push(snapshots: MetricSnapshot[]): Promise<void> {
 		try {
+			// CFG-6: re-validate the endpoint after DNS resolution to block
+			// rebinding from a public hostname to a private/metadata IP
+			// between construction time and the actual fetch. Failures are
+			// logged and the push is skipped — no metrics reach the bad host.
+			try {
+				await assertResolvedAddressSafe(this.opts.endpoint);
+			} catch (error) {
+				logInternalError("otlp-export-ssrf", error);
+				return;
+			}
 			// FIX (Round 15): Cap snapshots to a safe size to avoid OOM and
 			// oversized HTTP payloads. Log a warning if we are truncating.
 			let toSend = snapshots;

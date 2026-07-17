@@ -21,8 +21,8 @@ function toMs(v: number): number {
 	if (v <= 0) return 0;
 	// 1e9 < seconds < 1e10  → seconds, scale up
 	if (v > 1_000_000_000 && v < 10_000_000_000) return v * 1000;
-	// 1e11 < ms < 1e13      → already ms
-	if (v > 100_000_000_000 && v < 10_000_000_000_000) return v;
+	// 1e10 < ms < 1e13      → already ms (>=10B seconds is 317+ years, implausible)
+	if (v > 10_000_000_000 && v < 10_000_000_000_000) return v;
 	return v;
 }
 

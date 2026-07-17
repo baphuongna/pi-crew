@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
+import { atomicWriteFile } from "./atomic-write.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
 
 export interface RunGraphNode {
@@ -138,7 +139,7 @@ export function saveRunGraph(graph: RunGraph, cwd: string): string {
 	}
 
 	const graphPath = path.join(graphsDir, `${graph.runId}.json`);
-	fs.writeFileSync(graphPath, JSON.stringify(graph, null, 2), "utf-8");
+	atomicWriteFile(graphPath, JSON.stringify(graph, null, 2));
 
 	return graphPath;
 }

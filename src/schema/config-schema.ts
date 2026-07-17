@@ -37,6 +37,7 @@ export const PiTeamsLimitsConfigSchema = Type.Object(
 		maxRetriesPerTask: Type.Optional(Type.Integer({ minimum: 1 })),
 		maxTasksPerRun: Type.Optional(Type.Integer({ minimum: 1 })),
 		heartbeatStaleMs: Type.Optional(Type.Integer({ minimum: 1 })),
+		serializeOnPathOverlap: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
@@ -59,6 +60,17 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		effectivenessGuard: Type.Optional(
 			Type.Union([Type.Literal("off"), Type.Literal("warn"), Type.Literal("block"), Type.Literal("fail")]),
 		),
+		yield: Type.Optional(
+			Type.Object(
+				{
+					enabled: Type.Optional(Type.Boolean()),
+					maxReminders: Type.Optional(Type.Integer({ minimum: 0 })),
+					reminderPrompt: Type.Optional(Type.String({ maxLength: 1000 })),
+				},
+				{ additionalProperties: false },
+			),
+		),
+		excludeContextBash: Type.Optional(Type.Boolean()),
 		isolationPolicy: Type.Optional(
 			Type.Object(
 				{
@@ -182,7 +194,7 @@ export const PiTeamsObservabilityConfigSchema = Type.Object(
 	{
 		enabled: Type.Optional(Type.Boolean()),
 		pollIntervalMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 60000 })),
-		metricRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })),
+		metricRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
 	},
 	{ additionalProperties: false },
 );
@@ -205,6 +217,11 @@ export const PiTeamsReliabilityConfigSchema = Type.Object(
 		autoRecover: Type.Optional(Type.Boolean()),
 		deadletterThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
 		cleanupOrphanedTempDirs: Type.Optional(Type.Boolean()),
+		autoRepairIntervalMs: Type.Optional(Type.Integer({ minimum: 0 })),
+		forcePreflight: Type.Optional(Type.Boolean()),
+		ambientStatusInjection: Type.Optional(Type.Boolean()),
+		perWriteValidation: Type.Optional(Type.Boolean()),
+		scopeModels: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
@@ -235,6 +252,7 @@ export const PiTeamsUiConfigSchema = Type.Object(
 		dashboardLiveRefreshMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 60000 })),
 		autoOpenDashboard: Type.Optional(Type.Boolean()),
 		autoOpenDashboardForForegroundRuns: Type.Optional(Type.Boolean()),
+		autoCloseDashboardMs: Type.Optional(Type.Integer({ minimum: 0 })),
 		showModel: Type.Optional(Type.Boolean()),
 		showTokens: Type.Optional(Type.Boolean()),
 		showTools: Type.Optional(Type.Boolean()),

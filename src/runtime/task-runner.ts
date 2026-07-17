@@ -15,11 +15,10 @@ import type {
 	OperationTerminalEvidence,
 	TeamRunManifest,
 	TeamTaskState,
-	UsageState,
 	VerificationEvidence,
 } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { captureWorktreeDiffAsync, captureWorktreeDiffStatAsync, prepareTaskWorkspaceAsync } from "../worktree/worktree-manager.ts";
 import { reserveControlChannel } from "./agent-control.ts";
@@ -35,7 +34,7 @@ import {
 	recordFromTask,
 	upsertCrewAgent,
 } from "./crew-agent-records.ts";
-import type { CrewAgentProgress, CrewRuntimeKind } from "./crew-agent-runtime.ts";
+import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { bridgeEventFromJsonEvent, registerStreamBridge } from "./event-stream-bridge.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
@@ -87,7 +86,7 @@ registerYieldTool();
 async function appendSteeringAsync(steeringDir: string, taskId: string, steers: string[]): Promise<void> {
 	try {
 		await fs.promises.mkdir(steeringDir, { recursive: true });
-		const steeringPath = `${steeringDir}/${taskId}.jsonl`;
+		const steeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
 		const lines = steers
 			.map(
 				(msg) =>
@@ -254,10 +253,18 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		if (input.step.preStepScript) {
 			const scriptTimeout = input.step.preStepTimeout ?? 30_000;
 			const scriptArgs = input.step.preStepArgs ?? [];
+			appendEventFireAndForget(manifest.eventsPath, {
+				type: "hook.pre_step_started",
+				runId: manifest.runId,
+				taskId: task.id,
+				data: { script: input.step.preStepScript, argCount: scriptArgs.length, timeoutMs: scriptTimeout },
+			});
 			// SECURITY (M-1 fix, code-review 2026-06-23): use the project's safe-path
 			// primitive instead of a hand-rolled path.resolve + startsWith check.
 			// The lexical check passed a symlinked ancestor, letting execFileSync
 			// follow it and execute a script outside cwd. Throws on escape.
+			// Keep validation outside the optional-execution catch: preStepOptional
+			// must never bypass a path-containment failure.
 			resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
 			try {
 				// LAZY: defer dynamic import of node:child_process to its call site.
@@ -268,9 +275,22 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					cwd: manifest.cwd,
 					maxBuffer: 1024 * 1024, // 1MB cap
 				});
+				appendEventFireAndForget(manifest.eventsPath, {
+					type: "hook.pre_step_completed",
+					runId: manifest.runId,
+					taskId: task.id,
+					data: { script: input.step.preStepScript, outputBytes: Buffer.byteLength(preStepOutput, "utf8") },
+				});
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				const exitCode = (err as NodeJS.ErrnoException & { status?: number }).status;
+				appendEventFireAndForget(manifest.eventsPath, {
+					type: "hook.pre_step_failed",
+					runId: manifest.runId,
+					taskId: task.id,
+					message: `pre-step hook failed (exit ${exitCode ?? "?"})`,
+					data: { script: input.step.preStepScript, exitCode: exitCode ?? null, optional: input.step.preStepOptional === true },
+				});
 				// E1 (Round 15): structured CrewError with code E009 + help hint,
 				// instead of a raw Error. Surfaces the script path, exit code, and stderr.
 				// Round 21 (E4): if preStepOptional is set, a failing hook is NON-FATAL.
@@ -484,7 +504,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					runId: manifest.runId,
 					agentId: task.id,
 					artifactsRoot: manifest.artifactsRoot,
-					steeringFile: `${manifest.artifactsRoot}/steering/${task.id}.jsonl`,
+					steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 					onSpawn: (pid) => {
 						try {
 							({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
@@ -1222,9 +1242,14 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		// stale manifest and overwrite this task's freshly-written artifacts, silently
 		// losing them. persistSingleTaskUpdate is re-entrance-safe (runLockHeldByUs guard),
 		// so nesting it inside this lock is a no-op re-acquire, not a deadlock.
+		// ST-7: this is a terminal transition (task.status is completed/failed/needs_attention),
+		// pass skipCoalesce=true so the terminal update is durable — a SIGKILL in the
+		// 50ms coalesce window must NOT leave tasks.json showing the prior non-terminal
+		// status, otherwise crash recovery would see inconsistency between tasks.json
+		// (running) and events.jsonl (terminal).
 		tasks = await withRunLock(manifest, async () => {
 			await saveRunManifestAsync(manifest);
-			return persistSingleTaskUpdate(manifest, tasks, task);
+			return persistSingleTaskUpdate(manifest, tasks, task, undefined, true);
 		});
 		upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
 		// Execute task_result hook before emitting terminal event

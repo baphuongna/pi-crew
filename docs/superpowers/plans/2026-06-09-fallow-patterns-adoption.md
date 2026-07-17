@@ -1,5 +1,7 @@
 # Fallow Patterns Adoption - Implementation Plan
 
+> **Note:** `atomic-write-v2` / `AtomicWriter` mentioned in this plan was consolidated into `atomic-write.ts` as of v0.9.42. This document is preserved as historical record — the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity. See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Adopt 5 high-value patterns from fallow (Rust static analyzer) into pi-crew: structured error codes, atomic write v2 with fsync, health score system, plugin registry, and stable task ID refinement.

@@ -112,17 +112,12 @@ export function readTranscriptLinesCached(
 			truncated: read.truncated,
 		};
 		transcriptCache.set(key, entry);
-		// Evict oldest entry if cache exceeds max size
+		// FIND-12: evict the oldest entry by Map insertion order. Map natively
+		// preserves insertion order, so the first key is the oldest — replaces
+		// the previous O(N) `parsedAt` min-scan that ran on every miss.
 		if (transcriptCache.size > MAX_CACHE_SIZE) {
-			let oldestKey: string | null = null;
-			let oldestParsedAt = Infinity;
-			for (const [k, v] of transcriptCache.entries()) {
-				if (v.parsedAt < oldestParsedAt) {
-					oldestParsedAt = v.parsedAt;
-					oldestKey = k;
-				}
-			}
-			if (oldestKey) transcriptCache.delete(oldestKey);
+			const oldestKey = transcriptCache.keys().next().value;
+			if (oldestKey !== undefined) transcriptCache.delete(oldestKey);
 		}
 		return lines;
 	} catch {

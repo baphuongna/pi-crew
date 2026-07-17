@@ -72,7 +72,7 @@ test("onWithReplay replays missed events in order before live listener attaches"
 	}
 });
 
-test("onWithReplay dedups: a live event already replayed is suppressed", () => {
+test("onWithReplay dedups: a live event already replayed is suppressed", async () => {
 	const eventsPath = freshEventsPath();
 	const runId = "replay-dedup";
 	try {
@@ -94,6 +94,7 @@ test("onWithReplay dedups: a live event already replayed is suppressed", () => {
 			taskId: "t1",
 			seq: seq1,
 		});
+		await Promise.resolve();
 		assert.deepEqual(received, ["t1"], "live event with replayed seq must be suppressed");
 
 		// A NEW live event (higher seq) must deliver.
@@ -103,6 +104,7 @@ test("onWithReplay dedups: a live event already replayed is suppressed", () => {
 			taskId: "t2",
 			seq: seq1 + 1,
 		});
+		await Promise.resolve();
 		assert.deepEqual(received, ["t1", "t2"]);
 		unsub();
 	} finally {
@@ -110,7 +112,7 @@ test("onWithReplay dedups: a live event already replayed is suppressed", () => {
 	}
 });
 
-test("onWithReplay delivers transient live-only events (no seq)", () => {
+test("onWithReplay delivers transient live-only events (no seq)", async () => {
 	const eventsPath = freshEventsPath();
 	const runId = "replay-transient";
 	try {
@@ -121,6 +123,7 @@ test("onWithReplay delivers transient live-only events (no seq)", () => {
 		// worker_status events from the stream bridge carry NO seq (they are
 		// live-only, never persisted). They must always deliver.
 		runEventBus.emit({ type: "worker_status", runId });
+		await Promise.resolve();
 		assert.equal(received.length, 1);
 		assert.equal(received[0], "no-task");
 		unsub();
@@ -169,7 +172,7 @@ test("onWithReplay only replays events with seq > lastSeenSeq", () => {
 	}
 });
 
-test("onWithReplay falls back to live-only when the log does not exist", () => {
+test("onWithReplay falls back to live-only when the log does not exist", async () => {
 	const missingPath = path.join(os.tmpdir(), `pi-crew-replay-missing-${Date.now()}`, "events.jsonl");
 	const runId = "replay-missing";
 	try {
@@ -178,6 +181,7 @@ test("onWithReplay falls back to live-only when the log does not exist", () => {
 		// No replay (file missing); live listener still works.
 		assert.deepEqual(received, []);
 		runEventBus.emit({ type: "task_started", runId, taskId: "after" });
+		await Promise.resolve();
 		assert.deepEqual(received, ["after"]);
 		unsub();
 	} finally {

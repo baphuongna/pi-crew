@@ -445,7 +445,23 @@ export class SubagentManager {
 	}
 
 	private async pollRunToTerminal(cwd: string, record: SubagentRecord): Promise<void> {
+		// Safety: max 30 minutes (1800 polls at 1s interval) to prevent infinite
+		// polling if manifest file is deleted or run state becomes unrecoverable.
+		const MAX_POLL_COUNT = 1800;
+		let pollCount = 0;
 		while (record.runId && (record.status === "running" || record.status === "blocked")) {
+			if (++pollCount > MAX_POLL_COUNT) {
+				logInternalError(
+					"subagent-manager.poll-timeout",
+					new Error(`pollRunToTerminal exceeded ${MAX_POLL_COUNT} polls for runId=${record.runId}`),
+					`id=${record.id}`,
+				);
+				record.status = "error";
+				record.error = `Poll timeout: run did not reach terminal state after ${MAX_POLL_COUNT} seconds`;
+				record.completedAt = Date.now();
+				savePersistedSubagentRecord(cwd, record);
+				return;
+			}
 			const loaded = loadRunManifestById(cwd, record.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 			if (!loaded) {
 				await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));

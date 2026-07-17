@@ -7,7 +7,7 @@
  * Only STRUCTURAL changes trigger re-analysis.
  */
 
-import { createHash, type Hash } from "node:crypto";
+import { createHash, } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { logInternalError } from "../utils/internal-error.ts";
 

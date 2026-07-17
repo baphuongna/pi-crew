@@ -48,6 +48,15 @@ jobs:
         run: |
           npm run check:conflict-markers
           npm run check:lazy-imports
+      - name: Build bundle
+        # Required by test:bundle — the shipped bundle must be exercised by CI
+        # to catch the "all tests green but shipped artifact broken" class of
+        # regression (e.g. v0.9.13 stale-bundle incident).
+        run: npm run build:bundle
+      - name: Bundle load test
+        # Exercises dist/index.mjs (the actual entry Pi loads), not just the
+        # TypeScript source. Catches bundle-only regressions.
+        run: npm run test:bundle
       - name: Test
         run: npm test
       - name: Pack dry run

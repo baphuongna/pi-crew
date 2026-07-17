@@ -10,7 +10,6 @@ import { aggregateUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { RenderCoalescer } from "./render-coalescer.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { notificationBadge } from "./widget/widget-formatters.ts";
@@ -99,155 +98,25 @@ export function updatePiCrewPowerbar(
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
 ): void {
-	if (config?.powerbar === false) return;
-	const useStatusFallback = !hasPowerbarConsumer(events);
-	const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
-	const active = runs
-		.map((run) => {
-			let snapshot: RunUiSnapshot | undefined;
-			try {
-				// 1.2: render path is read-only. Use cache.get() only; the background
-				// preload loop in register.ts populates entries on its own cadence.
-				snapshot = snapshotCache?.get(run.runId);
-			} catch (error) {
-				logInternalError("powerbar.snapshot", error, run.runId);
-			}
-			if (snapshot)
-				return {
-					run: snapshot.manifest,
-					agents: snapshot.agents,
-					tasks: snapshot.tasks,
-					snapshot,
-				};
-			let agents: ReturnType<typeof readCrewAgents> = [];
-			try {
-				agents = readCrewAgents(run);
-			} catch (error) {
-				logInternalError("powerbar.readCrewAgents", error, run.runId);
-			}
-			return { run, agents, tasks: readTasks(run.tasksPath), snapshot };
-		})
-		.filter((item) => isDisplayActiveRun(item.run, item.agents));
-	if (!active.length) {
-		lastActiveKey = undefined;
-		lastProgressKey = undefined;
-		lastStepsKey = undefined;
-		safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
-		safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
-		safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
-		return;
-	}
-	const agents = active.flatMap((item) => item.agents);
-	const tasks = active.flatMap((item) => item.tasks);
-	const running = agents.filter((agent) => agent.status === "running").length;
-	const waiting = active.reduce(
-		(sum, item) =>
-			sum +
-			(item.snapshot
-				? item.snapshot.progress.queued + (item.snapshot.progress.waiting ?? 0)
-				: item.tasks.reduce((s, t) => s + (t.status === "queued" || t.status === "waiting" ? 1 : 0), 0)),
-		0,
+	powerbarPublisher.update(
+		events,
+		cwd,
+		config,
+		manifestCache,
+		snapshotCache,
+		ctx,
+		notificationCount,
+		preloadedManifests,
 	);
-	const completed = active.reduce(
-		(sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t) => s + (t.status === "completed" ? 1 : 0), 0)),
-		0,
-	);
-	const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
-	const usage = aggregateUsage(tasks);
-	const snapshotTokens = active.reduce(
-		(sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
-		0,
-	);
-	const hasUsage = usage && (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0;
-	const tokenTotal = hasUsage
-		? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
-		: snapshotTokens;
-	const model =
-		config?.showModel === false
-			? undefined
-			: agents
-					.find((agent) => agent.model)
-					?.model?.split("/")
-					.at(-1);
-	const tokenText = config?.showTokens === false || !tokenTotal ? undefined : compactTokens(tokenTotal);
-	const liveRunning = listLiveAgents().filter((a) => a.status === "running").length;
-	// Always show consistent status: running count + queued count from live tasks only
-	// Avoid snapshot cache for counts to prevent UI jumping
-	const runningCount = agents.filter((a) => a.status === "running").length;
-	// Count queued/waiting tasks directly from tasks array (not snapshot) for consistency
-	const queuedCount = active.reduce(
-		(sum, item) => sum + item.tasks.reduce((s, t) => s + (t.status === "queued" || t.status === "waiting" ? 1 : 0), 0),
-		0,
-	);
-	// Format: "1 running", "2 running · 1 queued", "3 queued", "idle"
-	const runningLabel = runningCount === 1 ? "1 running" : `${runningCount} running`;
-	const queuedLabel = queuedCount === 1 ? "1 queued" : `${queuedCount} queued`;
-	const crewStatus =
-		runningCount > 0 && queuedCount > 0
-			? `${runningLabel} · ${queuedLabel}`
-			: runningCount > 0
-				? runningLabel
-				: queuedCount > 0
-					? queuedLabel
-					: "idle";
-	const liveSuffix = liveRunning > 0 ? ` (${liveRunning} live)` : "";
-	const notificationText = notificationBadge(notificationCount);
-	// Always show model + tokens as suffix when available (for activePayload consistency)
-	const suffixParts = [model, tokenText].filter(Boolean);
-	const activeSuffix = suffixParts.length > 0 ? suffixParts.join(" · ") : undefined;
-	// Progress always includes token count for consistency
-	const progressSuffix = `${completed}/${total}${tokenText ? ` · ${tokenText}` : ""}`;
-	// Build complete, always-consistent fallback text AND event payload to prevent UI flickering
-	// Both fallback and events must use the SAME format - no conditional display
-	// Format: "⚙ 1 running · 1 queued · model · 30k · 0/1" (never changes based on availability)
-	const progressPart = `${completed}/${total}`;
-	const allParts = [`⚙ ${crewStatus}`, model ?? "", tokenText ?? "", progressPart].filter(Boolean);
-	const unifiedText = allParts.join(" · ");
-	// activePayload.text includes notification badge for event payload
-	const activePayload = {
-		id: "pi-crew-active",
-		icon: "⚙",
-		text: `⚙ ${crewStatus}${liveSuffix}${notificationText}${activeSuffix ? ` · ${activeSuffix}` : ""}`,
-		suffix: activeSuffix,
-		color: running ? "accent" : "warning",
-	} as const;
-	const progressPayload = {
-		id: "pi-crew-progress",
-		text: (active[0]?.run as TeamRunManifest)?.team ?? "crew",
-		bar: Math.round((completed / total) * 100),
-		suffix: progressSuffix,
-		color: completed === total ? "success" : "accent",
-		barSegments: 8,
-	} as const;
-	// Build step progress: "explorer > planner > executor > verifier" with current step highlighted
-	const stepsPayload = buildStepsPayload(active, tasks);
-	// 1.8: dedup per segment using a key over every visible field. Previously
-	// the dedup string only carried text/suffix/running, so changes to `bar`
-	// (progress %) or `color` could be swallowed and stale UI emitted again
-	// later as a single noisy burst.
-	const activeKey = powerbarKey(activePayload);
-	const progressKey = powerbarKey(progressPayload);
-	const stepsKey = powerbarKey(stepsPayload);
-	if (activeKey !== lastActiveKey) {
-		lastActiveKey = activeKey;
-		safeEmit(events, "powerbar:update", activePayload);
-	}
-	if (progressKey !== lastProgressKey) {
-		lastProgressKey = progressKey;
-		safeEmit(events, "powerbar:update", progressPayload);
-	}
-	if (stepsKey !== lastStepsKey) {
-		lastStepsKey = stepsKey;
-		safeEmit(events, "powerbar:update", stepsPayload);
-	}
-	// Never call setStatusFallback - crew-widget manages "pi-crew" status with its own widget format
-	// Powerbar only emits events; it does not set status directly
 }
 
-// --- Dedup state: skip emit if segment data unchanged ---
-let lastActiveKey: string | undefined;
-let lastProgressKey: string | undefined;
-let lastStepsKey: string | undefined;
+// --- Dedup state + coalescer live on a class instance so they survive hot-reload
+// cleanly: previously these were module-level globals (`lastActiveKey`,
+// `latestArgs`, `powerbarCoalescer`) that survived across reloads and could
+// leak between independent sessions. Encapsulating the state on an instance
+// lets `dispose()` tear it down and a fresh `new PowerbarPublisher()` start
+// from clean slate. The module-level functions remain for back-compat and
+// delegate to a process-wide singleton.
 
 interface PowerbarPayloadShape {
 	id?: string;
@@ -333,14 +202,244 @@ interface PowerbarUpdateArgs {
 	preloadedManifests?: TeamRunManifest[];
 }
 
-let latestArgs: PowerbarUpdateArgs | null = null;
+/**
+ * Owns the per-segment dedup keys and the coalescer. Module-level functions
+ * (`updatePiCrewPowerbar`, `requestPowerbarUpdate`, etc.) are thin facades
+ * over a process-wide singleton so existing call sites and tests keep
+ * working without code changes.
+ */
+class PowerbarPublisher {
+	#lastActiveKey: string | undefined;
+	#lastProgressKey: string | undefined;
+	#lastStepsKey: string | undefined;
+	#latestArgs: PowerbarUpdateArgs | null = null;
+	readonly #coalescer: RenderCoalescer;
 
-const powerbarCoalescer = new RenderCoalescer(() => {
-	if (!latestArgs) return;
-	const a = latestArgs;
-	latestArgs = null;
-	updatePiCrewPowerbar(a.events, a.cwd, a.config, a.manifestCache, a.snapshotCache, a.ctx, a.notificationCount, a.preloadedManifests);
-}, 200);
+	constructor() {
+		this.#coalescer = new RenderCoalescer(() => {
+			const a = this.#latestArgs;
+			this.#latestArgs = null;
+			if (!a) return;
+			this.update(
+				a.events,
+				a.cwd,
+				a.config,
+				a.manifestCache,
+				a.snapshotCache,
+				a.ctx,
+				a.notificationCount,
+				a.preloadedManifests,
+			);
+		}, 200);
+	}
+
+	update(
+		events: EventBus,
+		cwd: string,
+		config?: CrewUiConfig,
+		manifestCache?: ManifestCache,
+		snapshotCache?: RunSnapshotCache,
+		ctx?: StatusContext,
+		notificationCount = 0,
+		preloadedManifests?: TeamRunManifest[],
+	): void {
+		if (config?.powerbar === false) return;
+		const useStatusFallback = !hasPowerbarConsumer(events);
+		const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
+		const active = runs
+			.map((run) => {
+				let snapshot: RunUiSnapshot | undefined;
+				try {
+					// 1.2: render path is read-only. Use cache.get() only; the background
+					// preload loop in register.ts populates entries on its own cadence.
+					snapshot = snapshotCache?.get(run.runId);
+				} catch (error) {
+					logInternalError("powerbar.snapshot", error, run.runId);
+				}
+				if (snapshot)
+					return {
+						run: snapshot.manifest,
+						agents: snapshot.agents,
+						tasks: snapshot.tasks,
+						snapshot,
+					};
+				let agents: ReturnType<typeof readCrewAgents> = [];
+				try {
+					agents = readCrewAgents(run);
+				} catch (error) {
+					logInternalError("powerbar.readCrewAgents", error, run.runId);
+				}
+				return { run, agents, tasks: readTasks(run.tasksPath), snapshot };
+			})
+			.filter((item) => isDisplayActiveRun(item.run, item.agents));
+		if (!active.length) {
+			this.#lastActiveKey = undefined;
+			this.#lastProgressKey = undefined;
+			this.#lastStepsKey = undefined;
+			safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
+			safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
+			safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+			return;
+		}
+		const agents = active.flatMap((item) => item.agents);
+		const tasks = active.flatMap((item) => item.tasks);
+		const running = agents.filter((agent) => agent.status === "running").length;
+		const waiting = active.reduce(
+			(sum, item) =>
+				sum +
+				(item.snapshot
+					? item.snapshot.progress.queued + (item.snapshot.progress.waiting ?? 0)
+					: item.tasks.reduce((s, t) => s + (t.status === "queued" || t.status === "waiting" ? 1 : 0), 0)),
+			0,
+		);
+		const completed = active.reduce(
+			(sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t) => s + (t.status === "completed" ? 1 : 0), 0)),
+			0,
+		);
+		const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
+		const usage = aggregateUsage(tasks);
+		const snapshotTokens = active.reduce(
+			(sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
+			0,
+		);
+		const hasUsage = usage && (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0;
+		const tokenTotal = hasUsage
+			? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
+			: snapshotTokens;
+		const model =
+			config?.showModel === false
+				? undefined
+				: agents
+						.find((agent) => agent.model)
+						?.model?.split("/")
+						.at(-1);
+		const tokenText = config?.showTokens === false || !tokenTotal ? undefined : compactTokens(tokenTotal);
+		const liveRunning = listLiveAgents().filter((a) => a.status === "running").length;
+		// Always show consistent status: running count + queued count from live tasks only
+		// Avoid snapshot cache for counts to prevent UI jumping
+		const runningCount = agents.filter((a) => a.status === "running").length;
+		// Count queued/waiting tasks directly from tasks array (not snapshot) for consistency
+		const queuedCount = active.reduce(
+			(sum, item) => sum + item.tasks.reduce((s, t) => s + (t.status === "queued" || t.status === "waiting" ? 1 : 0), 0),
+			0,
+		);
+		// Format: "1 running", "2 running · 1 queued", "3 queued", "idle"
+		const runningLabel = runningCount === 1 ? "1 running" : `${runningCount} running`;
+		const queuedLabel = queuedCount === 1 ? "1 queued" : `${queuedCount} queued`;
+		const crewStatus =
+			runningCount > 0 && queuedCount > 0
+				? `${runningLabel} · ${queuedLabel}`
+				: runningCount > 0
+					? runningLabel
+					: queuedCount > 0
+						? queuedLabel
+						: "idle";
+		const liveSuffix = liveRunning > 0 ? ` (${liveRunning} live)` : "";
+		const notificationText = notificationBadge(notificationCount);
+		// Always show model + tokens as suffix when available (for activePayload consistency)
+		const suffixParts = [model, tokenText].filter(Boolean);
+		const activeSuffix = suffixParts.length > 0 ? suffixParts.join(" · ") : undefined;
+		// Progress always includes token count for consistency
+		const progressSuffix = `${completed}/${total}${tokenText ? ` · ${tokenText}` : ""}`;
+		// Build complete, always-consistent fallback text AND event payload to prevent UI flickering
+		// Both fallback and events must use the SAME format - no conditional display
+		// Format: "⚙ 1 running · 1 queued · model · 30k · 0/1" (never changes based on availability)
+		const progressPart = `${completed}/${total}`;
+		const allParts = [`⚙ ${crewStatus}`, model ?? "", tokenText ?? "", progressPart].filter(Boolean);
+		const unifiedText = allParts.join(" · ");
+		// activePayload.text includes notification badge for event payload
+		const activePayload = {
+			id: "pi-crew-active",
+			icon: "⚙",
+			text: `⚙ ${crewStatus}${liveSuffix}${notificationText}${activeSuffix ? ` · ${activeSuffix}` : ""}`,
+			suffix: activeSuffix,
+			color: running ? "accent" : "warning",
+		} as const;
+		const progressPayload = {
+			id: "pi-crew-progress",
+			text: (active[0]?.run as TeamRunManifest)?.team ?? "crew",
+			bar: Math.round((completed / total) * 100),
+			suffix: progressSuffix,
+			color: completed === total ? "success" : "accent",
+			barSegments: 8,
+		} as const;
+		// Build step progress: "explorer > planner > executor > verifier" with current step highlighted
+		const stepsPayload = buildStepsPayload(active, tasks);
+		// 1.8: dedup per segment using a key over every visible field. Previously
+		// the dedup string only carried text/suffix/running, so changes to `bar`
+		// (progress %) or `color` could be swallowed and stale UI emitted again
+		// later as a single noisy burst.
+		const activeKey = powerbarKey(activePayload);
+		const progressKey = powerbarKey(progressPayload);
+		const stepsKey = powerbarKey(stepsPayload);
+		if (activeKey !== this.#lastActiveKey) {
+			this.#lastActiveKey = activeKey;
+			safeEmit(events, "powerbar:update", activePayload);
+		}
+		if (progressKey !== this.#lastProgressKey) {
+			this.#lastProgressKey = progressKey;
+			safeEmit(events, "powerbar:update", progressPayload);
+		}
+		if (stepsKey !== this.#lastStepsKey) {
+			this.#lastStepsKey = stepsKey;
+			safeEmit(events, "powerbar:update", stepsPayload);
+		}
+		// Never call setStatusFallback - crew-widget manages "pi-crew" status with its own widget format
+		// Powerbar only emits events; it does not set status directly
+	}
+
+	/**
+	 * Request a coalesced powerbar update. Multiple rapid calls are batched
+	 * into a single render pass within 200ms, preventing UI flicker from
+	 * event bursts.
+	 */
+	request(
+		events: EventBus,
+		cwd: string,
+		config?: CrewUiConfig,
+		manifestCache?: ManifestCache,
+		snapshotCache?: RunSnapshotCache,
+		ctx?: StatusContext,
+		notificationCount = 0,
+		preloadedManifests?: TeamRunManifest[],
+	): void {
+		if (config?.powerbar === false) return;
+		this.#latestArgs = {
+			events,
+			cwd,
+			config,
+			manifestCache,
+			snapshotCache,
+			ctx,
+			notificationCount,
+			preloadedManifests,
+		};
+		this.#coalescer.request();
+	}
+
+	clear(events: EventBus): void {
+		this.#lastActiveKey = undefined;
+		this.#lastProgressKey = undefined;
+		this.#lastStepsKey = undefined;
+		safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
+		safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
+		safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+	}
+
+	/** Reset dedup state on session lifecycle events. */
+	resetDedupState(): void {
+		this.#lastActiveKey = undefined;
+		this.#lastProgressKey = undefined;
+		this.#lastStepsKey = undefined;
+	}
+
+	dispose(): void {
+		this.#coalescer.flush();
+		this.#coalescer.dispose();
+	}
+}
+
+const powerbarPublisher = new PowerbarPublisher();
 
 /**
  * Request a coalesced powerbar update. Multiple rapid calls are batched into a single
@@ -356,8 +455,7 @@ export function requestPowerbarUpdate(
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
 ): void {
-	if (config?.powerbar === false) return;
-	latestArgs = {
+	powerbarPublisher.request(
 		events,
 		cwd,
 		config,
@@ -366,28 +464,19 @@ export function requestPowerbarUpdate(
 		ctx,
 		notificationCount,
 		preloadedManifests,
-	};
-	powerbarCoalescer.request();
+	);
 }
 
 /** Dispose the powerbar coalescer. Call during extension cleanup. */
 export function disposePowerbarCoalescer(): void {
-	powerbarCoalescer.flush();
-	powerbarCoalescer.dispose();
+	powerbarPublisher.dispose();
 }
 
 export function clearPiCrewPowerbar(events: EventBus): void {
-	lastActiveKey = undefined;
-	lastProgressKey = undefined;
-	lastStepsKey = undefined;
-	safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
-	safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
-	safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+	powerbarPublisher.clear(events);
 }
 
 /** Reset dedup state on session lifecycle events. */
 export function resetPowerbarDedupState(): void {
-	lastActiveKey = undefined;
-	lastProgressKey = undefined;
-	lastStepsKey = undefined;
+	powerbarPublisher.resetDedupState();
 }

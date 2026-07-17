@@ -28,23 +28,34 @@ export interface SkillDescriptor {
 }
 
 /**
- * F6 (v0.7.9): discover skills from all five roots (matching pi-subagents'
- * skill-loader so users authoring skills under either convention find them).
- * Roots, in precedence order (first hit wins):
- *   1. <cwd>/.pi/skills          (project, Pi standard)
- *   2. <cwd>/.agents/skills      (project, Agent Skills spec — agentskills.io)
- *   3. <cwd>/skills              (project, legacy pi-crew convention)
- *   4. <getAgentDir>/skills      (user, Pi standard)
- *   5. <homedir>/.agents/skills  (user, Agent Skills spec)
- *   6. <homedir>/.pi/skills      (user, legacy Pi — pre-standard)
- *   7. PACKAGE_SKILLS_DIR        (bundled, trusted)
- * The `PACKAGE_SKILLS_DIR` (bundled) and the legacy `<cwd>/skills` root are
- * kept as separate `source` values to preserve the existing capability
- * inventory shape — callers that key on `source === "package"` / `source ===
- * "project"` keep working.
+ * F6 (v0.7.9): discover skills from all roots (matching pi-subagents' skill-loader
+ * so users authoring skills under either convention find them).
+ *
+ * IMPORTANT — inventory vs injection (SEC-003): this function returns EVERY
+ * skill found across roots (NO first-wins dedup) because it feeds the capability
+ * INVENTORY, which intentionally surfaces all skills (incl. project shadows) for
+ * transparency; `capability-inventory.ts` then marks project/user items that
+ * shadow a package/builtin one and re-sorts by id.
+ *
+ * The actual skill-content INJECTION path is separate: `skill-instructions.ts`
+ * `candidateSkillDirs` + `readSkillMarkdown` use first-wins with PACKAGE FIRST
+ * (SEC-003 fix, regression-tested in test/unit/skill-instructions.test.ts) so a
+ * project skill can NEVER override a trusted package skill's content in worker
+ * prompts. The package-first order below mirrors that injection path for
+ * consistency/defense-in-depth.
+ *
+ * Roots:
+ *   1. PACKAGE_SKILLS_DIR        (bundled, trusted)
+ *   2. <cwd>/.pi/skills          (project, Pi standard)
+ *   3. <cwd>/.agents/skills      (project, Agent Skills spec — agentskills.io)
+ *   4. <cwd>/skills              (project, legacy pi-crew convention)
+ *   5. <getAgentDir>/skills      (user, Pi standard)
+ *   6. <homedir>/.agents/skills  (user, Agent Skills spec)
+ *   7. <homedir>/.pi/skills      (user, legacy Pi — pre-standard)
  */
 function listSkillDirs(cwd: string): Array<{ root: string; source: SkillDescriptor["source"] }> {
 	return [
+		{ root: PACKAGE_SKILLS_DIR, source: "package" },
 		{ root: path.resolve(cwd, ".pi", "skills"), source: "project-pi" },
 		{
 			root: path.resolve(cwd, ".agents", "skills"),
@@ -57,7 +68,6 @@ function listSkillDirs(cwd: string): Array<{ root: string; source: SkillDescript
 			source: "user-agents",
 		},
 		{ root: path.join(os.homedir(), ".pi", "skills"), source: "user-pi" },
-		{ root: PACKAGE_SKILLS_DIR, source: "package" },
 	];
 }
 

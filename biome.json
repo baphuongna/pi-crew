@@ -29,7 +29,7 @@
 				"noUselessEscapeInRegex": "off"
 			},
 			"correctness": {
-				"noUnusedImports": "off",
+				"noUnusedImports": "error",
 				"noUnusedFunctionParameters": "off",
 				"noUnusedVariables": "off",
 				"noVoidTypeReturn": "off",

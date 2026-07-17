@@ -44,7 +44,7 @@ export const TEAM_TASK_STATUS_TRANSITIONS: Readonly<Record<TeamTaskStatus, reado
 };
 
 /** @internal */
-const TEAM_EVENT_TYPES = [
+export const TEAM_EVENT_TYPES = [
 	"run.created",
 	"run.queued",
 	"run.planning",
@@ -56,6 +56,10 @@ const TEAM_EVENT_TYPES = [
 	"task.created",
 	"task.started",
 	"task.progress",
+	"hook.pre_step_started",
+	"hook.pre_step_completed",
+	"hook.pre_step_failed",
+	"hook.pre_step_optional_failed",
 	"task.blocked",
 	"task.green",
 	"task.red",

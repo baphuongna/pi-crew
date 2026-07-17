@@ -5,16 +5,13 @@
  */
 
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
-import { computePhaseProgress, formatPhaseProgressLine } from "../../runtime/phase-progress.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
-import { getTaskUsage } from "../../runtime/usage-tracker.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
-import { computeLiveDurationMs } from "../live-duration.ts";
 import { spinnerFrame } from "../spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../status-colors.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
-import { agentActivity, agentStats, elapsed, formatTokensCompact, notificationBadge } from "./widget-formatters.ts";
+import { agentActivity, agentStats, notificationBadge } from "./widget-formatters.ts";
 import { activeWidgetRuns, shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
@@ -98,7 +95,7 @@ export function buildWidgetLines(
 		// reached its terminal status). The status label is also surfaced
 		// explicitly so the row cannot be misread as an active run.
 		const agentCountText = `${completed}/${agents.length} agents`;
-		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : Date.now();
+		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
 		const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";

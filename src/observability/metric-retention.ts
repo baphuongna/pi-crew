@@ -29,6 +29,10 @@ export class TimeWindowedCounter {
 		this.prune();
 	}
 
+	// PERF (OBS-5): This method is O(N) per call because it linearly scans
+	// all events and calls labelKey() (which uses JSON.stringify) on each.
+	// A more efficient aggregation (e.g., pre-aggregated label buckets or a
+	// sliding-window histogram) is planned to replace this hot path.
 	count(labels: MetricLabels = {}, durationMs = this.windowMs): number {
 		const now = this.now();
 		this.pruneAt(now);

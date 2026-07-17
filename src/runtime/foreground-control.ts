@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -82,7 +83,7 @@ export function writeForegroundInterruptRequest(
 			try {
 				fs.mkdirSync(lockDir, { recursive: true });
 				try {
-					fs.writeFileSync(pidFile, String(process.pid), "utf-8");
+					atomicWriteFile(pidFile, String(process.pid));
 				} catch {
 					/* best-effort */
 				}
@@ -178,7 +179,7 @@ export function writeForegroundInterruptRequest(
 			acknowledged: false,
 		};
 		fs.mkdirSync(path.dirname(controlPath), { recursive: true });
-		fs.writeFileSync(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}\n`, "utf-8");
+		atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}\n`);
 		appendEvent(manifest.eventsPath, {
 			type: "foreground.interrupt_requested",
 			runId: manifest.runId,

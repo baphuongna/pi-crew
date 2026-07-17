@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_OUTPUT_CONTEXT } from "../config/defaults.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
@@ -155,7 +156,7 @@ export function teePathForArtifact(artifactsRoot: string, taskId: string, artifa
 function writeTeeFile(fullOutputPath: string, content: string): boolean {
 	try {
 		fs.mkdirSync(path.dirname(fullOutputPath), { recursive: true });
-		fs.writeFileSync(fullOutputPath, content, "utf-8");
+		atomicWriteFile(fullOutputPath, content);
 		return true;
 	} catch {
 		return false;

@@ -10,6 +10,7 @@ import { getRuntimeWarmupStatus } from "../../runtime/runtime-warmup.ts";
 import { formatZombieReport, scanZombieSubagents } from "../../runtime/zombie-scanner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { TeamToolParams } from "../../schema/team-tool-schema.ts";
+import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
@@ -98,7 +99,7 @@ function checkWritableDir(dir: string): { ok: boolean; detail: string } {
 		// fs.accessSync(W_OK) is unreliable on Windows; verify by writing a temp file.
 		const probePath = `${dir}/.pi-crew-write-test`;
 		try {
-			fs.writeFileSync(probePath, "ok", "utf-8");
+			atomicWriteFile(probePath, "ok");
 			fs.rmSync(probePath, { force: true });
 		} catch {
 			return {

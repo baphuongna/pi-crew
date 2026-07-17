@@ -9,6 +9,8 @@ export class DynamicCrewBorder {
 	private readonly theme: CrewTheme;
 	private readonly color?: (value: string) => string;
 	private readonly char: string;
+	private cachedWidth = -1;
+	private cachedLine = "";
 
 	constructor(theme: CrewTheme, options: DynamicCrewBorderOptions = {}) {
 		this.theme = theme;
@@ -17,9 +19,17 @@ export class DynamicCrewBorder {
 	}
 
 	render(width: number): string[] {
-		const line = this.char.repeat(Math.max(0, width));
-		return [this.color ? this.color(line) : this.theme.fg("border", line)];
+		const w = Math.max(0, width);
+		if (w !== this.cachedWidth) {
+			const line = this.char.repeat(w);
+			this.cachedLine = this.color ? this.color(line) : this.theme.fg("border", line);
+			this.cachedWidth = w;
+		}
+		return [this.cachedLine];
 	}
 
-	invalidate(): void {}
+	invalidate(): void {
+		this.cachedWidth = -1;
+		this.cachedLine = "";
+	}
 }

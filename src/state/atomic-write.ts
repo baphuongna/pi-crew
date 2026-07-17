@@ -315,8 +315,13 @@ function isRetryableLinkError(error: unknown): boolean {
  * It atomically creates a hard link to the source. We then unlink the source.
  * This prevents TOCTOU attacks where an attacker plants a symlink at the
  * destination between the check and the rename operation.
+ *
+ * ST-8: this is the canonical symlink-safe rename helper used by both
+ * `atomicWriteFile` (sync) and `atomicWriteFileAsync` (async) paths. The
+ * helper is exported so any future caller can share the same symlink-safe
+ * rename semantics; keep this signature stable.
  */
-function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): void {
+export function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): void {
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
@@ -371,7 +376,12 @@ function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): vo
 	throw lastError;
 }
 
-async function renameWithLinkAsync(tempPath: string, filePath: string, retries = 8): Promise<void> {
+/**
+ * ST-8: async twin of `renameWithLinkSync`. Exported so any future caller
+ * can share the same symlink-safe rename semantics as the primary
+ * `atomicWriteFileAsync` path.
+ */
+export async function renameWithLinkAsync(tempPath: string, filePath: string, retries = 8): Promise<void> {
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
@@ -496,21 +506,21 @@ export type WriteDurability = "full" | "best-effort";
 /** Options accepted by atomicWriteFile (forward-compatible string | object form). */
 export type AtomicWriteOptions =
 	| string // legacy: expectedHash
-	| { expectedHash?: string; durability?: WriteDurability };
+	| { expectedHash?: string; durability?: WriteDurability; mode?: number };
 
-function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability } {
-	if (typeof arg === "string") return { expectedHash: arg, durability: "full" };
+function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability; mode?: number } {
+	if (typeof arg === "string") return { expectedHash: arg, durability: "full", mode: undefined };
 	if (arg && typeof arg === "object") {
-		const o = arg as { expectedHash?: string; durability?: WriteDurability };
+		const o = arg as { expectedHash?: string; durability?: WriteDurability; mode?: number };
 		const durability: WriteDurability = o.durability === "best-effort" ? "best-effort" : "full";
-		return { expectedHash: o.expectedHash, durability };
+		return { expectedHash: o.expectedHash, durability, mode: o.mode };
 	}
-	return { durability: "full" };
+	return { durability: "full", mode: undefined };
 }
 
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
 	cancelPendingCoalescedWrite(filePath);
-	const { durability } = normalizeOptions(options);
+	const { durability, mode } = normalizeOptions(options);
 	if (!isSymlinkSafeDirCached(filePath))
 		throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
 	// On Windows the parent directory may be referenced via a short-name alias
@@ -556,7 +566,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 	const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
 	let fd: number | undefined;
 	try {
-		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, 0o600);
+		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = fs.fstatSync(fd);
 		if (!openedStat.isFile()) {
@@ -747,6 +757,14 @@ let flushInProgress = 0;
  * Buffer a JSON write and flush it after `coalesceMs` ms (default 50).
  * Multiple writes to the same path within the window collapse to one disk write.
  *
+ * ST-7 escape hatch: pass `skipCoalesce: true` to bypass the buffer entirely
+ * and write synchronously via `atomicWriteJson`. Use for terminal task status
+ * transitions where a SIGKILL during the 50ms coalesce window must NOT lose
+ * the terminal status update — otherwise crash recovery would see "running"
+ * in tasks.json while events.jsonl already shows "completed", causing
+ * double-execution / zombie detection. Defaults to `false` (buffered write)
+ * so all existing callers preserve their behavior.
+ *
  * @see The coalescing caveat: a `readJsonFile` call between buffer and flush
  *      sees the previous on-disk content. Callers needing read-after-write
  *      must call `flushPendingAtomicWrites()` first or use `atomicWriteJson`.
@@ -754,9 +772,17 @@ let flushInProgress = 0;
 export function atomicWriteJsonCoalesced<T>(
 	filePath: string,
 	value: T,
-	coalesceMs = DEFAULT_ATOMIC_COALESCE_MS,
+	coalesceMs: number = DEFAULT_ATOMIC_COALESCE_MS,
 	options?: AtomicWriteOptions,
+	skipCoalesce: boolean = false,
 ): void {
+	// ST-7: bypass coalescing for callers that need durable synchronous
+	// semantics. atomicWriteJson goes through atomicWriteFile which uses
+	// renameWithLinkSync + fsync — fully durable, no SIGKILL window.
+	if (skipCoalesce) {
+		atomicWriteJson(filePath, value, options);
+		return;
+	}
 	const content = `${JSON.stringify(value, null, 2)}\n`;
 	const previous = pendingAtomicWrites.get(filePath);
 	if (previous) clearTimeout(previous.timer);

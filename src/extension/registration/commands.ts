@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
+import { atomicWriteFile } from "../../state/atomic-write.ts";
 // Lazy-loaded: team-tool.ts pulls in entire runtime chain (1.4s+).
 import type { handleTeamTool as HandleTeamToolFn } from "../team-tool.ts";
 
@@ -1171,7 +1172,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 			const skillPath = path.join(skillDir, "SKILL.md");
 			try {
 				fs.mkdirSync(skillDir, { recursive: true });
-				fs.writeFileSync(skillPath, instantiated.content, "utf-8");
+				atomicWriteFile(skillPath, instantiated.content);
 				await notifyCommandResult(
 					ctx,
 					`Created skill '${template.id}' at:\n${skillPath}\n\n${instantiated.content.slice(0, 200)}...`,

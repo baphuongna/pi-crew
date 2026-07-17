@@ -141,8 +141,13 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 				};
 			}
 			if (result.outcome === "modify" && result.data) {
-				Object.assign(ctx, sanitizeMergeData(result.data));
-				capturedModifications = { ...result.data };
+				// EXT-13 (Round 3): Deep-clone hook result.data so subsequent hooks
+				// (or the same hook if reused) cannot mutate shared ctx via shared
+				// nested-object references. sanitizeMergeData already produces a
+				// fresh top-level object, but nested values would still alias.
+				const clonedData = sanitizeMergeData(result.data);
+				Object.assign(ctx, clonedData);
+				capturedModifications = clonedData;
 			}
 		} catch (error) {
 			const message = sanitizeErrorMessage(error instanceof Error ? error.message : String(error));

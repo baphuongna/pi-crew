@@ -557,8 +557,8 @@ class TextinputSubmenu {
 			this.buffer = this.buffer.slice(0, -1);
 			return;
 		}
-		// Printable character
-		if (data.length === 1 && data >= " " && data <= "~") {
+		// Printable character (accept any non-control character, including Unicode)
+		if (data.length === 1 && data >= " ") {
 			this.buffer += data;
 			return;
 		}
@@ -704,7 +704,7 @@ class AgentOverridesSubmenu {
 			this.editBuffer = this.editBuffer.slice(0, -1);
 			return;
 		}
-		if (data.length === 1 && data >= " " && data <= "~") {
+		if (data.length === 1 && data >= " ") {
 			this.editBuffer += data;
 		}
 	}

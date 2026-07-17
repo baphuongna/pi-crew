@@ -397,31 +397,43 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 		if (manifest?.status === "running" && manifest.async?.pid !== undefined) {
 			const pidAlive = checkProcessLiveness(manifest.async.pid).alive;
 			if (!pidAlive && !hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
-				// Dead PID + no recent life evidence → cancel the manifest and unregister
+				// Dead PID + no recent life evidence → cancel the manifest and unregister.
+				// RT-F5: wrap load+modify+save in withRunLockSync so concurrent writers
+				// (e.g. team-runner final saveRunTasks) cannot interleave between the
+				// repaired-tasks write and the manifest-status flip. terminateLiveAgentsForRun
+				// is fire-and-forget so it stays OUTSIDE the lock to avoid blocking the
+				// critical section on async IPC.
 				try {
-					const fullLoaded = loadRunManifestById(entry.cwd, entry.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+					const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
 					if (fullLoaded) {
-						const now_iso = new Date(now).toISOString();
-						const repairedTasks = fullLoaded.tasks.map((task) => {
-							if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-								return {
-									...task,
-									status: "cancelled" as const,
-									finishedAt: now_iso,
-									error: "Orphaned run: worker process dead and no recent activity",
-								};
+						withRunLockSync(fullLoaded.manifest, () => {
+							// Re-read under lock so the stale-best-effort load above
+							// can't cause us to clobber a fresh status flip.
+							const fresh = loadRunManifestById(entry.cwd, entry.runId);
+							if (!fresh) return;
+							if (fresh.manifest.status !== "running") return;
+							const now_iso = new Date(now).toISOString();
+							const repairedTasks = fresh.tasks.map((task) => {
+								if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+									return {
+										...task,
+										status: "cancelled" as const,
+										finishedAt: now_iso,
+										error: "Orphaned run: worker process dead and no recent activity",
+									};
+								}
+								return task;
+							});
+							saveRunTasks(fresh.manifest, repairedTasks);
+							for (const task of repairedTasks) {
+								try {
+									upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+								} catch {
+									/* non-critical */
+								}
 							}
-							return task;
+							updateRunStatus(fresh.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
 						});
-						saveRunTasks(fullLoaded.manifest, repairedTasks);
-						for (const task of repairedTasks) {
-							try {
-								upsertCrewAgent(fullLoaded.manifest, recordFromTask(fullLoaded.manifest, task, "scaffold"));
-							} catch {
-								/* non-critical */
-							}
-						}
-						updateRunStatus(fullLoaded.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
 						void terminateLiveAgentsForRun(
 							fullLoaded.manifest.runId,
 							"cancelled",
@@ -447,35 +459,39 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 		if (manifest?.status === "running" && manifest.async === undefined) {
 			if (!hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
 				try {
-					const fullLoaded = loadRunManifestById(entry.cwd, entry.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+					const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
 					if (fullLoaded && fullLoaded.manifest.status === "running") {
-						const now_iso = new Date(now).toISOString();
-						const repairedTasks = fullLoaded.tasks.map((task) => {
-							if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-								return {
-									...task,
-									status: "cancelled" as const,
-									finishedAt: now_iso,
-									error: "Orphaned run: workflow completed but manifest never updated to terminal status",
-								};
+						withRunLockSync(fullLoaded.manifest, () => {
+							const fresh = loadRunManifestById(entry.cwd, entry.runId);
+							if (!fresh || fresh.manifest.status !== "running") return;
+							const now_iso = new Date(now).toISOString();
+							const repairedTasks = fresh.tasks.map((task) => {
+								if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+									return {
+										...task,
+										status: "cancelled" as const,
+										finishedAt: now_iso,
+										error: "Orphaned run: workflow completed but manifest never updated to terminal status",
+									};
+								}
+								return task;
+							});
+							saveRunTasks(fresh.manifest, repairedTasks);
+							for (const task of repairedTasks) {
+								try {
+									upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+								} catch {
+									/* non-critical */
+								}
 							}
-							return task;
+							updateRunStatus(
+								fresh.manifest,
+								"cancelled",
+								"Orphaned run: no async worker and no manifest update in over " +
+									Math.round(staleThresholdMs / 60000) +
+									" minutes",
+							);
 						});
-						saveRunTasks(fullLoaded.manifest, repairedTasks);
-						for (const task of repairedTasks) {
-							try {
-								upsertCrewAgent(fullLoaded.manifest, recordFromTask(fullLoaded.manifest, task, "scaffold"));
-							} catch {
-								/* non-critical */
-							}
-						}
-						updateRunStatus(
-							fullLoaded.manifest,
-							"cancelled",
-							"Orphaned run: no async worker and no manifest update in over " +
-								Math.round(staleThresholdMs / 60000) +
-								" minutes",
-						);
 						void terminateLiveAgentsForRun(
 							fullLoaded.manifest.runId,
 							"cancelled",

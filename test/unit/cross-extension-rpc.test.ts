@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type EventBusLike, registerPiCrewRpc } from "../../src/extension/cross-extension-rpc.ts";
+import { type EventBusLike, isAllowedRpcRunParams, registerPiCrewRpc } from "../../src/extension/cross-extension-rpc.ts";
 import {
 	clearLiveControlRealtimeForTest,
 	liveControlRealtimeMessage,
@@ -36,6 +36,31 @@ test("pi-crew rpc responds to ping with version envelope", () => {
 	} finally {
 		handle.unsubscribe();
 	}
+});
+
+// --- isAllowedRpcRunParams: cwd containment (regression for swapped-args bypass) ---
+const rpcCtx = { cwd: process.cwd() } as unknown as Parameters<typeof isAllowedRpcRunParams>[1];
+
+test("isAllowedRpcRunParams requires a non-empty config.intent", () => {
+	const r = isAllowedRpcRunParams({ action: "run" } as never, rpcCtx);
+	assert.equal(r.ok, false);
+	assert.match(r.error ?? "", /intent/);
+});
+
+test("isAllowedRpcRunParams accepts a run with intent and no cwd override", () => {
+	const r = isAllowedRpcRunParams({ action: "run", config: { intent: "audit" } } as never, rpcCtx);
+	assert.equal(r.ok, true);
+});
+
+test("isAllowedRpcRunParams REJECTS cwd outside the project dir (swapped-args bypass regression)", () => {
+	const r = isAllowedRpcRunParams({ action: "run", cwd: "/tmp/evil-pi-crew-rpc-bypass", config: { intent: "audit" } } as never, rpcCtx);
+	assert.equal(r.ok, false);
+	assert.match(r.error ?? "", /within the project/);
+});
+
+test("isAllowedRpcRunParams accepts cwd inside the project dir", () => {
+	const r = isAllowedRpcRunParams({ action: "run", cwd: "./src", config: { intent: "audit" } } as never, rpcCtx);
+	assert.equal(r.ok, true);
 });
 
 test("pi-crew event bus forwards realtime live-control messages", () => {

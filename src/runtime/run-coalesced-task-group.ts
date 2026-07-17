@@ -1,16 +1,4 @@
-/**
- * run-coalesced-task-group.ts — M6 real-dispatch MVP worker spawn.
- *
- * Spawns ONE child Pi process for an entire coalesced group of N tasks
- * (sharing role + cwd per `planCoalescedGroups`). The combined prompt
- * instructs the worker to wrap each task's result in `<<<TASK_RESULT:id>>>`
- * ... `<<<END_TASK_RESULT>>>` delimiters. Output is split back into N
- * per-task results via `splitCoalescedOutput`, each written to its own
- * result artifact + state update.
- */
 
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync } from "../state/event-log.ts";

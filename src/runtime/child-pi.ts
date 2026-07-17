@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { WorkerExitStatus } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
@@ -30,6 +31,11 @@ const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
 const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
 const activeChildProcesses = new Map<number, ChildProcess>();
 const childHardKillTimers = new Map<number, NodeJS.Timeout>();
+
+/** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
+ * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
+ * from chatty child processes that produce output without newlines. */
+const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
 
 // Periodic cleanup of dead child process entries to prevent memory leaks.
 // If a child process never emits exit/close (zombie), the entry would leak.
@@ -437,9 +443,9 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 	// resolveRealContainedPath validates a pre-existing path.
 	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
 	// The caller does not need to await this — transcript writes are best-effort telemetry.
-	// OPT-06 follow-up: we still track the write promise in a module-scoped Set so
-	// lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle) can drain
-	// them before returning. Without that drain, callers that immediately read the
+	// OPT-06 follow-up: lines are buffered in a module-scoped Map and flushed
+	// periodically (50ms debounce) or on lifecycle boundaries (ChildPiLineObserver.flush,
+	// runChildPi settle). Without that drain, callers that immediately read the
 	// transcript file post-flush (e.g. integration tests at phase3-runtime:50 and
 	// phase4-runtime:37/:68/:103) would see ENOENT or empty content because the
 	// async file handle had not yet been opened / flushed.
@@ -447,64 +453,101 @@ function appendTranscript(input: ChildPiRunInput, line: string): void {
 }
 
 /** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
-async function appendTranscriptAsync(safePath: string, line: string): Promise<void> {
-	const content = `${redactJsonLine(line)}\n`;
-	try {
-		// Use async file handle for better performance when many writes occur.
-		// O_NOFOLLOW | O_CREAT | O_APPEND ensures security and atomicity.
-		const fd = await fs.promises.open(
-			safePath,
-			fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
-			0o600,
-		);
-		try {
-			await fd.write(content, undefined, "utf-8");
-		} finally {
-			await fd.close();
-		}
-	} catch (error) {
-		logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
-	}
+// ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────
+// Instead of open/write/close per line (3 syscalls × N), accumulate lines
+// in a module-scoped buffer and flush them in one open/write/close per path
+// every TRANSCRIPT_FLUSH_MS. Lifecycle boundaries (observer.flush, settle)
+// force-flush the buffer before returning so transcript reads are complete.
+//
+// Ordering: lines are appended to the per-path array in call order. The flush
+// writes the joined array, preserving intra-batch ordering. Inter-batch
+// ordering is not guaranteed but transcript is append-only telemetry.
+//
+// Security: O_NOFOLLOW | O_CREAT | O_APPEND flags preserved on every flush.
+const transcriptBatches = new Map<string, string[]>();
+let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined;
+const TRANSCRIPT_FLUSH_MS = 50;
+
+function scheduleTranscriptFlush(): void {
+	if (transcriptFlushTimer) return;
+	transcriptFlushTimer = setTimeout(() => {
+		transcriptFlushTimer = undefined;
+		void flushTranscriptBatches();
+	}, TRANSCRIPT_FLUSH_MS);
+	transcriptFlushTimer.unref?.();
 }
 
-/**
- * Module-scoped set of in-flight transcript-write promises. Each call to
- * {@link trackTranscriptWrite} registers its promise here; the promise
- * removes itself on completion via `.finally`. Lifecycle boundaries
- * (ChildPiLineObserver.flush, runChildPi settle) call
- * {@link flushPendingTranscriptWrites} before returning so callers that
- * immediately read the transcript file after `runChildPi` / `observer.flush()`
- * await see the full content (and a non-ENOENT file).
- *
- * Module-scoped rather than per-input because all transcript writes for a
- * given run share the same Node fs event loop and serialise through a single
- * fs handle per path; one drain per lifecycle boundary is sufficient.
- */
-const pendingTranscriptWrites: Set<Promise<void>> = new Set();
+async function flushTranscriptBatches(): Promise<void> {
+	const entries = [...transcriptBatches.entries()];
+	transcriptBatches.clear();
+	await Promise.allSettled(
+		entries.map(async ([safePath, lines]) => {
+			if (lines.length === 0) return;
+			const content = lines.join("");
+			try {
+				const fd = await fs.promises.open(
+					safePath,
+					fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
+					0o600,
+				);
+				try {
+					await fd.write(content, undefined, "utf-8");
+				} finally {
+					await fd.close();
+				}
+			} catch (error) {
+				logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
+			}
+		}),
+	);
+}
 
 function trackTranscriptWrite(safePath: string, line: string): void {
-	const p = appendTranscriptAsync(safePath, line).finally(() => {
-		pendingTranscriptWrites.delete(p);
-	});
-	pendingTranscriptWrites.add(p);
+	const content = `${redactJsonLine(line)}\n`;
+	let batch = transcriptBatches.get(safePath);
+	if (!batch) {
+		batch = [];
+		transcriptBatches.set(safePath, batch);
+	}
+	batch.push(content);
+	scheduleTranscriptFlush();
 }
 
 /**
- * Drain all currently-pending transcript writes. Awaits every promise in the
- * set; if new writes are scheduled during the drain (i.e. the `.finally`
- * callback has not yet removed them), the loop re-checks `size > 0` and
- * awaits them too. Idempotent and safe to call concurrently / reentrantly —
- * each pending promise is tracked exactly once.
+ * Drain the transcript batch buffer and await any remaining in-flight writes.
+ * Called by lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle)
+ * so that transcript files are complete before callers read them.
+ *
+ * Uses a while loop to re-check the buffer after each flush — new lines may
+ * arrive during the async I/O window (trackTranscriptWrite → scheduleTranscriptFlush).
  *
  * Exported so external callers (e.g. integration tests that construct a
  * ChildPiLineObserver directly) can drain explicitly if they need to read
  * the transcript file outside of the observer's lifecycle.
  */
 export async function flushPendingTranscriptWrites(): Promise<void> {
-	while (pendingTranscriptWrites.size > 0) {
-		const drained = [...pendingTranscriptWrites];
-		await Promise.allSettled(drained);
+	// Force-flush the buffer synchronously (clear timer, write immediately).
+	if (transcriptFlushTimer) {
+		clearTimeout(transcriptFlushTimer);
+		transcriptFlushTimer = undefined;
 	}
+	// Re-check loop: new lines may be appended to transcriptBatches during
+	// the async flushTranscriptBatches I/O. Loop until the buffer is empty.
+	while (transcriptBatches.size > 0) {
+		await flushTranscriptBatches();
+	}
+}
+
+/**
+ * Reset the module-scoped transcript batch state. Exported for test isolation
+ * only — production code should never call this.
+ */
+export function resetTranscriptBatchState(): void {
+	if (transcriptFlushTimer) {
+		clearTimeout(transcriptFlushTimer);
+		transcriptFlushTimer = undefined;
+	}
+	transcriptBatches.clear();
 }
 
 export function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS, opts: { preserveImportant?: boolean } = {}): string {
@@ -644,24 +687,45 @@ function displayTextFromCompactEvent(event: unknown): string | undefined {
 	return text || (typeof record.text === "string" ? record.text : undefined);
 }
 
-function compactChildPiLine(line: string): {
+function nonJsonLineResult(line: string): {
 	persistedLine: string;
 	event?: unknown;
 	displayLine?: string;
 	json: boolean;
 } {
-	try {
-		const parsed = JSON.parse(line);
-		const compact = compactChildPiEvent(parsed);
-		return {
-			json: true,
-			event: compact,
-			persistedLine: compact ? JSON.stringify(compact) : "",
-			displayLine: displayTextFromCompactEvent(compact),
-		};
-	} catch {
-		return { json: false, persistedLine: line, displayLine: line };
+	return { json: false, persistedLine: line, displayLine: line };
+}
+
+function compactChildPiLine(
+	line: string,
+	preParsed?: unknown,
+): {
+	persistedLine: string;
+	event?: unknown;
+	displayLine?: string;
+	json: boolean;
+} {
+	// OPT-PHASE2: when the caller (emitLine) already parsed the line, pass the
+	// result via preParsed to avoid a redundant JSON.parse. Standalone callers
+	// without a preParsed fall back to their own parse+catch (DRY: single
+	// compact+return path for both branches).
+	let parsed: unknown;
+	if (preParsed !== undefined) {
+		parsed = preParsed;
+	} else {
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			return nonJsonLineResult(line);
+		}
 	}
+	const compact = compactChildPiEvent(parsed);
+	return {
+		json: true,
+		event: compact,
+		persistedLine: compact ? JSON.stringify(compact) : "",
+		displayLine: displayTextFromCompactEvent(compact),
+	};
 }
 
 export class ChildPiLineObserver {
@@ -691,6 +755,20 @@ export class ChildPiLineObserver {
 
 	observe(text: string): void {
 		this.buffer += text;
+		// Cap the buffer to prevent unbounded memory growth when a child process
+		// produces output without newlines (RT-F8). When exceeded, force-flush
+		// the buffer as a single line and log a warning.
+		if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
+			logInternalError(
+				"child-pi.buffer-overflow",
+				new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
+				`bufferLen=${this.buffer.length}`,
+			);
+			const line = this.buffer;
+			this.buffer = "";
+			this.emitLine(line);
+			return;
+		}
 		const lines = this.buffer.split(/\r?\n/);
 		this.buffer = lines.pop() ?? "";
 		for (const line of lines) this.emitLine(line);
@@ -704,7 +782,7 @@ export class ChildPiLineObserver {
 		}
 		// OPT-06 follow-up: appendTranscript is fire-and-forget async, so the file
 		// may not exist on disk by the time this returns. Drain the module-scoped
-		// pending-write set before resolving so callers that immediately read the
+		// transcript batch buffer before resolving so callers that immediately read the
 		// transcript file (e.g. integration tests at phase4-runtime:37/:68/:103
 		// after `await observer.flush()`) see the full content.
 		return flushPendingTranscriptWrites();
@@ -736,12 +814,20 @@ export class ChildPiLineObserver {
 
 	private emitLine(line: string): void {
 		if (!line.trim()) return;
-		// Parse the RAW line once so we can BOTH compact it (telemetry transcript,
-		// 16K-capped memory bound) AND capture the uncapped assistant text for the
-		// authoritative result. Non-JSON lines contribute no assistant text.
+		// OPT-PHASE2: parse the line EXACTLY ONCE. The parsed value feeds both
+		// (a) raw assistant-text extraction for the authoritative result and
+		// (b) compaction for the telemetry transcript — previously each path
+		// called JSON.parse independently (2 parses/line). When the line is not
+		// valid JSON, parsed stays undefined and compactChildPiLine runs its own
+		// catch path to produce the json:false fallback.
+		let parsed: unknown;
 		try {
-			const rawParsed = JSON.parse(line);
-			const rawTexts = extractText(rawParsed);
+			parsed = JSON.parse(line);
+		} catch {
+			parsed = undefined;
+		}
+		if (parsed !== undefined) {
+			const rawTexts = extractText(parsed);
 			if (rawTexts.length > 0) {
 				// F9: trim from the front if the push would exceed the cap. Slice's
 				// second arg excludes the index, so this drops the oldest entries
@@ -758,10 +844,10 @@ export class ChildPiLineObserver {
 					if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
 				}
 			}
-		} catch {
-			// Not valid JSON — compactChildPiLine handles the raw-text fallback below.
 		}
-		const compact = compactChildPiLine(line);
+		// OPT-PHASE2: construct the non-JSON fallback directly when parsing failed,
+		// so a broken line triggers exactly ONE (failed) parse instead of two.
+		const compact = parsed !== undefined ? compactChildPiLine(line, parsed) : nonJsonLineResult(line);
 		if (compact.event !== undefined) {
 			try {
 				this.input.onJsonEvent?.(compact.event);
@@ -936,7 +1022,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			}
 			count += 1;
 			try {
-				fs.writeFileSync(counterFile, String(count));
+				atomicWriteFile(counterFile, String(count));
 			} catch (error) {
 				logInternalError("child-pi.mock-counter-write", error as Error, `file=${counterFile}`);
 			}
@@ -1400,7 +1486,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				settled = true;
 				clearChildPiTimeouts();
 				// OPT-06 follow-up: lineObserver.flush() is now async (returns
-				// Promise<void>) and drains the module-scoped pending-write set
+				// Promise<void>) and drains the module-scoped transcript batch buffer
 				// before resolving. We must await it before calling `resolve()`
 				// below so callers that read the transcript file post-`runChildPi`
 				// see all written lines. Caller invocations of `settle` from

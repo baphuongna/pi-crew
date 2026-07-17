@@ -2,7 +2,6 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
-import { logInternalError } from "../utils/internal-error.ts";
 import { userCrewRoot } from "../utils/paths.ts";
 import { isSafePathId } from "../utils/safe-paths.ts";
 import { sharedScanCache } from "../utils/scan-cache.ts";

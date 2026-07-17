@@ -22,10 +22,10 @@
  * writes from causing lost updates.
  */
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync, } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isSymlinkSafePath } from "../state/atomic-write.ts";
+import { atomicWriteFile, isSymlinkSafePath } from "../state/atomic-write.ts";
 import { withFileLockSync } from "../state/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { userPiRoot } from "../utils/paths.ts";
@@ -252,7 +252,7 @@ function writeRegistry(entries: OrphanWorkerEntry[]): void {
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 	}
 	try {
-		fs.writeFileSync(p, JSON.stringify(entries, null, 2), { mode: 0o600 });
+		atomicWriteFile(p, JSON.stringify(entries, null, 2), { mode: 0o600 });
 	} catch (error) {
 		logInternalError("orphan-worker-registry.write", error, `path=${p} entries=${entries.length}`);
 	}

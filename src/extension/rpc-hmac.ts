@@ -53,6 +53,20 @@ export interface RpcSignaturePayload {
 
 export type RpcSignedPayload = RpcSignaturePayload & { signature: string };
 
+// Process-latched: emit a soft, non-alarming note once per process when an RPC
+// request is actually processed without HMAC. The previous warning was emitted
+// at extension registration (every pi load) and was considered noisy by users
+// who never wire cross-extension RPC. Opt out with PI_CREW_SUPPRESS_RPC_WARNING=1.
+let _rpcHmacSoftInfoEmitted = false;
+function rpcHmacSoftInfoOnce(): void {
+	if (_rpcHmacSoftInfoEmitted) return;
+	_rpcHmacSoftInfoEmitted = true;
+	console.warn(
+		"[pi-crew] PI_CREW_RPC_SECRET not set; cross-extension RPC requests will be accepted without origin authentication. " +
+			"Operation allowlists and session checks still apply. Set PI_CREW_RPC_SECRET or PI_CREW_SUPPRESS_RPC_WARNING=1 to silence this message.",
+	);
+}
+
 // --- Signing -----------------------------------------------------------------
 
 /**
@@ -123,7 +137,13 @@ export function withHmacVerification<P extends { requestId: string }>(
 ): (params: P) => unknown | Promise<unknown> {
 	return (params: P) => {
 		if (!isHmacEnabled()) {
-			// No secret configured → backward compat: allow unsigned
+			// No secret configured → backward compat: allow unsigned.
+			// Emit a soft info note (once per process) only when an actual RPC
+			// request is being processed — the prior registration-time warning
+			// was too noisy for users who never wire cross-extension RPC.
+			if (process.env.PI_CREW_SUPPRESS_RPC_WARNING !== "1") {
+				rpcHmacSoftInfoOnce();
+			}
 			return handler(params);
 		}
 

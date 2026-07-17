@@ -97,71 +97,61 @@ export function parseTranscriptEntries(lines: string[]): TranscriptEntry[] {
 		}
 	}
 
-	let i = 0;
-	while (i < parsed.length) {
+	// FIND-18: single linear pass to match each tool_call with the next
+	// tool-flavored event after it. Replaces the previous O(n²) lookahead that
+	// re-scanned the suffix of the array for every tool_call. The pending slot
+	// holds the most recent tool_call awaiting its result. A new tool_call
+	// arriving before any result flushes the previous one as no-result (same
+	// semantic as the old lookahead hitting the next tool_call). Non-tool
+	// events are emitted in order and do not interrupt the pending slot,
+	// matching the old lookahead's behaviour of skipping over messages.
+	let pending: { obj: Record<string, unknown>; toolName: string; inputText: string; timestamp?: number } | null = null;
+
+	const flushPending = (isError: boolean, resultText: string, resultTimestamp: number | undefined): void => {
+		if (!pending) return;
+		const callSummary = summarize(
+			`🔧 ${pending.toolName}${pending.inputText ? `: ${summarize(pending.inputText, 60)}` : ""}`,
+			SUMMARY_MAX,
+		);
+		const callContent = [
+			`[Tool Call: ${pending.toolName}]`,
+			pending.inputText || "(no input)",
+			`[Result${isError ? " ✗" : " ✓"}]`,
+			resultText || "(no output)",
+		].join("\n");
+		entries.push({
+			id: id++,
+			type: "tool_call",
+			toolName: pending.toolName,
+			summary: callSummary,
+			content: callContent,
+			expanded: false,
+			timestamp: resultTimestamp ?? pending.timestamp,
+		});
+		pending = null;
+	};
+
+	for (let i = 0; i < parsed.length; i++) {
 		const { obj } = parsed[i]!;
 		const type = typeof obj.type === "string" ? obj.type : "";
 		const timestamp = typeof obj.timestamp === "number" ? obj.timestamp : undefined;
 
 		if (isToolCallType(type)) {
-			// Look ahead for matching tool_result
-			const toolName = extractToolName(obj) ?? "unknown";
+			// A new tool_call interrupts any pending one (same as the old
+			// lookahead breaking on the next tool_call). Flush as no-result.
+			if (pending) flushPending(false, "", undefined);
 			const inputText = typeof obj.input === "string" ? obj.input : obj.input !== undefined ? JSON.stringify(obj.input) : "";
-			let resultText = "";
-			let isError = false;
-			let resultTimestamp = timestamp;
-
-			// Consume consecutive tool_result lines
-			let j = i + 1;
-			while (j < parsed.length) {
-				const nextTypeVal = parsed[j]!.obj.type;
-				const nextType = typeof nextTypeVal === "string" ? nextTypeVal : "";
-				if (isToolResultType(nextType) || /tool/i.test(nextType)) {
-					const robj = parsed[j]!.obj;
-					const rt =
-						typeof robj.text === "string"
-							? robj.text
-							: typeof robj.result === "string"
-								? robj.result
-								: robj.result !== undefined
-									? JSON.stringify(robj.result)
-									: "";
-					resultText = rt;
-					isError = robj.isError === true;
-					resultTimestamp = typeof robj.timestamp === "number" ? robj.timestamp : resultTimestamp;
-					j++;
-					break;
-				}
-				if (isToolCallType(nextType)) break; // next tool call, stop looking
-				j++;
-			}
-
-			const callSummary = summarize(`🔧 ${toolName}${inputText ? ": " + summarize(inputText, 60) : ""}`, SUMMARY_MAX);
-			const callContent = [
-				`[Tool Call: ${toolName}]`,
-				inputText || "(no input)",
-				`[Result${isError ? " ✗" : " ✓"}]`,
-				resultText || "(no output)",
-			].join("\n");
-
-			entries.push({
-				id: id++,
-				type: "tool_call",
-				toolName,
-				summary: callSummary,
-				content: callContent,
-				expanded: false,
-				timestamp: resultTimestamp ?? timestamp,
-			});
-			i = j;
+			pending = {
+				obj,
+				toolName: extractToolName(obj) ?? "unknown",
+				inputText,
+				timestamp,
+			};
 			continue;
 		}
 
 		if (isToolResultType(type) || /tool/i.test(type)) {
-			// Standalone tool result (no preceding tool_call consumed it)
-			const toolName = extractToolName(obj) ?? "unknown";
-			const isError = obj.isError === true;
-			const text =
+			const rt =
 				typeof obj.text === "string"
 					? obj.text
 					: typeof obj.result === "string"
@@ -169,20 +159,25 @@ export function parseTranscriptEntries(lines: string[]): TranscriptEntry[] {
 						: obj.result !== undefined
 							? JSON.stringify(obj.result)
 							: "";
-
-			const summary = summarize(`${isError ? "✗" : "✓"} ${toolName}${text ? ": " + summarize(text, 60) : ""}`, SUMMARY_MAX);
-			const content = [`[Tool Result: ${toolName}${isError ? " (error)" : ""}]`, text || "(no output)"].join("\n");
-
-			entries.push({
-				id: id++,
-				type: "tool_result",
-				toolName,
-				summary,
-				content,
-				expanded: false,
-				timestamp,
-			});
-			i++;
+			const isError = obj.isError === true;
+			const resultTimestamp = typeof obj.timestamp === "number" ? obj.timestamp : undefined;
+			if (pending) {
+				flushPending(isError, rt, resultTimestamp);
+			} else {
+				// Standalone tool result (no preceding tool_call consumed it)
+				const toolName = extractToolName(obj) ?? "unknown";
+				const summary = summarize(`${isError ? "✗" : "✓"} ${toolName}${rt ? `: ${summarize(rt, 60)}` : ""}`, SUMMARY_MAX);
+				const content = [`[Tool Result: ${toolName}${isError ? " (error)" : ""}]`, rt || "(no output)"].join("\n");
+				entries.push({
+					id: id++,
+					type: "tool_result",
+					toolName,
+					summary,
+					content,
+					expanded: false,
+					timestamp,
+				});
+			}
 			continue;
 		}
 
@@ -194,7 +189,7 @@ export function parseTranscriptEntries(lines: string[]): TranscriptEntry[] {
 			const text = textFromContent(msg.content);
 
 			const label = role === "assistant" ? "🤖" : role === "user" ? "👤" : "💬";
-			const summary = summarize(`${label} ${role}${text ? ": " + summarize(text, 80) : ""}`, SUMMARY_MAX);
+			const summary = summarize(`${label} ${role}${text ? `: ${summarize(text, 80)}` : ""}`, SUMMARY_MAX);
 			const content = `[${role.charAt(0).toUpperCase()}${role.slice(1)}]:\n${text || "(empty)"}`;
 
 			entries.push({
@@ -206,7 +201,6 @@ export function parseTranscriptEntries(lines: string[]): TranscriptEntry[] {
 				expanded: false,
 				timestamp,
 			});
-			i++;
 			continue;
 		}
 
@@ -221,8 +215,10 @@ export function parseTranscriptEntries(lines: string[]): TranscriptEntry[] {
 			expanded: false,
 			timestamp,
 		});
-		i++;
 	}
+
+	// End of input: any pending tool_call never received a result.
+	if (pending) flushPending(false, "", undefined);
 
 	return entries;
 }

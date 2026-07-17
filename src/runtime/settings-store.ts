@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
+import { atomicWriteJson } from "../state/atomic-write.ts";
+import { withFileLockSync } from "../state/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { JoinMode } from "./group-join.ts";
 
@@ -98,11 +100,39 @@ export function saveCrewSettings(s: CrewSettings, cwd: string = process.cwd()): 
 	const p = projectPath(cwd);
 	try {
 		fs.mkdirSync(path.dirname(p), { recursive: true });
-		fs.writeFileSync(p, JSON.stringify(s, null, 2), "utf-8");
+		// Atomic (temp + rename + fsync) instead of raw writeFileSync: a crash/SIGKILL
+		// mid-write would otherwise truncate <cwd>/.pi/crew-settings.json, and the
+		// reader silently resets to {} on parse failure — losing ALL crew settings +
+		// scheduledJobs.
+		atomicWriteJson(p, s);
 		return true;
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Atomically read-modify-write crew settings under a file lock.
+ *
+ * Fixes two issues vs a plain loadCrewSettings → saveCrewSettings sequence:
+ *  1. Cross-session lost-update race: <cwd>/.pi/crew-settings.json is project-scoped,
+ *     so two Pi sessions on the same project concurrently scheduling jobs would each
+ *     load-modify-save and the second save clobbers the first (lost job). The lock
+ *     serializes the whole transaction.
+ *  2. Crash truncation: the write uses atomicWriteJson (temp + rename + fsync).
+ *
+ * `mutator` receives the freshly-loaded (merged) settings and returns the new value
+ * to persist. Returns the persisted settings.
+ */
+export function updateCrewSettings(cwd: string, mutator: (settings: CrewSettings) => CrewSettings): CrewSettings {
+	const p = projectPath(cwd);
+	fs.mkdirSync(path.dirname(p), { recursive: true });
+	return withFileLockSync(p, () => {
+		const fresh = loadCrewSettings(cwd); // re-read inside the lock (TOCTOU-safe vs other updaters)
+		const next = mutator(fresh);
+		atomicWriteJson(p, next);
+		return next;
+	});
 }
 
 export function applyCrewSettingsToConfig(

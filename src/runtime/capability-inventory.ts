@@ -1,4 +1,4 @@
-import type { AgentConfig, ResourceSource } from "../agents/agent-config.ts";
+import type { AgentConfig, } from "../agents/agent-config.ts";
 import { discoverAgents } from "../agents/discover-agents.ts";
 import type { PiTeamsConfig } from "../config/config.ts";
 import { discoverSkills, getLastDiscoveryDiagnostics } from "../skills/discover-skills.ts";

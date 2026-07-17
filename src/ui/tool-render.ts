@@ -7,7 +7,7 @@
  * Ports logic from pi-subagent4 adapted for pi-crew's data model.
  * Uses @earendil-works/pi-tui Components (Container, Text, Spacer) directly.
  */
-import { Container, Spacer, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { truncateToWidth } from "../utils/visual.ts";
 import { replaceTabs } from "./render-diff.ts";

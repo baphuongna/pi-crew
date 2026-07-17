@@ -21,7 +21,8 @@ import { DynamicCrewBorder } from "./dynamic-border.ts";
 import { dashboardActionForKey } from "./keybinding-map.ts";
 import { Box, Text } from "./layout-primitives.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
-import { runEventBus } from "./run-event-bus.ts";
+import { RenderScheduler } from "./render-scheduler.ts";
+import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { applyStatusColor, colorizeStatusGlyphs, iconForStatus, type RunStatus } from "./status-colors.ts";
@@ -106,6 +107,17 @@ const TASK_READ_TTL_MS = 1000;
 const RUN_LIST_MAX = 8;
 
 /**
+ * 1.10 (UI-P1-2) — short TTL for the buildSignature cache. `buildSignature`
+ * iterates every run and calls `snapshotFor → refreshIfStale`, which can
+ * stat multiple files per run when the TTL expires. Rendering fires several
+ * times per second (spinner + event-bus), so we cache the computed signature
+ * for 100ms: enough to coalesce one render burst without holding the cache
+ * across genuinely new data (>100ms idle means a fresh signature will be
+ * computed on the next render anyway).
+ */
+const SIGNATURE_CACHE_TTL_MS = 100;
+
+/**
  * F-4 — a live run's snapshot is considered "possibly stale" once its
  * `fetchedAt` is this old. A progressing run rebuilds on every stamp change,
  * so an old `fetchedAt` means the manifest read has been repeatedly flaky
@@ -155,7 +167,17 @@ function renderLines(lines: string[], width: number): string[] {
 	return box.render(width);
 }
 
-function readProgressPreview(run: TeamRunManifest, maxLines = 5): string[] {
+function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?: RunSnapshotCache): string[] {
+	// P0-6: prefer the snapshot's `recentOutputLines` (no disk I/O) over reading the
+	// progress artifact on every render. The progress artifact content is captured
+	// into the snapshot's recent events / output pipeline upstream.
+	const snapshot = snapshotFor(run, snapshotCache);
+	if (snapshot && snapshot.recentOutputLines?.length) {
+		return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
+	}
+	if (snapshotCache) return ["Progress: (loading…)"];
+	// Legacy fallback: tests/dev paths without a snapshot cache still read the
+	// progress artifact directly so existing assertions keep working.
 	const progress = [...run.artifacts].reverse().find((artifact) => artifact.kind === "progress");
 	if (!progress) return ["Progress: (none)"];
 	try {
@@ -192,6 +214,10 @@ function snapshotFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): Ru
 function readRunTasks(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): TeamTaskState[] {
 	const snapshot = snapshotFor(run, snapshotCache);
 	if (snapshot) return snapshot.tasks;
+	// P0-6: when a snapshot cache is provided but hasn't populated yet, return
+	// empty (the render loop falls back to the empty pane placeholder) instead
+	// of reading the tasks.json file synchronously every render tick.
+	if (snapshotCache) return [];
 	const parse = () => {
 		if (!fs.existsSync(run.tasksPath)) return [];
 		const parsed = JSON.parse(fs.readFileSync(run.tasksPath, "utf-8"));
@@ -248,7 +274,11 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashboardOptions = {}): string[] {
 	try {
 		const snapshot = snapshotFor(run, options.snapshotCache);
-		const agents = snapshot?.agents ?? readCrewAgents(run);
+		// P0-6: when a snapshot cache is provided but hasn't populated yet, return
+		// the empty-pane placeholder instead of calling `readCrewAgents` (disk I/O)
+		// on every render tick. Legacy callers (no cache) keep the disk-read path
+		// so existing unit tests continue to assert against concrete agent data.
+		const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
 		const tasks = snapshot?.tasks ?? readRunTasks(run, options.snapshotCache);
 		if (!agents.length) return ["Agents: (none)"];
 		const totals = tasks.reduce(
@@ -283,6 +313,10 @@ function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashbo
 function agentsFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): CrewAgentRecord[] {
 	const snapshot = snapshotFor(run, snapshotCache);
 	if (snapshot) return snapshot.agents;
+	// P0-6: when a snapshot cache is provided but hasn't populated yet, return
+	// empty (callers handle the empty-state placeholder) instead of calling
+	// `readCrewAgents` synchronously on every render tick.
+	if (snapshotCache) return [];
 	try {
 		return readCrewAgents(run);
 	} catch {
@@ -387,8 +421,12 @@ export class RunDashboard implements DashboardComponent {
 	private cachedWidth = 0;
 	private cachedVersion = "";
 	private cachedLines: string[] = [];
+	/** 1.10 (UI-P1-2) — short-TTL cache for `buildSignature()` so per-run
+	 *  `snapshotFor → refreshIfStale` calls don't fire on every render tick. */
+	private cachedSignatureAt = 0;
+	private cachedSignature = "";
 	private readonly unsubscribeTheme: () => void;
-	private readonly unsubscribeEventBus: () => void;
+	private readonly renderScheduler: RenderScheduler | undefined;
 
 	constructor(
 		runs: TeamRunManifest[],
@@ -405,17 +443,61 @@ export class RunDashboard implements DashboardComponent {
 		this.done = done;
 		this.theme = asCrewTheme(theme);
 		this.options = options;
-		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidateAndRender());
-		this.unsubscribeEventBus = (() => {
-			const unsub1 = runEventBus.onChannel("run:state", () => this.invalidateAndRender());
-			const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidateAndRender());
-			const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidateAndRender());
-			return () => {
-				unsub1();
-				unsub2();
-				unsub3();
-			};
-		})();
+		// 1.10 (UI-P1-1): route run:state / worker:lifecycle / ui:invalidate
+		// through a RenderScheduler (debounce + fallback) instead of registering
+		// 3 raw runEventBus subscriptions that each schedule an immediate
+		// invalidate+requestRender. With 3 overlays subscribing independently,
+		// a single event triggered up to 9 callbacks and ~150 invalidates/sec.
+		// The scheduler keeps the per-channel subscriptions but collapses them
+		// into one debounced render + one coalesced invalidate per runId.
+		//
+		// FIND-07: scheduler must be constructed BEFORE the theme subscription
+		// and the input-handler paths so they can route their invalidate+render
+		// calls through `this.scheduleRender()` (debounced + coalesced) instead
+		// of bypassing it with direct `invalidateAndRender()` calls. Each direct
+		// call would otherwise skip the scheduler's debounce window and force
+		// a synchronous repaint, recreating the burst-storm that this scheduler
+		// was introduced to eliminate.
+		const renderTick = (): void => {
+			this.invalidateAndRender();
+		};
+		this.renderScheduler = new RenderScheduler(
+			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+			renderTick,
+			{
+				debounceMs: 75,
+				fallbackMs: 750,
+				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+				onInvalidate: () => {
+					// Drop any cached signature — data underneath may have
+					// changed so the next buildSignature() needs to recompute.
+					this.cachedSignature = "";
+					this.cachedSignatureAt = 0;
+				},
+			},
+		);
+		// FIND-07: route theme changes through the scheduler so they coalesce
+		// with run:state / worker:lifecycle / ui:invalidate bursts instead of
+		// each firing their own immediate invalidate+requestRender.
+		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.scheduleRender());
+	}
+
+	/**
+	 * FIND-07: route an external invalidation through the RenderScheduler.
+	 *
+	 * Use this for any caller-driven invalidation (theme change, input
+	 * handler action) instead of calling `invalidateAndRender()` directly.
+	 * The scheduler debounces + coalesces these so a theme change arriving
+	 * in the middle of a run:state burst doesn't force a separate synchronous
+	 * repaint. Falls back to a direct render if the scheduler was not created
+	 * (defensive — currently always created in the constructor).
+	 */
+	private scheduleRender(): void {
+		if (this.renderScheduler) {
+			this.renderScheduler.schedule();
+			return;
+		}
+		this.invalidateAndRender();
 	}
 
 	/**
@@ -489,6 +571,17 @@ export class RunDashboard implements DashboardComponent {
 	}
 
 	private buildSignature(): string {
+		// 1.10 (UI-P1-2) — short-TTL cache so we don't re-read every run's
+		// snapshot on every render tick. `snapshotFor → refreshIfStale` can
+		// stat multiple files per run when its own TTL expires, and the
+		// dashboard's render is called several times per second (spinner +
+		// event-bus). Cache the full computed signature for ~100ms: long
+		// enough to coalesce one render burst, short enough that idle pauses
+		// still pick up new data promptly.
+		const now = Date.now();
+		if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS) {
+			return this.cachedSignature;
+		}
 		let hasRunning = false;
 		const statuses = this.runs
 			.map((run) => {
@@ -503,17 +596,25 @@ export class RunDashboard implements DashboardComponent {
 			.join("|");
 		const metricsSig =
 			this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
-		return `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+		const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+		this.cachedSignature = sig;
+		this.cachedSignatureAt = now;
+		return sig;
 	}
 
 	invalidate(): void {
 		this.cachedVersion = "";
 		this.cachedLines = [];
+		// 1.10 (UI-P1-2): also drop the short-TTL signature cache so the next
+		// render can't return a stale snapshot-derived signature that was
+		// computed before the invalidating event arrived.
+		this.cachedSignature = "";
+		this.cachedSignatureAt = 0;
 	}
 
 	dispose(): void {
 		this.unsubscribeTheme();
-		this.unsubscribeEventBus();
+		this.renderScheduler?.dispose();
 	}
 
 	private selectedRunId(): string | undefined {
@@ -644,7 +745,7 @@ export class RunDashboard implements DashboardComponent {
 														}),
 													)
 												: safeRenderPane("transcript", () => renderTranscriptPane(snap))
-							: [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2)];
+							: [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
 						const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
 						if (filteredPane.length > 0) {
 							lines.push(row(fg("dim", `── ${this.activePane} ──`)));
@@ -719,12 +820,12 @@ export class RunDashboard implements DashboardComponent {
 		// (including Esc) just dismisses it first instead of acting.
 		if (action === "help") {
 			this.showHelp = !this.showHelp;
-			this.invalidateAndRender();
+			this.scheduleRender();
 			return;
 		}
 		if (this.showHelp) {
 			this.showHelp = false;
-			this.invalidateAndRender();
+			this.scheduleRender();
 			return;
 		}
 		const selectedRunId = this.selectedRunId();
@@ -786,7 +887,7 @@ export class RunDashboard implements DashboardComponent {
 		}
 		if (action) {
 			lastActivePane = this.activePane;
-			this.invalidateAndRender();
+			this.scheduleRender();
 		}
 	}
 }

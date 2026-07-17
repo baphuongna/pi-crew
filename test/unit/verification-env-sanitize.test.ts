@@ -10,11 +10,14 @@
  */
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import * as path from "node:path";
 import test from "node:test";
 import { executeVerificationCommands, isVerificationEnvSanitizeEnabled } from "../../src/runtime/verification-gates.ts";
-import { pickPrintenv } from "../fixtures/cross-platform-cmd.ts";
+
+/** Verification commands always run through `sh`, so use its portable `printenv` utility. */
+function pickPrintenv(name: string): string {
+	return `printenv ${name}`;
+}
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void> | void): Promise<void> {
 	const saved: Record<string, string | undefined> = {};

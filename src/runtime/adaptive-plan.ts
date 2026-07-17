@@ -16,12 +16,12 @@
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
 import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent } from "../state/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
 import { saveRunManifestAsync } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
-import { getPlanTemplate, listPlanTemplates, renderPlanTemplate } from "./plan-templates.ts";
+import { getPlanTemplate, renderPlanTemplate } from "./plan-templates.ts";
 import { refreshTaskGraphQueues } from "./task-graph-scheduler.ts";
 
 export interface AdaptivePlanTask {
@@ -395,7 +395,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 			missingPlan: false,
 		};
 	if (!completedAssess.resultArtifact?.path) {
-		appendEvent(input.manifest.eventsPath, {
+		appendEventFireAndForget(input.manifest.eventsPath, {
 			type: "adaptive.plan_missing",
 			runId: input.manifest.runId,
 			taskId: completedAssess.id,
@@ -414,7 +414,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 	try {
 		text = fs.readFileSync(resultPath, "utf-8");
 	} catch {
-		appendEvent(input.manifest.eventsPath, {
+		appendEventFireAndForget(input.manifest.eventsPath, {
 			type: "adaptive.plan_missing",
 			runId: input.manifest.runId,
 			taskId: assessTask.id,
@@ -447,7 +447,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				updatedAt: new Date().toISOString(),
 				artifacts: [...input.manifest.artifacts, repairArtifact],
 			});
-			appendEvent(input.manifest.eventsPath, {
+			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "adaptive.plan_repaired",
 				runId: input.manifest.runId,
 				taskId: assessTask.id,
@@ -455,14 +455,14 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				data: { reason: repair.reason },
 			});
 		} else {
-			appendEvent(input.manifest.eventsPath, {
+			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "adaptive.plan_repair_failed",
 				runId: input.manifest.runId,
 				taskId: assessTask.id,
 				message: "Adaptive planner output could not be repaired.",
 				data: { reason: repair.reason },
 			});
-			appendEvent(input.manifest.eventsPath, {
+			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "adaptive.plan_missing",
 				runId: input.manifest.runId,
 				taskId: assessTask.id,
@@ -531,7 +531,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 			: task.graph,
 	}));
 	const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
-	appendEvent(input.manifest.eventsPath, {
+	await appendEventAsync(input.manifest.eventsPath, {
 		type: "adaptive.plan_injected",
 		runId: input.manifest.runId,
 		taskId: assessTask.id,

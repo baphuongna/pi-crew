@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { DEFAULT_MAILBOX } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { withEventLogLockSync } from "./event-log.ts";
 import { withFileLockSync } from "./locks.ts";
@@ -184,13 +183,13 @@ function ensureRunMailbox(manifest: TeamRunManifest): void {
 			// Ensure parent dir exists (may have been lost due to race or
 			// Windows path normalization mismatch)
 			fs.mkdirSync(path.dirname(filePath), { recursive: true });
-			fs.writeFileSync(filePath, "", "utf-8");
+			atomicWriteFile(filePath, "");
 		}
 	}
 	const delivery = deliveryFile(manifest, true);
 	if (!fs.existsSync(delivery)) {
 		fs.mkdirSync(path.dirname(delivery), { recursive: true });
-		fs.writeFileSync(delivery, `${JSON.stringify({ messages: {}, updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf-8");
+		atomicWriteFile(delivery, `${JSON.stringify({ messages: {}, updatedAt: new Date().toISOString() }, null, 2)}\n`);
 	}
 }
 
@@ -312,7 +311,7 @@ function rotateMailboxFileIfNeeded(filePath: string, thresholdBytes = MAILBOX_AR
 		const ts = new Date().toISOString().replace(/[:.]/g, "-");
 		const archivePath = `${filePath}.${ts}.archive.jsonl`;
 		fs.renameSync(filePath, archivePath);
-		fs.writeFileSync(filePath, "", "utf-8");
+		atomicWriteFile(filePath, "");
 		// FIX: Prune old archives so total per-direction count stays bounded.
 		pruneOldMailboxArchives(filePath);
 		return true;

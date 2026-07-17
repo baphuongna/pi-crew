@@ -3,6 +3,7 @@
  * Only adds entries if not already present; preserves existing content.
  */
 import * as fs from "node:fs";
+import { atomicWriteFile } from "./atomic-write.ts";
 
 /**
  * Entries to add to .gitignore for .crew directory management.
@@ -25,7 +26,7 @@ const CREW_GITIGNORE_ENTRIES = [
  */
 export async function updateGitignore(gitignorePath: string): Promise<void> {
 	if (!fs.existsSync(gitignorePath)) {
-		fs.writeFileSync(gitignorePath, CREW_GITIGNORE_ENTRIES.join("\n") + "\n", "utf-8");
+		atomicWriteFile(gitignorePath, CREW_GITIGNORE_ENTRIES.join("\n") + "\n");
 		return;
 	}
 

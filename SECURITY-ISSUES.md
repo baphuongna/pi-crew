@@ -1333,3 +1333,37 @@ Tests: 2273 / 2273 pass (0 failures).
 - [STRIDE Threat Modeling](https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-stride)
 - [oh-my-pi](https://github.com/can1357/oh-my-pi)
 - [claw-code](https://github.com/ultraworkers/claw-code)
+
+## v0.9.42 — Deep Review Hardening Pass (2026-07-17)
+
+A full-codebase deep review (8 parallel audit agents, 107 findings) was completed against v0.9.41. All findings were classified, verified at code level, and addressed. Security findings are listed below; full report at `reports/deep-review-2026-07-17.md`.
+
+### Verified + Fixed
+
+| ID | Sev | Location | Status |
+|---|:---:|---|---|
+| **SEC-03 / AUDIT-03** | MED | `src/extension/rpc-hmac.ts`, `cross-extension-rpc.ts` | ✅ **Fixed (hardening)** — Added soft, opt-out warning when `PI_CREW_RPC_SECRET` is unset. Moved warning from registration time (noisy, every pi load) to first-actual-RPC time (lazy, opt-out via `PI_CREW_SUPPRESS_RPC_WARNING=1`). No behavior change. |
+| **AUDIT-04** | LOW | `extension/team-tool.ts` (coordinationBridgeInstructions) | ⚠️ **Over-stated by auditor** — Confirmed static text; no auto-injection of mailbox body or pending steers. Defer. |
+| **AUDIT-07** | LOW | `src/extension/team-tool/context.ts` `configRecord()` | ✅ **Fixed (defense-in-depth)** — Now filters `__proto__`/`constructor`/`prototype` keys before type-casting. 6 callers protected. |
+| **AUDIT-08** | LOW | `src/extension/team-tool.ts` steering file write | ✅ **Fixed (defense-in-depth)** — Replaced string-concat path with `resolveContainedPath(steeringDir, \`${taskId}.jsonl\`)`. `taskId` is already safe via `createTaskId` sanitize. |
+| **SEC-02** | MED | `src/runtime/verification-gates.ts` `validateGateCommand` | ✅ **Fixed** — Added `ALLOWED_GATE_COMMAND_PATTERNS` allowlist + explicit `NODE_EVAL_MODE_PATTERN` rejection (covers `node -e`, `--eval`, `--print`, `-p` even when interleaved with other args). Reject bare `&` (background). Doc updated. |
+| **SEC-04** | HIGH | `src/runtime/task-runner/run-projection.ts` (mailbox) | ✅ **Fixed** — Mailbox message bodies wrapped in `<untrusted_data source="mailbox">` delimiters before injection into worker prompts (same isolation as task text + agent prompts). |
+| **SEC-08** | LOW | `src/runtime/task-runner.ts` steering file path | ✅ **Fixed** — Replaced string concat with `resolveContainedPath()` for path-containment validation. |
+| **AUDIT-06** | MED | `src/hooks/registry.ts` pre-step audit trail | ✅ **Fixed** — Pre-step execution now emits `hook.pre_step_started`, `hook.pre_step_completed`, `hook.pre_step_failed`. **Regression found and fixed:** `resolveRealContainedPath()` moved OUTSIDE `preStepOptional` catch so path traversal is always fatal (only execution failures can be optional). |
+| **AUDIT-05** | MED | `.dwf.ts` trust model | ✅ **Fixed (warning)** — Added explicit dispatch-time warning that `.dwf.ts` runs as trusted Node.js with full `process` / `require` / `import` access. |
+| **CFG-6 (SSRF)** | MED | `src/observability/exporters/otlp-exporter.ts` | ✅ **Fixed** — Replaced hostname-only check with async DNS-resolution + private-IP blocklist (IPv4: 10.x, 172.16-31.x, 192.168.x, 169.254.x, 127.x; IPv6: loopback/link-local/site-local/multicast/unspecified). Blocks DNS rebinding to metadata IPs. |
+
+### Deferred (verified by-design, no fix needed)
+
+- **AUDIT-02** — `node -e` / `python -c` allowed by design in verification-gates; proper fix is enabling `verification-worktree` sandbox (out of scope for this pass).
+- **AUDIT-04** — `coordinationBridgeInstructions` is static template; no auto-injection.
+- **EXT-5** — Test explicitly pins tool/command re-registration as expected (Pi platform limitation). Signal listeners are idempotent (separate fix).
+
+### Verification
+
+- ✅ Typecheck clean
+- ✅ 70+ targeted unit tests pass (including 4 cross-extension RPC regression tests)
+- ✅ `npm run check:lazy-imports` clean
+- ✅ Biome lint + format clean
+- ✅ Bundle rebuilt; bundle-load test (`test:bundle`) passes; **now wired into `.github/workflows/ci.yml`** via `npm run build:bundle && npm run test:bundle`
+- ✅ End-to-end smoke: `team action='run'` with fast-fix workflow → 3 real workers spawned → file artifact created with expected content (SHA-256 verified)

@@ -1,5 +1,6 @@
 import type { appendEvent } from "../state/event-log.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { checkProcessLiveness } from "./process-status.ts";
 import type { CrewAgentRecord } from "./crew-agent-runtime.ts";
 import type { IrcMessage } from "./live-irc.ts";
 
@@ -81,14 +82,6 @@ const MAX_LIVE_AGENTS = 5_000;
  */
 export function listLiveAgentsByWorkspace(workspaceId: string): LiveAgentHandle[] {
 	return listLiveAgents().filter((a) => a.workspaceId === workspaceId);
-}
-
-/**
- * List only active agents (running/queued/waiting) for a specific workspace.
- */
-/** @internal */
-function listActiveLiveAgentsByWorkspace(workspaceId: string): LiveAgentHandle[] {
-	return listActiveLiveAgents().filter((a) => a.workspaceId === workspaceId);
 }
 
 export function registerLiveAgent(
@@ -189,15 +182,6 @@ function safeDisposeLiveSession(handle: LiveAgentHandle): void {
 	}
 }
 
-/** @internal */
-function removeLiveAgentHandle(agentId: string): LiveAgentHandle | undefined {
-	const handle = liveAgents.get(agentId);
-	if (!handle) return undefined;
-	liveAgents.delete(agentId);
-	safeDisposeLiveSession(handle);
-	return handle;
-}
-
 export function disposeLiveAgentSession(agentIdOrTaskId: string): void {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) return;
@@ -280,10 +264,16 @@ export function evictStaleLiveAgentHandles(now = Date.now()): number {
 				evicted++;
 			}
 		} else if (age > STALE_RUNNING_HANDLE_MS) {
-			// Active-status handle with no update for 30min — presumed dead
-			liveAgents.delete(agentId);
-			safeDisposeLiveSession(handle);
-			evicted++;
+			// Active-status handle with no update for 30min — check process liveness
+			// before evicting. Only evict if the process is dead, to avoid evicting
+			// slow-but-alive agents.
+			const sessionPid = (handle.session as Record<string, unknown>)?.pid as number | undefined;
+			const liveness = checkProcessLiveness(sessionPid);
+			if (!liveness.alive) {
+				liveAgents.delete(agentId);
+				safeDisposeLiveSession(handle);
+				evicted++;
+			}
 		}
 	}
 	return evicted;
@@ -490,16 +480,6 @@ export function broadcastIrcMessage(fromAgentId: string, message: IrcMessage): s
 		recipients.push(handle.agentId);
 	}
 	return recipients;
-}
-
-/** Phase 7: Get pending IRC messages for an agent (and clear them). */
-/** @internal */
-function drainIrcMessages(agentIdOrTaskId: string): IrcMessage[] {
-	const handle = getLiveAgent(agentIdOrTaskId);
-	if (!handle) return [];
-	const messages = [...handle.pendingMessages];
-	handle.pendingMessages.length = 0;
-	return messages;
 }
 
 /* ── IRC reply support (side-channel Q&A) ─────────────────────────── */

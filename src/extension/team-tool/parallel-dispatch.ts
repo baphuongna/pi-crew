@@ -149,6 +149,11 @@ async function spawnSingleTask(
 			team,
 			workflow,
 			goal,
+			// EXT F1: mirror handleRun — without ownerSessionId, the foreign-run check in
+			// cancel/retry/resume (cancel.ts:50: `typeof ownerSessionId === "string"`) is
+			// skipped and any session can cancel/retry parallel-dispatched runs.
+			ownerSessionId: ctx.sessionId,
+			runKind: "team-run",
 		});
 
 		appendEvent(created.manifest.eventsPath, {

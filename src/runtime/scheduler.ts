@@ -111,6 +111,7 @@ export class CrewScheduler {
 		if (this.timers.has(job.id)) return;
 		if (job.scheduleType === "interval" && job.intervalMs) {
 			const t = setInterval(() => this.fire(job.id), job.intervalMs);
+			t.unref();
 			this.timers.set(job.id, t);
 		} else if (job.scheduleType === "once") {
 			const target = new Date(job.schedule).getTime();
@@ -120,6 +121,7 @@ export class CrewScheduler {
 					this.fire(job.id);
 					this.update(job.id, { enabled: false });
 				}, delay);
+				t.unref();
 				this.timers.set(job.id, t);
 			} else {
 				this.update(job.id, { enabled: false, lastStatus: "error" });

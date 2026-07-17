@@ -1,9 +1,9 @@
-import { type SpawnOptions, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { appendEvent, appendEventAsync } from "../state/event-log.ts";
+import { appendEventAsync } from "../state/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
@@ -356,8 +356,17 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		);
 		// Best-effort: unregister when child exits. Background-runner writes
 		// the marker file before it dies, so we unregister on the next
-		// cleanup tick. But the child "exit" event won't fire because we
-		// unref'd and the stdio is piped + ignored.
+		// cleanup tick. The child "exit" event may fire after unref() when
+		// stdio is piped; register handler defensively.
+		if (child.pid) {
+			child.on("exit", () => {
+				try {
+					unregisterWorker(child.pid!);
+				} catch {
+					/* best-effort */
+				}
+			});
+		}
 	}
 
 	return { pid: child.pid, logPath };

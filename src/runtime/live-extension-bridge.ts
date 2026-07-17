@@ -29,7 +29,6 @@
  *   - setActiveTools / getActiveTools / getAllTools
  */
 
-import type { YieldResult } from "./yield-handler.ts";
 
 export interface ExtensionBridgeApis {
 	sendMessage: (message: unknown, options?: Record<string, unknown>) => void;

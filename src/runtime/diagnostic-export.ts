@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import type { MetricSnapshot } from "../observability/metrics-primitives.ts";
+import { atomicWriteFile } from "../state/atomic-write.ts";
 import { readEvents, type TeamEvent } from "../state/event-log.ts";
 import { loadRunManifestById } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -148,7 +149,7 @@ export async function exportDiagnostic(
 	const dir = path.join(loaded.manifest.artifactsRoot, "diagnostic");
 	fs.mkdirSync(dir, { recursive: true });
 	const filePath = path.join(dir, `diagnostic-${safeTimestamp}.json`);
-	fs.writeFileSync(filePath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
+	atomicWriteFile(filePath, `${JSON.stringify(report, null, 2)}\n`);
 	return { path: filePath, report };
 }
 

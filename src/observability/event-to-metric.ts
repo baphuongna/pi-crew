@@ -37,7 +37,7 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 	const taskCount = registry.counter("crew.task.count", "Total tasks by status");
 	const subagentCount = registry.counter("crew.subagent.count", "Total subagent records by status");
 	const mailboxCount = registry.counter("crew.mailbox.count", "Total mailbox messages by direction");
-	const retryAttemptCount = registry.counter("crew.task.retry_attempt_total", "Retry attempts by run and task");
+	const retryAttemptCount = registry.counter("crew.task.retry_attempt_total", "Total retry attempts");
 	const deadletterCount = registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
 	const overflowCount = registry.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
 	const supervisorContactCount = registry.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
@@ -89,12 +89,12 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 		[
 			"crew.task.retry_attempt",
 			(data) => {
-				const item = recordValue(data);
 				taskCount.inc({ status: "retry" });
-				retryAttemptCount.inc({
-					runId: stringValue(item.runId, "unknown"),
-					taskId: stringValue(item.taskId, "unknown"),
-				});
+				// Per-run/task detail lives in the event log (crew.task.retry_attempt).
+				// Using runId/taskId as METRIC labels would blow up cardinality (each unique
+				// run+task pair = a new series, silently LRU-evicted at MAX_LABEL_COMBINATIONS
+				// = 10_000), making the counter unreliable for aggregation.
+				retryAttemptCount.inc({});
 			},
 		],
 		[
@@ -121,8 +121,9 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 			(data) => {
 				const item = recordValue(data);
 				supervisorContactCount.inc({
+					// reason is low-cardinality; taskId is NOT (unique per task) — dropped to
+					// avoid cardinality blowup (OBS-1). Per-task detail is in the event log.
 					reason: stringValue(item.reason, "unknown"),
-					taskId: stringValue(item.taskId, "unknown"),
 				});
 			},
 		],
