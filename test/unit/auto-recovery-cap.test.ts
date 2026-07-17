@@ -20,23 +20,28 @@ import { fileURLToPath } from "node:url";
  */
 test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () => {
 	const here = path.dirname(fileURLToPath(import.meta.url));
-	const registerPath = path.resolve(here, "..", "..", "src", "extension", "register.ts");
-	const source = fs.readFileSync(registerPath, "utf-8");
+	// v0.9.42 register.ts decomposition: the autoRecoveryLast cap moved to
+	// `src/extension/registration/lifecycle-handlers.ts` (the cap constant lives
+	// in `context-builder.ts`; the eviction loop lives in `lifecycle-handlers.ts`).
+	const ctxPath = path.resolve(here, "..", "..", "src", "extension", "registration", "context-builder.ts");
+	const lifecyclePath = path.resolve(here, "..", "..", "src", "extension", "registration", "lifecycle-handlers.ts");
+	const ctxSource = fs.readFileSync(ctxPath, "utf-8");
+	const lifecycleSource = fs.readFileSync(lifecyclePath, "utf-8");
 
 	assert.match(
-		source,
-		/AUTO_RECOVERY_LAST_MAX_ENTRIES\s*=\s*\d+/,
-		"register.ts should declare AUTO_RECOVERY_LAST_MAX_ENTRIES cap constant",
+		ctxSource,
+		/AUTO_RECOVERY_LAST_MAX_ENTRIES\s*:\s*\d+/,
+		"context-builder.ts should declare AUTO_RECOVERY_LAST_MAX_ENTRIES cap constant",
 	);
 	assert.match(
-		source,
-		/while\s*\(\s*autoRecoveryLast\.size\s*>=\s*AUTO_RECOVERY_LAST_MAX_ENTRIES\s*\)/,
-		"register.ts should evict oldest entries when the cap is reached",
+		lifecycleSource,
+		/while\s*\(\s*ctx\.autoRecoveryLast\.size\s*>=\s*ctx\.AUTO_RECOVERY_LAST_MAX_ENTRIES\s*\)/,
+		"lifecycle-handlers.ts should evict oldest entries when the cap is reached",
 	);
 	assert.match(
-		source,
-		/lastAccessAt.*oldest/,
-		"register.ts should use LRU-style eviction (based on lastAccessAt) for autoRecoveryLast cap",
+		lifecycleSource,
+		/lastAccessAt/,
+		"lifecycle-handlers.ts should reference lastAccessAt for LRU-style eviction",
 	);
 });
 

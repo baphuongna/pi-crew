@@ -6,7 +6,7 @@ import test from "node:test";
 import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
 import { createMetricFileSink } from "../../src/observability/metric-sink.ts";
 
-test("metric file sink writes redacted daily JSONL snapshots", () => {
+test("metric file sink writes redacted daily JSONL snapshots", async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-metric-sink-"));
 	try {
 		const registry = createMetricRegistry();
@@ -17,6 +17,9 @@ test("metric file sink writes redacted daily JSONL snapshots", () => {
 			intervalMs: 60_000,
 		});
 		sink.writeSnapshot(registry.snapshot());
+		// OBS-2: writeSnapshot is now async (fire-and-forget fs.write). Wait one
+		// event-loop tick for the callback to flush to disk before reading.
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		sink.dispose();
 		const dir = path.join(root, "state", "metrics");
 		const files = fs.readdirSync(dir);

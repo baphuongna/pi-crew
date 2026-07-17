@@ -41,7 +41,7 @@ describe("invalidateSnapshot", () => {
 		assert.strictEqual(receivedCwd, "/project/root");
 	});
 
-	it("emits runEventBus event for cache invalidation", () => {
+	it("emits runEventBus event for cache invalidation", async () => {
 		const emitted: Array<{ runId: string; type: string }> = [];
 		const unsub = runEventBus.onAny((e) => {
 			emitted.push(e as { runId: string; type: string });
@@ -53,6 +53,9 @@ describe("invalidateSnapshot", () => {
 			};
 
 			invalidateSnapshot("run-bus-test", "/cwd", deps);
+
+			// FIND-13: emit() is microtask-batched — wait for the queue to flush.
+			await new Promise<void>((resolve) => setImmediate(resolve));
 
 			const found = emitted.find((e) => e.runId === "run-bus-test" && e.type === "run.cache_invalidated");
 			assert.ok(

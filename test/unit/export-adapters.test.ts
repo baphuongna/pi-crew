@@ -4,8 +4,16 @@ import { claudeAdapter } from "../../src/adapters/claude-adapter.ts";
 import { codexAdapter } from "../../src/adapters/codex-adapter.ts";
 import { cursorAdapter } from "../../src/adapters/cursor-adapter.ts";
 import { generateToolExport, resourcesToExportContent } from "../../src/adapters/export-util.ts";
-import { createAdapterRegistry } from "../../src/adapters/registry.ts";
+import { adapterRegistry, createAdapterRegistry } from "../../src/adapters/registry.ts";
 import type { ExportContent } from "../../src/adapters/types.ts";
+
+// Ensure adapters are registered for these tests. Side-effect import of
+// src/adapters/index.ts is the production path, but this test imports the
+// adapter modules directly to assert on individual adapter behaviour, so we
+// register them here explicitly.
+adapterRegistry.register(claudeAdapter);
+adapterRegistry.register(cursorAdapter);
+adapterRegistry.register(codexAdapter);
 
 function sampleContent(overrides?: Partial<ExportContent>): ExportContent {
 	return {
