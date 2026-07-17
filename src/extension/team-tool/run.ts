@@ -498,6 +498,17 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { expandParallelResearchWorkflow }` above (issue #28, RFC 17). At call time the module body has fully evaluated, so the dynamic import returns a live binding. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
 	const { expandParallelResearchWorkflow: expandParallelResearch } = await import("../../runtime/parallel-research.ts");
 	const workflow = directAgent ? baseWorkflow : expandParallelResearch(baseWorkflow, resolvedCtx.cwd);
+	const isDynamicWorkflow =
+		!directAgent && (workflow as import("../../workflows/workflow-config.ts").WorkflowConfig).runtime === "dynamic";
+	const effectiveRunKind = isDynamicWorkflow ? params.runKind : undefined;
+	if (params.runKind !== undefined && !isDynamicWorkflow) {
+		logInternalError(
+			"team-tool.run.runKindIgnored",
+			new Error(`Ignoring runKind='${params.runKind}' because workflow '${workflow.name}' is not dynamic.`),
+			undefined,
+			"warn",
+		);
+	}
 
 	// PREFLIGHT (advisory only, since v0.9.15): classify workflow topology and emit
 	// informational notes per the rule in .crew/knowledge.md "pi-crew USAGE THRESHOLD
@@ -575,7 +586,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		goal,
 		workspaceMode: params.workspaceMode,
 		ownerSessionId: ctx.sessionId,
-		runKind: params.runKind,
+		runKind: effectiveRunKind,
 		args: params.args,
 	});
 	const goalArtifact = writeArtifact(paths.artifactsRoot, {
@@ -610,7 +621,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	// run it via runDynamicWorkflow instead of the static executeTeamRun path. The script
 	// orchestrates subagents via ctx.agent(); only ctx.setResult() reaches the main context.
 	// Placed AFTER manifest creation so runId/paths/artifactsRoot are available.
-	if (!directAgent && (workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig).runtime === "dynamic") {
+	if (isDynamicWorkflow) {
 		console.warn(
 			`[pi-crew SECURITY] Dynamic workflow '${workflow.name}' executes as trusted Node.js code with full process/require/import access; run only reviewed .dwf.ts files.`,
 		);

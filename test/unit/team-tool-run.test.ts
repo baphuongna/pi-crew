@@ -12,6 +12,7 @@ import type { TeamContext } from "../../src/extension/team-tool/context.ts";
 import { handleRun } from "../../src/extension/team-tool/run.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
+import { loadRunManifestById } from "../../src/state/state-store.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 function makeCtx(cwd: string): TeamContext {
@@ -100,6 +101,34 @@ describe("handleRun", () => {
 			// May fail at team or workflow lookup
 			assert.strictEqual(res.isError, true);
 		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("warns and ignores runKind for a non-dynamic workflow", async () => {
+		const tmp = createTrackedTempDir("run-test-");
+		const originalStderr = process.stderr.write.bind(process.stderr);
+		const captured: string[] = [];
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			captured.push(String(chunk));
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const res = await handleRun(
+				makeParams({
+					agent: "executor",
+					goal: "verify ignored run kind",
+					runKind: "dynamic-workflow",
+					config: { executeWorkers: false },
+				}),
+				makeCtx(tmp),
+			);
+			assert.ok(res.details.runId);
+			const loaded = loadRunManifestById(tmp, res.details.runId);
+			assert.equal(loaded?.manifest.runKind, "team-run");
+			assert.match(captured.join(""), /runKind='dynamic-workflow'.*not dynamic/);
+		} finally {
+			process.stderr.write = originalStderr;
 			removeTrackedTempDir(tmp);
 		}
 	});

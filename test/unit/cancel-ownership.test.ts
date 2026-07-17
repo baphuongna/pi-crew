@@ -90,6 +90,38 @@ describe("abortOwned", () => {
 		}
 	});
 
+	it("requires force to be the literal boolean true for foreign tasks", () => {
+		const run = createOwnedRun("session-a");
+		try {
+			saveRunTasks(run.manifest, [
+				{
+					id: "task-1",
+					runId: run.runId,
+					role: "worker",
+					agent: "worker",
+					title: "task",
+					status: "running",
+					dependsOn: [],
+					cwd: run.cwd,
+				},
+			]);
+			const truthyResult = abortOwned(run.runId, undefined, { cwd: run.cwd, sessionId: "session-b" }, "true" as never);
+			assert.deepEqual(truthyResult, {
+				abortedIds: [],
+				missingIds: [],
+				foreignIds: ["task-1"],
+			});
+			const explicitResult = abortOwned(run.runId, undefined, { cwd: run.cwd, sessionId: "session-b" }, true);
+			assert.deepEqual(explicitResult, {
+				abortedIds: ["task-1"],
+				missingIds: [],
+				foreignIds: [],
+			});
+		} finally {
+			fs.rmSync(run.cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("handleCancel records structured cancellation reason", async () => {
 		const run = createOwnedRun("session-a");
 		try {
@@ -205,6 +237,32 @@ describe("abortOwned", () => {
 				},
 			]);
 			const out = await handleCancel({ action: "cancel", runId: run.runId }, { cwd: run.cwd, sessionId: "session-b" });
+			assert.equal(out.isError, true);
+			assert.equal(loadRunManifestById(run.cwd, run.runId)?.tasks[0]?.status, "running");
+		} finally {
+			fs.rmSync(run.cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("handleCancel rejects a truthy non-boolean force value for a foreign run", async () => {
+		const run = createOwnedRun("session-a");
+		try {
+			saveRunTasks(run.manifest, [
+				{
+					id: "task-1",
+					runId: run.runId,
+					role: "worker",
+					agent: "worker",
+					title: "task",
+					status: "running",
+					dependsOn: [],
+					cwd: run.cwd,
+				},
+			]);
+			const out = await handleCancel(
+				{ action: "cancel", runId: run.runId, force: "true" as never },
+				{ cwd: run.cwd, sessionId: "session-b" },
+			);
 			assert.equal(out.isError, true);
 			assert.equal(loadRunManifestById(run.cwd, run.runId)?.tasks[0]?.status, "running");
 		} finally {

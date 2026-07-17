@@ -317,10 +317,9 @@ function isRetryableLinkError(error: unknown): boolean {
  * destination between the check and the rename operation.
  *
  * ST-8: this is the canonical symlink-safe rename helper used by both
- * `atomicWriteFile` (sync) and `atomicWriteFileAsync` (async) paths, AND
- * consumed by `atomic-write-v2.ts`'s `AtomicWriter` class so the two
- * implementations share a single rename semantic. Keep this signature
- * stable — `AtomicWriter.writeSync` / `writeAsync` call it directly.
+ * `atomicWriteFile` (sync) and `atomicWriteFileAsync` (async) paths. The
+ * helper is exported so any future caller can share the same symlink-safe
+ * rename semantics; keep this signature stable.
  */
 export function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): void {
 	let lastError: unknown;
@@ -378,9 +377,9 @@ export function renameWithLinkSync(tempPath: string, filePath: string, retries =
 }
 
 /**
- * ST-8: async twin of `renameWithLinkSync`. Exported so `atomic-write-v2.ts`
- * (`AtomicWriter.writeAsync`) shares the same symlink-safe rename semantics
- * as the primary `atomicWriteFileAsync` path.
+ * ST-8: async twin of `renameWithLinkSync`. Exported so any future caller
+ * can share the same symlink-safe rename semantics as the primary
+ * `atomicWriteFileAsync` path.
  */
 export async function renameWithLinkAsync(tempPath: string, filePath: string, retries = 8): Promise<void> {
 	let lastError: unknown;

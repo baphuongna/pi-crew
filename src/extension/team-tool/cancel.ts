@@ -56,7 +56,7 @@ export function abortOwned(runId: string, taskIds: string[] | undefined, ctx: Te
 			continue;
 		}
 		if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") continue;
-		if (foreignRun && !force) {
+		if (foreignRun && force !== true) {
 			result.foreignIds.push(id);
 			continue;
 		}
@@ -92,7 +92,7 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 
 	// Pre-lock ownership check: reject foreign-owned runs unless force is set
 	const foreignRun = typeof loaded.manifest.ownerSessionId === "string" && loaded.manifest.ownerSessionId !== ctx.sessionId;
-	if (foreignRun && !params.force) {
+	if (foreignRun && params.force !== true) {
 		return result(
 			`Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
 			{ action: "retry", status: "error", runId: loaded.manifest.runId },
@@ -184,7 +184,7 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 
 	// Pre-lock ownership check: reject foreign-owned runs unless force is set
 	const preCheck = abortOwned(loaded.manifest.runId, undefined, ctx, params.force);
-	if (preCheck.abortedIds.length === 0 && preCheck.foreignIds.length > 0 && !params.force) {
+	if (preCheck.abortedIds.length === 0 && preCheck.foreignIds.length > 0 && params.force !== true) {
 		return result(
 			`Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
 			{
@@ -230,7 +230,7 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 	}
 
 	return withRunLockSync(loaded.manifest, () => {
-		if ((loaded.manifest.status === "completed" || loaded.manifest.status === "cancelled") && !params.force)
+		if ((loaded.manifest.status === "completed" || loaded.manifest.status === "cancelled") && params.force !== true)
 			return result(
 				`Run ${loaded.manifest.runId} is already ${loaded.manifest.status}; nothing to cancel. Use force: true to mark it cancelled anyway.`,
 				{
@@ -243,7 +243,7 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 
 		// Classify tasks for foreign-aware cancellation
 		const abortResult = abortOwned(loaded.manifest.runId, undefined, ctx, params.force);
-		if (abortResult.abortedIds.length === 0 && abortResult.foreignIds.length > 0 && !params.force) {
+		if (abortResult.abortedIds.length === 0 && abortResult.foreignIds.length > 0 && params.force !== true) {
 			return result(
 				`Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
 				{

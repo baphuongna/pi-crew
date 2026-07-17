@@ -44,6 +44,63 @@ test("detectDrift detects extra config keys not in schema", () => {
 	}
 });
 
+test("detectDrift detects unknown nested config keys through depth 3", () => {
+	const report = detectDrift({ agents: [], teams: [], workflows: [] }, {
+		runtime: {
+			maxTurns: 4,
+			unknownRuntimeKey: true,
+			yield: {
+				enabled: true,
+				unknownYieldKey: "unexpected",
+			},
+		},
+		reliability: {
+			retryPolicy: {
+				maxAttempts: 2,
+				unknownRetryKey: 123,
+			},
+		},
+	} as Record<string, unknown> as Parameters<typeof detectDrift>[1]);
+	const names = report.items.filter((item) => item.kind === "config-key").map((item) => item.name);
+	assert.deepEqual(names.sort(), [
+		"reliability.retryPolicy.unknownRetryKey",
+		"runtime.unknownRuntimeKey",
+		"runtime.yield.unknownYieldKey",
+	]);
+});
+
+test("detectDrift traverses record-valued config and checks keys inside depth-3 objects", () => {
+	const report = detectDrift({ agents: [], teams: [], workflows: [] }, {
+		goalWrap: {
+			implementation: {
+				enabled: true,
+				unknownWorkflowKey: true,
+				verification: {
+					commands: ["npm test"],
+					unknownVerificationKey: true,
+				},
+			},
+		},
+	} as Record<string, unknown> as Parameters<typeof detectDrift>[1]);
+	const names = report.items.filter((item) => item.kind === "config-key").map((item) => item.name);
+	assert.deepEqual(names.sort(), [
+		"goalWrap.implementation.unknownWorkflowKey",
+		"goalWrap.implementation.verification.unknownVerificationKey",
+	]);
+});
+
+test("detectDrift accepts known nested config keys", () => {
+	const report = detectDrift(
+		{ agents: [], teams: [], workflows: [] },
+		{
+			runtime: { yield: { enabled: true, maxReminders: 2 } },
+			reliability: { retryPolicy: { maxAttempts: 2, backoffMs: 100 } },
+			goalWrap: { implementation: { verification: { commands: ["npm test"], mode: "text-only" } } },
+		},
+	);
+	assert.deepEqual(report.items, []);
+});
+
 test("detectDrift detects mismatched agent override keys", () => {
 	const report = detectDrift({ agents: ["explorer"], teams: [], workflows: [] }, {
 		agents: {
