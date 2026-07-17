@@ -1,11 +1,38 @@
 # Changelog
 
-## [Unreleased] — communication-layer optimization (2026-07-16)
+## [0.9.41] — communication-layer optimization (2026-07-16)
+
+### Performance
+
+- **Eliminated double `JSON.parse` in `child-pi.ts` `emitLine` hot path** — `src/runtime/child-pi.ts`. The observer previously parsed each stdout line twice (once for raw assistant-text extraction, once inside `compactChildPiLine`). Now parses once and passes the result to both paths via a `preParsed` parameter. Benchmark: **2.0 → 1.0 JSON.parse/line** (~25% faster at 1000 events). Extracted shared `nonJsonLineResult` helper for the non-JSON fallback.
+- **Batched transcript writes** — `src/runtime/child-pi.ts`. Replaced per-line `open/write/close` (3 syscalls × N lines) with a module-scoped batch buffer that flushes all accumulated lines per path in a single `open/write/close` every 50ms or on lifecycle boundaries. Added `resetTranscriptBatchState()` for test isolation.
+- **Migrated non-terminal event writes to fire-and-forget** — `src/runtime/adaptive-plan.ts`. 4 diagnostic `adaptive.plan_*` events migrated to `appendEventFireAndForget`; 1 audit-critical event (`plan_injected`) upgraded to `await appendEventAsync` to prevent ordering inversion with subsequent task events.
 
 ### Cleanup
 
-- **Removed dead code in `live-agent-manager.ts`** — deleted `drainIrcMessages`, `removeLiveAgentHandle`, and `listActiveLiveAgentsByWorkspace`, three internal functions with zero callers (verified via repo-wide grep; `removeLiveAgentHandle` logic was already inlined into `terminateLiveAgent`). Updated stale test comments. No behavioral change.
-- **Added child-pi parse benchmark** — `bench/child-pi-parse.bench.ts` establishes a baseline (2.0 JSON.parse/line) for the hot-path optimization phases.
+- **Removed dead code in `live-agent-manager.ts`** — deleted `drainIrcMessages`, `removeLiveAgentHandle`, and `listActiveLiveAgentsByWorkspace`, three internal functions with zero callers (verified via repo-wide grep; `removeLiveAgentHandle` logic was already inlined into `terminateLiveAgent`). Updated stale test comments.
+- **Stale-comment cleanup in `child-pi.ts`** — 3 comments still referenced the removed `pendingTranscriptWrites` Set after the Phase 3 batching change; updated to describe the new batch-buffer mechanism.
+
+### Documentation
+
+- **Added `docs/optimization-plan-2026-07.md`** — detailed 8-phase communication-layer optimization plan with verification gates, risk assessments, and rollback procedures.
+- **Added `docs/phase4-triage.md`** — documents the sync/async event-log migration triage, including the ordering risk between sync (filesystem lock) and async (in-process promise chain) write paths.
+- **Added `bench/child-pi-parse.bench.ts`** + baseline/final/session-verify measurement files — reproducible benchmark for the parse-count optimization.
+
+### Notes
+
+- Phase 5 (`pollRunToTerminal` → fs.watch) was attempted but reverted before review rounds. The async watcher coordination is too risky for a small win. Documented as a follow-up in `docs/optimization-plan-2026-07.md`.
+- Phases 6 (steer+control poll coalesce) and 7 (redaction trust-boundary) were skipped per the plan — Phase 6 is optional, Phase 7 was explicitly DEFER until a benchmark proves redaction is a bottleneck.
+
+### Tests
+
+- 6072 unit tests pass (was 6038 before)
+- 15+ integration tests pass
+- Lint + format:check clean (CI green on ubuntu + windows + macos)
+- New regression tests:
+  - `test/unit/child-pi-single-parse.test.ts` — 6 tests verifying single-parse invariant and preParsed path equivalence
+  - `test/unit/transcript-batch.test.ts` — 5 tests verifying batched write correctness, ordering, and timer-path flush
+- Updated `test/unit/live-agent-manager-cov.test.ts` — stale comments removed
 
 ## [0.9.40] — stale-reconciler fix + async dispatch + gitignore cleanup (2026-07-16)
 
