@@ -7,12 +7,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { HandoffManager, type HandoffSummary, type TaskPacket, type TaskResult } from "../../src/runtime/handoff-manager.ts";
 import {
-	type AttemptResult,
 	createRetryRunner,
 	DEFAULT_RETRY_CONFIG,
 	PERSISTENT_FAILURE_RETRY_CONFIG,
-	type RetryConfig,
-	type RetryResult,
 	RetryRunner,
 	type TaskRunnerLike,
 	TRANSIENT_FAILURE_RETRY_CONFIG,

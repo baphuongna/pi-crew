@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { buildTeamDoctorReport, type TeamDoctorReport, type TeamDoctorReportInput } from "../../src/extension/team-tool/doctor.ts";
+import { buildTeamDoctorReport, type TeamDoctorReportInput } from "../../src/extension/team-tool/doctor.ts";
 
 // Round 29 optimization: use a fresh empty temp cwd per test file run.
 // Previously this used cwd: "/tmp" which forced discoverX() to walk the

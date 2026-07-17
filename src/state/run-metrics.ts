@@ -66,7 +66,7 @@ export function collectRunMetrics(cwd: string, runId: string): RunMetrics | unde
 	// Duration: from run createdAt to updatedAt (manifest timestamps), or 0 if unavailable.
 	const createdAt = new Date(manifest.createdAt).getTime();
 	const updatedAt = new Date(manifest.updatedAt).getTime();
-	const durationMs = isNaN(createdAt) || isNaN(updatedAt) ? 0 : Math.max(0, updatedAt - createdAt);
+	const durationMs = Number.isNaN(createdAt) || Number.isNaN(updatedAt) ? 0 : Math.max(0, updatedAt - createdAt);
 
 	// Consistency score: proportion of tasks that completed successfully among all non-skipped tasks.
 	const nonSkippedTasks = tasks.filter((t) => t.status !== "skipped");

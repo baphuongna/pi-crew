@@ -4,7 +4,6 @@ import { claudeAdapter } from "../../src/adapters/claude-adapter.ts";
 import { codexAdapter } from "../../src/adapters/codex-adapter.ts";
 import { cursorAdapter } from "../../src/adapters/cursor-adapter.ts";
 import { generateToolExport, resourcesToExportContent } from "../../src/adapters/export-util.ts";
-import { adapterRegistry } from "../../src/adapters/index.ts";
 import { createAdapterRegistry } from "../../src/adapters/registry.ts";
 import type { ExportContent } from "../../src/adapters/types.ts";
 

@@ -6,13 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HandoffSummary } from "../../src/runtime/handoff-manager.ts";
-import {
-	createHiddenHandoffService,
-	type HandoffPriority,
-	type HiddenHandoff,
-	HiddenHandoffService,
-	type HiddenHandoffType,
-} from "../../src/runtime/hidden-handoff.ts";
+import { createHiddenHandoffService, type HiddenHandoff, HiddenHandoffService } from "../../src/runtime/hidden-handoff.ts";
 
 // Test helpers
 function createHandoffSummary(overrides: Partial<HandoffSummary> = {}): HandoffSummary {

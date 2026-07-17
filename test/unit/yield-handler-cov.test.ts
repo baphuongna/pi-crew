@@ -11,7 +11,6 @@ import {
 	DEFAULT_YIELD_CONFIG,
 	extractYieldDataFromArgs,
 	extractYieldResult,
-	hasYieldInOutput,
 	isYieldEvent,
 	validateYieldData,
 	YIELD_TOOL_NAME,

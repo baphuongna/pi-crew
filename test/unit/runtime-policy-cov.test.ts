@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CrewRuntimeConfig } from "../../src/config/config.ts";
-import type { CrewRuntimeKind } from "../../src/runtime/crew-agent-runtime.ts";
 import { resolveTaskRuntimeKind } from "../../src/runtime/runtime-policy.ts";
 
 describe("runtime-policy", () => {

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { HookPayload, HookResult, HookStage } from "../../src/runtime/iteration-hooks.ts";
+import type { HookPayload, HookResult } from "../../src/runtime/iteration-hooks.ts";
 import { hookLogEntry, isAllowedHookPath, runIterationHook, steerMessageFromHook } from "../../src/runtime/iteration-hooks.ts";
 
 /** Helper to create a standard hook payload. */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { RetryHooks, RetryPolicy } from "../../src/runtime/retry-executor.ts";
-import { calculateRetryDelay, DEFAULT_RETRY_POLICY, executeWithRetry } from "../../src/runtime/retry-executor.ts";
+import type { RetryPolicy } from "../../src/runtime/retry-executor.ts";
+import { calculateRetryDelay, executeWithRetry } from "../../src/runtime/retry-executor.ts";
 
 // ── calculateRetryDelay ──
 

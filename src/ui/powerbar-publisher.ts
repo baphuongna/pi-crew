@@ -98,16 +98,7 @@ export function updatePiCrewPowerbar(
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
 ): void {
-	powerbarPublisher.update(
-		events,
-		cwd,
-		config,
-		manifestCache,
-		snapshotCache,
-		ctx,
-		notificationCount,
-		preloadedManifests,
-	);
+	powerbarPublisher.update(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests);
 }
 
 // --- Dedup state + coalescer live on a class instance so they survive hot-reload
@@ -220,16 +211,7 @@ class PowerbarPublisher {
 			const a = this.#latestArgs;
 			this.#latestArgs = null;
 			if (!a) return;
-			this.update(
-				a.events,
-				a.cwd,
-				a.config,
-				a.manifestCache,
-				a.snapshotCache,
-				a.ctx,
-				a.notificationCount,
-				a.preloadedManifests,
-			);
+			this.update(a.events, a.cwd, a.config, a.manifestCache, a.snapshotCache, a.ctx, a.notificationCount, a.preloadedManifests);
 		}, 200);
 	}
 
@@ -293,10 +275,14 @@ class PowerbarPublisher {
 			0,
 		);
 		const completed = active.reduce(
-			(sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t) => s + (t.status === "completed" ? 1 : 0), 0)),
+			(sum, item) =>
+				sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t) => s + (t.status === "completed" ? 1 : 0), 0)),
 			0,
 		);
-		const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
+		const total = Math.max(
+			1,
+			active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length,
+		);
 		const usage = aggregateUsage(tasks);
 		const snapshotTokens = active.reduce(
 			(sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
@@ -455,16 +441,7 @@ export function requestPowerbarUpdate(
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
 ): void {
-	powerbarPublisher.request(
-		events,
-		cwd,
-		config,
-		manifestCache,
-		snapshotCache,
-		ctx,
-		notificationCount,
-		preloadedManifests,
-	);
+	powerbarPublisher.request(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests);
 }
 
 /** Dispose the powerbar coalescer. Call during extension cleanup. */

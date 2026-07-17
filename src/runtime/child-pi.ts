@@ -889,7 +889,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isFinalAssistantEvent(event: unknown): boolean {
 	const obj = asRecord(event);
-	if (!obj || obj.type !== "message_end") return false;
+	if (obj?.type !== "message_end") return false;
 	const message = asRecord(obj.message);
 	const role = message?.role;
 	if (role !== undefined && role !== "assistant") return false;

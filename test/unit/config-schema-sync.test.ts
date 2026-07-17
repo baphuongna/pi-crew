@@ -6,8 +6,9 @@
  * If someone adds a field to the interface but forgets the schema,
  * this test will catch it.
  */
-import { describe, it } from "node:test";
+
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { PiTeamsConfigSchema } from "../../src/schema/config-schema.ts";
 
 // All known top-level keys from the PiTeamsConfig interface.
@@ -46,21 +47,13 @@ describe("config-schema sync (CFG-2)", () => {
 			}
 		}
 
-		assert.deepEqual(
-			missing,
-			[],
-			`PiTeamsConfig keys missing from PiTeamsConfigSchema: ${missing.join(", ")}`,
-		);
+		assert.deepEqual(missing, [], `PiTeamsConfig keys missing from PiTeamsConfigSchema: ${missing.join(", ")}`);
 	});
 
 	it("schema has no extra keys beyond the known interface", () => {
 		const schemaProps = Object.keys(PiTeamsConfigSchema.properties ?? {});
 		const extra = schemaProps.filter((k) => !PI_TEAMS_CONFIG_KEYS.includes(k));
 
-		assert.deepEqual(
-			extra,
-			[],
-			`PiTeamsConfigSchema has extra keys not in PI_TEAMS_CONFIG_KEYS: ${extra.join(", ")}`,
-		);
+		assert.deepEqual(extra, [], `PiTeamsConfigSchema has extra keys not in PI_TEAMS_CONFIG_KEYS: ${extra.join(", ")}`);
 	});
 });

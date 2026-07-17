@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type EventBus, registerCrewRpcHandlers } from "../../src/runtime/cross-extension-rpc.ts";
+import type { EventBus } from "../../src/runtime/cross-extension-rpc.ts";
 
 function createMockEventBus(): {
 	bus: EventBus;

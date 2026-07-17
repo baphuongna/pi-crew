@@ -18,14 +18,14 @@
  * `lifecycle-handlers.ts`.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
 import { appendDeadletter } from "../../runtime/deadletter.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs } from "../../runtime/pi-args.ts";
-import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
 import { reconcileOrphanedTempWorkspaces } from "../../runtime/stale-reconciler.ts";
 import { requestPowerbarUpdate } from "../../ui/powerbar-publisher.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { sendAgentWakeUp, sendFollowUp } from "./subagent-helpers.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { sendAgentWakeUp, sendFollowUp } from "./subagent-helpers.ts";
 
 /**
  * Bind the three lazy configurers onto the registration context. After
@@ -57,11 +57,7 @@ export function installLazyConfigurers(pi: ExtensionAPI, ctx: RegistrationContex
  * every session_start cycle gets a fresh closure that reads the latest
  * `ctx.currentCtx` and caches.
  */
-async function configureNotificationsImpl(
-	pi: ExtensionAPI,
-	ctx: RegistrationContext,
-	extCtx: ExtensionContext,
-): Promise<void> {
+async function configureNotificationsImpl(pi: ExtensionAPI, ctx: RegistrationContext, extCtx: ExtensionContext): Promise<void> {
 	try {
 		// LAZY: registration/lifecycle is heavy (notification-router + sink)
 		const lifecycleModule = await import("./lifecycle.ts");
@@ -85,11 +81,7 @@ async function configureNotificationsImpl(
  * stale-reconcile and orphan-temp-dir timers are installed — see
  * registration/observability.ts for details.
  */
-async function configureObservabilityImpl(
-	pi: ExtensionAPI,
-	ctx: RegistrationContext,
-	extCtx: ExtensionContext,
-): Promise<void> {
+async function configureObservabilityImpl(pi: ExtensionAPI, ctx: RegistrationContext, extCtx: ExtensionContext): Promise<void> {
 	try {
 		// LAZY: registration/observability is heavy (HeartbeatWatcher + metric stack)
 		const observabilityModule = await import("./observability.ts");
@@ -102,8 +94,7 @@ async function configureObservabilityImpl(
 			reconcileOrphanedTempWorkspaces: (now, opts) => reconcileOrphanedTempWorkspaces(now, opts),
 			cleanupOrphanTempDirs,
 			cleanupLegacyOrphanTempDirs,
-			appendDeadletter: (manifest, entry) =>
-				appendDeadletter(manifest, entry as Parameters<typeof appendDeadletter>[1]),
+			appendDeadletter: (manifest, entry) => appendDeadletter(manifest, entry as Parameters<typeof appendDeadletter>[1]),
 			importCrashRecovery: ctx.importCrashRecovery,
 		});
 	} catch (error) {

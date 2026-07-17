@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ValidationOutcome, ValidationSeverity } from "../../src/schema/validation-types.ts";
+import type { ValidationSeverity } from "../../src/schema/validation-types.ts";
 import { validateWithSeverity } from "../../src/schema/validation-types.ts";
 
 /**

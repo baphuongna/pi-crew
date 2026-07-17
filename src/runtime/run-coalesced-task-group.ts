@@ -1,4 +1,3 @@
-
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync } from "../state/event-log.ts";

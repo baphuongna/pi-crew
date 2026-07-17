@@ -7,7 +7,7 @@
  * Ports logic from pi-subagent4 adapted for pi-crew's data model.
  * Uses @earendil-works/pi-tui Components (Container, Text, Spacer) directly.
  */
-import { Container, Spacer, Text, } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { truncateToWidth } from "../utils/visual.ts";
 import { replaceTabs } from "./render-diff.ts";
@@ -444,10 +444,10 @@ function parseArgs(argsStr: string | undefined): Record<string, unknown> {
 function computeDurationMs(startedAt: string, completedAt?: string): number {
 	if (!startedAt) return 0;
 	const start = new Date(startedAt).getTime();
-	if (isNaN(start)) return 0;
+	if (Number.isNaN(start)) return 0;
 	if (completedAt) {
 		const end = new Date(completedAt).getTime();
-		return isNaN(end) ? 0 : Math.max(0, end - start);
+		return Number.isNaN(end) ? 0 : Math.max(0, end - start);
 	}
 	return Math.max(0, Date.now() - start);
 }

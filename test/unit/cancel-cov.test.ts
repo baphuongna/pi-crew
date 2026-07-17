@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { type AbortOwnedResult, abortOwned } from "../../src/extension/team-tool/cancel.ts";
+import { abortOwned } from "../../src/extension/team-tool/cancel.ts";
 import type { TeamContext } from "../../src/extension/team-tool/context.ts";
 
 /**

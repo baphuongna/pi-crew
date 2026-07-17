@@ -20,7 +20,7 @@
  * reflect outcomes, and `task_failed` must now record a passed:false entry.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import {

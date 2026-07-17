@@ -6,7 +6,7 @@
 import assert from "node:assert";
 import test from "node:test";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { type Component, renderAgentToolResult, renderTeamToolResult, type Theme } from "../../src/ui/tool-render.ts";
+import { renderAgentToolResult, renderTeamToolResult, type Theme } from "../../src/ui/tool-render.ts";
 
 // Mock theme for testing
 const mockTheme: Theme = {

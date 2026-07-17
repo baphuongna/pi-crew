@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PipelineContext, PipelineResult, PipelineStage, PipelineWorkflow, StageResult } from "../../src/runtime/pipeline-runner.ts";
+import type { PipelineContext, PipelineStage, PipelineWorkflow } from "../../src/runtime/pipeline-runner.ts";
 import { createPipelineWorkflow, PipelineRunner } from "../../src/runtime/pipeline-runner.ts";
 
 test("PipelineRunner executes single stage", async () => {

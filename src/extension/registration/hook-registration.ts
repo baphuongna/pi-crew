@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { asRecord, loadConfig } from "../../config/config.ts";
 import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } from "../../runtime/per-write-validator.ts";
-import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
 import { resolveContainedPath } from "../../utils/safe-paths.ts";
+import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
 /**

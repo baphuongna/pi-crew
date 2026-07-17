@@ -463,7 +463,7 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 					if (fullLoaded && fullLoaded.manifest.status === "running") {
 						withRunLockSync(fullLoaded.manifest, () => {
 							const fresh = loadRunManifestById(entry.cwd, entry.runId);
-							if (!fresh || fresh.manifest.status !== "running") return;
+							if (fresh?.manifest.status !== "running") return;
 							const now_iso = new Date(now).toISOString();
 							const repairedTasks = fresh.tasks.map((task) => {
 								if (task.status === "running" || task.status === "queued" || task.status === "waiting") {

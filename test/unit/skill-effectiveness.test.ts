@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
-import { existsSync, mkdirSync, rmSync, unlinkSync } from "fs";
-import { join } from "path";
 import {
 	adjustConfidence,
 	applyDecay,

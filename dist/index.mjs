@@ -14622,12 +14622,12 @@ function extractErrorMessage(event) {
 }
 function extractPatch(event, patches) {
   const obj = asRecord2(event);
-  if (!obj || obj.type !== "tool_result") return;
+  if (obj?.type !== "tool_result") return;
   const content = obj.content;
   if (!Array.isArray(content)) return;
   for (const item of content) {
     const part = asRecord2(item);
-    if (!part || part.type !== "text") continue;
+    if (part?.type !== "text") continue;
     const text = typeof part.text === "string" ? part.text : "";
     if (text.includes("--- a/") || text.includes("diff ---")) {
       patches.push(text);
@@ -15088,7 +15088,7 @@ function asRecord3(value) {
 }
 function isFinalAssistantEvent(event) {
   const obj = asRecord3(event);
-  if (!obj || obj.type !== "message_end") return false;
+  if (obj?.type !== "message_end") return false;
   const message = asRecord3(obj.message);
   const role = message?.role;
   if (role !== void 0 && role !== "assistant") return false;
@@ -30506,7 +30506,7 @@ function listActiveLiveAgents() {
 }
 function getLiveAgentContextPercent(agentIdOrTaskId) {
   const handle = getLiveAgent(agentIdOrTaskId);
-  if (!handle || handle.status !== "running") return null;
+  if (handle?.status !== "running") return null;
   try {
     return handle.session.getSessionStats?.().contextUsage?.percent ?? null;
   } catch {
@@ -38682,7 +38682,7 @@ function eventText(event) {
 }
 function finalAssistantText(event) {
   const obj = asRecord4(event);
-  if (!obj || obj.type !== "message_end") return [];
+  if (obj?.type !== "message_end") return [];
   const message = asRecord4(obj.message);
   if (message?.role !== "assistant") return [];
   return textFromContent2(message.content);
@@ -38706,7 +38706,7 @@ async function resolveScopeModelsPatterns(cwd, agentDir) {
   return readEnabledModelsPatterns(cwd, agentDir);
 }
 function modelFromRegistry(modelRegistry, modelId) {
-  if (!modelId || !modelId.includes("/")) return void 0;
+  if (!modelId?.includes("/")) return void 0;
   const registry2 = asRecord4(modelRegistry);
   const find = registry2?.find;
   if (typeof find !== "function") return void 0;
@@ -38829,7 +38829,7 @@ function filterActiveTools(session, agent, role) {
   const policy = resolveToolPolicy(agent, role);
   const disallowed = policy.excludeTools?.length ? new Set(policy.excludeTools) : void 0;
   const allowed = policy.tools?.length ? new Set(policy.tools) : void 0;
-  const active = session.getActiveToolNames().filter((name) => !recursiveTools.has(name) && (!disallowed || !disallowed.has(name)) && (!allowed || allowed.has(name)));
+  const active = session.getActiveToolNames().filter((name) => !recursiveTools.has(name) && !disallowed?.has(name) && (!allowed || allowed.has(name)));
   session.setActiveToolsByName(active);
 }
 function usageFromStats(stats) {
@@ -40947,8 +40947,8 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync32, mkdirSync as mkdirSync20, readFileSync as readFileSync30, writeFileSync as writeFileSync6 } from "fs";
-import { dirname as dirname20, join as join35 } from "path";
+import { existsSync as existsSync32, mkdirSync as mkdirSync20, readFileSync as readFileSync30, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname20, join as join35 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
   return join35(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
 }
@@ -42646,13 +42646,13 @@ function handleAutoSummarizeOn(params, ctx) {
   const cfg = params.config ?? {};
   if (cfg.threshold !== void 0) {
     const threshold = typeof cfg.threshold === "number" ? cfg.threshold : parseInt(String(cfg.threshold), 10);
-    if (!isNaN(threshold) && threshold >= 0) {
+    if (!Number.isNaN(threshold) && threshold >= 0) {
       service.setThreshold(threshold);
     }
   }
   if (cfg.minTools !== void 0) {
     const minTools = typeof cfg.minTools === "number" ? cfg.minTools : parseInt(String(cfg.minTools), 10);
-    if (!isNaN(minTools) && minTools >= 0) {
+    if (!Number.isNaN(minTools) && minTools >= 0) {
       service.setMinToolsUsed(minTools);
     }
   }
@@ -42708,13 +42708,13 @@ function handleAutoSummarizeConfig(params, ctx) {
   const updates = {};
   if (cfg.threshold !== void 0) {
     const threshold = typeof cfg.threshold === "number" ? cfg.threshold : parseInt(String(cfg.threshold), 10);
-    if (!isNaN(threshold) && threshold >= 0) {
+    if (!Number.isNaN(threshold) && threshold >= 0) {
       updates.threshold = threshold;
     }
   }
   if (cfg.minTools !== void 0) {
     const minTools = typeof cfg.minTools === "number" ? cfg.minTools : parseInt(String(cfg.minTools), 10);
-    if (!isNaN(minTools) && minTools >= 0) {
+    if (!Number.isNaN(minTools) && minTools >= 0) {
       updates.minTools = minTools;
     }
   }
@@ -49057,16 +49057,7 @@ function registerPiCrewPowerbarSegments(events, config) {
   });
 }
 function updatePiCrewPowerbar(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
-  powerbarPublisher.update(
-    events,
-    cwd,
-    config,
-    manifestCache2,
-    snapshotCache,
-    ctx,
-    notificationCount,
-    preloadedManifests
-  );
+  powerbarPublisher.update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount, preloadedManifests);
 }
 function powerbarKey(payload) {
   return `${payload.text ?? ""}|${payload.suffix ?? ""}|${payload.bar ?? ""}|${payload.color ?? ""}|${payload.icon ?? ""}|${payload.barSegments ?? ""}`;
@@ -49111,16 +49102,7 @@ function buildStepsPayload(active, allTasks) {
   };
 }
 function requestPowerbarUpdate(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
-  powerbarPublisher.request(
-    events,
-    cwd,
-    config,
-    manifestCache2,
-    snapshotCache,
-    ctx,
-    notificationCount,
-    preloadedManifests
-  );
+  powerbarPublisher.request(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount, preloadedManifests);
 }
 function disposePowerbarCoalescer() {
   powerbarPublisher.dispose();
@@ -49157,16 +49139,7 @@ var init_powerbar_publisher = __esm({
           const a = this.#latestArgs;
           this.#latestArgs = null;
           if (!a) return;
-          this.update(
-            a.events,
-            a.cwd,
-            a.config,
-            a.manifestCache,
-            a.snapshotCache,
-            a.ctx,
-            a.notificationCount,
-            a.preloadedManifests
-          );
+          this.update(a.events, a.cwd, a.config, a.manifestCache, a.snapshotCache, a.ctx, a.notificationCount, a.preloadedManifests);
         }, 200);
       }
       update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests) {
@@ -49215,7 +49188,10 @@ var init_powerbar_publisher = __esm({
           (sum, item) => sum + (item.snapshot?.progress.completed ?? item.tasks.reduce((s, t2) => s + (t2.status === "completed" ? 1 : 0), 0)),
           0
         );
-        const total = Math.max(1, active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length);
+        const total = Math.max(
+          1,
+          active.reduce((sum, item) => sum + (item.snapshot?.progress.total ?? item.tasks.length), 0) || agents.length
+        );
         const usage = aggregateUsage(tasks);
         const snapshotTokens = active.reduce(
           (sum, item) => sum + (item.snapshot ? item.snapshot.usage.tokensIn + item.snapshot.usage.tokensOut : 0),
@@ -49602,7 +49578,7 @@ function renderDiff(diffText, options = {}) {
       const removedLines = [];
       while (i2 < lines.length) {
         const nextParsed = parseDiffLine(lines[i2] ?? "");
-        if (!nextParsed || nextParsed.prefix !== "-") break;
+        if (nextParsed?.prefix !== "-") break;
         removedLines.push({
           lineNum: nextParsed.lineNum,
           content: nextParsed.content
@@ -49612,7 +49588,7 @@ function renderDiff(diffText, options = {}) {
       const addedLines = [];
       while (i2 < lines.length) {
         const nextParsed = parseDiffLine(lines[i2] ?? "");
-        if (!nextParsed || nextParsed.prefix !== "+") break;
+        if (nextParsed?.prefix !== "+") break;
         addedLines.push({
           lineNum: nextParsed.lineNum,
           content: nextParsed.content
@@ -51271,7 +51247,7 @@ function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now()) {
           if (fullLoaded && fullLoaded.manifest.status === "running") {
             withRunLockSync(fullLoaded.manifest, () => {
               const fresh = loadRunManifestById(entry.cwd, entry.runId);
-              if (!fresh || fresh.manifest.status !== "running") return;
+              if (fresh?.manifest.status !== "running") return;
               const now_iso = new Date(now).toISOString();
               const repairedTasks = fresh.tasks.map((task) => {
                 if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
@@ -52044,7 +52020,7 @@ function formatCompactToolProgress(input) {
       lines.push(`  tool: ${active.progress.currentTool}${count2}`);
     }
     const recent = active.progress?.recentOutput?.at(-1);
-    if (recent && recent.trim()) lines.push(`  ${trimLine(recent)}`);
+    if (recent?.trim()) lines.push(`  ${trimLine(recent)}`);
   } else if (input.runId && !counts) {
     lines.push(`  run=${input.runId} (starting)`);
   } else if (input.error) {
@@ -53919,7 +53895,7 @@ function planCoalescedGroups(readyTaskIds, tasks, workflow, enabled, maxGroupSiz
   const buckets = /* @__PURE__ */ new Map();
   for (const taskId of readyTaskIds) {
     const task = taskById2.get(taskId);
-    if (!task || !task.stepId) continue;
+    if (!task?.stepId) continue;
     const step = stepById.get(task.stepId);
     if (!step) continue;
     if (permissionForRole(task.role) !== "read_only") continue;
@@ -54854,7 +54830,7 @@ function filterReadyByWriteOverlap(readyTaskIds, tasks, workflow, maxCount, enab
   for (const taskId of readyTaskIds) {
     if (pickedTaskIds.length >= maxCount) break;
     const task = taskById2.get(taskId);
-    if (!task || !task.stepId) {
+    if (!task?.stepId) {
       pickedTaskIds.push(taskId);
       continue;
     }
@@ -56466,7 +56442,7 @@ var init_retrieval_orchestrator = __esm({
 
 // src/runtime/task-runner/prompt-builder.ts
 function toolGuidanceBlock(agent) {
-  if (!agent || agent.loadMode !== "lean" || !agent.defaultTools?.length) return "";
+  if (agent?.loadMode !== "lean" || !agent.defaultTools?.length) return "";
   return [
     "# Tool Guidance",
     `This role uses a focused tool set. Preferred tools: ${agent.defaultTools.join(", ")}.`,
@@ -57386,7 +57362,7 @@ var init_event_stream_bridge = __esm({
 // src/runtime/output-validator.ts
 function validateWorkerOutput(role, output) {
   const issues = [];
-  if (!output || !output.trim()) {
+  if (!output?.trim()) {
     return {
       valid: false,
       formatMatch: false,
@@ -61864,7 +61840,7 @@ function collectRunMetrics(cwd, runId) {
   }
   const createdAt = new Date(manifest.createdAt).getTime();
   const updatedAt = new Date(manifest.updatedAt).getTime();
-  const durationMs = isNaN(createdAt) || isNaN(updatedAt) ? 0 : Math.max(0, updatedAt - createdAt);
+  const durationMs = Number.isNaN(createdAt) || Number.isNaN(updatedAt) ? 0 : Math.max(0, updatedAt - createdAt);
   const nonSkippedTasks = tasks.filter((t2) => t2.status !== "skipped");
   const consistencyScore = nonSkippedTasks.length > 0 ? completedCount / nonSkippedTasks.length : 1;
   return {
@@ -61928,7 +61904,7 @@ function persistAsyncOnGoalLoopManifest(manifestPath, manifest, spawned) {
 }
 function shouldGoalWrap(cwd, workflow) {
   const wc = readGoalWrapConfig(cwd, workflow.name);
-  if (!wc || wc.enabled !== true) {
+  if (wc?.enabled !== true) {
     return { enabled: false, reason: "config-off" };
   }
   const validationError = validateGoalWrapConfig(wc);
@@ -61951,7 +61927,7 @@ function shouldGoalWrap(cwd, workflow) {
 async function startGoalWrappedRun(params, ctx, workflow, goal) {
   const cwd = ctx.cwd;
   const wc = readGoalWrapConfig(cwd, workflow.name);
-  if (!wc || wc.enabled !== true) {
+  if (wc?.enabled !== true) {
     return result(
       `goal-wrap is not enabled for workflow '${workflow.name}' in .crew/config.json.`,
       { action: "run", status: "error" },
@@ -62637,16 +62613,16 @@ var init_chain_runner = __esm({
         const parsed = {
           name
         };
-        if (teamMatch && teamMatch[1]) {
+        if (teamMatch?.[1]) {
           parsed.team = this.sanitizeIdentifier(teamMatch[1]);
         }
-        if (workflowMatch && workflowMatch[1]) {
+        if (workflowMatch?.[1]) {
           parsed.workflow = this.sanitizeIdentifier(workflowMatch[1]);
         }
-        if (templateMatch && templateMatch[1]) {
+        if (templateMatch?.[1]) {
           parsed.template = this.sanitizeIdentifier(templateMatch[1]);
         }
-        if (inlineMatch && inlineMatch[1]) {
+        if (inlineMatch?.[1]) {
           parsed.inlineGoal = this.sanitizeInlineGoal(inlineMatch[1]);
         }
         const modelVal = this.extractFlag(step, "model");
@@ -62664,7 +62640,7 @@ var init_chain_runner = __esm({
         const timeoutStr = this.extractFlag(step, "timeout");
         if (timeoutStr) {
           const timeoutMs = parseInt(timeoutStr, 10);
-          if (!isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs <= 864e5) {
+          if (!Number.isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs <= 864e5) {
             parsed.timeout = timeoutMs * 1e3;
           }
         }
@@ -69290,9 +69266,9 @@ function isNewDateExpression(node) {
 }
 function isMemberExpression(node, childKey, objectName, propertyName) {
   const child = asAstNode(node[childKey]);
-  if (!child || child.type !== "MemberExpression") return false;
+  if (child?.type !== "MemberExpression") return false;
   const object = asAstNode(child.object);
-  if (!object || object.type !== "Identifier" || object.name !== objectName) return false;
+  if (object?.type !== "Identifier" || object.name !== objectName) return false;
   return propertyNameOf(child) === propertyName;
 }
 function propertyNameOf(node) {
@@ -70509,10 +70485,7 @@ function formatRunResult(manifest, options) {
       isError
     );
   }
-  const lines = [
-    `pi-crew run ${manifest.status}: ${manifest.runId} (${team})`,
-    `Goal: ${goal.slice(0, 100)}`
-  ];
+  const lines = [`pi-crew run ${manifest.status}: ${manifest.runId} (${team})`, `Goal: ${goal.slice(0, 100)}`];
   if (metrics) {
     lines.push("");
     lines.push(
@@ -71338,8 +71311,8 @@ async function recoverCheckpointedTasks(manifest, tasks) {
         const files = fs87.readdirSync(transcriptsDir).filter((f) => f.startsWith(`${task.id}.attempt-`) && f.endsWith(".jsonl"));
         if (files.length > 0) {
           files.sort((a, b) => {
-            const idxA = parseInt(a.match(/\.attempt-(\d+)\./)?.[1] ?? "0");
-            const idxB = parseInt(b.match(/\.attempt-(\d+)\./)?.[1] ?? "0");
+            const idxA = parseInt(a.match(/\.attempt-(\d+)\./)?.[1] ?? "0", 10);
+            const idxB = parseInt(b.match(/\.attempt-(\d+)\./)?.[1] ?? "0", 10);
             return idxB - idxA;
           });
           transcriptPath = path72.join(transcriptsDir, files[0]);
@@ -72037,10 +72010,7 @@ function installCrewGlobalRegistry(deps) {
       if (!manifestCache2) return;
       const manifest = manifestCache2.get(runId);
       if (manifest) {
-        appendEventFireAndForget(
-          manifest.eventsPath,
-          event
-        );
+        appendEventFireAndForget(manifest.eventsPath, event);
       }
     },
     waitForAll: async (runId) => {
@@ -73975,7 +73945,7 @@ function renderLines2(lines, width) {
 }
 function readProgressPreview(run, maxLines = 5, snapshotCache) {
   const snapshot = snapshotFor(run, snapshotCache);
-  if (snapshot && snapshot.recentOutputLines?.length) {
+  if (snapshot?.recentOutputLines?.length) {
     return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
   }
   if (snapshotCache) return ["Progress: (loading\u2026)"];
@@ -77477,6 +77447,1003 @@ var init_commands = __esm({
   }
 });
 
+// src/runtime/subagent-manager.ts
+import * as fs95 from "node:fs";
+import * as path76 from "node:path";
+function isValidSubagentId(id) {
+  return /^[a-z0-9_]+$/i.test(id) && id.length <= 128;
+}
+function persistedSubagentPath(cwd, id) {
+  if (!isValidSubagentId(id)) throw new Error(`Invalid subagent id: ${id}`);
+  return path76.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.subagentsSubdir, `${id}.json`);
+}
+function serializableRecord(record) {
+  const { promise: _promise, ...rest } = record;
+  return rest;
+}
+function savePersistedSubagentRecord(cwd, record) {
+  try {
+    const filePath = persistedSubagentPath(cwd, record.id);
+    fs95.mkdirSync(path76.dirname(filePath), { recursive: true });
+    fs95.writeFileSync(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}
+`, "utf-8");
+    fs95.chmodSync(filePath, 384);
+  } catch (error) {
+    logInternalError("subagent-manager.save", error, `id=${record.id}`);
+  }
+}
+function removePersistedSubagentRecord(cwd, id) {
+  try {
+    const filePath = persistedSubagentPath(cwd, id);
+    fs95.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    const code = error?.code;
+    if (code === "ENOENT") return false;
+    logInternalError("subagent-manager.remove", error, `id=${id}`);
+    return false;
+  }
+}
+function shouldDeleteOnTerminalStatus(record) {
+  if (record.terminated === true) return true;
+  const s = record.status;
+  return s === "cancelled" || s === "stopped";
+}
+function sanitizePersistedRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return void 0;
+  const obj = raw;
+  const idValue = obj.id ?? obj.agentId;
+  if (typeof idValue !== "string" || !idValue) return void 0;
+  const clean = { id: idValue };
+  if (obj.agentId && typeof obj.agentId === "string") {
+    clean.agentId = obj.agentId;
+  }
+  for (const key of Object.keys(obj)) {
+    if (ALLOWED_RECORD_FIELDS.has(key) && (typeof obj[key] === "string" || typeof obj[key] === "number" || typeof obj[key] === "boolean")) {
+      clean[key] = obj[key];
+    }
+  }
+  if (typeof clean.id !== "string" || clean.id.length === 0) return void 0;
+  return clean;
+}
+function readPersistedSubagentRecord(cwd, id) {
+  try {
+    const raw = JSON.parse(fs95.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
+    return sanitizePersistedRecord(raw);
+  } catch {
+    return void 0;
+  }
+}
+function resultText(result4) {
+  return result4.content?.map((item) => item.type === "text" ? item.text : "").filter(Boolean).join("\n") ?? "";
+}
+function detailsRunId(result4) {
+  const details = result4.details;
+  return typeof details?.runId === "string" ? details.runId : void 0;
+}
+function totalRunTurns(cwd, runId) {
+  if (!runId) return void 0;
+  const loaded = loadRunManifestById(cwd, runId);
+  if (!loaded) return void 0;
+  let total = 0;
+  let hasTurns = false;
+  for (const task of loaded.tasks) {
+    const turns = task.usage?.turns ?? task.agentProgress?.turns;
+    if (typeof turns === "number" && Number.isFinite(turns)) {
+      total += turns;
+      hasTurns = true;
+    }
+  }
+  return hasTurns ? total : void 0;
+}
+var ALLOWED_RECORD_FIELDS, SubagentManager;
+var init_subagent_manager = __esm({
+  "src/runtime/subagent-manager.ts"() {
+    "use strict";
+    init_defaults();
+    init_state_store();
+    init_internal_error();
+    init_paths();
+    init_redaction();
+    ALLOWED_RECORD_FIELDS = /* @__PURE__ */ new Set([
+      "id",
+      "agentId",
+      "agentName",
+      "subagentType",
+      "type",
+      "description",
+      "prompt",
+      "status",
+      "startedAt",
+      "completedAt",
+      "spawnedAt",
+      "model",
+      "runId",
+      "cwd",
+      "taskId",
+      "result",
+      "error",
+      "resultConsumed",
+      "background",
+      "ownerSessionGeneration",
+      "stuckNotified",
+      "blockedAt",
+      "turnCount",
+      "terminated",
+      "durationMs"
+    ]);
+    SubagentManager = class {
+      records = /* @__PURE__ */ new Map();
+      cwdByRecord = /* @__PURE__ */ new Map();
+      controllers = /* @__PURE__ */ new Map();
+      controllerCleanup = /* @__PURE__ */ new Map();
+      queue = [];
+      runningBackground = 0;
+      counter = 0;
+      maxConcurrent;
+      onComplete;
+      onEvent;
+      pollIntervalMs;
+      constructor(maxConcurrent = 4, onComplete, pollIntervalMs = 1e3, onEvent) {
+        this.maxConcurrent = maxConcurrent;
+        this.onComplete = onComplete;
+        this.onEvent = onEvent;
+        this.pollIntervalMs = pollIntervalMs;
+      }
+      spawn(options, runner, signal) {
+        const record = {
+          id: `agent_${Date.now().toString(36)}_${(++this.counter).toString(36)}`,
+          type: options.type,
+          description: options.description,
+          prompt: options.prompt,
+          status: options.background && this.runningBackground >= this.maxConcurrent ? "queued" : "running",
+          startedAt: Date.now(),
+          model: options.model,
+          skill: options.skill,
+          background: options.background,
+          ownerSessionGeneration: options.ownerSessionGeneration,
+          batchId: options.batchId
+        };
+        this.records.set(record.id, record);
+        this.cwdByRecord.set(record.id, options.cwd);
+        savePersistedSubagentRecord(options.cwd, record);
+        if (record.status === "queued") {
+          this.queue.push({ record, options, runner, signal });
+          return record;
+        }
+        this.start(record, options, runner, signal);
+        return record;
+      }
+      getRecord(id) {
+        return this.records.get(id);
+      }
+      listAgents() {
+        return [...this.records.values()].sort((a, b) => b.startedAt - a.startedAt);
+      }
+      abort(id, reason) {
+        const record = this.records.get(id);
+        if (!record) return false;
+        if (record.status === "queued") {
+          this.queue = this.queue.filter((entry) => entry.record.id !== id);
+          this.markStopped(record, reason ?? "Aborted by caller.");
+          return true;
+        }
+        if (record.status !== "running" && record.status !== "blocked") return false;
+        this.controllers.get(id)?.abort();
+        this.markStopped(record, reason ?? "Aborted by caller.");
+        return true;
+      }
+      abortAll(reason) {
+        let count2 = 0;
+        const stopReason = reason ?? "Aborted (session switch or shutdown).";
+        for (const entry of this.queue) {
+          this.markStopped(entry.record, stopReason);
+          count2++;
+        }
+        this.queue = [];
+        for (const record of this.records.values()) {
+          if (record.status === "running" || record.status === "blocked") {
+            this.controllers.get(record.id)?.abort();
+            this.markStopped(record, stopReason);
+            count2++;
+          }
+        }
+        return count2;
+      }
+      async waitForAll() {
+        while (true) {
+          this.drainQueue();
+          const pending2 = this.listAgents().filter((record) => record.status === "running" || record.status === "queued").map((record) => record.promise).filter((promise) => Boolean(promise));
+          if (!pending2.length) break;
+          await Promise.allSettled(pending2);
+        }
+      }
+      async waitForRecord(id) {
+        while (true) {
+          const record = this.records.get(id);
+          if (!record) return void 0;
+          if (record.status !== "running" && record.status !== "queued") return record;
+          if (record.promise)
+            await record.promise.catch((error) => {
+              logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
+            });
+          else await new Promise((resolve22) => setTimeout(resolve22, 100));
+        }
+      }
+      setMaxConcurrent(value) {
+        this.maxConcurrent = Math.max(1, Math.floor(value));
+        this.drainQueue();
+      }
+      start(record, options, runner, signal) {
+        if (options.background) this.runningBackground++;
+        record.status = "running";
+        record.startedAt = Date.now();
+        record.completedAt = void 0;
+        const runSignal = this.createRunSignal(record.id, signal);
+        savePersistedSubagentRecord(options.cwd, record);
+        record.promise = (async () => {
+          try {
+            const result4 = await runner(options, runSignal);
+            if (record.status === "stopped") return;
+            record.runId = detailsRunId(result4);
+            record.result = resultText(result4);
+            savePersistedSubagentRecord(options.cwd, record);
+            if (result4.isError) {
+              record.status = "error";
+              record.error = record.result;
+              throw new Error(record.error);
+            }
+            if (record.runId) await this.pollRunToTerminal(options.cwd, record);
+            else record.status = "completed";
+          } catch (error) {
+            if (record.status === "stopped" || runSignal.aborted) {
+              const abortReason = runSignal.aborted ? "Signal aborted \u2014 agent cancelled by parent (session switch, user cancel, or tool timeout)." : void 0;
+              record.status = "stopped";
+              if (!record.error) record.error = abortReason ?? (error instanceof Error ? error.message : String(error));
+              return;
+            }
+            record.status = "error";
+            record.error = error instanceof Error ? error.message : String(error);
+            throw error;
+          } finally {
+            this.cleanupRunSignal(record.id);
+            if (options.background) this.runningBackground = Math.max(0, this.runningBackground - 1);
+            if (record.status !== "blocked") record.completedAt = record.completedAt ?? Date.now();
+            savePersistedSubagentRecord(options.cwd, record);
+            if (record.status === "completed" || record.status === "failed" || record.status === "cancelled" || record.status === "error" || record.status === "stopped") {
+              record.turnCount = record.turnCount ?? totalRunTurns(options.cwd, record.runId);
+              record.durationMs = record.completedAt ? Math.max(0, record.completedAt - record.startedAt) : void 0;
+              savePersistedSubagentRecord(options.cwd, record);
+              if (shouldDeleteOnTerminalStatus(record)) {
+                removePersistedSubagentRecord(options.cwd, record.id);
+              }
+              this.onComplete?.(record);
+            }
+            this.drainQueue();
+          }
+        })();
+        record.promise.catch((error) => {
+          logInternalError("subagent-manager.start.unhandled", error, `id=${record.id}`);
+        });
+      }
+      markStopped(record, reason) {
+        record.status = "stopped";
+        record.terminated = true;
+        record.completedAt = Date.now();
+        if (reason && !record.error) record.error = reason;
+        const cwd = this.cwdByRecord.get(record.id);
+        if (cwd) savePersistedSubagentRecord(cwd, record);
+        if (cwd) removePersistedSubagentRecord(cwd, record.id);
+      }
+      createRunSignal(id, signal) {
+        const controller = new AbortController();
+        this.controllers.set(id, controller);
+        if (signal?.aborted) {
+          controller.abort();
+          return controller.signal;
+        }
+        if (signal) {
+          const abort = () => controller.abort();
+          signal.addEventListener("abort", abort, { once: true });
+          this.controllerCleanup.set(id, () => signal.removeEventListener("abort", abort));
+        }
+        return controller.signal;
+      }
+      cleanupRunSignal(id) {
+        this.controllerCleanup.get(id)?.();
+        this.controllerCleanup.delete(id);
+        this.controllers.delete(id);
+      }
+      drainQueue() {
+        while (this.queue.length > 0 && this.runningBackground < this.maxConcurrent) {
+          const next = this.queue.shift();
+          if (next?.record.status !== "queued") continue;
+          this.start(next.record, next.options, next.runner, next.signal);
+        }
+      }
+      async pollRunToTerminal(cwd, record) {
+        const MAX_POLL_COUNT = 1800;
+        let pollCount = 0;
+        while (record.runId && (record.status === "running" || record.status === "blocked")) {
+          if (++pollCount > MAX_POLL_COUNT) {
+            logInternalError(
+              "subagent-manager.poll-timeout",
+              new Error(`pollRunToTerminal exceeded ${MAX_POLL_COUNT} polls for runId=${record.runId}`),
+              `id=${record.id}`
+            );
+            record.status = "error";
+            record.error = `Poll timeout: run did not reach terminal state after ${MAX_POLL_COUNT} seconds`;
+            record.completedAt = Date.now();
+            savePersistedSubagentRecord(cwd, record);
+            return;
+          }
+          const loaded = loadRunManifestById(cwd, record.runId);
+          if (!loaded) {
+            await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
+            continue;
+          }
+          if (loaded.manifest.status === "completed") {
+            record.status = "completed";
+            record.error = void 0;
+            record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
+            record.completedAt = Date.now();
+            savePersistedSubagentRecord(cwd, record);
+            return;
+          }
+          if (loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled") {
+            record.status = loaded.manifest.status;
+            record.error = loaded.manifest.summary;
+            record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
+            record.completedAt = Date.now();
+            savePersistedSubagentRecord(cwd, record);
+            return;
+          }
+          if (loaded.manifest.status === "blocked") {
+            record.status = "blocked";
+            record.error = void 0;
+            if (!record.blockedAt) {
+              record.blockedAt = Date.now();
+              record.stuckNotified = false;
+              record.completedAt = void 0;
+              this.onComplete?.(record);
+              this.scheduleStuckBlockedNotify(cwd, record);
+              this.scheduleBlockedTerminalPoll(cwd, record);
+            }
+            savePersistedSubagentRecord(cwd, record);
+            return;
+          }
+          await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
+        }
+      }
+      scheduleBlockedTerminalPoll(cwd, record) {
+        const poll = () => {
+          const current2 = this.records.get(record.id);
+          if (current2?.status !== "blocked" || !current2.runId) return;
+          const loaded = loadRunManifestById(cwd, current2.runId);
+          if (!loaded || loaded.manifest.status === "blocked" || loaded.manifest.status === "running" || loaded.manifest.status === "planning" || loaded.manifest.status === "queued") {
+            const timer2 = setTimeout(poll, this.pollIntervalMs);
+            timer2.unref();
+            return;
+          }
+          const persisted = readPersistedSubagentRecord(cwd, current2.id);
+          current2.resultConsumed = current2.resultConsumed || persisted?.resultConsumed;
+          if (loaded.manifest.status === "completed") {
+            current2.status = "completed";
+            current2.error = void 0;
+          } else if (loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled") {
+            current2.status = loaded.manifest.status;
+            current2.error = loaded.manifest.summary;
+          } else return;
+          current2.completedAt = Date.now();
+          current2.turnCount = current2.turnCount ?? totalRunTurns(cwd, current2.runId);
+          current2.durationMs = Math.max(0, current2.completedAt - current2.startedAt);
+          savePersistedSubagentRecord(cwd, current2);
+          this.onComplete?.(current2);
+        };
+        const timer = setTimeout(poll, this.pollIntervalMs);
+        timer.unref();
+      }
+      scheduleStuckBlockedNotify(cwd, record) {
+        const threshold = DEFAULT_SUBAGENT.stuckBlockedNotifyMs;
+        const fire = () => {
+          const current2 = this.records.get(record.id);
+          if (current2?.status !== "blocked" || !current2.blockedAt || current2.stuckNotified) return;
+          current2.stuckNotified = true;
+          this.onEvent?.("subagent.stuck-blocked", {
+            event: "subagent.stuck-blocked",
+            id: current2.id,
+            runId: current2.runId,
+            durationMs: Math.max(0, Date.now() - current2.blockedAt),
+            ownerSessionGeneration: current2.ownerSessionGeneration
+          });
+          savePersistedSubagentRecord(cwd, current2);
+        };
+        if (threshold <= 0) {
+          fire();
+          return;
+        }
+        const timer = setTimeout(fire, threshold);
+        timer.unref();
+      }
+    };
+  }
+});
+
+// src/subagents/manager.ts
+var init_manager2 = __esm({
+  "src/subagents/manager.ts"() {
+    "use strict";
+    init_subagent_manager();
+  }
+});
+
+// src/extension/registration/subagent-helpers.ts
+var subagent_helpers_exports = {};
+__export(subagent_helpers_exports, {
+  __test__subagentSpawnParams: () => __test__subagentSpawnParams,
+  formatSubagentRecord: () => formatSubagentRecord,
+  readSubagentRunResult: () => readSubagentRunResult,
+  refreshPersistedSubagentRecord: () => refreshPersistedSubagentRecord,
+  sendAgentWakeUp: () => sendAgentWakeUp,
+  sendFollowUp: () => sendFollowUp,
+  subagentToolResult: () => subagentToolResult
+});
+import * as fs96 from "node:fs";
+function sendFollowUp(pi, content) {
+  const api = pi;
+  if (typeof api.sendMessage !== "function") return;
+  api.sendMessage.call(
+    pi,
+    { customType: "pi-crew-subagent-notification", content, display: true },
+    { deliverAs: "followUp", triggerTurn: true }
+  );
+}
+function sendAgentWakeUp(pi, content) {
+  const api = pi;
+  try {
+    if (typeof api.sendUserMessage === "function") {
+      api.sendUserMessage.call(pi, content, {
+        deliverAs: "followUp",
+        triggerTurn: true
+      });
+      return true;
+    }
+    if (typeof api.sendMessage === "function") {
+      api.sendMessage.call(
+        pi,
+        {
+          customType: "pi-crew-subagent-wakeup",
+          content,
+          display: true
+        },
+        { deliverAs: "followUp", triggerTurn: true }
+      );
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+function refreshPersistedSubagentRecord(ctx, record) {
+  if (!record.runId) return record;
+  const loaded = loadRunManifestById(ctx.cwd, record.runId);
+  if (!loaded) return record;
+  if (loaded.manifest.status === "completed" || loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled" || loaded.manifest.status === "blocked") {
+    const refreshed = {
+      ...record,
+      status: loaded.manifest.status,
+      error: loaded.manifest.status === "completed" || loaded.manifest.status === "blocked" ? void 0 : loaded.manifest.summary,
+      completedAt: loaded.manifest.status === "blocked" ? void 0 : record.completedAt ?? Date.now()
+    };
+    savePersistedSubagentRecord(ctx.cwd, refreshed);
+    return refreshed;
+  }
+  return record;
+}
+function formatSubagentRecord(record) {
+  const duration = record.completedAt ? `${Math.round((record.completedAt - record.startedAt) / 1e3)}s` : "running";
+  return [
+    `Agent: ${record.id}`,
+    `Type: ${record.type}`,
+    `Status: ${record.status}`,
+    record.runId ? `Run: ${record.runId}` : void 0,
+    `Description: ${record.description}`,
+    record.model ? `Model: ${record.model}` : void 0,
+    `Duration: ${duration}`,
+    record.error ? `Error: ${record.error}` : void 0
+  ].filter((line4) => Boolean(line4)).join("\n");
+}
+function readSubagentRunResult(ctx, record) {
+  if (!record.runId) return record.result;
+  const loaded = loadRunManifestById(ctx.cwd, record.runId);
+  const task = loaded?.tasks.find((item) => item.resultArtifact) ?? loaded?.tasks[0];
+  const artifactPath = task?.resultArtifact?.path;
+  if (!artifactPath || !loaded) return void 0;
+  try {
+    const safePath = resolveRealContainedPath(loaded.manifest.artifactsRoot, artifactPath);
+    return fs96.readFileSync(safePath, "utf-8").trim();
+  } catch {
+    return void 0;
+  }
+}
+function subagentToolResult(text, details = {}, isError = false) {
+  return { content: [{ type: "text", text }], details, isError };
+}
+function parseSkillParam(value) {
+  if (value === false) return false;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return value;
+  return void 0;
+}
+function __test__subagentSpawnParams(params, ctx) {
+  return {
+    cwd: ctx.cwd,
+    type: typeof params.subagent_type === "string" && params.subagent_type.trim() ? params.subagent_type.trim() : "executor",
+    description: typeof params.description === "string" && params.description.trim() ? params.description.trim() : "pi-crew subagent",
+    prompt: typeof params.prompt === "string" ? params.prompt : "",
+    background: params.run_in_background === true,
+    model: typeof params.model === "string" && params.model.trim() ? params.model.trim() : void 0,
+    skill: parseSkillParam(params.skill),
+    maxTurns: typeof params.max_turns === "number" && Number.isFinite(params.max_turns) ? params.max_turns : void 0,
+    batchId: typeof params.batch_id === "string" && params.batch_id.trim() ? params.batch_id.trim() : void 0
+  };
+}
+var init_subagent_helpers = __esm({
+  "src/extension/registration/subagent-helpers.ts"() {
+    "use strict";
+    init_state_store();
+    init_manager2();
+    init_safe_paths();
+  }
+});
+
+// src/ui/live-run-sidebar.ts
+var live_run_sidebar_exports = {};
+__export(live_run_sidebar_exports, {
+  LiveRunSidebar: () => LiveRunSidebar
+});
+import * as fs97 from "node:fs";
+function renderLines3(lines, width) {
+  const box = new Box(0, 0);
+  for (const line4 of lines) {
+    box.addChild(new Text3(line4));
+  }
+  return box.render(width);
+}
+function line3(text, width) {
+  return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
+}
+function border(left, fill, right, width) {
+  return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
+}
+function readTasks3(path82) {
+  const parse6 = () => {
+    const parsed = JSON.parse(fs97.readFileSync(path82, "utf-8"));
+    return Array.isArray(parsed) ? parsed : [];
+  };
+  try {
+    return readJsonFileCoalesced(path82, TASK_READ_TTL_MS3, parse6);
+  } catch {
+    return [];
+  }
+}
+function shortUsage(tasks) {
+  const usage = aggregateUsage(tasks);
+  return usage ? formatUsage(usage) : "usage=(none)";
+}
+var TASK_READ_TTL_MS3, LiveRunSidebar;
+var init_live_run_sidebar = __esm({
+  "src/ui/live-run-sidebar.ts"() {
+    "use strict";
+    init_agent_control();
+    init_crew_agent_records();
+    init_task_display();
+    init_state_store();
+    init_usage();
+    init_file_coalescer();
+    init_visual();
+    init_layout_primitives();
+    init_render_scheduler();
+    init_run_event_bus();
+    init_spinner();
+    init_status_colors();
+    init_theme_adapter();
+    TASK_READ_TTL_MS3 = 200;
+    LiveRunSidebar = class {
+      cwd;
+      runId;
+      done;
+      theme;
+      config;
+      unsubscribeTheme;
+      renderScheduler;
+      snapshotCache;
+      cachedLines = [];
+      cachedWidth = 0;
+      cachedSignature = "";
+      autoCloseTimeout;
+      hasAutoClosed = false;
+      constructor(input) {
+        this.cwd = input.cwd;
+        this.runId = input.runId;
+        this.done = input.done;
+        this.theme = asCrewTheme(input.theme);
+        this.config = input.config ?? {};
+        this.snapshotCache = input.snapshotCache;
+        this.unsubscribeTheme = subscribeThemeChange(input.theme, () => this.invalidate());
+        this.renderScheduler = new RenderScheduler(
+          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+          () => this.invalidate(),
+          {
+            debounceMs: 75,
+            fallbackMs: 750,
+            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
+          }
+        );
+      }
+      buildSignature(manifestStatus, tasks, agents, waitingCount, snapshot) {
+        const animation = agents.some((agent) => agent.status === "running") ? `:spin=${spinnerBucket()}` : "";
+        if (snapshot) return `${snapshot.signature}:${waitingCount}${animation}`;
+        const taskSig = tasks.map(
+          (task) => `${task.id}:${task.status}:${task.startedAt ?? ""}:${task.finishedAt ?? ""}:${task.agentProgress?.currentTool ?? ""}:${task.agentProgress?.toolCount ?? 0}:${task.agentProgress?.tokens ?? 0}:${task.usage ? JSON.stringify(task.usage) : ""}`
+        ).join("|");
+        const agentSig = agents.map(
+          (agent) => [
+            agent.id,
+            agent.status,
+            agent.startedAt,
+            agent.completedAt ?? "",
+            agent.progress?.currentTool ?? "",
+            agent.progress?.toolCount ?? 0,
+            agent.progress?.tokens ?? 0,
+            agent.progress?.turns ?? 0,
+            agent.progress?.lastActivityAt ?? "",
+            agent.progress?.recentOutput?.at(-1) ?? "",
+            agent.toolUses ?? 0
+          ].join(":")
+        ).join("|");
+        return `${manifestStatus}|${agents.length}|${waitingCount}|${taskSig}|${agentSig}${animation}`;
+      }
+      colorLine(line4) {
+        return colorizeStatusGlyphs(line4, this.theme);
+      }
+      invalidate() {
+        this.cachedLines = [];
+        this.cachedSignature = "";
+      }
+      dispose() {
+        if (this.autoCloseTimeout) {
+          clearTimeout(this.autoCloseTimeout);
+          this.autoCloseTimeout = void 0;
+        }
+        this.unsubscribeTheme();
+        this.renderScheduler.dispose();
+      }
+      render(width) {
+        const w = Math.max(36, width);
+        let run;
+        let tasks;
+        let rawAgents;
+        let snapshot;
+        if (this.snapshotCache) {
+          try {
+            snapshot = this.snapshotCache.refreshIfStale(this.runId);
+          } catch {
+            snapshot = void 0;
+          }
+          if (!snapshot) {
+            return ["(loading\u2026)"];
+          }
+          run = snapshot.manifest;
+          tasks = snapshot.tasks;
+          rawAgents = snapshot.agents;
+        } else {
+          const loaded = loadRunManifestById(this.cwd, this.runId);
+          if (!loaded) {
+            return renderLines3(
+              [
+                border("\u256D", "\u2500", "\u256E", w),
+                line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
+                line3("run not found", w),
+                border("\u2570", "\u2500", "\u256F", w)
+              ],
+              w
+            );
+          }
+          run = loaded.manifest;
+          tasks = readTasks3(run.tasksPath);
+          rawAgents = readCrewAgents(run);
+        }
+        const controlConfig = resolveCrewControlConfig({ ui: this.config });
+        const agents = rawAgents.map((agent) => applyAttentionState(run, agent, controlConfig));
+        const active = agents.filter((agent) => agent.status === "running");
+        const completed = agents.filter((agent) => agent.status !== "running").slice(-5);
+        const waiting = tasks.filter((task) => task.status === "queued");
+        const signature = this.buildSignature(run.updatedAt, tasks, agents, waiting.length, snapshot);
+        if (signature !== this.cachedSignature || w !== this.cachedWidth) {
+          const TERMINAL_WITH_REASON = ["failed", "cancelled", "stopped"];
+          const reasonSuffix = TERMINAL_WITH_REASON.includes(run.status) && snapshot?.cancellationReason ? ` \xB7 ${truncate(snapshot.cancellationReason, 40)}` : "";
+          const lines = [
+            border("\u256D", "\u2500", "\u256E", w),
+            line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
+            line3(`${run.runId.slice(-12)} \xB7 ${run.status}${reasonSuffix} \xB7 right default`, w),
+            line3(`${run.team}/${run.workflow ?? "none"} \xB7 ${shortUsage(tasks)}`, w),
+            border("\u251C", "\u2500", "\u2524", w),
+            line3(`Active agents (${active.length})`, w)
+          ];
+          for (const agent of active.slice(0, 8)) {
+            const status = iconForStatus(agent.status, {
+              runningGlyph: spinnerFrame(agent.taskId)
+            });
+            const usage = agent.usage ? formatUsage(agent.usage) : agent.progress?.tokens ? `tokens=${agent.progress.tokens}` : "usage=pending";
+            lines.push(line3(`${status} ${agent.taskId} ${agent.role}->${agent.agent}`, w));
+            lines.push(
+              line3(
+                `  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} \u2192 ` : ""}${agent.routing.resolved}` : agent.model ? `model ${agent.model}` : "model pending"}`,
+                w
+              )
+            );
+            lines.push(
+              line3(
+                `  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} \xB7 ` : ""}${agent.toolUses ?? 0} tools \xB7 ${usage}`,
+                w
+              )
+            );
+          }
+          if (!active.length) lines.push(line3("- none", w));
+          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Waiting tasks (${waiting.length})`, w));
+          for (const task of waiting.slice(0, 8)) {
+            const status = iconForStatus("queued");
+            lines.push(line3(`${status} ${task.id} ${waitingReason(task, tasks) ?? "waiting"}`, w));
+          }
+          if (waiting.length === 0) lines.push(line3("- none", w));
+          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Completed agents (${completed.length})`, w));
+          for (const agent of completed) {
+            const status = iconForStatus(agent.status === "running" ? "stopped" : agent.status);
+            lines.push(
+              line3(
+                `${status} ${agent.taskId} ${agent.model ? `\xB7 ${agent.model}` : ""}${agent.usage ? ` \xB7 ${formatUsage(agent.usage)}` : ""}`,
+                w
+              )
+            );
+          }
+          if (completed.length === 0) lines.push(line3("- none", w));
+          lines.push(border("\u251C", "\u2500", "\u2524", w));
+          for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) lines.push(line3(entry, w));
+          lines.push(line3("q close \xB7 /team-dashboard details", w));
+          const isTerminal = ["completed", "failed", "cancelled", "blocked"].includes(run.status);
+          const hasActiveAgents = agents.some((a) => a.status === "running");
+          if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
+            const autoCloseMs = this.config?.autoCloseDashboardMs ?? 3e3;
+            if (autoCloseMs > 0) {
+              this.autoCloseTimeout = setTimeout(() => {
+                this.hasAutoClosed = true;
+                this.done(void 0);
+              }, autoCloseMs);
+              lines.push(line3(`auto-close in ${Math.round(autoCloseMs / 1e3)}s\u2026`, w));
+            }
+          } else if (this.autoCloseTimeout) {
+            clearTimeout(this.autoCloseTimeout);
+            this.autoCloseTimeout = void 0;
+          }
+          lines.push(border("\u2570", "\u2500", "\u256F", w));
+          this.cachedLines = renderLines3(
+            lines.map((entry) => this.colorLine(entry)),
+            w
+          );
+          this.cachedSignature = signature;
+          this.cachedWidth = w;
+        }
+        return this.cachedLines;
+      }
+      handleInput(data2) {
+        if (data2 === "q" || data2 === "\x1B") this.done(void 0);
+      }
+    };
+  }
+});
+
+// src/extension/registration/ui.ts
+var ui_exports = {};
+__export(ui_exports, {
+  clearDashboardPowerbar: () => clearDashboardPowerbar,
+  installLiveSidebar: () => installLiveSidebar,
+  primePowerbarAndWidget: () => primePowerbarAndWidget,
+  pushPowerbarUpdate: () => pushPowerbarUpdate,
+  registerPowerbarSegments: () => registerPowerbarSegments,
+  requestUiRender: () => requestUiRender
+});
+async function importLiveRunSidebar() {
+  if (!_cachedLiveRunSidebar) {
+    const mod = await Promise.resolve().then(() => (init_live_run_sidebar(), live_run_sidebar_exports));
+    _cachedLiveRunSidebar = mod.LiveRunSidebar;
+  }
+  return _cachedLiveRunSidebar;
+}
+async function installLiveSidebar(ctx, runId, state, deps) {
+  const uiConfig = loadConfig(ctx.cwd).config.ui;
+  const autoOpen = uiConfig?.autoOpenDashboard === true;
+  const foregroundAutoOpen = uiConfig?.autoOpenDashboardForForegroundRuns ?? DEFAULT_UI.autoOpenDashboardForForegroundRuns;
+  if (!ctx.hasUI || !autoOpen || !foregroundAutoOpen || (uiConfig?.dashboardPlacement ?? DEFAULT_UI.dashboardPlacement) !== "right") {
+    return false;
+  }
+  if (state.liveSidebarRunId === runId) return true;
+  state.liveSidebarRunId = runId;
+  state.dashboardOpened = true;
+  const widgetPlacement = uiConfig?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+  setExtensionWidget(ctx, "pi-crew", void 0, { placement: widgetPlacement });
+  setExtensionWidget(ctx, "pi-crew-active", void 0, { placement: widgetPlacement });
+  deps.widgetState.lastVisibility = "hidden";
+  deps.widgetState.lastPlacement = widgetPlacement;
+  deps.widgetState.lastKey = "pi-crew-active";
+  deps.widgetState.model = void 0;
+  const width = Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? DEFAULT_UI.dashboardWidth));
+  try {
+    const LiveRunSidebar2 = await importLiveRunSidebar();
+    if (deps.isCleanedUp() || !deps.getCurrentCtx()) return false;
+    void showCustom(
+      ctx,
+      (_tui, theme, _keybindings, done) => new LiveRunSidebar2({
+        cwd: ctx.cwd,
+        runId,
+        done,
+        theme,
+        config: uiConfig,
+        snapshotCache: deps.getRunSnapshotCache(ctx.cwd)
+      }),
+      {
+        overlay: true,
+        overlayOptions: {
+          width,
+          minWidth: 40,
+          maxHeight: "100%",
+          anchor: "top-right",
+          offsetX: 0,
+          offsetY: 0,
+          margin: { top: 0, right: 0, bottom: 0, left: 0 },
+          visible: (termWidth) => termWidth >= 100
+        }
+      }
+    ).finally(() => {
+      if (state.liveSidebarRunId === runId) state.liveSidebarRunId = void 0;
+      const c = deps.getCurrentCtx();
+      if (!c) return;
+      updateCrewWidget(
+        c,
+        deps.widgetState,
+        loadConfig(c.cwd).config.ui,
+        deps.getManifestCache(c.cwd),
+        deps.getRunSnapshotCache(c.cwd)
+      );
+    });
+    return true;
+  } catch (error) {
+    logInternalError("register.live-sidebar-lazy-import", error);
+    return false;
+  }
+}
+function clearDashboardPowerbar(state, deps) {
+  const c = deps.getCurrentCtx();
+  if (c) stopCrewWidget(c, deps.widgetState, loadConfig(c.cwd).config.ui);
+  clearPiCrewPowerbar(deps.pi.events);
+  resetPowerbarDedupState();
+  state.dashboardOpened = false;
+}
+function registerPowerbarSegments(deps, uiConfig) {
+  registerPiCrewPowerbarSegments(deps.pi.events, uiConfig);
+}
+function pushPowerbarUpdate(ctx, deps, notificationCount) {
+  const config = loadConfig(ctx.cwd).config.ui;
+  requestPowerbarUpdate(
+    deps.pi.events,
+    ctx.cwd,
+    config,
+    deps.getManifestCache(ctx.cwd),
+    deps.getRunSnapshotCache(ctx.cwd),
+    ctx,
+    notificationCount
+  );
+}
+function primePowerbarAndWidget(ctx, deps, notificationCount) {
+  const uiConfig = loadConfig(ctx.cwd).config.ui;
+  const cache2 = deps.getManifestCache(ctx.cwd);
+  updateCrewWidget(ctx, deps.widgetState, uiConfig, cache2, deps.getRunSnapshotCache(ctx.cwd));
+  updatePiCrewPowerbar(deps.pi.events, ctx.cwd, uiConfig, cache2, deps.getRunSnapshotCache(ctx.cwd), ctx, notificationCount);
+}
+function requestUiRender(ctx) {
+  requestRender(ctx);
+}
+var _cachedLiveRunSidebar;
+var init_ui = __esm({
+  "src/extension/registration/ui.ts"() {
+    "use strict";
+    init_config();
+    init_defaults();
+    init_pi_ui_compat();
+    init_powerbar_publisher();
+    init_widget();
+    init_internal_error();
+  }
+});
+
+// src/runtime/foreground-watchdog.ts
+var foreground_watchdog_exports = {};
+__export(foreground_watchdog_exports, {
+  startForegroundWatchdog: () => startForegroundWatchdog,
+  stopWatchdog: () => stopWatchdog
+});
+function stopWatchdog(runId) {
+  const timer = activeWatchdogs.get(runId);
+  if (timer) {
+    clearTimeout(timer);
+    activeWatchdogs.delete(runId);
+  }
+}
+function startForegroundWatchdog(opts) {
+  const { pi, cwd, runId } = opts;
+  const checkIntervalMs = opts.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
+  const maxMonitorMs = opts.maxMonitorMs ?? DEFAULT_MAX_MONITOR_MS;
+  const startTime = Date.now();
+  if (activeWatchdogs.has(runId)) return;
+  const check = () => {
+    if (Date.now() - startTime > maxMonitorMs) {
+      activeWatchdogs.delete(runId);
+      return;
+    }
+    try {
+      const loaded = loadRunManifestById(cwd, runId);
+      if (!loaded) {
+        activeWatchdogs.delete(runId);
+        return;
+      }
+      const { manifest } = loaded;
+      if (!isActiveRunStatus(manifest.status)) {
+        const teamName = manifest.team ?? "unknown";
+        try {
+          pi.sendUserMessage(`pi-crew run ${manifest.status}: ${runId} (${teamName}/${manifest.workflow ?? "default"})`, {
+            deliverAs: "followUp"
+          });
+        } catch {
+        }
+        activeWatchdogs.delete(runId);
+        return;
+      }
+      const agents = readCrewAgents(manifest);
+      const now = Date.now();
+      if (isLikelyOrphanedActiveRun(manifest, agents, now)) {
+        const detail = `status=${manifest.status}, updatedAt=${manifest.updatedAt}, agents=${agents.length}`;
+        try {
+          pi.sendUserMessage(
+            `pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
+            { deliverAs: "followUp" }
+          );
+        } catch {
+        }
+      }
+    } catch {
+    }
+    const timer2 = setTimeout(check, checkIntervalMs);
+    timer2.unref();
+    activeWatchdogs.set(runId, timer2);
+  };
+  const timer = setTimeout(check, checkIntervalMs);
+  timer.unref();
+  activeWatchdogs.set(runId, timer);
+}
+var DEFAULT_CHECK_INTERVAL_MS, DEFAULT_MAX_MONITOR_MS, activeWatchdogs;
+var init_foreground_watchdog = __esm({
+  "src/runtime/foreground-watchdog.ts"() {
+    "use strict";
+    init_state_store();
+    init_crew_agent_records();
+    init_process_status();
+    DEFAULT_CHECK_INTERVAL_MS = 3e5;
+    DEFAULT_MAX_MONITOR_MS = 72e5;
+    activeWatchdogs = /* @__PURE__ */ new Map();
+  }
+});
+
 // src/extension/async-notifier.ts
 var async_notifier_exports = {};
 __export(async_notifier_exports, {
@@ -77753,23 +78720,23 @@ __export(notification_sink_exports, {
   __test__: () => __test__,
   createJsonlSink: () => createJsonlSink
 });
-import * as fs95 from "node:fs";
-import * as path76 from "node:path";
+import * as fs99 from "node:fs";
+import * as path78 from "node:path";
 function rotateOldFiles(dir, retentionDays, now = Date.now()) {
-  if (!fs95.existsSync(dir)) return;
+  if (!fs99.existsSync(dir)) return;
   const cutoff = now - retentionDays * 24 * 60 * 60 * 1e3;
-  for (const entry of fs95.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs99.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
-    const filePath = path76.join(dir, entry.name);
+    const filePath = path78.join(dir, entry.name);
     try {
-      if (fs95.statSync(filePath).mtimeMs < cutoff) fs95.unlinkSync(filePath);
+      if (fs99.statSync(filePath).mtimeMs < cutoff) fs99.unlinkSync(filePath);
     } catch (error) {
       logInternalError("notification-sink.rotate", error, filePath);
     }
   }
 }
 function createJsonlSink(crewRoot, retentionDays = 7) {
-  const dir = path76.join(crewRoot, "state", "notifications");
+  const dir = path78.join(crewRoot, "state", "notifications");
   let lastRotateDate = "";
   return {
     write(notification) {
@@ -77780,12 +78747,12 @@ function createJsonlSink(crewRoot, retentionDays = 7) {
           rotateOldFiles(dir, retentionDays, timestamp);
           lastRotateDate = date;
         }
-        fs95.mkdirSync(dir, { recursive: true });
+        fs99.mkdirSync(dir, { recursive: true });
         const payload = redactSecrets({
           ...notification,
           timestamp
         });
-        fs95.appendFileSync(path76.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
+        fs99.appendFileSync(path78.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
 `, "utf-8");
       } catch (error) {
         logInternalError("notification-sink.write", error);
@@ -77805,557 +78772,6 @@ var init_notification_sink = __esm({
   }
 });
 
-// src/runtime/subagent-manager.ts
-import * as fs96 from "node:fs";
-import * as path77 from "node:path";
-function isValidSubagentId(id) {
-  return /^[a-z0-9_]+$/i.test(id) && id.length <= 128;
-}
-function persistedSubagentPath(cwd, id) {
-  if (!isValidSubagentId(id)) throw new Error(`Invalid subagent id: ${id}`);
-  return path77.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.subagentsSubdir, `${id}.json`);
-}
-function serializableRecord(record) {
-  const { promise: _promise, ...rest } = record;
-  return rest;
-}
-function savePersistedSubagentRecord(cwd, record) {
-  try {
-    const filePath = persistedSubagentPath(cwd, record.id);
-    fs96.mkdirSync(path77.dirname(filePath), { recursive: true });
-    fs96.writeFileSync(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}
-`, "utf-8");
-    fs96.chmodSync(filePath, 384);
-  } catch (error) {
-    logInternalError("subagent-manager.save", error, `id=${record.id}`);
-  }
-}
-function removePersistedSubagentRecord(cwd, id) {
-  try {
-    const filePath = persistedSubagentPath(cwd, id);
-    fs96.unlinkSync(filePath);
-    return true;
-  } catch (error) {
-    const code = error?.code;
-    if (code === "ENOENT") return false;
-    logInternalError("subagent-manager.remove", error, `id=${id}`);
-    return false;
-  }
-}
-function shouldDeleteOnTerminalStatus(record) {
-  if (record.terminated === true) return true;
-  const s = record.status;
-  return s === "cancelled" || s === "stopped";
-}
-function sanitizePersistedRecord(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return void 0;
-  const obj = raw;
-  const idValue = obj.id ?? obj.agentId;
-  if (typeof idValue !== "string" || !idValue) return void 0;
-  const clean = { id: idValue };
-  if (obj.agentId && typeof obj.agentId === "string") {
-    clean.agentId = obj.agentId;
-  }
-  for (const key of Object.keys(obj)) {
-    if (ALLOWED_RECORD_FIELDS.has(key) && (typeof obj[key] === "string" || typeof obj[key] === "number" || typeof obj[key] === "boolean")) {
-      clean[key] = obj[key];
-    }
-  }
-  if (typeof clean.id !== "string" || clean.id.length === 0) return void 0;
-  return clean;
-}
-function readPersistedSubagentRecord(cwd, id) {
-  try {
-    const raw = JSON.parse(fs96.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
-    return sanitizePersistedRecord(raw);
-  } catch {
-    return void 0;
-  }
-}
-function resultText(result4) {
-  return result4.content?.map((item) => item.type === "text" ? item.text : "").filter(Boolean).join("\n") ?? "";
-}
-function detailsRunId(result4) {
-  const details = result4.details;
-  return typeof details?.runId === "string" ? details.runId : void 0;
-}
-function totalRunTurns(cwd, runId) {
-  if (!runId) return void 0;
-  const loaded = loadRunManifestById(cwd, runId);
-  if (!loaded) return void 0;
-  let total = 0;
-  let hasTurns = false;
-  for (const task of loaded.tasks) {
-    const turns = task.usage?.turns ?? task.agentProgress?.turns;
-    if (typeof turns === "number" && Number.isFinite(turns)) {
-      total += turns;
-      hasTurns = true;
-    }
-  }
-  return hasTurns ? total : void 0;
-}
-var ALLOWED_RECORD_FIELDS, SubagentManager;
-var init_subagent_manager = __esm({
-  "src/runtime/subagent-manager.ts"() {
-    "use strict";
-    init_defaults();
-    init_state_store();
-    init_internal_error();
-    init_paths();
-    init_redaction();
-    ALLOWED_RECORD_FIELDS = /* @__PURE__ */ new Set([
-      "id",
-      "agentId",
-      "agentName",
-      "subagentType",
-      "type",
-      "description",
-      "prompt",
-      "status",
-      "startedAt",
-      "completedAt",
-      "spawnedAt",
-      "model",
-      "runId",
-      "cwd",
-      "taskId",
-      "result",
-      "error",
-      "resultConsumed",
-      "background",
-      "ownerSessionGeneration",
-      "stuckNotified",
-      "blockedAt",
-      "turnCount",
-      "terminated",
-      "durationMs"
-    ]);
-    SubagentManager = class {
-      records = /* @__PURE__ */ new Map();
-      cwdByRecord = /* @__PURE__ */ new Map();
-      controllers = /* @__PURE__ */ new Map();
-      controllerCleanup = /* @__PURE__ */ new Map();
-      queue = [];
-      runningBackground = 0;
-      counter = 0;
-      maxConcurrent;
-      onComplete;
-      onEvent;
-      pollIntervalMs;
-      constructor(maxConcurrent = 4, onComplete, pollIntervalMs = 1e3, onEvent) {
-        this.maxConcurrent = maxConcurrent;
-        this.onComplete = onComplete;
-        this.onEvent = onEvent;
-        this.pollIntervalMs = pollIntervalMs;
-      }
-      spawn(options, runner, signal) {
-        const record = {
-          id: `agent_${Date.now().toString(36)}_${(++this.counter).toString(36)}`,
-          type: options.type,
-          description: options.description,
-          prompt: options.prompt,
-          status: options.background && this.runningBackground >= this.maxConcurrent ? "queued" : "running",
-          startedAt: Date.now(),
-          model: options.model,
-          skill: options.skill,
-          background: options.background,
-          ownerSessionGeneration: options.ownerSessionGeneration,
-          batchId: options.batchId
-        };
-        this.records.set(record.id, record);
-        this.cwdByRecord.set(record.id, options.cwd);
-        savePersistedSubagentRecord(options.cwd, record);
-        if (record.status === "queued") {
-          this.queue.push({ record, options, runner, signal });
-          return record;
-        }
-        this.start(record, options, runner, signal);
-        return record;
-      }
-      getRecord(id) {
-        return this.records.get(id);
-      }
-      listAgents() {
-        return [...this.records.values()].sort((a, b) => b.startedAt - a.startedAt);
-      }
-      abort(id, reason) {
-        const record = this.records.get(id);
-        if (!record) return false;
-        if (record.status === "queued") {
-          this.queue = this.queue.filter((entry) => entry.record.id !== id);
-          this.markStopped(record, reason ?? "Aborted by caller.");
-          return true;
-        }
-        if (record.status !== "running" && record.status !== "blocked") return false;
-        this.controllers.get(id)?.abort();
-        this.markStopped(record, reason ?? "Aborted by caller.");
-        return true;
-      }
-      abortAll(reason) {
-        let count2 = 0;
-        const stopReason = reason ?? "Aborted (session switch or shutdown).";
-        for (const entry of this.queue) {
-          this.markStopped(entry.record, stopReason);
-          count2++;
-        }
-        this.queue = [];
-        for (const record of this.records.values()) {
-          if (record.status === "running" || record.status === "blocked") {
-            this.controllers.get(record.id)?.abort();
-            this.markStopped(record, stopReason);
-            count2++;
-          }
-        }
-        return count2;
-      }
-      async waitForAll() {
-        while (true) {
-          this.drainQueue();
-          const pending2 = this.listAgents().filter((record) => record.status === "running" || record.status === "queued").map((record) => record.promise).filter((promise) => Boolean(promise));
-          if (!pending2.length) break;
-          await Promise.allSettled(pending2);
-        }
-      }
-      async waitForRecord(id) {
-        while (true) {
-          const record = this.records.get(id);
-          if (!record) return void 0;
-          if (record.status !== "running" && record.status !== "queued") return record;
-          if (record.promise)
-            await record.promise.catch((error) => {
-              logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
-            });
-          else await new Promise((resolve22) => setTimeout(resolve22, 100));
-        }
-      }
-      setMaxConcurrent(value) {
-        this.maxConcurrent = Math.max(1, Math.floor(value));
-        this.drainQueue();
-      }
-      start(record, options, runner, signal) {
-        if (options.background) this.runningBackground++;
-        record.status = "running";
-        record.startedAt = Date.now();
-        record.completedAt = void 0;
-        const runSignal = this.createRunSignal(record.id, signal);
-        savePersistedSubagentRecord(options.cwd, record);
-        record.promise = (async () => {
-          try {
-            const result4 = await runner(options, runSignal);
-            if (record.status === "stopped") return;
-            record.runId = detailsRunId(result4);
-            record.result = resultText(result4);
-            savePersistedSubagentRecord(options.cwd, record);
-            if (result4.isError) {
-              record.status = "error";
-              record.error = record.result;
-              throw new Error(record.error);
-            }
-            if (record.runId) await this.pollRunToTerminal(options.cwd, record);
-            else record.status = "completed";
-          } catch (error) {
-            if (record.status === "stopped" || runSignal.aborted) {
-              const abortReason = runSignal.aborted ? "Signal aborted \u2014 agent cancelled by parent (session switch, user cancel, or tool timeout)." : void 0;
-              record.status = "stopped";
-              if (!record.error) record.error = abortReason ?? (error instanceof Error ? error.message : String(error));
-              return;
-            }
-            record.status = "error";
-            record.error = error instanceof Error ? error.message : String(error);
-            throw error;
-          } finally {
-            this.cleanupRunSignal(record.id);
-            if (options.background) this.runningBackground = Math.max(0, this.runningBackground - 1);
-            if (record.status !== "blocked") record.completedAt = record.completedAt ?? Date.now();
-            savePersistedSubagentRecord(options.cwd, record);
-            if (record.status === "completed" || record.status === "failed" || record.status === "cancelled" || record.status === "error" || record.status === "stopped") {
-              record.turnCount = record.turnCount ?? totalRunTurns(options.cwd, record.runId);
-              record.durationMs = record.completedAt ? Math.max(0, record.completedAt - record.startedAt) : void 0;
-              savePersistedSubagentRecord(options.cwd, record);
-              if (shouldDeleteOnTerminalStatus(record)) {
-                removePersistedSubagentRecord(options.cwd, record.id);
-              }
-              this.onComplete?.(record);
-            }
-            this.drainQueue();
-          }
-        })();
-        record.promise.catch((error) => {
-          logInternalError("subagent-manager.start.unhandled", error, `id=${record.id}`);
-        });
-      }
-      markStopped(record, reason) {
-        record.status = "stopped";
-        record.terminated = true;
-        record.completedAt = Date.now();
-        if (reason && !record.error) record.error = reason;
-        const cwd = this.cwdByRecord.get(record.id);
-        if (cwd) savePersistedSubagentRecord(cwd, record);
-        if (cwd) removePersistedSubagentRecord(cwd, record.id);
-      }
-      createRunSignal(id, signal) {
-        const controller = new AbortController();
-        this.controllers.set(id, controller);
-        if (signal?.aborted) {
-          controller.abort();
-          return controller.signal;
-        }
-        if (signal) {
-          const abort = () => controller.abort();
-          signal.addEventListener("abort", abort, { once: true });
-          this.controllerCleanup.set(id, () => signal.removeEventListener("abort", abort));
-        }
-        return controller.signal;
-      }
-      cleanupRunSignal(id) {
-        this.controllerCleanup.get(id)?.();
-        this.controllerCleanup.delete(id);
-        this.controllers.delete(id);
-      }
-      drainQueue() {
-        while (this.queue.length > 0 && this.runningBackground < this.maxConcurrent) {
-          const next = this.queue.shift();
-          if (!next || next.record.status !== "queued") continue;
-          this.start(next.record, next.options, next.runner, next.signal);
-        }
-      }
-      async pollRunToTerminal(cwd, record) {
-        const MAX_POLL_COUNT = 1800;
-        let pollCount = 0;
-        while (record.runId && (record.status === "running" || record.status === "blocked")) {
-          if (++pollCount > MAX_POLL_COUNT) {
-            logInternalError(
-              "subagent-manager.poll-timeout",
-              new Error(`pollRunToTerminal exceeded ${MAX_POLL_COUNT} polls for runId=${record.runId}`),
-              `id=${record.id}`
-            );
-            record.status = "error";
-            record.error = `Poll timeout: run did not reach terminal state after ${MAX_POLL_COUNT} seconds`;
-            record.completedAt = Date.now();
-            savePersistedSubagentRecord(cwd, record);
-            return;
-          }
-          const loaded = loadRunManifestById(cwd, record.runId);
-          if (!loaded) {
-            await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
-            continue;
-          }
-          if (loaded.manifest.status === "completed") {
-            record.status = "completed";
-            record.error = void 0;
-            record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
-            record.completedAt = Date.now();
-            savePersistedSubagentRecord(cwd, record);
-            return;
-          }
-          if (loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled") {
-            record.status = loaded.manifest.status;
-            record.error = loaded.manifest.summary;
-            record.turnCount = record.turnCount ?? totalRunTurns(cwd, record.runId);
-            record.completedAt = Date.now();
-            savePersistedSubagentRecord(cwd, record);
-            return;
-          }
-          if (loaded.manifest.status === "blocked") {
-            record.status = "blocked";
-            record.error = void 0;
-            if (!record.blockedAt) {
-              record.blockedAt = Date.now();
-              record.stuckNotified = false;
-              record.completedAt = void 0;
-              this.onComplete?.(record);
-              this.scheduleStuckBlockedNotify(cwd, record);
-              this.scheduleBlockedTerminalPoll(cwd, record);
-            }
-            savePersistedSubagentRecord(cwd, record);
-            return;
-          }
-          await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
-        }
-      }
-      scheduleBlockedTerminalPoll(cwd, record) {
-        const poll = () => {
-          const current2 = this.records.get(record.id);
-          if (!current2 || current2.status !== "blocked" || !current2.runId) return;
-          const loaded = loadRunManifestById(cwd, current2.runId);
-          if (!loaded || loaded.manifest.status === "blocked" || loaded.manifest.status === "running" || loaded.manifest.status === "planning" || loaded.manifest.status === "queued") {
-            const timer2 = setTimeout(poll, this.pollIntervalMs);
-            timer2.unref();
-            return;
-          }
-          const persisted = readPersistedSubagentRecord(cwd, current2.id);
-          current2.resultConsumed = current2.resultConsumed || persisted?.resultConsumed;
-          if (loaded.manifest.status === "completed") {
-            current2.status = "completed";
-            current2.error = void 0;
-          } else if (loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled") {
-            current2.status = loaded.manifest.status;
-            current2.error = loaded.manifest.summary;
-          } else return;
-          current2.completedAt = Date.now();
-          current2.turnCount = current2.turnCount ?? totalRunTurns(cwd, current2.runId);
-          current2.durationMs = Math.max(0, current2.completedAt - current2.startedAt);
-          savePersistedSubagentRecord(cwd, current2);
-          this.onComplete?.(current2);
-        };
-        const timer = setTimeout(poll, this.pollIntervalMs);
-        timer.unref();
-      }
-      scheduleStuckBlockedNotify(cwd, record) {
-        const threshold = DEFAULT_SUBAGENT.stuckBlockedNotifyMs;
-        const fire = () => {
-          const current2 = this.records.get(record.id);
-          if (!current2 || current2.status !== "blocked" || !current2.blockedAt || current2.stuckNotified) return;
-          current2.stuckNotified = true;
-          this.onEvent?.("subagent.stuck-blocked", {
-            event: "subagent.stuck-blocked",
-            id: current2.id,
-            runId: current2.runId,
-            durationMs: Math.max(0, Date.now() - current2.blockedAt),
-            ownerSessionGeneration: current2.ownerSessionGeneration
-          });
-          savePersistedSubagentRecord(cwd, current2);
-        };
-        if (threshold <= 0) {
-          fire();
-          return;
-        }
-        const timer = setTimeout(fire, threshold);
-        timer.unref();
-      }
-    };
-  }
-});
-
-// src/subagents/manager.ts
-var init_manager2 = __esm({
-  "src/subagents/manager.ts"() {
-    "use strict";
-    init_subagent_manager();
-  }
-});
-
-// src/extension/registration/subagent-helpers.ts
-var subagent_helpers_exports = {};
-__export(subagent_helpers_exports, {
-  __test__subagentSpawnParams: () => __test__subagentSpawnParams,
-  formatSubagentRecord: () => formatSubagentRecord,
-  readSubagentRunResult: () => readSubagentRunResult,
-  refreshPersistedSubagentRecord: () => refreshPersistedSubagentRecord,
-  sendAgentWakeUp: () => sendAgentWakeUp,
-  sendFollowUp: () => sendFollowUp,
-  subagentToolResult: () => subagentToolResult
-});
-import * as fs97 from "node:fs";
-function sendFollowUp(pi, content) {
-  const api = pi;
-  if (typeof api.sendMessage !== "function") return;
-  api.sendMessage.call(
-    pi,
-    { customType: "pi-crew-subagent-notification", content, display: true },
-    { deliverAs: "followUp", triggerTurn: true }
-  );
-}
-function sendAgentWakeUp(pi, content) {
-  const api = pi;
-  try {
-    if (typeof api.sendUserMessage === "function") {
-      api.sendUserMessage.call(pi, content, {
-        deliverAs: "followUp",
-        triggerTurn: true
-      });
-      return true;
-    }
-    if (typeof api.sendMessage === "function") {
-      api.sendMessage.call(
-        pi,
-        {
-          customType: "pi-crew-subagent-wakeup",
-          content,
-          display: true
-        },
-        { deliverAs: "followUp", triggerTurn: true }
-      );
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-function refreshPersistedSubagentRecord(ctx, record) {
-  if (!record.runId) return record;
-  const loaded = loadRunManifestById(ctx.cwd, record.runId);
-  if (!loaded) return record;
-  if (loaded.manifest.status === "completed" || loaded.manifest.status === "failed" || loaded.manifest.status === "cancelled" || loaded.manifest.status === "blocked") {
-    const refreshed = {
-      ...record,
-      status: loaded.manifest.status,
-      error: loaded.manifest.status === "completed" || loaded.manifest.status === "blocked" ? void 0 : loaded.manifest.summary,
-      completedAt: loaded.manifest.status === "blocked" ? void 0 : record.completedAt ?? Date.now()
-    };
-    savePersistedSubagentRecord(ctx.cwd, refreshed);
-    return refreshed;
-  }
-  return record;
-}
-function formatSubagentRecord(record) {
-  const duration = record.completedAt ? `${Math.round((record.completedAt - record.startedAt) / 1e3)}s` : "running";
-  return [
-    `Agent: ${record.id}`,
-    `Type: ${record.type}`,
-    `Status: ${record.status}`,
-    record.runId ? `Run: ${record.runId}` : void 0,
-    `Description: ${record.description}`,
-    record.model ? `Model: ${record.model}` : void 0,
-    `Duration: ${duration}`,
-    record.error ? `Error: ${record.error}` : void 0
-  ].filter((line4) => Boolean(line4)).join("\n");
-}
-function readSubagentRunResult(ctx, record) {
-  if (!record.runId) return record.result;
-  const loaded = loadRunManifestById(ctx.cwd, record.runId);
-  const task = loaded?.tasks.find((item) => item.resultArtifact) ?? loaded?.tasks[0];
-  const artifactPath = task?.resultArtifact?.path;
-  if (!artifactPath || !loaded) return void 0;
-  try {
-    const safePath = resolveRealContainedPath(loaded.manifest.artifactsRoot, artifactPath);
-    return fs97.readFileSync(safePath, "utf-8").trim();
-  } catch {
-    return void 0;
-  }
-}
-function subagentToolResult(text, details = {}, isError = false) {
-  return { content: [{ type: "text", text }], details, isError };
-}
-function parseSkillParam(value) {
-  if (value === false) return false;
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return value;
-  return void 0;
-}
-function __test__subagentSpawnParams(params, ctx) {
-  return {
-    cwd: ctx.cwd,
-    type: typeof params.subagent_type === "string" && params.subagent_type.trim() ? params.subagent_type.trim() : "executor",
-    description: typeof params.description === "string" && params.description.trim() ? params.description.trim() : "pi-crew subagent",
-    prompt: typeof params.prompt === "string" ? params.prompt : "",
-    background: params.run_in_background === true,
-    model: typeof params.model === "string" && params.model.trim() ? params.model.trim() : void 0,
-    skill: parseSkillParam(params.skill),
-    maxTurns: typeof params.max_turns === "number" && Number.isFinite(params.max_turns) ? params.max_turns : void 0,
-    batchId: typeof params.batch_id === "string" && params.batch_id.trim() ? params.batch_id.trim() : void 0
-  };
-}
-var init_subagent_helpers = __esm({
-  "src/extension/registration/subagent-helpers.ts"() {
-    "use strict";
-    init_state_store();
-    init_manager2();
-    init_safe_paths();
-  }
-});
-
 // src/runtime/delivery-coordinator.ts
 var delivery_coordinator_exports = {};
 __export(delivery_coordinator_exports, {
@@ -78368,7 +78784,6 @@ var init_delivery_coordinator = __esm({
     init_internal_error();
     PENDING_TTL_MS = 24 * 60 * 60 * 1e3;
     DeliveryCoordinator = class {
-      ownerSessionId;
       active = false;
       generation = 0;
       pending = [];
@@ -78376,6 +78791,7 @@ var init_delivery_coordinator = __esm({
       deps;
       ttlTimer;
       timerStarted = false;
+      ownerSessionId = void 0;
       constructor(deps) {
         this.deps = deps;
       }
@@ -78753,7 +79169,7 @@ async function configureNotifications(ctx, state, deps) {
   if (config.notifications?.enabled === false) return;
   const { NotificationRouter: NotificationRouter2 } = await Promise.resolve().then(() => (init_notification_router(), notification_router_exports));
   const { createJsonlSink: createJsonlSink2 } = await Promise.resolve().then(() => (init_notification_sink(), notification_sink_exports));
-  const { sendFollowUp: sendFollowUp3 } = await Promise.resolve().then(() => (init_subagent_helpers(), subagent_helpers_exports));
+  const { sendFollowUp: sendFollowUp2 } = await Promise.resolve().then(() => (init_subagent_helpers(), subagent_helpers_exports));
   const { updateCrewWidget: updateCrewWidget2 } = await Promise.resolve().then(() => (init_widget(), widget_exports));
   if (config.telemetry?.enabled !== false) {
     state.notificationSink = createJsonlSink2(
@@ -78771,7 +79187,7 @@ async function configureNotifications(ctx, state, deps) {
     },
     (notification) => {
       deps.widgetState.notificationCount = (deps.widgetState.notificationCount ?? 0) + 1;
-      sendFollowUp3(
+      sendFollowUp2(
         deps.pi,
         [notification.title, notification.body, notification.runId ? `Run: ${notification.runId}` : void 0].filter((line4) => Boolean(line4)).join("\n")
       );
@@ -79577,23 +79993,23 @@ var metric_sink_exports = {};
 __export(metric_sink_exports, {
   createMetricFileSink: () => createMetricFileSink
 });
-import * as fs98 from "node:fs";
-import * as path78 from "node:path";
+import * as fs100 from "node:fs";
+import * as path79 from "node:path";
 function rotateOldFiles2(dir, retentionDays, now = Date.now()) {
-  if (!fs98.existsSync(dir)) return;
+  if (!fs100.existsSync(dir)) return;
   const maxAge = retentionDays * 24 * 60 * 60 * 1e3;
-  for (const file of fs98.readdirSync(dir)) {
+  for (const file of fs100.readdirSync(dir)) {
     if (!file.endsWith(".jsonl")) continue;
-    const fullPath = path78.join(dir, file);
+    const fullPath = path79.join(dir, file);
     try {
-      if (now - fs98.statSync(fullPath).mtimeMs > maxAge) fs98.unlinkSync(fullPath);
+      if (now - fs100.statSync(fullPath).mtimeMs > maxAge) fs100.unlinkSync(fullPath);
     } catch (error) {
       logInternalError("metric-sink.rotate", error, fullPath);
     }
   }
 }
 function createMetricFileSink(opts) {
-  const dir = path78.join(opts.crewRoot, "state", "metrics");
+  const dir = path79.join(opts.crewRoot, "state", "metrics");
   const retentionDays = opts.retentionDays ?? 7;
   let fd;
   let fdDate;
@@ -79601,14 +80017,14 @@ function createMetricFileSink(opts) {
     if (fd !== void 0 && fdDate === date) return fd;
     if (fd !== void 0) {
       try {
-        fs98.closeSync(fd);
+        fs100.closeSync(fd);
       } catch (error) {
         logInternalError("metric-sink.closeFd", error);
       }
     }
-    fs98.mkdirSync(dir, { recursive: true });
+    fs100.mkdirSync(dir, { recursive: true });
     rotateOldFiles2(dir, retentionDays);
-    fd = fs98.openSync(path78.join(dir, `${date}.jsonl`), "a");
+    fd = fs100.openSync(path79.join(dir, `${date}.jsonl`), "a");
     fdDate = date;
     return fd;
   };
@@ -79624,7 +80040,7 @@ function createMetricFileSink(opts) {
       const target = ensureFd(date);
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      fs98.write(target, line4, (err2) => {
+      fs100.write(target, line4, (err2) => {
         if (err2) logInternalError("metric-sink.asyncWrite", err2);
       });
     } catch (error) {
@@ -79639,7 +80055,7 @@ function createMetricFileSink(opts) {
       clearInterval(timer);
       if (fd !== void 0) {
         try {
-          fs98.closeSync(fd);
+          fs100.closeSync(fd);
         } catch (error) {
           logInternalError("metric-sink.dispose", error);
         }
@@ -79662,7 +80078,7 @@ var heartbeat_watcher_exports = {};
 __export(heartbeat_watcher_exports, {
   HeartbeatWatcher: () => HeartbeatWatcher
 });
-import * as fs99 from "node:fs";
+import * as fs101 from "node:fs";
 var HeartbeatWatcher;
 var init_heartbeat_watcher = __esm({
   "src/runtime/heartbeat-watcher.ts"() {
@@ -79711,7 +80127,7 @@ var init_heartbeat_watcher = __esm({
         const activeKeys = /* @__PURE__ */ new Set();
         for (const run of this.opts.manifestCache.list(50)) {
           if (run.status !== "running") continue;
-          if (!fs99.existsSync(run.stateRoot)) continue;
+          if (!fs101.existsSync(run.stateRoot)) continue;
           const loaded = loadRunManifestById(this.opts.cwd, run.runId);
           if (!loaded) continue;
           if (loaded.manifest.status !== "running") continue;
@@ -79997,452 +80413,6 @@ var init_observability = __esm({
     init_config();
     init_internal_error();
     init_paths();
-  }
-});
-
-// src/ui/live-run-sidebar.ts
-var live_run_sidebar_exports = {};
-__export(live_run_sidebar_exports, {
-  LiveRunSidebar: () => LiveRunSidebar
-});
-import * as fs100 from "node:fs";
-function renderLines3(lines, width) {
-  const box = new Box(0, 0);
-  for (const line4 of lines) {
-    box.addChild(new Text3(line4));
-  }
-  return box.render(width);
-}
-function line3(text, width) {
-  return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
-}
-function border(left, fill, right, width) {
-  return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
-}
-function readTasks3(path82) {
-  const parse6 = () => {
-    const parsed = JSON.parse(fs100.readFileSync(path82, "utf-8"));
-    return Array.isArray(parsed) ? parsed : [];
-  };
-  try {
-    return readJsonFileCoalesced(path82, TASK_READ_TTL_MS3, parse6);
-  } catch {
-    return [];
-  }
-}
-function shortUsage(tasks) {
-  const usage = aggregateUsage(tasks);
-  return usage ? formatUsage(usage) : "usage=(none)";
-}
-var TASK_READ_TTL_MS3, LiveRunSidebar;
-var init_live_run_sidebar = __esm({
-  "src/ui/live-run-sidebar.ts"() {
-    "use strict";
-    init_agent_control();
-    init_crew_agent_records();
-    init_task_display();
-    init_state_store();
-    init_usage();
-    init_file_coalescer();
-    init_visual();
-    init_layout_primitives();
-    init_render_scheduler();
-    init_run_event_bus();
-    init_spinner();
-    init_status_colors();
-    init_theme_adapter();
-    TASK_READ_TTL_MS3 = 200;
-    LiveRunSidebar = class {
-      cwd;
-      runId;
-      done;
-      theme;
-      config;
-      unsubscribeTheme;
-      renderScheduler;
-      snapshotCache;
-      cachedLines = [];
-      cachedWidth = 0;
-      cachedSignature = "";
-      autoCloseTimeout;
-      hasAutoClosed = false;
-      constructor(input) {
-        this.cwd = input.cwd;
-        this.runId = input.runId;
-        this.done = input.done;
-        this.theme = asCrewTheme(input.theme);
-        this.config = input.config ?? {};
-        this.snapshotCache = input.snapshotCache;
-        this.unsubscribeTheme = subscribeThemeChange(input.theme, () => this.invalidate());
-        this.renderScheduler = new RenderScheduler(
-          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
-          () => this.invalidate(),
-          {
-            debounceMs: 75,
-            fallbackMs: 750,
-            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
-          }
-        );
-      }
-      buildSignature(manifestStatus, tasks, agents, waitingCount, snapshot) {
-        const animation = agents.some((agent) => agent.status === "running") ? `:spin=${spinnerBucket()}` : "";
-        if (snapshot) return `${snapshot.signature}:${waitingCount}${animation}`;
-        const taskSig = tasks.map(
-          (task) => `${task.id}:${task.status}:${task.startedAt ?? ""}:${task.finishedAt ?? ""}:${task.agentProgress?.currentTool ?? ""}:${task.agentProgress?.toolCount ?? 0}:${task.agentProgress?.tokens ?? 0}:${task.usage ? JSON.stringify(task.usage) : ""}`
-        ).join("|");
-        const agentSig = agents.map(
-          (agent) => [
-            agent.id,
-            agent.status,
-            agent.startedAt,
-            agent.completedAt ?? "",
-            agent.progress?.currentTool ?? "",
-            agent.progress?.toolCount ?? 0,
-            agent.progress?.tokens ?? 0,
-            agent.progress?.turns ?? 0,
-            agent.progress?.lastActivityAt ?? "",
-            agent.progress?.recentOutput?.at(-1) ?? "",
-            agent.toolUses ?? 0
-          ].join(":")
-        ).join("|");
-        return `${manifestStatus}|${agents.length}|${waitingCount}|${taskSig}|${agentSig}${animation}`;
-      }
-      colorLine(line4) {
-        return colorizeStatusGlyphs(line4, this.theme);
-      }
-      invalidate() {
-        this.cachedLines = [];
-        this.cachedSignature = "";
-      }
-      dispose() {
-        if (this.autoCloseTimeout) {
-          clearTimeout(this.autoCloseTimeout);
-          this.autoCloseTimeout = void 0;
-        }
-        this.unsubscribeTheme();
-        this.renderScheduler.dispose();
-      }
-      render(width) {
-        const w = Math.max(36, width);
-        let run;
-        let tasks;
-        let rawAgents;
-        let snapshot;
-        if (this.snapshotCache) {
-          try {
-            snapshot = this.snapshotCache.refreshIfStale(this.runId);
-          } catch {
-            snapshot = void 0;
-          }
-          if (!snapshot) {
-            return ["(loading\u2026)"];
-          }
-          run = snapshot.manifest;
-          tasks = snapshot.tasks;
-          rawAgents = snapshot.agents;
-        } else {
-          const loaded = loadRunManifestById(this.cwd, this.runId);
-          if (!loaded) {
-            return renderLines3(
-              [
-                border("\u256D", "\u2500", "\u256E", w),
-                line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-                line3("run not found", w),
-                border("\u2570", "\u2500", "\u256F", w)
-              ],
-              w
-            );
-          }
-          run = loaded.manifest;
-          tasks = readTasks3(run.tasksPath);
-          rawAgents = readCrewAgents(run);
-        }
-        const controlConfig = resolveCrewControlConfig({ ui: this.config });
-        const agents = rawAgents.map((agent) => applyAttentionState(run, agent, controlConfig));
-        const active = agents.filter((agent) => agent.status === "running");
-        const completed = agents.filter((agent) => agent.status !== "running").slice(-5);
-        const waiting = tasks.filter((task) => task.status === "queued");
-        const signature = this.buildSignature(run.updatedAt, tasks, agents, waiting.length, snapshot);
-        if (signature !== this.cachedSignature || w !== this.cachedWidth) {
-          const TERMINAL_WITH_REASON = ["failed", "cancelled", "stopped"];
-          const reasonSuffix = TERMINAL_WITH_REASON.includes(run.status) && snapshot?.cancellationReason ? ` \xB7 ${truncate(snapshot.cancellationReason, 40)}` : "";
-          const lines = [
-            border("\u256D", "\u2500", "\u256E", w),
-            line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-            line3(`${run.runId.slice(-12)} \xB7 ${run.status}${reasonSuffix} \xB7 right default`, w),
-            line3(`${run.team}/${run.workflow ?? "none"} \xB7 ${shortUsage(tasks)}`, w),
-            border("\u251C", "\u2500", "\u2524", w),
-            line3(`Active agents (${active.length})`, w)
-          ];
-          for (const agent of active.slice(0, 8)) {
-            const status = iconForStatus(agent.status, {
-              runningGlyph: spinnerFrame(agent.taskId)
-            });
-            const usage = agent.usage ? formatUsage(agent.usage) : agent.progress?.tokens ? `tokens=${agent.progress.tokens}` : "usage=pending";
-            lines.push(line3(`${status} ${agent.taskId} ${agent.role}->${agent.agent}`, w));
-            lines.push(
-              line3(
-                `  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} \u2192 ` : ""}${agent.routing.resolved}` : agent.model ? `model ${agent.model}` : "model pending"}`,
-                w
-              )
-            );
-            lines.push(
-              line3(
-                `  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} \xB7 ` : ""}${agent.toolUses ?? 0} tools \xB7 ${usage}`,
-                w
-              )
-            );
-          }
-          if (!active.length) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Waiting tasks (${waiting.length})`, w));
-          for (const task of waiting.slice(0, 8)) {
-            const status = iconForStatus("queued");
-            lines.push(line3(`${status} ${task.id} ${waitingReason(task, tasks) ?? "waiting"}`, w));
-          }
-          if (waiting.length === 0) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Completed agents (${completed.length})`, w));
-          for (const agent of completed) {
-            const status = iconForStatus(agent.status === "running" ? "stopped" : agent.status);
-            lines.push(
-              line3(
-                `${status} ${agent.taskId} ${agent.model ? `\xB7 ${agent.model}` : ""}${agent.usage ? ` \xB7 ${formatUsage(agent.usage)}` : ""}`,
-                w
-              )
-            );
-          }
-          if (completed.length === 0) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w));
-          for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) lines.push(line3(entry, w));
-          lines.push(line3("q close \xB7 /team-dashboard details", w));
-          const isTerminal = ["completed", "failed", "cancelled", "blocked"].includes(run.status);
-          const hasActiveAgents = agents.some((a) => a.status === "running");
-          if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
-            const autoCloseMs = this.config?.autoCloseDashboardMs ?? 3e3;
-            if (autoCloseMs > 0) {
-              this.autoCloseTimeout = setTimeout(() => {
-                this.hasAutoClosed = true;
-                this.done(void 0);
-              }, autoCloseMs);
-              lines.push(line3(`auto-close in ${Math.round(autoCloseMs / 1e3)}s\u2026`, w));
-            }
-          } else if (this.autoCloseTimeout) {
-            clearTimeout(this.autoCloseTimeout);
-            this.autoCloseTimeout = void 0;
-          }
-          lines.push(border("\u2570", "\u2500", "\u256F", w));
-          this.cachedLines = renderLines3(
-            lines.map((entry) => this.colorLine(entry)),
-            w
-          );
-          this.cachedSignature = signature;
-          this.cachedWidth = w;
-        }
-        return this.cachedLines;
-      }
-      handleInput(data2) {
-        if (data2 === "q" || data2 === "\x1B") this.done(void 0);
-      }
-    };
-  }
-});
-
-// src/extension/registration/ui.ts
-var ui_exports = {};
-__export(ui_exports, {
-  clearDashboardPowerbar: () => clearDashboardPowerbar,
-  installLiveSidebar: () => installLiveSidebar,
-  primePowerbarAndWidget: () => primePowerbarAndWidget,
-  pushPowerbarUpdate: () => pushPowerbarUpdate,
-  registerPowerbarSegments: () => registerPowerbarSegments,
-  requestUiRender: () => requestUiRender
-});
-async function importLiveRunSidebar() {
-  if (!_cachedLiveRunSidebar) {
-    const mod = await Promise.resolve().then(() => (init_live_run_sidebar(), live_run_sidebar_exports));
-    _cachedLiveRunSidebar = mod.LiveRunSidebar;
-  }
-  return _cachedLiveRunSidebar;
-}
-async function installLiveSidebar(ctx, runId, state, deps) {
-  const uiConfig = loadConfig(ctx.cwd).config.ui;
-  const autoOpen = uiConfig?.autoOpenDashboard === true;
-  const foregroundAutoOpen = uiConfig?.autoOpenDashboardForForegroundRuns ?? DEFAULT_UI.autoOpenDashboardForForegroundRuns;
-  if (!ctx.hasUI || !autoOpen || !foregroundAutoOpen || (uiConfig?.dashboardPlacement ?? DEFAULT_UI.dashboardPlacement) !== "right") {
-    return false;
-  }
-  if (state.liveSidebarRunId === runId) return true;
-  state.liveSidebarRunId = runId;
-  state.dashboardOpened = true;
-  const widgetPlacement = uiConfig?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
-  setExtensionWidget(ctx, "pi-crew", void 0, { placement: widgetPlacement });
-  setExtensionWidget(ctx, "pi-crew-active", void 0, { placement: widgetPlacement });
-  deps.widgetState.lastVisibility = "hidden";
-  deps.widgetState.lastPlacement = widgetPlacement;
-  deps.widgetState.lastKey = "pi-crew-active";
-  deps.widgetState.model = void 0;
-  const width = Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? DEFAULT_UI.dashboardWidth));
-  try {
-    const LiveRunSidebar2 = await importLiveRunSidebar();
-    if (deps.isCleanedUp() || !deps.getCurrentCtx()) return false;
-    void showCustom(
-      ctx,
-      (_tui, theme, _keybindings, done) => new LiveRunSidebar2({
-        cwd: ctx.cwd,
-        runId,
-        done,
-        theme,
-        config: uiConfig,
-        snapshotCache: deps.getRunSnapshotCache(ctx.cwd)
-      }),
-      {
-        overlay: true,
-        overlayOptions: {
-          width,
-          minWidth: 40,
-          maxHeight: "100%",
-          anchor: "top-right",
-          offsetX: 0,
-          offsetY: 0,
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          visible: (termWidth) => termWidth >= 100
-        }
-      }
-    ).finally(() => {
-      if (state.liveSidebarRunId === runId) state.liveSidebarRunId = void 0;
-      const c = deps.getCurrentCtx();
-      if (!c) return;
-      updateCrewWidget(
-        c,
-        deps.widgetState,
-        loadConfig(c.cwd).config.ui,
-        deps.getManifestCache(c.cwd),
-        deps.getRunSnapshotCache(c.cwd)
-      );
-    });
-    return true;
-  } catch (error) {
-    logInternalError("register.live-sidebar-lazy-import", error);
-    return false;
-  }
-}
-function clearDashboardPowerbar(state, deps) {
-  const c = deps.getCurrentCtx();
-  if (c) stopCrewWidget(c, deps.widgetState, loadConfig(c.cwd).config.ui);
-  clearPiCrewPowerbar(deps.pi.events);
-  resetPowerbarDedupState();
-  state.dashboardOpened = false;
-}
-function registerPowerbarSegments(deps, uiConfig) {
-  registerPiCrewPowerbarSegments(deps.pi.events, uiConfig);
-}
-function pushPowerbarUpdate(ctx, deps, notificationCount) {
-  const config = loadConfig(ctx.cwd).config.ui;
-  requestPowerbarUpdate(
-    deps.pi.events,
-    ctx.cwd,
-    config,
-    deps.getManifestCache(ctx.cwd),
-    deps.getRunSnapshotCache(ctx.cwd),
-    ctx,
-    notificationCount
-  );
-}
-function primePowerbarAndWidget(ctx, deps, notificationCount) {
-  const uiConfig = loadConfig(ctx.cwd).config.ui;
-  const cache2 = deps.getManifestCache(ctx.cwd);
-  updateCrewWidget(ctx, deps.widgetState, uiConfig, cache2, deps.getRunSnapshotCache(ctx.cwd));
-  updatePiCrewPowerbar(deps.pi.events, ctx.cwd, uiConfig, cache2, deps.getRunSnapshotCache(ctx.cwd), ctx, notificationCount);
-}
-function requestUiRender(ctx) {
-  requestRender(ctx);
-}
-var _cachedLiveRunSidebar;
-var init_ui = __esm({
-  "src/extension/registration/ui.ts"() {
-    "use strict";
-    init_config();
-    init_defaults();
-    init_pi_ui_compat();
-    init_powerbar_publisher();
-    init_widget();
-    init_internal_error();
-  }
-});
-
-// src/runtime/foreground-watchdog.ts
-var foreground_watchdog_exports = {};
-__export(foreground_watchdog_exports, {
-  startForegroundWatchdog: () => startForegroundWatchdog,
-  stopWatchdog: () => stopWatchdog
-});
-function stopWatchdog(runId) {
-  const timer = activeWatchdogs.get(runId);
-  if (timer) {
-    clearTimeout(timer);
-    activeWatchdogs.delete(runId);
-  }
-}
-function startForegroundWatchdog(opts) {
-  const { pi, cwd, runId } = opts;
-  const checkIntervalMs = opts.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
-  const maxMonitorMs = opts.maxMonitorMs ?? DEFAULT_MAX_MONITOR_MS;
-  const startTime = Date.now();
-  if (activeWatchdogs.has(runId)) return;
-  const check = () => {
-    if (Date.now() - startTime > maxMonitorMs) {
-      activeWatchdogs.delete(runId);
-      return;
-    }
-    try {
-      const loaded = loadRunManifestById(cwd, runId);
-      if (!loaded) {
-        activeWatchdogs.delete(runId);
-        return;
-      }
-      const { manifest } = loaded;
-      if (!isActiveRunStatus(manifest.status)) {
-        const teamName = manifest.team ?? "unknown";
-        try {
-          pi.sendUserMessage(`pi-crew run ${manifest.status}: ${runId} (${teamName}/${manifest.workflow ?? "default"})`, {
-            deliverAs: "followUp"
-          });
-        } catch {
-        }
-        activeWatchdogs.delete(runId);
-        return;
-      }
-      const agents = readCrewAgents(manifest);
-      const now = Date.now();
-      if (isLikelyOrphanedActiveRun(manifest, agents, now)) {
-        const detail = `status=${manifest.status}, updatedAt=${manifest.updatedAt}, agents=${agents.length}`;
-        try {
-          pi.sendUserMessage(
-            `pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
-            { deliverAs: "followUp" }
-          );
-        } catch {
-        }
-      }
-    } catch {
-    }
-    const timer2 = setTimeout(check, checkIntervalMs);
-    timer2.unref();
-    activeWatchdogs.set(runId, timer2);
-  };
-  const timer = setTimeout(check, checkIntervalMs);
-  timer.unref();
-  activeWatchdogs.set(runId, timer);
-}
-var DEFAULT_CHECK_INTERVAL_MS, DEFAULT_MAX_MONITOR_MS, activeWatchdogs;
-var init_foreground_watchdog = __esm({
-  "src/runtime/foreground-watchdog.ts"() {
-    "use strict";
-    init_state_store();
-    init_crew_agent_records();
-    init_process_status();
-    DEFAULT_CHECK_INTERVAL_MS = 3e5;
-    DEFAULT_MAX_MONITOR_MS = 72e5;
-    activeWatchdogs = /* @__PURE__ */ new Map();
   }
 });
 
@@ -82698,6 +82668,44 @@ function registerCrewMessageRenderers(pi) {
   pi.registerMessageRenderer?.("crew:resume-directive", renderResumeDirective);
 }
 
+// src/extension/registration/command-registration.ts
+init_config();
+init_powerbar_publisher();
+init_widget();
+init_commands();
+function registerPiCommands(pi, ctx) {
+  registerTeamCommands(pi, {
+    startForegroundRun: ctx.startForegroundRun,
+    abortForegroundRun: ctx.abortForegroundRun,
+    openLiveSidebar: ctx.openLiveSidebar,
+    getManifestCache: ctx.getManifestCache,
+    getRunSnapshotCache: ctx.getRunSnapshotCache,
+    getMetricRegistry: () => ctx.observabilityState.metricRegistry,
+    dismissNotifications: () => {
+      ctx.widgetState.notificationCount = 0;
+      if (ctx.currentCtx) {
+        const uiConfig = loadConfig(ctx.currentCtx.cwd).config.ui;
+        updateCrewWidget(
+          ctx.currentCtx,
+          ctx.widgetState,
+          uiConfig,
+          ctx.getManifestCache(ctx.currentCtx.cwd),
+          ctx.getRunSnapshotCache(ctx.currentCtx.cwd)
+        );
+        updatePiCrewPowerbar(
+          pi.events,
+          ctx.currentCtx.cwd,
+          uiConfig,
+          ctx.getManifestCache(ctx.currentCtx.cwd),
+          ctx.getRunSnapshotCache(ctx.currentCtx.cwd),
+          ctx.currentCtx,
+          0
+        );
+      }
+    }
+  });
+}
+
 // src/extension/registration/context-builder.ts
 init_config();
 
@@ -84023,14 +84031,8 @@ function createRunSnapshotCache(cwd, options = {}) {
 }
 
 // src/extension/registration/context-builder.ts
-init_widget();
 init_internal_error();
-init_async_notifier();
-init_notification_router();
-init_lifecycle();
-init_observability();
 init_subagent_helpers();
-init_ui();
 var RUNTIME_CLEANUP_STORE_KEY = /* @__PURE__ */ Symbol("__piCrewRuntimeCleanup");
 function buildRegistrationContext(pi) {
   const ctx = {
@@ -84113,10 +84115,7 @@ function buildRegistrationContext(pi) {
       ctx.lifecycleState.notificationRouter?.enqueue(notification);
     } catch (error) {
       logInternalError("register.notification", error);
-      void sendFollowUp(
-        pi,
-        [notification.title, notification.body].filter((line4) => Boolean(line4)).join("\n")
-      );
+      void sendFollowUp(pi, [notification.title, notification.body].filter((line4) => Boolean(line4)).join("\n"));
     }
   };
   ctx.getManifestCache = (cwd) => {
@@ -84159,12 +84158,12 @@ function purgeStaleActiveRunIndexSyncIfLoaded() {
 }
 
 // src/extension/registration/foreground-run-controller.ts
+init_config();
 init_state_store();
 init_pi_ui_compat();
 init_powerbar_publisher();
 init_widget();
 init_internal_error();
-init_config();
 function installForegroundRunController(pi, ctx) {
   ctx.openLiveSidebar = (extCtx, runId) => {
     void openLiveSidebarImpl(pi, ctx, extCtx, runId);
@@ -84293,8 +84292,8 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 
 // src/extension/registration/hook-registration.ts
 init_config();
-import * as fs101 from "node:fs";
-import * as path79 from "node:path";
+import * as fs98 from "node:fs";
+import * as path77 from "node:path";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // src/runtime/per-write-validator.ts
@@ -84365,6 +84364,9 @@ function buildValidationBlocker(filePath, error) {
   };
 }
 
+// src/extension/registration/hook-registration.ts
+init_safe_paths();
+
 // src/extension/team-tool/destructive-gate.ts
 var DESTRUCTIVE_TEAM_ACTIONS = /* @__PURE__ */ new Set([
   "delete",
@@ -84385,7 +84387,6 @@ function shouldBlockDestructiveTeamAction(action, input) {
 }
 
 // src/extension/registration/hook-registration.ts
-init_safe_paths();
 function installPiHooks(pi, ctx) {
   installResourcesDiscoverHook(pi, ctx);
   installToolCallHook(pi, ctx);
@@ -84395,11 +84396,11 @@ function installResourcesDiscoverHook(pi, ctx) {
   try {
     pi.on("resources_discover", () => {
       const sessionCwd = ctx.currentCtx?.cwd ?? process.cwd();
-      const skillDir = path79.resolve(sessionCwd, "skills");
-      const extSkillDir = path79.resolve(path79.dirname(fileURLToPath7(import.meta.url)), "..", "..", "skills");
+      const skillDir = path77.resolve(sessionCwd, "skills");
+      const extSkillDir = path77.resolve(path77.dirname(fileURLToPath7(import.meta.url)), "..", "..", "skills");
       const paths = [];
-      if (fs101.existsSync(extSkillDir)) paths.push(extSkillDir);
-      if (skillDir !== extSkillDir && fs101.existsSync(skillDir)) {
+      if (fs98.existsSync(extSkillDir)) paths.push(extSkillDir);
+      if (skillDir !== extSkillDir && fs98.existsSync(skillDir)) {
         try {
           resolveContainedPath(sessionCwd, "skills");
           paths.push(skillDir);
@@ -84445,9 +84446,9 @@ function installToolResultHook(_pi, _ctx) {
 }
 
 // src/extension/registration/lazy-configurers.ts
+init_crash_recovery();
 init_deadletter();
 init_pi_args();
-init_crash_recovery();
 init_stale_reconciler();
 init_powerbar_publisher();
 init_internal_error();
@@ -84513,16 +84514,34 @@ async function configureDeliveryCoordinatorImpl(pi, ctx) {
 }
 
 // src/extension/registration/lifecycle-handlers.ts
-init_defaults();
 init_config();
+init_defaults();
 init_run_maintenance();
+init_crash_recovery();
+init_live_agent_manager();
 init_orphan_worker_registry();
 init_pi_args();
-init_crash_recovery();
 init_scheduler();
-init_settings_store();
 import * as fs102 from "node:fs";
 import * as path81 from "node:path";
+
+// src/runtime/session-resources.ts
+init_internal_error();
+function tryRegisterSessionCleanup(pi, cleanup) {
+  const api = pi;
+  const registerFn = api.registerSessionResourceCleanup;
+  if (typeof registerFn === "function") {
+    try {
+      const unregister = registerFn(cleanup);
+      if (typeof unregister === "function") return unregister;
+      return void 0;
+    } catch (error) {
+      logInternalError("session-resources.register", error);
+      return void 0;
+    }
+  }
+  return void 0;
+}
 
 // src/runtime/session-snapshot.ts
 function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGeneration) {
@@ -84539,33 +84558,22 @@ function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGenerati
   };
 }
 
-// src/runtime/session-resources.ts
-init_internal_error();
-function tryRegisterSessionCleanup(pi, cleanup) {
-  const api = pi;
-  const registerFn = api["registerSessionResourceCleanup"];
-  if (typeof registerFn === "function") {
-    try {
-      const unregister = registerFn(cleanup);
-      if (typeof unregister === "function") return unregister;
-      return void 0;
-    } catch (error) {
-      logInternalError("session-resources.register", error);
-      return void 0;
-    }
-  }
-  return void 0;
-}
+// src/extension/registration/lifecycle-handlers.ts
+init_settings_store();
+init_state_store();
+
+// src/subagents/spawn.ts
+init_child_pi();
 
 // src/extension/registration/lifecycle-handlers.ts
-init_state_store();
 init_heartbeat_aggregator();
 init_pi_ui_compat();
-init_run_event_bus();
-init_render_scheduler();
 init_powerbar_publisher();
+init_render_scheduler();
+init_run_event_bus();
 init_widget();
-init_live_agent_manager();
+init_internal_error();
+init_paths();
 
 // src/utils/run-watcher-registry.ts
 var RunWatcherRegistry = class {
@@ -84669,14 +84677,7 @@ var RunWatcherRegistry = class {
 };
 
 // src/extension/registration/lifecycle-handlers.ts
-init_paths();
 init_session_utils();
-init_internal_error();
-
-// src/subagents/spawn.ts
-init_child_pi();
-
-// src/extension/registration/lifecycle-handlers.ts
 init_async_notifier();
 
 // src/extension/crew-autocomplete.ts
@@ -84754,7 +84755,6 @@ function notifyActiveRuns(ctx) {
 // src/extension/registration/lifecycle-handlers.ts
 init_handle_schedule();
 init_team_tool2();
-init_pi_ui_compat();
 
 // src/extension/registration/artifact-cleanup.ts
 init_defaults();
@@ -84866,23 +84866,12 @@ function installSessionStartHandler(pi, ctx) {
       ctx.cleanupRuntime();
     });
     registerPiCrewPowerbarSegments(pi.events, loadedConfig.config.ui);
-    startAsyncRunNotifier(
-      extensionCtx,
-      ctx.notifierState,
-      loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs,
-      {
-        generation: ownerGeneration,
-        isCurrent: (generation) => generation === ctx.sessionGeneration && ctx.currentCtx === extensionCtx && !ctx.cleanedUp
-      }
-    );
+    startAsyncRunNotifier(extensionCtx, ctx.notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, {
+      generation: ownerGeneration,
+      isCurrent: (generation) => generation === ctx.sessionGeneration && ctx.currentCtx === extensionCtx && !ctx.cleanedUp
+    });
     const cache2 = ctx.getManifestCache(extensionCtx.cwd);
-    updateCrewWidget(
-      extensionCtx,
-      ctx.widgetState,
-      loadedConfig.config.ui,
-      cache2,
-      ctx.getRunSnapshotCache(extensionCtx.cwd)
-    );
+    updateCrewWidget(extensionCtx, ctx.widgetState, loadedConfig.config.ui, cache2, ctx.getRunSnapshotCache(extensionCtx.cwd));
     updatePiCrewPowerbar(
       pi.events,
       extensionCtx.cwd,
@@ -85240,9 +85229,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   const liveRefreshMs = 160;
   const hasActiveWork = () => {
     if (listLiveAgents().some((a) => a.status === "running")) return true;
-    return lastPreloadedManifests.some(
-      (r) => r.status === "running" || r.status === "queued" || r.status === "planning"
-    );
+    return lastPreloadedManifests.some((r) => r.status === "running" || r.status === "queued" || r.status === "planning");
   };
   const effectiveRefreshMs = () => hasActiveWork() ? liveRefreshMs : fallbackMs;
   ctx.renderScheduler = new RenderScheduler(pi.events, renderTick, {
@@ -85295,55 +85282,14 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   backgroundPreload();
 }
 
-// src/extension/registration/command-registration.ts
-init_config();
-init_widget();
-init_powerbar_publisher();
-init_commands();
-function registerPiCommands(pi, ctx) {
-  registerTeamCommands(pi, {
-    startForegroundRun: ctx.startForegroundRun,
-    abortForegroundRun: ctx.abortForegroundRun,
-    openLiveSidebar: ctx.openLiveSidebar,
-    getManifestCache: ctx.getManifestCache,
-    getRunSnapshotCache: ctx.getRunSnapshotCache,
-    getMetricRegistry: () => ctx.observabilityState.metricRegistry,
-    dismissNotifications: () => {
-      ctx.widgetState.notificationCount = 0;
-      if (ctx.currentCtx) {
-        const uiConfig = loadConfig(ctx.currentCtx.cwd).config.ui;
-        updateCrewWidget(
-          ctx.currentCtx,
-          ctx.widgetState,
-          uiConfig,
-          ctx.getManifestCache(ctx.currentCtx.cwd),
-          ctx.getRunSnapshotCache(ctx.currentCtx.cwd)
-        );
-        updatePiCrewPowerbar(
-          pi.events,
-          ctx.currentCtx.cwd,
-          uiConfig,
-          ctx.getManifestCache(ctx.currentCtx.cwd),
-          ctx.getRunSnapshotCache(ctx.currentCtx.cwd),
-          ctx.currentCtx,
-          0
-        );
-      }
-    }
-  });
-}
-
-// src/extension/register.ts
-init_subagent_helpers();
-
 // src/extension/registration/runtime-cleanup.ts
 init_config();
 init_registry2();
-init_async_notifier();
-init_internal_error();
 init_powerbar_publisher();
 init_widget();
+init_internal_error();
 init_paths();
+init_async_notifier();
 init_team_tool2();
 init_lifecycle();
 init_observability();
@@ -85378,11 +85324,7 @@ function buildCleanupSessionResourcesOnly(ctx) {
     ctx.crewScheduler?.stop();
     stopAsyncRunNotifier(ctx.notifierState);
     ctx.purgeStaleActiveRunIndexSyncIfLoaded();
-    stopCrewWidget(
-      ctx.currentCtx,
-      ctx.widgetState,
-      ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : void 0
-    );
+    stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : void 0);
     clearPiCrewPowerbar(ctx.pi.events);
     disposePowerbarCoalescer();
     void disposeObservability(ctx.observabilityState, ctx.cleanedUp);
@@ -85427,11 +85369,7 @@ function buildCleanupRuntime(ctx) {
     ctx.crewScheduler?.stop();
     stopAsyncRunNotifier(ctx.notifierState);
     ctx.purgeStaleActiveRunIndexSyncIfLoaded();
-    stopCrewWidget(
-      ctx.currentCtx,
-      ctx.widgetState,
-      ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : void 0
-    );
+    stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : void 0);
     clearPiCrewPowerbar(ctx.pi.events);
     disposePowerbarCoalescer();
     void disposeObservability(ctx.observabilityState, ctx.cleanedUp);
@@ -85489,10 +85427,13 @@ function buildStopSessionBoundSubagents(ctx) {
   };
 }
 
+// src/extension/register.ts
+init_subagent_helpers();
+
 // src/extension/registration/subagent-manager-setup.ts
+init_config();
 init_manager2();
 init_subagent_helpers();
-init_config();
 var MAX_CONCURRENT_SUBAGENTS = 4;
 var SUBAGENT_DEFAULT_TIMEOUT_MS = 1e3;
 function installSubagentManager(pi, ctx) {

@@ -113,7 +113,7 @@ export function detectProjectId(cwd: string): ProjectInfo {
 
 	// Method 1: Check CLAUDE_PROJECT_DIR env var
 	const claudeProjectDir = process.env.CLAUDE_PROJECT_DIR;
-	if (claudeProjectDir && claudeProjectDir.trim()) {
+	if (claudeProjectDir?.trim()) {
 		const resolvedPath = path.resolve(claudeProjectDir.trim());
 		const projectName = path.basename(resolvedPath);
 		const projectId = hashPath(resolvedPath);

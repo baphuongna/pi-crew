@@ -10,7 +10,7 @@ import {
 	registerActiveRun,
 	unregisterActiveRun,
 } from "../../src/state/active-run-registry.ts";
-import { createRunManifest, updateRunStatus } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

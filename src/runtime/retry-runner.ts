@@ -70,10 +70,10 @@ export interface TaskRunnerLike {
  */
 export class RetryRunner {
 	private _disposed = false;
-	private _handoffs: HandoffSummary[] = [];
 
 	private taskRunner: TaskRunnerLike;
 	private handoffManager: HandoffManager;
+	private _handoffs: HandoffSummary[] = [];
 
 	constructor(taskRunner: TaskRunnerLike, handoffManager: HandoffManager) {
 		this.taskRunner = taskRunner;

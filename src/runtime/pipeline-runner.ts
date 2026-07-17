@@ -1,7 +1,6 @@
-
 import { errors } from "../errors.ts";
 import { appendEventAsync, flushEventLogBuffer } from "../state/event-log.ts";
-import type { WorkflowConfig, } from "../workflows/workflow-config.ts";
+import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 
 /**

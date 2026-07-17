@@ -485,11 +485,7 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
  * on crash recovery.
  */
 /** @internal */
-export function saveRunTasksCoalesced(
-	manifest: TeamRunManifest,
-	tasks: TeamTaskState[],
-	skipCoalesce: boolean = false,
-): void {
+export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[], skipCoalesce: boolean = false): void {
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
 	invalidateRunCache(manifest.stateRoot);
 	try {

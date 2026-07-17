@@ -1,19 +1,11 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../../src/config/defaults.ts";
 import { ChildPiLineObserver } from "../../src/runtime/child-pi.ts";
-import {
-	applyThinkingSuffix,
-	buildPiWorkerArgs,
-	checkCrewDepth,
-	cleanupTempDir,
-	currentCrewDepth,
-	resolveCrewMaxDepth,
-} from "../../src/runtime/pi-args.ts";
+import { applyThinkingSuffix, buildPiWorkerArgs, checkCrewDepth, cleanupTempDir, currentCrewDepth } from "../../src/runtime/pi-args.ts";
 
 const minimalAgent: AgentConfig = {
 	name: "test-agent",

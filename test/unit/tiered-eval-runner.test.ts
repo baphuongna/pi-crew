@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRunner, defaultRunner, TIER_CONFIGS, TieredEvalRunner } from "../../src/state/tiered-eval.ts";
-import type { EvalTier } from "../../src/state/types-eval.ts";
 
 /**
  * Round 24 (test coverage gaps): `tiered-eval.ts` provides a public API class

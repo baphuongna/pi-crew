@@ -49,7 +49,7 @@ describe("T5: validateJson", () => {
 	test("malformed JSON is not ok with a message", () => {
 		const r = validateJson("{not valid", "x.json");
 		assert.equal(r.ok, false);
-		assert.ok(r.error && r.error.includes("Invalid JSON"), `error was: ${r.error}`);
+		assert.ok(r.error?.includes("Invalid JSON"), `error was: ${r.error}`);
 	});
 
 	test("empty file is treated as ok (absence, not a parse error)", () => {
@@ -107,7 +107,7 @@ describe("T5: validateWrittenFile — JSON failure path", () => {
 		const r = validateWrittenFile(p);
 		assert.ok(r, "should return a result");
 		assert.equal(r.ok, false);
-		assert.ok(r.error && r.error.includes("Invalid JSON"));
+		assert.ok(r.error?.includes("Invalid JSON"));
 	});
 });
 

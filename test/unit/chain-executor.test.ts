@@ -42,7 +42,7 @@ import {
 import type { TeamContext } from "../../src/extension/team-tool/context.ts";
 import type { PiTeamsToolResult } from "../../src/extension/tool-result.ts";
 import { ChainRunner, parseChainString } from "../../src/runtime/chain-runner.ts";
-import { HandoffManager, type TaskPacket } from "../../src/runtime/handoff-manager.ts";
+import { HandoffManager } from "../../src/runtime/handoff-manager.ts";
 import { __test__clearManifestCache, loadRunManifestById } from "../../src/state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 

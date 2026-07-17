@@ -301,16 +301,16 @@ export class ChainRunner {
 		};
 
 		// Set step type based on matching pattern with type safety
-		if (teamMatch && teamMatch[1]) {
+		if (teamMatch?.[1]) {
 			parsed.team = this.sanitizeIdentifier(teamMatch[1]);
 		}
-		if (workflowMatch && workflowMatch[1]) {
+		if (workflowMatch?.[1]) {
 			parsed.workflow = this.sanitizeIdentifier(workflowMatch[1]);
 		}
-		if (templateMatch && templateMatch[1]) {
+		if (templateMatch?.[1]) {
 			parsed.template = this.sanitizeIdentifier(templateMatch[1]);
 		}
-		if (inlineMatch && inlineMatch[1]) {
+		if (inlineMatch?.[1]) {
 			parsed.inlineGoal = this.sanitizeInlineGoal(inlineMatch[1]);
 		}
 
@@ -334,7 +334,7 @@ export class ChainRunner {
 		const timeoutStr = this.extractFlag(step, "timeout");
 		if (timeoutStr) {
 			const timeoutMs = parseInt(timeoutStr, 10);
-			if (!isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs <= 86400000) {
+			if (!Number.isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs <= 86400000) {
 				parsed.timeout = timeoutMs * 1000; // Convert seconds to ms
 			}
 		}

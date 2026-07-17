@@ -9,7 +9,6 @@ import {
 	resolveJitiRegisterPath,
 	resolveTypeScriptLoader,
 } from "../../src/runtime/async-runner.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
 
 test("background runner uses the jiti runtime loader for installed TypeScript", () => {
 	const command = getBackgroundRunnerCommand(

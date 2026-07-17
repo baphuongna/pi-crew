@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { describe, it } from "node:test";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
@@ -8,7 +6,7 @@ import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tem
 // We test the pure helper logic: isTerminalTask (inlined) and shouldRecoverTask (inlined).
 // The exported functions require extensive mocking so we test their contracts minimally.
 
-import { detectInterruptedRuns, type RecoveryPlan } from "../../src/runtime/crash-recovery.ts";
+import { detectInterruptedRuns } from "../../src/runtime/crash-recovery.ts";
 
 // ── detectInterruptedRuns ──
 // Needs a ManifestCache with list(). We provide a minimal stub.

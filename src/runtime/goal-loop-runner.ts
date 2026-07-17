@@ -263,8 +263,9 @@ function resolveGoalTurnWorkflow(goal: GoalLoopState): WorkflowConfig {
 	try {
 		// LAZY: createRequire for synchronous module resolution in ESM context
 		const requireFromHere = createRequire(import.meta.url);
-		const { discoverWorkflows, allWorkflows } =
-			requireFromHere("../workflows/discover-workflows.ts") as typeof import("../workflows/discover-workflows.ts");
+		const { discoverWorkflows, allWorkflows } = requireFromHere(
+			"../workflows/discover-workflows.ts",
+		) as typeof import("../workflows/discover-workflows.ts");
 		const found = allWorkflows(discoverWorkflows(goal.cwd)).find((w) => w.name === wrapName && w.source === "builtin");
 		if (found) return found;
 		logInternalError(

@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it, mock } from "node:test";
-import { parseGitHubUrl, resolveGitHubUrl } from "../../src/utils/gh-protocol.ts";
+import { parseGitHubUrl } from "../../src/utils/gh-protocol.ts";
 
 function tempGitDir(): string {
 	const dir = path.join(os.tmpdir(), `pi-crew-gh-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);

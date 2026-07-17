@@ -6,9 +6,7 @@ import test from "node:test";
 import {
 	buildHealthReport,
 	countStatuses,
-	detectStuckTasks,
 	handleHealthMonitor,
-	STUCK_TASK_THRESHOLD_MS,
 	scanZombieTempWorkspaces,
 } from "../../src/extension/team-tool/health-monitor.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../src/state/active-run-registry.ts";

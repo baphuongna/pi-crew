@@ -142,7 +142,7 @@ export class TieredEvalRunner {
 		if (config?.tierConfigs) {
 			for (const [tierStr, tierConfig] of Object.entries(config.tierConfigs)) {
 				const tier = Number(tierStr) as EvalTier;
-				if (tierConfig && !isNaN(tier)) {
+				if (tierConfig && !Number.isNaN(tier)) {
 					this.tierConfigs[tier] = {
 						...this.tierConfigs[tier],
 						...tierConfig,

@@ -15,7 +15,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BatchBarrier } from "../../runtime/batch-barrier.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
+import type { CrewScheduler } from "../../runtime/scheduler.ts";
 import type { SubagentManager } from "../../subagents/manager.ts";
+import type { RenderScheduler } from "../../ui/render-scheduler.ts";
+import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
+import type { TerminalStatusController } from "../../ui/terminal-status.ts";
+import type { CrewWidgetState } from "../../ui/widget/index.ts";
+import type { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
 import type { AsyncNotifierState } from "../async-notifier.ts";
 import type { PiCrewRpcHandle } from "../cross-extension-rpc.ts";
 import type { NotificationDescriptor } from "../notification-router.ts";
@@ -23,12 +29,6 @@ import type { CrashRecoveryCache } from "./crash-recovery-cache.ts";
 import type { LifecycleState } from "./lifecycle.ts";
 import type { ObservabilityState } from "./observability.ts";
 import type { UiState } from "./ui.ts";
-import type { RenderScheduler } from "../../ui/render-scheduler.ts";
-import type { TerminalStatusController } from "../../ui/terminal-status.ts";
-import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
-import type { CrewWidgetState } from "../../ui/widget/index.ts";
-import type { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
-import type { CrewScheduler } from "../../runtime/scheduler.ts";
 
 /** Foreground team-run & subagent abort controllers. */
 export type AbortKey = string | symbol;

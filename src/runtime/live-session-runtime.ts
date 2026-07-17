@@ -27,7 +27,7 @@ import {
 } from "./live-agent-manager.ts";
 import { subscribeLiveControlRealtime } from "./live-control-realtime.ts";
 import { buildExtensionBridge } from "./live-extension-bridge.ts";
-import { collectLiveSessionHealth, formatLiveSessionDiagnostics, } from "./live-session-health.ts";
+import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "./live-session-health.ts";
 import { buildMcpProxyFromSession } from "./mcp-proxy.ts";
 import { buildConfiguredModelRouting } from "./model-fallback.ts";
 import { readEnabledModelsPatterns } from "./model-scope.ts";
@@ -231,7 +231,7 @@ function eventText(event: unknown): string[] {
 
 function finalAssistantText(event: unknown): string[] {
 	const obj = asRecord(event);
-	if (!obj || obj.type !== "message_end") return [];
+	if (obj?.type !== "message_end") return [];
 	const message = asRecord(obj.message);
 	if (message?.role !== "assistant") return [];
 	return textFromContent(message.content);
@@ -266,7 +266,7 @@ async function resolveScopeModelsPatterns(cwd: string, agentDir?: string): Promi
 }
 
 function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined): unknown {
-	if (!modelId || !modelId.includes("/")) return undefined;
+	if (!modelId?.includes("/")) return undefined;
 	const registry = asRecord(modelRegistry);
 	const find = registry?.find;
 	if (typeof find !== "function") return undefined;
@@ -450,7 +450,7 @@ function filterActiveTools(session: LiveSessionLike, agent: AgentConfig, role?: 
 	const allowed = policy.tools?.length ? new Set(policy.tools) : undefined;
 	const active = session
 		.getActiveToolNames()
-		.filter((name) => !recursiveTools.has(name) && (!disallowed || !disallowed.has(name)) && (!allowed || allowed.has(name)));
+		.filter((name) => !recursiveTools.has(name) && !disallowed?.has(name) && (!allowed || allowed.has(name)));
 	session.setActiveToolsByName(active);
 }
 

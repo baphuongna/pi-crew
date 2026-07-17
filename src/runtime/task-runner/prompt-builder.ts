@@ -14,7 +14,7 @@ import { renderSuggestedFilesSection, runRetrievalCycle } from "./retrieval-orch
  * filtering at the Pi level is a future optimisation (Phase 3.2+).
  */
 export function toolGuidanceBlock(agent?: AgentConfig): string {
-	if (!agent || agent.loadMode !== "lean" || !agent.defaultTools?.length) return "";
+	if (agent?.loadMode !== "lean" || !agent.defaultTools?.length) return "";
 	return [
 		"# Tool Guidance",
 		`This role uses a focused tool set. Preferred tools: ${agent.defaultTools.join(", ")}.`,

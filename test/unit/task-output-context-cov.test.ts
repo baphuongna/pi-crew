@@ -9,7 +9,7 @@ import {
 	renderDependencyOutputContext,
 	sharedPath,
 } from "../../src/runtime/task-output-context.ts";
-import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import type { WorkflowStep } from "../../src/workflows/workflow-config.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 

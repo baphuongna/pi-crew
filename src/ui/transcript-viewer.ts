@@ -172,7 +172,8 @@ export function readRunTranscript(
 	manifest: TeamRunManifest,
 	taskId?: string,
 	options: { full?: boolean; maxTailBytes?: number } = {},
-): ReadRunTranscriptResult {	const now = Date.now();
+): ReadRunTranscriptResult {
+	const now = Date.now();
 	const readOptions = {
 		full: options.full === true,
 		maxTailBytes: options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES,

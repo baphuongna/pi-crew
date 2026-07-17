@@ -66,7 +66,7 @@ describe("collectLiveSessionHealth", () => {
 
 	it("produces a valid ISO timestamp", () => {
 		const health = collectLiveSessionHealth([], () => undefined);
-		assert.ok(!isNaN(Date.parse(health.timestamp)));
+		assert.ok(!Number.isNaN(Date.parse(health.timestamp)));
 	});
 });
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bridgeEventFromJsonEvent, registerStreamBridge, unregisterStreamBridge } from "../../src/runtime/event-stream-bridge.ts";
+import { bridgeEventFromJsonEvent, registerStreamBridge } from "../../src/runtime/event-stream-bridge.ts";
 import { runEventBus } from "../../src/ui/run-event-bus.ts";
 
 test("registerStreamBridge returns handler and dispose", () => {

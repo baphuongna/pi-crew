@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert";
-import { beforeEach, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { ChildPiLineObserver, killProcessPid } from "../../src/runtime/child-pi.ts";
 

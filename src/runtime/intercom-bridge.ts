@@ -8,7 +8,6 @@
  * The actual tool registration happens in task-runner.ts.
  */
 
-
 // ── Types ────────────────────────────────────────────────────────────────
 
 export type IntercomUrgency = "low" | "medium" | "high" | "critical";

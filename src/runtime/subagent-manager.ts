@@ -439,7 +439,7 @@ export class SubagentManager {
 	private drainQueue(): void {
 		while (this.queue.length > 0 && this.runningBackground < this.maxConcurrent) {
 			const next = this.queue.shift();
-			if (!next || next.record.status !== "queued") continue;
+			if (next?.record.status !== "queued") continue;
 			this.start(next.record, next.options, next.runner, next.signal);
 		}
 	}
@@ -504,7 +504,7 @@ export class SubagentManager {
 	private scheduleBlockedTerminalPoll(cwd: string, record: SubagentRecord): void {
 		const poll = (): void => {
 			const current = this.records.get(record.id);
-			if (!current || current.status !== "blocked" || !current.runId) return;
+			if (current?.status !== "blocked" || !current.runId) return;
 			const loaded = loadRunManifestById(cwd, current.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 			if (
 				!loaded ||
@@ -540,7 +540,7 @@ export class SubagentManager {
 		const threshold = DEFAULT_SUBAGENT.stuckBlockedNotifyMs;
 		const fire = (): void => {
 			const current = this.records.get(record.id);
-			if (!current || current.status !== "blocked" || !current.blockedAt || current.stuckNotified) return;
+			if (current?.status !== "blocked" || !current.blockedAt || current.stuckNotified) return;
 			current.stuckNotified = true;
 			this.onEvent?.("subagent.stuck-blocked", {
 				event: "subagent.stuck-blocked",

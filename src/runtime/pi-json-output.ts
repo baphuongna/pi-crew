@@ -151,14 +151,14 @@ function extractErrorMessage(event: unknown): string | undefined {
  */
 function extractPatch(event: unknown, patches: string[]): void {
 	const obj = asRecord(event);
-	if (!obj || obj.type !== "tool_result") return;
+	if (obj?.type !== "tool_result") return;
 
 	const content = obj.content;
 	if (!Array.isArray(content)) return;
 
 	for (const item of content) {
 		const part = asRecord(item);
-		if (!part || part.type !== "text") continue;
+		if (part?.type !== "text") continue;
 		const text = typeof part.text === "string" ? part.text : "";
 
 		// Check if this looks like a unified patch (starts with "---" or "+++")

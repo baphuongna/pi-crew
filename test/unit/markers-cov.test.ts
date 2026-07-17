@@ -2,15 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import {
-	extractGuidanceIds,
-	injectGuidance,
-	MARKER_END,
-	MARKER_START,
-	removeGuidance,
-	sanitizeGuidanceContent,
-	standardGuidanceBlocks,
-} from "../../src/config/markers.ts";
+import { injectGuidance, MARKER_END, MARKER_START, removeGuidance, standardGuidanceBlocks } from "../../src/config/markers.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 // ─── injectGuidance ──────────────────────────────────────────────────────

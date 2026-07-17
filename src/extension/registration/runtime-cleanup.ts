@@ -20,16 +20,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { clearHooksScoped } from "../../hooks/registry.ts";
-import { stopAsyncRunNotifier } from "../async-notifier.ts";
-import { logInternalError } from "../../utils/internal-error.ts";
-import {
-	clearPiCrewPowerbar,
-	disposePowerbarCoalescer,
-} from "../../ui/powerbar-publisher.ts";
-import { stopCrewWidget } from "../../ui/widget/index.ts";
-import { clearProjectRootCache } from "../../utils/paths.ts";
-import { uninstallCrewGlobalRegistry } from "../team-tool.ts";
 import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
+import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar-publisher.ts";
+import { stopCrewWidget } from "../../ui/widget/index.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { clearProjectRootCache } from "../../utils/paths.ts";
+import { stopAsyncRunNotifier } from "../async-notifier.ts";
+import { uninstallCrewGlobalRegistry } from "../team-tool.ts";
 import { disposeNotifications } from "./lifecycle.ts";
 import { disposeObservability } from "./observability.ts";
 import type { RegistrationContext } from "./registration-types.ts";
@@ -87,11 +84,7 @@ function buildCleanupSessionResourcesOnly(ctx: RegistrationContext): () => void 
 		// P0: Purge all stale active-run-index entries on session cleanup.
 		ctx.purgeStaleActiveRunIndexSyncIfLoaded();
 
-		stopCrewWidget(
-			ctx.currentCtx,
-			ctx.widgetState,
-			ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined,
-		);
+		stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(ctx.pi.events);
 		disposePowerbarCoalescer();
 		void disposeObservability(ctx.observabilityState, ctx.cleanedUp);
@@ -159,11 +152,7 @@ function buildCleanupRuntime(ctx: RegistrationContext): () => void {
 		// the next session_start will fire the lazy import + purge.
 		ctx.purgeStaleActiveRunIndexSyncIfLoaded();
 
-		stopCrewWidget(
-			ctx.currentCtx,
-			ctx.widgetState,
-			ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined,
-		);
+		stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(ctx.pi.events);
 		disposePowerbarCoalescer();
 		// H3-L2 split: observability disposal delegated to registration/observability.ts.

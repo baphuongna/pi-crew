@@ -5,9 +5,6 @@
  */
 
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { test } from "node:test";
 import { allTeams, discoverTeams } from "../../src/teams/discover-teams.ts";
 import { discoverWorkflows } from "../../src/workflows/discover-workflows.ts";

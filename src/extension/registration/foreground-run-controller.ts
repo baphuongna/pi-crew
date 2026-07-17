@@ -14,15 +14,12 @@
  * a single file.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadConfig } from "../../config/config.ts";
 import { loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
 import { setWorkingIndicator } from "../../ui/pi-ui-compat.ts";
-import {
-	requestPowerbarUpdate,
-	updatePiCrewPowerbar,
-} from "../../ui/powerbar-publisher.ts";
+import { requestPowerbarUpdate } from "../../ui/powerbar-publisher.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { loadConfig } from "../../config/config.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
 /**

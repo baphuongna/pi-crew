@@ -1,6 +1,6 @@
 import type { MailboxMessage } from "../../state/mailbox.ts";
-import { sanitizeTaskText } from "../task-packet.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { sanitizeTaskText } from "../task-packet.ts";
 
 export interface RunProjectionSource {
 	kind: "events" | "mailbox" | "artifacts" | "ui_metadata" | "runtime_metadata";

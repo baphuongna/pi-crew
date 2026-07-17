@@ -6,7 +6,7 @@ import {
 	greenLevelSatisfies,
 	inferGreenLevelFromTask,
 } from "../../src/runtime/green-contract.ts";
-import type { GreenLevel, VerificationContract, VerificationEvidence } from "../../src/state/types.ts";
+import type { VerificationContract } from "../../src/state/types.ts";
 
 /**
  * Round 30 (test coverage gaps): `green-contract.ts` provides green-level

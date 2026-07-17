@@ -28,13 +28,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import {
-	MAX_RESULT_INLINE_BYTES,
-	readIfSmall,
-	readIfSmallWithTee,
-	TEE_THRESHOLD_MULTIPLIER,
-	teePathForArtifact,
-} from "../../src/runtime/task-output-context.ts";
+import { MAX_RESULT_INLINE_BYTES, readIfSmall, readIfSmallWithTee, teePathForArtifact } from "../../src/runtime/task-output-context.ts";
 
 function makeTmpDir(prefix: string): { dir: string; cleanup: () => void } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
