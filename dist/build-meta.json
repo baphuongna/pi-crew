@@ -17895,7 +17895,7 @@
       "format": "esm"
     },
     "src/observability/metric-sink.ts": {
-      "bytes": 3044,
+      "bytes": 3325,
       "imports": [
         {
           "path": "node:fs",
@@ -18736,7 +18736,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6778422
+      "bytes": 6778843
     },
     "dist/index.mjs": {
       "imports": [
@@ -22349,7 +22349,7 @@
           "bytesInOutput": 5585
         },
         "src/observability/metric-sink.ts": {
-          "bytesInOutput": 2585
+          "bytesInOutput": 2716
         },
         "src/runtime/heartbeat-watcher.ts": {
           "bytesInOutput": 5994
@@ -22496,7 +22496,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3203294
+      "bytes": 3203425
     }
   }
 }

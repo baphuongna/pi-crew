@@ -80035,16 +80035,20 @@ function createMetricFileSink(opts) {
       const redacted = redactSecrets(snapshots);
       if (!Array.isArray(redacted)) {
         logInternalError("metric-sink.type", new Error("redactSecrets did not return an array"), `got=${typeof redacted}`);
-        return;
+        return Promise.resolve();
       }
       const target = ensureFd(date);
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      fs100.write(target, line4, (err2) => {
-        if (err2) logInternalError("metric-sink.asyncWrite", err2);
+      return new Promise((resolve22) => {
+        fs100.write(target, line4, (err2) => {
+          if (err2) logInternalError("metric-sink.asyncWrite", err2);
+          resolve22();
+        });
       });
     } catch (error) {
       logInternalError("metric-sink.write", error);
+      return Promise.resolve();
     }
   };
   const timer = setInterval(() => writeSnapshot(opts.registry.snapshot()), opts.intervalMs ?? 6e4);

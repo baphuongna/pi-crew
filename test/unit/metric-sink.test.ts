@@ -17,8 +17,8 @@ test("metric file sink writes redacted daily JSONL snapshots", async () => {
 			intervalMs: 60_000,
 		});
 		sink.writeSnapshot(registry.snapshot());
-		// OBS-2: writeSnapshot is now async (fire-and-forget fs.write). Wait one
-		// event-loop tick for the callback to flush to disk before reading.
+		// OBS-2: writeSnapshot returns a Promise that resolves when the async
+		// fs.write callback fires. Await to ensure the file is on disk.
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		sink.dispose();
 		const dir = path.join(root, "state", "metrics");

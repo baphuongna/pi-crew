@@ -6,7 +6,7 @@ import type { MetricRegistry } from "./metric-registry.ts";
 import type { MetricSnapshot } from "./metrics-primitives.ts";
 
 export interface MetricSink {
-	writeSnapshot(snapshots: MetricSnapshot[]): void;
+	writeSnapshot(snapshots: MetricSnapshot[]): void | Promise<void>;
 	dispose(): void;
 }
 
@@ -54,23 +54,29 @@ export function createMetricFileSink(opts: MetricFileSinkOptions): MetricSink {
 		fdDate = date;
 		return fd;
 	};
-	const writeSnapshot = (snapshots: MetricSnapshot[]): void => {
+	const writeSnapshot = (snapshots: MetricSnapshot[]): Promise<void> => {
 		try {
 			const now = new Date();
 			const date = now.toISOString().slice(0, 10);
 			const redacted = redactSecrets(snapshots);
 			if (!Array.isArray(redacted)) {
 				logInternalError("metric-sink.type", new Error("redactSecrets did not return an array"), `got=${typeof redacted}`);
-				return;
+				return Promise.resolve();
 			}
 			const target = ensureFd(date);
 			const line = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted as MetricSnapshot[] })}\n`;
 			// Async write to avoid blocking the main thread on the 60s tick.
-			fs.write(target, line, (err) => {
-				if (err) logInternalError("metric-sink.asyncWrite", err);
+			// Return a promise that resolves once the write callback fires so
+			// tests (and any callers awaiting) can synchronize on completion.
+			return new Promise<void>((resolve) => {
+				fs.write(target, line, (err) => {
+					if (err) logInternalError("metric-sink.asyncWrite", err);
+					resolve();
+				});
 			});
 		} catch (error) {
 			logInternalError("metric-sink.write", error);
+			return Promise.resolve();
 		}
 	};
 	const timer = setInterval(() => writeSnapshot(opts.registry.snapshot()), opts.intervalMs ?? 60_000);
