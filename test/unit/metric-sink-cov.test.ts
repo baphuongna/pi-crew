@@ -7,7 +7,7 @@ import { createMetricFileSink } from "../../src/observability/metric-sink.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 describe("createMetricFileSink", () => {
-	it("writes a snapshot to a JSONL file", () => {
+	it("writes a snapshot to a JSONL file", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const registry = createMetricRegistry();
@@ -17,7 +17,7 @@ describe("createMetricFileSink", () => {
 				registry,
 				intervalMs: 60_000,
 			});
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 
 			const metricsDir = path.join(dir, "state", "metrics");
@@ -31,7 +31,7 @@ describe("createMetricFileSink", () => {
 		}
 	});
 
-	it("redacts secrets from snapshots", () => {
+	it("redacts secrets from snapshots", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const registry = createMetricRegistry();
@@ -41,7 +41,7 @@ describe("createMetricFileSink", () => {
 				registry,
 				intervalMs: 60_000,
 			});
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 
 			const metricsDir = path.join(dir, "state", "metrics");
@@ -54,7 +54,7 @@ describe("createMetricFileSink", () => {
 		}
 	});
 
-	it("handles multiple write calls", () => {
+	it("handles multiple write calls", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const registry = createMetricRegistry();
@@ -66,9 +66,9 @@ describe("createMetricFileSink", () => {
 			});
 
 			counter.inc({}, 1);
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			counter.inc({}, 2);
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 
 			const metricsDir = path.join(dir, "state", "metrics");
@@ -82,7 +82,7 @@ describe("createMetricFileSink", () => {
 		}
 	});
 
-	it("rotates old files based on retentionDays", () => {
+	it("rotates old files based on retentionDays", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const metricsDir = path.join(dir, "state", "metrics");
@@ -103,7 +103,7 @@ describe("createMetricFileSink", () => {
 				retentionDays: 7,
 				intervalMs: 60_000,
 			});
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 
 			const files = fs.readdirSync(metricsDir);
@@ -117,7 +117,7 @@ describe("createMetricFileSink", () => {
 		}
 	});
 
-	it("creates metrics directory if it does not exist", () => {
+	it("creates metrics directory if it does not exist", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const registry = createMetricRegistry();
@@ -127,7 +127,7 @@ describe("createMetricFileSink", () => {
 				registry,
 				intervalMs: 60_000,
 			});
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 
 			const metricsDir = path.join(dir, "state", "metrics");
@@ -137,7 +137,7 @@ describe("createMetricFileSink", () => {
 		}
 	});
 
-	it("dispose is idempotent and does not throw", () => {
+	it("dispose is idempotent and does not throw", async () => {
 		const dir = createTrackedTempDir("pi-crew-sink-");
 		try {
 			const registry = createMetricRegistry();
@@ -146,7 +146,7 @@ describe("createMetricFileSink", () => {
 				registry,
 				intervalMs: 60_000,
 			});
-			sink.writeSnapshot(registry.snapshot());
+			await sink.writeSnapshot(registry.snapshot());
 			sink.dispose();
 			// Second dispose should not throw
 			assert.doesNotThrow(() => sink.dispose());
