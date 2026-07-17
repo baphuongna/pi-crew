@@ -6361,7 +6361,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 52052,
+      "bytes": 52055,
       "imports": [
         {
           "path": "node:crypto",
@@ -6755,17 +6755,6 @@
       ],
       "format": "esm"
     },
-    "src/runtime/live-agent-manager.ts": {
-      "bytes": 23837,
-      "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/runtime/async-marker.ts": {
       "bytes": 998,
       "imports": [
@@ -6798,8 +6787,24 @@
       ],
       "format": "esm"
     },
+    "src/runtime/live-agent-manager.ts": {
+      "bytes": 24193,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/process-status.ts",
+          "kind": "import-statement",
+          "original": "./process-status.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/stale-reconciler.ts": {
-      "bytes": 29572,
+      "bytes": 28511,
       "imports": [
         {
           "path": "node:fs",
@@ -6963,7 +6968,7 @@
       "format": "esm"
     },
     "src/runtime/manifest-cache.ts": {
-      "bytes": 8855,
+      "bytes": 9378,
       "imports": [
         {
           "path": "node:fs",
@@ -7185,7 +7190,7 @@
       "format": "esm"
     },
     "src/runtime/scheduler.ts": {
-      "bytes": 10367,
+      "bytes": 10396,
       "imports": [],
       "format": "esm"
     },
@@ -7412,7 +7417,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 74039,
+      "bytes": 74852,
       "imports": [
         {
           "path": "node:child_process",
@@ -7669,7 +7674,7 @@
       "format": "esm"
     },
     "src/ui/render-coalescer.ts": {
-      "bytes": 1310,
+      "bytes": 1350,
       "imports": [],
       "format": "esm"
     },
@@ -7684,7 +7689,7 @@
       "format": "esm"
     },
     "src/ui/live-duration.ts": {
-      "bytes": 2445,
+      "bytes": 2487,
       "imports": [],
       "format": "esm"
     },
@@ -7911,12 +7916,12 @@
       "format": "esm"
     },
     "src/ui/status-colors.ts": {
-      "bytes": 3104,
+      "bytes": 3744,
       "imports": [],
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 9990,
+      "bytes": 9983,
       "imports": [
         {
           "path": "src/runtime/live-agent-manager.ts",
@@ -12010,7 +12015,7 @@
       "format": "esm"
     },
     "src/runtime/live-session-runtime.ts": {
-      "bytes": 44147,
+      "bytes": 44626,
       "imports": [
         {
           "path": "node:fs",
@@ -12444,7 +12449,7 @@
       "format": "esm"
     },
     "src/state/run-cache.ts": {
-      "bytes": 4858,
+      "bytes": 4810,
       "imports": [
         {
           "path": "node:crypto",
@@ -12725,7 +12730,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 13753,
+      "bytes": 13979,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -13079,7 +13084,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-schedule.ts": {
-      "bytes": 11034,
+      "bytes": 11389,
       "imports": [
         {
           "path": "node:crypto",
@@ -14946,7 +14951,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 57700,
+      "bytes": 57767,
       "imports": [
         {
           "path": "node:fs",
@@ -16757,7 +16762,7 @@
       "format": "esm"
     },
     "src/ui/dynamic-border.ts": {
-      "bytes": 706,
+      "bytes": 925,
       "imports": [],
       "format": "esm"
     },
@@ -17034,7 +17039,7 @@
       "format": "esm"
     },
     "src/ui/mascot.ts": {
-      "bytes": 14547,
+      "bytes": 14771,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -17055,7 +17060,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31025,
+      "bytes": 31049,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -17722,7 +17727,7 @@
       "format": "esm"
     },
     "src/observability/metric-sink.ts": {
-      "bytes": 2878,
+      "bytes": 3044,
       "imports": [
         {
           "path": "node:fs",
@@ -18530,7 +18535,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6725071
+      "bytes": 6729539
     },
     "dist/index.mjs": {
       "imports": [
@@ -20825,17 +20830,17 @@
         "src/runtime/crew-agent-records.ts": {
           "bytesInOutput": 16167
         },
-        "src/runtime/live-agent-manager.ts": {
-          "bytesInOutput": 14931
-        },
         "src/runtime/async-marker.ts": {
           "bytesInOutput": 610
         },
         "src/runtime/process-status.ts": {
           "bytesInOutput": 4162
         },
+        "src/runtime/live-agent-manager.ts": {
+          "bytesInOutput": 15104
+        },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 16491
+          "bytesInOutput": 15679
         },
         "src/runtime/worker-heartbeat.ts": {
           "bytesInOutput": 580
@@ -20868,7 +20873,7 @@
           "bytesInOutput": 1998
         },
         "src/runtime/scheduler.ts": {
-          "bytesInOutput": 9054
+          "bytesInOutput": 9100
         },
         "src/runtime/settings-store.ts": {
           "bytesInOutput": 3512
@@ -20925,7 +20930,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 49635
+          "bytesInOutput": 50103
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 953
@@ -20955,7 +20960,7 @@
           "bytesInOutput": 8611
         },
         "src/ui/render-coalescer.ts": {
-          "bytesInOutput": 1330
+          "bytesInOutput": 1382
         },
         "src/runtime/usage-tracker.ts": {
           "bytesInOutput": 901
@@ -20991,10 +20996,10 @@
           "bytesInOutput": 2238
         },
         "src/ui/status-colors.ts": {
-          "bytesInOutput": 1809
+          "bytesInOutput": 2335
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 6348
+          "bytesInOutput": 6341
         },
         "src/ui/widget/index.ts": {
           "bytesInOutput": 9599
@@ -21582,7 +21587,7 @@
           "bytesInOutput": 4743
         },
         "src/runtime/live-session-runtime.ts": {
-          "bytesInOutput": 30987
+          "bytesInOutput": 31235
         },
         "src/subagents/live/session-runtime.ts": {
           "bytesInOutput": 140
@@ -21609,7 +21614,7 @@
           "bytesInOutput": 12278
         },
         "src/state/run-cache.ts": {
-          "bytesInOutput": 2142
+          "bytesInOutput": 2126
         },
         "src/state/run-graph.ts": {
           "bytesInOutput": 840
@@ -21648,7 +21653,7 @@
           "bytesInOutput": 6424
         },
         "src/schema/team-tool-schema.ts": {
-          "bytesInOutput": 11702
+          "bytesInOutput": 11938
         },
         "src/extension/team-tool/doctor.ts": {
           "bytesInOutput": 12362
@@ -21675,7 +21680,7 @@
           "bytesInOutput": 17021
         },
         "src/extension/team-tool/handle-schedule.ts": {
-          "bytesInOutput": 8414
+          "bytesInOutput": 8773
         },
         "src/extension/team-tool/health-monitor.ts": {
           "bytesInOutput": 9274
@@ -21921,7 +21926,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 44127
+          "bytesInOutput": 44172
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -22050,7 +22055,7 @@
           "bytesInOutput": 510
         },
         "src/ui/dynamic-border.ts": {
-          "bytesInOutput": 594
+          "bytesInOutput": 850
         },
         "src/ui/keybinding-map.ts": {
           "bytesInOutput": 3861
@@ -22077,10 +22082,10 @@
           "bytesInOutput": 1922
         },
         "src/ui/mascot.ts": {
-          "bytesInOutput": 15659
+          "bytesInOutput": 15884
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30588
+          "bytesInOutput": 30556
         },
         "src/extension/registration/commands.ts": {
           "bytesInOutput": 40501
@@ -22116,7 +22121,7 @@
           "bytesInOutput": 5585
         },
         "src/observability/metric-sink.ts": {
-          "bytesInOutput": 2463
+          "bytesInOutput": 2575
         },
         "src/runtime/heartbeat-watcher.ts": {
           "bytesInOutput": 5993
@@ -22245,7 +22250,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3183699
+      "bytes": 3185578
     }
   }
 }

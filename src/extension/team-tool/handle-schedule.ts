@@ -50,7 +50,14 @@ function buildScheduleSpec(params: ScheduleParams): {
 			scheduleType: "cron" as const,
 		};
 	}
-	if (params.interval !== undefined && params.interval > 0) {
+	if (params.interval !== undefined && (!Number.isFinite(params.interval) || params.interval <= 0)) {
+		throw new Error("interval must be a positive finite number");
+	}
+	if (params.once !== undefined) {
+		const ts = typeof params.once === "number" ? params.once : Date.parse(String(params.once));
+		if (!Number.isFinite(ts)) throw new Error("once must be a valid timestamp");
+	}
+	if (params.interval !== undefined) {
 		const specStr = `${params.interval}ms`;
 		const spec = parseSchedule(specStr);
 		if ("error" in spec) throw new Error(spec.error);

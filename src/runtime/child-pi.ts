@@ -32,6 +32,11 @@ const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
 const activeChildProcesses = new Map<number, ChildProcess>();
 const childHardKillTimers = new Map<number, NodeJS.Timeout>();
 
+/** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
+ * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
+ * from chatty child processes that produce output without newlines. */
+const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
+
 // Periodic cleanup of dead child process entries to prevent memory leaks.
 // If a child process never emits exit/close (zombie), the entry would leak.
 setInterval(() => {
@@ -750,6 +755,20 @@ export class ChildPiLineObserver {
 
 	observe(text: string): void {
 		this.buffer += text;
+		// Cap the buffer to prevent unbounded memory growth when a child process
+		// produces output without newlines (RT-F8). When exceeded, force-flush
+		// the buffer as a single line and log a warning.
+		if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
+			logInternalError(
+				"child-pi.buffer-overflow",
+				new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
+				`bufferLen=${this.buffer.length}`,
+			);
+			const line = this.buffer;
+			this.buffer = "";
+			this.emitLine(line);
+			return;
+		}
 		const lines = this.buffer.split(/\r?\n/);
 		this.buffer = lines.pop() ?? "";
 		for (const line of lines) this.emitLine(line);

@@ -14,6 +14,7 @@ export interface CrewEvent {
 type CrewEventListener = (event: CrewEvent) => void;
 
 class EventBus {
+	private static readonly MAX_LISTENERS_PER_EVENT = 100;
 	private listeners = new Map<CrewEventType, Set<CrewEventListener>>();
 	private static _instance?: EventBus;
 
@@ -54,7 +55,15 @@ class EventBus {
 		if (!this.listeners.has(type)) {
 			this.listeners.set(type, new Set());
 		}
-		this.listeners.get(type)!.add(listener);
+		const set = this.listeners.get(type)!;
+		if (set.size >= EventBus.MAX_LISTENERS_PER_EVENT) {
+			logInternalError(
+				"event-bus.listener-cap",
+				new Error(`Max ${EventBus.MAX_LISTENERS_PER_EVENT} listeners reached for event type '${type}'`),
+				`type=${type} currentCount=${set.size}`,
+			);
+		}
+		set.add(listener);
 
 		return () => {
 			this.listeners.get(type)?.delete(listener);

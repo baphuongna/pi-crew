@@ -98,7 +98,7 @@ export function buildWidgetLines(
 		// reached its terminal status). The status label is also surfaced
 		// explicitly so the row cannot be misread as an active run.
 		const agentCountText = `${completed}/${agents.length} agents`;
-		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : Date.now();
+		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
 		const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";

@@ -11679,7 +11679,7 @@ function withEventLogLockSync(eventsPath, fn, options) {
         }
       } catch {
       }
-      sleepSync(10);
+      sleepSync(50);
     }
   }
   try {
@@ -14505,6 +14505,126 @@ var init_crew_agent_records = __esm({
   }
 });
 
+// src/runtime/async-marker.ts
+import * as fs16 from "node:fs";
+import * as path13 from "node:path";
+function asyncStartMarkerPath(manifest) {
+  return path13.join(manifest.stateRoot, "async.pid");
+}
+function hasAsyncStartMarker(manifest) {
+  try {
+    const raw = JSON.parse(fs16.readFileSync(asyncStartMarkerPath(manifest), "utf-8"));
+    return typeof raw.pid === "number" && Number.isInteger(raw.pid) && raw.pid > 0 && typeof raw.startedAt === "string" && raw.startedAt.length > 0;
+  } catch {
+    return false;
+  }
+}
+var init_async_marker = __esm({
+  "src/runtime/async-marker.ts"() {
+    "use strict";
+    init_atomic_write();
+  }
+});
+
+// src/runtime/process-status.ts
+function checkProcessLiveness(pid) {
+  if (pid === void 0 || !Number.isInteger(pid) || pid <= 0) {
+    return { pid, alive: false, detail: "no pid recorded" };
+  }
+  try {
+    process.kill(pid, 0);
+    return { pid, alive: true, detail: "process is alive" };
+  } catch (error) {
+    const nodeError = error;
+    if (nodeError.code === "EPERM")
+      return {
+        pid,
+        alive: true,
+        detail: "process exists but permission is denied"
+      };
+    if (nodeError.code === "ESRCH") return { pid, alive: false, detail: "process does not exist" };
+    const message = error instanceof Error ? error.message : String(error);
+    return { pid, alive: false, detail: message };
+  }
+}
+function isActiveRunStatus(status) {
+  return status === "queued" || status === "planning" || status === "running" || status === "waiting";
+}
+function isFinishedRunStatus(status) {
+  return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
+}
+function isLikelyOrphanedActiveRun(run, agents = [], now = Date.now(), staleMs = ORPHANED_ACTIVE_RUN_MS) {
+  if (!isActiveRunStatus(run.status)) return false;
+  if (run.async?.pid !== void 0) return false;
+  const updatedAt = new Date(run.updatedAt).getTime();
+  if (!Number.isFinite(updatedAt)) return false;
+  if (now - updatedAt >= staleMs) {
+    if (agents.length === 0) return run.summary === "Creating workflow prompts and placeholder results.";
+    return agents.every((agent) => agent.status === "queued" && !agent.completedAt && !agent.progress);
+  }
+  if (now - updatedAt >= ORPHANED_NO_PROGRESS_MS) {
+    const hasActiveAgent = agents.some((agent) => agent.status === "running" || agent.progress || agent.toolUses);
+    if (!hasActiveAgent && agents.length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+function hasDurableActiveAgentEvidence(agent) {
+  if (agent.status === "running") {
+    return true;
+  }
+  if (agent.status === "queued") {
+    return Boolean(
+      agent.progress && (agent.progress.toolCount > 0 || agent.progress.recentOutput.length > 0) || agent.jsonEvents && agent.jsonEvents > 0 || agent.toolUses && agent.toolUses > 0
+    );
+  }
+  return false;
+}
+function hasStaleAsyncProcess(run, now = Date.now()) {
+  if (!isActiveRunStatus(run.status) || !run.async) return false;
+  const pidAlive = checkProcessLiveness(run.async.pid).alive;
+  if (!pidAlive) return true;
+  const updatedAt = new Date(run.updatedAt).getTime();
+  const age = now - updatedAt;
+  if (Number.isFinite(updatedAt) && age > STALE_ACTIVE_RUN_MS) {
+    return true;
+  }
+  return false;
+}
+function isDisplayActiveRun(run, agents = [], now = Date.now()) {
+  if (hasStaleAsyncProcess(run, now) || isLikelyOrphanedActiveRun(run, agents, now)) return false;
+  if (isActiveRunStatus(run.status) && !run.async) {
+    const updatedAt = new Date(run.updatedAt).getTime();
+    if (Number.isFinite(updatedAt) && now - updatedAt > STALE_ACTIVE_RUN_MS) return false;
+  }
+  if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+    const grace = run.status === "completed" ? COMPLETED_VISIBILITY_GRACE_MS : ERROR_VISIBILITY_GRACE_MS;
+    const lastAgentActivity = agents.reduce((max, agent) => {
+      const ts = agent.completedAt ?? agent.startedAt;
+      const parsed = ts ? new Date(ts).getTime() : 0;
+      return Number.isFinite(parsed) && parsed > max ? parsed : max;
+    }, new Date(run.updatedAt).getTime());
+    if (Number.isFinite(lastAgentActivity) && now - lastAgentActivity < grace) return true;
+    return false;
+  }
+  if (!isActiveRunStatus(run.status)) return false;
+  if (agents.length === 0) return false;
+  return agents.some(hasDurableActiveAgentEvidence);
+}
+var ORPHANED_ACTIVE_RUN_MS, COMPLETED_VISIBILITY_GRACE_MS, ERROR_VISIBILITY_GRACE_MS, STALE_ACTIVE_RUN_MS, ORPHANED_NO_PROGRESS_MS;
+var init_process_status = __esm({
+  "src/runtime/process-status.ts"() {
+    "use strict";
+    init_async_marker();
+    ORPHANED_ACTIVE_RUN_MS = 2 * 60 * 1e3;
+    COMPLETED_VISIBILITY_GRACE_MS = 8e3;
+    ERROR_VISIBILITY_GRACE_MS = 10 * 60 * 1e3;
+    STALE_ACTIVE_RUN_MS = 30 * 60 * 1e3;
+    ORPHANED_NO_PROGRESS_MS = 5 * 60 * 1e3;
+  }
+});
+
 // src/runtime/live-agent-manager.ts
 function listLiveAgentsByWorkspace(workspaceId) {
   return listLiveAgents().filter((a) => a.workspaceId === workspaceId);
@@ -14643,9 +14763,13 @@ function evictStaleLiveAgentHandles(now = Date.now()) {
         evicted++;
       }
     } else if (age > STALE_RUNNING_HANDLE_MS) {
-      liveAgents.delete(agentId);
-      safeDisposeLiveSession(handle);
-      evicted++;
+      const sessionPid = handle.session?.pid;
+      const liveness = checkProcessLiveness(sessionPid);
+      if (!liveness.alive) {
+        liveAgents.delete(agentId);
+        safeDisposeLiveSession(handle);
+        evicted++;
+      }
     }
   }
   return evicted;
@@ -14896,6 +15020,7 @@ var init_live_agent_manager = __esm({
   "src/runtime/live-agent-manager.ts"() {
     "use strict";
     init_internal_error();
+    init_process_status();
     MAX_PENDING_MESSAGES = 1e3;
     liveAgents = /* @__PURE__ */ new Map();
     MAX_LIVE_AGENTS = 5e3;
@@ -14904,126 +15029,6 @@ var init_live_agent_manager = __esm({
     DEFAULT_REPLY_TIMEOUT_MS = 6e4;
     pendingReplies = /* @__PURE__ */ new Map();
     pendingRepliesByTarget = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/runtime/async-marker.ts
-import * as fs16 from "node:fs";
-import * as path13 from "node:path";
-function asyncStartMarkerPath(manifest) {
-  return path13.join(manifest.stateRoot, "async.pid");
-}
-function hasAsyncStartMarker(manifest) {
-  try {
-    const raw = JSON.parse(fs16.readFileSync(asyncStartMarkerPath(manifest), "utf-8"));
-    return typeof raw.pid === "number" && Number.isInteger(raw.pid) && raw.pid > 0 && typeof raw.startedAt === "string" && raw.startedAt.length > 0;
-  } catch {
-    return false;
-  }
-}
-var init_async_marker = __esm({
-  "src/runtime/async-marker.ts"() {
-    "use strict";
-    init_atomic_write();
-  }
-});
-
-// src/runtime/process-status.ts
-function checkProcessLiveness(pid) {
-  if (pid === void 0 || !Number.isInteger(pid) || pid <= 0) {
-    return { pid, alive: false, detail: "no pid recorded" };
-  }
-  try {
-    process.kill(pid, 0);
-    return { pid, alive: true, detail: "process is alive" };
-  } catch (error) {
-    const nodeError = error;
-    if (nodeError.code === "EPERM")
-      return {
-        pid,
-        alive: true,
-        detail: "process exists but permission is denied"
-      };
-    if (nodeError.code === "ESRCH") return { pid, alive: false, detail: "process does not exist" };
-    const message = error instanceof Error ? error.message : String(error);
-    return { pid, alive: false, detail: message };
-  }
-}
-function isActiveRunStatus(status) {
-  return status === "queued" || status === "planning" || status === "running" || status === "waiting";
-}
-function isFinishedRunStatus(status) {
-  return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
-}
-function isLikelyOrphanedActiveRun(run, agents = [], now = Date.now(), staleMs = ORPHANED_ACTIVE_RUN_MS) {
-  if (!isActiveRunStatus(run.status)) return false;
-  if (run.async?.pid !== void 0) return false;
-  const updatedAt = new Date(run.updatedAt).getTime();
-  if (!Number.isFinite(updatedAt)) return false;
-  if (now - updatedAt >= staleMs) {
-    if (agents.length === 0) return run.summary === "Creating workflow prompts and placeholder results.";
-    return agents.every((agent) => agent.status === "queued" && !agent.completedAt && !agent.progress);
-  }
-  if (now - updatedAt >= ORPHANED_NO_PROGRESS_MS) {
-    const hasActiveAgent = agents.some((agent) => agent.status === "running" || agent.progress || agent.toolUses);
-    if (!hasActiveAgent && agents.length > 0) {
-      return true;
-    }
-  }
-  return false;
-}
-function hasDurableActiveAgentEvidence(agent) {
-  if (agent.status === "running") {
-    return true;
-  }
-  if (agent.status === "queued") {
-    return Boolean(
-      agent.progress && (agent.progress.toolCount > 0 || agent.progress.recentOutput.length > 0) || agent.jsonEvents && agent.jsonEvents > 0 || agent.toolUses && agent.toolUses > 0
-    );
-  }
-  return false;
-}
-function hasStaleAsyncProcess(run, now = Date.now()) {
-  if (!isActiveRunStatus(run.status) || !run.async) return false;
-  const pidAlive = checkProcessLiveness(run.async.pid).alive;
-  if (!pidAlive) return true;
-  const updatedAt = new Date(run.updatedAt).getTime();
-  const age = now - updatedAt;
-  if (Number.isFinite(updatedAt) && age > STALE_ACTIVE_RUN_MS) {
-    return true;
-  }
-  return false;
-}
-function isDisplayActiveRun(run, agents = [], now = Date.now()) {
-  if (hasStaleAsyncProcess(run, now) || isLikelyOrphanedActiveRun(run, agents, now)) return false;
-  if (isActiveRunStatus(run.status) && !run.async) {
-    const updatedAt = new Date(run.updatedAt).getTime();
-    if (Number.isFinite(updatedAt) && now - updatedAt > STALE_ACTIVE_RUN_MS) return false;
-  }
-  if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
-    const grace = run.status === "completed" ? COMPLETED_VISIBILITY_GRACE_MS : ERROR_VISIBILITY_GRACE_MS;
-    const lastAgentActivity = agents.reduce((max, agent) => {
-      const ts = agent.completedAt ?? agent.startedAt;
-      const parsed = ts ? new Date(ts).getTime() : 0;
-      return Number.isFinite(parsed) && parsed > max ? parsed : max;
-    }, new Date(run.updatedAt).getTime());
-    if (Number.isFinite(lastAgentActivity) && now - lastAgentActivity < grace) return true;
-    return false;
-  }
-  if (!isActiveRunStatus(run.status)) return false;
-  if (agents.length === 0) return false;
-  return agents.some(hasDurableActiveAgentEvidence);
-}
-var ORPHANED_ACTIVE_RUN_MS, COMPLETED_VISIBILITY_GRACE_MS, ERROR_VISIBILITY_GRACE_MS, STALE_ACTIVE_RUN_MS, ORPHANED_NO_PROGRESS_MS;
-var init_process_status = __esm({
-  "src/runtime/process-status.ts"() {
-    "use strict";
-    init_async_marker();
-    ORPHANED_ACTIVE_RUN_MS = 2 * 60 * 1e3;
-    COMPLETED_VISIBILITY_GRACE_MS = 8e3;
-    ERROR_VISIBILITY_GRACE_MS = 10 * 60 * 1e3;
-    STALE_ACTIVE_RUN_MS = 30 * 60 * 1e3;
-    ORPHANED_NO_PROGRESS_MS = 5 * 60 * 1e3;
   }
 });
 
@@ -15396,31 +15401,6 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
         try {
           fs17.unlinkSync(sentinelPath);
         } catch {
-        }
-      } else if (canCleanup) {
-        let hasRunningManifest = false;
-        if (fs17.existsSync(stateRunsDir)) {
-          try {
-            for (const runDir of fs17.readdirSync(stateRunsDir)) {
-              const manifestPath = path14.join(stateRunsDir, runDir, "manifest.json");
-              if (!fs17.existsSync(manifestPath)) continue;
-              try {
-                const m = JSON.parse(fs17.readFileSync(manifestPath, "utf-8"));
-                if (m.status === "running") {
-                  hasRunningManifest = true;
-                  break;
-                }
-              } catch {
-              }
-            }
-          } catch {
-          }
-        }
-        if (!hasRunningManifest) {
-          try {
-            fs17.unlinkSync(sentinelPath);
-          } catch {
-          }
         }
       }
     }
@@ -17218,6 +17198,7 @@ var init_scheduler = __esm({
         if (this.timers.has(job.id)) return;
         if (job.scheduleType === "interval" && job.intervalMs) {
           const t2 = setInterval(() => this.fire(job.id), job.intervalMs);
+          t2.unref();
           this.timers.set(job.id, t2);
         } else if (job.scheduleType === "once") {
           const target = new Date(job.schedule).getTime();
@@ -17227,6 +17208,7 @@ var init_scheduler = __esm({
               this.fire(job.id);
               this.update(job.id, { enabled: false });
             }, delay);
+            t2.unref();
             this.timers.set(job.id, t2);
           } else {
             this.update(job.id, { enabled: false, lastStatus: "error" });
@@ -19723,7 +19705,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, BASE_ALLOWLIST, transcriptBatches, transcriptFlushTimer, TRANSCRIPT_FLUSH_MS, ChildPiLineObserver;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, MAX_LINE_BUFFER_BYTES, BASE_ALLOWLIST, transcriptBatches, transcriptFlushTimer, TRANSCRIPT_FLUSH_MS, ChildPiLineObserver;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -19753,6 +19735,7 @@ var init_child_pi = __esm({
     MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
     activeChildProcesses = /* @__PURE__ */ new Map();
     childHardKillTimers = /* @__PURE__ */ new Map();
+    MAX_LINE_BUFFER_BYTES = 1024 * 1024;
     setInterval(() => {
       for (const [pid, child] of activeChildProcesses) {
         try {
@@ -19833,6 +19816,17 @@ var init_child_pi = __esm({
       }
       observe(text) {
         this.buffer += text;
+        if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
+          logInternalError(
+            "child-pi.buffer-overflow",
+            new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
+            `bufferLen=${this.buffer.length}`
+          );
+          const line4 = this.buffer;
+          this.buffer = "";
+          this.emitLine(line4);
+          return;
+        }
         const lines = this.buffer.split(/\r?\n/);
         this.buffer = lines.pop() ?? "";
         for (const line4 of lines) this.emitLine(line4);
@@ -20688,11 +20682,13 @@ var init_render_coalescer = __esm({
       request() {
         if (this.#pending) return;
         this.#pending = true;
-        this.#timerId = setTimeout(() => {
+        const timer = setTimeout(() => {
           this.#pending = false;
           this.#timerId = null;
           this.#callback();
         }, this.#intervalMs);
+        timer.unref();
+        this.#timerId = timer;
       }
       /** Force an immediate render, bypassing coalescing. */
       flush() {
@@ -20984,7 +20980,7 @@ var init_visual = __esm({
 function toMs(v) {
   if (v <= 0) return 0;
   if (v > 1e9 && v < 1e10) return v * 1e3;
-  if (v > 1e11 && v < 1e13) return v;
+  if (v > 1e10 && v < 1e13) return v;
   return v;
 }
 function computeLiveDurationMs(activity, nowMs3 = Date.now()) {
@@ -22029,11 +22025,30 @@ function glyphColor(glyph) {
   }
 }
 function colorizeStatusGlyphs(line4, theme) {
+  let hasGlyph = false;
+  for (let i2 = 0; i2 < STATUS_GLYPH_CHARS.length; i2++) {
+    if (line4.indexOf(STATUS_GLYPH_CHARS[i2]) !== -1) {
+      hasGlyph = true;
+      break;
+    }
+  }
+  if (!hasGlyph) {
+    for (let i2 = 0; i2 < line4.length; i2++) {
+      const cp = line4.codePointAt(i2);
+      if (cp >= 10240 && cp <= 10495) {
+        hasGlyph = true;
+        break;
+      }
+    }
+  }
+  if (!hasGlyph) return line4;
   return line4.replace(/[✓✗■⏸◦·▶⏳⚠]|[\u2800-\u28FF]/g, (glyph) => theme.fg(glyphColor(glyph), glyph));
 }
+var STATUS_GLYPH_CHARS;
 var init_status_colors = __esm({
   "src/ui/status-colors.ts"() {
     "use strict";
+    STATUS_GLYPH_CHARS = "\u2713\u2717\u25A0\u23F8\u25E6\xB7\u25B6\u23F3\u26A0";
   }
 });
 
@@ -22069,7 +22084,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     const runGlyph = iconForStatus(run.status, { runningGlyph });
     const isTerminal = isFinishedRunStatus(run.status);
     const agentCountText = `${completed}/${agents.length} agents`;
-    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : Date.now();
+    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
     const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
     const runElapsedText = `${Math.floor(runElapsedMs / 1e3)}s`;
     const statusLabel = isTerminal ? ` \xB7 ${run.status}` : "";
@@ -43151,59 +43166,63 @@ async function runLiveSessionTask(input) {
     });
     if (typeof session.subscribe === "function") {
       unsubscribe = session.subscribe((event) => {
-        if (!isCurrent()) return;
-        jsonEvents += 1;
-        appendTranscript2(input.transcriptPath, event);
-        const sidechainType = eventToSidechainType(event);
-        if (sidechainType)
-          writeSidechainEntry(sidechainPath, {
-            agentId,
-            type: sidechainType,
-            message: event,
-            cwd: input.task.cwd
-          });
-        const obj = asRecord5(event);
-        if (obj?.type === "turn_end") {
-          turnCount += 1;
-          trackLiveAgentTurnEnd(agentId);
-          if (maxTurns !== void 0 && !softLimitReached && turnCount >= maxTurns) {
-            softLimitReached = true;
-            void session?.steer?.("You have reached your turn limit. Wrap up immediately \u2014 provide your final answer now.");
-          } else if (maxTurns !== void 0 && softLimitReached && turnCount >= maxTurns + graceTurns) {
-            void session?.abort?.();
-          }
-        }
-        if (obj?.type === "message_end" && extractMessageRole(obj) === "assistant") {
-          const u = extractMessageUsage(obj);
-          if (u) {
-            trackTaskUsage(input.task.id, {
-              input: typeof u.input === "number" ? u.input : 0,
-              output: typeof u.output === "number" ? u.output : 0,
-              cacheWrite: typeof u.cacheWrite === "number" ? u.cacheWrite : 0
+        try {
+          if (!isCurrent()) return;
+          jsonEvents += 1;
+          appendTranscript2(input.transcriptPath, event);
+          const sidechainType = eventToSidechainType(event);
+          if (sidechainType)
+            writeSidechainEntry(sidechainPath, {
+              agentId,
+              type: sidechainType,
+              message: event,
+              cwd: input.task.cwd
             });
+          const obj = asRecord5(event);
+          if (obj?.type === "turn_end") {
+            turnCount += 1;
+            trackLiveAgentTurnEnd(agentId);
+            if (maxTurns !== void 0 && !softLimitReached && turnCount >= maxTurns) {
+              softLimitReached = true;
+              void session?.steer?.("You have reached your turn limit. Wrap up immediately \u2014 provide your final answer now.");
+            } else if (maxTurns !== void 0 && softLimitReached && turnCount >= maxTurns + graceTurns) {
+              void session?.abort?.();
+            }
           }
-        }
-        input.onEvent?.(event);
-        const text = [...eventText(event), ...finalAssistantText(event)].join("\n");
-        if (text.trim()) {
-          stdout += `${text}
+          if (obj?.type === "message_end" && extractMessageRole(obj) === "assistant") {
+            const u = extractMessageUsage(obj);
+            if (u) {
+              trackTaskUsage(input.task.id, {
+                input: typeof u.input === "number" ? u.input : 0,
+                output: typeof u.output === "number" ? u.output : 0,
+                cacheWrite: typeof u.cacheWrite === "number" ? u.cacheWrite : 0
+              });
+            }
+          }
+          input.onEvent?.(event);
+          const text = [...eventText(event), ...finalAssistantText(event)].join("\n");
+          if (text.trim()) {
+            stdout += `${text}
 `;
-          streamOut?.write(text + "\n");
-          trackLiveAgentResponseText(agentId, text);
-          input.onOutput?.(text);
-        }
-        if (obj?.type === "tool_use" || obj?.type === "tool_execution_start") {
-          const toolName = extractToolName(obj) ?? "unknown";
-          trackLiveAgentToolStart(agentId, toolName);
-        }
-        if (obj?.type === "tool_result" || obj?.type === "tool_execution_end") {
-          const toolName = extractToolName(obj) ?? "unknown";
-          trackLiveAgentToolEnd(agentId, toolName);
-        }
-        if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event)) {
-          collectedJsonEvents.push(event);
-          if (collectedJsonEvents.length > maxCollectedJsonEvents)
-            collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
+            streamOut?.write(text + "\n");
+            trackLiveAgentResponseText(agentId, text);
+            input.onOutput?.(text);
+          }
+          if (obj?.type === "tool_use" || obj?.type === "tool_execution_start") {
+            const toolName = extractToolName(obj) ?? "unknown";
+            trackLiveAgentToolStart(agentId, toolName);
+          }
+          if (obj?.type === "tool_result" || obj?.type === "tool_execution_end") {
+            const toolName = extractToolName(obj) ?? "unknown";
+            trackLiveAgentToolEnd(agentId, toolName);
+          }
+          if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event)) {
+            collectedJsonEvents.push(event);
+            if (collectedJsonEvents.length > maxCollectedJsonEvents)
+              collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
+          }
+        } catch (error) {
+          logInternalError("live-session.subscribe-callback", error, `agentId=${agentId}`);
         }
       });
     }
@@ -45511,7 +45530,7 @@ function getCachedRun(cwd, cacheKey2) {
         }
         const updatedIndex = JSON.parse(fs54.readFileSync(indexPath, "utf-8"));
         delete updatedIndex[cacheKey2];
-        atomicWriteFile(indexPath, JSON.stringify(updatedIndex));
+        atomicWriteJson(indexPath, updatedIndex);
       });
       return null;
     }
@@ -47548,6 +47567,8 @@ var init_team_tool_schema = __esm({
           description: "Path to a markdown plan document for orchestration."
         })
       ),
+      subAction: Type.Optional(Type.String({ description: "Sub-action for schedule management (remove, disable, enable, update)." })),
+      jobId: Type.Optional(Type.String({ description: "Job ID for schedule management actions." })),
       cron: Type.Optional(
         Type.String({
           description: "Cron expression for recurring scheduled runs (e.g., '0 9 * * MON')."
@@ -49240,7 +49261,14 @@ function buildScheduleSpec(params) {
       scheduleType: "cron"
     };
   }
-  if (params.interval !== void 0 && params.interval > 0) {
+  if (params.interval !== void 0 && (!Number.isFinite(params.interval) || params.interval <= 0)) {
+    throw new Error("interval must be a positive finite number");
+  }
+  if (params.once !== void 0) {
+    const ts = typeof params.once === "number" ? params.once : Date.parse(String(params.once));
+    if (!Number.isFinite(ts)) throw new Error("once must be a valid timestamp");
+  }
+  if (params.interval !== void 0) {
     const specStr = `${params.interval}ms`;
     const spec = parseSchedule(specStr);
     if ("error" in spec) throw new Error(spec.error);
@@ -58664,7 +58692,7 @@ import * as path70 from "node:path";
 async function appendSteeringAsync(steeringDir, taskId, steers) {
   try {
     await fs84.promises.mkdir(steeringDir, { recursive: true });
-    const steeringPath = `${steeringDir}/${taskId}.jsonl`;
+    const steeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
     const lines = steers.map(
       (msg) => JSON.stringify({
         type: "steer",
@@ -58991,7 +59019,7 @@ async function runTeamTask(input) {
           runId: manifest.runId,
           agentId: task.id,
           artifactsRoot: manifest.artifactsRoot,
-          steeringFile: `${manifest.artifactsRoot}/steering/${task.id}.jsonl`,
+          steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
           onSpawn: (pid) => {
             try {
               ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
@@ -73784,16 +73812,25 @@ var init_dynamic_border = __esm({
       theme;
       color;
       char;
+      cachedWidth = -1;
+      cachedLine = "";
       constructor(theme, options = {}) {
         this.theme = theme;
         this.color = options.color;
         this.char = options.char && options.char.length > 0 ? options.char : "\u2500";
       }
       render(width) {
-        const line4 = this.char.repeat(Math.max(0, width));
-        return [this.color ? this.color(line4) : this.theme.fg("border", line4)];
+        const w = Math.max(0, width);
+        if (w !== this.cachedWidth) {
+          const line4 = this.char.repeat(w);
+          this.cachedLine = this.color ? this.color(line4) : this.theme.fg("border", line4);
+          this.cachedWidth = w;
+        }
+        return [this.cachedLine];
       }
       invalidate() {
+        this.cachedWidth = -1;
+        this.cachedLine = "";
       }
     };
   }
@@ -75539,23 +75576,28 @@ var init_mascot = __esm({
         const state = this.effectState;
         if (state.phase === void 0 || state.glitchFrames === void 0) return true;
         if (state.phase < state.glitchFrames) {
-          this.currentArminGrid = this.finalArminGrid.map((row) => {
-            const offset2 = Math.floor(Math.random() * 7) - 3;
-            const glitchRow = [...row];
-            if (Math.random() < 0.3) {
-              const shifted = glitchRow.slice(offset2).concat(glitchRow.slice(0, offset2));
-              return shifted.slice(0, ARMIN_WIDTH);
+          const offset2 = Math.floor(Math.random() * 7) - 3;
+          const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
+          const doShift = Math.random() < 0.3;
+          const doSwap = !doShift && Math.random() < 0.2;
+          for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
+            const src = doSwap ? this.finalArminGrid[swapRow] : this.finalArminGrid[row];
+            for (let x = 0; x < ARMIN_WIDTH; x++) {
+              if (doShift) {
+                this.currentArminGrid[row][x] = src[(x + offset2 + ARMIN_WIDTH) % ARMIN_WIDTH];
+              } else {
+                this.currentArminGrid[row][x] = src[x];
+              }
             }
-            if (Math.random() < 0.2) {
-              const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
-              return [...this.finalArminGrid[swapRow]];
-            }
-            return glitchRow;
-          });
+          }
           state.phase++;
           return false;
         }
-        this.currentArminGrid = this.finalArminGrid.map((row) => [...row]);
+        for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
+          for (let x = 0; x < ARMIN_WIDTH; x++) {
+            this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
+          }
+        }
         return true;
       }
       tickDissolve() {
@@ -76124,7 +76166,7 @@ var init_settings_overlay = __esm({
           this.buffer = this.buffer.slice(0, -1);
           return;
         }
-        if (data2.length === 1 && data2 >= " " && data2 <= "~") {
+        if (data2.length === 1 && data2 >= " ") {
           this.buffer += data2;
           return;
         }
@@ -76248,7 +76290,7 @@ var init_settings_overlay = __esm({
           this.editBuffer = this.editBuffer.slice(0, -1);
           return;
         }
-        if (data2.length === 1 && data2 >= " " && data2 <= "~") {
+        if (data2.length === 1 && data2 >= " ") {
           this.editBuffer += data2;
         }
       }
@@ -79068,8 +79110,11 @@ function createMetricFileSink(opts) {
         return;
       }
       const target = ensureFd(date);
-      fs98.writeSync(target, `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
-`);
+      const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
+`;
+      fs98.write(target, line4, (err2) => {
+        if (err2) logInternalError("metric-sink.asyncWrite", err2);
+      });
     } catch (error) {
       logInternalError("metric-sink.write", error);
     }

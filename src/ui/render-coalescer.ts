@@ -18,11 +18,13 @@ export class RenderCoalescer {
 	request(): void {
 		if (this.#pending) return;
 		this.#pending = true;
-		this.#timerId = setTimeout(() => {
+		const timer = setTimeout(() => {
 			this.#pending = false;
 			this.#timerId = null;
 			this.#callback();
 		}, this.#intervalMs);
+		timer.unref();
+		this.#timerId = timer;
 	}
 
 	/** Force an immediate render, bypassing coalescing. */

@@ -86,11 +86,11 @@ export function parseConfigResilient(raw: unknown): ResilientParseResult {
 		const value = raw[key];
 		const subSchema = (PiTeamsConfigSchema.properties as Record<string, unknown>)[key];
 		if (subSchema && !Value.Check(subSchema as TSchema, value)) {
-			// Collect the first error for this field
+			// Collect ALL errors for this field
 			const fieldErrors = [...Value.Errors(subSchema as TSchema, value)];
-			if (fieldErrors.length > 0) {
-				const first = fieldErrors[0] as unknown as Record<string, unknown>;
-				const msg = typeof first.message === "string" ? first.message : "invalid value";
+			for (const err of fieldErrors) {
+				const errObj = err as unknown as Record<string, unknown>;
+				const msg = typeof errObj.message === "string" ? errObj.message : "invalid value";
 				errors.push({
 					field: key,
 					message: msg,

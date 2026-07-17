@@ -19,7 +19,7 @@ import type {
 	VerificationEvidence,
 } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { captureWorktreeDiffAsync, captureWorktreeDiffStatAsync, prepareTaskWorkspaceAsync } from "../worktree/worktree-manager.ts";
 import { reserveControlChannel } from "./agent-control.ts";
@@ -87,7 +87,7 @@ registerYieldTool();
 async function appendSteeringAsync(steeringDir: string, taskId: string, steers: string[]): Promise<void> {
 	try {
 		await fs.promises.mkdir(steeringDir, { recursive: true });
-		const steeringPath = `${steeringDir}/${taskId}.jsonl`;
+		const steeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
 		const lines = steers
 			.map(
 				(msg) =>
@@ -505,7 +505,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					runId: manifest.runId,
 					agentId: task.id,
 					artifactsRoot: manifest.artifactsRoot,
-					steeringFile: `${manifest.artifactsRoot}/steering/${task.id}.jsonl`,
+					steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 					onSpawn: (pid) => {
 						try {
 							({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));

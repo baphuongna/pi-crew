@@ -454,27 +454,36 @@ async function main(): Promise<void> {
 		}
 	}
 	// Hook Node.js abort — if process.exit is called with code 1 (uncaught exception, assert failure)
-	// we log it before exiting so it appears in background.log
-	const origExit = process.exit.bind(process);
-	// Intercept all exit(code) calls to log them as async.exit events before exiting.
-	// This surfaces uncaught exceptions / early exits that would otherwise vanish silently.
-	process.exit = ((code?: number | string): never => {
-		const runId2 = argValue("--run-id");
-		const codeStr = code === undefined ? "<none>" : String(code);
-		if (runId2 && manifest.eventsPath) {
-			try {
-				appendEvent(manifest.eventsPath, {
-					type: "async.exit",
-					runId: runId2,
-					message: `Background runner exit(${codeStr}) pid=${process.pid}`,
-					data: { code, pid: process.pid },
-				});
-			} catch {
-				/* best-effort */
+	// we log it before exiting so it appears in background.log.
+	// NOTE: process.exit is monkey-patched here (not using process.on('exit')) because
+	// we need the log write to happen synchronously before the process actually exits.
+	// process.on('exit') handlers run too late for I/O to complete reliably.
+	// Wrapped in try/catch to guard against failures in the patch itself.
+	try {
+		const origExit = process.exit.bind(process);
+		// Intercept all exit(code) calls to log them as async.exit events before exiting.
+		// This surfaces uncaught exceptions / early exits that would otherwise vanish silently.
+		process.exit = ((code?: number | string): never => {
+			const runId2 = argValue("--run-id");
+			const codeStr = code === undefined ? "<none>" : String(code);
+			if (runId2 && manifest.eventsPath) {
+				try {
+					appendEvent(manifest.eventsPath, {
+						type: "async.exit",
+						runId: runId2,
+						message: `Background runner exit(${codeStr}) pid=${process.pid}`,
+						data: { code, pid: process.pid },
+					});
+				} catch {
+					/* best-effort */
+				}
 			}
-		}
-		return origExit(code);
-	}) as typeof process.exit;
+			return origExit(code);
+		}) as typeof process.exit;
+	} catch {
+		// If patching process.exit fails (e.g. frozen process object), continue
+		// without the exit log — the run will still proceed normally.
+	}
 
 	// Setup unhandled rejection guard FIRST — must be before any async operations
 	// that might produce unhandled rejections during cleanup. Without this, any unhandled

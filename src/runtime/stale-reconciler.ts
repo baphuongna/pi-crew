@@ -668,38 +668,6 @@ export function reconcileOrphanedTempWorkspaces(
 				} catch {
 					/* ignore if already gone */
 				}
-			} else if (canCleanup) {
-				// Sentinel already existed — another cleanup attempt is in progress.
-				// Perform a simplified TOCTOU check: if any manifest is running,
-				// do NOT remove the sentinel (let the first attempt finish its scan).
-				let hasRunningManifest = false;
-				if (fs.existsSync(stateRunsDir)) {
-					try {
-						for (const runDir of fs.readdirSync(stateRunsDir)) {
-							const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
-							if (!fs.existsSync(manifestPath)) continue;
-							try {
-								const m = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as TeamRunManifest;
-								if (m.status === "running") {
-									hasRunningManifest = true;
-									break;
-								}
-							} catch {
-								/* skip on parse error */
-							}
-						}
-					} catch {
-						/* skip if runs dir unreadable */
-					}
-				}
-				// Only clean up sentinel if no running manifests exist
-				if (!hasRunningManifest) {
-					try {
-						fs.unlinkSync(sentinelPath);
-					} catch {
-						/* ignore if already gone */
-					}
-				}
 			}
 		}
 	} catch {

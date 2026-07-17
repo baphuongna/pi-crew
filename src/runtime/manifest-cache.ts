@@ -203,6 +203,15 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		return undefined;
 	}
 
+	/**
+	 * NOTE (RT-F10): This function performs a full FS scan + JSON.parse of all
+	 * manifests on every TTL expiry (default 500ms). This is a known performance
+	 * tradeoff: fs.watch provides real-time invalidation (see constructor above)
+	 * so the TTL cache is only consulted when the watcher fires, but the list()
+	 * call itself still re-reads all entries to pick up changes. Incremental
+	 * updates via fs.watch-driven delta tracking are planned for a future
+	 * iteration to avoid the full scan on each expiry.
+	 */
 	function list(limit = DEFAULT_CACHE.manifestMaxEntries): TeamRunManifest[] {
 		const now = Date.now();
 		const cached = listCache.get(limit);

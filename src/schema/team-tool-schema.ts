@@ -194,6 +194,8 @@ export const TeamToolParams = Type.Object({
 			description: "Path to a markdown plan document for orchestration.",
 		}),
 	),
+	subAction: Type.Optional(Type.String({ description: "Sub-action for schedule management (remove, disable, enable, update)." })),
+	jobId: Type.Optional(Type.String({ description: "Job ID for schedule management actions." })),
 	cron: Type.Optional(
 		Type.String({
 			description: "Cron expression for recurring scheduled runs (e.g., '0 9 * * MON').",

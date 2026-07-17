@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
+import { atomicWriteJson } from "./atomic-write.ts";
 import { withFileLockSync } from "./locks.ts";
 import type { TeamTaskState } from "./types.ts";
 
@@ -67,7 +67,7 @@ export function getCachedRun(cwd: string, cacheKey: string): CacheEntry | null {
 				}
 				const updatedIndex = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as CacheIndex;
 				delete updatedIndex[cacheKey];
-				atomicWriteFile(indexPath, JSON.stringify(updatedIndex));
+				atomicWriteJson(indexPath, updatedIndex);
 			});
 			return null;
 		}
@@ -110,7 +110,7 @@ export function saveRunToCache(
 
 	const entryPath = path.join(dir, `${cacheKey}.json`);
 	// ST-4: atomic entry write (was raw writeFileSync — inverted priority vs the index).
-	atomicWriteFile(entryPath, JSON.stringify(entry));
+	atomicWriteJson(entryPath, entry);
 
 	// Update index under a file lock (prevents concurrent saveCache from racing on the
 	// RMW) and write atomically (unique temp + rename — fixes the fixed "index.json.tmp"
@@ -119,7 +119,7 @@ export function saveRunToCache(
 	withFileLockSync(indexPath, () => {
 		const index: CacheIndex = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf-8")) : {};
 		index[cacheKey] = entryPath;
-		atomicWriteFile(indexPath, JSON.stringify(index));
+		atomicWriteJson(indexPath, index);
 	});
 }
 

@@ -822,61 +822,69 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		});
 		if (typeof session.subscribe === "function") {
 			unsubscribe = session.subscribe((event) => {
-				if (!isCurrent()) return;
-				jsonEvents += 1;
-				appendTranscript(input.transcriptPath, event);
-				const sidechainType = eventToSidechainType(event);
-				if (sidechainType)
-					writeSidechainEntry(sidechainPath, {
-						agentId,
-						type: sidechainType,
-						message: event,
-						cwd: input.task.cwd,
-					});
-				const obj = asRecord(event);
-				if (obj?.type === "turn_end") {
-					turnCount += 1;
-					trackLiveAgentTurnEnd(agentId);
-					if (maxTurns !== undefined && !softLimitReached && turnCount >= maxTurns) {
-						softLimitReached = true;
-						void session?.steer?.("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
-					} else if (maxTurns !== undefined && softLimitReached && turnCount >= maxTurns + graceTurns) {
-						void session?.abort?.();
-					}
-				}
-				// Accumulate lifetime usage that survives compaction
-				if (obj?.type === "message_end" && extractMessageRole(obj) === "assistant") {
-					const u = extractMessageUsage(obj);
-					if (u) {
-						trackTaskUsage(input.task.id, {
-							input: typeof u.input === "number" ? u.input : 0,
-							output: typeof u.output === "number" ? u.output : 0,
-							cacheWrite: typeof u.cacheWrite === "number" ? u.cacheWrite : 0,
+				// Wrap callback body in try/catch to prevent unguarded exceptions from
+				// propagating into the session internals and crashing the live session.
+				try {
+					if (!isCurrent()) return;
+					jsonEvents += 1;
+					appendTranscript(input.transcriptPath, event);
+					const sidechainType = eventToSidechainType(event);
+					if (sidechainType)
+						writeSidechainEntry(sidechainPath, {
+							agentId,
+							type: sidechainType,
+							message: event,
+							cwd: input.task.cwd,
 						});
+					const obj = asRecord(event);
+					if (obj?.type === "turn_end") {
+						turnCount += 1;
+						trackLiveAgentTurnEnd(agentId);
+						if (maxTurns !== undefined && !softLimitReached && turnCount >= maxTurns) {
+							softLimitReached = true;
+							void session?.steer?.("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
+						} else if (maxTurns !== undefined && softLimitReached && turnCount >= maxTurns + graceTurns) {
+							void session?.abort?.();
+						}
 					}
-				}
-				input.onEvent?.(event);
-				const text = [...eventText(event), ...finalAssistantText(event)].join("\n");
-				if (text.trim()) {
-					stdout += `${text}\n`;
-					streamOut?.write(text + "\n");
-					trackLiveAgentResponseText(agentId, text);
-					input.onOutput?.(text);
-				}
-				// G2: Track tool start/end for activity display
-				if (obj?.type === "tool_use" || obj?.type === "tool_execution_start") {
-					const toolName = extractToolName(obj) ?? "unknown";
-					trackLiveAgentToolStart(agentId, toolName);
-				}
-				if (obj?.type === "tool_result" || obj?.type === "tool_execution_end") {
-					const toolName = extractToolName(obj) ?? "unknown";
-					trackLiveAgentToolEnd(agentId, toolName);
-				}
-				// Phase 1: collect events for yield detection
-				if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event)) {
-					collectedJsonEvents.push(event as Record<string, unknown>);
-					if (collectedJsonEvents.length > maxCollectedJsonEvents)
-						collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
+					// Accumulate lifetime usage that survives compaction
+					if (obj?.type === "message_end" && extractMessageRole(obj) === "assistant") {
+						const u = extractMessageUsage(obj);
+						if (u) {
+							trackTaskUsage(input.task.id, {
+								input: typeof u.input === "number" ? u.input : 0,
+								output: typeof u.output === "number" ? u.output : 0,
+								cacheWrite: typeof u.cacheWrite === "number" ? u.cacheWrite : 0,
+							});
+						}
+					}
+					input.onEvent?.(event);
+					const text = [...eventText(event), ...finalAssistantText(event)].join("\n");
+					if (text.trim()) {
+						stdout += `${text}\n`;
+						streamOut?.write(text + "\n");
+						trackLiveAgentResponseText(agentId, text);
+						input.onOutput?.(text);
+					}
+					// G2: Track tool start/end for activity display
+					if (obj?.type === "tool_use" || obj?.type === "tool_execution_start") {
+						const toolName = extractToolName(obj) ?? "unknown";
+						trackLiveAgentToolStart(agentId, toolName);
+					}
+					if (obj?.type === "tool_result" || obj?.type === "tool_execution_end") {
+						const toolName = extractToolName(obj) ?? "unknown";
+						trackLiveAgentToolEnd(agentId, toolName);
+					}
+					// Phase 1: collect events for yield detection
+					if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event)) {
+						collectedJsonEvents.push(event as Record<string, unknown>);
+						if (collectedJsonEvents.length > maxCollectedJsonEvents)
+							collectedJsonEvents.splice(0, collectedJsonEvents.length - maxCollectedJsonEvents);
+					}
+				} catch (error) {
+					// Prevent unguarded exceptions in the subscribe callback from crashing
+					// the live session or propagating into the session internals.
+					logInternalError("live-session.subscribe-callback", error, `agentId=${agentId}`);
 				}
 			});
 		}

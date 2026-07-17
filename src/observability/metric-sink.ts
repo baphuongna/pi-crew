@@ -64,7 +64,11 @@ export function createMetricFileSink(opts: MetricFileSinkOptions): MetricSink {
 				return;
 			}
 			const target = ensureFd(date);
-			fs.writeSync(target, `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted as MetricSnapshot[] })}\n`);
+			const line = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted as MetricSnapshot[] })}\n`;
+			// Async write to avoid blocking the main thread on the 60s tick.
+			fs.write(target, line, (err) => {
+				if (err) logInternalError("metric-sink.asyncWrite", err);
+			});
 		} catch (error) {
 			logInternalError("metric-sink.write", error);
 		}

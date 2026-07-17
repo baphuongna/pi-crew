@@ -93,7 +93,7 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 	const pidFile = path.join(lockDir, "pid");
 	const start = Date.now();
 	// SECURITY (HIGH #2 fix): Reduced from 120s to 5s to prevent blocking the
-	// event loop indefinitely. 500 retries × 10ms = 5s max. After timeout, we
+	// event loop indefinitely. ~100 retries × 50ms ≈ 5s max. After timeout, we
 	// throw a clear error instead of blocking forever. This ensures AbortSignal
 	// handlers, SIGTERM, and graceful shutdown can fire within seconds.
 	const timeout = options?.timeoutMs ?? 5000;
@@ -162,7 +162,7 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 			} catch {
 				/* no pid file — mtime check above already handles it */
 			}
-			sleepSync(10);
+			sleepSync(50);
 		}
 	}
 	try {
