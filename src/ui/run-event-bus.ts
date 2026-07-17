@@ -1,5 +1,6 @@
 import type { TeamEvent } from "../state/event-log.ts";
 import { readEventsCursor } from "../state/event-log.ts";
+import type { RenderSchedulerEventBus } from "./render-scheduler.ts";
 
 export type RunEventType =
 	| "task_started"
@@ -282,6 +283,31 @@ class RunEventBus {
 
 /** Global singleton run event bus for UI-first event delivery. */
 export const runEventBus = new RunEventBus();
+
+/**
+ * 1.10 (UI-P1-1): adapt `runEventBus.onChannel` to the
+ * `RenderSchedulerEventBus` interface so overlays can route their
+ * `run:state` / `worker:lifecycle` / `ui:invalidate` subscriptions through
+ * a `RenderScheduler` (debounce + fallback + per-runId coalescing) instead of
+ * calling `runEventBus.onChannel(...)` directly three times. Without the
+ * scheduler, a single event triggers up to 9 callbacks across the 3 overlays
+ * (dashboard + sidebar + widget) and bursts into ~150 invalidate+requestRender
+ * /sec under load.
+ *
+ * Returns a fresh adapter whose `on(event, handler)` is a thin shim over
+ * `runEventBus.onChannel`. The channels list is closed-over so we can do a
+ * defensive membership check without re-reading the channel set on every
+ * subscription.
+ */
+export function runEventBusAsRenderScheduler(channels: readonly EventChannel[]): RenderSchedulerEventBus {
+	const allowed = new Set<EventChannel>(channels);
+	return {
+		on: (event: string, handler: (payload: unknown) => void): (() => void) | void => {
+			if (!allowed.has(event as EventChannel)) return undefined;
+			return runEventBus.onChannel(event as EventChannel, handler);
+		},
+	};
+}
 
 /** Derive a RunEventType from a TeamEvent. */
 export function teamEventToRunEventType(event: TeamEvent): RunEventType | undefined {

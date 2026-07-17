@@ -477,9 +477,20 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
  * (perf review 2026-07 F4) — now used by persistSingleTaskUpdate's
  * non-terminal checkpoint path; that caller calls flushPendingAtomicWrites()
  * before its read-modify-write load to defeat the stale-read window.
+ *
+ * ST-7: pass `skipCoalesce: true` for terminal task status transitions
+ * (completed/failed/cancelled/needs_attention/skipped) to bypass the
+ * 50ms coalesce window — a SIGKILL in that window would otherwise leave
+ * tasks.json stale (showing "running") while events.jsonl already shows
+ * the terminal event, causing false zombie detection / double-execution
+ * on crash recovery.
  */
 /** @internal */
-export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[]): void {
+export function saveRunTasksCoalesced(
+	manifest: TeamRunManifest,
+	tasks: TeamTaskState[],
+	skipCoalesce: boolean = false,
+): void {
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
 	invalidateRunCache(manifest.stateRoot);
 	try {
@@ -487,7 +498,7 @@ export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTask
 	} catch {
 		return;
 	}
-	atomicWriteJsonCoalesced(manifest.tasksPath, tasks);
+	atomicWriteJsonCoalesced(manifest.tasksPath, tasks, undefined, undefined, skipCoalesce);
 }
 
 export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTaskState[]): Promise<void> {

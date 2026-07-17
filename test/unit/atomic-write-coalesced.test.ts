@@ -86,3 +86,51 @@ test("immediate sync write cancels pending coalesced write (FIND-1 regression, s
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+// ST-7 regression: skipCoalesce=true bypasses the 50ms buffer and writes
+// synchronously. Critical for terminal task status transitions (completed/failed/
+// cancelled) where a SIGKILL in the coalesce window must NOT lose the terminal
+// update — otherwise crash recovery would see a stale "running" status.
+test("skipCoalesce=true bypasses the 50ms buffer and writes synchronously (ST-7)", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-coalesce-skip-"));
+	const filePath = path.join(dir, "tasks.json");
+	try {
+		// Without skipCoalesce the file would NOT exist on disk synchronously —
+		// it would only exist after the 50ms timer fired. With skipCoalesce=true
+		// the write must land on disk immediately.
+		atomicWriteJsonCoalesced(filePath, { state: "completed" }, 60_000, undefined, true);
+		assert.equal(fs.existsSync(filePath), true, "skipCoalesce=true must write synchronously");
+		const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+		assert.equal(parsed.state, "completed");
+		// No pending writes should remain for this path.
+		flushPendingAtomicWrites();
+		assert.equal(JSON.parse(fs.readFileSync(filePath, "utf-8")).state, "completed");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("skipCoalesce=true overrides an in-flight buffered write for the same path (ST-7)", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-coalesce-skip-override-"));
+	const filePath = path.join(dir, "tasks.json");
+	try {
+		// Buffer a stale (still-running) snapshot using the long coalesce window.
+		atomicWriteJsonCoalesced(filePath, { state: "running" }, 60_000);
+		assert.equal(fs.existsSync(filePath), false, "buffered write should not yet be on disk");
+		// Now persist a TERMINAL transition with skipCoalesce=true — must land
+		// synchronously and replace any future buffered flush.
+		atomicWriteJsonCoalesced(filePath, { state: "completed" }, 60_000, undefined, true);
+		assert.equal(fs.existsSync(filePath), true, "skipCoalesce terminal transition must land immediately");
+		assert.equal(JSON.parse(fs.readFileSync(filePath, "utf-8")).state, "completed");
+		// flushPendingAtomicWrites must NOT clobber the synchronous terminal
+		// write with the prior buffered "running" snapshot.
+		flushPendingAtomicWrites();
+		assert.equal(
+			JSON.parse(fs.readFileSync(filePath, "utf-8")).state,
+			"completed",
+			"terminal synchronous write must survive flushPendingAtomicWrites()",
+		);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});

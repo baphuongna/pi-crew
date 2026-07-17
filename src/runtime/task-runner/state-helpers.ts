@@ -24,6 +24,14 @@ export function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): Team
  * committed first; retry with the fresh state. This is O(retry) under contention but
  * converges in the normal single-writer case.
  *
+ * ST-7: pass `skipCoalesce: true` when persisting a TERMINAL task status
+ * (completed/failed/cancelled/needs_attention/skipped). Without this the
+ * underlying `saveRunTasksCoalesced` would buffer the write for 50ms; a
+ * SIGKILL in that window loses the terminal update and crash recovery
+ * would see "running" in tasks.json while events.jsonl already shows
+ * "completed". For non-terminal transitions (heartbeat, progress) the
+ * default buffered write is fine and matches prior behavior.
+ *
  * @param checkpointPhase - Optional checkpoint phase to include in the task state alongside the update.
  */
 export function persistSingleTaskUpdate(
@@ -31,6 +39,7 @@ export function persistSingleTaskUpdate(
 	fallbackTasks: TeamTaskState[],
 	updated: TeamTaskState,
 	checkpointPhase?: TaskCheckpointState["phase"],
+	skipCoalesce: boolean = false,
 ): TeamTaskState[] {
 	const MAX_CAS_ATTEMPTS = 100;
 	let baseMtime = 0;
@@ -126,7 +135,10 @@ export function persistSingleTaskUpdate(
 				// non-coalesced writers; the flushPendingAtomicWrites() guard at
 				// the top of the retry loop ensures reads see any other coalesced
 				// writer's flushed-before-this-call state.
-				saveRunTasksCoalesced(manifest, merged);
+				// ST-7: terminal transitions (skipCoalesce=true) bypass the 50ms
+				// coalesce window so a SIGKILL after the persist completes cannot
+				// leave tasks.json stale with a non-terminal status.
+				saveRunTasksCoalesced(manifest, merged, skipCoalesce);
 			} catch (err) {
 				logInternalError("persistSingleTaskUpdate", err, undefined, "error");
 				throw err;

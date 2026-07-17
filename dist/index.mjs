@@ -8723,6 +8723,8 @@ __export(atomic_write_exports, {
   invalidateSymlinkSafeCache: () => invalidateSymlinkSafeCache,
   isSymlinkSafePath: () => isSymlinkSafePath,
   readJsonFile: () => readJsonFile,
+  renameWithLinkAsync: () => renameWithLinkAsync,
+  renameWithLinkSync: () => renameWithLinkSync,
   renameWithRetry: () => renameWithRetry,
   renameWithRetryAsync: () => renameWithRetryAsync
 });
@@ -9116,7 +9118,11 @@ async function atomicWriteJsonAsync(filePath, value, options) {
   await atomicWriteFileAsync(filePath, `${JSON.stringify(value, null, 2)}
 `, options);
 }
-function atomicWriteJsonCoalesced(filePath, value, coalesceMs = DEFAULT_ATOMIC_COALESCE_MS, options) {
+function atomicWriteJsonCoalesced(filePath, value, coalesceMs = DEFAULT_ATOMIC_COALESCE_MS, options, skipCoalesce = false) {
+  if (skipCoalesce) {
+    atomicWriteJson(filePath, value, options);
+    return;
+  }
   const content = `${JSON.stringify(value, null, 2)}
 `;
   const previous = pendingAtomicWrites.get(filePath);
@@ -10954,6 +10960,15 @@ function classifyEventChannel(type) {
   if (RUN_STATE_TYPES.has(type)) return "run:state";
   if (UI_INVALIDATE_TYPES.has(type)) return "ui:invalidate";
   return "worker:progress";
+}
+function runEventBusAsRenderScheduler(channels) {
+  const allowed = new Set(channels);
+  return {
+    on: (event, handler) => {
+      if (!allowed.has(event)) return void 0;
+      return runEventBus.onChannel(event, handler);
+    }
+  };
 }
 function teamEventToRunEventType(event) {
   const type = event.type;
@@ -13701,14 +13716,14 @@ function saveRunTasks(manifest, tasks) {
     tasksSize: tasksStat.size
   });
 }
-function saveRunTasksCoalesced(manifest, tasks) {
+function saveRunTasksCoalesced(manifest, tasks, skipCoalesce = false) {
   invalidateRunCache(manifest.stateRoot);
   try {
     fs13.statSync(manifest.stateRoot);
   } catch {
     return;
   }
-  atomicWriteJsonCoalesced(manifest.tasksPath, tasks);
+  atomicWriteJsonCoalesced(manifest.tasksPath, tasks, void 0, void 0, skipCoalesce);
 }
 async function saveRunTasksAsync(manifest, tasks) {
   invalidateRunCache(manifest.stateRoot);
@@ -21390,6 +21405,186 @@ var init_powerbar_publisher = __esm({
   }
 });
 
+// src/ui/render-scheduler.ts
+var DEFAULT_EVENTS, RenderScheduler;
+var init_render_scheduler = __esm({
+  "src/ui/render-scheduler.ts"() {
+    "use strict";
+    init_internal_error();
+    DEFAULT_EVENTS = [
+      "crew.run.created",
+      "crew.run.completed",
+      "crew.run.failed",
+      "crew.run.cancelled",
+      "crew.subagent.completed",
+      "crew.subagent.failed",
+      "crew.mailbox.updated",
+      "crew.mailbox.message"
+    ];
+    RenderScheduler = class {
+      render;
+      onInvalidate;
+      debounceMs;
+      fallbackProvider;
+      fallbackMs;
+      invalidateCoalesceMs;
+      debounceTimer;
+      fallbackTimer;
+      invalidateTimer;
+      /** runId → most recent payload to forward when the coalesce window flushes. */
+      invalidateBuffer = /* @__PURE__ */ new Map();
+      disposed = false;
+      lastEventAt = 0;
+      rendering = false;
+      pendingRender = false;
+      unsubs = [];
+      constructor(events, render, options = {}) {
+        this.render = render;
+        this.onInvalidate = options.onInvalidate;
+        this.debounceMs = options.debounceMs ?? 75;
+        const fallback2 = options.fallbackMs ?? 750;
+        this.fallbackProvider = typeof fallback2 === "function" ? fallback2 : () => fallback2;
+        this.fallbackMs = typeof fallback2 === "number" ? fallback2 : 750;
+        this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
+        for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
+        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+        this.fallbackTimer.unref();
+      }
+      currentFallbackMs() {
+        try {
+          const value = this.fallbackProvider();
+          return Number.isFinite(value) && value > 0 ? value : 750;
+        } catch (error) {
+          logInternalError("render-scheduler.fallbackProvider", error);
+          return 750;
+        }
+      }
+      subscribe(events, event) {
+        if (!events?.on) return;
+        const handler = (payload) => this.schedule(payload);
+        try {
+          const unsub = events.on(event, handler);
+          if (typeof unsub === "function") this.unsubs.push(unsub);
+        } catch (error) {
+          logInternalError("render-scheduler.subscribe", error, event);
+        }
+      }
+      /** Recursive setTimeout — avoids setInterval timer storms. */
+      fallbackLoop() {
+        if (this.disposed) return;
+        const fallbackMs = this.currentFallbackMs();
+        if (Date.now() - this.lastEventAt < fallbackMs) {
+          if (this.disposed) return;
+          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
+          this.fallbackTimer.unref();
+          return;
+        }
+        this.schedule();
+        if (this.disposed) return;
+        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+        this.fallbackTimer.unref();
+      }
+      schedule(payload) {
+        if (this.disposed) return;
+        this.lastEventAt = Date.now();
+        this.invalidate(payload);
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+          this.debounceTimer = void 0;
+          this.flush();
+        }, this.debounceMs);
+        this.debounceTimer.unref();
+      }
+      /**
+       * 1.9: forward `onInvalidate` immediately when the payload has no `runId`
+       * (we cannot dedup it). When it carries a runId, buffer the latest payload
+       * per runId and flush on a coalesce timer so high-frequency event bursts
+       * (`crew.subagent.completed` for parallel tasks) collapse into one
+       * invalidate per affected run.
+       */
+      invalidate(payload) {
+        try {
+          const runId = typeof payload === "object" && payload !== null && "runId" in payload && typeof payload.runId === "string" ? payload.runId : void 0;
+          if (runId === void 0 || this.invalidateCoalesceMs <= 0) {
+            this.onInvalidate?.(payload);
+            return;
+          }
+          this.invalidateBuffer.set(runId, payload);
+          if (!this.invalidateTimer) {
+            this.invalidateTimer = setTimeout(() => this.flushInvalidate(), this.invalidateCoalesceMs);
+            this.invalidateTimer.unref();
+          }
+        } catch (error) {
+          logInternalError("render-scheduler.invalidate", error);
+        }
+      }
+      flushInvalidate() {
+        this.invalidateTimer = void 0;
+        if (this.disposed) {
+          this.invalidateBuffer.clear();
+          return;
+        }
+        const buffered = this.invalidateBuffer;
+        this.invalidateBuffer = /* @__PURE__ */ new Map();
+        for (const payload of buffered.values()) {
+          try {
+            this.onInvalidate?.(payload);
+          } catch (error) {
+            logInternalError("render-scheduler.invalidate.flush", error);
+          }
+        }
+      }
+      /**
+       * Flush a render.  If a render is already in progress the request is
+       * collapsed: `pendingRender` is set and the caller that holds
+       * `rendering==true` will loop one more time after finishing.
+       */
+      flush() {
+        if (this.disposed) return;
+        if (this.rendering) {
+          this.pendingRender = true;
+          return;
+        }
+        this.rendering = true;
+        this.pendingRender = false;
+        let iterations = 0;
+        try {
+          do {
+            this.pendingRender = false;
+            this.render();
+            iterations += 1;
+          } while (this.pendingRender && !this.disposed && iterations < 5);
+        } catch (error) {
+          logInternalError("render-scheduler.render", error);
+        } finally {
+          this.rendering = false;
+          if (iterations >= 5 && this.pendingRender && !this.disposed) {
+            this.schedule();
+          }
+        }
+      }
+      dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+        if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
+        this.debounceTimer = void 0;
+        this.fallbackTimer = void 0;
+        this.invalidateTimer = void 0;
+        this.invalidateBuffer.clear();
+        for (const unsub of this.unsubs.splice(0)) {
+          try {
+            unsub();
+          } catch (error) {
+            logInternalError("render-scheduler.unsubscribe", error);
+          }
+        }
+      }
+    };
+  }
+});
+
 // src/ui/dwf-phase-display.ts
 function markerFor(status, ascii) {
   if (ascii) {
@@ -21703,15 +21898,20 @@ function activeWidgetRuns(cwd, manifestCache2, snapshotCache, preloadedManifests
   return runs.map((run) => {
     try {
       const snapshot = snapshotCache?.get(run.runId);
-      return snapshot ? {
-        run: snapshot.manifest,
-        agents: snapshot.agents,
-        snapshot
-      } : { run, agents: agentsFor(run) };
+      if (snapshot) {
+        return {
+          run: snapshot.manifest,
+          agents: snapshot.agents,
+          snapshot
+        };
+      }
+      if (snapshotCache) return null;
+      return { run, agents: agentsFor(run) };
     } catch {
+      if (snapshotCache) return null;
       return { run, agents: agentsFor(run) };
     }
-  }).filter((item) => isDisplayActiveRun(item.run, item.agents));
+  }).filter((item) => item !== null && isDisplayActiveRun(item.run, item.agents));
 }
 function statusSummary(runs) {
   const agents = runs.flatMap((item) => item.agents);
@@ -22297,6 +22497,7 @@ var init_widget = __esm({
     init_defaults();
     init_visual();
     init_pi_ui_compat();
+    init_render_scheduler();
     init_run_event_bus();
     init_spinner();
     init_theme_adapter();
@@ -22321,7 +22522,7 @@ var init_widget = __esm({
       cachedTheme;
       tui;
       unsubscribeTheme;
-      unsubscribeEventBus;
+      renderScheduler;
       constructor(model, themeLike, tui) {
         this.model = model;
         this.theme = asCrewTheme(themeLike);
@@ -22330,16 +22531,15 @@ var init_widget = __esm({
         activeResizeTarget = this;
         installResizeListener();
         this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
-        this.unsubscribeEventBus = (() => {
-          const unsub1 = runEventBus.onChannel("run:state", () => this.invalidate());
-          const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidate());
-          const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidate());
-          return () => {
-            unsub1();
-            unsub2();
-            unsub3();
-          };
-        })();
+        this.renderScheduler = new RenderScheduler(
+          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+          () => this.invalidate(),
+          {
+            debounceMs: 75,
+            fallbackMs: 750,
+            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
+          }
+        );
       }
       buildSignature(runs) {
         const liveSig = [...listLiveAgents()].map(
@@ -22379,7 +22579,7 @@ var init_widget = __esm({
       }
       dispose() {
         this.unsubscribeTheme();
-        this.unsubscribeEventBus();
+        this.renderScheduler.dispose();
         if (activeResizeTarget === this) activeResizeTarget = void 0;
       }
       render(width) {
@@ -22405,6 +22605,7 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
+          if (this.model.snapshotCache) return ["(loading\u2026)"];
           return [];
         }
         const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
@@ -58108,7 +58309,7 @@ import * as fs80 from "node:fs";
 function updateTask(tasks, updated) {
   return tasks.map((task) => task.id === updated.id ? updated : task);
 }
-function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPhase) {
+function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPhase, skipCoalesce = false) {
   const MAX_CAS_ATTEMPTS = 100;
   let baseMtime = 0;
   try {
@@ -58157,7 +58358,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
         throw new Error(`persistSingleTaskUpdate: failed to converge after ${MAX_CAS_ATTEMPTS} attempts`);
       }
       try {
-        saveRunTasksCoalesced(manifest, merged);
+        saveRunTasksCoalesced(manifest, merged, skipCoalesce);
       } catch (err2) {
         logInternalError("persistSingleTaskUpdate", err2, void 0, "error");
         throw err2;
@@ -59621,7 +59822,7 @@ ${input.step.task}`,
     };
     tasks = await withRunLock(manifest, async () => {
       await saveRunManifestAsync(manifest);
-      return persistSingleTaskUpdate(manifest, tasks, task);
+      return persistSingleTaskUpdate(manifest, tasks, task, void 0, true);
     });
     upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
     const hookReport = await executeHook("task_result", {
@@ -70711,6 +70912,114 @@ function resolveAnalysisText(params, cwd) {
   if (!sanitized) return { source: "none" };
   return { text: sanitized, source: "inline" };
 }
+function formatRunResult(manifest, options) {
+  const { tasks, metrics, goal, team, workflow, workspaceId, runtime, mode = "waited" } = options;
+  if (mode === "scaffold") {
+    const runtimeLine = runtime ? `Runtime: ${runtime.kind}${runtime.fallback ? ` (fallback from ${runtime.requestedMode})` : ""}${runtime.reason ? ` - ${runtime.reason}` : ""}` : "Runtime: unknown";
+    const runtimeExplanation = !runtime ? "" : runtime.kind === "child-process" ? "Child Pi worker execution is enabled by default; each task is launched as a separate Pi process. Set runtime.mode=scaffold or executeWorkers=false only for dry runs." : runtime.kind === "live-session" ? "Experimental live-session worker execution was enabled." : "Safe scaffold mode: child Pi workers were not launched because runtime.mode=scaffold or executeWorkers=false was configured.";
+    const text = [
+      `Created pi-crew run ${manifest.runId}.`,
+      `Team: ${team}`,
+      `Workflow: ${workflow}`,
+      `Status: ${manifest.status}`,
+      `Tasks: ${tasks.length}`,
+      `State: ${manifest.stateRoot}`,
+      `Artifacts: ${manifest.artifactsRoot}`,
+      "",
+      runtimeLine,
+      runtimeExplanation
+    ].filter((line4) => line4 !== "").join("\n");
+    const isError = manifest.status === "failed";
+    return result(
+      text,
+      {
+        action: "run",
+        status: isError ? "error" : "ok",
+        runId: manifest.runId,
+        artifactsRoot: manifest.artifactsRoot,
+        metrics,
+        ...workspaceId ? { data: { workspaceId } } : {}
+      },
+      isError
+    );
+  }
+  const lines = [
+    `pi-crew run ${manifest.status}: ${manifest.runId} (${team})`,
+    `Goal: ${goal.slice(0, 100)}`
+  ];
+  if (metrics) {
+    lines.push("");
+    lines.push(
+      `Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`
+    );
+  }
+  if (tasks.length > 0) {
+    let summaryContent;
+    const summaryArtifact = manifest.artifacts?.find((a) => a.kind === "summary");
+    if (summaryArtifact) {
+      try {
+        const sumPath = path74.join(manifest.artifactsRoot, summaryArtifact.path);
+        summaryContent = fs90.readFileSync(sumPath, "utf-8").trim().slice(0, 4e3);
+      } catch {
+      }
+    }
+    const taskLines = [];
+    let failedCount = 0;
+    const failedIds = [];
+    for (const task of tasks) {
+      let resultExcerpt = "";
+      if (task.resultArtifact?.path) {
+        try {
+          const resPath = resolveRealContainedPath(manifest.artifactsRoot, task.resultArtifact.path);
+          resultExcerpt = fs90.readFileSync(resPath, "utf-8").trim().slice(0, 2e3);
+        } catch {
+          resultExcerpt = "(result unavailable)";
+        }
+      }
+      const shortResult = resultExcerpt.slice(0, 500);
+      const statusTag = task.status === "completed" ? "\u2713" : task.status === "failed" ? "\u2717" : task.status === "cancelled" ? "\u2298" : "\xB7";
+      taskLines.push(
+        `- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " \u2014 " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`
+      );
+      if (task.status === "failed" || task.status === "needs_attention") {
+        failedCount++;
+        failedIds.push(task.id);
+      }
+    }
+    lines.push("");
+    lines.push(`Tasks (${tasks.length}):`);
+    lines.push(...taskLines);
+    if (summaryContent) {
+      lines.push("");
+      lines.push("Summary:");
+      lines.push(summaryContent.slice(0, 2e3));
+    }
+    if (failedCount === 0) {
+      lines.push("");
+      lines.push("All tasks completed successfully.");
+    } else {
+      lines.push("");
+      lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
+    }
+  } else {
+    lines.push(
+      manifest.status === "completed" ? "Run completed with no task results." : `The run ended with status: ${manifest.status}. Check the run artifacts for details.`
+    );
+  }
+  const runFailed = manifest.status === "failed" || manifest.status === "blocked";
+  return result(
+    lines.join("\n"),
+    {
+      action: "run",
+      status: runFailed ? "error" : "ok",
+      runId: manifest.runId,
+      artifactsRoot: manifest.artifactsRoot,
+      metrics,
+      ...workspaceId ? { data: { workspaceId } } : {}
+    },
+    runFailed
+  );
+}
 async function handleRun(params, ctx) {
   if (params.chain) {
     const { handleChainRun: handleChainRun2 } = await Promise.resolve().then(() => (init_chain_dispatch(), chain_dispatch_exports));
@@ -71091,82 +71400,14 @@ ${dwfResult.manifest.summary ?? ""}`,
     scheduleBackgroundEarlyExitGuard(resolvedCtx.cwd, effectiveManifest.runId, spawned.pid, spawned.logPath);
     try {
       const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 36e5 });
-      const metrics = collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId);
-      const lines = [
-        `pi-crew run ${completed.manifest.status}: ${completed.manifest.runId} (${team.name})`,
-        `Goal: ${goal.slice(0, 100)}`
-      ];
-      if (metrics) {
-        lines.push("");
-        lines.push(
-          `Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`
-        );
-      }
-      if (completed.tasks.length > 0) {
-        let summaryContent;
-        const summaryArtifact = completed.manifest.artifacts?.find((a) => a.kind === "summary");
-        if (summaryArtifact) {
-          try {
-            const sumPath = path74.join(completed.manifest.artifactsRoot, summaryArtifact.path);
-            summaryContent = fs90.readFileSync(sumPath, "utf-8").trim().slice(0, 4e3);
-          } catch {
-          }
-        }
-        const taskLines = [];
-        let failedCount = 0;
-        const failedIds = [];
-        for (const task of completed.tasks) {
-          let resultExcerpt = "";
-          if (task.resultArtifact?.path) {
-            try {
-              const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
-              resultExcerpt = fs90.readFileSync(resPath, "utf-8").trim().slice(0, 2e3);
-            } catch {
-              resultExcerpt = "(result unavailable)";
-            }
-          }
-          const shortResult = resultExcerpt.slice(0, 500);
-          const statusTag = task.status === "completed" ? "\u2713" : task.status === "failed" ? "\u2717" : task.status === "cancelled" ? "\u2298" : "\xB7";
-          taskLines.push(
-            `- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " \u2014 " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`
-          );
-          if (task.status === "failed" || task.status === "needs_attention") {
-            failedCount++;
-            failedIds.push(task.id);
-          }
-        }
-        lines.push("");
-        lines.push(`Tasks (${completed.tasks.length}):`);
-        lines.push(...taskLines);
-        if (summaryContent) {
-          lines.push("");
-          lines.push("Summary:");
-          lines.push(summaryContent.slice(0, 2e3));
-        }
-        if (failedCount === 0) {
-          lines.push("");
-          lines.push("All tasks completed successfully.");
-        } else {
-          lines.push("");
-          lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
-        }
-      } else {
-        lines.push(
-          completed.manifest.status === "completed" ? "Run completed with no task results." : `The run ended with status: ${completed.manifest.status}. Check the run artifacts for details.`
-        );
-      }
-      const runFailed = completed.manifest.status === "failed" || completed.manifest.status === "blocked";
-      return result(
-        lines.join("\n"),
-        {
-          action: "run",
-          status: runFailed ? "error" : "ok",
-          runId: completed.manifest.runId,
-          artifactsRoot: completed.manifest.artifactsRoot,
-          metrics
-        },
-        runFailed
-      );
+      return formatRunResult(completed.manifest, {
+        tasks: completed.tasks,
+        metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
+        goal,
+        team: team.name,
+        workflow: workflow.name,
+        workspaceId: ctx.sessionId ?? ctx.cwd
+      });
     } catch (waitError) {
       const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
       return result(
@@ -71269,82 +71510,14 @@ ${dwfResult.manifest.summary ?? ""}`,
     }, updatedManifest.runId);
     try {
       const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 36e5 });
-      const metrics = collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId);
-      const lines = [
-        `pi-crew run ${completed.manifest.status}: ${completed.manifest.runId} (${team.name})`,
-        `Goal: ${goal.slice(0, 100)}`
-      ];
-      if (metrics) {
-        lines.push("");
-        lines.push(
-          `Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`
-        );
-      }
-      if (completed.tasks.length > 0) {
-        let summaryContent;
-        const summaryArtifact = completed.manifest.artifacts?.find((a) => a.kind === "summary");
-        if (summaryArtifact) {
-          try {
-            const sumPath = path74.join(completed.manifest.artifactsRoot, summaryArtifact.path);
-            summaryContent = fs90.readFileSync(sumPath, "utf-8").trim().slice(0, 4e3);
-          } catch {
-          }
-        }
-        const taskLines = [];
-        let failedCount = 0;
-        const failedIds = [];
-        for (const task of completed.tasks) {
-          let resultExcerpt = "";
-          if (task.resultArtifact?.path) {
-            try {
-              const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
-              resultExcerpt = fs90.readFileSync(resPath, "utf-8").trim().slice(0, 2e3);
-            } catch {
-              resultExcerpt = "(result unavailable)";
-            }
-          }
-          const shortResult = resultExcerpt.slice(0, 500);
-          const statusTag = task.status === "completed" ? "\u2713" : task.status === "failed" ? "\u2717" : task.status === "cancelled" ? "\u2298" : "\xB7";
-          taskLines.push(
-            `- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " \u2014 " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`
-          );
-          if (task.status === "failed" || task.status === "needs_attention") {
-            failedCount++;
-            failedIds.push(task.id);
-          }
-        }
-        lines.push("");
-        lines.push(`Tasks (${completed.tasks.length}):`);
-        lines.push(...taskLines);
-        if (summaryContent) {
-          lines.push("");
-          lines.push("Summary:");
-          lines.push(summaryContent.slice(0, 2e3));
-        }
-        if (failedCount === 0) {
-          lines.push("");
-          lines.push("All tasks completed successfully.");
-        } else {
-          lines.push("");
-          lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
-        }
-      } else {
-        lines.push(
-          completed.manifest.status === "completed" ? "Run completed with no task results." : `The run ended with status: ${completed.manifest.status}. Check the run artifacts for details.`
-        );
-      }
-      const runFailed = completed.manifest.status === "failed" || completed.manifest.status === "blocked";
-      return result(
-        lines.join("\n"),
-        {
-          action: "run",
-          status: runFailed ? "error" : "ok",
-          runId: completed.manifest.runId,
-          artifactsRoot: completed.manifest.artifactsRoot,
-          metrics
-        },
-        runFailed
-      );
+      return formatRunResult(completed.manifest, {
+        tasks: completed.tasks,
+        metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
+        goal,
+        team: team.name,
+        workflow: workflow.name,
+        workspaceId: ctx.sessionId ?? ctx.cwd
+      });
     } catch (waitError) {
       const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
       return result(
@@ -71397,29 +71570,16 @@ ${dwfResult.manifest.summary ?? ""}`,
   } finally {
     unregisterActiveRun(updatedManifest.runId);
   }
-  const text = [
-    `Created pi-crew run ${executed.manifest.runId}.`,
-    `Team: ${team.name}`,
-    `Workflow: ${workflow.name}`,
-    `Status: ${executed.manifest.status}`,
-    `Tasks: ${executed.tasks.length}`,
-    `State: ${executed.manifest.stateRoot}`,
-    `Artifacts: ${executed.manifest.artifactsRoot}`,
-    "",
-    `Runtime: ${runtime.kind}${runtime.fallback ? ` (fallback from ${runtime.requestedMode})` : ""}${runtime.reason ? ` - ${runtime.reason}` : ""}`,
-    runtime.kind === "child-process" ? "Child Pi worker execution is enabled by default; each task is launched as a separate Pi process. Set runtime.mode=scaffold or executeWorkers=false only for dry runs." : runtime.kind === "live-session" ? "Experimental live-session worker execution was enabled." : "Safe scaffold mode: child Pi workers were not launched because runtime.mode=scaffold or executeWorkers=false was configured."
-  ].join("\n");
-  return result(
-    text,
-    {
-      action: "run",
-      status: executed.manifest.status === "failed" ? "error" : "ok",
-      runId: executed.manifest.runId,
-      artifactsRoot: executed.manifest.artifactsRoot,
-      metrics: collectRunMetrics(resolvedCtx.cwd, executed.manifest.runId)
-    },
-    executed.manifest.status === "failed"
-  );
+  return formatRunResult(executed.manifest, {
+    tasks: executed.tasks,
+    metrics: collectRunMetrics(resolvedCtx.cwd, executed.manifest.runId),
+    goal,
+    team: team.name,
+    workflow: workflow.name,
+    workspaceId: ctx.cwd,
+    runtime: runtimeResolutionState(runtime),
+    mode: "scaffold"
+  });
 }
 var _cachedExecuteTeamRun, crewInitPromise, MAX_ANALYSIS_BYTES;
 var init_run = __esm({
@@ -74131,7 +74291,12 @@ function renderLines2(lines, width) {
   }
   return box.render(width);
 }
-function readProgressPreview(run, maxLines = 5) {
+function readProgressPreview(run, maxLines = 5, snapshotCache) {
+  const snapshot = snapshotFor(run, snapshotCache);
+  if (snapshot && snapshot.recentOutputLines?.length) {
+    return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
+  }
+  if (snapshotCache) return ["Progress: (loading\u2026)"];
   const progress = [...run.artifacts].reverse().find((artifact) => artifact.kind === "progress");
   if (!progress) return ["Progress: (none)"];
   try {
@@ -74165,6 +74330,7 @@ function snapshotFor(run, snapshotCache) {
 function readRunTasks2(run, snapshotCache) {
   const snapshot = snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.tasks;
+  if (snapshotCache) return [];
   const parse6 = () => {
     if (!fs94.existsSync(run.tasksPath)) return [];
     const parsed = JSON.parse(fs94.readFileSync(run.tasksPath, "utf-8"));
@@ -74212,7 +74378,7 @@ function agentPreviewLine(agent, task, options) {
 function readAgentPreview(run, maxLines = 5, options = {}) {
   try {
     const snapshot = snapshotFor(run, options.snapshotCache);
-    const agents = snapshot?.agents ?? readCrewAgents(run);
+    const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
     const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache);
     if (!agents.length) return ["Agents: (none)"];
     const totals = tasks.reduce(
@@ -74240,6 +74406,7 @@ function readAgentPreview(run, maxLines = 5, options = {}) {
 function agentsFor2(run, snapshotCache) {
   const snapshot = snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.agents;
+  if (snapshotCache) return [];
   try {
     return readCrewAgents(run);
   } catch {
@@ -74298,7 +74465,7 @@ function groupedRuns(runs, snapshotCache) {
 function selectedRunFromGrouped(runs, selected, snapshotCache) {
   return groupedRuns(runs, snapshotCache).filter((row) => row.run)[selected]?.run;
 }
-var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, STALE_SNAPSHOT_MS, RunDashboard;
+var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
   "src/ui/run-dashboard.ts"() {
     "use strict";
@@ -74321,6 +74488,7 @@ var init_run_dashboard = __esm({
     init_keybinding_map();
     init_layout_primitives();
     init_help_overlay();
+    init_render_scheduler();
     init_run_event_bus();
     init_spinner();
     init_status_colors();
@@ -74328,6 +74496,7 @@ var init_run_dashboard = __esm({
     lastActivePane = "agents";
     TASK_READ_TTL_MS2 = 1e3;
     RUN_LIST_MAX = 8;
+    SIGNATURE_CACHE_TTL_MS = 100;
     STALE_SNAPSHOT_MS = 15e3;
     RunDashboard = class {
       selected = 0;
@@ -74342,8 +74511,12 @@ var init_run_dashboard = __esm({
       cachedWidth = 0;
       cachedVersion = "";
       cachedLines = [];
+      /** 1.10 (UI-P1-2) — short-TTL cache for `buildSignature()` so per-run
+       *  `snapshotFor → refreshIfStale` calls don't fire on every render tick. */
+      cachedSignatureAt = 0;
+      cachedSignature = "";
       unsubscribeTheme;
-      unsubscribeEventBus;
+      renderScheduler;
       constructor(runs, done, theme = {}, options = {}) {
         const filteredRuns = options.workspaceId ? runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === options.workspaceId) : runs;
         this.runs = filteredRuns;
@@ -74351,16 +74524,22 @@ var init_run_dashboard = __esm({
         this.theme = asCrewTheme(theme);
         this.options = options;
         this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidateAndRender());
-        this.unsubscribeEventBus = (() => {
-          const unsub1 = runEventBus.onChannel("run:state", () => this.invalidateAndRender());
-          const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidateAndRender());
-          const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidateAndRender());
-          return () => {
-            unsub1();
-            unsub2();
-            unsub3();
-          };
-        })();
+        const renderTick = () => {
+          this.invalidateAndRender();
+        };
+        this.renderScheduler = new RenderScheduler(
+          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+          renderTick,
+          {
+            debounceMs: 75,
+            fallbackMs: 750,
+            events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+            onInvalidate: () => {
+              this.cachedSignature = "";
+              this.cachedSignatureAt = 0;
+            }
+          }
+        );
       }
       /**
        * Invalidate the layout cache AND poke the host TUI to repaint. Without
@@ -74426,6 +74605,10 @@ var init_run_dashboard = __esm({
         }
       }
       buildSignature() {
+        const now = Date.now();
+        if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS) {
+          return this.cachedSignature;
+        }
         let hasRunning = false;
         const statuses = this.runs.map((run) => {
           const snapshot = snapshotFor(run, this.options.snapshotCache);
@@ -74437,15 +74620,20 @@ var init_run_dashboard = __esm({
           return snapshot?.signature ?? `${displayRun.runId}:${displayRun.status}:${displayRun.updatedAt}:${status}`;
         }).join("|");
         const metricsSig = this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
-        return `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+        this.cachedSignature = sig;
+        this.cachedSignatureAt = now;
+        return sig;
       }
       invalidate() {
         this.cachedVersion = "";
         this.cachedLines = [];
+        this.cachedSignature = "";
+        this.cachedSignatureAt = 0;
       }
       dispose() {
         this.unsubscribeTheme();
-        this.unsubscribeEventBus();
+        this.renderScheduler?.dispose();
       }
       selectedRunId() {
         return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache)?.runId;
@@ -74551,7 +74739,7 @@ var init_run_dashboard = __esm({
                   () => renderMetricsPane(snap, {
                     registry: this.options.registry
                   })
-                ) : safeRenderPane("transcript", () => renderTranscriptPane(snap)) : [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2)];
+                ) : safeRenderPane("transcript", () => renderTranscriptPane(snap)) : [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
                 const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
                 if (filteredPane.length > 0) {
                   lines.push(row(fg("dim", `\u2500\u2500 ${this.activePane} \u2500\u2500`)));
@@ -79523,6 +79711,7 @@ var init_live_run_sidebar = __esm({
     init_file_coalescer();
     init_visual();
     init_layout_primitives();
+    init_render_scheduler();
     init_run_event_bus();
     init_spinner();
     init_status_colors();
@@ -79535,7 +79724,7 @@ var init_live_run_sidebar = __esm({
       theme;
       config;
       unsubscribeTheme;
-      unsubscribeEventBus;
+      renderScheduler;
       snapshotCache;
       cachedLines = [];
       cachedWidth = 0;
@@ -79550,16 +79739,15 @@ var init_live_run_sidebar = __esm({
         this.config = input.config ?? {};
         this.snapshotCache = input.snapshotCache;
         this.unsubscribeTheme = subscribeThemeChange(input.theme, () => this.invalidate());
-        this.unsubscribeEventBus = (() => {
-          const unsub1 = runEventBus.onChannel("run:state", () => this.invalidate());
-          const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidate());
-          const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidate());
-          return () => {
-            unsub1();
-            unsub2();
-            unsub3();
-          };
-        })();
+        this.renderScheduler = new RenderScheduler(
+          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+          () => this.invalidate(),
+          {
+            debounceMs: 75,
+            fallbackMs: 750,
+            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
+          }
+        );
       }
       buildSignature(manifestStatus, tasks, agents, waitingCount, snapshot) {
         const animation = agents.some((agent) => agent.status === "running") ? `:spin=${spinnerBucket()}` : "";
@@ -79597,32 +79785,44 @@ var init_live_run_sidebar = __esm({
           this.autoCloseTimeout = void 0;
         }
         this.unsubscribeTheme();
-        this.unsubscribeEventBus();
+        this.renderScheduler.dispose();
       }
       render(width) {
         const w = Math.max(36, width);
-        const loaded = loadRunManifestById(this.cwd, this.runId);
-        if (!loaded) {
-          return renderLines3(
-            [
-              border("\u256D", "\u2500", "\u256E", w),
-              line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-              line3("run not found", w),
-              border("\u2570", "\u2500", "\u256F", w)
-            ],
-            w
-          );
-        }
+        let run;
+        let tasks;
+        let rawAgents;
         let snapshot;
-        try {
-          snapshot = this.snapshotCache?.refreshIfStale(this.runId);
-        } catch {
-          snapshot = void 0;
+        if (this.snapshotCache) {
+          try {
+            snapshot = this.snapshotCache.refreshIfStale(this.runId);
+          } catch {
+            snapshot = void 0;
+          }
+          if (!snapshot) {
+            return ["(loading\u2026)"];
+          }
+          run = snapshot.manifest;
+          tasks = snapshot.tasks;
+          rawAgents = snapshot.agents;
+        } else {
+          const loaded = loadRunManifestById(this.cwd, this.runId);
+          if (!loaded) {
+            return renderLines3(
+              [
+                border("\u256D", "\u2500", "\u256E", w),
+                line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
+                line3("run not found", w),
+                border("\u2570", "\u2500", "\u256F", w)
+              ],
+              w
+            );
+          }
+          run = loaded.manifest;
+          tasks = readTasks3(run.tasksPath);
+          rawAgents = readCrewAgents(run);
         }
-        const run = snapshot?.manifest ?? loaded.manifest;
-        const tasks = snapshot?.tasks ?? readTasks3(run.tasksPath);
         const controlConfig = resolveCrewControlConfig({ ui: this.config });
-        const rawAgents = snapshot?.agents ?? readCrewAgents(run);
         const agents = rawAgents.map((agent) => applyAttentionState(run, agent, controlConfig));
         const active = agents.filter((agent) => agent.status === "running");
         const completed = agents.filter((agent) => agent.status !== "running").slice(-5);
@@ -80806,182 +81006,7 @@ function deployBundledThemes() {
 init_heartbeat_aggregator();
 init_pi_ui_compat();
 init_powerbar_publisher();
-
-// src/ui/render-scheduler.ts
-init_internal_error();
-var DEFAULT_EVENTS = [
-  "crew.run.created",
-  "crew.run.completed",
-  "crew.run.failed",
-  "crew.run.cancelled",
-  "crew.subagent.completed",
-  "crew.subagent.failed",
-  "crew.mailbox.updated",
-  "crew.mailbox.message"
-];
-var RenderScheduler = class {
-  render;
-  onInvalidate;
-  debounceMs;
-  fallbackProvider;
-  fallbackMs;
-  invalidateCoalesceMs;
-  debounceTimer;
-  fallbackTimer;
-  invalidateTimer;
-  /** runId → most recent payload to forward when the coalesce window flushes. */
-  invalidateBuffer = /* @__PURE__ */ new Map();
-  disposed = false;
-  lastEventAt = 0;
-  rendering = false;
-  pendingRender = false;
-  unsubs = [];
-  constructor(events, render, options = {}) {
-    this.render = render;
-    this.onInvalidate = options.onInvalidate;
-    this.debounceMs = options.debounceMs ?? 75;
-    const fallback2 = options.fallbackMs ?? 750;
-    this.fallbackProvider = typeof fallback2 === "function" ? fallback2 : () => fallback2;
-    this.fallbackMs = typeof fallback2 === "number" ? fallback2 : 750;
-    this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
-    for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
-    this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
-    this.fallbackTimer.unref();
-  }
-  currentFallbackMs() {
-    try {
-      const value = this.fallbackProvider();
-      return Number.isFinite(value) && value > 0 ? value : 750;
-    } catch (error) {
-      logInternalError("render-scheduler.fallbackProvider", error);
-      return 750;
-    }
-  }
-  subscribe(events, event) {
-    if (!events?.on) return;
-    const handler = (payload) => this.schedule(payload);
-    try {
-      const unsub = events.on(event, handler);
-      if (typeof unsub === "function") this.unsubs.push(unsub);
-    } catch (error) {
-      logInternalError("render-scheduler.subscribe", error, event);
-    }
-  }
-  /** Recursive setTimeout — avoids setInterval timer storms. */
-  fallbackLoop() {
-    if (this.disposed) return;
-    const fallbackMs = this.currentFallbackMs();
-    if (Date.now() - this.lastEventAt < fallbackMs) {
-      if (this.disposed) return;
-      this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
-      this.fallbackTimer.unref();
-      return;
-    }
-    this.schedule();
-    if (this.disposed) return;
-    this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
-    this.fallbackTimer.unref();
-  }
-  schedule(payload) {
-    if (this.disposed) return;
-    this.lastEventAt = Date.now();
-    this.invalidate(payload);
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.debounceTimer = void 0;
-      this.flush();
-    }, this.debounceMs);
-    this.debounceTimer.unref();
-  }
-  /**
-   * 1.9: forward `onInvalidate` immediately when the payload has no `runId`
-   * (we cannot dedup it). When it carries a runId, buffer the latest payload
-   * per runId and flush on a coalesce timer so high-frequency event bursts
-   * (`crew.subagent.completed` for parallel tasks) collapse into one
-   * invalidate per affected run.
-   */
-  invalidate(payload) {
-    try {
-      const runId = typeof payload === "object" && payload !== null && "runId" in payload && typeof payload.runId === "string" ? payload.runId : void 0;
-      if (runId === void 0 || this.invalidateCoalesceMs <= 0) {
-        this.onInvalidate?.(payload);
-        return;
-      }
-      this.invalidateBuffer.set(runId, payload);
-      if (!this.invalidateTimer) {
-        this.invalidateTimer = setTimeout(() => this.flushInvalidate(), this.invalidateCoalesceMs);
-        this.invalidateTimer.unref();
-      }
-    } catch (error) {
-      logInternalError("render-scheduler.invalidate", error);
-    }
-  }
-  flushInvalidate() {
-    this.invalidateTimer = void 0;
-    if (this.disposed) {
-      this.invalidateBuffer.clear();
-      return;
-    }
-    const buffered = this.invalidateBuffer;
-    this.invalidateBuffer = /* @__PURE__ */ new Map();
-    for (const payload of buffered.values()) {
-      try {
-        this.onInvalidate?.(payload);
-      } catch (error) {
-        logInternalError("render-scheduler.invalidate.flush", error);
-      }
-    }
-  }
-  /**
-   * Flush a render.  If a render is already in progress the request is
-   * collapsed: `pendingRender` is set and the caller that holds
-   * `rendering==true` will loop one more time after finishing.
-   */
-  flush() {
-    if (this.disposed) return;
-    if (this.rendering) {
-      this.pendingRender = true;
-      return;
-    }
-    this.rendering = true;
-    this.pendingRender = false;
-    let iterations = 0;
-    try {
-      do {
-        this.pendingRender = false;
-        this.render();
-        iterations += 1;
-      } while (this.pendingRender && !this.disposed && iterations < 5);
-    } catch (error) {
-      logInternalError("render-scheduler.render", error);
-    } finally {
-      this.rendering = false;
-      if (iterations >= 5 && this.pendingRender && !this.disposed) {
-        this.schedule();
-      }
-    }
-  }
-  dispose() {
-    if (this.disposed) return;
-    this.disposed = true;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
-    if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
-    this.debounceTimer = void 0;
-    this.fallbackTimer = void 0;
-    this.invalidateTimer = void 0;
-    this.invalidateBuffer.clear();
-    for (const unsub of this.unsubs.splice(0)) {
-      try {
-        unsub();
-      } catch (error) {
-        logInternalError("render-scheduler.unsubscribe", error);
-      }
-    }
-  }
-};
-
-// src/extension/register.ts
+init_render_scheduler();
 init_run_event_bus();
 
 // src/ui/run-snapshot-cache.ts
@@ -81050,43 +81075,23 @@ function combineStamps(stamps) {
 }
 function mailboxStamp(manifest) {
   const root = path28.join(manifest.stateRoot, "mailbox");
-  const stamps = [
+  const tasksRoot = path28.join(root, "tasks");
+  return combineStamps([
     stampFile(path28.join(root, "inbox.jsonl")),
     stampFile(path28.join(root, "outbox.jsonl")),
-    stampFile(path28.join(root, "delivery.json"))
-  ];
-  const tasksRoot = path28.join(root, "tasks");
-  try {
-    for (const entry of fs33.readdirSync(tasksRoot, {
-      withFileTypes: true
-    })) {
-      if (!entry.isDirectory()) continue;
-      stamps.push(stampFile(path28.join(tasksRoot, entry.name, "inbox.jsonl")));
-      stamps.push(stampFile(path28.join(tasksRoot, entry.name, "outbox.jsonl")));
-    }
-  } catch {
-  }
-  return combineStamps(stamps);
+    stampFile(path28.join(root, "delivery.json")),
+    stampFile(tasksRoot)
+  ]);
 }
 async function mailboxStampAsync(manifest) {
   const root = path28.join(manifest.stateRoot, "mailbox");
-  const stamps = [
+  const tasksRoot = path28.join(root, "tasks");
+  return combineStamps([
     await stampFileAsync(path28.join(root, "inbox.jsonl")),
     await stampFileAsync(path28.join(root, "outbox.jsonl")),
-    await stampFileAsync(path28.join(root, "delivery.json"))
-  ];
-  const tasksRoot = path28.join(root, "tasks");
-  try {
-    for (const entry of await fs33.promises.readdir(tasksRoot, {
-      withFileTypes: true
-    })) {
-      if (!entry.isDirectory()) continue;
-      stamps.push(await stampFileAsync(path28.join(tasksRoot, entry.name, "inbox.jsonl")));
-      stamps.push(await stampFileAsync(path28.join(tasksRoot, entry.name, "outbox.jsonl")));
-    }
-  } catch {
-  }
-  return combineStamps(stamps);
+    await stampFileAsync(path28.join(root, "delivery.json")),
+    await stampFileAsync(tasksRoot)
+  ]);
 }
 function safeAgentOutputPath(manifest, agent) {
   try {

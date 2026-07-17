@@ -12,7 +12,8 @@ import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { truncate } from "../../utils/visual.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
-import { runEventBus } from "../run-event-bus.ts";
+import { RenderScheduler } from "../render-scheduler.ts";
+import { runEventBusAsRenderScheduler } from "../run-event-bus.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "../snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
@@ -109,7 +110,7 @@ class CrewWidgetComponent implements WidgetComponent {
 	private cachedTheme: CrewTheme;
 	private readonly tui: unknown;
 	private readonly unsubscribeTheme: () => void;
-	private readonly unsubscribeEventBus: () => void;
+	private readonly renderScheduler: RenderScheduler;
 
 	constructor(model: CrewWidgetModel, themeLike: unknown, tui?: unknown) {
 		this.model = model;
@@ -123,16 +124,21 @@ class CrewWidgetComponent implements WidgetComponent {
 		activeResizeTarget = this;
 		installResizeListener();
 		this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
-		this.unsubscribeEventBus = (() => {
-			const unsub1 = runEventBus.onChannel("run:state", () => this.invalidate());
-			const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidate());
-			const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidate());
-			return () => {
-				unsub1();
-				unsub2();
-				unsub3();
-			};
-		})();
+		// 1.10 (UI-P1-1): route run:state / worker:lifecycle / ui:invalidate
+		// through a RenderScheduler (debounce + fallback) instead of three
+		// direct runEventBus.onChannel subscriptions. With 3 overlays
+		// subscribing independently a single event triggered up to 9 callbacks
+		// and ~150 invalidates/sec under load. The scheduler collapses bursts
+		// into one debounced invalidate.
+		this.renderScheduler = new RenderScheduler(
+			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+			() => this.invalidate(),
+			{
+				debounceMs: 75,
+				fallbackMs: 750,
+				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+			},
+		);
 	}
 
 	private buildSignature(runs: WidgetRun[]): string {
@@ -193,7 +199,7 @@ class CrewWidgetComponent implements WidgetComponent {
 
 	dispose(): void {
 		this.unsubscribeTheme();
-		this.unsubscribeEventBus();
+		this.renderScheduler.dispose();
 		if (activeResizeTarget === this) activeResizeTarget = undefined;
 	}
 
@@ -222,6 +228,11 @@ class CrewWidgetComponent implements WidgetComponent {
 
 		if (runs.length === 0) {
 			this.invalidate();
+			// P0-6: render from snapshots only — never read disk on every render tick.
+			// When the snapshot cache is provided but hasn't populated yet, paint a
+			// single "(loading…)" line so the pre-load frame is well-formed instead
+			// of an empty panel. Without a cache (legacy/tests) keep the empty result.
+			if (this.model.snapshotCache) return ["(loading…)"];
 			return [];
 		}
 

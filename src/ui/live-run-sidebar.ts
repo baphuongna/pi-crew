@@ -9,7 +9,8 @@ import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { pad, truncate } from "../utils/visual.ts";
 import { Box, Text } from "./layout-primitives.ts";
-import { runEventBus } from "./run-event-bus.ts";
+import { RenderScheduler } from "./render-scheduler.ts";
+import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "./status-colors.ts";
@@ -60,7 +61,7 @@ export class LiveRunSidebar {
 	private readonly theme: CrewTheme;
 	private readonly config: CrewUiConfig;
 	private readonly unsubscribeTheme: () => void;
-	private readonly unsubscribeEventBus: () => void;
+	private readonly renderScheduler: RenderScheduler;
 	private readonly snapshotCache?: RunSnapshotCache;
 	private cachedLines: string[] = [];
 	private cachedWidth = 0;
@@ -83,16 +84,21 @@ export class LiveRunSidebar {
 		this.config = input.config ?? {};
 		this.snapshotCache = input.snapshotCache;
 		this.unsubscribeTheme = subscribeThemeChange(input.theme, () => this.invalidate());
-		this.unsubscribeEventBus = (() => {
-			const unsub1 = runEventBus.onChannel("run:state", () => this.invalidate());
-			const unsub2 = runEventBus.onChannel("worker:lifecycle", () => this.invalidate());
-			const unsub3 = runEventBus.onChannel("ui:invalidate", () => this.invalidate());
-			return () => {
-				unsub1();
-				unsub2();
-				unsub3();
-			};
-		})();
+		// 1.10 (UI-P1-1): route run:state / worker:lifecycle / ui:invalidate
+		// through a RenderScheduler (debounce + fallback) instead of three
+		// direct runEventBus.onChannel subscriptions. With 3 overlays
+		// subscribing independently a single event triggered up to 9 callbacks
+		// and ~150 invalidates/sec under load. The scheduler collapses bursts
+		// into one debounced invalidate.
+		this.renderScheduler = new RenderScheduler(
+			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+			() => this.invalidate(),
+			{
+				debounceMs: 75,
+				fallbackMs: 750,
+				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+			},
+		);
 	}
 
 	private buildSignature(
@@ -152,34 +158,52 @@ export class LiveRunSidebar {
 			this.autoCloseTimeout = undefined;
 		}
 		this.unsubscribeTheme();
-		this.unsubscribeEventBus();
+		this.renderScheduler.dispose();
 	}
 
 	render(width: number): string[] {
 		const w = Math.max(36, width);
-		const loaded = loadRunManifestById(this.cwd, this.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
-		if (!loaded) {
-			return renderLines(
-				[
-					border("╭", "─", "╮", w),
-					line(`${this.theme.fg("accent", "▐")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-					line("run not found", w),
-					border("╰", "─", "╯", w),
-				],
-				w,
-			);
-		}
 
+		// P0-6: render from snapshots only — never read disk on every render tick.
+		// Production wires a snapshotCache (extension/registration/ui.ts). When
+		// the cache hasn't populated yet we paint a single "(loading…)" line so
+		// the pre-load frame is well-formed instead of an empty panel. When the
+		// cache is undefined (tests/dev) we fall back to direct disk reads so
+		// existing unit tests keep working.
+		let run: import("../state/types.ts").TeamRunManifest;
+		let tasks: TeamTaskState[];
+		let rawAgents: ReturnType<typeof readCrewAgents>;
 		let snapshot: RunUiSnapshot | undefined;
-		try {
-			snapshot = this.snapshotCache?.refreshIfStale(this.runId);
-		} catch {
-			snapshot = undefined;
+		if (this.snapshotCache) {
+			try {
+				snapshot = this.snapshotCache.refreshIfStale(this.runId);
+			} catch {
+				snapshot = undefined;
+			}
+			if (!snapshot) {
+				return ["(loading…)"];
+			}
+			run = snapshot.manifest;
+			tasks = snapshot.tasks;
+			rawAgents = snapshot.agents;
+		} else {
+			const loaded = loadRunManifestById(this.cwd, this.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
+			if (!loaded) {
+				return renderLines(
+					[
+						border("╭", "─", "╮", w),
+						line(`${this.theme.fg("accent", "▐")} ${this.theme.bold("pi-crew live sidebar")}`, w),
+						line("run not found", w),
+						border("╰", "─", "╯", w),
+					],
+					w,
+				);
+			}
+			run = loaded.manifest;
+			tasks = readTasks(run.tasksPath);
+			rawAgents = readCrewAgents(run);
 		}
-		const run = snapshot?.manifest ?? loaded.manifest;
-		const tasks = snapshot?.tasks ?? readTasks(run.tasksPath);
 		const controlConfig = resolveCrewControlConfig({ ui: this.config });
-		const rawAgents = snapshot?.agents ?? readCrewAgents(run);
 		const agents = rawAgents.map((agent) => applyAttentionState(run, agent, controlConfig));
 		const active = agents.filter((agent) => agent.status === "running");
 		const completed = agents.filter((agent) => agent.status !== "running").slice(-5);

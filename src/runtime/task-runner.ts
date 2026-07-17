@@ -1243,9 +1243,14 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		// stale manifest and overwrite this task's freshly-written artifacts, silently
 		// losing them. persistSingleTaskUpdate is re-entrance-safe (runLockHeldByUs guard),
 		// so nesting it inside this lock is a no-op re-acquire, not a deadlock.
+		// ST-7: this is a terminal transition (task.status is completed/failed/needs_attention),
+		// pass skipCoalesce=true so the terminal update is durable — a SIGKILL in the
+		// 50ms coalesce window must NOT leave tasks.json showing the prior non-terminal
+		// status, otherwise crash recovery would see inconsistency between tasks.json
+		// (running) and events.jsonl (terminal).
 		tasks = await withRunLock(manifest, async () => {
 			await saveRunManifestAsync(manifest);
-			return persistSingleTaskUpdate(manifest, tasks, task);
+			return persistSingleTaskUpdate(manifest, tasks, task, undefined, true);
 		});
 		upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
 		// Execute task_result hook before emitting terminal event

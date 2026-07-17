@@ -126,46 +126,33 @@ function combineStamps(stamps: FileStamp[]): FileStamp {
 
 function mailboxStamp(manifest: TeamRunManifest): FileStamp {
 	const root = path.join(manifest.stateRoot, "mailbox");
-	const stamps: FileStamp[] = [
+	const tasksRoot = path.join(root, "tasks");
+	// 1.10 (UI-P1-3): replace the O(tasks) per-task inbox/outbox stat loop
+	// with a single stat on the tasks dir. The dir mtime changes whenever a
+	// task mailbox subdir is created or removed (the dominant cost when a run
+	// has many tasks), and per-file content changes are still caught by the
+	// top-level inbox/outbox/delivery stats below. The event-bus
+	// (`crew.mailbox.*`) also drives invalidation, so the stamp is the
+	// fallback poll, not the only source of truth.
+	return combineStamps([
 		stampFile(path.join(root, "inbox.jsonl")),
 		stampFile(path.join(root, "outbox.jsonl")),
 		stampFile(path.join(root, "delivery.json")),
-	];
-	const tasksRoot = path.join(root, "tasks");
-	try {
-		for (const entry of fs.readdirSync(tasksRoot, {
-			withFileTypes: true,
-		})) {
-			if (!entry.isDirectory()) continue;
-			stamps.push(stampFile(path.join(tasksRoot, entry.name, "inbox.jsonl")));
-			stamps.push(stampFile(path.join(tasksRoot, entry.name, "outbox.jsonl")));
-		}
-	} catch {
-		// No task mailbox yet.
-	}
-	return combineStamps(stamps);
+		stampFile(tasksRoot),
+	]);
 }
 
 async function mailboxStampAsync(manifest: TeamRunManifest): Promise<FileStamp> {
 	const root = path.join(manifest.stateRoot, "mailbox");
-	const stamps: FileStamp[] = [
+	const tasksRoot = path.join(root, "tasks");
+	// 1.10 (UI-P1-3): see sync `mailboxStamp` above — single tasksRoot stat
+	// replaces the O(tasks) per-task loop.
+	return combineStamps([
 		await stampFileAsync(path.join(root, "inbox.jsonl")),
 		await stampFileAsync(path.join(root, "outbox.jsonl")),
 		await stampFileAsync(path.join(root, "delivery.json")),
-	];
-	const tasksRoot = path.join(root, "tasks");
-	try {
-		for (const entry of await fs.promises.readdir(tasksRoot, {
-			withFileTypes: true,
-		})) {
-			if (!entry.isDirectory()) continue;
-			stamps.push(await stampFileAsync(path.join(tasksRoot, entry.name, "inbox.jsonl")));
-			stamps.push(await stampFileAsync(path.join(tasksRoot, entry.name, "outbox.jsonl")));
-		}
-	} catch {
-		// No task mailbox yet.
-	}
-	return combineStamps(stamps);
+		await stampFileAsync(tasksRoot),
+	]);
 }
 
 function safeAgentOutputPath(manifest: TeamRunManifest, agent: CrewAgentRecord): string | undefined {

@@ -1,16 +1,31 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { renameWithLinkAsync, renameWithLinkSync } from "./atomic-write.ts";
 
 /**
  * Fallow-inspired atomic writer: write-to-.tmp → fsync → rename.
  *
- * Key differences from atomic-write.ts:
- * - Uses rename() (POSIX-atomic) instead of link()+unlink()
- * - Calls fsyncSync() on the temp file before rename
- * - Best-effort fsync (failure does not abort)
- * - Writes .gitignore to directory on first use
- * - UUID-based tmp file to prevent collisions under concurrent writes
+ * Status: DEPRECATED / EXPERIMENTAL — NOT USED IN PRODUCTION.
+ *
+ * `grep -rn "atomic-write-v2" src/` returns 0 importers; production code
+ * routes through `src/state/atomic-write.ts` (`atomicWriteFile` /
+ * `atomicWriteFileAsync` / `atomicWriteJson*`). Retained for the planned
+ * v1→v2 migration (`docs/migration/atomic-write-v2-migration.md`).
+ *
+ * ST-8 fix: replaced `fs.renameSync(tmpPath, targetPath)` (symlink-following)
+ * and `fs.promises.rename(tmpPath, targetPath)` (also symlink-following)
+ * with the canonical symlink-safe helpers `renameWithLinkSync` /
+ * `renameWithLinkAsync` exported from `atomic-write.ts`. The two
+ * implementations now share identical rename semantics:
+ * - On POSIX: `unlink(target)` then `link(temp, target)` then `unlink(temp)`
+ *   (link does NOT follow symlinks at the destination path, so a symlink
+ *   planted mid-write cannot be replaced with attacker content).
+ * - On Windows: a single `fs.rename` (MoveFileEx with MOVEFILE_REPLACE_EXISTING).
+ *
+ * Existing tests in `test/unit/atomic-write-v2.test.ts` continue to pass —
+ * they verify atomic-replace + .gitignore + UUID tmp behavior, none of which
+ * depend on the rename implementation choice.
  */
 export class AtomicWriter {
 	private initializedDirs = new Set<string>();
@@ -35,7 +50,9 @@ export class AtomicWriter {
 			fs.closeSync(fd);
 		}
 		try {
-			fs.renameSync(tmpPath, targetPath);
+			// ST-8: use the shared symlink-safe rename helper from atomic-write.ts
+			// instead of fs.renameSync (which follows symlinks at the destination).
+			renameWithLinkSync(tmpPath, targetPath);
 		} catch (err) {
 			try {
 				fs.unlinkSync(tmpPath);
@@ -61,7 +78,10 @@ export class AtomicWriter {
 			await fd.close();
 		}
 		try {
-			await fs.promises.rename(tmpPath, targetPath);
+			// ST-8: use the shared symlink-safe async rename helper from
+			// atomic-write.ts instead of fs.promises.rename (which follows
+			// symlinks at the destination).
+			await renameWithLinkAsync(tmpPath, targetPath);
 		} catch (err) {
 			try {
 				await fs.promises.unlink(tmpPath);

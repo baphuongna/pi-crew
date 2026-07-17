@@ -57,18 +57,27 @@ export function activeWidgetRuns(
 		.map((run) => {
 			try {
 				const snapshot = snapshotCache?.get(run.runId);
-				return snapshot
-					? {
-							run: snapshot.manifest,
-							agents: snapshot.agents,
-							snapshot,
-						}
-					: { run, agents: agentsFor(run) };
+				if (snapshot) {
+					return {
+						run: snapshot.manifest,
+						agents: snapshot.agents,
+						snapshot,
+					};
+				}
+				// P0-6: render from snapshots only — never read disk on every
+				// render tick. When the snapshot cache is provided but hasn't
+				// populated yet (first frame after `updateCrewWidget`), drop the
+				// run from the result so the widget paints "(loading…)" instead
+				// of calling `agentsFor(run) → readCrewAgents`. Legacy callers
+				// (no snapshotCache) keep the disk-read fallback for tests/dev.
+				if (snapshotCache) return null;
+				return { run, agents: agentsFor(run) };
 			} catch {
+				if (snapshotCache) return null;
 				return { run, agents: agentsFor(run) };
 			}
 		})
-		.filter((item) => isDisplayActiveRun(item.run, item.agents));
+		.filter((item): item is WidgetRun => item !== null && isDisplayActiveRun(item.run, item.agents));
 }
 
 /**

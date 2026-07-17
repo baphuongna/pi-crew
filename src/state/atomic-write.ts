@@ -315,8 +315,14 @@ function isRetryableLinkError(error: unknown): boolean {
  * It atomically creates a hard link to the source. We then unlink the source.
  * This prevents TOCTOU attacks where an attacker plants a symlink at the
  * destination between the check and the rename operation.
+ *
+ * ST-8: this is the canonical symlink-safe rename helper used by both
+ * `atomicWriteFile` (sync) and `atomicWriteFileAsync` (async) paths, AND
+ * consumed by `atomic-write-v2.ts`'s `AtomicWriter` class so the two
+ * implementations share a single rename semantic. Keep this signature
+ * stable — `AtomicWriter.writeSync` / `writeAsync` call it directly.
  */
-function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): void {
+export function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): void {
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
@@ -371,7 +377,12 @@ function renameWithLinkSync(tempPath: string, filePath: string, retries = 8): vo
 	throw lastError;
 }
 
-async function renameWithLinkAsync(tempPath: string, filePath: string, retries = 8): Promise<void> {
+/**
+ * ST-8: async twin of `renameWithLinkSync`. Exported so `atomic-write-v2.ts`
+ * (`AtomicWriter.writeAsync`) shares the same symlink-safe rename semantics
+ * as the primary `atomicWriteFileAsync` path.
+ */
+export async function renameWithLinkAsync(tempPath: string, filePath: string, retries = 8): Promise<void> {
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
@@ -747,6 +758,14 @@ let flushInProgress = 0;
  * Buffer a JSON write and flush it after `coalesceMs` ms (default 50).
  * Multiple writes to the same path within the window collapse to one disk write.
  *
+ * ST-7 escape hatch: pass `skipCoalesce: true` to bypass the buffer entirely
+ * and write synchronously via `atomicWriteJson`. Use for terminal task status
+ * transitions where a SIGKILL during the 50ms coalesce window must NOT lose
+ * the terminal status update — otherwise crash recovery would see "running"
+ * in tasks.json while events.jsonl already shows "completed", causing
+ * double-execution / zombie detection. Defaults to `false` (buffered write)
+ * so all existing callers preserve their behavior.
+ *
  * @see The coalescing caveat: a `readJsonFile` call between buffer and flush
  *      sees the previous on-disk content. Callers needing read-after-write
  *      must call `flushPendingAtomicWrites()` first or use `atomicWriteJson`.
@@ -754,9 +773,17 @@ let flushInProgress = 0;
 export function atomicWriteJsonCoalesced<T>(
 	filePath: string,
 	value: T,
-	coalesceMs = DEFAULT_ATOMIC_COALESCE_MS,
+	coalesceMs: number = DEFAULT_ATOMIC_COALESCE_MS,
 	options?: AtomicWriteOptions,
+	skipCoalesce: boolean = false,
 ): void {
+	// ST-7: bypass coalescing for callers that need durable synchronous
+	// semantics. atomicWriteJson goes through atomicWriteFile which uses
+	// renameWithLinkSync + fsync — fully durable, no SIGKILL window.
+	if (skipCoalesce) {
+		atomicWriteJson(filePath, value, options);
+		return;
+	}
 	const content = `${JSON.stringify(value, null, 2)}\n`;
 	const previous = pendingAtomicWrites.get(filePath);
 	if (previous) clearTimeout(previous.timer);

@@ -34,6 +34,8 @@ import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtim
 import { normalizeSkillOverride } from "../../runtime/skill-instructions.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
+import type { RunMetrics } from "../../state/run-metrics.ts";
+import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 /**
  * Module-scoped latch for the crew-init dynamic import.
@@ -195,6 +197,186 @@ function resolveAnalysisText(
 	const sanitized = sanitizeTaskText(params.analysis as string);
 	if (!sanitized) return { source: "none" };
 	return { text: sanitized, source: "inline" };
+}
+
+/**
+ * Options for {@link formatRunResult} (EXT-2 refactor).
+ */
+export interface FormatRunResultOptions {
+	/** Task states for the completed run (used to render the per-task summary in "waited" mode). */
+	tasks: TeamTaskState[];
+	/** Pre-computed run metrics snapshot; omitted when the run finished before metrics were recorded. */
+	metrics: RunMetrics | undefined;
+	/** Goal text — truncated to 100 chars in the "waited" banner. */
+	goal: string;
+	/** Team name (for the banner). */
+	team: string;
+	/** Workflow name (for the scaffold banner). */
+	workflow: string;
+	/** Optional workspace identifier (session id / cwd) — surfaced in `details.data` for traceability. */
+	workspaceId?: string;
+	/** Runtime resolution — required for `mode: "scaffold"`, optional otherwise. */
+	runtime?: RuntimeResolutionState;
+	/** Output mode:
+	 *  - `"waited"` (default) — detailed per-task summary after `waitForRun` resolved
+	 *    (replaces the former async + foreground completion blocks).
+	 *  - `"scaffold"` — concise "Created pi-crew run" banner for runs that completed
+	 *    without worker execution (scaffold mode / `executeWorkers=false`).
+	 */
+	mode?: "waited" | "scaffold";
+}
+
+/**
+ * Format the text + {@link PiTeamsToolResult} for a completed team run.
+ *
+ * Replaces three near-identical inline blocks in `handleRun` (EXT-2 finding):
+ *   1. Async-spawned run completion (after `waitForRun`).
+ *   2. Foreground-run completion (after `waitForRun`).
+ *   3. Scaffold / no-executeWorkers completion (after `executeTeamRun` returns
+ *      synchronously without launching workers).
+ *
+ * The output is byte-identical to the prior inline implementations when
+ * `workspaceId` is unset. When `workspaceId` is provided it is included in
+ * `details.data.workspaceId` so downstream consumers (TUI widgets, audit logs)
+ * can attribute the result to the originating session/cwd.
+ */
+function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOptions): PiTeamsToolResult {
+	const { tasks, metrics, goal, team, workflow, workspaceId, runtime, mode = "waited" } = options;
+
+	if (mode === "scaffold") {
+		// Scaffold / no-worker banner. `runtime` is required in this mode — callers
+		// must provide it so we can render the runtime kind + explanation.
+		const runtimeLine = runtime
+			? `Runtime: ${runtime.kind}${runtime.fallback ? ` (fallback from ${runtime.requestedMode})` : ""}${runtime.reason ? ` - ${runtime.reason}` : ""}`
+			: "Runtime: unknown";
+		const runtimeExplanation = !runtime
+			? ""
+			: runtime.kind === "child-process"
+				? "Child Pi worker execution is enabled by default; each task is launched as a separate Pi process. Set runtime.mode=scaffold or executeWorkers=false only for dry runs."
+				: runtime.kind === "live-session"
+					? "Experimental live-session worker execution was enabled."
+					: "Safe scaffold mode: child Pi workers were not launched because runtime.mode=scaffold or executeWorkers=false was configured.";
+		const text = [
+			`Created pi-crew run ${manifest.runId}.`,
+			`Team: ${team}`,
+			`Workflow: ${workflow}`,
+			`Status: ${manifest.status}`,
+			`Tasks: ${tasks.length}`,
+			`State: ${manifest.stateRoot}`,
+			`Artifacts: ${manifest.artifactsRoot}`,
+			"",
+			runtimeLine,
+			runtimeExplanation,
+		]
+			.filter((line) => line !== "")
+			.join("\n");
+		const isError = manifest.status === "failed";
+		return result(
+			text,
+			{
+				action: "run",
+				status: isError ? "error" : "ok",
+				runId: manifest.runId,
+				artifactsRoot: manifest.artifactsRoot,
+				metrics,
+				...(workspaceId ? { data: { workspaceId } } : {}),
+			},
+			isError,
+		);
+	}
+
+	// mode === "waited" — detailed per-task summary.
+	const lines: string[] = [
+		`pi-crew run ${manifest.status}: ${manifest.runId} (${team})`,
+		`Goal: ${goal.slice(0, 100)}`,
+	];
+	if (metrics) {
+		lines.push("");
+		lines.push(
+			`Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`,
+		);
+	}
+
+	if (tasks.length > 0) {
+		// Read run-level summary artifact if present
+		let summaryContent: string | undefined;
+		const summaryArtifact = manifest.artifacts?.find((a: { kind?: string }) => a.kind === "summary");
+		if (summaryArtifact) {
+			try {
+				const sumPath = path.join(manifest.artifactsRoot, summaryArtifact.path);
+				summaryContent = fs.readFileSync(sumPath, "utf-8").trim().slice(0, 4000);
+			} catch {
+				/* summary unavailable */
+			}
+		}
+
+		const taskLines: string[] = [];
+		let failedCount = 0;
+		const failedIds: string[] = [];
+		for (const task of tasks) {
+			let resultExcerpt = "";
+			if (task.resultArtifact?.path) {
+				try {
+					// H-3 fix (code-review 2026-06-23): resolve the result artifact path
+					// inside artifactsRoot via the project's safe-path primitive. Rejects
+					// absolute paths (/etc/passwd) and ../ traversal that the old
+					// path.isAbsolute shortcut + bare path.join allowed.
+					const resPath = resolveRealContainedPath(manifest.artifactsRoot, task.resultArtifact.path);
+					resultExcerpt = fs.readFileSync(resPath, "utf-8").trim().slice(0, 2000);
+				} catch {
+					resultExcerpt = "(result unavailable)";
+				}
+			}
+			const shortResult = resultExcerpt.slice(0, 500);
+			const statusTag =
+				task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
+			taskLines.push(
+				`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
+			);
+			if (task.status === "failed" || task.status === "needs_attention") {
+				failedCount++;
+				failedIds.push(task.id);
+			}
+		}
+
+		lines.push("");
+		lines.push(`Tasks (${tasks.length}):`);
+		lines.push(...taskLines);
+
+		if (summaryContent) {
+			lines.push("");
+			lines.push("Summary:");
+			lines.push(summaryContent.slice(0, 2000));
+		}
+
+		if (failedCount === 0) {
+			lines.push("");
+			lines.push("All tasks completed successfully.");
+		} else {
+			lines.push("");
+			lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
+		}
+	} else {
+		lines.push(
+			manifest.status === "completed"
+				? "Run completed with no task results."
+				: `The run ended with status: ${manifest.status}. Check the run artifacts for details.`,
+		);
+	}
+
+	const runFailed = manifest.status === "failed" || manifest.status === "blocked";
+	return result(
+		lines.join("\n"),
+		{
+			action: "run",
+			status: runFailed ? "error" : "ok",
+			runId: manifest.runId,
+			artifactsRoot: manifest.artifactsRoot,
+			metrics,
+			...(workspaceId ? { data: { workspaceId } } : {}),
+		},
+		runFailed,
+	);
 }
 
 export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
@@ -661,97 +843,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// Wait for the async run to complete and return actual results.
 		try {
 			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 3600000 });
-			const metrics = collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId);
-			const lines: string[] = [
-				`pi-crew run ${completed.manifest.status}: ${completed.manifest.runId} (${team.name})`,
-				`Goal: ${goal.slice(0, 100)}`,
-			];
-			if (metrics) {
-				lines.push("");
-				lines.push(
-					`Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`,
-				);
-			}
-
-			if (completed.tasks.length > 0) {
-				// Read run-level summary artifact if present
-				let summaryContent: string | undefined;
-				const summaryArtifact = completed.manifest.artifacts?.find((a: { kind?: string }) => a.kind === "summary");
-				if (summaryArtifact) {
-					try {
-						const sumPath = path.join(completed.manifest.artifactsRoot, summaryArtifact.path);
-						summaryContent = fs.readFileSync(sumPath, "utf-8").trim().slice(0, 4000);
-					} catch {
-						/* summary unavailable */
-					}
-				}
-
-				const taskLines: string[] = [];
-				let failedCount = 0;
-				const failedIds: string[] = [];
-				for (const task of completed.tasks) {
-					let resultExcerpt = "";
-					if (task.resultArtifact?.path) {
-						try {
-							// H-3 fix (code-review 2026-06-23): resolve the result artifact path
-							// inside artifactsRoot via the project's safe-path primitive. Rejects
-							// absolute paths (/etc/passwd) and ../ traversal that the old
-							// path.isAbsolute shortcut + bare path.join allowed.
-							const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
-							resultExcerpt = fs.readFileSync(resPath, "utf-8").trim().slice(0, 2000);
-						} catch {
-							resultExcerpt = "(result unavailable)";
-						}
-					}
-					const shortResult = resultExcerpt.slice(0, 500);
-					const statusTag =
-						task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
-					taskLines.push(
-						`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
-					);
-					if (task.status === "failed" || task.status === "needs_attention") {
-						failedCount++;
-						failedIds.push(task.id);
-					}
-				}
-
-				lines.push("");
-				lines.push(`Tasks (${completed.tasks.length}):`);
-				lines.push(...taskLines);
-
-				if (summaryContent) {
-					lines.push("");
-					lines.push("Summary:");
-					lines.push(summaryContent.slice(0, 2000));
-				}
-
-				if (failedCount === 0) {
-					lines.push("");
-					lines.push("All tasks completed successfully.");
-				} else {
-					lines.push("");
-					lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
-				}
-			} else {
-				lines.push(
-					completed.manifest.status === "completed"
-						? "Run completed with no task results."
-						: `The run ended with status: ${completed.manifest.status}. Check the run artifacts for details.`,
-				);
-			}
-
-			const runFailed = completed.manifest.status === "failed" || completed.manifest.status === "blocked";
-			return result(
-				lines.join("\n"),
-				{
-					action: "run",
-					status: runFailed ? "error" : "ok",
-					runId: completed.manifest.runId,
-					artifactsRoot: completed.manifest.artifactsRoot,
-					metrics,
-				},
-				runFailed,
-			);
+			return formatRunResult(completed.manifest, {
+				tasks: completed.tasks,
+				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
+				goal,
+				team: team.name,
+				workflow: workflow.name,
+				workspaceId: ctx.sessionId ?? ctx.cwd,
+			});
 		} catch (waitError: unknown) {
 			const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
 			return result(
@@ -858,97 +957,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// Wait for the foreground run to complete and return actual results.
 		try {
 			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 3600000 });
-			const metrics = collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId);
-			const lines: string[] = [
-				`pi-crew run ${completed.manifest.status}: ${completed.manifest.runId} (${team.name})`,
-				`Goal: ${goal.slice(0, 100)}`,
-			];
-			if (metrics) {
-				lines.push("");
-				lines.push(
-					`Metrics: ${metrics.completedCount}/${metrics.taskCount} tasks, ${metrics.totalTokens} tokens, ${metrics.durationMs}ms, consistency=${metrics.consistencyScore}`,
-				);
-			}
-
-			if (completed.tasks.length > 0) {
-				// Read run-level summary artifact if present
-				let summaryContent: string | undefined;
-				const summaryArtifact = completed.manifest.artifacts?.find((a: { kind?: string }) => a.kind === "summary");
-				if (summaryArtifact) {
-					try {
-						const sumPath = path.join(completed.manifest.artifactsRoot, summaryArtifact.path);
-						summaryContent = fs.readFileSync(sumPath, "utf-8").trim().slice(0, 4000);
-					} catch {
-						/* summary unavailable */
-					}
-				}
-
-				const taskLines: string[] = [];
-				let failedCount = 0;
-				const failedIds: string[] = [];
-				for (const task of completed.tasks) {
-					let resultExcerpt = "";
-					if (task.resultArtifact?.path) {
-						try {
-							// H-3 fix (code-review 2026-06-23): resolve the result artifact path
-							// inside artifactsRoot via the project's safe-path primitive. Rejects
-							// absolute paths (/etc/passwd) and ../ traversal that the old
-							// path.isAbsolute shortcut + bare path.join allowed.
-							const resPath = resolveRealContainedPath(completed.manifest.artifactsRoot, task.resultArtifact.path);
-							resultExcerpt = fs.readFileSync(resPath, "utf-8").trim().slice(0, 2000);
-						} catch {
-							resultExcerpt = "(result unavailable)";
-						}
-					}
-					const shortResult = resultExcerpt.slice(0, 500);
-					const statusTag =
-						task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
-					taskLines.push(
-						`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
-					);
-					if (task.status === "failed" || task.status === "needs_attention") {
-						failedCount++;
-						failedIds.push(task.id);
-					}
-				}
-
-				lines.push("");
-				lines.push(`Tasks (${completed.tasks.length}):`);
-				lines.push(...taskLines);
-
-				if (summaryContent) {
-					lines.push("");
-					lines.push("Summary:");
-					lines.push(summaryContent.slice(0, 2000));
-				}
-
-				if (failedCount === 0) {
-					lines.push("");
-					lines.push("All tasks completed successfully.");
-				} else {
-					lines.push("");
-					lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
-				}
-			} else {
-				lines.push(
-					completed.manifest.status === "completed"
-						? "Run completed with no task results."
-						: `The run ended with status: ${completed.manifest.status}. Check the run artifacts for details.`,
-				);
-			}
-
-			const runFailed = completed.manifest.status === "failed" || completed.manifest.status === "blocked";
-			return result(
-				lines.join("\n"),
-				{
-					action: "run",
-					status: runFailed ? "error" : "ok",
-					runId: completed.manifest.runId,
-					artifactsRoot: completed.manifest.artifactsRoot,
-					metrics,
-				},
-				runFailed,
-			);
+			return formatRunResult(completed.manifest, {
+				tasks: completed.tasks,
+				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
+				goal,
+				team: team.name,
+				workflow: workflow.name,
+				workspaceId: ctx.sessionId ?? ctx.cwd,
+			});
 		} catch (waitError: unknown) {
 			const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
 			return result(
@@ -1001,31 +1017,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	} finally {
 		unregisterActiveRun(updatedManifest.runId);
 	}
-	const text = [
-		`Created pi-crew run ${executed.manifest.runId}.`,
-		`Team: ${team.name}`,
-		`Workflow: ${workflow.name}`,
-		`Status: ${executed.manifest.status}`,
-		`Tasks: ${executed.tasks.length}`,
-		`State: ${executed.manifest.stateRoot}`,
-		`Artifacts: ${executed.manifest.artifactsRoot}`,
-		"",
-		`Runtime: ${runtime.kind}${runtime.fallback ? ` (fallback from ${runtime.requestedMode})` : ""}${runtime.reason ? ` - ${runtime.reason}` : ""}`,
-		runtime.kind === "child-process"
-			? "Child Pi worker execution is enabled by default; each task is launched as a separate Pi process. Set runtime.mode=scaffold or executeWorkers=false only for dry runs."
-			: runtime.kind === "live-session"
-				? "Experimental live-session worker execution was enabled."
-				: "Safe scaffold mode: child Pi workers were not launched because runtime.mode=scaffold or executeWorkers=false was configured.",
-	].join("\n");
-	return result(
-		text,
-		{
-			action: "run",
-			status: executed.manifest.status === "failed" ? "error" : "ok",
-			runId: executed.manifest.runId,
-			artifactsRoot: executed.manifest.artifactsRoot,
-			metrics: collectRunMetrics(resolvedCtx.cwd, executed.manifest.runId),
-		},
-		executed.manifest.status === "failed",
-	);
+	return formatRunResult(executed.manifest, {
+		tasks: executed.tasks,
+		metrics: collectRunMetrics(resolvedCtx.cwd, executed.manifest.runId),
+		goal,
+		team: team.name,
+		workflow: workflow.name,
+		workspaceId: ctx.cwd,
+		runtime: runtimeResolutionState(runtime),
+		mode: "scaffold",
+	});
 }
