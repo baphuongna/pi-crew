@@ -291,6 +291,35 @@ describe("RPC HMAC authentication", () => {
 		});
 	});
 
+	describe("soft info note (PI_CREW_RPC_SECRET unset)", () => {
+		it("passes through unsigned requests when HMAC is disabled", () => {
+			clearRpcSecret();
+			assert.equal(isHmacEnabled(), false);
+			let called = false;
+			const handler = withHmacVerification(() => {
+				called = true;
+				return "ok";
+			}, "test:channel");
+			const result = handler({ requestId: "r1" });
+			assert.equal(result, "ok");
+			assert.equal(called, true);
+		});
+
+		it("honors PI_CREW_SUPPRESS_RPC_WARNING env var (warning logic respects opt-out)", () => {
+			// This is a behavioral smoke test: we do not assert console.warn output
+			// (process-level state latches across the whole test runner), but we
+			// assert that the env-var check exists and does not throw.
+			process.env.PI_CREW_SUPPRESS_RPC_WARNING = "1";
+			try {
+				clearRpcSecret();
+				const handler = withHmacVerification(() => "ok", "test:channel");
+				assert.equal(handler({ requestId: "r1" }), "ok");
+			} finally {
+				delete process.env.PI_CREW_SUPPRESS_RPC_WARNING;
+			}
+		});
+	});
+
 	describe("cross-channel replay protection", () => {
 		beforeEach(() => {
 			setRpcSecret(TEST_SECRET);

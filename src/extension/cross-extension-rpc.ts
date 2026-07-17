@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { isHmacEnabled, withHmacVerification } from "./rpc-hmac.ts";
+import { withHmacVerification } from "./rpc-hmac.ts";
 // Lazy-loaded to avoid pulling team-tool.ts (and its entire runtime chain) into module load.
 import type { handleTeamTool as HandleTeamToolFn } from "./team-tool.ts";
 
@@ -31,8 +31,6 @@ export const PI_CREW_RPC_VERSION = 1;
 export interface PiCrewRpcHandle {
 	unsubscribe(): void;
 }
-
-let rpcHmacWarningEmitted = false;
 
 function requestId(raw: unknown): string | undefined {
 	return raw && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as { requestId?: unknown }).requestId === "string"
@@ -163,13 +161,10 @@ export function registerPiCrewRpc(
 	getCtx: () => ExtensionContext | undefined,
 ): PiCrewRpcHandle | undefined {
 	if (!events) return undefined;
-	if (!isHmacEnabled() && !rpcHmacWarningEmitted) {
-		rpcHmacWarningEmitted = true;
-		console.warn(
-			"[pi-crew SECURITY] PI_CREW_RPC_SECRET is not configured; cross-extension RPC HMAC authentication is disabled. " +
-				"RPC requests rely on operation allowlists and session checks. Set PI_CREW_RPC_SECRET to authenticate their origin.",
-		);
-	}
+	// Note: the prior loud startup warning has been replaced by a soft, opt-out
+	// info note emitted lazily by withHmacVerification only when an actual RPC
+	// request is processed (see rpc-hmac.ts). This avoids noisy output during
+	// every pi load for users who never wire cross-extension RPC.
 	const unsubs = [
 		on(
 			events,

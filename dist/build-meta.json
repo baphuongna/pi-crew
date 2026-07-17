@@ -18550,7 +18550,7 @@
       "format": "esm"
     },
     "src/extension/rpc-hmac.ts": {
-      "bytes": 7500,
+      "bytes": 8557,
       "imports": [
         {
           "path": "node:crypto",
@@ -18561,7 +18561,7 @@
       "format": "esm"
     },
     "src/extension/cross-extension-rpc.ts": {
-      "bytes": 11984,
+      "bytes": 11881,
       "imports": [
         {
           "path": "src/utils/safe-paths.ts",
@@ -18786,7 +18786,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6778737
+      "bytes": 6779778
     },
     "dist/index.mjs": {
       "imports": [
@@ -22534,10 +22534,10 @@
           "bytesInOutput": 1118
         },
         "src/extension/cross-extension-rpc.ts": {
-          "bytesInOutput": 8933
+          "bytesInOutput": 8550
         },
         "src/extension/rpc-hmac.ts": {
-          "bytesInOutput": 3514
+          "bytesInOutput": 4037
         },
         "src/extension/registration/wire-cross-extension.ts": {
           "bytesInOutput": 665
@@ -22546,7 +22546,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3203783
+      "bytes": 3203923
     }
   }
 }

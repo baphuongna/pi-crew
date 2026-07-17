@@ -86041,6 +86041,14 @@ function getRpcSecret() {
 function isHmacEnabled() {
   return typeof process.env[SECRET_ENV_VAR] === "string" && process.env[SECRET_ENV_VAR].length > 0;
 }
+var _rpcHmacSoftInfoEmitted = false;
+function rpcHmacSoftInfoOnce() {
+  if (_rpcHmacSoftInfoEmitted) return;
+  _rpcHmacSoftInfoEmitted = true;
+  console.warn(
+    "[pi-crew] PI_CREW_RPC_SECRET not set; cross-extension RPC requests will be accepted without origin authentication. Operation allowlists and session checks still apply. Set PI_CREW_RPC_SECRET or PI_CREW_SUPPRESS_RPC_WARNING=1 to silence this message."
+  );
+}
 function verifyRpcSignature(payload, body) {
   const secret = getRpcSecret();
   if (!secret) {
@@ -86063,6 +86071,9 @@ function verifyRpcSignature(payload, body) {
 function withHmacVerification(handler, _channel) {
   return (params) => {
     if (!isHmacEnabled()) {
+      if (process.env.PI_CREW_SUPPRESS_RPC_WARNING !== "1") {
+        rpcHmacSoftInfoOnce();
+      }
       return handler(params);
     }
     const sigPayload = extractSignaturePayload(params);
@@ -86136,7 +86147,6 @@ async function handleTeamTool7(params, ctx) {
   return _cachedHandleTeamTool6(params, ctx);
 }
 var PI_CREW_RPC_VERSION = 1;
-var rpcHmacWarningEmitted = false;
 function requestId2(raw) {
   return raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.requestId === "string" ? raw.requestId : void 0;
 }
@@ -86220,12 +86230,6 @@ function on(events, channel, handler) {
 }
 function registerPiCrewRpc(events, getCtx) {
   if (!events) return void 0;
-  if (!isHmacEnabled() && !rpcHmacWarningEmitted) {
-    rpcHmacWarningEmitted = true;
-    console.warn(
-      "[pi-crew SECURITY] PI_CREW_RPC_SECRET is not configured; cross-extension RPC HMAC authentication is disabled. RPC requests rely on operation allowlists and session checks. Set PI_CREW_RPC_SECRET to authenticate their origin."
-    );
-  }
   const unsubs = [
     on(
       events,
