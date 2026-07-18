@@ -10,10 +10,9 @@ import type { WorkerExitStatus } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { redactJsonLine, redactSecretString } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { applyCompactPipeline } from "./compact-pipeline.ts";
-import { TailCaptureStage, TruncationStage } from "./compact-stages/index.ts";
+import { redactSecretString } from "../utils/redaction.ts";
+import { appendTranscript, compactString, compactValue, flushPendingTranscriptWrites } from "./child-pi-transcript.ts";
+import { TailCaptureStage } from "./compact-stages/index.ts";
 import { classifyProcessCrash } from "./crash-classification.ts";
 import { buildPiWorkerArgs, checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
 import { extractText } from "./pi-json-output.ts";
@@ -416,185 +415,16 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 	} as SpawnOptions;
 }
 
-function appendTranscript(input: ChildPiRunInput, line: string): void {
-	if (!input.transcriptPath) return;
-	// SECURITY FIX (Issue #1): Validate transcriptPath against artifactsRoot to prevent
-	// arbitrary file writes and symlink traversal attacks. An attacker who can influence
-	// the task graph could set transcriptPath to /etc/passwd or similar, and mkdirSync
-	// with recursive:true would create parent directories. Additionally, appendFileSync
-	// follows symlinks, potentially writing to sensitive files.
-	let safePath: string;
-	try {
-		const artifactsRoot = input.artifactsRoot ?? input.cwd;
-		safePath = resolveRealContainedPath(artifactsRoot, input.transcriptPath);
-	} catch (error) {
-		logInternalError("child-pi.transcript-path-rejected", error as Error, `transcriptPath=${input.transcriptPath}`);
-		return;
-	}
-	// Use O_NOFOLLOW | O_CREAT | O_APPEND to safely open the transcript file.
-	// O_NOFOLLOW prevents symlink attacks (refuses to follow symlinks).
-	// O_CREAT creates the file if it doesn't exist.
-	// O_APPEND atomically positions at end for each write (no seek race).
-	// O_EXCL was previously used but prevented appending to existing files,
-	// causing EBADF on subsequent writes.
-	// NOTE: Parent directory must already exist (caller's responsibility).
-	// We skip mkdirSync here for security — adding it would create parent
-	// directories during validation, contradicting the original design where
-	// resolveRealContainedPath validates a pre-existing path.
-	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
-	// The caller does not need to await this — transcript writes are best-effort telemetry.
-	// OPT-06 follow-up: lines are buffered in a module-scoped Map and flushed
-	// periodically (50ms debounce) or on lifecycle boundaries (ChildPiLineObserver.flush,
-	// runChildPi settle). Without that drain, callers that immediately read the
-	// transcript file post-flush (e.g. integration tests at phase3-runtime:50 and
-	// phase4-runtime:37/:68/:103) would see ENOENT or empty content because the
-	// async file handle had not yet been opened / flushed.
-	trackTranscriptWrite(safePath, line);
-}
-
-/** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
-// ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────
-// Instead of open/write/close per line (3 syscalls × N), accumulate lines
-// in a module-scoped buffer and flush them in one open/write/close per path
-// every TRANSCRIPT_FLUSH_MS. Lifecycle boundaries (observer.flush, settle)
-// force-flush the buffer before returning so transcript reads are complete.
-//
-// Ordering: lines are appended to the per-path array in call order. The flush
-// writes the joined array, preserving intra-batch ordering. Inter-batch
-// ordering is not guaranteed but transcript is append-only telemetry.
-//
-// Security: O_NOFOLLOW | O_CREAT | O_APPEND flags preserved on every flush.
-const transcriptBatches = new Map<string, string[]>();
-let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined;
-const TRANSCRIPT_FLUSH_MS = 50;
-
-function scheduleTranscriptFlush(): void {
-	if (transcriptFlushTimer) return;
-	transcriptFlushTimer = setTimeout(() => {
-		transcriptFlushTimer = undefined;
-		void flushTranscriptBatches();
-	}, TRANSCRIPT_FLUSH_MS);
-	transcriptFlushTimer.unref?.();
-}
-
-async function flushTranscriptBatches(): Promise<void> {
-	const entries = [...transcriptBatches.entries()];
-	transcriptBatches.clear();
-	await Promise.allSettled(
-		entries.map(async ([safePath, lines]) => {
-			if (lines.length === 0) return;
-			const content = lines.join("");
-			try {
-				const fd = await fs.promises.open(
-					safePath,
-					fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
-					0o600,
-				);
-				try {
-					await fd.write(content, undefined, "utf-8");
-				} finally {
-					await fd.close();
-				}
-			} catch (error) {
-				logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
-			}
-		}),
-	);
-}
-
-function trackTranscriptWrite(safePath: string, line: string): void {
-	const content = `${redactJsonLine(line)}\n`;
-	let batch = transcriptBatches.get(safePath);
-	if (!batch) {
-		batch = [];
-		transcriptBatches.set(safePath, batch);
-	}
-	batch.push(content);
-	scheduleTranscriptFlush();
-}
-
-/**
- * Drain the transcript batch buffer and await any remaining in-flight writes.
- * Called by lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle)
- * so that transcript files are complete before callers read them.
- *
- * Uses a while loop to re-check the buffer after each flush — new lines may
- * arrive during the async I/O window (trackTranscriptWrite → scheduleTranscriptFlush).
- *
- * Exported so external callers (e.g. integration tests that construct a
- * ChildPiLineObserver directly) can drain explicitly if they need to read
- * the transcript file outside of the observer's lifecycle.
- */
-export async function flushPendingTranscriptWrites(): Promise<void> {
-	// Force-flush the buffer synchronously (clear timer, write immediately).
-	if (transcriptFlushTimer) {
-		clearTimeout(transcriptFlushTimer);
-		transcriptFlushTimer = undefined;
-	}
-	// Re-check loop: new lines may be appended to transcriptBatches during
-	// the async flushTranscriptBatches I/O. Loop until the buffer is empty.
-	while (transcriptBatches.size > 0) {
-		await flushTranscriptBatches();
-	}
-}
-
-/**
- * Reset the module-scoped transcript batch state. Exported for test isolation
- * only — production code should never call this.
- */
-export function resetTranscriptBatchState(): void {
-	if (transcriptFlushTimer) {
-		clearTimeout(transcriptFlushTimer);
-		transcriptFlushTimer = undefined;
-	}
-	transcriptBatches.clear();
-}
-
-export function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS, opts: { preserveImportant?: boolean } = {}): string {
-	if (value.length <= maxChars) return value;
-	// L4: head + tail instead of head-only. Keeps closing markdown structure
-	// (code fences, headings, list tails) instead of dropping them — the old
-	// head-only slice left unclosed ``` fences that downstream parsers and
-	// output-validator.ts flagged as "output may be truncated". Head gets 75%
-	// (opening structure + bulk of content); tail gets 25% (closing structure).
-	// P0-A: compose the value through the stage-chain compression pipeline.
-	// The default pipeline is just [TruncationStage] (single-stage, equivalent
-	// to the pre-P0-A implementation) so plain text with no ANSI / no blank
-	// runs / no consecutive duplicates produces bit-identical output (L4
-	// regression safety). Callers that want noise stripping can opt into
-	// additional stages via the pipeline — but compactString's caller surface
-	// keeps the simple `(value, maxChars, opts)` signature.
-	// P0-B: the TruncationStage scans the middle slice for important diagnostic
-	// lines (error, file:line, HTTP 4xx/5xx, compiler codes) and preserves them
-	// within a 15% slack budget. The `preserveImportant` opt propagates here.
-	const result = applyCompactPipeline(value, [
-		new TruncationStage(maxChars, {
-			preserveImportant: opts.preserveImportant,
-		}),
-	]);
-	return result.text;
-}
-
-export function compactValue(value: unknown): unknown {
-	if (typeof value === "string") return compactString(value);
-	if (Array.isArray(value)) {
-		// BUG-4: silent .slice(0, 20) lost items 21-50 with no marker.
-		// Append a truncation marker when entries are dropped so downstream
-		// consumers know data was elided (consistent with compactString style).
-		if (value.length > 20) {
-			return [...value.slice(0, 20).map(compactValue), `[pi-crew truncated ${value.length - 20} entries]`];
-		}
-		return value.map(compactValue);
-	}
-	const record = asRecord(value);
-	if (!record) return value;
-	const entries = Object.entries(record);
-	const compacted: Record<string, unknown> = {};
-	for (const [key, entry] of entries.slice(0, 20)) compacted[key] = compactValue(entry);
-	// BUG-4: mark elided object keys so consumers know data was dropped.
-	if (entries.length > 20) compacted["[truncated]"] = `${entries.length - 20} entries`;
-	return compacted;
-}
+// ── Transcript batching + compaction (H-7 decomposition step 1) ────────
+// Extracted to ./child-pi-transcript.ts. Re-exported here to preserve the
+// existing public API surface.
+export {
+	appendTranscript,
+	compactString,
+	compactValue,
+	flushPendingTranscriptWrites,
+	resetTranscriptBatchState,
+} from "./child-pi-transcript.ts";
 
 function compactContentPart(part: unknown): unknown | undefined {
 	const record = asRecord(part);

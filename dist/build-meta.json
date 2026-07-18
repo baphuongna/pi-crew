@@ -761,6 +761,63 @@
       "imports": [],
       "format": "esm"
     },
+    "src/runtime/important-line-classifier.ts": {
+      "bytes": 5412,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compact-stages/truncation-stage.ts": {
+      "bytes": 3320,
+      "imports": [
+        {
+          "path": "src/runtime/important-line-classifier.ts",
+          "kind": "import-statement",
+          "original": "../important-line-classifier.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi-transcript.ts": {
+      "bytes": 6459,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "../utils/redaction.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/runtime/compact-pipeline.ts",
+          "kind": "import-statement",
+          "original": "./compact-pipeline.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/truncation-stage.ts",
+          "kind": "import-statement",
+          "original": "./compact-stages/truncation-stage.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/compact-stages/ansi-strip-stage.ts": {
       "bytes": 982,
       "imports": [],
@@ -784,22 +841,6 @@
     "src/runtime/compact-stages/tail-capture-stage.ts": {
       "bytes": 3558,
       "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/important-line-classifier.ts": {
-      "bytes": 5412,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/truncation-stage.ts": {
-      "bytes": 3320,
-      "imports": [
-        {
-          "path": "src/runtime/important-line-classifier.ts",
-          "kind": "import-statement",
-          "original": "../important-line-classifier.ts"
-        }
-      ],
       "format": "esm"
     },
     "src/runtime/compact-stages/index.ts": {
@@ -854,7 +895,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 75536,
+      "bytes": 67613,
       "imports": [
         {
           "path": "node:child_process",
@@ -912,14 +953,9 @@
           "original": "../utils/redaction.ts"
         },
         {
-          "path": "src/utils/safe-paths.ts",
+          "path": "src/runtime/child-pi-transcript.ts",
           "kind": "import-statement",
-          "original": "../utils/safe-paths.ts"
-        },
-        {
-          "path": "src/runtime/compact-pipeline.ts",
-          "kind": "import-statement",
-          "original": "./compact-pipeline.ts"
+          "original": "./child-pi-transcript.ts"
         },
         {
           "path": "src/runtime/compact-stages/index.ts",
@@ -950,6 +986,11 @@
           "path": "src/runtime/post-exit-stdio-guard.ts",
           "kind": "import-statement",
           "original": "./post-exit-stdio-guard.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-transcript.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-transcript.ts"
         }
       ],
       "format": "esm"
@@ -12794,7 +12835,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5980590
+      "bytes": 5979414
     },
     "dist/index.mjs": {
       "imports": [
@@ -13060,6 +13101,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -14496,6 +14542,15 @@
         "src/runtime/compact-pipeline.ts": {
           "bytesInOutput": 512
         },
+        "src/runtime/important-line-classifier.ts": {
+          "bytesInOutput": 2450
+        },
+        "src/runtime/compact-stages/truncation-stage.ts": {
+          "bytesInOutput": 1867
+        },
+        "src/runtime/child-pi-transcript.ts": {
+          "bytesInOutput": 3634
+        },
         "src/runtime/compact-stages/ansi-strip-stage.ts": {
           "bytesInOutput": 465
         },
@@ -14511,12 +14566,6 @@
         "src/runtime/compact-stages/tail-capture-stage.ts": {
           "bytesInOutput": 1809
         },
-        "src/runtime/important-line-classifier.ts": {
-          "bytesInOutput": 2450
-        },
-        "src/runtime/compact-stages/truncation-stage.ts": {
-          "bytesInOutput": 1867
-        },
         "src/runtime/compact-stages/index.ts": {
           "bytesInOutput": 284
         },
@@ -14530,7 +14579,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 50175
+          "bytesInOutput": 47035
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -15676,7 +15725,7 @@
           "bytesInOutput": 2955
         },
         "src/ui/transcript-viewer.ts": {
-          "bytesInOutput": 14098
+          "bytesInOutput": 14103
         },
         "src/extension/registration/viewers.ts": {
           "bytesInOutput": 3182
@@ -15766,7 +15815,7 @@
           "bytesInOutput": 4718
         },
         "src/extension/notification-sink.ts": {
-          "bytesInOutput": 1813
+          "bytesInOutput": 1820
         },
         "src/runtime/delivery-coordinator.ts": {
           "bytesInOutput": 5863
@@ -15937,7 +15986,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2786960
+      "bytes": 2787505
     }
   }
 }
