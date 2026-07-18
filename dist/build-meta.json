@@ -735,25 +735,9 @@
       ],
       "format": "esm"
     },
-    "src/utils/env-allowlist.ts": {
-      "bytes": 1185,
-      "imports": [],
-      "format": "esm"
-    },
     "src/utils/redaction.ts": {
       "bytes": 13499,
       "imports": [],
-      "format": "esm"
-    },
-    "src/utils/env-filter.ts": {
-      "bytes": 6523,
-      "imports": [
-        {
-          "path": "src/utils/redaction.ts",
-          "kind": "import-statement",
-          "original": "./redaction.ts"
-        }
-      ],
       "format": "esm"
     },
     "src/runtime/child-pi-constants.ts": {
@@ -799,6 +783,84 @@
           "path": "src/runtime/compact-stages/tail-capture-stage.ts",
           "kind": "import-statement",
           "original": "./compact-stages/tail-capture-stage.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/utils/env-allowlist.ts": {
+      "bytes": 1185,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/utils/env-filter.ts": {
+      "bytes": 6523,
+      "imports": [
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "./redaction.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi-spawn.ts": {
+      "bytes": 9791,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/env-allowlist.ts",
+          "kind": "import-statement",
+          "original": "../utils/env-allowlist.ts"
+        },
+        {
+          "path": "src/utils/env-filter.ts",
+          "kind": "import-statement",
+          "original": "../utils/env-filter.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/pi-args.ts",
+          "kind": "import-statement",
+          "original": "./pi-args.ts"
+        },
+        {
+          "path": "src/runtime/pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "./pi-spawn.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi-steering.ts": {
+      "bytes": 4971,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
         }
       ],
       "format": "esm"
@@ -896,27 +958,6 @@
       ],
       "format": "esm"
     },
-    "src/runtime/child-pi-steering.ts": {
-      "bytes": 5005,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/child-pi-kill.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-kill.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/runtime/crash-classification.ts": {
       "bytes": 8547,
       "imports": [],
@@ -928,7 +969,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 51084,
+      "bytes": 44662,
       "imports": [
         {
           "path": "node:child_process",
@@ -966,16 +1007,6 @@
           "original": "../state/atomic-write.ts"
         },
         {
-          "path": "src/utils/env-allowlist.ts",
-          "kind": "import-statement",
-          "original": "../utils/env-allowlist.ts"
-        },
-        {
-          "path": "src/utils/env-filter.ts",
-          "kind": "import-statement",
-          "original": "../utils/env-filter.ts"
-        },
-        {
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
@@ -996,9 +1027,9 @@
           "original": "./child-pi-kill.ts"
         },
         {
-          "path": "src/runtime/child-pi-streams.ts",
+          "path": "src/runtime/child-pi-spawn.ts",
           "kind": "import-statement",
-          "original": "./child-pi-streams.ts"
+          "original": "./child-pi-spawn.ts"
         },
         {
           "path": "src/runtime/child-pi-steering.ts",
@@ -1006,9 +1037,19 @@
           "original": "./child-pi-steering.ts"
         },
         {
+          "path": "src/runtime/child-pi-streams.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-streams.ts"
+        },
+        {
           "path": "src/runtime/child-pi-kill.ts",
           "kind": "import-statement",
           "original": "./child-pi-kill.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-spawn.ts"
         },
         {
           "path": "src/runtime/child-pi-streams.ts",
@@ -1024,11 +1065,6 @@
           "path": "src/runtime/pi-args.ts",
           "kind": "import-statement",
           "original": "./pi-args.ts"
-        },
-        {
-          "path": "src/runtime/pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "./pi-spawn.ts"
         },
         {
           "path": "src/runtime/post-exit-stdio-guard.ts",
@@ -12939,7 +12975,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5990169
+      "bytes": 5993825
     },
     "dist/index.mjs": {
       "imports": [
@@ -13210,6 +13246,16 @@
         },
         {
           "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -14644,14 +14690,8 @@
         "src/runtime/pi-args.ts": {
           "bytesInOutput": 15094
         },
-        "src/utils/env-allowlist.ts": {
-          "bytesInOutput": 291
-        },
         "src/utils/redaction.ts": {
           "bytesInOutput": 7293
-        },
-        "src/utils/env-filter.ts": {
-          "bytesInOutput": 3511
         },
         "src/runtime/child-pi-constants.ts": {
           "bytesInOutput": 874
@@ -14661,6 +14701,18 @@
         },
         "src/runtime/child-pi-kill.ts": {
           "bytesInOutput": 4147
+        },
+        "src/utils/env-allowlist.ts": {
+          "bytesInOutput": 291
+        },
+        "src/utils/env-filter.ts": {
+          "bytesInOutput": 3511
+        },
+        "src/runtime/child-pi-spawn.ts": {
+          "bytesInOutput": 4231
+        },
+        "src/runtime/child-pi-steering.ts": {
+          "bytesInOutput": 2917
         },
         "src/runtime/compact-pipeline.ts": {
           "bytesInOutput": 512
@@ -14680,9 +14732,6 @@
         "src/runtime/child-pi-streams.ts": {
           "bytesInOutput": 9234
         },
-        "src/runtime/child-pi-steering.ts": {
-          "bytesInOutput": 2981
-        },
         "src/runtime/crash-classification.ts": {
           "bytesInOutput": 2900
         },
@@ -14690,7 +14739,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 33037
+          "bytesInOutput": 29001
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -15926,7 +15975,7 @@
           "bytesInOutput": 4563
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9964
+          "bytesInOutput": 9966
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4277
@@ -16112,7 +16161,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2790899
+      "bytes": 2791066
     }
   }
 }

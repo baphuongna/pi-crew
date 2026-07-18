@@ -1,4 +1,4 @@
-import { type SpawnOptions, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -7,12 +7,11 @@ import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { WorkerExitStatus } from "../state/types.ts";
-import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
+import { assertOnlyControlEnvKeys, buildChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
@@ -23,12 +22,16 @@ export {
 	killProcessPid,
 	terminateActiveChildPiProcesses,
 } from "./child-pi-kill.ts";
+// ── Re-export from child-pi-spawn.ts (H-7 decomposition step 6) ──
+// buildChildPiSpawnOptions was previously exported from child-pi.ts. Keep the
+// public API surface stable by re-exporting from the new module.
+export { buildChildPiSpawnOptions } from "./child-pi-spawn.ts";
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
 import { classifyProcessCrash } from "./crash-classification.ts";
-import { buildPiWorkerArgs, checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
-import { getPiSpawnCommand } from "./pi-spawn.ts";
+import { checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
+
 import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
@@ -167,129 +170,6 @@ export interface ChildPiRunResult {
 }
 
 // Base allowlist of non-provider env vars always passed to child workers.
-// Provider API keys are injected dynamically via buildScopedAllowList() only
-// when a model is assigned to the task (per-task key scoping).
-const BASE_ALLOWLIST: string[] = [
-	"PATH",
-	"HOME",
-	"USER",
-	"SHELL",
-	"TERM",
-	"LANG",
-	"LC_ALL",
-	"LC_COLLATE",
-	"LC_CTYPE",
-	"LC_MESSAGES",
-	"LC_MONETARY",
-	"LC_NUMERIC",
-	"LC_TIME",
-	"XDG_CONFIG_HOME",
-	"XDG_DATA_HOME",
-	"XDG_CACHE_HOME",
-	"XDG_RUNTIME_DIR",
-	// Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
-	...WINDOWS_ESSENTIAL_ENV_VARS,
-	"NVM_BIN",
-	"NVM_DIR",
-	"NVM_INC",
-	"NODE_DISABLE_COLORS",
-	"NODE_EXTRA_CA_CERTS",
-	"NPM_CONFIG_REGISTRY",
-	"NPM_CONFIG_USERCONFIG",
-	"NPM_CONFIG_GLOBALCONFIG",
-	"PI_CREW_DEPTH",
-	"PI_CREW_MAX_DEPTH",
-	"PI_CREW_INHERIT_PROJECT_CONTEXT",
-	"PI_CREW_INHERIT_SKILLS",
-	"PI_CREW_KIND",
-	"PI_CREW_PARENT_PID",
-	"PI_TEAMS_DEPTH",
-	"PI_TEAMS_MAX_DEPTH",
-	"PI_TEAMS_INHERIT_PROJECT_CONTEXT",
-	"PI_TEAMS_INHERIT_SKILLS",
-	"PI_TEAMS_PI_BIN",
-	"PI_TEAMS_MOCK_CHILD_PI",
-	"PI_CREW_ALLOW_MOCK",
-	"PI_CREW_MAX_OUTPUT",
-	"PI_CREW_STEERING_FILE",
-];
-
-export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, model?: string): SpawnOptions {
-	// SECURITY FIX (Issue #1): Validate cwd before passing to spawn.
-	// If cwd comes from an untrusted source (user input, workspace config), a malicious cwd
-	// could cause the child process to operate in an attacker-controlled directory,
-	// enabling path traversal attacks, unintended file access, or exposure of sensitive paths.
-	// Use realpathSync to resolve any symlinks and verify the path exists and is a directory.
-	let validatedCwd: string;
-	try {
-		validatedCwd = fs.realpathSync(cwd);
-		const stats = fs.statSync(validatedCwd);
-		if (!stats.isDirectory()) {
-			throw new Error(`cwd is not a directory: ${cwd}`);
-		}
-	} catch (error) {
-		// If cwd doesn't exist (ENOENT) and isn't a security concern, fall back
-		// to the lexical path. The child process will create the directory if
-		// needed. Throwing would break tests/callers that pass not-yet-existing
-		// paths and isn't a security issue for the env-filtering behavior this
-		// function is primarily about.
-		if ((error as NodeJS.ErrnoException).code === "ENOENT" && error instanceof Error && error.message.includes("ENOENT")) {
-			validatedCwd = path.resolve(cwd);
-		} else {
-			throw new Error(`Invalid cwd: ${cwd} — ${error instanceof Error ? error.message : String(error)}`);
-		}
-	}
-
-	// Filter out env vars whose keys match secret patterns to avoid leaking credentials to child processes.
-	// IMPORTANT: preserve model provider API keys — they are needed by the child Pi to call the LLM.
-	// Also preserve essential non-secret vars (PATH, HOME, USER, etc.) so the child process can function.
-	// Bug #12 fix: essential env vars (PATH, HOME, etc.) are always preserved so child can find npm/node.
-	//
-	// PER-TASK KEY SCOPING: when a model is provided, only the env keys for that
-	// provider are injected (via buildScopedAllowList). When no model is given,
-	// only BASE_ALLOWLIST system vars pass through — no provider keys leak.
-	const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
-	const filteredEnv = sanitizeEnvSecrets(env, { allowList });
-	// FIX: Removed delete workarounds — with explicit allowlist, these vars
-	// are no longer auto-leaked. The wildcard approach was fragile.
-
-	// SECURITY FIX (Issue #1): Validate NODE_PATH to ensure it only contains standard
-	// system locations or legitimate user paths (NVM). NODE_PATH can reveal user
-	// environment information and could theoretically be exploited if it contains
-	// untrusted entries. Only allow paths under standard system directories
-	// (/opt, /lib, /usr) or NVM paths under /home/<user>/.nvm/... which are legitimate
-	// for Node.js module loading in user environments.
-	if (filteredEnv.NODE_PATH) {
-		const validPrefixes = ["/opt/", "/lib/", "/usr/local/", "/usr/", "/home/"];
-		const validPaths = filteredEnv.NODE_PATH.split(":").filter((p) => {
-			return validPrefixes.some((prefix) => p.startsWith(prefix));
-		});
-		if (validPaths.length > 0) {
-			filteredEnv.NODE_PATH = validPaths.join(":");
-		} else {
-			// No standard paths found — remove NODE_PATH entirely to avoid
-			// passing user-specific paths that could reveal environment info.
-			delete filteredEnv.NODE_PATH;
-		}
-	}
-
-	return {
-		cwd: validatedCwd,
-		env: { ...filteredEnv, PI_CREW_PARENT_PID: String(process.pid) },
-		stdio: ["ignore", "pipe", "pipe"], // stdin=ignore: child doesn't wait for input; task comes via CLI args
-		detached: process.platform !== "win32",
-		setsid: true,
-		// NOTE: setsid creates a new session; the child process becomes the session leader
-		// and its parent becomes that session leader (still the team-runner in the same
-		// process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner).
-		// The parent-guard in the child checks direct parent liveness via process.kill(pid, 0) —
-		// it does NOT follow the lineage beyond the direct parent. If the team-runner's parent
-		// (the original pi session) dies, the team-runner becomes an orphan but the child still
-		// sees its direct parent (team-runner) as alive. This is correct for the parent-guard model.
-		windowsHide: true,
-	} as SpawnOptions;
-}
-
 // ── Transcript batching + compaction (H-7 decomposition step 1) ────────
 // Extracted to ./child-pi-transcript.ts. Re-exported here to preserve the
 // existing public API surface.
@@ -484,62 +364,21 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 		}
 		return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
 	}
-	const built = buildPiWorkerArgs({
-		task: effectiveTask,
-		agent: input.agent,
-		model: input.model,
-		sessionEnabled: true,
-		maxDepth: input.maxDepth,
-		skillPaths: input.skillPaths,
-		role: input.role,
-	});
-	// Pass steering file path to child for real-time steer injection
-	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
-	// B5: if the parent already aborted before we spawn, do not start the child
-	// at all. Spawning a doomed process wastes resources, and the abort listener
-	// registered below will not re-fire for an already-aborted signal (so the
-	// child would only be killed later by the response-timeout path). Return a
-	// cancelled-style result immediately.
-	if (input.signal?.aborted) {
-		return {
-			exitCode: null,
-			stdout: "",
-			stderr: "",
-			error: "Aborted before spawn (parent AbortSignal already aborted)",
-			aborted: true,
-		};
-	}
-	const spawnSpec = getPiSpawnCommand(built.args);
+	// H-7 step 6: spawn/env/args preparation extracted to child-pi-spawn.ts.
+	// prepareSpawnContext builds the worker args, attaches the steering file env,
+	// and handles the pre-spawn abort check (returns an immediate-abort result
+	// if the parent signal has already fired).
+	const spawnPrep = prepareSpawnContext(input, effectiveTask);
+	if (spawnPrep.kind === "aborted") return spawnPrep.result;
+	const { spawnSpec, mergedEnv, tempDir } = spawnPrep.ctx;
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
-			// SECURITY (Issue #3): built.env contains only PI_CREW_* execution-control vars (NOT secrets).
-			// It is safe to spread built.env after process.env because sanitizeEnvSecrets will filter
-			// any secret values before the env reaches spawn(). However, if built.env ever gains
-			// secret content without corresponding allowlist filtering, secrets would leak to children.
-			// This comment serves as a warning: built.env must never contain secret values.
-			//
-			// Runtime assertion: verify all built.env keys are execution-control vars (PI_CREW_* or PI_TEAMS_*).
-			// This is a canary for future regressions — if someone accidentally adds a secret key to
-			// built.env, the assertion will throw before the secret reaches the child process.
-			for (const key of Object.keys(built.env)) {
-				if (!key.startsWith("PI_CREW_") && !key.startsWith("PI_TEAMS_")) {
-					throw new Error(
-						`SECURITY: built.env contains unexpected key "${key}"; expected only PI_CREW_* or PI_TEAMS_* execution-control vars`,
-					);
-				}
-			}
-			const child = spawn(
-				spawnSpec.command,
-				spawnSpec.args,
-				buildChildPiSpawnOptions(
-					input.cwd,
-					{
-						...process.env,
-						...built.env,
-					},
-					input.model,
-				),
-			);
+			// Runtime canary: verify the merged env doesn't accidentally contain
+			// secret keys. The actual secret filtering is done by
+			// buildChildPiSpawnOptions (allowlist). This is a defense-in-depth
+			// assertion — throws before the secret reaches the child process.
+			assertOnlyControlEnvKeys(mergedEnv as Record<string, string>);
+			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
 			if (child.pid) {
 				registerActiveChild(child.pid, child);
 				input.onSpawn?.(child.pid);
@@ -895,7 +734,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						input.signal?.removeEventListener("abort", abort);
 						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
-							cleanupTempDir(built.tempDir);
+							cleanupTempDir(tempDir);
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
@@ -942,7 +781,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						input.signal?.removeEventListener("abort", abort);
 						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
-							cleanupTempDir(built.tempDir);
+							cleanupTempDir(tempDir);
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
@@ -1226,8 +1065,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	} finally {
 		// cleanupTempDir is already called inside settle(), but guard against
 		// the case where settle() was never reached (spawn throws synchronously).
-		if (built.tempDir && fs.existsSync(built.tempDir)) {
-			cleanupTempDir(built.tempDir);
+		if (tempDir && fs.existsSync(tempDir)) {
+			cleanupTempDir(tempDir);
 		}
 	}
 }
