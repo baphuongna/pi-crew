@@ -1,4 +1,4 @@
-import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
+import { type SpawnOptions, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -11,8 +11,17 @@ import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
+// Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
+import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { appendTranscript, compactString, compactValue, flushPendingTranscriptWrites } from "./child-pi-transcript.ts";
-import { TailCaptureStage } from "./compact-stages/index.ts";
+
+// ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
+// killProcessTree is internal (not previously exported) — keep that invariant.
+export {
+	killProcessPid,
+	terminateActiveChildPiProcesses,
+} from "./child-pi-kill.ts";
+
 import { classifyProcessCrash } from "./crash-classification.ts";
 import { buildPiWorkerArgs, checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
 import { extractText } from "./pi-json-output.ts";
@@ -23,31 +32,16 @@ const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
 const FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
 const HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
 const RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
-const MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
 const MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
 const MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
 const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
 const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
-const activeChildProcesses = new Map<number, ChildProcess>();
-const childHardKillTimers = new Map<number, NodeJS.Timeout>();
-
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
  * from chatty child processes that produce output without newlines. */
 const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
 
 // Periodic cleanup of dead child process entries to prevent memory leaks.
-// If a child process never emits exit/close (zombie), the entry would leak.
-setInterval(() => {
-	for (const [pid, child] of activeChildProcesses) {
-		try {
-			process.kill(pid, 0); // Throws ESRCH if dead
-		} catch {
-			activeChildProcesses.delete(pid);
-		}
-	}
-}, 60_000).unref();
-
 /**
  * SEC-1: Extract a redacted stderr/stdout excerpt for embedding in lifecycle
  * events and error messages. The in-memory stdout/stderr accumulators receive
@@ -67,126 +61,12 @@ export function redactStderrExcerpt(stderr: string, maxChars: number): string {
 	return redactSecretString(stderr.slice(-maxChars));
 }
 
-function appendBoundedTail(current: string, chunk: string, maxBytes = MAX_CAPTURE_BYTES): string {
-	// Sprint 5: refactored onto TailCaptureStage (P0-A stage-chain). The marker
-	// embeds the cap size in KiB so the caller sees how much was dropped. Stage
-	// construction per call is cheap (4 fields) and avoids caching concerns.
-	return new TailCaptureStage({
-		maxBytes,
-		marker: `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`,
-	}).apply(current + chunk);
-}
-
-function clearHardKillTimer(pid: number | undefined): void {
-	if (!pid) return;
-	const timer = childHardKillTimers.get(pid);
-	if (!timer) return;
-	clearTimeout(timer);
-	childHardKillTimers.delete(pid);
-}
-
 /**
  * B6: spawn taskkill and attach an 'error' listener. spawn() emits ENOENT/EACCES
  * asynchronously via the 'error' event (not as a throw), so an unlistened spawn
  * can crash the parent as an uncaught exception. taskkill is a standard Windows
  * binary so this is defensive, but the listener keeps failures bounded.
  */
-function spawnTaskkillSafe(pid: number): void {
-	const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-		stdio: "ignore",
-		windowsHide: true,
-	});
-	taskkillChild.on("error", (err) => {
-		logInternalError("child-pi.taskkill-spawn-error", err instanceof Error ? err : new Error(String(err)), `pid=${pid}`);
-	});
-}
-
-export function killProcessPid(pid: number): void {
-	if (!Number.isInteger(pid) || pid <= 0) return;
-	try {
-		if (process.platform === "win32") {
-			// 3.8: Windows path uses taskkill /T /F (force kill the entire tree).
-			// taskkill itself can silently fail (PID gone, permission denied, etc.)
-			// so verify after 2s and log a warning if the process is still alive.
-			spawnTaskkillSafe(pid);
-			const verifyTimer = setTimeout(() => {
-				try {
-					process.kill(pid, 0); // throws ESRCH when dead
-					// Still alive — log and retry once.
-					logInternalError(
-						"child-pi.taskkill-stuck",
-						new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
-						`pid=${pid}`,
-						"error",
-					);
-					try {
-						spawnTaskkillSafe(pid);
-					} catch {
-						/* best-effort */
-					}
-				} catch {
-					// ESRCH or EPERM — process is gone. OK.
-				}
-			}, 2000);
-			verifyTimer.unref();
-			return;
-		}
-		try {
-			process.kill(-pid, "SIGTERM");
-		} catch (error) {
-			logInternalError("child-pi.sigterm", error, `pid=${pid}`);
-			try {
-				process.kill(pid, "SIGTERM");
-			} catch (fallbackError) {
-				logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
-			}
-		}
-		clearHardKillTimer(pid);
-		const hardKillTimer = setTimeout(() => {
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch (error) {
-				logInternalError("child-pi.sigkill", error, `pid=${pid}`);
-				try {
-					process.kill(pid, "SIGKILL");
-				} catch (fallbackError) {
-					logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
-				}
-			}
-			childHardKillTimers.delete(pid);
-		}, HARD_KILL_MS);
-		hardKillTimer.unref();
-		childHardKillTimers.set(pid, hardKillTimer);
-	} catch (error) {
-		logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
-	}
-}
-
-function killProcessTree(pid: number | undefined, child?: ChildProcess): void {
-	// Phase-0 diagnostic (HB-003a): capture who invoked killProcessTree so the
-	// exit-null race has a provenance trail. .stack is best-effort (may be undefined
-	// under deep async), so we take a snapshot lazily.
-	try {
-		const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
-		logInternalError(
-			"child-pi.kill-process-tree-invoked",
-			new Error(`pid=${pid} called from:\n${callerStack.split("\n").slice(0, 8).join("\n")}`),
-			`pid=${pid}`,
-		);
-	} catch {
-		/* diagnostic best-effort */
-	}
-	if (!pid || !Number.isInteger(pid) || pid <= 0) return;
-	if (child && child.exitCode !== null) return;
-	killProcessPid(pid);
-	child?.once("exit", () => clearHardKillTimer(pid));
-}
-
-export function terminateActiveChildPiProcesses(): number {
-	const entries = [...activeChildProcesses.entries()];
-	for (const [pid, child] of entries) killProcessTree(pid, child);
-	return entries.length;
-}
 
 /** Structured lifecycle event emitted by child-pi for critical transitions. */
 export interface ChildPiLifecycleEvent {
@@ -942,7 +822,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				),
 			);
 			if (child.pid) {
-				activeChildProcesses.set(child.pid, child);
+				registerActiveChild(child.pid, child);
 				input.onSpawn?.(child.pid);
 				input.onLifecycleEvent?.({
 					type: "spawned",
@@ -1527,7 +1407,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			});
 			child.on("exit", (code, signal) => {
 				if (child.pid) {
-					activeChildProcesses.delete(child.pid);
+					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);
 					// Unregister from cleanup handler
 					unregisterChildProcess(child.pid);
@@ -1588,7 +1468,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			});
 			child.on("close", (exitCode) => {
 				if (child.pid) {
-					activeChildProcesses.delete(child.pid);
+					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);
 					// Unregister from cleanup handler
 					unregisterChildProcess(child.pid);

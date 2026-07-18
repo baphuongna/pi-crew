@@ -5981,6 +5981,187 @@ var init_env_filter = __esm({
   }
 });
 
+// src/runtime/compact-stages/tail-capture-stage.ts
+var TailCaptureStage, TAIL_CAPTURE_STREAM_STAGE;
+var init_tail_capture_stage = __esm({
+  "src/runtime/compact-stages/tail-capture-stage.ts"() {
+    "use strict";
+    TailCaptureStage = class {
+      id;
+      maxChars;
+      maxBytes;
+      marker;
+      constructor(config) {
+        const hasChars = typeof config.maxChars === "number";
+        const hasBytes = typeof config.maxBytes === "number";
+        if (hasChars === hasBytes) {
+          throw new Error(
+            `TailCaptureStage requires exactly one of maxChars or maxBytes (got chars=${config.maxChars} bytes=${config.maxBytes})`
+          );
+        }
+        if (hasChars && config.maxChars <= 0) throw new Error(`TailCaptureStage: maxChars must be > 0, got ${config.maxChars}`);
+        if (hasBytes && config.maxBytes <= 0) throw new Error(`TailCaptureStage: maxBytes must be > 0, got ${config.maxBytes}`);
+        this.maxChars = config.maxChars;
+        this.maxBytes = config.maxBytes;
+        this.marker = config.marker ?? "";
+        this.id = config.id ?? (hasBytes ? "tail-capture" : "tail-capture");
+      }
+      apply(text) {
+        if (this.maxBytes !== void 0) {
+          if (Buffer.byteLength(text, "utf-8") <= this.maxBytes) return text;
+          let tail2 = text.slice(Math.max(0, text.length - this.maxBytes));
+          while (Buffer.byteLength(tail2, "utf-8") > this.maxBytes) tail2 = tail2.slice(0, -1);
+          return this.marker ? `${this.marker}
+${tail2}` : tail2;
+        }
+        const max = this.maxChars;
+        if (text.length <= max) return text;
+        const tail = text.slice(text.length - max);
+        return this.marker ? `${this.marker}
+${tail}` : tail;
+      }
+    };
+    TAIL_CAPTURE_STREAM_STAGE = new TailCaptureStage({
+      maxChars: 16384,
+      id: "tail-capture-stream"
+    });
+  }
+});
+
+// src/runtime/child-pi-kill.ts
+import { spawn } from "node:child_process";
+function registerActiveChild(pid, child) {
+  activeChildProcesses.set(pid, child);
+}
+function unregisterActiveChild(pid) {
+  activeChildProcesses.delete(pid);
+}
+function clearHardKillTimer(pid) {
+  if (pid === void 0) return;
+  const timer = childHardKillTimers.get(pid);
+  if (timer) {
+    clearTimeout(timer);
+    childHardKillTimers.delete(pid);
+  }
+}
+function appendBoundedTail(current, chunk, maxBytes = MAX_CAPTURE_BYTES) {
+  return new TailCaptureStage({
+    maxBytes,
+    marker: `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`
+  }).apply(current + chunk);
+}
+function spawnTaskkillSafe(pid) {
+  try {
+    const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      detached: false
+    });
+    taskkillChild.on("error", (err2) => {
+      logInternalError("child-pi.taskkill-spawn-error", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
+    });
+    taskkillChild.unref();
+  } catch (error) {
+    logInternalError("child-pi.taskkill-sync-error", error instanceof Error ? error : new Error(String(error)), `pid=${pid}`);
+  }
+}
+function killProcessPid(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    if (process.platform === "win32") {
+      spawnTaskkillSafe(pid);
+      const verifyTimer = setTimeout(() => {
+        try {
+          process.kill(pid, 0);
+          logInternalError(
+            "child-pi.taskkill-stuck",
+            new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
+            `pid=${pid}`,
+            "error"
+          );
+          try {
+            spawnTaskkillSafe(pid);
+          } catch {
+          }
+        } catch {
+        }
+      }, 2e3);
+      verifyTimer.unref();
+      return;
+    }
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch (error) {
+      logInternalError("child-pi.sigterm", error, `pid=${pid}`);
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch (fallbackError) {
+        logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
+      }
+    }
+    clearHardKillTimer(pid);
+    const hardKillTimer = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch (error) {
+        logInternalError("child-pi.sigkill", error, `pid=${pid}`);
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch (fallbackError) {
+          logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
+        }
+      }
+      childHardKillTimers.delete(pid);
+    }, HARD_KILL_MS);
+    hardKillTimer.unref();
+    childHardKillTimers.set(pid, hardKillTimer);
+  } catch (error) {
+    logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
+  }
+}
+function killProcessTree(pid, child) {
+  try {
+    const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
+    logInternalError(
+      "child-pi.kill-process-tree-invoked",
+      new Error(`pid=${pid} called from:
+${callerStack.split("\n").slice(0, 8).join("\n")}`),
+      `pid=${pid}`
+    );
+  } catch {
+  }
+  if (!pid || !Number.isInteger(pid) || pid <= 0) return;
+  if (child && child.exitCode !== null) return;
+  killProcessPid(pid);
+  child?.once("exit", () => clearHardKillTimer(pid));
+}
+function terminateActiveChildPiProcesses() {
+  const entries = [...activeChildProcesses.entries()];
+  for (const [pid, child] of entries) killProcessTree(pid, child);
+  return entries.length;
+}
+var HARD_KILL_MS, MAX_CAPTURE_BYTES, activeChildProcesses, childHardKillTimers;
+var init_child_pi_kill = __esm({
+  "src/runtime/child-pi-kill.ts"() {
+    "use strict";
+    init_defaults();
+    init_internal_error();
+    init_tail_capture_stage();
+    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
+    MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
+    activeChildProcesses = /* @__PURE__ */ new Map();
+    childHardKillTimers = /* @__PURE__ */ new Map();
+    setInterval(() => {
+      for (const [pid, child] of activeChildProcesses) {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          activeChildProcesses.delete(pid);
+        }
+      }
+    }, 6e4).unref();
+  }
+});
+
 // src/runtime/compact-pipeline.ts
 function applyCompactPipeline(text, stages) {
   let current = text;
@@ -6236,138 +6417,6 @@ var init_child_pi_transcript = __esm({
     init_truncation_stage();
     transcriptBatches = /* @__PURE__ */ new Map();
     TRANSCRIPT_FLUSH_MS = 50;
-  }
-});
-
-// src/runtime/compact-stages/ansi-strip-stage.ts
-var ANSI_CSI_PATTERN, AnsiStripStage, ANSI_STRIP_STAGE;
-var init_ansi_strip_stage = __esm({
-  "src/runtime/compact-stages/ansi-strip-stage.ts"() {
-    "use strict";
-    ANSI_CSI_PATTERN = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
-    AnsiStripStage = class {
-      id = "ansi-strip";
-      apply(text) {
-        if (text.indexOf("\x1B") === -1) return text;
-        return text.replace(ANSI_CSI_PATTERN, "");
-      }
-    };
-    ANSI_STRIP_STAGE = new AnsiStripStage();
-  }
-});
-
-// src/runtime/compact-stages/blank-collapse-stage.ts
-var BlankCollapseStage, BLANK_COLLAPSE_STAGE;
-var init_blank_collapse_stage = __esm({
-  "src/runtime/compact-stages/blank-collapse-stage.ts"() {
-    "use strict";
-    BlankCollapseStage = class {
-      id = "blank-collapse";
-      // NOTE: deliberately NOT using parameter-property shorthand here because
-      // Node's --experimental-strip-types does not support it. Field + ctor
-      // assignment is the portable shape.
-      minConsecutive;
-      constructor(minConsecutive = 3) {
-        this.minConsecutive = minConsecutive;
-      }
-      apply(text) {
-        if (this.minConsecutive < 2) return text;
-        const pattern = new RegExp(`\\n{${this.minConsecutive},}`, "g");
-        return text.replace(pattern, "\n\n");
-      }
-    };
-    BLANK_COLLAPSE_STAGE = new BlankCollapseStage();
-  }
-});
-
-// src/runtime/compact-stages/deduplicate-stage.ts
-var DeduplicateStage, DEDUPLICATE_STAGE;
-var init_deduplicate_stage = __esm({
-  "src/runtime/compact-stages/deduplicate-stage.ts"() {
-    "use strict";
-    DeduplicateStage = class {
-      id = "deduplicate";
-      apply(text) {
-        if (text.length === 0) return text;
-        const lines = text.split(/\r?\n/);
-        if (lines.length < 2) return text;
-        const out = [lines[0]];
-        for (let i = 1; i < lines.length; i++) {
-          const cur = lines[i];
-          if (cur !== out[out.length - 1]) out.push(cur);
-        }
-        const sep10 = text.includes("\r\n") ? "\r\n" : "\n";
-        return out.join(sep10);
-      }
-    };
-    DEDUPLICATE_STAGE = new DeduplicateStage();
-  }
-});
-
-// src/runtime/compact-stages/head-snap-stage.ts
-var init_head_snap_stage = __esm({
-  "src/runtime/compact-stages/head-snap-stage.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/compact-stages/tail-capture-stage.ts
-var TailCaptureStage, TAIL_CAPTURE_STREAM_STAGE;
-var init_tail_capture_stage = __esm({
-  "src/runtime/compact-stages/tail-capture-stage.ts"() {
-    "use strict";
-    TailCaptureStage = class {
-      id;
-      maxChars;
-      maxBytes;
-      marker;
-      constructor(config) {
-        const hasChars = typeof config.maxChars === "number";
-        const hasBytes = typeof config.maxBytes === "number";
-        if (hasChars === hasBytes) {
-          throw new Error(
-            `TailCaptureStage requires exactly one of maxChars or maxBytes (got chars=${config.maxChars} bytes=${config.maxBytes})`
-          );
-        }
-        if (hasChars && config.maxChars <= 0) throw new Error(`TailCaptureStage: maxChars must be > 0, got ${config.maxChars}`);
-        if (hasBytes && config.maxBytes <= 0) throw new Error(`TailCaptureStage: maxBytes must be > 0, got ${config.maxBytes}`);
-        this.maxChars = config.maxChars;
-        this.maxBytes = config.maxBytes;
-        this.marker = config.marker ?? "";
-        this.id = config.id ?? (hasBytes ? "tail-capture" : "tail-capture");
-      }
-      apply(text) {
-        if (this.maxBytes !== void 0) {
-          if (Buffer.byteLength(text, "utf-8") <= this.maxBytes) return text;
-          let tail2 = text.slice(Math.max(0, text.length - this.maxBytes));
-          while (Buffer.byteLength(tail2, "utf-8") > this.maxBytes) tail2 = tail2.slice(0, -1);
-          return this.marker ? `${this.marker}
-${tail2}` : tail2;
-        }
-        const max = this.maxChars;
-        if (text.length <= max) return text;
-        const tail = text.slice(text.length - max);
-        return this.marker ? `${this.marker}
-${tail}` : tail;
-      }
-    };
-    TAIL_CAPTURE_STREAM_STAGE = new TailCaptureStage({
-      maxChars: 16384,
-      id: "tail-capture-stream"
-    });
-  }
-});
-
-// src/runtime/compact-stages/index.ts
-var init_compact_stages = __esm({
-  "src/runtime/compact-stages/index.ts"() {
-    "use strict";
-    init_ansi_strip_stage();
-    init_blank_collapse_stage();
-    init_deduplicate_stage();
-    init_head_snap_stage();
-    init_tail_capture_stage();
-    init_truncation_stage();
   }
 });
 
@@ -6686,109 +6735,12 @@ __export(child_pi_exports, {
   runChildPi: () => runChildPi,
   terminateActiveChildPiProcesses: () => terminateActiveChildPiProcesses
 });
-import { spawn } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import * as fs18 from "node:fs";
 import * as os8 from "node:os";
 import * as path17 from "node:path";
 function redactStderrExcerpt(stderr, maxChars) {
   return redactSecretString(stderr.slice(-maxChars));
-}
-function appendBoundedTail(current, chunk, maxBytes = MAX_CAPTURE_BYTES) {
-  return new TailCaptureStage({
-    maxBytes,
-    marker: `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`
-  }).apply(current + chunk);
-}
-function clearHardKillTimer(pid) {
-  if (!pid) return;
-  const timer = childHardKillTimers.get(pid);
-  if (!timer) return;
-  clearTimeout(timer);
-  childHardKillTimers.delete(pid);
-}
-function spawnTaskkillSafe(pid) {
-  const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-    stdio: "ignore",
-    windowsHide: true
-  });
-  taskkillChild.on("error", (err2) => {
-    logInternalError("child-pi.taskkill-spawn-error", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
-  });
-}
-function killProcessPid(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return;
-  try {
-    if (process.platform === "win32") {
-      spawnTaskkillSafe(pid);
-      const verifyTimer = setTimeout(() => {
-        try {
-          process.kill(pid, 0);
-          logInternalError(
-            "child-pi.taskkill-stuck",
-            new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
-            `pid=${pid}`,
-            "error"
-          );
-          try {
-            spawnTaskkillSafe(pid);
-          } catch {
-          }
-        } catch {
-        }
-      }, 2e3);
-      verifyTimer.unref();
-      return;
-    }
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch (error) {
-      logInternalError("child-pi.sigterm", error, `pid=${pid}`);
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch (fallbackError) {
-        logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
-      }
-    }
-    clearHardKillTimer(pid);
-    const hardKillTimer = setTimeout(() => {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch (error) {
-        logInternalError("child-pi.sigkill", error, `pid=${pid}`);
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch (fallbackError) {
-          logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
-        }
-      }
-      childHardKillTimers.delete(pid);
-    }, HARD_KILL_MS);
-    hardKillTimer.unref();
-    childHardKillTimers.set(pid, hardKillTimer);
-  } catch (error) {
-    logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
-  }
-}
-function killProcessTree(pid, child) {
-  try {
-    const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
-    logInternalError(
-      "child-pi.kill-process-tree-invoked",
-      new Error(`pid=${pid} called from:
-${callerStack.split("\n").slice(0, 8).join("\n")}`),
-      `pid=${pid}`
-    );
-  } catch {
-  }
-  if (!pid || !Number.isInteger(pid) || pid <= 0) return;
-  if (child && child.exitCode !== null) return;
-  killProcessPid(pid);
-  child?.once("exit", () => clearHardKillTimer(pid));
-}
-function terminateActiveChildPiProcesses() {
-  const entries = [...activeChildProcesses.entries()];
-  for (const [pid, child] of entries) killProcessTree(pid, child);
-  return entries.length;
 }
 function buildChildPiSpawnOptions(cwd, env, model) {
   let validatedCwd;
@@ -7115,7 +7067,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
           );
         }
       }
-      const child = spawn(
+      const child = spawn2(
         spawnSpec.command,
         spawnSpec.args,
         buildChildPiSpawnOptions(
@@ -7128,7 +7080,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         )
       );
       if (child.pid) {
-        activeChildProcesses.set(child.pid, child);
+        registerActiveChild(child.pid, child);
         input.onSpawn?.(child.pid);
         input.onLifecycleEvent?.({
           type: "spawned",
@@ -7154,7 +7106,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       let hardKillTimer;
       let noResponseTimer;
       const finalDrainMs = input.finalDrainMs ?? FINAL_DRAIN_MS;
-      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS;
+      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS2;
       let finalDrainArmed = false;
       let lastStdoutActivityMonotonicMs = performance.now();
       let finalDrainFiredMonotonicMs;
@@ -7223,7 +7175,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
           } catch (error) {
             logInternalError("child-pi.response-timeout-term", error, `pid=${child.pid}`);
           }
-          const SAFETY_SETTLE_MS = HARD_KILL_MS + 2e3;
+          const SAFETY_SETTLE_MS = HARD_KILL_MS2 + 2e3;
           const safetyTimer = setTimeout(() => {
             if (settled || childExited) return;
             logInternalError(
@@ -7587,7 +7539,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       });
       child.on("exit", (code, signal) => {
         if (child.pid) {
-          activeChildProcesses.delete(child.pid);
+          unregisterActiveChild(child.pid);
           clearHardKillTimer(child.pid);
           unregisterChildProcess(child.pid);
         }
@@ -7628,13 +7580,13 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         if (!postExitGuardCleanup) {
           postExitGuardCleanup = attachPostExitStdioGuard(child, {
             idleMs: POST_EXIT_STDIO_GUARD_MS,
-            hardMs: HARD_KILL_MS
+            hardMs: HARD_KILL_MS2
           });
         }
       });
       child.on("close", (exitCode) => {
         if (child.pid) {
-          activeChildProcesses.delete(child.pid);
+          unregisterActiveChild(child.pid);
           clearHardKillTimer(child.pid);
           unregisterChildProcess(child.pid);
         }
@@ -7699,7 +7651,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_CAPTURE_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, activeChildProcesses, childHardKillTimers, MAX_LINE_BUFFER_BYTES, BASE_ALLOWLIST, ChildPiLineObserver;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS2, RESPONSE_TIMEOUT_MS, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, MAX_LINE_BUFFER_BYTES, BASE_ALLOWLIST, ChildPiLineObserver;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -7710,8 +7662,9 @@ var init_child_pi = __esm({
     init_env_filter();
     init_internal_error();
     init_redaction();
+    init_child_pi_kill();
     init_child_pi_transcript();
-    init_compact_stages();
+    init_child_pi_kill();
     init_crash_classification();
     init_pi_args();
     init_pi_json_output();
@@ -7720,25 +7673,13 @@ var init_child_pi = __esm({
     init_child_pi_transcript();
     POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
     FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
-    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
+    HARD_KILL_MS2 = DEFAULT_CHILD_PI.hardKillMs;
     RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
-    MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
     MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
     MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
     MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
     MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
-    activeChildProcesses = /* @__PURE__ */ new Map();
-    childHardKillTimers = /* @__PURE__ */ new Map();
     MAX_LINE_BUFFER_BYTES = 1024 * 1024;
-    setInterval(() => {
-      for (const [pid, child] of activeChildProcesses) {
-        try {
-          process.kill(pid, 0);
-        } catch {
-          activeChildProcesses.delete(pid);
-        }
-      }
-    }, 6e4).unref();
     BASE_ALLOWLIST = [
       "PATH",
       "HOME",
@@ -36827,7 +36768,7 @@ var init_orphan_worker_registry = __esm({
 });
 
 // src/runtime/async-runner.ts
-import { spawn as spawn2 } from "node:child_process";
+import { spawn as spawn3 } from "node:child_process";
 import * as fs52 from "node:fs";
 import { createRequire as createRequire3 } from "node:module";
 import * as path45 from "node:path";
@@ -36948,7 +36889,7 @@ async function spawnBackgroundTeamRun(manifest) {
     env: childEnv,
     windowsHide: true
   };
-  const child = spawn2(process.execPath, command.args, spawnOpts);
+  const child = spawn3(process.execPath, command.args, spawnOpts);
   child.stdout?.destroy();
   const STDERR_CAPTURE_LIMIT = 256 * 1024;
   const stderrChunks = [];
@@ -46022,6 +45963,91 @@ var init_goal_achievement = __esm({
   }
 });
 
+// src/runtime/compact-stages/ansi-strip-stage.ts
+var ANSI_CSI_PATTERN, AnsiStripStage, ANSI_STRIP_STAGE;
+var init_ansi_strip_stage = __esm({
+  "src/runtime/compact-stages/ansi-strip-stage.ts"() {
+    "use strict";
+    ANSI_CSI_PATTERN = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+    AnsiStripStage = class {
+      id = "ansi-strip";
+      apply(text) {
+        if (text.indexOf("\x1B") === -1) return text;
+        return text.replace(ANSI_CSI_PATTERN, "");
+      }
+    };
+    ANSI_STRIP_STAGE = new AnsiStripStage();
+  }
+});
+
+// src/runtime/compact-stages/blank-collapse-stage.ts
+var BlankCollapseStage, BLANK_COLLAPSE_STAGE;
+var init_blank_collapse_stage = __esm({
+  "src/runtime/compact-stages/blank-collapse-stage.ts"() {
+    "use strict";
+    BlankCollapseStage = class {
+      id = "blank-collapse";
+      // NOTE: deliberately NOT using parameter-property shorthand here because
+      // Node's --experimental-strip-types does not support it. Field + ctor
+      // assignment is the portable shape.
+      minConsecutive;
+      constructor(minConsecutive = 3) {
+        this.minConsecutive = minConsecutive;
+      }
+      apply(text) {
+        if (this.minConsecutive < 2) return text;
+        const pattern = new RegExp(`\\n{${this.minConsecutive},}`, "g");
+        return text.replace(pattern, "\n\n");
+      }
+    };
+    BLANK_COLLAPSE_STAGE = new BlankCollapseStage();
+  }
+});
+
+// src/runtime/compact-stages/deduplicate-stage.ts
+var DeduplicateStage, DEDUPLICATE_STAGE;
+var init_deduplicate_stage = __esm({
+  "src/runtime/compact-stages/deduplicate-stage.ts"() {
+    "use strict";
+    DeduplicateStage = class {
+      id = "deduplicate";
+      apply(text) {
+        if (text.length === 0) return text;
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 2) return text;
+        const out = [lines[0]];
+        for (let i = 1; i < lines.length; i++) {
+          const cur = lines[i];
+          if (cur !== out[out.length - 1]) out.push(cur);
+        }
+        const sep10 = text.includes("\r\n") ? "\r\n" : "\n";
+        return out.join(sep10);
+      }
+    };
+    DEDUPLICATE_STAGE = new DeduplicateStage();
+  }
+});
+
+// src/runtime/compact-stages/head-snap-stage.ts
+var init_head_snap_stage = __esm({
+  "src/runtime/compact-stages/head-snap-stage.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/compact-stages/index.ts
+var init_compact_stages = __esm({
+  "src/runtime/compact-stages/index.ts"() {
+    "use strict";
+    init_ansi_strip_stage();
+    init_blank_collapse_stage();
+    init_deduplicate_stage();
+    init_head_snap_stage();
+    init_tail_capture_stage();
+    init_truncation_stage();
+  }
+});
+
 // src/utils/token-counter.ts
 function isMultiCharOp(c1, c2) {
   switch (c1) {
@@ -48117,7 +48143,7 @@ var init_context_retrieval = __esm({
 });
 
 // src/runtime/task-runner/retrieval-orchestrator.ts
-import { spawn as spawn3 } from "node:child_process";
+import { spawn as spawn4 } from "node:child_process";
 import * as fs74 from "node:fs";
 import * as path63 from "node:path";
 async function detectRipgrep() {
@@ -48125,7 +48151,7 @@ async function detectRipgrep() {
   return await new Promise((resolve22) => {
     let settled = false;
     try {
-      const child = spawn3("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn4("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       child.stdout?.on("data", (chunk) => {
         stdout += chunk.toString("utf-8");
@@ -48172,7 +48198,7 @@ function runRipgrep(args, cwd) {
     let stdout = "";
     let stderr = "";
     try {
-      const child = spawn3("rg", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn4("rg", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
       child.stdout?.on("data", (chunk) => {
         stdout += chunk.toString("utf-8");
       });
@@ -49823,7 +49849,7 @@ var init_tail_read = __esm({
 });
 
 // src/runtime/verification-gates.ts
-import { spawn as spawn4 } from "node:child_process";
+import { spawn as spawn5 } from "node:child_process";
 import * as fs79 from "node:fs";
 import * as path66 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
@@ -49873,7 +49899,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
   let output = "";
   let exitCode = null;
   return new Promise((resolve22) => {
-    const shell = spawn4("sh", ["-c", command], {
+    const shell = spawn5("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
       env: buildVerificationEnv()

@@ -756,6 +756,37 @@
       ],
       "format": "esm"
     },
+    "src/runtime/compact-stages/tail-capture-stage.ts": {
+      "bytes": 3558,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/child-pi-kill.ts": {
+      "bytes": 6694,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/tail-capture-stage.ts",
+          "kind": "import-statement",
+          "original": "./compact-stages/tail-capture-stage.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/compact-pipeline.ts": {
       "bytes": 2335,
       "imports": [],
@@ -818,67 +849,6 @@
       ],
       "format": "esm"
     },
-    "src/runtime/compact-stages/ansi-strip-stage.ts": {
-      "bytes": 982,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/blank-collapse-stage.ts": {
-      "bytes": 1234,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/deduplicate-stage.ts": {
-      "bytes": 1239,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/head-snap-stage.ts": {
-      "bytes": 2318,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/tail-capture-stage.ts": {
-      "bytes": 3558,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compact-stages/index.ts": {
-      "bytes": 809,
-      "imports": [
-        {
-          "path": "src/runtime/compact-stages/ansi-strip-stage.ts",
-          "kind": "import-statement",
-          "original": "./ansi-strip-stage.ts"
-        },
-        {
-          "path": "src/runtime/compact-stages/blank-collapse-stage.ts",
-          "kind": "import-statement",
-          "original": "./blank-collapse-stage.ts"
-        },
-        {
-          "path": "src/runtime/compact-stages/deduplicate-stage.ts",
-          "kind": "import-statement",
-          "original": "./deduplicate-stage.ts"
-        },
-        {
-          "path": "src/runtime/compact-stages/head-snap-stage.ts",
-          "kind": "import-statement",
-          "original": "./head-snap-stage.ts"
-        },
-        {
-          "path": "src/runtime/compact-stages/tail-capture-stage.ts",
-          "kind": "import-statement",
-          "original": "./tail-capture-stage.ts"
-        },
-        {
-          "path": "src/runtime/compact-stages/truncation-stage.ts",
-          "kind": "import-statement",
-          "original": "./truncation-stage.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/runtime/crash-classification.ts": {
       "bytes": 8547,
       "imports": [],
@@ -895,7 +865,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 67613,
+      "bytes": 63682,
       "imports": [
         {
           "path": "node:child_process",
@@ -953,14 +923,19 @@
           "original": "../utils/redaction.ts"
         },
         {
+          "path": "src/runtime/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        },
+        {
           "path": "src/runtime/child-pi-transcript.ts",
           "kind": "import-statement",
           "original": "./child-pi-transcript.ts"
         },
         {
-          "path": "src/runtime/compact-stages/index.ts",
+          "path": "src/runtime/child-pi-kill.ts",
           "kind": "import-statement",
-          "original": "./compact-stages/index.ts"
+          "original": "./child-pi-kill.ts"
         },
         {
           "path": "src/runtime/crash-classification.ts",
@@ -7958,6 +7933,62 @@
       ],
       "format": "esm"
     },
+    "src/runtime/compact-stages/ansi-strip-stage.ts": {
+      "bytes": 982,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compact-stages/blank-collapse-stage.ts": {
+      "bytes": 1234,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compact-stages/deduplicate-stage.ts": {
+      "bytes": 1239,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compact-stages/head-snap-stage.ts": {
+      "bytes": 2318,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compact-stages/index.ts": {
+      "bytes": 809,
+      "imports": [
+        {
+          "path": "src/runtime/compact-stages/ansi-strip-stage.ts",
+          "kind": "import-statement",
+          "original": "./ansi-strip-stage.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/blank-collapse-stage.ts",
+          "kind": "import-statement",
+          "original": "./blank-collapse-stage.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/deduplicate-stage.ts",
+          "kind": "import-statement",
+          "original": "./deduplicate-stage.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/head-snap-stage.ts",
+          "kind": "import-statement",
+          "original": "./head-snap-stage.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/tail-capture-stage.ts",
+          "kind": "import-statement",
+          "original": "./tail-capture-stage.ts"
+        },
+        {
+          "path": "src/runtime/compact-stages/truncation-stage.ts",
+          "kind": "import-statement",
+          "original": "./truncation-stage.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/utils/token-counter.ts": {
       "bytes": 6198,
       "imports": [],
@@ -12835,7 +12866,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5979414
+      "bytes": 5982724
     },
     "dist/index.mjs": {
       "imports": [
@@ -13101,6 +13132,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
           "kind": "import-statement",
           "external": true
         },
@@ -14539,6 +14575,12 @@
         "src/utils/env-filter.ts": {
           "bytesInOutput": 3511
         },
+        "src/runtime/compact-stages/tail-capture-stage.ts": {
+          "bytesInOutput": 1809
+        },
+        "src/runtime/child-pi-kill.ts": {
+          "bytesInOutput": 4178
+        },
         "src/runtime/compact-pipeline.ts": {
           "bytesInOutput": 512
         },
@@ -14551,24 +14593,6 @@
         "src/runtime/child-pi-transcript.ts": {
           "bytesInOutput": 3634
         },
-        "src/runtime/compact-stages/ansi-strip-stage.ts": {
-          "bytesInOutput": 465
-        },
-        "src/runtime/compact-stages/blank-collapse-stage.ts": {
-          "bytesInOutput": 806
-        },
-        "src/runtime/compact-stages/deduplicate-stage.ts": {
-          "bytesInOutput": 704
-        },
-        "src/runtime/compact-stages/head-snap-stage.ts": {
-          "bytesInOutput": 115
-        },
-        "src/runtime/compact-stages/tail-capture-stage.ts": {
-          "bytesInOutput": 1809
-        },
-        "src/runtime/compact-stages/index.ts": {
-          "bytesInOutput": 284
-        },
         "src/runtime/crash-classification.ts": {
           "bytesInOutput": 2900
         },
@@ -14579,7 +14603,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 47035
+          "bytesInOutput": 43536
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -15508,6 +15532,21 @@
         "src/runtime/goal-achievement.ts": {
           "bytesInOutput": 2922
         },
+        "src/runtime/compact-stages/ansi-strip-stage.ts": {
+          "bytesInOutput": 465
+        },
+        "src/runtime/compact-stages/blank-collapse-stage.ts": {
+          "bytesInOutput": 806
+        },
+        "src/runtime/compact-stages/deduplicate-stage.ts": {
+          "bytesInOutput": 704
+        },
+        "src/runtime/compact-stages/head-snap-stage.ts": {
+          "bytesInOutput": 115
+        },
+        "src/runtime/compact-stages/index.ts": {
+          "bytesInOutput": 284
+        },
         "src/utils/token-counter.ts": {
           "bytesInOutput": 2451
         },
@@ -15986,7 +16025,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2787505
+      "bytes": 2788217
     }
   }
 }
