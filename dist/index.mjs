@@ -7170,6 +7170,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       let graceTurns = input.graceTurns;
       if (graceTurns !== void 0 && graceTurns > 1e3) graceTurns = 1e3;
       let abortDueToParentSignal = false;
+      let hardAbortInitiated = false;
       const onParentAbort = () => {
         abortDueToParentSignal = true;
       };
@@ -7236,13 +7237,13 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       const lineObserver = new ChildPiLineObserver({
         ...input,
         onStdoutLine: (line4) => {
-          restartNoResponseTimer();
+          if (!hardAbortInitiated) restartNoResponseTimer();
           stdout = appendBoundedTail(stdout, `${line4}
 `);
           input.onStdoutLine?.(line4);
         },
         onJsonEvent: (event) => {
-          restartNoResponseTimer();
+          if (!hardAbortInitiated) restartNoResponseTimer();
           const eventOpId = startOperation("json_event");
           try {
             if (event && typeof event === "object" && !Array.isArray(event)) {
@@ -7270,10 +7271,8 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
                     }
                   }
                 } else if (maxTurns !== void 0 && softLimitReached && turnCount >= maxTurns + (graceTurns ?? 5)) {
-                  try {
-                    child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
-                  } catch {
-                  }
+                  hardAbortInitiated = true;
+                  killProcessTree(child.pid, child);
                 }
               }
             }
@@ -7500,7 +7499,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         }
       };
       child.stdout?.on("data", (chunk) => {
-        restartNoResponseTimer();
+        if (!hardAbortInitiated) restartNoResponseTimer();
         const text = chunk.toString("utf-8");
         backpressureBytes += text.length;
         try {
@@ -7518,7 +7517,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         }
       });
       child.stderr?.on("data", (chunk) => {
-        restartNoResponseTimer();
+        if (!hardAbortInitiated) restartNoResponseTimer();
         stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
       });
       child.on("error", (error) => {

@@ -849,7 +849,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 74845,
+      "bytes": 75536,
       "imports": [
         {
           "path": "node:child_process",
@@ -12763,7 +12763,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5964148
+      "bytes": 5964916
     },
     "dist/index.mjs": {
       "imports": [
@@ -14489,7 +14489,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 50094
+          "bytesInOutput": 50175
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -15893,7 +15893,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2782349
+      "bytes": 2782430
     }
   }
 }
