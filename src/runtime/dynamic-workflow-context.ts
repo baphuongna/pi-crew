@@ -35,6 +35,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { cleanupAgentWorktreeAsync, prepareAgentWorktreeAsync } from "../worktree/worktree-manager.ts";
 import { runChildPi } from "./child-pi.ts";
 import type { DwfCheckpointState } from "./dwf-state-store.ts";
+import { withWorkerSlot } from "./global-worker-cap.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
@@ -353,19 +354,21 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					}
 				}
 
-				const childResult = await runChildPi({
-					cwd: agentCwd,
-					task,
-					agent: effectiveAgent,
-					model: call.model ?? opts.modelOverride ?? agentConfig.model,
-					skillPaths: undefined, // skills resolved via agent config + team-role plumbing
-					maxTurns: call.maxTurns,
-					graceTurns: call.graceTurns,
-					signal: opts.signal,
-					artifactsRoot: manifest.artifactsRoot,
-					runId: manifest.runId,
-					role: call.role ?? call.agent,
-				});
+				const childResult = await withWorkerSlot(() =>
+					runChildPi({
+						cwd: agentCwd,
+						task,
+						agent: effectiveAgent,
+						model: call.model ?? opts.modelOverride ?? agentConfig.model,
+						skillPaths: undefined, // skills resolved via agent config + team-role plumbing
+						maxTurns: call.maxTurns,
+						graceTurns: call.graceTurns,
+						signal: opts.signal,
+						artifactsRoot: manifest.artifactsRoot,
+						runId: manifest.runId,
+						role: call.role ?? call.agent,
+					}),
+				);
 				if (childResult.exitCode !== 0 || childResult.error) {
 					return {
 						ok: false,

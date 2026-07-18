@@ -171,9 +171,16 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		});
 	}
 
+	// ERR-1: Create a timeout AbortController so we can abort spawned children on script timeout.
+	// Combine the input signal with the timeout controller's signal so EITHER source
+	// (external abort OR our timeout) propagates to runChildPi via the ctx.
+	// AbortSignal.any is available since Node 20.3 — the project requires Node 20+.
+	const timeoutController = new AbortController();
+	const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+
 	const ctx = makeWorkflowCtx(manifest, {
 		concurrency: input.concurrency ?? workflow.maxConcurrency ?? 4,
-		signal,
+		signal: combinedSignal,
 		team: input.team,
 		modelOverride: input.modelOverride,
 		tokenBudget: input.tokenBudget ?? workflow.maxTokenBudget,
@@ -205,6 +212,10 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		let timeoutHandle: NodeJS.Timeout | undefined;
 		const timeoutPromise = new Promise<never>((_, reject) => {
 			timeoutHandle = setTimeout(() => {
+				// ERR-1: abort the timeout controller so the abort propagates to
+				// runChildPi (via the combined signal passed to makeWorkflowCtx),
+				// which kills spawned children instead of letting them run.
+				timeoutController.abort();
 				reject(
 					new Error(
 						`Dynamic workflow script timed out after ${SCRIPT_TIMEOUT_MS}ms. The script may have spawned a child process that did not exit. Check for spawn/exec calls without proper stdio handling.`,
