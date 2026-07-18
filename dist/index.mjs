@@ -403,8 +403,8 @@ import * as path from "node:path";
 import { Worker } from "node:worker_threads";
 function getWorker() {
   if (worker) return worker;
-  const os16 = require2("node:os");
-  const tmpPath = path.join(fs.mkdtempSync(path.join(os16.tmpdir(), "pi-crew-waw-")), "worker.cjs");
+  const os17 = require2("node:os");
+  const tmpPath = path.join(fs.mkdtempSync(path.join(os17.tmpdir(), "pi-crew-waw-")), "worker.cjs");
   fs.writeFileSync(tmpPath, WORKER_SOURCE, "utf-8");
   worker = new Worker(tmpPath);
   worker.on("message", (msg) => {
@@ -22325,6 +22325,15 @@ function evictStaleLiveAgentHandles(now = Date.now()) {
       }
     } else if (age > STALE_RUNNING_HANDLE_MS) {
       const sessionPid = handle.session?.pid;
+      if (sessionPid === void 0) {
+        const session = handle.session;
+        const isStreaming = session?.isStreaming === true;
+        const pendingCount = session?.pendingMessageCount ?? 0;
+        if (isStreaming || pendingCount > 0) {
+          continue;
+        }
+        continue;
+      }
       const liveness = checkProcessLiveness(sessionPid);
       if (!liveness.alive) {
         liveAgents.delete(agentId);
@@ -47414,15 +47423,21 @@ async function runCoalescedTaskGroup(input) {
       }
     }, 15e3);
     try {
-      const result4 = await runChildPi({
-        cwd: firstTask.cwd,
-        task: combinedPrompt,
-        agent,
-        signal,
-        excludeContextBash: true,
-        maxTurns: 5,
-        onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e)
-      });
+      const result4 = await executeWithRetry(
+        async () => {
+          return await runChildPi({
+            cwd: firstTask.cwd,
+            task: combinedPrompt,
+            agent,
+            signal,
+            excludeContextBash: true,
+            maxTurns: 5,
+            onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e)
+          });
+        },
+        DEFAULT_RETRY_POLICY,
+        { signal }
+      );
       rawOutput = result4.rawFinalText ?? result4.stdout ?? "";
       success = result4.exitStatus?.exitCode === 0;
     } catch (err2) {
@@ -47533,6 +47548,7 @@ var init_run_coalesced_task_group = __esm({
     init_event_log();
     init_state_store();
     init_child_pi();
+    init_retry_executor();
     init_role_permission();
     init_task_packet();
     init_output_splitter();
@@ -48860,12 +48876,14 @@ function snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus) {
       producer: "worktree-manager.snapshotDirtyWorktree",
       retention: "run"
     });
+    return true;
   } catch (err2) {
     logInternalError(
       "worktree.recovery.snapshotFailed",
       err2 instanceof Error ? err2 : new Error(String(err2)),
       `runId=${manifest.runId}, taskId=${task.id}`
     );
+    return false;
   }
 }
 async function cleanupCreatedWorktreeAsync(repoRoot, worktreePath, branch) {
@@ -48939,14 +48957,24 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     }
     const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain"]);
     if (dirtyStatus.trim()) {
-      snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-      logInternalError(
-        "worktree.reused.dirty",
-        new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
-        `runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`
-      );
-      await gitAsync(worktreePath, ["checkout", "--", "."]);
-      await gitAsync(worktreePath, ["clean", "-fd"]);
+      const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+      if (snapshotOk) {
+        logInternalError(
+          "worktree.reused.dirty",
+          new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
+          `runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`
+        );
+        await gitAsync(worktreePath, ["checkout", "--", "."]);
+        await gitAsync(worktreePath, ["clean", "-fd"]);
+      } else {
+        logInternalError(
+          "worktree.reused.dirtyPreserved",
+          new Error(
+            `Snapshot failed \u2014 preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)`
+          ),
+          `runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`
+        );
+      }
     }
     const globalSeedPaths = loadedConfig.config.worktree?.seedPaths ?? [];
     const mergedReused = normalizeSeedPaths([...globalSeedPaths, ...stepSeedPaths ?? []], repoRoot);
@@ -57226,7 +57254,7 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
       return JSON.parse(text);
     }
     var fs103 = __require("fs");
-    var os16 = __require("os");
+    var os17 = __require("os");
     var path82 = __require("path");
     var ESBUILD_BINARY_PATH = process.env.ESBUILD_BINARY_PATH || ESBUILD_BINARY_PATH;
     var isValidBinaryPath = (x) => !!x && x !== "/usr/bin/esbuild";
@@ -57268,7 +57296,7 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
       let pkg;
       let subpath;
       let isWASM = false;
-      let platformKey = `${process.platform} ${os16.arch()} ${os16.endianness()}`;
+      let platformKey = `${process.platform} ${os17.arch()} ${os17.endianness()}`;
       if (platformKey in knownWindowsPackages) {
         pkg = knownWindowsPackages[platformKey];
         subpath = "esbuild.exe";
@@ -58023,6 +58051,96 @@ var init_dwf_state_store = __esm({
   }
 });
 
+// src/runtime/semaphore.ts
+var Semaphore;
+var init_semaphore = __esm({
+  "src/runtime/semaphore.ts"() {
+    "use strict";
+    Semaphore = class _Semaphore {
+      #max;
+      #current = 0;
+      #queue = [];
+      // FIX (Round 15): Cap the waiter queue to prevent unbounded memory growth
+      // if the semaphore is held for a long period and many tasks accumulate.
+      static MAX_QUEUE = 1e4;
+      constructor(max) {
+        this.#max = Math.max(1, max);
+      }
+      async acquire() {
+        if (this.#current < this.#max) {
+          this.#current++;
+          return;
+        }
+        if (this.#queue.length >= _Semaphore.MAX_QUEUE) {
+          throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`);
+        }
+        const { promise, resolve: resolve22 } = (() => {
+          let res;
+          const p = new Promise((r) => {
+            res = r;
+          });
+          return { promise: p, resolve: res };
+        })();
+        this.#queue.push(resolve22);
+        return promise;
+      }
+      release() {
+        const next = this.#queue.shift();
+        if (next) {
+          next();
+        } else if (this.#current > 0) {
+          this.#current--;
+        }
+      }
+      /** Current number of acquired slots. */
+      get current() {
+        return this.#current;
+      }
+      /** Number of waiters in the queue. */
+      get waiting() {
+        return this.#queue.length;
+      }
+    };
+  }
+});
+
+// src/runtime/global-worker-cap.ts
+import * as os16 from "node:os";
+function resolveCapacity() {
+  const env = process.env.PI_CREW_MAX_WORKERS;
+  if (env !== void 0 && env !== "") {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  const cpus2 = os16.cpus().length;
+  return Math.max(2, cpus2 - 2);
+}
+async function acquireWorkerSlot() {
+  await semaphore.acquire();
+}
+function releaseWorkerSlot() {
+  semaphore.release();
+}
+async function withWorkerSlot(fn) {
+  await acquireWorkerSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseWorkerSlot();
+  }
+}
+var capacity, semaphore;
+var init_global_worker_cap = __esm({
+  "src/runtime/global-worker-cap.ts"() {
+    "use strict";
+    init_semaphore();
+    capacity = resolveCapacity();
+    semaphore = new Semaphore(capacity);
+  }
+});
+
 // src/runtime/parallel-utils.ts
 async function mapConcurrent(items, limit, fn) {
   if (items.length === 1) return [await fn(items[0], 0)];
@@ -58199,59 +58317,6 @@ var init_result_extractor = __esm({
   }
 });
 
-// src/runtime/semaphore.ts
-var Semaphore;
-var init_semaphore = __esm({
-  "src/runtime/semaphore.ts"() {
-    "use strict";
-    Semaphore = class _Semaphore {
-      #max;
-      #current = 0;
-      #queue = [];
-      // FIX (Round 15): Cap the waiter queue to prevent unbounded memory growth
-      // if the semaphore is held for a long period and many tasks accumulate.
-      static MAX_QUEUE = 1e4;
-      constructor(max) {
-        this.#max = Math.max(1, max);
-      }
-      async acquire() {
-        if (this.#current < this.#max) {
-          this.#current++;
-          return;
-        }
-        if (this.#queue.length >= _Semaphore.MAX_QUEUE) {
-          throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`);
-        }
-        const { promise, resolve: resolve22 } = (() => {
-          let res;
-          const p = new Promise((r) => {
-            res = r;
-          });
-          return { promise: p, resolve: res };
-        })();
-        this.#queue.push(resolve22);
-        return promise;
-      }
-      release() {
-        const next = this.#queue.shift();
-        if (next) {
-          next();
-        } else if (this.#current > 0) {
-          this.#current--;
-        }
-      }
-      /** Current number of acquired slots. */
-      get current() {
-        return this.#current;
-      }
-      /** Number of waiters in the queue. */
-      get waiting() {
-        return this.#queue.length;
-      }
-    };
-  }
-});
-
 // src/runtime/dynamic-workflow-context.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
 function resolveAgentForRole(roleName, opts) {
@@ -58289,7 +58354,7 @@ function synthesizeAgentConfig(name, model) {
 }
 function makeWorkflowCtx(manifest, opts) {
   const concurrency = Math.max(1, opts.concurrency ?? 4);
-  const semaphore = new Semaphore(concurrency);
+  const semaphore2 = new Semaphore(concurrency);
   let finalResult;
   let agentCount = opts.resumedState ? opts.resumedState.agentCount : 0;
   const phaseState = opts.resumedState ? {
@@ -58312,9 +58377,9 @@ function makeWorkflowCtx(manifest, opts) {
     runId: manifest.runId,
     goal: manifest.goal,
     signal: opts.signal,
-    semaphore,
+    semaphore: semaphore2,
     async agent(call) {
-      await semaphore.acquire();
+      await semaphore2.acquire();
       const started = Date.now();
       let worktreePath;
       let worktreeBranch;
@@ -58358,20 +58423,22 @@ function makeWorkflowCtx(manifest, opts) {
             ctx.log("worktree: creation unavailable \u2014 falling back to normal cwd");
           }
         }
-        const childResult = await runChildPi({
-          cwd: agentCwd,
-          task,
-          agent: effectiveAgent,
-          model: call.model ?? opts.modelOverride ?? agentConfig.model,
-          skillPaths: void 0,
-          // skills resolved via agent config + team-role plumbing
-          maxTurns: call.maxTurns,
-          graceTurns: call.graceTurns,
-          signal: opts.signal,
-          artifactsRoot: manifest.artifactsRoot,
-          runId: manifest.runId,
-          role: call.role ?? call.agent
-        });
+        const childResult = await withWorkerSlot(
+          () => runChildPi({
+            cwd: agentCwd,
+            task,
+            agent: effectiveAgent,
+            model: call.model ?? opts.modelOverride ?? agentConfig.model,
+            skillPaths: void 0,
+            // skills resolved via agent config + team-role plumbing
+            maxTurns: call.maxTurns,
+            graceTurns: call.graceTurns,
+            signal: opts.signal,
+            artifactsRoot: manifest.artifactsRoot,
+            runId: manifest.runId,
+            role: call.role ?? call.agent
+          })
+        );
         if (childResult.exitCode !== 0 || childResult.error) {
           return {
             ok: false,
@@ -58445,7 +58512,7 @@ function makeWorkflowCtx(manifest, opts) {
             logInternalError("dynamic-workflow-context.checkpoint", checkpointError, `runId=${manifest.runId}`);
           }
         }
-        semaphore.release();
+        semaphore2.release();
       }
     },
     async fanOut(items, limit, fn) {
@@ -58819,6 +58886,7 @@ var init_dynamic_workflow_context = __esm({
     init_internal_error();
     init_worktree_manager();
     init_child_pi();
+    init_global_worker_cap();
     init_parallel_utils();
     init_pi_json_output();
     init_plan_templates();
@@ -58896,9 +58964,11 @@ async function runDynamicWorkflow(input) {
       }
     });
   }
+  const timeoutController = new AbortController();
+  const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
   const ctx = makeWorkflowCtx(manifest, {
     concurrency: input.concurrency ?? workflow.maxConcurrency ?? 4,
-    signal,
+    signal: combinedSignal,
     team: input.team,
     modelOverride: input.modelOverride,
     tokenBudget: input.tokenBudget ?? workflow.maxTokenBudget,
@@ -58921,6 +58991,7 @@ async function runDynamicWorkflow(input) {
     let timeoutHandle;
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        timeoutController.abort();
         reject(
           new Error(
             `Dynamic workflow script timed out after ${SCRIPT_TIMEOUT_MS}ms. The script may have spawned a child process that did not exit. Check for spawn/exec calls without proper stdio handling.`
@@ -69932,11 +70003,11 @@ import { existsSync as existsSync75, readFileSync as readFileSync70 } from "node
 import { homedir as homedir11, platform } from "node:os";
 import { join as join72 } from "node:path";
 function fontPath() {
-  const os16 = platform();
+  const os17 = platform();
   const home = homedir11();
-  if (os16 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os16 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os16 === "win32") {
+  if (os17 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
+  if (os17 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
+  if (os17 === "win32") {
     const local = process.env.LOCALAPPDATA ?? join72(home, "AppData", "Local");
     return join72(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
   }

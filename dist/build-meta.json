@@ -3494,7 +3494,7 @@
       "format": "esm"
     },
     "src/runtime/live-agent-manager.ts": {
-      "bytes": 24183,
+      "bytes": 25096,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -8101,7 +8101,7 @@
       "format": "esm"
     },
     "src/runtime/run-coalesced-task-group.ts": {
-      "bytes": 8796,
+      "bytes": 8999,
       "imports": [
         {
           "path": "src/state/artifact-store.ts",
@@ -8122,6 +8122,11 @@
           "path": "src/runtime/child-pi.ts",
           "kind": "import-statement",
           "original": "./child-pi.ts"
+        },
+        {
+          "path": "src/runtime/retry-executor.ts",
+          "kind": "import-statement",
+          "original": "./retry-executor.ts"
         },
         {
           "path": "src/runtime/role-permission.ts",
@@ -8292,7 +8297,7 @@
       "format": "esm"
     },
     "src/worktree/worktree-manager.ts": {
-      "bytes": 44420,
+      "bytes": 45188,
       "imports": [
         {
           "path": "node:child_process",
@@ -9487,6 +9492,27 @@
       ],
       "format": "esm"
     },
+    "src/runtime/semaphore.ts": {
+      "bytes": 4140,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/global-worker-cap.ts": {
+      "bytes": 3543,
+      "imports": [
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/semaphore.ts",
+          "kind": "import-statement",
+          "original": "./semaphore.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/parallel-utils.ts": {
       "bytes": 4774,
       "imports": [],
@@ -9503,13 +9529,8 @@
       ],
       "format": "esm"
     },
-    "src/runtime/semaphore.ts": {
-      "bytes": 4140,
-      "imports": [],
-      "format": "esm"
-    },
     "src/runtime/dynamic-workflow-context.ts": {
-      "bytes": 40944,
+      "bytes": 41046,
       "imports": [
         {
           "path": "node:crypto",
@@ -9552,6 +9573,11 @@
           "original": "./child-pi.ts"
         },
         {
+          "path": "src/runtime/global-worker-cap.ts",
+          "kind": "import-statement",
+          "original": "./global-worker-cap.ts"
+        },
+        {
           "path": "src/runtime/parallel-utils.ts",
           "kind": "import-statement",
           "original": "./parallel-utils.ts"
@@ -9585,7 +9611,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-runner.ts": {
-      "bytes": 13311,
+      "bytes": 14029,
       "imports": [
         {
           "path": "node:fs",
@@ -12763,7 +12789,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5964916
+      "bytes": 5972934
     },
     "dist/index.mjs": {
       "imports": [
@@ -14058,6 +14084,11 @@
           "external": true
         },
         {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "@sinclair/typebox/value",
           "kind": "import-statement",
           "external": true
@@ -14846,7 +14877,7 @@
           "bytesInOutput": 4874
         },
         "src/runtime/live-agent-manager.ts": {
-          "bytesInOutput": 15094
+          "bytesInOutput": 15395
         },
         "src/runtime/role-permission.ts": {
           "bytesInOutput": 1002
@@ -15458,7 +15489,7 @@
           "bytesInOutput": 7286
         },
         "src/runtime/run-coalesced-task-group.ts": {
-          "bytesInOutput": 6405
+          "bytesInOutput": 6596
         },
         "src/runtime/runtime-policy.ts": {
           "bytesInOutput": 575
@@ -15485,7 +15516,7 @@
           "bytesInOutput": 8085
         },
         "src/worktree/worktree-manager.ts": {
-          "bytesInOutput": 24179
+          "bytesInOutput": 24632
         },
         "src/runtime/event-stream-bridge.ts": {
           "bytesInOutput": 2321
@@ -15589,20 +15620,23 @@
         "src/runtime/dwf-state-store.ts": {
           "bytesInOutput": 1927
         },
+        "src/runtime/semaphore.ts": {
+          "bytesInOutput": 1460
+        },
+        "src/runtime/global-worker-cap.ts": {
+          "bytesInOutput": 834
+        },
         "src/runtime/parallel-utils.ts": {
           "bytesInOutput": 655
         },
         "src/runtime/result-extractor.ts": {
           "bytesInOutput": 4272
         },
-        "src/runtime/semaphore.ts": {
-          "bytesInOutput": 1460
-        },
         "src/runtime/dynamic-workflow-context.ts": {
-          "bytesInOutput": 20207
+          "bytesInOutput": 20320
         },
         "src/runtime/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 6420
+          "bytesInOutput": 6600
         },
         "src/extension/team-tool/run.ts": {
           "bytesInOutput": 31463
@@ -15893,7 +15927,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2782430
+      "bytes": 2784539
     }
   }
 }
