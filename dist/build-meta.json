@@ -9467,7 +9467,7 @@
       "format": "esm"
     },
     "src/runtime/dwf-state-store.ts": {
-      "bytes": 3769,
+      "bytes": 4136,
       "imports": [
         {
           "path": "node:fs",
@@ -9530,7 +9530,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-context.ts": {
-      "bytes": 41046,
+      "bytes": 43478,
       "imports": [
         {
           "path": "node:crypto",
@@ -11612,7 +11612,7 @@
       "format": "esm"
     },
     "src/extension/registration/foreground-run-controller.ts": {
-      "bytes": 7596,
+      "bytes": 8828,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -12789,7 +12789,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5972934
+      "bytes": 5978848
     },
     "dist/index.mjs": {
       "imports": [
@@ -15633,7 +15633,7 @@
           "bytesInOutput": 4272
         },
         "src/runtime/dynamic-workflow-context.ts": {
-          "bytesInOutput": 20320
+          "bytesInOutput": 21421
         },
         "src/runtime/dynamic-workflow-runner.ts": {
           "bytesInOutput": 6600
@@ -15864,7 +15864,7 @@
           "bytesInOutput": 701
         },
         "src/extension/registration/foreground-run-controller.ts": {
-          "bytesInOutput": 5421
+          "bytesInOutput": 6528
         },
         "src/extension/registration/hook-registration.ts": {
           "bytesInOutput": 2132
@@ -15927,7 +15927,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2784539
+      "bytes": 2786747
     }
   }
 }

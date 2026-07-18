@@ -58367,6 +58367,7 @@ function makeWorkflowCtx(manifest, opts) {
     logs: opts.resumedState ? [...opts.resumedState.logs].slice(0, 1e3) : [],
     args: opts.args ?? {}
   };
+  const completedAgentCalls = opts.resumedState?.completedAgentCalls ?? {};
   const budget = Object.freeze({
     total: opts.tokenBudget ?? null,
     spent: () => wfState.spent,
@@ -58383,8 +58384,26 @@ function makeWorkflowCtx(manifest, opts) {
       const started = Date.now();
       let worktreePath;
       let worktreeBranch;
+      const ESTIMATE = 4096;
+      let reserved = false;
       try {
-        if (budget.total !== null && budget.remaining() <= 0) {
+        const callId = JSON.stringify({
+          role: call.role,
+          agent: call.agent,
+          prompt: call.prompt,
+          model: call.model,
+          schema: call.schema ? "yes" : "no"
+        });
+        const cached = completedAgentCalls[callId];
+        if (cached) {
+          return {
+            ok: true,
+            text: cached.text,
+            usage: cached.usage,
+            durationMs: 0
+          };
+        }
+        if (budget.total !== null && budget.remaining() < ESTIMATE) {
           return {
             ok: false,
             text: "",
@@ -58392,6 +58411,8 @@ function makeWorkflowCtx(manifest, opts) {
             durationMs: 0
           };
         }
+        wfState.spent += ESTIMATE;
+        reserved = true;
         const agentConfig = resolveAgentForRole(call.role, {
           explicitAgent: call.agent,
           team: opts.team,
@@ -58440,6 +58461,8 @@ function makeWorkflowCtx(manifest, opts) {
           })
         );
         if (childResult.exitCode !== 0 || childResult.error) {
+          wfState.spent -= ESTIMATE;
+          reserved = false;
           return {
             ok: false,
             text: "",
@@ -58448,7 +58471,8 @@ function makeWorkflowCtx(manifest, opts) {
           };
         }
         const parsed = parsePiJsonOutput(childResult.stdout);
-        wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0);
+        wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - ESTIMATE;
+        reserved = false;
         let text = parsed.finalText ?? "";
         if (!text.trim()) {
           text = extractTextFallback(childResult.stdout);
@@ -58471,6 +58495,10 @@ function makeWorkflowCtx(manifest, opts) {
             durationMs: Date.now() - started
           };
         }
+        completedAgentCalls[callId] = {
+          text,
+          usage: { input: parsed.usage?.input ?? 0, output: parsed.usage?.output ?? 0 }
+        };
         return {
           ok: true,
           text,
@@ -58480,6 +58508,7 @@ function makeWorkflowCtx(manifest, opts) {
           durationMs: Date.now() - started
         };
       } catch (error) {
+        if (reserved) wfState.spent -= ESTIMATE;
         logInternalError("dynamic-workflow-context.agent", error, `runId=${manifest.runId}`);
         return {
           ok: false,
@@ -58506,6 +58535,7 @@ function makeWorkflowCtx(manifest, opts) {
               logs: wfState.logs.slice(0, 1e3),
               spent: wfState.spent,
               agentCount,
+              completedAgentCalls,
               updatedAt: (/* @__PURE__ */ new Date()).toISOString()
             });
           } catch (checkpointError) {
@@ -58713,6 +58743,10 @@ Respond with ONLY a JSON object:
   });
   Object.defineProperty(ctx, "__agentCount", {
     get: () => agentCount,
+    enumerable: false
+  });
+  Object.defineProperty(ctx, "__completedAgentCalls", {
+    get: () => completedAgentCalls,
     enumerable: false
   });
   return ctx;
@@ -73002,6 +73036,7 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
           goal: loaded?.manifest.goal,
           status,
           taskCount: loaded?.tasks.length,
+          durationMs: loaded?.manifest.createdAt ? Date.now() - new Date(loaded.manifest.createdAt).getTime() : 0,
           timestamp: Date.now()
         });
         const eventType = status === "completed" ? "crew.run.completed" : status === "failed" || status === "blocked" ? "crew.run.failed" : status === "cancelled" ? "crew.run.cancelled" : void 0;
@@ -73012,7 +73047,23 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
             workflow: loaded?.manifest.workflow,
             status,
             taskCount: loaded?.tasks.length,
-            goal: loaded?.manifest.goal
+            goal: loaded?.manifest.goal,
+            durationMs: loaded?.manifest.createdAt ? Date.now() - new Date(loaded.manifest.createdAt).getTime() : 0
+          });
+        }
+        const terminalTaskStatuses = /* @__PURE__ */ new Set(["completed", "failed", "needs_attention"]);
+        for (const task of loaded?.tasks ?? []) {
+          if (!terminalTaskStatuses.has(task.status)) continue;
+          const taskEventType = task.status === "completed" ? "crew.task.completed" : task.status === "failed" ? "crew.task.failed" : "crew.task.needs_attention";
+          pi.events?.emit?.(taskEventType, {
+            runId,
+            team: loaded?.manifest.team,
+            workflow: loaded?.manifest.workflow,
+            taskId: task.id,
+            taskCount: loaded?.tasks.length,
+            role: task.role,
+            durationMs: task.startedAt && task.finishedAt ? new Date(task.finishedAt).getTime() - new Date(task.startedAt).getTime() : 0,
+            tokens: (task.usage?.input ?? 0) + (task.usage?.output ?? 0)
           });
         }
       }
