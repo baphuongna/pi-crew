@@ -19,6 +19,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { transformSync } from "esbuild";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEvent } from "../state/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -113,7 +114,11 @@ async function loadWorkflowModule(scriptPath: string): Promise<DynamicWorkflowSc
 	// raw .dwf.ts file. This is the same source jiti will execute.
 	const scriptSource = readFileSync(scriptPath, "utf-8");
 	if (isDeterminismCheckEnabled()) {
-		assertDeterministicScript(scriptSource);
+		// DISC-1: acorn can only parse JavaScript, not TypeScript. Real .dwf.ts files
+		// contain type annotations/imports that cause a silent parse error, so the
+		// determinism check never runs. Transpile to JS via esbuild first.
+		const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
+		assertDeterministicScript(js);
 	}
 	// jiti is the same loader async-runner.ts uses (resolveTypeScriptLoader). We require it
 	// lazily so this module stays importable in environments without jiti (type-only consumers).
