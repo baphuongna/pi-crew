@@ -2747,7 +2747,7 @@ function resolvePiCliScript() {
   const argv1 = process.argv[1];
   if (argv1) {
     const argvPath = path6.isAbsolute(argv1) ? argv1 : path6.resolve(argv1);
-    if (isRunnableNodeScript(argvPath)) return argvPath;
+    if (resolvePiPackageRoot() && isRunnableNodeScript(argvPath)) return argvPath;
   }
   const npmGlobalRoot = resolveNpmGlobalRoot();
   const npmGlobalDirs = npmGlobalRoot ? buildNpmGlobalPackageDirs(npmGlobalRoot) : [];
@@ -6685,7 +6685,7 @@ function extractUsage(value) {
     turns: numberField(obj, ["turns", "turnCount", "turn_count"])
   };
   if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
-  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+  for (const key of ["usage", "message", "tokenUsage", "tokens", "stats"]) {
     const nested = extractUsage(obj[key]);
     if (nested) return nested;
   }

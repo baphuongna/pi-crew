@@ -259,7 +259,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 9482,
+      "bytes": 9966,
       "imports": [
         {
           "path": "node:child_process",
@@ -804,7 +804,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi-spawn.ts": {
-      "bytes": 10314,
+      "bytes": 10338,
       "imports": [
         {
           "path": "node:fs",
@@ -928,7 +928,7 @@
       "format": "esm"
     },
     "src/runtime/pi-json-output.ts": {
-      "bytes": 6251,
+      "bytes": 6342,
       "imports": [],
       "format": "esm"
     },
@@ -12975,7 +12975,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5994532
+      "bytes": 5995170
     },
     "dist/index.mjs": {
       "imports": [
@@ -14631,7 +14631,7 @@
           "bytesInOutput": 40536
         },
         "src/runtime/pi-spawn.ts": {
-          "bytesInOutput": 6640
+          "bytesInOutput": 6666
         },
         "src/runtime/peer-dep.ts": {
           "bytesInOutput": 4739
@@ -14727,7 +14727,7 @@
           "bytesInOutput": 3634
         },
         "src/runtime/pi-json-output.ts": {
-          "bytesInOutput": 4312
+          "bytesInOutput": 4323
         },
         "src/runtime/child-pi-streams.ts": {
           "bytesInOutput": 9234
@@ -16161,7 +16161,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791102
+      "bytes": 2791139
     }
   }
 }

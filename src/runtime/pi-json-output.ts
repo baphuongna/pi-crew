@@ -55,7 +55,8 @@ function extractUsage(value: unknown): ParsedPiUsage | undefined {
 		turns: numberField(obj, ["turns", "turnCount", "turn_count"]),
 	};
 	if (Object.values(direct).some((entry) => entry !== undefined)) return direct;
-	for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+	// Pi --mode json nests usage under message for message_end / turn_end events.
+	for (const key of ["usage", "message", "tokenUsage", "tokens", "stats"]) {
 		const nested = extractUsage(obj[key]);
 		if (nested) return nested;
 	}

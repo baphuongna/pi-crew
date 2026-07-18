@@ -151,7 +151,7 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
  * Called right before spawn() as a runtime canary — protects against future
  * regressions where someone accidentally adds a secret key to built.env.
  */
-export function assertOnlyControlEnvKeys(builtEnv: Record<string, string>): void {
+export function assertOnlyControlEnvKeys(builtEnv: Record<string, string | undefined>): void {
 	// Verifies built.env (the per-call env we add on top of process.env) only
 	// contains PI_CREW_*/PI_TEAMS_* control keys. built.env does NOT include
 	// process.env values — those are merged separately via spread and filtered
@@ -175,7 +175,7 @@ export interface SpawnContext {
 	/** Temp dir created by buildPiWorkerArgs (caller must clean up after spawn). */
 	tempDir: string | undefined;
 	/** The per-call built.env (control vars only) — for security canary assertions. */
-	builtEnv: Record<string, string>;
+	builtEnv: Record<string, string | undefined>;
 }
 
 /**
