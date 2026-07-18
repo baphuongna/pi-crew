@@ -1185,6 +1185,7 @@ var init_defaults = __esm({
 });
 
 // src/state/locks.ts
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID as randomUUID2, timingSafeEqual } from "node:crypto";
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
@@ -1384,38 +1385,42 @@ function withFileLockSync(filePath, fn, options = {}) {
 function withRunLockSync(manifest, fn, options = {}) {
   const filePath = lockPath(manifest);
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
-  const existingToken = runLockHeldByUs.get(filePath);
-  if (existingToken) {
+  if (lockCtx.getStore()?.has(filePath)) {
     return fn();
   }
   fs3.mkdirSync(path3.dirname(filePath), { recursive: true });
   const token = acquireLockWithRetry(filePath, staleMs, "run");
-  runLockHeldByUs.set(filePath, token);
-  try {
-    return fn();
-  } finally {
-    runLockHeldByUs.delete(filePath);
-    releaseLock(filePath, token);
-  }
+  const prevHeld = lockCtx.getStore() ?? /* @__PURE__ */ new Set();
+  const newHeld = new Set(prevHeld);
+  newHeld.add(filePath);
+  return lockCtx.run(newHeld, () => {
+    try {
+      return fn();
+    } finally {
+      releaseLock(filePath, token);
+    }
+  });
 }
 async function withRunLock(manifest, fn, options = {}) {
   const filePath = lockPath(manifest);
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
-  const existingToken = runLockHeldByUs.get(filePath);
-  if (existingToken) {
+  if (lockCtx.getStore()?.has(filePath)) {
     return await fn();
   }
   fs3.mkdirSync(path3.dirname(filePath), { recursive: true });
   const token = await acquireLockWithRetryAsync(filePath, staleMs, "run");
-  runLockHeldByUs.set(filePath, token);
-  try {
-    return await fn();
-  } finally {
-    runLockHeldByUs.delete(filePath);
-    releaseLock(filePath, token);
-  }
+  const prevHeld = lockCtx.getStore() ?? /* @__PURE__ */ new Set();
+  const newHeld = new Set(prevHeld);
+  newHeld.add(filePath);
+  return await lockCtx.run(newHeld, async () => {
+    try {
+      return await fn();
+    } finally {
+      releaseLock(filePath, token);
+    }
+  });
 }
-var DEFAULT_STALE_MS, runLockHeldByUs, fileLockHeldByUs;
+var DEFAULT_STALE_MS, lockCtx, fileLockHeldByUs;
 var init_locks = __esm({
   "src/state/locks.ts"() {
     "use strict";
@@ -1423,7 +1428,7 @@ var init_locks = __esm({
     init_sleep();
     init_atomic_write();
     DEFAULT_STALE_MS = DEFAULT_LOCKS.staleMs;
-    runLockHeldByUs = /* @__PURE__ */ new Map();
+    lockCtx = new AsyncLocalStorage();
     fileLockHeldByUs = /* @__PURE__ */ new Map();
   }
 });
@@ -45401,7 +45406,7 @@ var init_workflow_manage = __esm({
 });
 
 // src/observability/correlation.ts
-import { AsyncLocalStorage } from "node:async_hooks";
+import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
 import { randomBytes as randomBytes2 } from "node:crypto";
 function withCorrelation(ctx, fn) {
   return storage.run(ctx, fn);
@@ -45425,7 +45430,7 @@ var storage;
 var init_correlation = __esm({
   "src/observability/correlation.ts"() {
     "use strict";
-    storage = new AsyncLocalStorage();
+    storage = new AsyncLocalStorage2();
   }
 });
 

@@ -126,8 +126,13 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 17045,
+      "bytes": 18521,
       "imports": [
+        {
+          "path": "node:async_hooks",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "node:crypto",
           "kind": "import-statement",
@@ -12789,7 +12794,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5978848
+      "bytes": 5980590
     },
     "dist/index.mjs": {
       "imports": [
@@ -12845,6 +12850,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:async_hooks",
           "kind": "import-statement",
           "external": true
         },
@@ -14403,7 +14413,7 @@
           "bytesInOutput": 4426
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 7427
+          "bytesInOutput": 7617
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -15408,7 +15418,7 @@
           "bytesInOutput": 8636
         },
         "src/observability/correlation.ts": {
-          "bytesInOutput": 734
+          "bytesInOutput": 757
         },
         "src/plugins/plugin-registry.ts": {
           "bytesInOutput": 620
@@ -15927,7 +15937,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2786747
+      "bytes": 2786960
     }
   }
 }
