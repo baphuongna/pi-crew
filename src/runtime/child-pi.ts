@@ -370,14 +370,16 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	// if the parent signal has already fired).
 	const spawnPrep = prepareSpawnContext(input, effectiveTask);
 	if (spawnPrep.kind === "aborted") return spawnPrep.result;
-	const { spawnSpec, mergedEnv, tempDir } = spawnPrep.ctx;
+	const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
-			// Runtime canary: verify the merged env doesn't accidentally contain
-			// secret keys. The actual secret filtering is done by
-			// buildChildPiSpawnOptions (allowlist). This is a defense-in-depth
-			// assertion — throws before the secret reaches the child process.
-			assertOnlyControlEnvKeys(mergedEnv as Record<string, string>);
+			// Runtime canary: verify built.env doesn't accidentally contain
+			// secret keys. We assert on builtEnv (not mergedEnv) because mergedEnv
+			// contains ALL process.env keys (PATH, HOME, SHELL, etc.) which is
+			// expected; those are filtered by the allowlist in buildChildPiSpawnOptions
+			// before reaching the child. The canary guards against accidental
+			// additions to built.env leaking secrets to children.
+			assertOnlyControlEnvKeys(builtEnv);
 			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
 			if (child.pid) {
 				registerActiveChild(child.pid, child);

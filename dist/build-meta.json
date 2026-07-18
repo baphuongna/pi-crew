@@ -804,7 +804,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi-spawn.ts": {
-      "bytes": 9791,
+      "bytes": 10314,
       "imports": [
         {
           "path": "node:fs",
@@ -969,7 +969,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 44662,
+      "bytes": 44793,
       "imports": [
         {
           "path": "node:child_process",
@@ -12975,7 +12975,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5993825
+      "bytes": 5994532
     },
     "dist/index.mjs": {
       "imports": [
@@ -14709,7 +14709,7 @@
           "bytesInOutput": 3511
         },
         "src/runtime/child-pi-spawn.ts": {
-          "bytesInOutput": 4231
+          "bytesInOutput": 4258
         },
         "src/runtime/child-pi-steering.ts": {
           "bytesInOutput": 2917
@@ -14739,7 +14739,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 29001
+          "bytesInOutput": 29010
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -16161,7 +16161,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791066
+      "bytes": 2791102
     }
   }
 }

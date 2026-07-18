@@ -6266,7 +6266,8 @@ function prepareSpawnContext(input, effectiveTask) {
     ctx: {
       spawnSpec,
       mergedEnv: { ...process.env, ...built.env },
-      tempDir: built.tempDir
+      tempDir: built.tempDir,
+      builtEnv: built.env
     }
   };
 }
@@ -7353,10 +7354,10 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
   }
   const spawnPrep = prepareSpawnContext(input, effectiveTask);
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
-  const { spawnSpec, mergedEnv, tempDir } = spawnPrep.ctx;
+  const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
     return await new Promise((resolve22) => {
-      assertOnlyControlEnvKeys(mergedEnv);
+      assertOnlyControlEnvKeys(builtEnv);
       const child = spawn2(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
       if (child.pid) {
         registerActiveChild(child.pid, child);
