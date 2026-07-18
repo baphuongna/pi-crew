@@ -1210,6 +1210,11 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let graceTurns = input.graceTurns;
 			if (graceTurns !== undefined && graceTurns > 1000) graceTurns = 1000;
 			let abortDueToParentSignal = false;
+			// CP-1: track whether the turn-limit hard-abort has been initiated. Once
+			// true, we must NOT restart the no-response timer — the child is already
+			// being killed via killProcessTree (SIGTERM → SIGKILL after 3s), and
+			// restarting the timer would delay detection of a SIGTERM-ignoring child.
+			let hardAbortInitiated = false;
 			// Round 27 (BUG 4): extract to a named handler so settle() can remove it.
 			// The previous anonymous listener was never removed → on runs with >10
 			// tasks sharing one AbortSignal (background-runner), Node emitted
@@ -1300,12 +1305,12 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			const lineObserver = new ChildPiLineObserver({
 				...input,
 				onStdoutLine: (line) => {
-					restartNoResponseTimer();
+					if (!hardAbortInitiated) restartNoResponseTimer();
 					stdout = appendBoundedTail(stdout, `${line}\n`);
 					input.onStdoutLine?.(line);
 				},
 				onJsonEvent: (event) => {
-					restartNoResponseTimer();
+					if (!hardAbortInitiated) restartNoResponseTimer();
 					const eventOpId = startOperation("json_event");
 					try {
 						// Turn-count-based steering: soft limit steer + hard abort after graceTurns
@@ -1341,12 +1346,13 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 										}
 									}
 								} else if (maxTurns !== undefined && softLimitReached && turnCount >= maxTurns + (graceTurns ?? 5)) {
-									// Hard abort — terminate after grace turns
-									try {
-										child.kill(process.platform === "win32" ? undefined : "SIGTERM");
-									} catch {
-										/* best-effort */
-									}
+									// Hard abort — terminate after grace turns.
+									// CP-1: use killProcessTree (same as abort/noResponseTimer paths) for
+									// SIGKILL escalation + process-group kill. Set hardAbortInitiated so
+									// onJsonEvent stops restarting the no-response timer (otherwise a
+									// SIGTERM-ignoring child that keeps emitting events never times out).
+									hardAbortInitiated = true;
+									killProcessTree(child.pid, child);
 								}
 							}
 						}
@@ -1627,7 +1633,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			};
 			child.stdout?.on("data", (chunk: Buffer) => {
-				restartNoResponseTimer();
+				if (!hardAbortInitiated) restartNoResponseTimer();
 				const text = chunk.toString("utf-8");
 				backpressureBytes += text.length;
 				try {
@@ -1646,7 +1652,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			});
 			child.stderr?.on("data", (chunk: Buffer) => {
-				restartNoResponseTimer();
+				if (!hardAbortInitiated) restartNoResponseTimer();
 				stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
 			});
 			child.on("error", (error) => {

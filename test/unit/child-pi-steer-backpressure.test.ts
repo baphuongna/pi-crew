@@ -66,15 +66,32 @@ test("HB-003a source contract: steer-injection does NOT call killProcessTree", (
 
 test("HB-003a source contract: hard-abort at maxTurns + graceTurns still enforces the limit", () => {
 	// The safety net for genuinely runaway workers is the hard-abort branch. It must
-	// remain intact (it uses child.kill, not killProcessTree, which is fine).
+	// remain intact. CP-1: the hard-abort now uses killProcessTree (same as the
+	// abort/noResponseTimer paths) for SIGKILL escalation + process-group kill, and
+	// sets a hardAbortInitiated flag so onJsonEvent stops restarting the no-response
+	// timer (otherwise a SIGTERM-ignoring child that keeps emitting events never
+	// times out). This is safe here because the hard-abort only fires after
+	// maxTurns + graceTurns are fully exhausted — the worker is genuinely runaway,
+	// unlike the steer-backpressure path (test above) where the worker may still
+	// have a valid answer.
 	const hardAbortBlock = sliceBetween(childPiSource, "} else if (maxTurns !== undefined && softLimitReached", "// Hard abort");
 	assert.match(hardAbortBlock, /maxTurns\s*\+\s*\(graceTurns/, "hard-abort must key off maxTurns + graceTurns");
-	// The hard-abort block ends at the comment; the child.kill call is on the
-	// next line. Verify it follows. Use a window after the anchor that doesn't
-	// depend on the em-dash (Windows encoding can mangle non-ASCII in source reads).
+	// The hard-abort block ends at the comment; the killProcessTree call + flag
+	// are on the following lines. Verify them in a window after the anchor.
 	const hardAbortIdx = childPiSource.indexOf("// Hard abort");
-	const afterBlock = childPiSource.slice(hardAbortIdx, hardAbortIdx + 200);
-	assert.match(afterBlock, /child\.kill/, "hard-abort must still terminate the worker");
+	const afterBlock = childPiSource.slice(hardAbortIdx, hardAbortIdx + 300);
+	assert.match(
+		afterBlock,
+		/killProcessTree/,
+		"hard-abort must terminate the worker via killProcessTree (SIGKILL escalation + process-group kill)",
+	);
+	assert.match(afterBlock, /hardAbortInitiated/, "hard-abort must set the hardAbortInitiated flag to stop noResponseTimer restarts");
+	// Verify the guard is applied at the event-handler sites.
+	assert.match(
+		childPiSource,
+		/if \(!hardAbortInitiated\) restartNoResponseTimer\(\)/,
+		"onJsonEvent/onStdoutLine must guard restartNoResponseTimer with hardAbortInitiated",
+	);
 });
 
 // --- Optional real-binary smoke check (opt-in via PI_CREW_SMOKE=1) -----------------
