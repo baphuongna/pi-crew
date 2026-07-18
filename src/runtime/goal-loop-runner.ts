@@ -66,13 +66,21 @@ export const stubGoalEvaluator = async (
 	_m?: import("../state/types.ts").TeamRunManifest,
 	_t?: import("../state/types.ts").TeamTaskState[],
 	_s?: AbortSignal,
-): Promise<GoalVerdict> => ({
-	turn: goal.turnsUsed,
-	achieved: false,
-	reason: `not-achieved: stub evaluator (P0). Turn ${goal.turnsUsed}/${goal.maxTurns} completed; P1 will judge against objective + verification.`,
-	evaluatorModel: "stub",
-	evaluatedAt: new Date().toISOString(),
+): Promise<GoalEvaluatorResult> => ({
+	verdict: {
+		turn: goal.turnsUsed,
+		achieved: false,
+		reason: `not-achieved: stub evaluator (P0). Turn ${goal.turnsUsed}/${goal.maxTurns} completed; P1 will judge against objective + verification.`,
+		evaluatorModel: "stub",
+		evaluatedAt: new Date().toISOString(),
+	},
+	judgeUsage: undefined,
 });
+
+export type GoalEvaluatorResult = {
+	verdict: GoalVerdict;
+	judgeUsage?: { totalTokens: number; inputTokens?: number; outputTokens?: number };
+};
 
 export type GoalEvaluatorFn = (
 	goal: GoalLoopState,
@@ -80,7 +88,7 @@ export type GoalEvaluatorFn = (
 	turnManifest: import("../state/types.ts").TeamRunManifest,
 	turnTasks: import("../state/types.ts").TeamTaskState[],
 	signal: AbortSignal,
-) => Promise<GoalVerdict>;
+) => Promise<GoalEvaluatorResult>;
 
 /**
  * Production evaluator (P1): bundles turn evidence + calls the LLM judge.
@@ -94,7 +102,7 @@ export const realGoalEvaluator = async (
 	turnManifest: import("../state/types.ts").TeamRunManifest,
 	turnTasks: import("../state/types.ts").TeamTaskState[],
 	signal: AbortSignal,
-): Promise<GoalVerdict> => {
+): Promise<GoalEvaluatorResult> => {
 	const transcriptPath = deriveTranscriptPath(turnManifest.artifactsRoot, turnTasks);
 	// Fix round-7 F1: execute verification commands (if configured) so the judge has real evidence.
 	// Previously bundleEvidence received `undefined` — the judge was told commands "MUST pass"
@@ -676,17 +684,38 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				logInternalError("goal-loop.saveTurnTasks", error, `turnRunId=${created.manifest.runId}`);
 			}
 
+			// GL-1: if the turn ended in blocked/failed status, stop the loop without spawning the judge.
+			// Previously the loop continued to evaluateGoal on blocked/failed turns, burning maxTurns.
+			const turnStatus = turnResult.manifest.status;
+			if (turnStatus === "blocked" || turnStatus === "failed") {
+				goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
+				appendEvent(eventsPath, {
+					type: "goal.turn_terminal_status",
+					runId: manifest.runId,
+					data: {
+						goalId: goal.goalId,
+						turn: turnIndex,
+						turnRunId: created.manifest.runId,
+						turnStatus,
+					},
+				});
+				break;
+			}
+
 			// ── BUDGET accumulation (§0c C2: collectRunMetrics) ──────────────────────
-			const updatedBudget = accumulateBudget(goal, created.manifest.runId);
+			const turnBudget = accumulateBudget(goal, created.manifest.runId);
 
 			// ── EVALUATE (P1: real LLM judge; pass turn manifest + tasks for transcript lookup) ──
-			const verdict = await evaluator(
-				{ ...goal, budgetUsed: updatedBudget },
+			const { verdict, judgeUsage } = await evaluator(
+				{ ...goal, budgetUsed: turnBudget },
 				created.manifest.runId,
 				turnResult.manifest,
 				turnResult.tasks,
 				signal,
 			);
+			// BDG-1: accumulate judge token usage into budget alongside the turn's worker tokens.
+			const judgeTokens = judgeUsage?.totalTokens ?? 0;
+			const updatedBudget = turnBudget + judgeTokens;
 			const historyEntry = {
 				runId: created.manifest.runId,
 				outcome: verdict.achieved ? "achieved" : "not-achieved",
