@@ -5982,7 +5982,7 @@ var init_env_filter = __esm({
 });
 
 // src/runtime/child-pi-constants.ts
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
 var init_child_pi_constants = __esm({
   "src/runtime/child-pi-constants.ts"() {
     "use strict";
@@ -5992,6 +5992,10 @@ var init_child_pi_constants = __esm({
     HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
     RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
     MAX_LINE_BUFFER_BYTES = 1024 * 1024;
+    MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
+    MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
+    MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
+    MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
   }
 });
 
@@ -6434,103 +6438,6 @@ var init_child_pi_transcript = __esm({
   }
 });
 
-// src/runtime/crash-classification.ts
-function detectNativePanic(stderrSnippet) {
-  if (!stderrSnippet) return null;
-  const lower = stderrSnippet.toLowerCase();
-  for (const sig of NATIVE_PANIC_SIGNATURES) {
-    if (lower.includes(sig.pattern)) return sig.label;
-  }
-  return null;
-}
-function normalizeSignal(signal) {
-  return signal ?? null;
-}
-function classifyProcessCrash(input) {
-  const exitCode = input.exitCode ?? null;
-  const signal = normalizeSignal(input.signal);
-  if (input.timedOut) {
-    return {
-      crashClass: "timeout",
-      reason: "process timed out (response timeout guard fired)"
-    };
-  }
-  if (input.cancelled) {
-    return {
-      crashClass: "cancelled",
-      reason: "process was cancelled (abort requested)"
-    };
-  }
-  if (input.spawnError !== void 0 && input.spawnError !== null) {
-    return {
-      crashClass: "spawn_error",
-      reason: `spawn error: ${stringifyError(input.spawnError)}`
-    };
-  }
-  const abnormalExit = signal !== null || exitCode !== null && exitCode !== 0;
-  if (abnormalExit) {
-    const panic = detectNativePanic(input.stderrSnippet);
-    if (panic !== null) {
-      return {
-        crashClass: "native_panic",
-        reason: `native panic detected: ${panic}`
-      };
-    }
-  }
-  if (signal !== null) {
-    return {
-      crashClass: "signal_exit",
-      reason: `process exited after signal ${signal}`
-    };
-  }
-  if (exitCode === 0) {
-    return { crashClass: "clean_exit", reason: "process exited cleanly" };
-  }
-  if (exitCode !== null) {
-    return {
-      crashClass: "non_zero_exit",
-      reason: `process exited with code ${exitCode}`
-    };
-  }
-  if (input.killed) {
-    return {
-      crashClass: "protocol_exit",
-      reason: "process was killed but no signal/exit code was captured"
-    };
-  }
-  return {
-    crashClass: "protocol_exit",
-    reason: "process exited before protocol completion (exit code unknown)"
-  };
-}
-function stringifyError(error) {
-  if (error instanceof Error) return error.message || error.name;
-  if (typeof error === "string") return error;
-  try {
-    return String(error);
-  } catch {
-    return "(unstringifiable error)";
-  }
-}
-var NATIVE_PANIC_SIGNATURES;
-var init_crash_classification = __esm({
-  "src/runtime/crash-classification.ts"() {
-    "use strict";
-    NATIVE_PANIC_SIGNATURES = [
-      { pattern: "sigsegv", label: "segmentation fault" },
-      { pattern: "segfault", label: "segmentation fault" },
-      { pattern: "segmentation fault", label: "segmentation fault" },
-      { pattern: "sigabrt", label: "abort signal" },
-      { pattern: "abort(", label: "abort" },
-      { pattern: "fatal error", label: "V8/node fatal error" },
-      { pattern: "panic:", label: "rust/go panic" },
-      { pattern: "thread '", label: "rust panic (thread context)" },
-      { pattern: "illegal instruction", label: "illegal instruction" },
-      { pattern: "double free", label: "heap corruption (double free)" }
-    ];
-  }
-});
-
 // src/runtime/pi-json-output.ts
 function asRecord3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
@@ -6652,6 +6559,330 @@ function extractPatch(event, patches) {
 var init_pi_json_output = __esm({
   "src/runtime/pi-json-output.ts"() {
     "use strict";
+  }
+});
+
+// src/runtime/child-pi-streams.ts
+function asRecord4(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function compactContentPart(part) {
+  const record = asRecord4(part);
+  if (!record) return void 0;
+  if (record.type === "text")
+    return {
+      type: "text",
+      text: typeof record.text === "string" ? compactString(record.text, MAX_ASSISTANT_TEXT_CHARS, {
+        preserveImportant: false
+      }) : ""
+    };
+  if (record.type === "toolCall")
+    return {
+      type: "toolCall",
+      name: record.name,
+      input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input)
+    };
+  if (record.type === "toolResult")
+    return {
+      type: "toolResult",
+      name: record.name,
+      content: compactValue(
+        typeof record.content === "string" ? compactString(record.content, MAX_TOOL_RESULT_CHARS) : record.content
+      )
+    };
+  return void 0;
+}
+function compactChildPiEvent(event) {
+  const record = asRecord4(event);
+  if (!record) return void 0;
+  if (record.type === "message_update") return void 0;
+  if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
+    return {
+      type: record.type,
+      toolName: record.toolName,
+      args: record.args
+    };
+  }
+  if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
+    const message = asRecord4(record.message);
+    if (message?.role === "user" || message?.role === "system") return void 0;
+    const content = Array.isArray(message?.content) ? message.content.map(compactContentPart).filter((part) => part !== void 0) : void 0;
+    return {
+      type: record.type,
+      ...typeof record.text === "string" ? { text: record.text } : {},
+      ...message ? {
+        message: {
+          role: message.role,
+          ...content ? { content } : {},
+          usage: message.usage,
+          model: message.model,
+          errorMessage: message.errorMessage,
+          stopReason: message.stopReason
+        }
+      } : {},
+      usage: record.usage,
+      model: record.model,
+      provider: record.provider,
+      stopReason: record.stopReason
+    };
+  }
+  return record.type ? { type: record.type } : void 0;
+}
+function displayTextFromCompactEvent(event) {
+  const record = asRecord4(event);
+  if (!record) return void 0;
+  if (record.type === "tool_execution_start") {
+    return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
+  }
+  if (record.type !== "message" && record.type !== "message_end") return void 0;
+  const message = asRecord4(record.message);
+  if (message?.role !== void 0 && message.role !== "assistant") return void 0;
+  const content = Array.isArray(message?.content) ? message.content : [];
+  const text = content.flatMap((part) => {
+    const item = asRecord4(part);
+    return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
+  }).join("\n").trim();
+  return text || (typeof record.text === "string" ? record.text : void 0);
+}
+function nonJsonLineResult(line4) {
+  return { json: false, persistedLine: line4, displayLine: line4 };
+}
+function compactChildPiLine(line4, preParsed) {
+  let parsed;
+  if (preParsed !== void 0) {
+    parsed = preParsed;
+  } else {
+    try {
+      parsed = JSON.parse(line4);
+    } catch {
+      return nonJsonLineResult(line4);
+    }
+  }
+  const compact = compactChildPiEvent(parsed);
+  return {
+    json: true,
+    event: compact,
+    persistedLine: compact ? JSON.stringify(compact) : "",
+    displayLine: displayTextFromCompactEvent(compact)
+  };
+}
+var ChildPiLineObserver;
+var init_child_pi_streams = __esm({
+  "src/runtime/child-pi-streams.ts"() {
+    "use strict";
+    init_internal_error();
+    init_child_pi_constants();
+    init_child_pi_transcript();
+    init_pi_json_output();
+    ChildPiLineObserver = class _ChildPiLineObserver {
+      buffer = "";
+      input;
+      /** F9: bounded ring buffer for RAW assistant-text fragments. Consumers
+       * (getRawFinalText) only read the last element, but the legacy implementation
+       * accumulated every fragment unconditionally, which let a verbose/long-running
+       * worker grow this array linearly with output. We retain the last 2 entries:
+       * the consumer needs the last; we keep the second-to-last only as a defensive
+       * fence against a race where a final event arrives just after the consumer
+       * read (the previous "last" is still the most-recent pre-final text in that
+       * window). 2 is well below any plausible consumer's "tail-only" need while
+       * bounding memory. */
+      static MAX_RAW_TEXT_EVENTS = 2;
+      rawTextEvents = [];
+      /** F9: bounded ring buffer for intermediate findings. The downstream digest
+       * (getIntermediateFindings) slices the last 20, but the array previously grew
+       * to 1000s of entries. We keep MAX_INTERMEDIATE_DIGEST_LINES + headroom so
+       * the public API behaviour is preserved (still returns "last 20 lines"). */
+      static MAX_INTERMEDIATE_FINDINGS = 32;
+      intermediateFindings = [];
+      constructor(input) {
+        this.input = input;
+      }
+      observe(text) {
+        this.buffer += text;
+        if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
+          logInternalError(
+            "child-pi.buffer-overflow",
+            new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
+            `bufferLen=${this.buffer.length}`
+          );
+          const line4 = this.buffer;
+          this.buffer = "";
+          this.emitLine(line4);
+          return;
+        }
+        const lines = this.buffer.split(/\r?\n/);
+        this.buffer = lines.pop() ?? "";
+        for (const line4 of lines) this.emitLine(line4);
+      }
+      flush() {
+        if (this.buffer) {
+          const line4 = this.buffer;
+          this.buffer = "";
+          this.emitLine(line4);
+        }
+        return flushPendingTranscriptWrites();
+      }
+      /** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
+       *  finalText semantics but uncapped). Undefined when no assistant text was
+       *  seen by this observer. {@link extractText} already drops empty fragments,
+       *  so the last entry is the final assistant utterance. */
+      getRawFinalText() {
+        return this.rawTextEvents.length > 0 ? this.rawTextEvents[this.rawTextEvents.length - 1] : void 0;
+      }
+      /** #7 hardening: returns a bounded digest of intermediate findings accumulated
+       *  during the run. This is NOT the final answer — it is a best-effort capture
+       *  of the last assistant text or tool-result display lines before budget
+       *  exhaustion. Only populated when getRawFinalText() would return undefined.
+       *  @param maxChars - maximum total characters to return (default 500). */
+      getIntermediateFindings(maxChars = 500) {
+        const MAX_INTERMEDIATE_DIGEST_LINES = 20;
+        if (this.intermediateFindings.length === 0) return "";
+        const lines = this.intermediateFindings.slice(-MAX_INTERMEDIATE_DIGEST_LINES);
+        const joined = lines.join("\n");
+        if (joined.length <= maxChars) return joined;
+        return joined.slice(-maxChars);
+      }
+      emitLine(line4) {
+        if (!line4.trim()) return;
+        let parsed;
+        try {
+          parsed = JSON.parse(line4);
+        } catch {
+          parsed = void 0;
+        }
+        if (parsed !== void 0) {
+          const rawTexts = extractText(parsed);
+          if (rawTexts.length > 0) {
+            this.rawTextEvents.push(...rawTexts);
+            const rawOverflow = this.rawTextEvents.length - _ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
+            if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
+            const last = rawTexts[rawTexts.length - 1];
+            if (last.trim().length > 0) {
+              this.intermediateFindings.push(last.trim());
+              const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
+              if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
+            }
+          }
+        }
+        const compact = parsed !== void 0 ? compactChildPiLine(line4, parsed) : nonJsonLineResult(line4);
+        if (compact.event !== void 0) {
+          try {
+            this.input.onJsonEvent?.(compact.event);
+          } catch (error) {
+            logInternalError("child-pi.on-json-event", error, `line=${compact.persistedLine ?? compact.displayLine ?? ""}`);
+          }
+        }
+        if (compact.persistedLine) appendTranscript(this.input, compact.persistedLine);
+        if (compact.displayLine?.trim()) {
+          try {
+            this.input.onStdoutLine?.(compact.displayLine);
+          } catch (error) {
+            logInternalError("child-pi.on-stdout-line", error, `line=${compact.displayLine}`);
+          }
+          this.intermediateFindings.push(compact.displayLine.trim());
+          const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
+          if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
+        }
+      }
+    };
+  }
+});
+
+// src/runtime/crash-classification.ts
+function detectNativePanic(stderrSnippet) {
+  if (!stderrSnippet) return null;
+  const lower = stderrSnippet.toLowerCase();
+  for (const sig of NATIVE_PANIC_SIGNATURES) {
+    if (lower.includes(sig.pattern)) return sig.label;
+  }
+  return null;
+}
+function normalizeSignal(signal) {
+  return signal ?? null;
+}
+function classifyProcessCrash(input) {
+  const exitCode = input.exitCode ?? null;
+  const signal = normalizeSignal(input.signal);
+  if (input.timedOut) {
+    return {
+      crashClass: "timeout",
+      reason: "process timed out (response timeout guard fired)"
+    };
+  }
+  if (input.cancelled) {
+    return {
+      crashClass: "cancelled",
+      reason: "process was cancelled (abort requested)"
+    };
+  }
+  if (input.spawnError !== void 0 && input.spawnError !== null) {
+    return {
+      crashClass: "spawn_error",
+      reason: `spawn error: ${stringifyError(input.spawnError)}`
+    };
+  }
+  const abnormalExit = signal !== null || exitCode !== null && exitCode !== 0;
+  if (abnormalExit) {
+    const panic = detectNativePanic(input.stderrSnippet);
+    if (panic !== null) {
+      return {
+        crashClass: "native_panic",
+        reason: `native panic detected: ${panic}`
+      };
+    }
+  }
+  if (signal !== null) {
+    return {
+      crashClass: "signal_exit",
+      reason: `process exited after signal ${signal}`
+    };
+  }
+  if (exitCode === 0) {
+    return { crashClass: "clean_exit", reason: "process exited cleanly" };
+  }
+  if (exitCode !== null) {
+    return {
+      crashClass: "non_zero_exit",
+      reason: `process exited with code ${exitCode}`
+    };
+  }
+  if (input.killed) {
+    return {
+      crashClass: "protocol_exit",
+      reason: "process was killed but no signal/exit code was captured"
+    };
+  }
+  return {
+    crashClass: "protocol_exit",
+    reason: "process exited before protocol completion (exit code unknown)"
+  };
+}
+function stringifyError(error) {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === "string") return error;
+  try {
+    return String(error);
+  } catch {
+    return "(unstringifiable error)";
+  }
+}
+var NATIVE_PANIC_SIGNATURES;
+var init_crash_classification = __esm({
+  "src/runtime/crash-classification.ts"() {
+    "use strict";
+    NATIVE_PANIC_SIGNATURES = [
+      { pattern: "sigsegv", label: "segmentation fault" },
+      { pattern: "segfault", label: "segmentation fault" },
+      { pattern: "segmentation fault", label: "segmentation fault" },
+      { pattern: "sigabrt", label: "abort signal" },
+      { pattern: "abort(", label: "abort" },
+      { pattern: "fatal error", label: "V8/node fatal error" },
+      { pattern: "panic:", label: "rust/go panic" },
+      { pattern: "thread '", label: "rust panic (thread context)" },
+      { pattern: "illegal instruction", label: "illegal instruction" },
+      { pattern: "double free", label: "heap corruption (double free)" }
+    ];
   }
 });
 
@@ -6801,124 +7032,24 @@ function buildChildPiSpawnOptions(cwd, env, model) {
     windowsHide: true
   };
 }
-function compactContentPart(part) {
-  const record = asRecord4(part);
-  if (!record) return void 0;
-  if (record.type === "text")
-    return {
-      type: "text",
-      text: typeof record.text === "string" ? compactString(record.text, MAX_ASSISTANT_TEXT_CHARS, {
-        preserveImportant: false
-      }) : ""
-    };
-  if (record.type === "toolCall")
-    return {
-      type: "toolCall",
-      name: record.name,
-      input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input)
-    };
-  if (record.type === "toolResult")
-    return {
-      type: "toolResult",
-      name: record.name,
-      content: compactValue(
-        typeof record.content === "string" ? compactString(record.content, MAX_TOOL_RESULT_CHARS) : record.content
-      )
-    };
-  return void 0;
-}
-function compactChildPiEvent(event) {
-  const record = asRecord4(event);
-  if (!record) return void 0;
-  if (record.type === "message_update") return void 0;
-  if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
-    return {
-      type: record.type,
-      toolName: record.toolName,
-      args: record.args
-    };
-  }
-  if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
-    const message = asRecord4(record.message);
-    if (message?.role === "user" || message?.role === "system") return void 0;
-    const content = Array.isArray(message?.content) ? message.content.map(compactContentPart).filter((part) => part !== void 0) : void 0;
-    return {
-      type: record.type,
-      ...typeof record.text === "string" ? { text: record.text } : {},
-      ...message ? {
-        message: {
-          role: message.role,
-          ...content ? { content } : {},
-          usage: message.usage,
-          model: message.model,
-          errorMessage: message.errorMessage,
-          stopReason: message.stopReason
-        }
-      } : {},
-      usage: record.usage,
-      model: record.model,
-      provider: record.provider,
-      stopReason: record.stopReason
-    };
-  }
-  return record.type ? { type: record.type } : void 0;
-}
-function displayTextFromCompactEvent(event) {
-  const record = asRecord4(event);
-  if (!record) return void 0;
-  if (record.type === "tool_execution_start") {
-    return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
-  }
-  if (record.type !== "message" && record.type !== "message_end") return void 0;
-  const message = asRecord4(record.message);
-  if (message?.role !== void 0 && message.role !== "assistant") return void 0;
-  const content = Array.isArray(message?.content) ? message.content : [];
-  const text = content.flatMap((part) => {
-    const item = asRecord4(part);
-    return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
-  }).join("\n").trim();
-  return text || (typeof record.text === "string" ? record.text : void 0);
-}
-function nonJsonLineResult(line4) {
-  return { json: false, persistedLine: line4, displayLine: line4 };
-}
-function compactChildPiLine(line4, preParsed) {
-  let parsed;
-  if (preParsed !== void 0) {
-    parsed = preParsed;
-  } else {
-    try {
-      parsed = JSON.parse(line4);
-    } catch {
-      return nonJsonLineResult(line4);
-    }
-  }
-  const compact = compactChildPiEvent(parsed);
-  return {
-    json: true,
-    event: compact,
-    persistedLine: compact ? JSON.stringify(compact) : "",
-    displayLine: displayTextFromCompactEvent(compact)
-  };
-}
 async function observeStdoutChunk(input, text) {
   const observer = new ChildPiLineObserver(input);
   observer.observe(text);
   await observer.flush();
 }
-function asRecord4(value) {
+function asRecord5(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function isFinalAssistantEvent(event) {
-  const obj = asRecord4(event);
+  const obj = asRecord5(event);
   if (obj?.type !== "message_end") return false;
-  const message = asRecord4(obj.message);
+  const message = asRecord5(obj.message);
   const role = message?.role;
   if (role !== void 0 && role !== "assistant") return false;
   const stopReason = typeof message?.stopReason === "string" ? message.stopReason : typeof obj.stopReason === "string" ? obj.stopReason : void 0;
   if (stopReason !== void 0 && stopReason !== "stop") return false;
   const content = Array.isArray(message?.content) ? message.content : [];
-  return !content.some((part) => asRecord4(part)?.type === "toolCall");
+  return !content.some((part) => asRecord5(part)?.type === "toolCall");
 }
 async function runChildPi(input) {
   const effectiveTask = input.inheritContext === true && input.parentContext ? `${input.parentContext}
@@ -7665,7 +7796,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, BASE_ALLOWLIST, ChildPiLineObserver;
+var BASE_ALLOWLIST;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -7678,18 +7809,14 @@ var init_child_pi = __esm({
     init_redaction();
     init_child_pi_constants();
     init_child_pi_kill();
-    init_child_pi_transcript();
+    init_child_pi_streams();
     init_child_pi_kill();
+    init_child_pi_streams();
     init_crash_classification();
     init_pi_args();
-    init_pi_json_output();
     init_pi_spawn();
     init_post_exit_stdio_guard();
     init_child_pi_transcript();
-    MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
-    MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
-    MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
-    MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
     BASE_ALLOWLIST = [
       "PATH",
       "HOME",
@@ -7734,117 +7861,6 @@ var init_child_pi = __esm({
       "PI_CREW_MAX_OUTPUT",
       "PI_CREW_STEERING_FILE"
     ];
-    ChildPiLineObserver = class _ChildPiLineObserver {
-      buffer = "";
-      input;
-      /** F9: bounded ring buffer for RAW assistant-text fragments. Consumers
-       * (getRawFinalText) only read the last element, but the legacy implementation
-       * accumulated every fragment unconditionally, which let a verbose/long-running
-       * worker grow this array linearly with output. We retain the last 2 entries:
-       * the consumer needs the last; we keep the second-to-last only as a defensive
-       * fence against a race where a final event arrives just after the consumer
-       * read (the previous "last" is still the most-recent pre-final text in that
-       * window). 2 is well below any plausible consumer's "tail-only" need while
-       * bounding memory. */
-      static MAX_RAW_TEXT_EVENTS = 2;
-      rawTextEvents = [];
-      /** F9: bounded ring buffer for intermediate findings. The downstream digest
-       * (getIntermediateFindings) slices the last 20, but the array previously grew
-       * to 1000s of entries. We keep MAX_INTERMEDIATE_DIGEST_LINES + headroom so
-       * the public API behaviour is preserved (still returns "last 20 lines"). */
-      static MAX_INTERMEDIATE_FINDINGS = 32;
-      intermediateFindings = [];
-      constructor(input) {
-        this.input = input;
-      }
-      observe(text) {
-        this.buffer += text;
-        if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
-          logInternalError(
-            "child-pi.buffer-overflow",
-            new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
-            `bufferLen=${this.buffer.length}`
-          );
-          const line4 = this.buffer;
-          this.buffer = "";
-          this.emitLine(line4);
-          return;
-        }
-        const lines = this.buffer.split(/\r?\n/);
-        this.buffer = lines.pop() ?? "";
-        for (const line4 of lines) this.emitLine(line4);
-      }
-      flush() {
-        if (this.buffer) {
-          const line4 = this.buffer;
-          this.buffer = "";
-          this.emitLine(line4);
-        }
-        return flushPendingTranscriptWrites();
-      }
-      /** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
-       *  finalText semantics but uncapped). Undefined when no assistant text was
-       *  seen by this observer. {@link extractText} already drops empty fragments,
-       *  so the last entry is the final assistant utterance. */
-      getRawFinalText() {
-        return this.rawTextEvents.length > 0 ? this.rawTextEvents[this.rawTextEvents.length - 1] : void 0;
-      }
-      /** #7 hardening: returns a bounded digest of intermediate findings accumulated
-       *  during the run. This is NOT the final answer — it is a best-effort capture
-       *  of the last assistant text or tool-result display lines before budget
-       *  exhaustion. Only populated when getRawFinalText() would return undefined.
-       *  @param maxChars - maximum total characters to return (default 500). */
-      getIntermediateFindings(maxChars = 500) {
-        const MAX_INTERMEDIATE_DIGEST_LINES = 20;
-        if (this.intermediateFindings.length === 0) return "";
-        const lines = this.intermediateFindings.slice(-MAX_INTERMEDIATE_DIGEST_LINES);
-        const joined = lines.join("\n");
-        if (joined.length <= maxChars) return joined;
-        return joined.slice(-maxChars);
-      }
-      emitLine(line4) {
-        if (!line4.trim()) return;
-        let parsed;
-        try {
-          parsed = JSON.parse(line4);
-        } catch {
-          parsed = void 0;
-        }
-        if (parsed !== void 0) {
-          const rawTexts = extractText(parsed);
-          if (rawTexts.length > 0) {
-            this.rawTextEvents.push(...rawTexts);
-            const rawOverflow = this.rawTextEvents.length - _ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
-            if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
-            const last = rawTexts[rawTexts.length - 1];
-            if (last.trim().length > 0) {
-              this.intermediateFindings.push(last.trim());
-              const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-              if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-            }
-          }
-        }
-        const compact = parsed !== void 0 ? compactChildPiLine(line4, parsed) : nonJsonLineResult(line4);
-        if (compact.event !== void 0) {
-          try {
-            this.input.onJsonEvent?.(compact.event);
-          } catch (error) {
-            logInternalError("child-pi.on-json-event", error, `line=${compact.persistedLine ?? compact.displayLine ?? ""}`);
-          }
-        }
-        if (compact.persistedLine) appendTranscript(this.input, compact.persistedLine);
-        if (compact.displayLine?.trim()) {
-          try {
-            this.input.onStdoutLine?.(compact.displayLine);
-          } catch (error) {
-            logInternalError("child-pi.on-stdout-line", error, `line=${compact.displayLine}`);
-          }
-          this.intermediateFindings.push(compact.displayLine.trim());
-          const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-          if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-        }
-      }
-    };
   }
 });
 
@@ -30459,23 +30475,23 @@ async function appendTranscriptAsync(filePath, event) {
     logInternalError("live-session.transcript-write-failed", error, `path=${filePath}`);
   }
 }
-function asRecord5(value) {
+function asRecord6(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function isString(value) {
   return typeof value === "string";
 }
 function extractMessageRole(obj) {
-  const message = obj?.message ? asRecord5(obj.message) : void 0;
+  const message = obj?.message ? asRecord6(obj.message) : void 0;
   return isString(message?.role) ? message.role : void 0;
 }
 function extractMessageUsage(obj) {
-  const message = obj?.message ? asRecord5(obj.message) : void 0;
+  const message = obj?.message ? asRecord6(obj.message) : void 0;
   return message?.usage && typeof message.usage === "object" ? message.usage : void 0;
 }
 function extractToolName(obj) {
   if (!obj) return void 0;
-  const tool = asRecord5(obj.tool);
+  const tool = asRecord6(obj.tool);
   if (isString(tool?.name)) return tool.name;
   if (isString(obj.toolName)) return obj.toolName;
   if (isString(obj.name)) return obj.name;
@@ -30485,7 +30501,7 @@ function textFromContent2(content) {
   if (typeof content === "string") return [content];
   if (!Array.isArray(content)) return [];
   return content.flatMap((part) => {
-    const obj = asRecord5(part);
+    const obj = asRecord6(part);
     if (!obj) return [];
     if (obj.type === "text" && typeof obj.text === "string") return [obj.text];
     if (typeof obj.content === "string") return [obj.content];
@@ -30493,19 +30509,19 @@ function textFromContent2(content) {
   });
 }
 function eventText(event) {
-  const obj = asRecord5(event);
+  const obj = asRecord6(event);
   if (!obj) return [];
   const text = [];
   if (typeof obj.text === "string") text.push(obj.text);
   text.push(...textFromContent2(obj.content));
-  const message = asRecord5(obj.message);
+  const message = asRecord6(obj.message);
   if (message) text.push(...textFromContent2(message.content));
   return text.filter((entry) => entry.trim());
 }
 function finalAssistantText(event) {
-  const obj = asRecord5(event);
+  const obj = asRecord6(event);
   if (obj?.type !== "message_end") return [];
-  const message = asRecord5(obj.message);
+  const message = asRecord6(obj.message);
   if (message?.role !== "assistant") return [];
   return textFromContent2(message.content);
 }
@@ -30529,7 +30545,7 @@ async function resolveScopeModelsPatterns(cwd, agentDir) {
 }
 function modelFromRegistry(modelRegistry, modelId) {
   if (!modelId?.includes("/")) return void 0;
-  const registry2 = asRecord5(modelRegistry);
+  const registry2 = asRecord6(modelRegistry);
   const find = registry2?.find;
   if (typeof find !== "function") return void 0;
   const [provider, ...modelParts] = modelId.split("/");
@@ -30655,7 +30671,7 @@ function filterActiveTools(session, agent, role) {
   session.setActiveToolsByName(active);
 }
 function usageFromStats(stats) {
-  const obj = asRecord5(stats);
+  const obj = asRecord6(stats);
   if (!obj) return void 0;
   const input = numberField2(obj, ["input", "inputTokens", "input_tokens"]);
   const output = numberField2(obj, ["output", "outputTokens", "output_tokens"]);
@@ -30971,7 +30987,7 @@ async function runLiveSessionTask(input) {
               message: event,
               cwd: input.task.cwd
             });
-          const obj = asRecord5(event);
+          const obj = asRecord6(event);
           if (obj?.type === "turn_end") {
             turnCount += 1;
             trackLiveAgentTurnEnd(agentId);
@@ -41185,7 +41201,7 @@ function asUnaryFn(value, owner) {
 function asInverse(value, owner) {
   return asUnaryFn(value, owner) ?? inverseAnsi;
 }
-function asRecord6(value) {
+function asRecord7(value) {
   return value && typeof value === "object" ? value : void 0;
 }
 function callMaybeString(fn) {
@@ -41207,7 +41223,7 @@ function themeSignature(theme) {
 }
 function asUnsubscribe(value) {
   if (typeof value === "function") return value;
-  const record = asRecord6(value);
+  const record = asRecord7(value);
   if (!record) return void 0;
   if (typeof record.unsubscribe === "function") return () => record.unsubscribe();
   if (typeof record.dispose === "function") return () => record.dispose();
@@ -44586,11 +44602,11 @@ var init_command_trace = __esm({
 
 // src/runtime/completion-guard.ts
 import * as fs67 from "node:fs";
-function asRecord7(value) {
+function asRecord8(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function commandText(value) {
-  const record = asRecord7(value);
+  const record = asRecord8(value);
   if (!record) return typeof value === "string" ? value : "";
   for (const key of ["command", "cmd", "script", "input"]) {
     const raw = record[key];
@@ -44611,17 +44627,17 @@ function isMutatingTool(tool, args) {
   return false;
 }
 function collectToolCallsFromEvent(event) {
-  const record = asRecord7(event);
+  const record = asRecord8(event);
   if (!record) return [];
   const calls = [];
   const directTool = record.toolName ?? record.name ?? record.tool;
   if (typeof directTool === "string" && (record.type === "tool_execution_start" || record.type === "toolCall" || record.type === "tool_call")) {
     calls.push({ tool: directTool, args: record.args ?? record.input });
   }
-  const content = Array.isArray(record.content) ? record.content : asRecord7(record.message)?.content;
+  const content = Array.isArray(record.content) ? record.content : asRecord8(record.message)?.content;
   if (Array.isArray(content)) {
     for (const part of content) {
-      const item = asRecord7(part);
+      const item = asRecord8(part);
       if (!item) continue;
       const tool = item.name ?? item.toolName ?? item.tool;
       if (typeof tool === "string" && (item.type === "toolCall" || item.type === "tool_call" || item.type === "tool_execution_start"))
@@ -49366,7 +49382,7 @@ var init_progress_event_coalescer = __esm({
 
 // src/runtime/session-usage.ts
 import * as fs76 from "node:fs";
-function asRecord8(value) {
+function asRecord9(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function numberField3(obj, keys) {
@@ -49377,7 +49393,7 @@ function numberField3(obj, keys) {
   return void 0;
 }
 function usageFromValue(value) {
-  const obj = asRecord8(value);
+  const obj = asRecord9(value);
   if (!obj) return void 0;
   const direct = {
     input: numberField3(obj, ["input", "inputTokens", "input_tokens"]),
@@ -49392,7 +49408,7 @@ function usageFromValue(value) {
     const nested = usageFromValue(obj[key]);
     if (nested) return nested;
   }
-  const message = asRecord8(obj.message);
+  const message = asRecord9(obj.message);
   return message ? usageFromValue(message.usage) : void 0;
 }
 function addUsage2(total, usage) {
@@ -49524,7 +49540,7 @@ var init_capabilities = __esm({
 });
 
 // src/runtime/task-runner/progress.ts
-function asRecord9(value) {
+function asRecord10(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function safeNum(v) {
@@ -49535,7 +49551,7 @@ function textFromContent3(content) {
   if (!Array.isArray(content)) return [];
   const text = [];
   for (const part of content) {
-    const obj = asRecord9(part);
+    const obj = asRecord10(part);
     if (!obj) continue;
     if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
     else if (typeof obj.content === "string") text.push(obj.content);
@@ -49543,13 +49559,13 @@ function textFromContent3(content) {
   return text;
 }
 function eventText2(event) {
-  const obj = asRecord9(event);
+  const obj = asRecord10(event);
   if (!obj) return [];
   const text = [];
   if (typeof obj.text === "string") text.push(obj.text);
   if (typeof obj.output === "string") text.push(obj.output);
   text.push(...textFromContent3(obj.content));
-  const message = asRecord9(obj.message);
+  const message = asRecord10(obj.message);
   if (message) text.push(...textFromContent3(message.content));
   return text.filter((entry) => entry.trim());
 }
@@ -49561,7 +49577,7 @@ function numberField4(obj, keys) {
   return void 0;
 }
 function eventUsage(event) {
-  const obj = asRecord9(event);
+  const obj = asRecord10(event);
   if (!obj) return void 0;
   const direct = {
     input: numberField4(obj, ["input", "inputTokens", "input_tokens"]),
@@ -49573,7 +49589,7 @@ function eventUsage(event) {
     const nested = eventUsage(obj[key]);
     if (nested) return nested;
   }
-  const message = asRecord9(obj.message);
+  const message = asRecord10(obj.message);
   return message ? eventUsage(message.usage) : void 0;
 }
 function previewArgs(args) {
@@ -49592,11 +49608,11 @@ function applyUsageToProgress(progress, usage) {
   return { ...base, tokens, turns: usage.turns ?? base.turns };
 }
 function shouldFlushProgressEvent(event) {
-  const type = asRecord9(event)?.type;
+  const type = asRecord10(event)?.type;
   return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_start" || type === "message_end" || type === "tool_result_end";
 }
 function progressEventSummary(task, event) {
-  const type = asRecord9(event)?.type;
+  const type = asRecord10(event)?.type;
   return {
     eventType: typeof type === "string" ? type : "event",
     currentTool: task.agentProgress?.currentTool,
@@ -49608,7 +49624,7 @@ function progressEventSummary(task, event) {
   };
 }
 function applyAgentProgressEvent(progress, event, startedAt) {
-  const obj = asRecord9(event);
+  const obj = asRecord10(event);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const next = {
     ...progress,
@@ -61650,14 +61666,14 @@ import * as fs90 from "node:fs";
 function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
   return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
 }
-function asRecord10(value) {
+function asRecord11(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function textFromContent4(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((part) => {
-    const obj = asRecord10(part);
+    const obj = asRecord11(part);
     if (!obj) return "";
     if (typeof obj.text === "string") return obj.text;
     if (typeof obj.content === "string") return obj.content;
@@ -61690,13 +61706,13 @@ function highlightCodeBlocks(input, theme) {
 }
 function formatTranscriptEvent(event, themeLike = void 0) {
   const theme = asCrewTheme(themeLike);
-  const obj = asRecord10(event);
+  const obj = asRecord11(event);
   if (!obj) return [String(event)];
   const type = typeof obj.type === "string" ? obj.type : void 0;
   const toolName = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : void 0;
   const content = textFromContent4(obj.content);
   if (type && /tool/i.test(type)) {
-    const result4 = asRecord10(obj.result);
+    const result4 = asRecord11(obj.result);
     const isError = obj.isError === true || result4?.isError === true;
     const isPartial = obj.isPartial === true;
     const status = isError ? "failed" : isPartial ? "running" : "completed";
@@ -61720,7 +61736,7 @@ function formatTranscriptEvent(event, themeLike = void 0) {
       ...text.split(/\r?\n/).filter(Boolean).map((line4) => theme.fg("muted", line4))
     ];
   }
-  const message = asRecord10(obj.message);
+  const message = asRecord11(obj.message);
   if (message) {
     const role = typeof message.role === "string" ? message.role : "message";
     const text = textFromContent4(message.content);
@@ -70200,7 +70216,7 @@ function capacityIcons() {
   if (isWebTerminal()) return FALLBACK_CAPACITY_ICONS;
   return hasCrewFontFile() ? DEFAULT_CONFIG2.capacity.icons : FALLBACK_CAPACITY_ICONS;
 }
-function asRecord11(value) {
+function asRecord12(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function boolFrom(raw, fallback2) {
@@ -70222,7 +70238,7 @@ function tokenDisplayFrom(raw, fallback2) {
   return raw === "off" || raw === "tokens" || raw === "percentage" ? raw : fallback2;
 }
 function normalizeSpeed(raw) {
-  const input = asRecord11(raw);
+  const input = asRecord12(raw);
   const speed = {
     enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.speed.enabled),
     footer: boolFrom(input.footer, DEFAULT_CONFIG2.speed.footer),
@@ -70244,7 +70260,7 @@ function normalizeSpeed(raw) {
   return speed;
 }
 function normalizeCapacity(raw) {
-  const input = asRecord11(raw);
+  const input = asRecord12(raw);
   return {
     enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.capacity.enabled),
     tokenDisplay: tokenDisplayFrom(input.tokenDisplay, DEFAULT_CONFIG2.capacity.tokenDisplay),
@@ -70257,7 +70273,7 @@ function normalizeCapacity(raw) {
   };
 }
 function normalizeConfig(raw) {
-  const input = asRecord11(raw);
+  const input = asRecord12(raw);
   return {
     enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.enabled),
     speed: normalizeSpeed(input.speed),

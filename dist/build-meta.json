@@ -757,7 +757,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi-constants.ts": {
-      "bytes": 1319,
+      "bytes": 1937,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -865,13 +865,39 @@
       ],
       "format": "esm"
     },
-    "src/runtime/crash-classification.ts": {
-      "bytes": 8547,
+    "src/runtime/pi-json-output.ts": {
+      "bytes": 6251,
       "imports": [],
       "format": "esm"
     },
-    "src/runtime/pi-json-output.ts": {
-      "bytes": 6251,
+    "src/runtime/child-pi-streams.ts": {
+      "bytes": 11778,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-transcript.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-transcript.ts"
+        },
+        {
+          "path": "src/runtime/pi-json-output.ts",
+          "kind": "import-statement",
+          "original": "./pi-json-output.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/crash-classification.ts": {
+      "bytes": 8547,
       "imports": [],
       "format": "esm"
     },
@@ -881,7 +907,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 63585,
+      "bytes": 52613,
       "imports": [
         {
           "path": "node:child_process",
@@ -949,14 +975,19 @@
           "original": "./child-pi-kill.ts"
         },
         {
-          "path": "src/runtime/child-pi-transcript.ts",
+          "path": "src/runtime/child-pi-streams.ts",
           "kind": "import-statement",
-          "original": "./child-pi-transcript.ts"
+          "original": "./child-pi-streams.ts"
         },
         {
           "path": "src/runtime/child-pi-kill.ts",
           "kind": "import-statement",
           "original": "./child-pi-kill.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-streams.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-streams.ts"
         },
         {
           "path": "src/runtime/crash-classification.ts",
@@ -967,11 +998,6 @@
           "path": "src/runtime/pi-args.ts",
           "kind": "import-statement",
           "original": "./pi-args.ts"
-        },
-        {
-          "path": "src/runtime/pi-json-output.ts",
-          "kind": "import-statement",
-          "original": "./pi-json-output.ts"
         },
         {
           "path": "src/runtime/pi-spawn.ts",
@@ -12887,7 +12913,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5984040
+      "bytes": 5985725
     },
     "dist/index.mjs": {
       "imports": [
@@ -14597,7 +14623,7 @@
           "bytesInOutput": 3511
         },
         "src/runtime/child-pi-constants.ts": {
-          "bytesInOutput": 504
+          "bytesInOutput": 874
         },
         "src/runtime/compact-stages/tail-capture-stage.ts": {
           "bytesInOutput": 1809
@@ -14617,17 +14643,20 @@
         "src/runtime/child-pi-transcript.ts": {
           "bytesInOutput": 3634
         },
-        "src/runtime/crash-classification.ts": {
-          "bytesInOutput": 2900
-        },
         "src/runtime/pi-json-output.ts": {
           "bytesInOutput": 4312
+        },
+        "src/runtime/child-pi-streams.ts": {
+          "bytesInOutput": 9234
+        },
+        "src/runtime/crash-classification.ts": {
+          "bytesInOutput": 2900
         },
         "src/runtime/post-exit-stdio-guard.ts": {
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 43189
+          "bytesInOutput": 33935
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -15659,7 +15688,7 @@
           "bytesInOutput": 1169
         },
         "src/runtime/task-runner/progress.ts": {
-          "bytesInOutput": 4999
+          "bytesInOutput": 5008
         },
         "src/runtime/task-runner/prompt-pipeline.ts": {
           "bytesInOutput": 1966
@@ -16049,7 +16078,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2788381
+      "bytes": 2788776
     }
   }
 }
