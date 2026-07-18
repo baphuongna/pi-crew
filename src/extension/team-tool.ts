@@ -8,6 +8,7 @@ import { loadConfig, updateAutonomousConfig, updateConfig } from "../config/conf
 import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
+import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
 import { withRunLock } from "../state/locks.ts";
 import { replayPendingMailboxMessages } from "../state/mailbox.ts";
@@ -501,6 +502,10 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 	const task = loaded.tasks.find((t) => t.id === taskId);
 	if (!task) return result(`Task '${taskId}' not found`, { action: "steer", status: "error" }, true);
 	if (!task.pendingSteers) task.pendingSteers = [];
+	// T-S1: do not allow steering a task that has already reached a terminal status.
+	if (TEAM_TERMINAL_TASK_STATUSES.has(task.status)) {
+		return result(`Task '${taskId}' is ${task.status}; cannot steer.`, { action: "steer", status: "error" }, true);
+	}
 	// HIGH-04: Cap pendingSteers array to prevent unbounded memory growth
 	const MAX_PENDING_STEERS = 100;
 	if (task.pendingSteers.length >= MAX_PENDING_STEERS) {

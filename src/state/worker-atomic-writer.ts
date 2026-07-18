@@ -137,6 +137,7 @@ function getWorker(): Worker {
 		// Reject ALL pending requests — worker died.
 		for (const [, entry] of pending) entry.reject(error);
 		pending.clear();
+		worker = undefined;
 	});
 	worker.unref(); // don't keep event loop alive (unless tests request it)
 	if (keepRefForTests) worker.ref();
