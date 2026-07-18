@@ -7,6 +7,7 @@ import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { runChildPi } from "./child-pi.ts";
 import { permissionForRole } from "./role-permission.ts";
 import type { CrewRuntimeMode } from "./runtime-resolver.ts";
+import { sanitizeTaskText } from "./task-packet.ts";
 import { splitCoalescedOutput } from "./task-runner/output-splitter.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "./worker-heartbeat.ts";
@@ -193,7 +194,7 @@ async function buildCoalescedPrompt(
 				`### Task ${idx + 1} of ${groupTasks.length} (id: ${task.id})`,
 				`Step: ${step.id}`,
 				`Role: ${step.role}`,
-				`Task: ${step.task.replaceAll("{goal}", manifest.goal)}`,
+				`Task: ${sanitizeTaskText(step.task.replaceAll("{goal}", manifest.goal))}`,
 			].join("\n");
 		})
 		.join("\n\n---\n\n");

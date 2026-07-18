@@ -282,10 +282,14 @@ export function registerPiCrewRpc(
 				}
 			}, "pi-crew:rpc:status"),
 		),
-		on(events, "pi-crew:live-control", (raw) => {
-			const request = parseLiveControlRealtimeMessage(raw);
-			if (request) publishLiveControlRealtime(request);
-		}),
+		on(
+			events,
+			"pi-crew:live-control",
+			withHmacVerification((raw) => {
+				const request = parseLiveControlRealtimeMessage(raw);
+				if (request) publishLiveControlRealtime(request);
+			}, "pi-crew:live-control"),
+		),
 		on(
 			events,
 			"pi-crew:rpc:live-control",

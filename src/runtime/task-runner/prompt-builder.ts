@@ -4,7 +4,7 @@ import type { TaskOutputSchema, TeamRunManifest, TeamTaskState } from "../../sta
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { buildMemoryBlock } from "../agent-memory.ts";
 import { permissionForRole } from "../role-permission.ts";
-import { HANDOFF_TEMPLATE, renderTaskPacket } from "../task-packet.ts";
+import { HANDOFF_TEMPLATE, renderTaskPacket, sanitizeTaskText } from "../task-packet.ts";
 import { buildWorkspaceTree } from "../workspace-tree.ts";
 import { renderSuggestedFilesSection, runRetrievalCycle } from "./retrieval-orchestrator.ts";
 
@@ -267,7 +267,7 @@ export async function renderTaskPrompt(
 		memoryBlock,
 		task.taskPacket?.outputSchema ? renderOutputSchemaBlock(task.taskPacket.outputSchema) : "",
 		"Task:",
-		step.task.replaceAll("{goal}", manifest.goal),
+		sanitizeTaskText(step.task.replaceAll("{goal}", manifest.goal)),
 		"",
 		"When your task is complete, structure your final output using this handoff template:",
 		HANDOFF_TEMPLATE,
