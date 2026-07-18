@@ -11,6 +11,13 @@ import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
+import {
+	FINAL_DRAIN_MS,
+	HARD_KILL_MS,
+	MAX_LINE_BUFFER_BYTES,
+	POST_EXIT_STDIO_GUARD_MS,
+	RESPONSE_TIMEOUT_MS,
+} from "./child-pi-constants.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { appendTranscript, compactString, compactValue, flushPendingTranscriptWrites } from "./child-pi-transcript.ts";
@@ -28,18 +35,14 @@ import { extractText } from "./pi-json-output.ts";
 import { getPiSpawnCommand } from "./pi-spawn.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
 
-const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
-const FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
-const HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
-const RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
 const MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
 const MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
 const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
 const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
- * from chatty child processes that produce output without newlines. */
-const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
+ * from chatty child processes that produce output without newlines.
+ * (Constant moved to child-pi-constants.ts.) */
 
 // Periodic cleanup of dead child process entries to prevent memory leaks.
 /**

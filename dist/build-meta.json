@@ -756,13 +756,24 @@
       ],
       "format": "esm"
     },
+    "src/runtime/child-pi-constants.ts": {
+      "bytes": 1319,
+      "imports": [
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../config/defaults.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/compact-stages/tail-capture-stage.ts": {
       "bytes": 3558,
       "imports": [],
       "format": "esm"
     },
     "src/runtime/child-pi-kill.ts": {
-      "bytes": 6694,
+      "bytes": 6700,
       "imports": [
         {
           "path": "node:child_process",
@@ -778,6 +789,11 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
         },
         {
           "path": "src/runtime/compact-stages/tail-capture-stage.ts",
@@ -865,7 +881,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 63682,
+      "bytes": 63585,
       "imports": [
         {
           "path": "node:child_process",
@@ -921,6 +937,11 @@
           "path": "src/utils/redaction.ts",
           "kind": "import-statement",
           "original": "../utils/redaction.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
         },
         {
           "path": "src/runtime/child-pi-kill.ts",
@@ -12866,7 +12887,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5982724
+      "bytes": 5984040
     },
     "dist/index.mjs": {
       "imports": [
@@ -14575,11 +14596,14 @@
         "src/utils/env-filter.ts": {
           "bytesInOutput": 3511
         },
+        "src/runtime/child-pi-constants.ts": {
+          "bytesInOutput": 504
+        },
         "src/runtime/compact-stages/tail-capture-stage.ts": {
           "bytesInOutput": 1809
         },
         "src/runtime/child-pi-kill.ts": {
-          "bytesInOutput": 4178
+          "bytesInOutput": 4147
         },
         "src/runtime/compact-pipeline.ts": {
           "bytesInOutput": 512
@@ -14603,7 +14627,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 43536
+          "bytesInOutput": 43189
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -16025,7 +16049,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2788217
+      "bytes": 2788381
     }
   }
 }

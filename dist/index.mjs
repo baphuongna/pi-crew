@@ -5981,6 +5981,20 @@ var init_env_filter = __esm({
   }
 });
 
+// src/runtime/child-pi-constants.ts
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES;
+var init_child_pi_constants = __esm({
+  "src/runtime/child-pi-constants.ts"() {
+    "use strict";
+    init_defaults();
+    POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
+    FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
+    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
+    RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
+    MAX_LINE_BUFFER_BYTES = 1024 * 1024;
+  }
+});
+
 // src/runtime/compact-stages/tail-capture-stage.ts
 var TailCaptureStage, TAIL_CAPTURE_STREAM_STAGE;
 var init_tail_capture_stage = __esm({
@@ -6139,14 +6153,14 @@ function terminateActiveChildPiProcesses() {
   for (const [pid, child] of entries) killProcessTree(pid, child);
   return entries.length;
 }
-var HARD_KILL_MS, MAX_CAPTURE_BYTES, activeChildProcesses, childHardKillTimers;
+var MAX_CAPTURE_BYTES, activeChildProcesses, childHardKillTimers;
 var init_child_pi_kill = __esm({
   "src/runtime/child-pi-kill.ts"() {
     "use strict";
     init_defaults();
     init_internal_error();
+    init_child_pi_constants();
     init_tail_capture_stage();
-    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
     MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
     activeChildProcesses = /* @__PURE__ */ new Map();
     childHardKillTimers = /* @__PURE__ */ new Map();
@@ -7106,7 +7120,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
       let hardKillTimer;
       let noResponseTimer;
       const finalDrainMs = input.finalDrainMs ?? FINAL_DRAIN_MS;
-      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS2;
+      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS;
       let finalDrainArmed = false;
       let lastStdoutActivityMonotonicMs = performance.now();
       let finalDrainFiredMonotonicMs;
@@ -7175,7 +7189,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
           } catch (error) {
             logInternalError("child-pi.response-timeout-term", error, `pid=${child.pid}`);
           }
-          const SAFETY_SETTLE_MS = HARD_KILL_MS2 + 2e3;
+          const SAFETY_SETTLE_MS = HARD_KILL_MS + 2e3;
           const safetyTimer = setTimeout(() => {
             if (settled || childExited) return;
             logInternalError(
@@ -7580,7 +7594,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
         if (!postExitGuardCleanup) {
           postExitGuardCleanup = attachPostExitStdioGuard(child, {
             idleMs: POST_EXIT_STDIO_GUARD_MS,
-            hardMs: HARD_KILL_MS2
+            hardMs: HARD_KILL_MS
           });
         }
       });
@@ -7651,7 +7665,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
   }
 }
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS2, RESPONSE_TIMEOUT_MS, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, MAX_LINE_BUFFER_BYTES, BASE_ALLOWLIST, ChildPiLineObserver;
+var MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS, BASE_ALLOWLIST, ChildPiLineObserver;
 var init_child_pi = __esm({
   "src/runtime/child-pi.ts"() {
     "use strict";
@@ -7662,6 +7676,7 @@ var init_child_pi = __esm({
     init_env_filter();
     init_internal_error();
     init_redaction();
+    init_child_pi_constants();
     init_child_pi_kill();
     init_child_pi_transcript();
     init_child_pi_kill();
@@ -7671,15 +7686,10 @@ var init_child_pi = __esm({
     init_pi_spawn();
     init_post_exit_stdio_guard();
     init_child_pi_transcript();
-    POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
-    FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
-    HARD_KILL_MS2 = DEFAULT_CHILD_PI.hardKillMs;
-    RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
     MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
     MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
     MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
     MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
-    MAX_LINE_BUFFER_BYTES = 1024 * 1024;
     BASE_ALLOWLIST = [
       "PATH",
       "HOME",
