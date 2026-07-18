@@ -13,6 +13,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
+import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
 
@@ -599,7 +600,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let abortRequested = input.signal?.aborted === true;
 			let hardKilled = false;
 			const cleanupErrors: string[] = [];
-			let turnCount = 0;
+			const steeringController = new ChildPiSteeringController(input.maxTurns, input.graceTurns);
 			// Track in-flight operations for proper rejection on unexpected exit
 			interface PendingOperation {
 				id: string;
@@ -630,19 +631,12 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				pendingOperations.clear();
 			};
 
-			let softLimitReached = false;
 			const steerInjectionFailed = false;
-			const maxTurns = input.maxTurns;
-			// FIX (Issue #1): Bound graceTurns to prevent the hard abort condition from
-			// never triggering when an arbitrarily large value is passed.
-			let graceTurns = input.graceTurns;
-			if (graceTurns !== undefined && graceTurns > 1000) graceTurns = 1000;
 			let abortDueToParentSignal = false;
 			// CP-1: track whether the turn-limit hard-abort has been initiated. Once
 			// true, we must NOT restart the no-response timer — the child is already
 			// being killed via killProcessTree (SIGTERM → SIGKILL after 3s), and
 			// restarting the timer would delay detection of a SIGTERM-ignoring child.
-			let hardAbortInitiated = false;
 			// Round 27 (BUG 4): extract to a named handler so settle() can remove it.
 			// The previous anonymous listener was never removed → on runs with >10
 			// tasks sharing one AbortSignal (background-runner), Node emitted
@@ -733,55 +727,21 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			const lineObserver = new ChildPiLineObserver({
 				...input,
 				onStdoutLine: (line) => {
-					if (!hardAbortInitiated) restartNoResponseTimer();
+					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 					stdout = appendBoundedTail(stdout, `${line}\n`);
 					input.onStdoutLine?.(line);
 				},
 				onJsonEvent: (event) => {
-					if (!hardAbortInitiated) restartNoResponseTimer();
+					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 					const eventOpId = startOperation("json_event");
 					try {
 						// Turn-count-based steering: soft limit steer + hard abort after graceTurns
 						if (event && typeof event === "object" && !Array.isArray(event)) {
 							const obj = event as Record<string, unknown>;
 							if (obj.type === "turn_end") {
-								turnCount += 1;
-								if (maxTurns !== undefined && !softLimitReached && turnCount >= maxTurns) {
-									softLimitReached = true;
-									// C8: deliver the "wrap up" advisory by appending to the steering JSONL
-									// file the child polls (PI_CREW_STEERING_FILE). The child is spawned with
-									// stdio:["ignore",...], so child.stdin is null and the old stdin branch was
-									// dead code that only spammed logs on every soft-limit hit. Advisory only —
-									// the hard-abort below at maxTurns + graceTurns is the real enforcement, so
-									// a failed write must NOT kill the worker.
-									if (input.steeringFile) {
-										try {
-											fs.appendFileSync(
-												input.steeringFile,
-												JSON.stringify({
-													type: "steer",
-													message:
-														"You have reached your turn limit. Wrap up immediately — provide your final answer now.",
-												}) + "\n",
-												"utf-8",
-											);
-										} catch (err) {
-											logInternalError(
-												"child-pi.steer-write-failed",
-												err instanceof Error ? err : new Error(String(err)),
-												`pid=${child.pid}`,
-											);
-										}
-									}
-								} else if (maxTurns !== undefined && softLimitReached && turnCount >= maxTurns + (graceTurns ?? 5)) {
-									// Hard abort — terminate after grace turns.
-									// CP-1: use killProcessTree (same as abort/noResponseTimer paths) for
-									// SIGKILL escalation + process-group kill. Set hardAbortInitiated so
-									// onJsonEvent stops restarting the no-response timer (otherwise a
-									// SIGTERM-ignoring child that keeps emitting events never times out).
-									hardAbortInitiated = true;
-									killProcessTree(child.pid, child);
-								}
+								// H-7 step 5: steering state machine extracted to ChildPiSteeringController.
+								const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
+								if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
 							}
 						}
 						completeOperation(eventOpId);
@@ -1061,7 +1021,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			};
 			child.stdout?.on("data", (chunk: Buffer) => {
-				if (!hardAbortInitiated) restartNoResponseTimer();
+				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 				const text = chunk.toString("utf-8");
 				backpressureBytes += text.length;
 				try {
@@ -1080,7 +1040,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			});
 			child.stderr?.on("data", (chunk: Buffer) => {
-				if (!hardAbortInitiated) restartNoResponseTimer();
+				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 				stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
 			});
 			child.on("error", (error) => {
@@ -1222,7 +1182,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					);
 				}
 				const finalExitCode = forcedFinalDrain && !timeoutError ? 0 : exitCode;
-				const wasGraceAborted = softLimitReached && turnCount >= (maxTurns ?? 0) + (graceTurns ?? 5);
+				const wasGraceAborted =
+					steeringController.isSoftLimitReached() &&
+					steeringController.getTurnCount() >=
+						(steeringController.getMaxTurns() ?? 0) + (steeringController.getGraceTurns() ?? 5);
 				const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
 				// steerInjectionFailed is now always false (Phase-1 fix: steer backpressure
 				// is logged, not fatal). The steerError branch is retained for safety in
@@ -1247,7 +1210,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					...(timeoutError ? { error: timeoutError.error } : {}),
 					...(steerError ? { error: steerError } : {}),
 					aborted: wasGraceAborted || wasParentAborted,
-					steered: softLimitReached && !wasGraceAborted,
+					steered: steeringController.isSoftLimitReached() && !wasGraceAborted,
 					exitStatus: {
 						exitCode: finalExitCode,
 						cancelled: abortRequested,

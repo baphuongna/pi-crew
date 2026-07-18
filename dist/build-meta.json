@@ -896,6 +896,27 @@
       ],
       "format": "esm"
     },
+    "src/runtime/child-pi-steering.ts": {
+      "bytes": 5005,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/crash-classification.ts": {
       "bytes": 8547,
       "imports": [],
@@ -907,7 +928,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 52613,
+      "bytes": 51084,
       "imports": [
         {
           "path": "node:child_process",
@@ -978,6 +999,11 @@
           "path": "src/runtime/child-pi-streams.ts",
           "kind": "import-statement",
           "original": "./child-pi-streams.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-steering.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-steering.ts"
         },
         {
           "path": "src/runtime/child-pi-kill.ts",
@@ -12913,7 +12939,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5985725
+      "bytes": 5990169
     },
     "dist/index.mjs": {
       "imports": [
@@ -13184,6 +13210,11 @@
         },
         {
           "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -14649,6 +14680,9 @@
         "src/runtime/child-pi-streams.ts": {
           "bytesInOutput": 9234
         },
+        "src/runtime/child-pi-steering.ts": {
+          "bytesInOutput": 2981
+        },
         "src/runtime/crash-classification.ts": {
           "bytesInOutput": 2900
         },
@@ -14656,7 +14690,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 33935
+          "bytesInOutput": 33037
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -16018,7 +16052,7 @@
           "bytesInOutput": 6528
         },
         "src/extension/registration/hook-registration.ts": {
-          "bytesInOutput": 2132
+          "bytesInOutput": 2135
         },
         "src/runtime/per-write-validator.ts": {
           "bytesInOutput": 2205
@@ -16078,7 +16112,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2788776
+      "bytes": 2790899
     }
   }
 }

@@ -28,3 +28,15 @@ export const RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
  * from chatty child processes that produce output without newlines.
  */
 export const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
+
+/** Maximum characters for assistant text fragments in compacted events. */
+export const MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
+
+/** Maximum characters for tool-result fragments in compacted events. */
+export const MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
+
+/** Maximum characters for tool-input fragments in compacted events. */
+export const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
+
+/** Maximum characters for general compactable content (used by TruncationStage). */
+export const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
