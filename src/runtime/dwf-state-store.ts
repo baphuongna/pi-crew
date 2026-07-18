@@ -28,6 +28,11 @@ export interface DwfCheckpointState {
 	logs: string[]; // capped copy (≤1000); the events log (dwf.log) is the durable source of truth
 	spent: number; // budget accumulator (round-14 P1-2)
 	agentCount: number;
+	/** PERS-1: per-agent-call idempotency cache. Maps a deterministic call ID to the
+	 *  cached result so a DWF resume skips already-completed agent calls (avoids
+	 *  duplicating artifacts/mailbox/tokens). Uses Record (not Map) for JSON
+	 *  serialization safety. */
+	completedAgentCalls?: Record<string, { text: string; usage?: { input: number; output: number } }>;
 	updatedAt: string;
 }
 

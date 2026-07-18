@@ -270,6 +270,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		logs: opts.resumedState ? [...opts.resumedState.logs].slice(0, 1000) : [],
 		args: opts.args ?? {},
 	};
+	// PERS-1: per-agent-call idempotency cache. Hydrated from resumedState so a DWF
+	// resume skips already-completed agent calls (avoids duplicating artifacts/mailbox/tokens).
+	// Uses Record (not Map) for JSON serialization safety.
+	const completedAgentCalls: Record<string, { text: string; usage?: { input: number; output: number } }> =
+		opts.resumedState?.completedAgentCalls ?? {};
 	// round-14 P1-2: frozen budget surface. The closures read wfState.spent so the
 	// object stays live after Object.freeze(ctx). total is a snapshot primitive.
 	const budget = Object.freeze({
@@ -291,10 +296,35 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			// regardless of which return/throw path is taken.
 			let worktreePath: string | undefined;
 			let worktreeBranch: string | undefined;
+			// BDG-2: declared before the try so the catch block can un-reserve on failure.
+			const ESTIMATE = 4096;
+			let reserved = false;
 			try {
-				// round-14 P1-2: budget check BEFORE spawning. When the per-workflow token
-				// budget is exhausted, reject the call without consuming a child worker.
-				if (budget.total !== null && budget.remaining() <= 0) {
+				// PERS-1: per-agent-call idempotency. Compute a deterministic call ID
+				// from the call arguments and check if this call was already completed
+				// (e.g. during a previous run before a crash). If so, return the cached
+				// result without re-spawning the agent.
+				const callId = JSON.stringify({
+					role: call.role,
+					agent: call.agent,
+					prompt: call.prompt,
+					model: call.model,
+					schema: call.schema ? "yes" : "no",
+				});
+				const cached = completedAgentCalls[callId];
+				if (cached) {
+					return {
+						ok: true,
+						text: cached.text,
+						usage: cached.usage,
+						durationMs: 0,
+					};
+				}
+
+				// BDG-2: reserve-then-adjust budget. Before spawning, estimate the cost and
+				// reserve it by adding to wfState.spent. This prevents N concurrent calls from
+				// all seeing the same remaining budget and overspending.
+				if (budget.total !== null && budget.remaining() < ESTIMATE) {
 					return {
 						ok: false,
 						text: "",
@@ -302,6 +332,10 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 						durationMs: 0,
 					};
 				}
+				// Reserve the estimate before spawning.
+				wfState.spent += ESTIMATE;
+				reserved = true;
+
 				const agentConfig = resolveAgentForRole(call.role, {
 					explicitAgent: call.agent,
 					team: opts.team,
@@ -370,6 +404,9 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					}),
 				);
 				if (childResult.exitCode !== 0 || childResult.error) {
+					// BDG-2: un-reserve the estimate on spawn failure.
+					wfState.spent -= ESTIMATE;
+					reserved = false;
 					return {
 						ok: false,
 						text: "",
@@ -379,8 +416,10 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				}
 				const parsed = parsePiJsonOutput(childResult.stdout);
 				// round-14 P1-2: accumulate this run's token usage into the workflow budget.
-				// Covers both the success and schema-mismatch paths (both report parsed.usage).
-				wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0);
+				// BDG-2: adjust the reserve — subtract the estimate, add the actual usage.
+				// This correctly reduces spent when actualUsage < ESTIMATE.
+				wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - ESTIMATE;
+				reserved = false;
 				let text = parsed.finalText ?? "";
 				// Round-11 test fix: parsePiJsonOutput only extracts text from pi event stream
 				// ({type:"message_end", message:{role:"assistant", content:[...]}}). When the
@@ -403,6 +442,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					producer: "dynamic-workflow",
 				});
 				if (call.schema !== undefined && !extracted.structured) {
+					// BDG-2: un-reserve was already done above (reserved = false after adjust).
 					return {
 						ok: false,
 						text,
@@ -412,6 +452,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 						durationMs: Date.now() - started,
 					};
 				}
+				// PERS-1: cache the successful result for idempotency on resume.
+				completedAgentCalls[callId] = {
+					text,
+					usage: { input: parsed.usage?.input ?? 0, output: parsed.usage?.output ?? 0 },
+				};
 				return {
 					ok: true,
 					text,
@@ -421,6 +466,8 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					durationMs: Date.now() - started,
 				};
 			} catch (error) {
+				// BDG-2: un-reserve the estimate on failure (only if still reserved).
+				if (reserved) wfState.spent -= ESTIMATE;
 				logInternalError("dynamic-workflow-context.agent", error, `runId=${manifest.runId}`);
 				return {
 					ok: false,
@@ -453,6 +500,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 							logs: wfState.logs.slice(0, 1000),
 							spent: wfState.spent,
 							agentCount,
+							completedAgentCalls,
 							updatedAt: new Date().toISOString(),
 						});
 					} catch (checkpointError) {
@@ -712,6 +760,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		get: () => agentCount,
 		enumerable: false,
 	});
+	// PERS-1: completedAgentCalls is read-only from the runner; the agent() method
+	// is the only writer. Exposed so getWorkflowCheckpoint() can include it.
+	Object.defineProperty(ctx, "__completedAgentCalls", {
+		get: () => completedAgentCalls,
+		enumerable: false,
+	});
 	return ctx;
 }
 
@@ -760,6 +814,9 @@ export function getWorkflowCheckpoint(ctx: WorkflowCtx): DwfCheckpointState {
 		logs: logs ?? [],
 		spent: ctx.budget.spent(),
 		agentCount: (ctx as unknown as { __agentCount?: number }).__agentCount ?? 0,
+		completedAgentCalls:
+			(ctx as unknown as { __completedAgentCalls?: Record<string, { text: string; usage?: { input: number; output: number } }> })
+				.__completedAgentCalls ?? {},
 		updatedAt: new Date().toISOString(),
 	};
 }
