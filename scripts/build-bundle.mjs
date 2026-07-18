@@ -55,7 +55,8 @@ const result = await build({
 		"cli-highlight",
 		"diff",
 		"jiti",
-		"typebox",
+		"@sinclair/typebox",
+		"acorn",
 	],
 	// All node:* and Node-builtin modules are external by default for
 	// platform=node, but list explicitly for clarity.
