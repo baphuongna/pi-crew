@@ -134,7 +134,11 @@ export function findGitRoot(cwd: string): string {
 }
 
 export function assertCleanLeader(repoRoot: string): void {
-	const status = git(repoRoot, ["status", "--porcelain"]);
+	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
+	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
+	// The worktree contract is "no tracked changes" — untracked files are safe since
+	// they're either in .gitignore or the user can decide later.
+	const status = git(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
 	if (status.trim()) {
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
 	}
@@ -168,7 +172,9 @@ export function clearCleanLeaderCache(): void {
 
 export async function assertCleanLeaderAsync(repoRoot: string): Promise<void> {
 	if (_cleanLeaderCache.has(repoRoot)) return;
-	const status = await gitAsync(repoRoot, ["status", "--porcelain"]);
+	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
+	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
+	const status = await gitAsync(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
 	if (status.trim()) {
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
 	}

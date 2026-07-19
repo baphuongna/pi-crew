@@ -8483,7 +8483,7 @@
       "format": "esm"
     },
     "src/worktree/worktree-manager.ts": {
-      "bytes": 45188,
+      "bytes": 45722,
       "imports": [
         {
           "path": "node:child_process",
@@ -12975,7 +12975,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5995170
+      "bytes": 5995732
     },
     "dist/index.mjs": {
       "imports": [
@@ -15750,7 +15750,7 @@
           "bytesInOutput": 8085
         },
         "src/worktree/worktree-manager.ts": {
-          "bytesInOutput": 24632
+          "bytesInOutput": 24656
         },
         "src/runtime/event-stream-bridge.ts": {
           "bytesInOutput": 2321
@@ -16161,7 +16161,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791139
+      "bytes": 2791163
     }
   }
 }

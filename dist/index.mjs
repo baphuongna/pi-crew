@@ -48715,7 +48715,7 @@ async function findGitRootAsync(cwd) {
 }
 async function assertCleanLeaderAsync(repoRoot) {
   if (_cleanLeaderCache.has(repoRoot)) return;
-  const status = await gitAsync(repoRoot, ["status", "--porcelain"]);
+  const status = await gitAsync(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
   if (status.trim()) {
     throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
   }
