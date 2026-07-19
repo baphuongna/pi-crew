@@ -59,7 +59,7 @@ export class TailCaptureStage implements ICompactStage {
 			// never contains a partial multi-byte sequence.
 			if (Buffer.byteLength(text, "utf-8") <= this.maxBytes) return text;
 			let tail = text.slice(Math.max(0, text.length - this.maxBytes));
-			while (Buffer.byteLength(tail, "utf-8") > this.maxBytes) tail = tail.slice(1024);
+			while (Buffer.byteLength(tail, "utf-8") > this.maxBytes) tail = tail.slice(0, -1);
 			return this.marker ? `${this.marker}\n${tail}` : tail;
 		}
 		// Char cap mode.

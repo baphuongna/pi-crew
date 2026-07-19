@@ -5,8 +5,10 @@ import { saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { runChildPi } from "./child-pi.ts";
+import { DEFAULT_RETRY_POLICY, executeWithRetry } from "./retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
 import type { CrewRuntimeMode } from "./runtime-resolver.ts";
+import { sanitizeTaskText } from "./task-packet.ts";
 import { splitCoalescedOutput } from "./task-runner/output-splitter.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "./worker-heartbeat.ts";
@@ -101,15 +103,21 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			}
 		}, 15_000);
 		try {
-			const result = await runChildPi({
-				cwd: firstTask.cwd,
-				task: combinedPrompt,
-				agent,
-				signal,
-				excludeContextBash: true,
-				maxTurns: 5,
-				onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
-			});
+			const result = await executeWithRetry(
+				async () => {
+					return await runChildPi({
+						cwd: firstTask.cwd,
+						task: combinedPrompt,
+						agent,
+						signal,
+						excludeContextBash: true,
+						maxTurns: 5,
+						onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
+					});
+				},
+				DEFAULT_RETRY_POLICY,
+				{ signal },
+			);
 			rawOutput = result.rawFinalText ?? result.stdout ?? "";
 			success = result.exitStatus?.exitCode === 0;
 		} catch (err) {
@@ -193,7 +201,7 @@ async function buildCoalescedPrompt(
 				`### Task ${idx + 1} of ${groupTasks.length} (id: ${task.id})`,
 				`Step: ${step.id}`,
 				`Role: ${step.role}`,
-				`Task: ${step.task.replaceAll("{goal}", manifest.goal)}`,
+				`Task: ${sanitizeTaskText(step.task.replaceAll("{goal}", manifest.goal))}`,
 			].join("\n");
 		})
 		.join("\n\n---\n\n");

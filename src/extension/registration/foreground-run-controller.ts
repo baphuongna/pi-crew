@@ -165,6 +165,7 @@ function startForegroundRunImpl(
 						goal: loaded?.manifest.goal,
 						status,
 						taskCount: loaded?.tasks.length,
+						durationMs: loaded?.manifest.createdAt ? Date.now() - new Date(loaded.manifest.createdAt).getTime() : 0,
 						timestamp: Date.now(),
 					});
 					const eventType =
@@ -183,6 +184,33 @@ function startForegroundRunImpl(
 							status,
 							taskCount: loaded?.tasks.length,
 							goal: loaded?.manifest.goal,
+							durationMs: loaded?.manifest.createdAt ? Date.now() - new Date(loaded.manifest.createdAt).getTime() : 0,
+						});
+					}
+
+					// Emit per-task events so task-level metrics (crew.task.count,
+					// crew.task.duration_ms, crew.task.tokens_total) record actual values.
+					const terminalTaskStatuses = new Set(["completed", "failed", "needs_attention"]);
+					for (const task of loaded?.tasks ?? []) {
+						if (!terminalTaskStatuses.has(task.status)) continue;
+						const taskEventType =
+							task.status === "completed"
+								? "crew.task.completed"
+								: task.status === "failed"
+									? "crew.task.failed"
+									: "crew.task.needs_attention";
+						pi.events?.emit?.(taskEventType, {
+							runId,
+							team: loaded?.manifest.team,
+							workflow: loaded?.manifest.workflow,
+							taskId: task.id,
+							taskCount: loaded?.tasks.length,
+							role: task.role,
+							durationMs:
+								task.startedAt && task.finishedAt
+									? new Date(task.finishedAt).getTime() - new Date(task.startedAt).getTime()
+									: 0,
+							tokens: (task.usage?.input ?? 0) + (task.usage?.output ?? 0),
 						});
 					}
 				}

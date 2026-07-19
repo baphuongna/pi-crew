@@ -9,7 +9,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { PluginRegistry } from "../plugins/plugin-registry.ts";
 import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/artifact-store.ts";
-import { atomicWriteFile } from "../state/atomic-write.ts";
+import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write.ts";
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
@@ -1615,6 +1615,11 @@ async function executeTeamRunCore(
 		// Read committed manifest from disk inside the lock so artifact merge is based
 		// on committed state, not in-memory state that may differ from disk.
 		const mergeResult = await withRunLock(manifest, async () => {
+			// NEW-D1: flush any pending coalesced atomic writes before reading from
+			// disk. Without this, a worker's async manifest save (coalesced by
+			// atomic-write) may not be committed yet, causing a lost-update on the
+			// merge read. flushPendingAtomicWrites forces all queued writes to disk.
+			flushPendingAtomicWrites();
 			const disk = loadRunManifestById(manifest.cwd, manifest.runId);
 			const diskManifest = disk?.manifest ?? manifest;
 			const diskArtifacts = diskManifest.artifacts;

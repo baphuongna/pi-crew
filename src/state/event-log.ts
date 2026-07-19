@@ -998,6 +998,7 @@ export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, 
 				});
 			}, bufferMs);
 			bufferedTimers.set(eventsPath, timer);
+			timer.unref();
 		}
 	});
 }

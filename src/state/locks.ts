@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -379,48 +380,68 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	}
 }
 
-export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, options: RunLockOptions = {}): T {
-	const filePath = lockPath(manifest);
-	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
-	const existingToken = runLockHeldByUs.get(filePath);
-	if (existingToken) {
-		// Re-entrant: already hold this lock, just run the callback.
-		return fn();
-	}
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	const token = acquireLockWithRetry(filePath, staleMs, "run");
-	runLockHeldByUs.set(filePath, token);
-	try {
-		return fn();
-	} finally {
-		runLockHeldByUs.delete(filePath);
-		releaseLock(filePath, token);
-	}
-}
-
-// Track re-entrant lock acquisitions per lock file path. When a lock is
-// already held by this call stack (handleResume -> executeTeamRun ->
-// executeTeamRunCore), we skip re-acquisition to avoid deadlock.
-const runLockHeldByUs = new Map<string, string>(); // filePath -> token
+// H-1: track re-entrant run-lock acquisitions PER ASYNC CONTEXT (not process-global).
+// Previously a module-global Map caused a bug: when withRunLock (async) yielded at
+// `await fn()`, a concurrent withRunLockSync for the same run — fired from a
+// different async context (e.g. a child stdout event handler) — saw the holder's
+// token and bypassed the file lock entirely, allowing two writers in the critical
+// section simultaneously. AsyncLocalStorage scopes the "held" set to the current
+// async context, so a call from a different async context no longer bypasses and
+// properly serializes against the on-disk lock. True nested calls in the SAME
+// async context (e.g. handleResume -> executeTeamRun -> executeTeamRunCore) still
+// bypass via lockCtx.getStore(), avoiding the deadlock the bypass was designed for.
+const lockCtx = new AsyncLocalStorage<Set<string>>();
 // Round 29: parallel map for withFileLockSync re-entrance. See the comment
 // at the top of withFileLockSync for the full deadlock mechanism.
 const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
 
+export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, options: RunLockOptions = {}): T {
+	const filePath = lockPath(manifest);
+	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
+	// H-1: re-entrance check is scoped to the current async context, not process-global.
+	// A call from a DIFFERENT async context (e.g. a child-stdout event handler that
+	// runs while an async holder is awaiting) sees no held set and properly serializes.
+	if (lockCtx.getStore()?.has(filePath)) {
+		// Re-entrant within the same async context — already hold this lock.
+		return fn();
+	}
+	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	const token = acquireLockWithRetry(filePath, staleMs, "run");
+	const prevHeld = lockCtx.getStore() ?? new Set<string>();
+	const newHeld = new Set(prevHeld);
+	newHeld.add(filePath);
+	// Enter a new async context (or extend the current one) carrying the held set.
+	// On exit (sync return OR async resume after an awaited child), the context is
+	// restored — so the held set only contains locks acquired within fn()'s subtree.
+	return lockCtx.run(newHeld, () => {
+		try {
+			return fn();
+		} finally {
+			releaseLock(filePath, token);
+		}
+	});
+}
+
 export async function withRunLock<T>(manifest: TeamRunManifest, fn: () => Promise<T>, options: RunLockOptions = {}): Promise<T> {
 	const filePath = lockPath(manifest);
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
-	const existingToken = runLockHeldByUs.get(filePath);
-	if (existingToken) {
-		// Re-entrant: already hold this lock, just run the callback.
+	if (lockCtx.getStore()?.has(filePath)) {
+		// Re-entrant within the same async context.
 		return await fn();
 	}
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	const token = await acquireLockWithRetryAsync(filePath, staleMs, "run");
-	runLockHeldByUs.set(filePath, token);
-	try {
-		return await fn();
-	} finally {
-		runLockHeldByUs.delete(filePath);
-		releaseLock(filePath, token);
-	}
+	const prevHeld = lockCtx.getStore() ?? new Set<string>();
+	const newHeld = new Set(prevHeld);
+	newHeld.add(filePath);
+	// AsyncLocalStorage propagates across await boundaries, so any code that
+	// resumes after an await inside fn() (including microtasks, timers, and
+	// awaited child Pi results) still sees newHeld.
+	return await lockCtx.run(newHeld, async () => {
+		try {
+			return await fn();
+		} finally {
+			releaseLock(filePath, token);
+		}
+	});
 }

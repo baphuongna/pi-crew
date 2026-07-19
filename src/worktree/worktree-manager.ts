@@ -134,7 +134,11 @@ export function findGitRoot(cwd: string): string {
 }
 
 export function assertCleanLeader(repoRoot: string): void {
-	const status = git(repoRoot, ["status", "--porcelain"]);
+	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
+	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
+	// The worktree contract is "no tracked changes" — untracked files are safe since
+	// they're either in .gitignore or the user can decide later.
+	const status = git(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
 	if (status.trim()) {
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
 	}
@@ -168,7 +172,9 @@ export function clearCleanLeaderCache(): void {
 
 export async function assertCleanLeaderAsync(repoRoot: string): Promise<void> {
 	if (_cleanLeaderCache.has(repoRoot)) return;
-	const status = await gitAsync(repoRoot, ["status", "--porcelain"]);
+	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
+	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
+	const status = await gitAsync(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
 	if (status.trim()) {
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
 	}
@@ -558,7 +564,7 @@ export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPat
  * recovered via `git apply` / manual restore. Best-effort: a snapshot failure
  * only logs (it must not block the clean-slate reuse flow).
  */
-function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, worktreePath: string, dirtyStatus: string): void {
+function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, worktreePath: string, dirtyStatus: string): boolean {
 	try {
 		const parts: string[] = [
 			`# Worktree recovery snapshot`,
@@ -596,12 +602,14 @@ function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, w
 			producer: "worktree-manager.snapshotDirtyWorktree",
 			retention: "run",
 		});
+		return true;
 	} catch (err) {
 		logInternalError(
 			"worktree.recovery.snapshotFailed",
 			err instanceof Error ? err : new Error(String(err)),
 			`runId=${manifest.runId}, taskId=${task.id}`,
 		);
+		return false;
 	}
 }
 
@@ -722,14 +730,24 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		if (dirtyStatus.trim()) {
 			// Snapshot uncommitted work to a recovery artifact BEFORE discarding, so the
 			// previous run's changes are never silently destroyed on reuse.
-			snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-			logInternalError(
-				"worktree.reused.dirty",
-				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
-				`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
-			);
-			git(worktreePath, ["checkout", "--", "."]);
-			git(worktreePath, ["clean", "-fd"]);
+			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+			if (snapshotOk) {
+				logInternalError(
+					"worktree.reused.dirty",
+					new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
+					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
+				);
+				git(worktreePath, ["checkout", "--", "."]);
+				git(worktreePath, ["clean", "-fd"]);
+			} else {
+				logInternalError(
+					"worktree.reused.dirtyPreserved",
+					new Error(
+						`Snapshot failed — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)`,
+					),
+					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
+				);
+			}
 		}
 		// Overlay seed paths from config + step-level seedPaths (reused worktree)
 		const globalSeedPaths = loadedConfig.config.worktree?.seedPaths ?? [];
@@ -869,14 +887,24 @@ export async function prepareTaskWorkspaceAsync(
 		}
 		const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain"]);
 		if (dirtyStatus.trim()) {
-			snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-			logInternalError(
-				"worktree.reused.dirty",
-				new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
-				`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
-			);
-			await gitAsync(worktreePath, ["checkout", "--", "."]);
-			await gitAsync(worktreePath, ["clean", "-fd"]);
+			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+			if (snapshotOk) {
+				logInternalError(
+					"worktree.reused.dirty",
+					new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
+					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
+				);
+				await gitAsync(worktreePath, ["checkout", "--", "."]);
+				await gitAsync(worktreePath, ["clean", "-fd"]);
+			} else {
+				logInternalError(
+					"worktree.reused.dirtyPreserved",
+					new Error(
+						`Snapshot failed — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)`,
+					),
+					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
+				);
+			}
 		}
 		const globalSeedPaths = loadedConfig.config.worktree?.seedPaths ?? [];
 		const mergedReused = normalizeSeedPaths([...globalSeedPaths, ...(stepSeedPaths ?? [])], repoRoot);

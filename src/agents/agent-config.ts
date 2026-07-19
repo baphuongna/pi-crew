@@ -83,7 +83,7 @@ export interface AgentConfig {
 	contextMode?: "fresh" | "fork";
 	/** Maximum turns for this agent. Overrides runtime config if set. */
 	maxTurns?: number;
-	/** Cap on output tokens per API call. Set via PI_CREW_MAX_OUTPUT_TOKENS env in child. */
+	/** Cap on output tokens per API call. Set via PI_CREW_MAX_OUTPUT env in child. */
 	maxTokens?: number;
 	/** Effort level for this agent. Controls how much work the agent puts in. */
 	effort?: "low" | "medium" | "high";

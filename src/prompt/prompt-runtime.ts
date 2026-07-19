@@ -170,6 +170,21 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 			if (typeof payload.max_tokens === "number" && payload.max_tokens > maxTokensCap) {
 				payload.max_tokens = maxTokensCap;
 			}
+			// Also cap newer field names used by some providers
+			if (typeof payload.max_completion_tokens === "number" && payload.max_completion_tokens > maxTokensCap) {
+				payload.max_completion_tokens = maxTokensCap;
+			}
+			if (typeof payload.max_output_tokens === "number" && payload.max_output_tokens > maxTokensCap) {
+				payload.max_output_tokens = maxTokensCap;
+			}
+			const generationConfig = payload.generationConfig as Record<string, unknown> | undefined;
+			if (
+				generationConfig &&
+				typeof generationConfig.max_output_tokens === "number" &&
+				generationConfig.max_output_tokens > maxTokensCap
+			) {
+				generationConfig.max_output_tokens = maxTokensCap;
+			}
 		});
 	}
 

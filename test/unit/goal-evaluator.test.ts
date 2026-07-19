@@ -88,7 +88,7 @@ test("evaluateGoal returns a parsed verdict when judge emits valid JSON (mock)",
 	try {
 		// json-success mock returns text "[MOCK] JSON success for goal-judge" — NOT valid verdict JSON.
 		// So this test asserts the BLOCKED fallback path (evaluator must not crash, must return a verdict).
-		const verdict = await evaluateGoal({
+		const { verdict } = await evaluateGoal({
 			objective: "all tests pass",
 			evidence: { transcriptSlice: "tail", toolCalls: [] },
 			model: "stub-model",
@@ -110,7 +110,7 @@ test("evaluateGoal returns BLOCKED verdict on spawn failure (mock=failure)", asy
 	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "forced-failure";
 	try {
-		const verdict = await evaluateGoal({
+		const { verdict } = await evaluateGoal({
 			objective: "x",
 			evidence: { transcriptSlice: "", toolCalls: [] },
 			model: "stub-model",

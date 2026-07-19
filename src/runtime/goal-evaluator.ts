@@ -188,7 +188,9 @@ function tryParseDirectVerdict(stdout: string): { achieved: boolean; reason: str
  * Returns a GoalVerdict. On any failure (non-zero exit, non-JSON, invalid shape),
  * returns a `BLOCKED:`-prefixed verdict so the loop stops (§0c C6 fallback).
  */
-export async function evaluateGoal(input: EvaluateGoalInput): Promise<GoalVerdict> {
+export async function evaluateGoal(
+	input: EvaluateGoalInput,
+): Promise<{ verdict: GoalVerdict; judgeUsage?: { totalTokens: number; inputTokens?: number; outputTokens?: number } }> {
 	const agent = synthesizeJudgeAgentConfig();
 	const task = buildJudgeTask(input);
 	const evaluatedAt = new Date().toISOString();
@@ -212,12 +214,15 @@ export async function evaluateGoal(input: EvaluateGoalInput): Promise<GoalVerdic
 		});
 
 		if (result.exitCode !== 0 || result.error) {
-			return blockedVerdict(
-				input.turn,
-				input.model,
-				evaluatedAt,
-				`judge spawn failed (exit=${result.exitCode}): ${result.error ?? result.stderr.slice(0, 200)}`,
-			);
+			return {
+				verdict: blockedVerdict(
+					input.turn,
+					input.model,
+					evaluatedAt,
+					`judge spawn failed (exit=${result.exitCode}): ${result.error ?? result.stderr.slice(0, 200)}`,
+				),
+				judgeUsage: undefined,
+			};
 		}
 
 		const parsed = parsePiJsonOutput(result.stdout);
@@ -231,16 +236,22 @@ export async function evaluateGoal(input: EvaluateGoalInput): Promise<GoalVerdic
 		const direct = !finalText.trim() ? tryParseDirectVerdict(result.stdout) : undefined;
 		if (direct) {
 			return {
-				turn: input.turn,
-				achieved: direct.achieved,
-				reason: direct.reason,
-				evidenceRefs: direct.evidenceRefs,
-				evaluatorModel: input.model,
-				evaluatedAt,
+				verdict: {
+					turn: input.turn,
+					achieved: direct.achieved,
+					reason: direct.reason,
+					evidenceRefs: direct.evidenceRefs,
+					evaluatorModel: input.model,
+					evaluatedAt,
+				},
+				judgeUsage: undefined,
 			};
 		}
 		if (!finalText.trim()) {
-			return blockedVerdict(input.turn, input.model, evaluatedAt, "judge produced no output");
+			return {
+				verdict: blockedVerdict(input.turn, input.model, evaluatedAt, "judge produced no output"),
+				judgeUsage: undefined,
+			};
 		}
 
 		const extracted = extractStructuredResult(finalText);
@@ -252,27 +263,48 @@ export async function evaluateGoal(input: EvaluateGoalInput): Promise<GoalVerdic
 				})
 			: undefined;
 		if (!data || typeof data.achieved !== "boolean" || typeof data.reason !== "string") {
-			return blockedVerdict(input.turn, input.model, evaluatedAt, `judge output not valid verdict JSON: ${truncate(finalText, 200)}`);
+			return {
+				verdict: blockedVerdict(
+					input.turn,
+					input.model,
+					evaluatedAt,
+					`judge output not valid verdict JSON: ${truncate(finalText, 200)}`,
+				),
+				judgeUsage: undefined,
+			};
 		}
 		const evidenceRefs = Array.isArray(data.evidenceRefs)
 			? data.evidenceRefs.filter((r): r is string => typeof r === "string")
 			: undefined;
+		const judgeUsage = parsed.usage
+			? {
+					totalTokens: (parsed.usage.input ?? 0) + (parsed.usage.output ?? 0),
+					inputTokens: parsed.usage.input,
+					outputTokens: parsed.usage.output,
+				}
+			: undefined;
 		return {
-			turn: input.turn,
-			achieved: data.achieved,
-			reason: data.reason,
-			evidenceRefs,
-			evaluatorModel: input.model,
-			evaluatedAt,
+			verdict: {
+				turn: input.turn,
+				achieved: data.achieved,
+				reason: data.reason,
+				evidenceRefs,
+				evaluatorModel: input.model,
+				evaluatedAt,
+			},
+			judgeUsage,
 		};
 	} catch (error) {
 		logInternalError("goal-evaluator.evaluateGoal", error, `turn=${input.turn}`);
-		return blockedVerdict(
-			input.turn,
-			input.model,
-			evaluatedAt,
-			`judge threw: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		return {
+			verdict: blockedVerdict(
+				input.turn,
+				input.model,
+				evaluatedAt,
+				`judge threw: ${error instanceof Error ? error.message : String(error)}`,
+			),
+			judgeUsage: undefined,
+		};
 	}
 }
 

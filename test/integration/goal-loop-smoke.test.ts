@@ -91,8 +91,11 @@ test("runGoalLoop (P1 real evaluator) exits blocked when judge is unreachable or
 			// Worker ran, but P1 judge mock (json-success) returns non-verdict text → BLOCKED.
 			assert.equal(result.goalState.state, "blocked", "P1 mock judge returns non-verdict → BLOCKED");
 			assert.ok(result.goalState.turnsUsed >= 1, "at least one turn ran before judging");
-			assert.ok(result.goalState.verdicts.length >= 1, "at least one verdict recorded");
-			assert.match(result.goalState.verdicts[0].reason, /BLOCKED:/);
+			// GL-1: if the turn ended in blocked/failed manifest status, the loop breaks without
+			// calling the judge, so no verdict is recorded. Both outcomes are valid.
+			if (result.goalState.verdicts.length >= 1) {
+				assert.match(result.goalState.verdicts[0].reason, /BLOCKED:/);
+			}
 		} else {
 			// No executor available → loop catches and goes blocked.
 			assert.equal(result.goalState.state, "blocked", "loop should go blocked when worker agent is unavailable");
@@ -119,7 +122,7 @@ test("stubGoalEvaluator always returns {achieved:false} with a descriptive reaso
 		createdAt: new Date().toISOString(),
 		updatedAt: new Date().toISOString(),
 	};
-	const verdict = await stubGoalEvaluator(goal, "team_turnrun_123");
+	const { verdict } = await stubGoalEvaluator(goal, "team_turnrun_123");
 	assert.equal(verdict.achieved, false);
 	assert.ok(verdict.reason.includes("stub"), "stub reason should identify itself");
 	assert.equal(verdict.evaluatorModel, "stub");

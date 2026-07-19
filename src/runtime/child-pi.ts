@@ -1,4 +1,4 @@
-import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -7,48 +7,39 @@ import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { WorkerExitStatus } from "../state/types.ts";
-import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { buildScopedAllowList, sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import { redactJsonLine, redactSecretString } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { applyCompactPipeline } from "./compact-pipeline.ts";
-import { TailCaptureStage, TruncationStage } from "./compact-stages/index.ts";
-import { classifyProcessCrash } from "./crash-classification.ts";
-import { buildPiWorkerArgs, checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
-import { extractText } from "./pi-json-output.ts";
-import { getPiSpawnCommand } from "./pi-spawn.ts";
-import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
+import { redactSecretString } from "../utils/redaction.ts";
+import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
+import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
+import { assertOnlyControlEnvKeys, buildChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
+import { ChildPiSteeringController } from "./child-pi-steering.ts";
+// Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
+import { ChildPiLineObserver } from "./child-pi-streams.ts";
 
-const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
-const FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
-const HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
-const RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
-const MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
-const MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
-const MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
-const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
-const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
-const activeChildProcesses = new Map<number, ChildProcess>();
-const childHardKillTimers = new Map<number, NodeJS.Timeout>();
+// ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
+// killProcessTree is internal (not previously exported) — keep that invariant.
+export {
+	killProcessPid,
+	terminateActiveChildPiProcesses,
+} from "./child-pi-kill.ts";
+// ── Re-export from child-pi-spawn.ts (H-7 decomposition step 6) ──
+// buildChildPiSpawnOptions was previously exported from child-pi.ts. Keep the
+// public API surface stable by re-exporting from the new module.
+export { buildChildPiSpawnOptions } from "./child-pi-spawn.ts";
+// ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
+export { ChildPiLineObserver } from "./child-pi-streams.ts";
+
+import { classifyProcessCrash } from "./crash-classification.ts";
+import { checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
+
+import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
- * from chatty child processes that produce output without newlines. */
-const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
+ * from chatty child processes that produce output without newlines.
+ * (Constant moved to child-pi-constants.ts.) */
 
 // Periodic cleanup of dead child process entries to prevent memory leaks.
-// If a child process never emits exit/close (zombie), the entry would leak.
-setInterval(() => {
-	for (const [pid, child] of activeChildProcesses) {
-		try {
-			process.kill(pid, 0); // Throws ESRCH if dead
-		} catch {
-			activeChildProcesses.delete(pid);
-		}
-	}
-}, 60_000).unref();
-
 /**
  * SEC-1: Extract a redacted stderr/stdout excerpt for embedding in lifecycle
  * events and error messages. The in-memory stdout/stderr accumulators receive
@@ -68,126 +59,12 @@ export function redactStderrExcerpt(stderr: string, maxChars: number): string {
 	return redactSecretString(stderr.slice(-maxChars));
 }
 
-function appendBoundedTail(current: string, chunk: string, maxBytes = MAX_CAPTURE_BYTES): string {
-	// Sprint 5: refactored onto TailCaptureStage (P0-A stage-chain). The marker
-	// embeds the cap size in KiB so the caller sees how much was dropped. Stage
-	// construction per call is cheap (4 fields) and avoids caching concerns.
-	return new TailCaptureStage({
-		maxBytes,
-		marker: `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`,
-	}).apply(current + chunk);
-}
-
-function clearHardKillTimer(pid: number | undefined): void {
-	if (!pid) return;
-	const timer = childHardKillTimers.get(pid);
-	if (!timer) return;
-	clearTimeout(timer);
-	childHardKillTimers.delete(pid);
-}
-
 /**
  * B6: spawn taskkill and attach an 'error' listener. spawn() emits ENOENT/EACCES
  * asynchronously via the 'error' event (not as a throw), so an unlistened spawn
  * can crash the parent as an uncaught exception. taskkill is a standard Windows
  * binary so this is defensive, but the listener keeps failures bounded.
  */
-function spawnTaskkillSafe(pid: number): void {
-	const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-		stdio: "ignore",
-		windowsHide: true,
-	});
-	taskkillChild.on("error", (err) => {
-		logInternalError("child-pi.taskkill-spawn-error", err instanceof Error ? err : new Error(String(err)), `pid=${pid}`);
-	});
-}
-
-export function killProcessPid(pid: number): void {
-	if (!Number.isInteger(pid) || pid <= 0) return;
-	try {
-		if (process.platform === "win32") {
-			// 3.8: Windows path uses taskkill /T /F (force kill the entire tree).
-			// taskkill itself can silently fail (PID gone, permission denied, etc.)
-			// so verify after 2s and log a warning if the process is still alive.
-			spawnTaskkillSafe(pid);
-			const verifyTimer = setTimeout(() => {
-				try {
-					process.kill(pid, 0); // throws ESRCH when dead
-					// Still alive — log and retry once.
-					logInternalError(
-						"child-pi.taskkill-stuck",
-						new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
-						`pid=${pid}`,
-						"error",
-					);
-					try {
-						spawnTaskkillSafe(pid);
-					} catch {
-						/* best-effort */
-					}
-				} catch {
-					// ESRCH or EPERM — process is gone. OK.
-				}
-			}, 2000);
-			verifyTimer.unref();
-			return;
-		}
-		try {
-			process.kill(-pid, "SIGTERM");
-		} catch (error) {
-			logInternalError("child-pi.sigterm", error, `pid=${pid}`);
-			try {
-				process.kill(pid, "SIGTERM");
-			} catch (fallbackError) {
-				logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
-			}
-		}
-		clearHardKillTimer(pid);
-		const hardKillTimer = setTimeout(() => {
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch (error) {
-				logInternalError("child-pi.sigkill", error, `pid=${pid}`);
-				try {
-					process.kill(pid, "SIGKILL");
-				} catch (fallbackError) {
-					logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
-				}
-			}
-			childHardKillTimers.delete(pid);
-		}, HARD_KILL_MS);
-		hardKillTimer.unref();
-		childHardKillTimers.set(pid, hardKillTimer);
-	} catch (error) {
-		logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
-	}
-}
-
-function killProcessTree(pid: number | undefined, child?: ChildProcess): void {
-	// Phase-0 diagnostic (HB-003a): capture who invoked killProcessTree so the
-	// exit-null race has a provenance trail. .stack is best-effort (may be undefined
-	// under deep async), so we take a snapshot lazily.
-	try {
-		const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
-		logInternalError(
-			"child-pi.kill-process-tree-invoked",
-			new Error(`pid=${pid} called from:\n${callerStack.split("\n").slice(0, 8).join("\n")}`),
-			`pid=${pid}`,
-		);
-	} catch {
-		/* diagnostic best-effort */
-	}
-	if (!pid || !Number.isInteger(pid) || pid <= 0) return;
-	if (child && child.exitCode !== null) return;
-	killProcessPid(pid);
-	child?.once("exit", () => clearHardKillTimer(pid));
-}
-
-export function terminateActiveChildPiProcesses(): number {
-	const entries = [...activeChildProcesses.entries()];
-	for (const [pid, child] of entries) killProcessTree(pid, child);
-	return entries.length;
-}
 
 /** Structured lifecycle event emitted by child-pi for critical transitions. */
 export interface ChildPiLifecycleEvent {
@@ -293,584 +170,16 @@ export interface ChildPiRunResult {
 }
 
 // Base allowlist of non-provider env vars always passed to child workers.
-// Provider API keys are injected dynamically via buildScopedAllowList() only
-// when a model is assigned to the task (per-task key scoping).
-const BASE_ALLOWLIST: string[] = [
-	"PATH",
-	"HOME",
-	"USER",
-	"SHELL",
-	"TERM",
-	"LANG",
-	"LC_ALL",
-	"LC_COLLATE",
-	"LC_CTYPE",
-	"LC_MESSAGES",
-	"LC_MONETARY",
-	"LC_NUMERIC",
-	"LC_TIME",
-	"XDG_CONFIG_HOME",
-	"XDG_DATA_HOME",
-	"XDG_CACHE_HOME",
-	"XDG_RUNTIME_DIR",
-	// Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
-	...WINDOWS_ESSENTIAL_ENV_VARS,
-	"NVM_BIN",
-	"NVM_DIR",
-	"NVM_INC",
-	"NODE_DISABLE_COLORS",
-	"NODE_EXTRA_CA_CERTS",
-	"NPM_CONFIG_REGISTRY",
-	"NPM_CONFIG_USERCONFIG",
-	"NPM_CONFIG_GLOBALCONFIG",
-	"PI_CREW_DEPTH",
-	"PI_CREW_MAX_DEPTH",
-	"PI_CREW_INHERIT_PROJECT_CONTEXT",
-	"PI_CREW_INHERIT_SKILLS",
-	"PI_CREW_KIND",
-	"PI_CREW_PARENT_PID",
-	"PI_TEAMS_DEPTH",
-	"PI_TEAMS_MAX_DEPTH",
-	"PI_TEAMS_INHERIT_PROJECT_CONTEXT",
-	"PI_TEAMS_INHERIT_SKILLS",
-	"PI_TEAMS_PI_BIN",
-	"PI_TEAMS_MOCK_CHILD_PI",
-	"PI_CREW_ALLOW_MOCK",
-	"PI_CREW_MAX_OUTPUT",
-	"PI_CREW_STEERING_FILE",
-];
-
-export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, model?: string): SpawnOptions {
-	// SECURITY FIX (Issue #1): Validate cwd before passing to spawn.
-	// If cwd comes from an untrusted source (user input, workspace config), a malicious cwd
-	// could cause the child process to operate in an attacker-controlled directory,
-	// enabling path traversal attacks, unintended file access, or exposure of sensitive paths.
-	// Use realpathSync to resolve any symlinks and verify the path exists and is a directory.
-	let validatedCwd: string;
-	try {
-		validatedCwd = fs.realpathSync(cwd);
-		const stats = fs.statSync(validatedCwd);
-		if (!stats.isDirectory()) {
-			throw new Error(`cwd is not a directory: ${cwd}`);
-		}
-	} catch (error) {
-		// If cwd doesn't exist (ENOENT) and isn't a security concern, fall back
-		// to the lexical path. The child process will create the directory if
-		// needed. Throwing would break tests/callers that pass not-yet-existing
-		// paths and isn't a security issue for the env-filtering behavior this
-		// function is primarily about.
-		if ((error as NodeJS.ErrnoException).code === "ENOENT" && error instanceof Error && error.message.includes("ENOENT")) {
-			validatedCwd = path.resolve(cwd);
-		} else {
-			throw new Error(`Invalid cwd: ${cwd} — ${error instanceof Error ? error.message : String(error)}`);
-		}
-	}
-
-	// Filter out env vars whose keys match secret patterns to avoid leaking credentials to child processes.
-	// IMPORTANT: preserve model provider API keys — they are needed by the child Pi to call the LLM.
-	// Also preserve essential non-secret vars (PATH, HOME, USER, etc.) so the child process can function.
-	// Bug #12 fix: essential env vars (PATH, HOME, etc.) are always preserved so child can find npm/node.
-	//
-	// PER-TASK KEY SCOPING: when a model is provided, only the env keys for that
-	// provider are injected (via buildScopedAllowList). When no model is given,
-	// only BASE_ALLOWLIST system vars pass through — no provider keys leak.
-	const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
-	const filteredEnv = sanitizeEnvSecrets(env, { allowList });
-	// FIX: Removed delete workarounds — with explicit allowlist, these vars
-	// are no longer auto-leaked. The wildcard approach was fragile.
-
-	// SECURITY FIX (Issue #1): Validate NODE_PATH to ensure it only contains standard
-	// system locations or legitimate user paths (NVM). NODE_PATH can reveal user
-	// environment information and could theoretically be exploited if it contains
-	// untrusted entries. Only allow paths under standard system directories
-	// (/opt, /lib, /usr) or NVM paths under /home/<user>/.nvm/... which are legitimate
-	// for Node.js module loading in user environments.
-	if (filteredEnv.NODE_PATH) {
-		const validPrefixes = ["/opt/", "/lib/", "/usr/local/", "/usr/", "/home/"];
-		const validPaths = filteredEnv.NODE_PATH.split(":").filter((p) => {
-			return validPrefixes.some((prefix) => p.startsWith(prefix));
-		});
-		if (validPaths.length > 0) {
-			filteredEnv.NODE_PATH = validPaths.join(":");
-		} else {
-			// No standard paths found — remove NODE_PATH entirely to avoid
-			// passing user-specific paths that could reveal environment info.
-			delete filteredEnv.NODE_PATH;
-		}
-	}
-
-	return {
-		cwd: validatedCwd,
-		env: { ...filteredEnv, PI_CREW_PARENT_PID: String(process.pid) },
-		stdio: ["ignore", "pipe", "pipe"], // stdin=ignore: child doesn't wait for input; task comes via CLI args
-		detached: process.platform !== "win32",
-		setsid: true,
-		// NOTE: setsid creates a new session; the child process becomes the session leader
-		// and its parent becomes that session leader (still the team-runner in the same
-		// process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner).
-		// The parent-guard in the child checks direct parent liveness via process.kill(pid, 0) —
-		// it does NOT follow the lineage beyond the direct parent. If the team-runner's parent
-		// (the original pi session) dies, the team-runner becomes an orphan but the child still
-		// sees its direct parent (team-runner) as alive. This is correct for the parent-guard model.
-		windowsHide: true,
-	} as SpawnOptions;
-}
-
-function appendTranscript(input: ChildPiRunInput, line: string): void {
-	if (!input.transcriptPath) return;
-	// SECURITY FIX (Issue #1): Validate transcriptPath against artifactsRoot to prevent
-	// arbitrary file writes and symlink traversal attacks. An attacker who can influence
-	// the task graph could set transcriptPath to /etc/passwd or similar, and mkdirSync
-	// with recursive:true would create parent directories. Additionally, appendFileSync
-	// follows symlinks, potentially writing to sensitive files.
-	let safePath: string;
-	try {
-		const artifactsRoot = input.artifactsRoot ?? input.cwd;
-		safePath = resolveRealContainedPath(artifactsRoot, input.transcriptPath);
-	} catch (error) {
-		logInternalError("child-pi.transcript-path-rejected", error as Error, `transcriptPath=${input.transcriptPath}`);
-		return;
-	}
-	// Use O_NOFOLLOW | O_CREAT | O_APPEND to safely open the transcript file.
-	// O_NOFOLLOW prevents symlink attacks (refuses to follow symlinks).
-	// O_CREAT creates the file if it doesn't exist.
-	// O_APPEND atomically positions at end for each write (no seek race).
-	// O_EXCL was previously used but prevented appending to existing files,
-	// causing EBADF on subsequent writes.
-	// NOTE: Parent directory must already exist (caller's responsibility).
-	// We skip mkdirSync here for security — adding it would create parent
-	// directories during validation, contradicting the original design where
-	// resolveRealContainedPath validates a pre-existing path.
-	// Async optimization: use fire-and-forget async write to avoid blocking the event loop.
-	// The caller does not need to await this — transcript writes are best-effort telemetry.
-	// OPT-06 follow-up: lines are buffered in a module-scoped Map and flushed
-	// periodically (50ms debounce) or on lifecycle boundaries (ChildPiLineObserver.flush,
-	// runChildPi settle). Without that drain, callers that immediately read the
-	// transcript file post-flush (e.g. integration tests at phase3-runtime:50 and
-	// phase4-runtime:37/:68/:103) would see ENOENT or empty content because the
-	// async file handle had not yet been opened / flushed.
-	trackTranscriptWrite(safePath, line);
-}
-
-/** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
-// ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────
-// Instead of open/write/close per line (3 syscalls × N), accumulate lines
-// in a module-scoped buffer and flush them in one open/write/close per path
-// every TRANSCRIPT_FLUSH_MS. Lifecycle boundaries (observer.flush, settle)
-// force-flush the buffer before returning so transcript reads are complete.
-//
-// Ordering: lines are appended to the per-path array in call order. The flush
-// writes the joined array, preserving intra-batch ordering. Inter-batch
-// ordering is not guaranteed but transcript is append-only telemetry.
-//
-// Security: O_NOFOLLOW | O_CREAT | O_APPEND flags preserved on every flush.
-const transcriptBatches = new Map<string, string[]>();
-let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined;
-const TRANSCRIPT_FLUSH_MS = 50;
-
-function scheduleTranscriptFlush(): void {
-	if (transcriptFlushTimer) return;
-	transcriptFlushTimer = setTimeout(() => {
-		transcriptFlushTimer = undefined;
-		void flushTranscriptBatches();
-	}, TRANSCRIPT_FLUSH_MS);
-	transcriptFlushTimer.unref?.();
-}
-
-async function flushTranscriptBatches(): Promise<void> {
-	const entries = [...transcriptBatches.entries()];
-	transcriptBatches.clear();
-	await Promise.allSettled(
-		entries.map(async ([safePath, lines]) => {
-			if (lines.length === 0) return;
-			const content = lines.join("");
-			try {
-				const fd = await fs.promises.open(
-					safePath,
-					fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_CREAT | fs.constants.O_APPEND,
-					0o600,
-				);
-				try {
-					await fd.write(content, undefined, "utf-8");
-				} finally {
-					await fd.close();
-				}
-			} catch (error) {
-				logInternalError("child-pi.transcript-write-failed", error as Error, `path=${safePath}`);
-			}
-		}),
-	);
-}
-
-function trackTranscriptWrite(safePath: string, line: string): void {
-	const content = `${redactJsonLine(line)}\n`;
-	let batch = transcriptBatches.get(safePath);
-	if (!batch) {
-		batch = [];
-		transcriptBatches.set(safePath, batch);
-	}
-	batch.push(content);
-	scheduleTranscriptFlush();
-}
-
-/**
- * Drain the transcript batch buffer and await any remaining in-flight writes.
- * Called by lifecycle boundaries (ChildPiLineObserver.flush, runChildPi settle)
- * so that transcript files are complete before callers read them.
- *
- * Uses a while loop to re-check the buffer after each flush — new lines may
- * arrive during the async I/O window (trackTranscriptWrite → scheduleTranscriptFlush).
- *
- * Exported so external callers (e.g. integration tests that construct a
- * ChildPiLineObserver directly) can drain explicitly if they need to read
- * the transcript file outside of the observer's lifecycle.
- */
-export async function flushPendingTranscriptWrites(): Promise<void> {
-	// Force-flush the buffer synchronously (clear timer, write immediately).
-	if (transcriptFlushTimer) {
-		clearTimeout(transcriptFlushTimer);
-		transcriptFlushTimer = undefined;
-	}
-	// Re-check loop: new lines may be appended to transcriptBatches during
-	// the async flushTranscriptBatches I/O. Loop until the buffer is empty.
-	while (transcriptBatches.size > 0) {
-		await flushTranscriptBatches();
-	}
-}
-
-/**
- * Reset the module-scoped transcript batch state. Exported for test isolation
- * only — production code should never call this.
- */
-export function resetTranscriptBatchState(): void {
-	if (transcriptFlushTimer) {
-		clearTimeout(transcriptFlushTimer);
-		transcriptFlushTimer = undefined;
-	}
-	transcriptBatches.clear();
-}
-
-export function compactString(value: string, maxChars = MAX_COMPACT_CONTENT_CHARS, opts: { preserveImportant?: boolean } = {}): string {
-	if (value.length <= maxChars) return value;
-	// L4: head + tail instead of head-only. Keeps closing markdown structure
-	// (code fences, headings, list tails) instead of dropping them — the old
-	// head-only slice left unclosed ``` fences that downstream parsers and
-	// output-validator.ts flagged as "output may be truncated". Head gets 75%
-	// (opening structure + bulk of content); tail gets 25% (closing structure).
-	// P0-A: compose the value through the stage-chain compression pipeline.
-	// The default pipeline is just [TruncationStage] (single-stage, equivalent
-	// to the pre-P0-A implementation) so plain text with no ANSI / no blank
-	// runs / no consecutive duplicates produces bit-identical output (L4
-	// regression safety). Callers that want noise stripping can opt into
-	// additional stages via the pipeline — but compactString's caller surface
-	// keeps the simple `(value, maxChars, opts)` signature.
-	// P0-B: the TruncationStage scans the middle slice for important diagnostic
-	// lines (error, file:line, HTTP 4xx/5xx, compiler codes) and preserves them
-	// within a 15% slack budget. The `preserveImportant` opt propagates here.
-	const result = applyCompactPipeline(value, [
-		new TruncationStage(maxChars, {
-			preserveImportant: opts.preserveImportant,
-		}),
-	]);
-	return result.text;
-}
-
-export function compactValue(value: unknown): unknown {
-	if (typeof value === "string") return compactString(value);
-	if (Array.isArray(value)) {
-		// BUG-4: silent .slice(0, 20) lost items 21-50 with no marker.
-		// Append a truncation marker when entries are dropped so downstream
-		// consumers know data was elided (consistent with compactString style).
-		if (value.length > 20) {
-			return [...value.slice(0, 20).map(compactValue), `[pi-crew truncated ${value.length - 20} entries]`];
-		}
-		return value.map(compactValue);
-	}
-	const record = asRecord(value);
-	if (!record) return value;
-	const entries = Object.entries(record);
-	const compacted: Record<string, unknown> = {};
-	for (const [key, entry] of entries.slice(0, 20)) compacted[key] = compactValue(entry);
-	// BUG-4: mark elided object keys so consumers know data was dropped.
-	if (entries.length > 20) compacted["[truncated]"] = `${entries.length - 20} entries`;
-	return compacted;
-}
-
-function compactContentPart(part: unknown): unknown | undefined {
-	const record = asRecord(part);
-	if (!record) return undefined;
-	if (record.type === "text")
-		return {
-			type: "text",
-			text:
-				typeof record.text === "string"
-					? compactString(record.text, MAX_ASSISTANT_TEXT_CHARS, {
-							preserveImportant: false,
-						})
-					: "",
-		};
-	if (record.type === "toolCall")
-		return {
-			type: "toolCall",
-			name: record.name,
-			input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input),
-		};
-	if (record.type === "toolResult")
-		return {
-			type: "toolResult",
-			name: record.name,
-			content: compactValue(
-				typeof record.content === "string" ? compactString(record.content, MAX_TOOL_RESULT_CHARS) : record.content,
-			),
-		};
-	return undefined;
-}
-
-function compactChildPiEvent(event: unknown): unknown | undefined {
-	const record = asRecord(event);
-	if (!record) return undefined;
-	if (record.type === "message_update") return undefined;
-	if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
-		return {
-			type: record.type,
-			toolName: record.toolName,
-			args: record.args,
-		};
-	}
-	if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
-		const message = asRecord(record.message);
-		if (message?.role === "user" || message?.role === "system") return undefined;
-		const content = Array.isArray(message?.content)
-			? message.content.map(compactContentPart).filter((part) => part !== undefined)
-			: undefined;
-		return {
-			type: record.type,
-			...(typeof record.text === "string" ? { text: record.text } : {}),
-			...(message
-				? {
-						message: {
-							role: message.role,
-							...(content ? { content } : {}),
-							usage: message.usage,
-							model: message.model,
-							errorMessage: message.errorMessage,
-							stopReason: message.stopReason,
-						},
-					}
-				: {}),
-			usage: record.usage,
-			model: record.model,
-			provider: record.provider,
-			stopReason: record.stopReason,
-		};
-	}
-	return record.type ? { type: record.type } : undefined;
-}
-
-function displayTextFromCompactEvent(event: unknown): string | undefined {
-	const record = asRecord(event);
-	if (!record) return undefined;
-	if (record.type === "tool_execution_start") {
-		return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
-	}
-	if (record.type !== "message" && record.type !== "message_end") return undefined;
-	const message = asRecord(record.message);
-	if (message?.role !== undefined && message.role !== "assistant") return undefined;
-	const content = Array.isArray(message?.content) ? message.content : [];
-	const text = content
-		.flatMap((part) => {
-			const item = asRecord(part);
-			return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
-		})
-		.join("\n")
-		.trim();
-	return text || (typeof record.text === "string" ? record.text : undefined);
-}
-
-function nonJsonLineResult(line: string): {
-	persistedLine: string;
-	event?: unknown;
-	displayLine?: string;
-	json: boolean;
-} {
-	return { json: false, persistedLine: line, displayLine: line };
-}
-
-function compactChildPiLine(
-	line: string,
-	preParsed?: unknown,
-): {
-	persistedLine: string;
-	event?: unknown;
-	displayLine?: string;
-	json: boolean;
-} {
-	// OPT-PHASE2: when the caller (emitLine) already parsed the line, pass the
-	// result via preParsed to avoid a redundant JSON.parse. Standalone callers
-	// without a preParsed fall back to their own parse+catch (DRY: single
-	// compact+return path for both branches).
-	let parsed: unknown;
-	if (preParsed !== undefined) {
-		parsed = preParsed;
-	} else {
-		try {
-			parsed = JSON.parse(line);
-		} catch {
-			return nonJsonLineResult(line);
-		}
-	}
-	const compact = compactChildPiEvent(parsed);
-	return {
-		json: true,
-		event: compact,
-		persistedLine: compact ? JSON.stringify(compact) : "",
-		displayLine: displayTextFromCompactEvent(compact),
-	};
-}
-
-export class ChildPiLineObserver {
-	private buffer = "";
-	private readonly input: ChildPiRunInput;
-	/** F9: bounded ring buffer for RAW assistant-text fragments. Consumers
-	 * (getRawFinalText) only read the last element, but the legacy implementation
-	 * accumulated every fragment unconditionally, which let a verbose/long-running
-	 * worker grow this array linearly with output. We retain the last 2 entries:
-	 * the consumer needs the last; we keep the second-to-last only as a defensive
-	 * fence against a race where a final event arrives just after the consumer
-	 * read (the previous "last" is still the most-recent pre-final text in that
-	 * window). 2 is well below any plausible consumer's "tail-only" need while
-	 * bounding memory. */
-	private static readonly MAX_RAW_TEXT_EVENTS = 2;
-	private readonly rawTextEvents: string[] = [];
-	/** F9: bounded ring buffer for intermediate findings. The downstream digest
-	 * (getIntermediateFindings) slices the last 20, but the array previously grew
-	 * to 1000s of entries. We keep MAX_INTERMEDIATE_DIGEST_LINES + headroom so
-	 * the public API behaviour is preserved (still returns "last 20 lines"). */
-	private static readonly MAX_INTERMEDIATE_FINDINGS = 32;
-	private readonly intermediateFindings: string[] = [];
-
-	constructor(input: ChildPiRunInput) {
-		this.input = input;
-	}
-
-	observe(text: string): void {
-		this.buffer += text;
-		// Cap the buffer to prevent unbounded memory growth when a child process
-		// produces output without newlines (RT-F8). When exceeded, force-flush
-		// the buffer as a single line and log a warning.
-		if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
-			logInternalError(
-				"child-pi.buffer-overflow",
-				new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
-				`bufferLen=${this.buffer.length}`,
-			);
-			const line = this.buffer;
-			this.buffer = "";
-			this.emitLine(line);
-			return;
-		}
-		const lines = this.buffer.split(/\r?\n/);
-		this.buffer = lines.pop() ?? "";
-		for (const line of lines) this.emitLine(line);
-	}
-
-	flush(): Promise<void> {
-		if (this.buffer) {
-			const line = this.buffer;
-			this.buffer = "";
-			this.emitLine(line);
-		}
-		// OPT-06 follow-up: appendTranscript is fire-and-forget async, so the file
-		// may not exist on disk by the time this returns. Drain the module-scoped
-		// transcript batch buffer before resolving so callers that immediately read the
-		// transcript file (e.g. integration tests at phase4-runtime:37/:68/:103
-		// after `await observer.flush()`) see the full content.
-		return flushPendingTranscriptWrites();
-	}
-
-	/** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
-	 *  finalText semantics but uncapped). Undefined when no assistant text was
-	 *  seen by this observer. {@link extractText} already drops empty fragments,
-	 *  so the last entry is the final assistant utterance. */
-	getRawFinalText(): string | undefined {
-		return this.rawTextEvents.length > 0 ? this.rawTextEvents[this.rawTextEvents.length - 1] : undefined;
-	}
-
-	/** #7 hardening: returns a bounded digest of intermediate findings accumulated
-	 *  during the run. This is NOT the final answer — it is a best-effort capture
-	 *  of the last assistant text or tool-result display lines before budget
-	 *  exhaustion. Only populated when getRawFinalText() would return undefined.
-	 *  @param maxChars - maximum total characters to return (default 500). */
-	getIntermediateFindings(maxChars = 500): string {
-		const MAX_INTERMEDIATE_DIGEST_LINES = 20;
-		if (this.intermediateFindings.length === 0) return "";
-		// Take the last N lines and join, then cap.
-		const lines = this.intermediateFindings.slice(-MAX_INTERMEDIATE_DIGEST_LINES);
-		const joined = lines.join("\n");
-		if (joined.length <= maxChars) return joined;
-		// Return the tail within the budget.
-		return joined.slice(-maxChars);
-	}
-
-	private emitLine(line: string): void {
-		if (!line.trim()) return;
-		// OPT-PHASE2: parse the line EXACTLY ONCE. The parsed value feeds both
-		// (a) raw assistant-text extraction for the authoritative result and
-		// (b) compaction for the telemetry transcript — previously each path
-		// called JSON.parse independently (2 parses/line). When the line is not
-		// valid JSON, parsed stays undefined and compactChildPiLine runs its own
-		// catch path to produce the json:false fallback.
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch {
-			parsed = undefined;
-		}
-		if (parsed !== undefined) {
-			const rawTexts = extractText(parsed);
-			if (rawTexts.length > 0) {
-				// F9: trim from the front if the push would exceed the cap. Slice's
-				// second arg excludes the index, so this drops the oldest entries
-				// while keeping the freshly pushed tail.
-				this.rawTextEvents.push(...rawTexts);
-				const rawOverflow = this.rawTextEvents.length - ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
-				if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
-				// Also capture raw assistant text as intermediate findings — the last raw
-				// text may be a partial answer before the worker ran out of budget.
-				const last = rawTexts[rawTexts.length - 1];
-				if (last.trim().length > 0) {
-					this.intermediateFindings.push(last.trim());
-					const findingsOverflow = this.intermediateFindings.length - ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-					if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-				}
-			}
-		}
-		// OPT-PHASE2: construct the non-JSON fallback directly when parsing failed,
-		// so a broken line triggers exactly ONE (failed) parse instead of two.
-		const compact = parsed !== undefined ? compactChildPiLine(line, parsed) : nonJsonLineResult(line);
-		if (compact.event !== undefined) {
-			try {
-				this.input.onJsonEvent?.(compact.event);
-			} catch (error) {
-				logInternalError("child-pi.on-json-event", error, `line=${compact.persistedLine ?? compact.displayLine ?? ""}`);
-			}
-		}
-		if (compact.persistedLine) appendTranscript(this.input, compact.persistedLine);
-		if (compact.displayLine?.trim()) {
-			try {
-				this.input.onStdoutLine?.(compact.displayLine);
-			} catch (error) {
-				logInternalError("child-pi.on-stdout-line", error, `line=${compact.displayLine}`);
-			}
-			// #7 hardening: capture display lines (tool results, stdout) as intermediate
-			// findings. This ensures we capture tool output even when no assistant text
-			// is emitted (budget exhausted on tool calls).
-			this.intermediateFindings.push(compact.displayLine!.trim());
-			const findingsOverflow = this.intermediateFindings.length - ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-			if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-		}
-	}
-}
+// ── Transcript batching + compaction (H-7 decomposition step 1) ────────
+// Extracted to ./child-pi-transcript.ts. Re-exported here to preserve the
+// existing public API surface.
+export {
+	appendTranscript,
+	compactString,
+	compactValue,
+	flushPendingTranscriptWrites,
+	resetTranscriptBatchState,
+} from "./child-pi-transcript.ts";
 
 /** Mock-only path — real code path reuses a single observer.
  *  OPT-06 follow-up: returns a Promise so callers can await the transcript
@@ -1055,64 +364,25 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 		}
 		return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
 	}
-	const built = buildPiWorkerArgs({
-		task: effectiveTask,
-		agent: input.agent,
-		model: input.model,
-		sessionEnabled: true,
-		maxDepth: input.maxDepth,
-		skillPaths: input.skillPaths,
-		role: input.role,
-	});
-	// Pass steering file path to child for real-time steer injection
-	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
-	// B5: if the parent already aborted before we spawn, do not start the child
-	// at all. Spawning a doomed process wastes resources, and the abort listener
-	// registered below will not re-fire for an already-aborted signal (so the
-	// child would only be killed later by the response-timeout path). Return a
-	// cancelled-style result immediately.
-	if (input.signal?.aborted) {
-		return {
-			exitCode: null,
-			stdout: "",
-			stderr: "",
-			error: "Aborted before spawn (parent AbortSignal already aborted)",
-			aborted: true,
-		};
-	}
-	const spawnSpec = getPiSpawnCommand(built.args);
+	// H-7 step 6: spawn/env/args preparation extracted to child-pi-spawn.ts.
+	// prepareSpawnContext builds the worker args, attaches the steering file env,
+	// and handles the pre-spawn abort check (returns an immediate-abort result
+	// if the parent signal has already fired).
+	const spawnPrep = prepareSpawnContext(input, effectiveTask);
+	if (spawnPrep.kind === "aborted") return spawnPrep.result;
+	const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
-			// SECURITY (Issue #3): built.env contains only PI_CREW_* execution-control vars (NOT secrets).
-			// It is safe to spread built.env after process.env because sanitizeEnvSecrets will filter
-			// any secret values before the env reaches spawn(). However, if built.env ever gains
-			// secret content without corresponding allowlist filtering, secrets would leak to children.
-			// This comment serves as a warning: built.env must never contain secret values.
-			//
-			// Runtime assertion: verify all built.env keys are execution-control vars (PI_CREW_* or PI_TEAMS_*).
-			// This is a canary for future regressions — if someone accidentally adds a secret key to
-			// built.env, the assertion will throw before the secret reaches the child process.
-			for (const key of Object.keys(built.env)) {
-				if (!key.startsWith("PI_CREW_") && !key.startsWith("PI_TEAMS_")) {
-					throw new Error(
-						`SECURITY: built.env contains unexpected key "${key}"; expected only PI_CREW_* or PI_TEAMS_* execution-control vars`,
-					);
-				}
-			}
-			const child = spawn(
-				spawnSpec.command,
-				spawnSpec.args,
-				buildChildPiSpawnOptions(
-					input.cwd,
-					{
-						...process.env,
-						...built.env,
-					},
-					input.model,
-				),
-			);
+			// Runtime canary: verify built.env doesn't accidentally contain
+			// secret keys. We assert on builtEnv (not mergedEnv) because mergedEnv
+			// contains ALL process.env keys (PATH, HOME, SHELL, etc.) which is
+			// expected; those are filtered by the allowlist in buildChildPiSpawnOptions
+			// before reaching the child. The canary guards against accidental
+			// additions to built.env leaking secrets to children.
+			assertOnlyControlEnvKeys(builtEnv);
+			const child = spawn(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
 			if (child.pid) {
-				activeChildProcesses.set(child.pid, child);
+				registerActiveChild(child.pid, child);
 				input.onSpawn?.(child.pid);
 				input.onLifecycleEvent?.({
 					type: "spawned",
@@ -1171,7 +441,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let abortRequested = input.signal?.aborted === true;
 			let hardKilled = false;
 			const cleanupErrors: string[] = [];
-			let turnCount = 0;
+			const steeringController = new ChildPiSteeringController(input.maxTurns, input.graceTurns);
 			// Track in-flight operations for proper rejection on unexpected exit
 			interface PendingOperation {
 				id: string;
@@ -1202,14 +472,12 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				pendingOperations.clear();
 			};
 
-			let softLimitReached = false;
 			const steerInjectionFailed = false;
-			const maxTurns = input.maxTurns;
-			// FIX (Issue #1): Bound graceTurns to prevent the hard abort condition from
-			// never triggering when an arbitrarily large value is passed.
-			let graceTurns = input.graceTurns;
-			if (graceTurns !== undefined && graceTurns > 1000) graceTurns = 1000;
 			let abortDueToParentSignal = false;
+			// CP-1: track whether the turn-limit hard-abort has been initiated. Once
+			// true, we must NOT restart the no-response timer — the child is already
+			// being killed via killProcessTree (SIGTERM → SIGKILL after 3s), and
+			// restarting the timer would delay detection of a SIGTERM-ignoring child.
 			// Round 27 (BUG 4): extract to a named handler so settle() can remove it.
 			// The previous anonymous listener was never removed → on runs with >10
 			// tasks sharing one AbortSignal (background-runner), Node emitted
@@ -1300,54 +568,21 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			const lineObserver = new ChildPiLineObserver({
 				...input,
 				onStdoutLine: (line) => {
-					restartNoResponseTimer();
+					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 					stdout = appendBoundedTail(stdout, `${line}\n`);
 					input.onStdoutLine?.(line);
 				},
 				onJsonEvent: (event) => {
-					restartNoResponseTimer();
+					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 					const eventOpId = startOperation("json_event");
 					try {
 						// Turn-count-based steering: soft limit steer + hard abort after graceTurns
 						if (event && typeof event === "object" && !Array.isArray(event)) {
 							const obj = event as Record<string, unknown>;
 							if (obj.type === "turn_end") {
-								turnCount += 1;
-								if (maxTurns !== undefined && !softLimitReached && turnCount >= maxTurns) {
-									softLimitReached = true;
-									// C8: deliver the "wrap up" advisory by appending to the steering JSONL
-									// file the child polls (PI_CREW_STEERING_FILE). The child is spawned with
-									// stdio:["ignore",...], so child.stdin is null and the old stdin branch was
-									// dead code that only spammed logs on every soft-limit hit. Advisory only —
-									// the hard-abort below at maxTurns + graceTurns is the real enforcement, so
-									// a failed write must NOT kill the worker.
-									if (input.steeringFile) {
-										try {
-											fs.appendFileSync(
-												input.steeringFile,
-												JSON.stringify({
-													type: "steer",
-													message:
-														"You have reached your turn limit. Wrap up immediately — provide your final answer now.",
-												}) + "\n",
-												"utf-8",
-											);
-										} catch (err) {
-											logInternalError(
-												"child-pi.steer-write-failed",
-												err instanceof Error ? err : new Error(String(err)),
-												`pid=${child.pid}`,
-											);
-										}
-									}
-								} else if (maxTurns !== undefined && softLimitReached && turnCount >= maxTurns + (graceTurns ?? 5)) {
-									// Hard abort — terminate after grace turns
-									try {
-										child.kill(process.platform === "win32" ? undefined : "SIGTERM");
-									} catch {
-										/* best-effort */
-									}
-								}
+								// H-7 step 5: steering state machine extracted to ChildPiSteeringController.
+								const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
+								if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
 							}
 						}
 						completeOperation(eventOpId);
@@ -1501,7 +736,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						input.signal?.removeEventListener("abort", abort);
 						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
-							cleanupTempDir(built.tempDir);
+							cleanupTempDir(tempDir);
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
@@ -1548,7 +783,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						input.signal?.removeEventListener("abort", abort);
 						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
-							cleanupTempDir(built.tempDir);
+							cleanupTempDir(tempDir);
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
@@ -1627,7 +862,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			};
 			child.stdout?.on("data", (chunk: Buffer) => {
-				restartNoResponseTimer();
+				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 				const text = chunk.toString("utf-8");
 				backpressureBytes += text.length;
 				try {
@@ -1646,7 +881,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			});
 			child.stderr?.on("data", (chunk: Buffer) => {
-				restartNoResponseTimer();
+				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 				stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
 			});
 			child.on("error", (error) => {
@@ -1691,7 +926,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			});
 			child.on("exit", (code, signal) => {
 				if (child.pid) {
-					activeChildProcesses.delete(child.pid);
+					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);
 					// Unregister from cleanup handler
 					unregisterChildProcess(child.pid);
@@ -1752,7 +987,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			});
 			child.on("close", (exitCode) => {
 				if (child.pid) {
-					activeChildProcesses.delete(child.pid);
+					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);
 					// Unregister from cleanup handler
 					unregisterChildProcess(child.pid);
@@ -1788,7 +1023,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					);
 				}
 				const finalExitCode = forcedFinalDrain && !timeoutError ? 0 : exitCode;
-				const wasGraceAborted = softLimitReached && turnCount >= (maxTurns ?? 0) + (graceTurns ?? 5);
+				const wasGraceAborted =
+					steeringController.isSoftLimitReached() &&
+					steeringController.getTurnCount() >=
+						(steeringController.getMaxTurns() ?? 0) + (steeringController.getGraceTurns() ?? 5);
 				const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
 				// steerInjectionFailed is now always false (Phase-1 fix: steer backpressure
 				// is logged, not fatal). The steerError branch is retained for safety in
@@ -1813,7 +1051,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					...(timeoutError ? { error: timeoutError.error } : {}),
 					...(steerError ? { error: steerError } : {}),
 					aborted: wasGraceAborted || wasParentAborted,
-					steered: softLimitReached && !wasGraceAborted,
+					steered: steeringController.isSoftLimitReached() && !wasGraceAborted,
 					exitStatus: {
 						exitCode: finalExitCode,
 						cancelled: abortRequested,
@@ -1829,8 +1067,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	} finally {
 		// cleanupTempDir is already called inside settle(), but guard against
 		// the case where settle() was never reached (spawn throws synchronously).
-		if (built.tempDir && fs.existsSync(built.tempDir)) {
-			cleanupTempDir(built.tempDir);
+		if (tempDir && fs.existsSync(tempDir)) {
+			cleanupTempDir(tempDir);
 		}
 	}
 }

@@ -268,6 +268,24 @@ export function evictStaleLiveAgentHandles(now = Date.now()): number {
 			// before evicting. Only evict if the process is dead, to avoid evicting
 			// slow-but-alive agents.
 			const sessionPid = (handle.session as Record<string, unknown>)?.pid as number | undefined;
+			if (sessionPid === undefined) {
+				// In-process live-session agents have no pid — the Pi SDK returns
+				// in-process objects, not child processes. checkProcessLiveness(undefined)
+				// returns {alive:false} which would wrongly evict a running agent.
+				// Check session-level activity signals first. If the session is
+				// actively streaming or has pending messages, it is alive — skip.
+				// Otherwise, rely on the idle timeout alone: do NOT dispose just
+				// because pid is undefined.
+				const session = handle.session as Record<string, unknown>;
+				const isStreaming = session?.isStreaming === true;
+				const pendingCount = (session?.pendingMessageCount as number | undefined) ?? 0;
+				if (isStreaming || pendingCount > 0) {
+					// Session is active — skip eviction.
+					continue;
+				}
+				// No activity signals and no pid — do NOT evict based on PID liveness.
+				continue;
+			}
 			const liveness = checkProcessLiveness(sessionPid);
 			if (!liveness.alive) {
 				liveAgents.delete(agentId);

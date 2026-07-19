@@ -15,8 +15,6 @@ export interface PiTeamsAutonomousConfig {
 	preferAsyncForLongTasks?: boolean;
 	allowWorktreeSuggestion?: boolean;
 	magicKeywords?: Record<string, string[]>;
-	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
-	excludeContextBash?: boolean;
 }
 
 export interface CrewLimitsConfig {

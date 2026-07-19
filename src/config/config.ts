@@ -169,7 +169,7 @@ export function invalidateConfigCache(): void {
 }
 
 function resolveHomeDir(): string {
-	const envValue = process.env.PI_TEAMS_HOME?.trim();
+	const envValue = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
 	const defaultHome = os.homedir();
 	if (!envValue) return defaultHome;
 	// FIX (Round 14): When PI_TEAMS_HOME is explicitly set, validate that

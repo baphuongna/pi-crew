@@ -367,13 +367,46 @@ describe("live-agent-manager", () => {
 			assert.ok(getLiveAgent("fresh1"));
 		});
 
-		it("evicts stale running handles (>30min)", () => {
+		it("evicts stale running handles with dead pid (>30min)", () => {
 			clearLiveAgentsForTest();
-			registerLiveAgent(makeHandle({ agentId: "stale_run" }));
+			// Out-of-process agent with a dead PID — should be evicted.
+			registerLiveAgent(makeHandle({ agentId: "stale_run", session: { pid: 999999 } }));
 			const handle = getLiveAgent("stale_run")!;
 			handle.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
 			const evicted = evictStaleLiveAgentHandles();
 			assert.equal(evicted, 1);
+		});
+
+		it("does NOT evict in-process running handles (undefined pid) even after 30min", () => {
+			clearLiveAgentsForTest();
+			// In-process agent — session.pid is undefined. Must NOT be evicted
+			// just because checkProcessLiveness(undefined) returns {alive:false}.
+			registerLiveAgent(makeHandle({ agentId: "inproc_run" }));
+			const handle = getLiveAgent("inproc_run")!;
+			handle.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+			const evicted = evictStaleLiveAgentHandles();
+			assert.equal(evicted, 0);
+			assert.ok(getLiveAgent("inproc_run"));
+		});
+
+		it("does NOT evict in-process running handles that are streaming (undefined pid)", () => {
+			clearLiveAgentsForTest();
+			registerLiveAgent(makeHandle({ agentId: "streaming_run", session: { isStreaming: true } }));
+			const handle = getLiveAgent("streaming_run")!;
+			handle.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+			const evicted = evictStaleLiveAgentHandles();
+			assert.equal(evicted, 0);
+			assert.ok(getLiveAgent("streaming_run"));
+		});
+
+		it("does NOT evict in-process running handles with pending messages (undefined pid)", () => {
+			clearLiveAgentsForTest();
+			registerLiveAgent(makeHandle({ agentId: "pending_run", session: { pendingMessageCount: 3 } }));
+			const handle = getLiveAgent("pending_run")!;
+			handle.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+			const evicted = evictStaleLiveAgentHandles();
+			assert.equal(evicted, 0);
+			assert.ok(getLiveAgent("pending_run"));
 		});
 	});
 

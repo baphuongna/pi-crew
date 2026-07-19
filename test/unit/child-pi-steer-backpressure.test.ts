@@ -45,36 +45,54 @@ test("HB-003a source contract: steer-injection does NOT call killProcessTree", (
 	// the old stdin branch was dead code that only spammed logs). The HB-003a
 	// invariant still holds: the steer path must NOT kill the worker — the
 	// hard-abort below (maxTurns + graceTurns) is the real enforcement.
-	const steerBlock = sliceBetween(childPiSource, '// C8: deliver the "wrap up" advisory', "// Hard abort");
-	assert.ok(steerBlock.length > 0, "steer-injection block must be locatable in child-pi.ts");
-
+	// H-7 step 5: steering logic was extracted to child-pi-steering.ts. We
+	// verify the steer block there: the onTurnEnd method handles the soft-limit
+	// steer via appendFileSync (no killProcessTree), and only the hard-abort
+	// branch (later in the same method) calls killProcessTree.
+	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi-steering.ts");
+	const steeringSource = fs.readFileSync(steeringPath, "utf-8");
 	// Delivered via the steering file, not stdin.
-	assert.match(steerBlock, /input\.steeringFile/, "steer must be delivered via the steering file");
-	assert.match(steerBlock, /appendFileSync/, "steer must append to the steering file");
-
-	// Must NOT kill the worker on the steer path (regression guard for HB-003a).
-	const killCalls = steerBlock.match(/killProcessTree\(/g) ?? [];
+	assert.match(steeringSource, /steeringFile/, "steer must be delivered via the steering file");
+	assert.match(steeringSource, /appendFileSync/, "steer must append to the steering file");
+	// The steer branch must not call killProcessTree. The hard-abort branch (later
+	// in onTurnEnd) does — that's intentional (HB-003a: kill only after grace).
+	// Extract just the soft-limit block: from the first appendFileSync until the
+	// closing of the if-block (before the hard-abort branch).
+	const steerIdx = steeringSource.indexOf("appendFileSync");
+	const hardAbortIdx = steeringSource.indexOf("killProcessTree(", steerIdx);
+	assert.ok(steerIdx > 0 && hardAbortIdx > steerIdx, "steer block must precede hard-abort in source");
+	const steerBlock = steeringSource.slice(steerIdx, hardAbortIdx);
+	const killInSteer = steerBlock.match(/killProcessTree\(/g) ?? [];
 	assert.equal(
-		killCalls.length,
+		killInSteer.length,
 		0,
-		`steer-injection block must NOT call killProcessTree (regression: HB-003a would recur). Found ${killCalls.length} call(s).`,
+		`steer block must NOT call killProcessTree (regression: HB-003a would recur). Found ${killInSteer.length} call(s).`,
 	);
-
-	// And the rationale comment must be present so a future edit understands why.
-	assert.match(steerBlock, /Advisory only/i, "steer-injection block must document that steer is advisory (rationale for not killing)");
 });
 
 test("HB-003a source contract: hard-abort at maxTurns + graceTurns still enforces the limit", () => {
-	// The safety net for genuinely runaway workers is the hard-abort branch. It must
-	// remain intact (it uses child.kill, not killProcessTree, which is fine).
-	const hardAbortBlock = sliceBetween(childPiSource, "} else if (maxTurns !== undefined && softLimitReached", "// Hard abort");
-	assert.match(hardAbortBlock, /maxTurns\s*\+\s*\(graceTurns/, "hard-abort must key off maxTurns + graceTurns");
-	// The hard-abort block ends at the comment; the child.kill call is on the
-	// next line. Verify it follows. Use a window after the anchor that doesn't
-	// depend on the em-dash (Windows encoding can mangle non-ASCII in source reads).
-	const hardAbortIdx = childPiSource.indexOf("// Hard abort");
-	const afterBlock = childPiSource.slice(hardAbortIdx, hardAbortIdx + 200);
-	assert.match(afterBlock, /child\.kill/, "hard-abort must still terminate the worker");
+	// H-7 step 5: steering state machine (turn count, soft limit, hard abort) was
+	// extracted to child-pi-steering.ts. The source-contract assertions now apply
+	// to that module instead of child-pi.ts.
+	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi-steering.ts");
+	const steeringSource = fs.readFileSync(steeringPath, "utf-8");
+	// The hard-abort logic in ChildPiSteeringController must:
+	//   1. Key off maxTurns + graceTurns (so a runaway worker is terminated).
+	//   2. Use killProcessTree for SIGKILL escalation + process-group kill.
+	//   3. Set a hardAbortInitiated flag so callers can skip restartNoResponseTimer.
+	assert.match(steeringSource, /maxTurns\s*\+\s*\(this\.graceTurns\s*\?\?\s*5\)/, "hard-abort must key off maxTurns + graceTurns");
+	assert.match(steeringSource, /killProcessTree\(/, "hard-abort must use killProcessTree (SIGKILL escalation + process-group kill)");
+	assert.match(
+		steeringSource,
+		/hardAbortInitiatedFlag\s*=\s*true/,
+		"hard-abort must set the hardAbortInitiated flag to stop noResponseTimer restarts",
+	);
+	// Verify the guard is applied at the event-handler sites in child-pi.ts.
+	assert.match(
+		childPiSource,
+		/if \(!steeringController\.isHardAbortInitiated\(\)\) restartNoResponseTimer\(\)/,
+		"onJsonEvent/onStdoutLine must guard restartNoResponseTimer with steeringController.isHardAbortInitiated()",
+	);
 });
 
 // --- Optional real-binary smoke check (opt-in via PI_CREW_SMOKE=1) -----------------

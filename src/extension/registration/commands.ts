@@ -1114,7 +1114,11 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 			const useProject = tokens.includes("--project");
 			const varEntries = tokens
 				.filter((t) => t.startsWith("--var=") || t.startsWith("--var "))
-				.map((t) => t.replace(/^--var(?:\s+|=)/, "").split("=", 2) as [string, string]);
+				.map((t): [string, string] => {
+					const s = t.replace(/^--var(?:\s+|=)/, "");
+					const idx = s.indexOf("=");
+					return idx === -1 ? [s, ""] : [s.slice(0, idx), s.slice(idx + 1)];
+				});
 			const templateId = tokens.find((t) => !t.startsWith("--") && !t.includes("="));
 			if (!templateId) {
 				await notifyCommandResult(
