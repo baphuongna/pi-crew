@@ -111,11 +111,26 @@ test("prepareTaskWorkspace skips linkNodeModules when source is a file", () => {
 	fs.rmSync(repo, { recursive: true, force: true });
 });
 
-test("assertCleanLeader throws when repo has uncommitted changes", () => {
+test("assertCleanLeader throws when repo has uncommitted TRACKED changes", () => {
 	const repo = makeRepoTemp("pi-crew-wt-");
 	initGitRepo(repo);
-	fs.writeFileSync(path.join(repo, "dirty.txt"), "x", "utf-8");
+	// First commit a tracked file, then modify it. Untracked files don't block
+	// worktree mode (--untracked-files=no, since pi-crew's own .gitignore is untracked).
+	fs.writeFileSync(path.join(repo, "f.txt"), "original", "utf-8");
+	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "f.txt"], { cwd: repo });
+	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "add f"], { cwd: repo });
+	fs.writeFileSync(path.join(repo, "f.txt"), "modified", "utf-8");
 	assert.throws(() => assertCleanLeader(repo), /clean leader/);
+	// Cleanup
+	fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test("assertCleanLeader does NOT throw on untracked files (regression for pi-crew's own .gitignore)", () => {
+	const repo = makeRepoTemp("pi-crew-wt-untracked-");
+	initGitRepo(repo);
+	fs.writeFileSync(path.join(repo, "untracked.txt"), "x", "utf-8");
+	// Untracked files should NOT block worktree mode (they are either ignored or user-managed).
+	assert.doesNotThrow(() => assertCleanLeader(repo), /clean leader/);
 	// Cleanup
 	fs.rmSync(repo, { recursive: true, force: true });
 });
