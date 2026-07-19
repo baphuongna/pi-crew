@@ -2,6 +2,103 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+
+## [Unreleased] — 4-wave upgrade + live LLM verification (2026-07-19)
+
+A comprehensive upgrade pass was completed on top of v0.9.42: 4 implementation waves
+plus H-1 (lock re-entrance) and H-7 step 1–6 (runChildPi decomposition), verified
+end-to-end with real LLM calls on a real pi session (not mocked). All changes
+were driven by an in-depth audit (`UPGRADE_REVIEW.md` — 647 lines, ~112 unique
+findings) with cold-verification and live test feedback catching regressions
+mock tests had missed.
+
+### Wave 1 — Security + correctness (16 fixes)
+
+- **H-3/H-4** `scripts/build-bundle.mjs` — bundle externalized `acorn` (~225 KB) and fixed `@sinclair/typebox` package name (~245 KB). Total **−481 KB** bundle.
+- **M-23 / COAL-1** `prompt-builder.ts` + `run-coalesced-task-group.ts` — both prompt builders now `sanitizeTaskText` before injection (closes 2 prompt-injection bypasses).
+- **M-22** `cross-extension-rpc.ts` — `pi-crew:live-control` event channel now wrapped with `withHmacVerification` (was the only state-mutating RPC channel without auth).
+- **DISC-1** `dynamic-workflow-runner.ts` — `.dwf.ts` determinism check now transpiles TS→JS via `esbuild` before acorn parse. Restores the round-13 P0-2 enforcement that had been silently no-op'd by acorn's JS-only parser.
+- **NEW-D1** `team-runner.ts` — merge path now calls `flushPendingAtomicWrites()` before `loadRunManifestById`. Closes the coalesced-write-cancellation lost-update window.
+- **M-18 / M-19 / T-S1** — event-log buffered-timer `unref()`, dead-worker `worker = undefined` reset, and `handleSteer` terminal-status guard (rejects steer to completed/failed/cancelled tasks).
+- **NEW-C1 / C5 / C7 / C13 / C17** — config dead-field deleted; token cap covers `max_completion_tokens`/`max_output_tokens`/`generationConfig.max_output_tokens`; tail-capture empty-tail slice fixed; `PI_CREW_HOME` alias added; doc comment env-var name fixed.
+- **CV-NEW-1** `font-detect.ts` — `isWebTerminal()` cached (was 12 sync reads per render tick).
+- **CMD-NEW-2** `commands.ts` — `--var` value split fixed (was `split("=", 2)` which lost values containing `=`).
+
+### CP-1 — turn-limit hard-abort escalation
+
+`child-pi.ts` turn-limit hard-abort now uses `killProcessTree` (same as abort/noResponseTimer paths) and sets a `hardAbortInitiated` flag so `onJsonEvent` stops restarting the no-response timer. Prevents SIGTERM-ignoring runaway children. `HB-003a` source-contract test updated to verify the new behavior.
+
+### Wave 2 — Budget / Worker cap / Worktree / Coalesced (6 fixes)
+
+- **BDG-1** `goal-evaluator.ts` — judge token usage now returned and accumulated into `budgetUsed` (was discarded, systematically undercounted budget by 20–30%).
+- **GL-1** `goal-loop-runner.ts` — loop checks `turnResult.manifest.status` after each turn; stops early on `blocked`/`failed` instead of burning the full `maxTurns` budget on a dead-end.
+- **DLOCK-1** `dynamic-workflow-context.ts` — `ctx.agent()` now goes through `withWorkerSlot`, finally respecting the global worker cap (`PI_CREW_MAX_WORKERS`). Docstring claim was previously false.
+- **ERR-1** `dynamic-workflow-runner.ts` — script timeout now aborts a combined `AbortSignal`, so spawned `runChildPi` children are killed instead of leaking.
+- **N-1** `worktree-manager.ts` — `snapshotDirtyWorktree` failure now causes the caller to skip the discard (preserves dirty work instead of losing it). The previous behavior would silently destroy work if the snapshot artifact write failed.
+- **N-2** `live-agent-manager.ts` — `evictStaleLiveAgentHandles` no longer treats `session.pid === undefined` (the in-process case) as dead. Previously every in-process live agent was killed after 30 min idle.
+- **COAL-2** `run-coalesced-task-group.ts` — coalesced dispatch wrapped in `executeWithRetry`. One transient failure no longer fails all N tasks.
+
+### Wave 3 — Observability + Budget reserve + DWF resume (4 fixes)
+
+- **OBS-NEW-1/2** `foreground-run-controller.ts` — emits per-task `crew.task.completed/failed/needs_attention` events at run completion with `durationMs` and `tokens`. Added `durationMs` to `crew.run.completed`. Fixes task-level metrics that were always zero.
+- **BDG-2** `dynamic-workflow-context.ts` — reserve-then-adjust token budget. Before spawn, reserve estimate (4096 tokens); after spawn, adjust by `actualUsage − estimate`. Prevents N concurrent calls from each overspending by `perCallCost`.
+- **PERS-1** `dynamic-workflow-context.ts` — per-agent-call idempotency cache stored in checkpoint (`completedAgentCalls`). On resume, cached calls are skipped (return cached result). Previously a DWF resume re-ran the entire script, duplicating artifacts/mailbox/tokens.
+
+### H-1 — AsyncLocalStorage re-entrance guard (root-cause class)
+
+`src/state/locks.ts` — `withRunLock`/`withRunLockSync` now track re-entrance via `AsyncLocalStorage<Set<string>>` instead of a module-global `Map<filePath, token>`. True nested calls in the same async context still bypass (no deadlock). Calls from a DIFFERENT async context (e.g. a child-stdout event handler firing while an async merge holder is awaiting) no longer bypass — they properly serialize against the on-disk lock.
+
+### H-7 — `runChildPi` decomposition (6 steps, −572 lines / −31.1%)
+
+`src/runtime/child-pi.ts` reduced from **1842 → 1270 lines**. Code extracted into 4 self-contained modules with zero behavior change verified by 147 tests + live LLM:
+
+| Step | Module | Lines | Purpose |
+|------|--------|-------|---------|
+| 1 | `child-pi-transcript.ts` | 169 | Transcript batching (50 ms debounce) + compaction helpers |
+| 2 | `child-pi-kill.ts` | 180 | `killProcessTree`, `appendBoundedTail`, active-children bookkeeping |
+| 3 | `child-pi-constants.ts` | 42 | Shared timing/buffer constants |
+| 4 | `child-pi-streams.ts` | 296 | `ChildPiLineObserver` + line-level compaction |
+| 5 | `child-pi-steering.ts` | 128 | `ChildPiSteeringController` state machine (turn-limit, soft/hard abort) |
+| 6 | `child-pi-spawn.ts` | 226 | `buildChildPiSpawnOptions`, `prepareSpawnContext`, env allowlist |
+
+Steps 1–4 verified clean on first commit. Step 5 required updating the `HB-003a`
+source-contract test (steering logic moved to its own module). Step 6 required
+updating the assertion to check `builtEnv` (control vars only) rather than
+`mergedEnv` (which includes process.env spread).
+
+### Live-test-only bug fixes (caught by real pi binary, missed by mocks)
+
+- **Token usage not captured** — `src/runtime/pi-json-output.ts` `extractUsage` now recursively looks into `obj.message.usage` (pi nests usage under `message` for `message_end`/`turn_end` events). Mock tests passed because `PI_TEAMS_MOCK_CHILD_PI` short-circuits the spawn path entirely; only real `--mode json` output exercises `extractUsage`.
+- **child-pi spawns wrong binary** — `src/runtime/pi-spawn.ts` `resolvePiCliScript` previously trusted `process.argv[1]` unconditionally. When invoked from a standalone test script, `argv1` was the test script and child-pi spawned it as if it were pi. Fix: only trust `argv1` when `resolvePiPackageRoot()` succeeds (current process is running from the pi-coding-agent package).
+- **Worktree mode blocked by own .gitignore** — `src/worktree/worktree-manager.ts` `assertCleanLeader` used `git status --porcelain` without `--untracked-files=no`. After pi-crew's `ensureCrewDirectory` auto-creates `.gitignore`, that file shows as untracked and blocks worktree mode. Fix: add `--untracked-files=no` so only tracked changes are checked. Applied to both sync (`assertCleanLeader`) and async (`assertCleanLeaderAsync`) variants.
+
+### Live test coverage (real pi binary + real LLM, on session restart)
+
+14 live tests run end-to-end across 3 waves — all green:
+
+| Wave | Feature | Result |
+|------|---------|--------|
+| A1 | 3 concurrent runs, unique runIds, no state leakage | PASS |
+| A2 | Steer to completed task → rejected with `T-S1` error | PASS |
+| A3 | Long research run (5 key points + explanations) | PASS · 8,302 tokens / 124 s |
+| A4 | Cancel completed run is safe no-op | PASS |
+| A5 | Steer to nonexistent runId → graceful error | PASS |
+| B3a | Invalid model → fallback to `zai/glm-5.2` agent default | PASS |
+| B3b | Empty goal → graceful error | PASS |
+| B3c | Long goal stress (multi-paragraph objective) | PASS · 5,247 tokens / 178 s |
+| C1 | Worktree mode (clean git repo, after fix) | PASS |
+| C2 | Original file preserved across worktree cleanup (N-1 fix) | PASS |
+| C3 | `implementation` workflow creates `math.js` with `subtract` function | PASS |
+| C4 | `plan` action returns 4-step plan | PASS |
+
+Mock tests: 30/31 pass (1 pre-existing skip).
+
+### Files
+
+- `UPGRADE_REVIEW.md` — 647-line audit report (all findings + cold verification + live verification).
+- `test/functional/pi-crew-live.test.ts` + `pi-crew-live-broad.test.ts` — 16 live integration tests run against the real pi binary + real LLM provider.
+
+
 ## [0.9.42] — 107-finding deep review + arch cleanup (2026-07-17)
 
 ### Deep Review Resolution

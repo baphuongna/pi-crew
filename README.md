@@ -279,6 +279,20 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 - `test/unit/topology-analyzer.test.ts` — 13 cases (each topology + edge cases)
 - `test/unit/preflight-validator.test.ts` — 11 cases (each level + advisory contract)
 
+
+- `test/functional/pi-crew-live.test.ts` + `test/functional/pi-crew-live-broad.test.ts` — 16 live integration tests run against the **real pi binary + real LLM provider** (verified after v0.9.42 audit, ~26 commits). Use these when you want to confirm end-to-end behavior, not just unit-level invariants.
+
+## Recent changes (since v0.9.42)
+
+A 4-wave audit + fix pass was completed (see `UPGRADE_REVIEW.md` for the full 647-line report and `CHANGELOG.md` for the diff):
+
+- **−481 KB** bundle size (externalized `acorn` + fixed `@sinclair/typebox` name).
+- **−31.1%** in `child-pi.ts` (1842 → 1270 lines via 6 decomposition steps).
+- **~30 bug fixes** across security, correctness, budget enforcement, worker cap, observability, and worktree isolation.
+- **Lock re-entrance guard** via `AsyncLocalStorage` (H-1) — fixes a root-cause mutual-exclusion violation.
+- **Task-level metrics now functional** (OBS-NEW-1/2) — `crew.task.{count,duration_ms,tokens_total}` were always zero; now emit on every run completion.
+- **Live-test-only bugs found** (mock tests had passed): token usage not captured (nested `obj.message.usage`), child-pi spawning wrong binary (`argv1` trust heuristic), worktree mode blocked by own `.gitignore`.
+
 ## Builtin Agents
 
 ```
