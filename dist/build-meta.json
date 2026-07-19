@@ -126,7 +126,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 18521,
+      "bytes": 21355,
       "imports": [
         {
           "path": "node:async_hooks",
@@ -152,6 +152,11 @@
           "path": "src/config/defaults.ts",
           "kind": "import-statement",
           "original": "../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/utils/sleep.ts",
@@ -12975,7 +12980,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5995732
+      "bytes": 5999139
     },
     "dist/index.mjs": {
       "imports": [
@@ -14619,7 +14624,7 @@
           "bytesInOutput": 4426
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 7617
+          "bytesInOutput": 8197
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -16161,7 +16166,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791163
+      "bytes": 2791743
     }
   }
 }

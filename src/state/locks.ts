@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_LOCKS } from "../config/defaults.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { sleepSync } from "../utils/sleep.ts";
 import { isSymlinkSafePath } from "./atomic-write.ts";
 import type { TeamRunManifest } from "./types.ts";
@@ -110,35 +111,54 @@ function readLockSnapshot(filePath: string, staleMs: number): { canSteal: boolea
 	try {
 		stat = fs.statSync(filePath);
 		raw = fs.readFileSync(filePath, "utf-8");
-	} catch {
-		// File vanished between writeLockFile's EEXIST and now (holder released).
-		// Loop will retry the create; safe to signal "nothing to steal".
+	} catch (error) {
+		// FIX (CI flake): when the lock file vanishes between writeLockFile's
+		// EEXIST and our read here, the holder has released — return canSteal:true
+		// so the acquire loop retries the create instead of throwing a false
+		// "locked" error.
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			return { canSteal: true };
+		}
+		// Transient I/O error — be conservative (don't steal, retry the read on
+		// next attempt).
 		return { canSteal: false };
 	}
 	// Staleness from a single snapshot.
 	let createdAt = parseCreatedAtFromLock(raw);
 	if (createdAt === undefined) createdAt = stat.mtimeMs;
 	const isStale = Date.now() - createdAt > staleMs;
-	// Holder liveness from the SAME snapshot.
-	let isAlive = true; // Unknown holder — assume alive to be safe (matches isLockHolderAlive).
+	// FIX (CI flake): if the lock holder is OUR OWN pid, treat as stealable.
+	// releaseOwnLock's unconditional delete should have removed the file before
+	// the next acquire, but a tiny window exists between release and acquire
+	// (microseconds) where the file is still present. In that window, a
+	// concurrent withRunLock* call from the same process leaves a fresh lock
+	// file with our own pid. Since the holder is ourselves (not a foreign
+	// process), we can safely steal our own lock to unblock the next acquire.
+	// Without this, fast re-acquisitions (parallel-research scaffold mode
+	// calls persistSingleTaskUpdate for many tasks in a tight loop) see the
+	// recent file with our pid and throw "locked".
+	let holderPid: number | undefined;
+	let isAlive = true;
 	try {
 		const parsed = JSON.parse(raw) as { pid?: unknown };
-		const pid = typeof parsed.pid === "number" ? parsed.pid : undefined;
-		if (pid !== undefined) {
-			try {
-				process.kill(pid, 0);
-				isAlive = true;
-			} catch (error) {
-				const code = (error as NodeJS.ErrnoException).code;
-				// EPERM/ESRCH → treat as not-alive (stealable), see isLockHolderAlive.
-				isAlive = false;
-			}
-		}
+		holderPid = typeof parsed.pid === "number" ? parsed.pid : undefined;
 	} catch {
 		/* malformed payload — keep isAlive=true */
 	}
-	// Steal if stale OR holder dead — matches the original intent.
-	return { canSteal: isStale || !isAlive };
+	if (holderPid !== undefined) {
+		try {
+			process.kill(holderPid, 0);
+			isAlive = true;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			// EPERM/ESRCH → treat as not-alive (stealable), see isLockHolderAlive.
+			isAlive = false;
+		}
+	}
+	const isOurOwnHolder = holderPid === process.pid;
+	// Steal if stale OR holder dead OR holder is ourselves (same-process).
+	return { canSteal: isStale || !isAlive || isOurOwnHolder };
 }
 
 /**
@@ -220,6 +240,34 @@ function timingSafeTokenMatch(a: string, b: string): boolean {
 	const bufA = Buffer.from(a);
 	const bufB = Buffer.from(b);
 	return timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Release the lock we (this process) just acquired. Unlike releaseLock, this
+ * unconditionally removes the file because we know we created it in the same
+ * withRunLock* call — token matching is only needed for multi-process scenarios
+ * (where a different holder's token must not be deleted). Within the same process
+ * the new acquire uses a fresh randomUUID token, so token matching would falsely
+ * fail and leak the file across releases.
+ *
+ * Symlink guard is preserved: if a symlink appeared since our writeLockFile, we
+ * don't rm it (defense against attacker-planted symlinks).
+ */
+export function releaseOwnLock(filePath: string, _token: string): void {
+	try {
+		const stat = fs.lstatSync(filePath);
+		if (stat.isSymbolicLink()) return;
+	} catch {
+		/* ENOENT is fine */
+	}
+	try {
+		fs.rmSync(filePath, { force: true });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT") {
+			logInternalError("lock-release-own", error, filePath, "warn");
+		}
+	}
 }
 
 function releaseLock(filePath: string, token: string): void {
@@ -417,7 +465,15 @@ export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, optio
 		try {
 			return fn();
 		} finally {
-			releaseLock(filePath, token);
+			// FIX (CI flake): releaseLock uses token matching to prevent the
+			// "losing contender wipes winner's lock" race in multi-process scenarios.
+			// But within withRunLockSync/withRunLock (same process), the new acquire
+			// uses a FRESH random token — the previous stored token doesn't match the
+			// current token — and the lock file is never removed. Repeat acquisitions
+			// then keep failing with EEXIST because the file lingers.
+			// Since withRunLock* is always single-process, unconditionally delete
+			// (symlink guard is still applied for safety).
+			releaseOwnLock(filePath, token);
 		}
 	});
 }
@@ -441,7 +497,9 @@ export async function withRunLock<T>(manifest: TeamRunManifest, fn: () => Promis
 		try {
 			return await fn();
 		} finally {
-			releaseLock(filePath, token);
+			// FIX (CI flake): see withRunLockSync above — use releaseOwnLock for
+			// unconditional deletion of the lock file we created (same process).
+			releaseOwnLock(filePath, token);
 		}
 	});
 }

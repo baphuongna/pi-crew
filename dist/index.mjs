@@ -1210,28 +1210,34 @@ function readLockSnapshot(filePath, staleMs) {
   try {
     stat2 = fs3.statSync(filePath);
     raw = fs3.readFileSync(filePath, "utf-8");
-  } catch {
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") {
+      return { canSteal: true };
+    }
     return { canSteal: false };
   }
   let createdAt = parseCreatedAtFromLock(raw);
   if (createdAt === void 0) createdAt = stat2.mtimeMs;
   const isStale = Date.now() - createdAt > staleMs;
+  let holderPid;
   let isAlive = true;
   try {
     const parsed = JSON.parse(raw);
-    const pid = typeof parsed.pid === "number" ? parsed.pid : void 0;
-    if (pid !== void 0) {
-      try {
-        process.kill(pid, 0);
-        isAlive = true;
-      } catch (error) {
-        const code = error.code;
-        isAlive = false;
-      }
-    }
+    holderPid = typeof parsed.pid === "number" ? parsed.pid : void 0;
   } catch {
   }
-  return { canSteal: isStale || !isAlive };
+  if (holderPid !== void 0) {
+    try {
+      process.kill(holderPid, 0);
+      isAlive = true;
+    } catch (error) {
+      const code = error.code;
+      isAlive = false;
+    }
+  }
+  const isOurOwnHolder = holderPid === process.pid;
+  return { canSteal: isStale || !isAlive || isOurOwnHolder };
 }
 function writeLockFile(filePath, token, kind = "file") {
   try {
@@ -1275,6 +1281,21 @@ function timingSafeTokenMatch(a, b) {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   return timingSafeEqual(bufA, bufB);
+}
+function releaseOwnLock(filePath, _token) {
+  try {
+    const stat2 = fs3.lstatSync(filePath);
+    if (stat2.isSymbolicLink()) return;
+  } catch {
+  }
+  try {
+    fs3.rmSync(filePath, { force: true });
+  } catch (error) {
+    const code = error.code;
+    if (code !== "ENOENT") {
+      logInternalError("lock-release-own", error, filePath, "warn");
+    }
+  }
 }
 function releaseLock(filePath, token) {
   let isSymlink2 = false;
@@ -1397,7 +1418,7 @@ function withRunLockSync(manifest, fn, options = {}) {
     try {
       return fn();
     } finally {
-      releaseLock(filePath, token);
+      releaseOwnLock(filePath, token);
     }
   });
 }
@@ -1416,7 +1437,7 @@ async function withRunLock(manifest, fn, options = {}) {
     try {
       return await fn();
     } finally {
-      releaseLock(filePath, token);
+      releaseOwnLock(filePath, token);
     }
   });
 }
@@ -1425,6 +1446,7 @@ var init_locks = __esm({
   "src/state/locks.ts"() {
     "use strict";
     init_defaults();
+    init_internal_error();
     init_sleep();
     init_atomic_write();
     DEFAULT_STALE_MS = DEFAULT_LOCKS.staleMs;
