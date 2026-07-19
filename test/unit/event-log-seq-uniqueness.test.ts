@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { appendEvent, appendEventAsync, appendEventBuffered, resetEventLogMode } from "../../src/state/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, flushEventLogBuffer, resetEventLogMode } from "../../src/state/event-log.ts";
 
 function makeEvent(taskId: string) {
 	return { type: "task.progress" as const, runId: "b7-test", taskId, data: {} };
@@ -57,6 +57,9 @@ describe("B7: cross-path seq uniqueness", () => {
 			}
 		}
 		await Promise.all(promises);
+		// FIX (CI flake): Explicitly flush the buffered events so their 20ms
+		// timer doesn't keep the test pending past --test-force-exit's window.
+		await flushEventLogBuffer();
 
 		// Parse all events and collect seqs.
 		const lines = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
@@ -94,6 +97,9 @@ describe("B7: cross-path seq uniqueness", () => {
 			}
 		}
 		await Promise.all(promises);
+		// FIX (CI flake): Explicitly flush the buffered events so their 20ms
+		// timer doesn't keep the test pending past --test-force-exit's window.
+		await flushEventLogBuffer();
 
 		const lines = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
 		assert.equal(lines.length, N, `expected ${N} events, got ${lines.length}`);
@@ -119,6 +125,10 @@ describe("B7: cross-path seq uniqueness", () => {
 			Promise.resolve(appendEvent(eventsPath, ev2)),
 		];
 		await Promise.all(promises);
+		// FIX (CI flake): Explicitly flush the buffered event so its 20ms timer
+		// doesn't keep the test pending past --test-force-exit's window. Without
+		// this, the test was occasionally cancelled by parent after ~9ms.
+		await flushEventLogBuffer();
 
 		const lines = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
 		const seqs = lines.map((l) => JSON.parse(l).metadata.seq);
