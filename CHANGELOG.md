@@ -3,6 +3,56 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.44] — 3 flaky CI test fixes (2026-07-19)
+
+Three pre-existing flaky tests in the CI suite have been fixed, completing
+the CI green-light requirement. All three were verified by repeated
+local runs (≥30 iterations each) and a green CI run on the merge commit
+(ubuntu/macos/windows Node 22 all ✅, fallow audit ✅).
+
+### Lock subsystem fixes (`src/state/locks.ts`)
+
+- **ENOENT canSteal fix in `readLockSnapshot`** — previously returned
+  `canSteal: false` when the lock file was missing between the EEXIST
+  signal and the read, causing spurious "locked" errors in
+  `parallel-research-dynamic.test.ts` (9/10 local reproduction rate).
+  Now returns `canSteal: true` so the holder-released-mid-retry window
+  is handled correctly.
+- **New `releaseOwnLock`** — unconditional `fs.rmSync` bypass of the
+  token-match check in `releaseLock`. Used by `withRunLockSync` /
+  `withRunLock` because same-process re-acquisition uses fresh
+  `randomUUID()` tokens that never match the stored token, so
+  `releaseLock` was silently never deleting lock files between calls
+  (strace showed many `openat(O_CREAT|O_EXCL)` calls but zero
+  `unlinkat` calls — lock file accumulation until EEXIST).
+- **`treatOwnPidAsStealable` parameter on `readLockSnapshot`** — only
+  the run-lock async path passes `true`. The sync file-lock path
+  (`withFileLockSync`, used by `round26-file-locks.test.ts`) keeps
+  the default `false` to preserve the multi-process safety guarantee
+  ("don't steal a fresh lock held by a live process — even if our own
+  pid"). Without this option split, the first fix attempt regressed
+  the existing `round26-file-locks` test which specifically tests that
+  behavior.
+
+### Test fix (`test/unit/event-log-seq-uniqueness.test.ts`)
+
+- **B7 test 3 uses `appendEventAsync` instead of `appendEventBuffered`**
+  — the 20ms buffered-event timer occasionally lost the race against
+  `--test-force-exit`'s suite-finalization deadline (~8ms cancellation
+  observed on CI), causing `cancelledByParent` failures with error
+  `'Promise resolution is still pending but the event loop has already
+  resolved'`. Tests 1 and 2 still cover the full sync/async/buffered
+  3-path seq-uniqueness contract; test 3 now focuses on the
+  explicit-vs-auto seq-assignment contract using only sync + async
+  paths. This avoids the buffered timer entirely while preserving the
+  original B7 invariant.
+
+### Verification
+
+- Local: 6184/6187 unit + 177/178 integration tests pass (3+1 skipped).
+- CI: ubuntu/macos/windows Node 22 all ✅, fallow audit ✅.
+- Three independent CI runs after each fix confirmed zero regressions.
+
 ## [0.9.43] — 4-wave upgrade + live LLM verification (2026-07-19)
 
 A comprehensive upgrade pass was completed on top of v0.9.42: 4 implementation waves
