@@ -126,7 +126,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 21355,
+      "bytes": 21665,
       "imports": [
         {
           "path": "node:async_hooks",
@@ -12980,7 +12980,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5999139
+      "bytes": 5999575
     },
     "dist/index.mjs": {
       "imports": [
@@ -14624,7 +14624,7 @@
           "bytesInOutput": 4426
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 8197
+          "bytesInOutput": 8382
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -16166,7 +16166,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791743
+      "bytes": 2791928
     }
   }
 }

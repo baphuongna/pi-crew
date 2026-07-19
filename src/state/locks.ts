@@ -105,7 +105,8 @@ function isLockHolderAlive(filePath: string): boolean {
  *
  * See also: SECURITY-ISSUES.md SEC-008 for documented acceptance.
  */
-function readLockSnapshot(filePath: string, staleMs: number): { canSteal: boolean } {
+function readLockSnapshot(filePath: string, staleMs: number, options?: { treatOwnPidAsStealable?: boolean }): { canSteal: boolean } {
+	const treatOwnPidAsStealable = options?.treatOwnPidAsStealable === true;
 	let stat: fs.Stats | undefined;
 	let raw: string | undefined;
 	try {
@@ -128,16 +129,6 @@ function readLockSnapshot(filePath: string, staleMs: number): { canSteal: boolea
 	let createdAt = parseCreatedAtFromLock(raw);
 	if (createdAt === undefined) createdAt = stat.mtimeMs;
 	const isStale = Date.now() - createdAt > staleMs;
-	// FIX (CI flake): if the lock holder is OUR OWN pid, treat as stealable.
-	// releaseOwnLock's unconditional delete should have removed the file before
-	// the next acquire, but a tiny window exists between release and acquire
-	// (microseconds) where the file is still present. In that window, a
-	// concurrent withRunLock* call from the same process leaves a fresh lock
-	// file with our own pid. Since the holder is ourselves (not a foreign
-	// process), we can safely steal our own lock to unblock the next acquire.
-	// Without this, fast re-acquisitions (parallel-research scaffold mode
-	// calls persistSingleTaskUpdate for many tasks in a tight loop) see the
-	// recent file with our pid and throw "locked".
 	let holderPid: number | undefined;
 	let isAlive = true;
 	try {
@@ -156,9 +147,14 @@ function readLockSnapshot(filePath: string, staleMs: number): { canSteal: boolea
 			isAlive = false;
 		}
 	}
+	// Steal if stale OR holder dead. Optionally steal if holder is our own pid
+	// (used by withRunLock* which is single-process — a fresh lock with our pid
+	// between acquisitions is just a leftover from a previous call that
+	// releaseOwnLock didn't get to delete yet; safe to steal).
 	const isOurOwnHolder = holderPid === process.pid;
-	// Steal if stale OR holder dead OR holder is ourselves (same-process).
-	return { canSteal: isStale || !isAlive || isOurOwnHolder };
+	return {
+		canSteal: isStale || !isAlive || (treatOwnPidAsStealable && isOurOwnHolder),
+	};
 }
 
 /**
@@ -314,7 +310,9 @@ function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind 
 			}
 			// Round 26 (BUG 1): single-snapshot read closes the TOCTOU window between
 			// separate stale + alive reads (which could race stale→fresh).
-			const { canSteal } = readLockSnapshot(filePath, staleMs);
+			// treatOwnPidAsStealable=false (this is the sync file-lock path used
+			// by withFileLockSync — never steal a fresh lock even if it has our pid).
+			const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: false });
 			if (!canSteal) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}
@@ -349,7 +347,13 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}
 			// Round 26 (BUG 1): single-snapshot read (see sync variant).
-			const { canSteal } = readLockSnapshot(filePath, staleMs);
+			// FIX (CI flake): treatOwnPidAsStealable=true for the run-lock async path
+			// (withRunLock). Between acquisitions in parallel-research scaffold mode,
+			// the previous releaseOwnLock leaves a microsecond window where the
+			// file still exists with our own pid. Stealing it avoids spurious 'locked'
+			// errors. The sync file-lock path (withFileLockSync) above uses false to
+			// preserve the multi-process safety guarantee.
+			const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: true });
 			if (!canSteal) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}

@@ -1204,7 +1204,8 @@ function parseCreatedAtFromLock(raw) {
     return void 0;
   }
 }
-function readLockSnapshot(filePath, staleMs) {
+function readLockSnapshot(filePath, staleMs, options) {
+  const treatOwnPidAsStealable = options?.treatOwnPidAsStealable === true;
   let stat2;
   let raw;
   try {
@@ -1237,7 +1238,9 @@ function readLockSnapshot(filePath, staleMs) {
     }
   }
   const isOurOwnHolder = holderPid === process.pid;
-  return { canSteal: isStale || !isAlive || isOurOwnHolder };
+  return {
+    canSteal: isStale || !isAlive || treatOwnPidAsStealable && isOurOwnHolder
+  };
 }
 function writeLockFile(filePath, token, kind = "file") {
   try {
@@ -1328,7 +1331,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
       if (Date.now() > deadline) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }
-      const { canSteal } = readLockSnapshot(filePath, staleMs);
+      const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: false });
       if (!canSteal) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }
@@ -1358,7 +1361,7 @@ async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
       if (Date.now() > deadline) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }
-      const { canSteal } = readLockSnapshot(filePath, staleMs);
+      const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: true });
       if (!canSteal) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }
