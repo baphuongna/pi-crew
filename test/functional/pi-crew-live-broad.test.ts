@@ -26,7 +26,12 @@ function cleanup(dir: string): void {
 	fs.rmSync(dir, { recursive: true, force: true });
 }
 
-async function runLive(team: string, goal: string, model: string, sampleText: string): Promise<{
+async function runLive(
+	team: string,
+	goal: string,
+	model: string,
+	sampleText: string,
+): Promise<{
 	success: boolean;
 	tasksCompleted: number;
 	totalTokens: number;
@@ -35,25 +40,19 @@ async function runLive(team: string, goal: string, model: string, sampleText: st
 	const cwd = mkTmp();
 	try {
 		fs.writeFileSync(path.join(cwd, "sample.txt"), sampleText);
-		const result = await handleTeamTool(
-			{ action: "run", team, goal, model },
-			{ cwd },
-		);
+		const result = await handleTeamTool({ action: "run", team, goal, model }, { cwd });
 		if (result.isError) {
 			return {
 				success: false,
 				tasksCompleted: 0,
 				totalTokens: 0,
-				error: ((result.content?.[0] as any)?.text)?.slice(0, 300) ?? "isError=true",
+				error: (result.content?.[0] as any)?.text?.slice(0, 300) ?? "isError=true",
 			};
 		}
 		const runId = result.details.runId;
 		const loaded = loadRunManifestById(cwd, runId!);
 		const completedTasks = loaded?.tasks.filter((t) => t.status === "completed") ?? [];
-		const totalTokens = completedTasks.reduce(
-			(s, t) => s + (t.usage?.input ?? 0) + (t.usage?.output ?? 0),
-			0,
-		);
+		const totalTokens = completedTasks.reduce((s, t) => s + (t.usage?.input ?? 0) + (t.usage?.output ?? 0), 0);
 		return {
 			success: completedTasks.length > 0,
 			tasksCompleted: completedTasks.length,
@@ -82,12 +81,7 @@ test("LIVE BROAD: simple task with minimax/minimax-m3", async () => {
 // ── Test 2: same task with zai (different provider) ──────────────────
 
 test("LIVE BROAD: same task with zai provider", async () => {
-	const r = await runLive(
-		"fast-fix",
-		"Read sample.txt and tell me the first word",
-		"zai/glm-5.2",
-		"hello world this is a test",
-	);
+	const r = await runLive("fast-fix", "Read sample.txt and tell me the first word", "zai/glm-5.2", "hello world this is a test");
 	console.log("  →", JSON.stringify(r));
 	// zai/glm-5.2 may not exist; skip if model unavailable
 	if (r.error?.includes("Unknown Model") || r.error?.includes("not found")) {

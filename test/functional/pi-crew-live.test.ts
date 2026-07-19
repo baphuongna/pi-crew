@@ -51,7 +51,7 @@ test("LIVE: team run completes using a real LLM provider", async () => {
 		if (result.isError) {
 			// If the run errored, surface the error message for debugging
 			console.log("LIVE run errored (may be due to model/provider availability):");
-			console.log("  text:", ((result.content?.[0] as any)?.text)?.slice(0, 500));
+			console.log("  text:", (result.content?.[0] as any)?.text?.slice(0, 500));
 			console.log("  details:", JSON.stringify(result.details, null, 2).slice(0, 500));
 			// Don't fail the test if the LLM is unavailable — just skip
 			console.log("(LIVE test skipped: LLM not available or run failed)");

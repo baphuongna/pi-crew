@@ -13,10 +13,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-
-import { handleTeamTool, handleSteer } from "../../src/extension/team-tool.ts";
 import { handleCancel } from "../../src/extension/team-tool/cancel.ts";
 import { handleStatus } from "../../src/extension/team-tool/status.ts";
+import { handleSteer, handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -56,10 +55,7 @@ test("FEATURE: team run completes with mock child Pi", async () => {
 	const cwd = mkTmp();
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Verify basic run" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Verify basic run" }, { cwd });
 			assert.equal(result.isError, false, "run should not error");
 			const runId = result.details.runId;
 			assert.ok(runId, "runId must be present");
@@ -79,18 +75,21 @@ test("FEATURE: JSON mock records usage and jsonEvents", async () => {
 	const cwd = mkTmp();
 	try {
 		await withMockChild("json-success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "JSON execute" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "JSON execute" }, { cwd });
 			const runId = result.details.runId;
 			assert.ok(runId);
 			const loaded = loadRunManifestById(cwd, runId!);
 			assert.ok(loaded);
 			assert.equal(loaded?.manifest.status, "completed");
 			// json-success mock emits 2 json events per task
-			assert.ok(loaded?.tasks.every((task) => task.jsonEvents === 2), "each task should have 2 json events");
-			assert.ok(loaded?.tasks.every((task) => task.usage?.input === 10), "input tokens should be 10");
+			assert.ok(
+				loaded?.tasks.every((task) => task.jsonEvents === 2),
+				"each task should have 2 json events",
+			);
+			assert.ok(
+				loaded?.tasks.every((task) => task.usage?.input === 10),
+				"input tokens should be 10",
+			);
 		});
 	} finally {
 		cleanup(cwd);
@@ -104,10 +103,7 @@ test("FEATURE: runId is stable across multiple reads", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Test runId stability" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Test runId stability" }, { cwd });
 			assert.equal(result.isError, false);
 			runId = result.details.runId;
 			assert.ok(runId);
@@ -132,10 +128,7 @@ test("FEATURE: status command returns run info", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Status test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Status test" }, { cwd });
 			runId = result.details.runId;
 		});
 		assert.ok(runId);
@@ -159,17 +152,11 @@ test("FEATURE: summary command returns aggregated info", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Summary test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Summary test" }, { cwd });
 			runId = result.details.runId;
 		});
 		assert.ok(runId);
-		const summary = await handleTeamTool(
-			{ action: "summary", runId: runId! },
-			{ cwd },
-		);
+		const summary = await handleTeamTool({ action: "summary", runId: runId! }, { cwd });
 		assert.equal(summary.isError, false);
 	} finally {
 		cleanup(cwd);
@@ -181,10 +168,7 @@ test("FEATURE: summary command returns aggregated info", async () => {
 test("FEATURE: steer with unknown runId returns error", async () => {
 	const cwd = mkTmp();
 	try {
-		const result = await handleSteer(
-			{ action: "steer", runId: "nonexistent-run", taskId: "no-task", message: "test" },
-			{ cwd },
-		);
+		const result = await handleSteer({ action: "steer", runId: "nonexistent-run", taskId: "no-task", message: "test" }, { cwd });
 		assert.equal(result.isError, true, "steer to nonexistent run must error");
 	} finally {
 		cleanup(cwd);
@@ -198,18 +182,12 @@ test("FEATURE: cancel on completed run does not crash", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Cancel test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Cancel test" }, { cwd });
 			runId = result.details.runId;
 		});
 		assert.ok(runId);
 		// Cancel a completed run — should not crash
-		const cancelResult = await handleCancel(
-			{ action: "cancel", runId: runId! },
-			{ cwd },
-		);
+		const cancelResult = await handleCancel({ action: "cancel", runId: runId! }, { cwd });
 		// Either isError or returns an info message — both are acceptable
 		assert.ok(cancelResult !== undefined);
 	} finally {
@@ -242,10 +220,7 @@ test("FEATURE: failure mock does not produce completed status", async () => {
 	const cwd = mkTmp();
 	try {
 		await withMockChild("failure", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Failure test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Failure test" }, { cwd });
 			const runId = result.details.runId;
 			assert.ok(runId);
 			const loaded = loadRunManifestById(cwd, runId!);
@@ -263,10 +238,7 @@ test("FEATURE: run data written to disk (.crew/state/runs/<runId>/...)", async (
 	const cwd = mkTmp();
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Artifact test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Artifact test" }, { cwd });
 			const runId = result.details.runId!;
 			// The state directory and run data must exist
 			const runDir = path.join(cwd, ".crew", "state", "runs", runId);
@@ -288,10 +260,7 @@ test("FEATURE: events.jsonl contains lifecycle events", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Events test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Events test" }, { cwd });
 			runId = result.details.runId;
 		});
 		assert.ok(runId);
@@ -310,10 +279,7 @@ test("FEATURE: events.jsonl contains lifecycle events", async () => {
 test("FEATURE: status on nonexistent runId returns error", async () => {
 	const cwd = mkTmp();
 	try {
-		const result = await handleStatus(
-			{ action: "status", runId: "definitely-not-a-real-run" },
-			{ cwd },
-		);
+		const result = await handleStatus({ action: "status", runId: "definitely-not-a-real-run" }, { cwd });
 		assert.equal(result.isError, true, "status on nonexistent run must error");
 	} finally {
 		cleanup(cwd);
@@ -326,10 +292,7 @@ test("FEATURE: fast-fix run records modelAttempts on each task", async () => {
 	const cwd = mkTmp();
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Model attempts test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Model attempts test" }, { cwd });
 			const runId = result.details.runId!;
 			const loaded = loadRunManifestById(cwd, runId);
 			assert.ok(loaded);
@@ -349,10 +312,7 @@ test("FEATURE: handleTeamTool with invalid team returns isError", async () => {
 	const cwd = mkTmp();
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "nonexistent-team-1234", goal: "Invalid team" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "nonexistent-team-1234", goal: "Invalid team" }, { cwd });
 			// Invalid team should produce an error result
 			assert.equal(result.isError, true);
 		});
@@ -368,10 +328,7 @@ test("FEATURE: steer with valid runId finds the task", async () => {
 	let runId: string | undefined;
 	try {
 		await withMockChild("success", async () => {
-			const result = await handleTeamTool(
-				{ action: "run", team: "fast-fix", goal: "Steer valid test" },
-				{ cwd },
-			);
+			const result = await handleTeamTool({ action: "run", team: "fast-fix", goal: "Steer valid test" }, { cwd });
 			runId = result.details.runId;
 		});
 		assert.ok(runId);
