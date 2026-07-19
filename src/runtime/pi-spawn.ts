@@ -189,7 +189,13 @@ function resolvePiCliScript(): string | undefined {
 	const argv1 = process.argv[1];
 	if (argv1) {
 		const argvPath = path.isAbsolute(argv1) ? argv1 : path.resolve(argv1);
-		if (isRunnableNodeScript(argvPath)) return argvPath;
+		// Only trust argv1 if we can confirm the current process is running from
+		// the pi-coding-agent package directory. Otherwise, when pi-crew is invoked
+		// from a standalone test script (process.argv[1] = test script path),
+		// resolvePiCliScript would incorrectly return the test script as the pi
+		// CLI. resolvePiPackageRoot walks up from argv1 looking for a package.json
+		// named @earendil-works/pi-coding-agent or @mariozechner/pi-coding-agent.
+		if (resolvePiPackageRoot() && isRunnableNodeScript(argvPath)) return argvPath;
 	}
 
 	// npm-global package dirs derived from `npm root -g` — placed BEFORE the

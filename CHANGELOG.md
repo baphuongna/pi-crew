@@ -3,7 +3,7 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
-## [Unreleased] — 4-wave upgrade + live LLM verification (2026-07-19)
+## [0.9.43] — 4-wave upgrade + live LLM verification (2026-07-19)
 
 A comprehensive upgrade pass was completed on top of v0.9.42: 4 implementation waves
 plus H-1 (lock re-entrance) and H-7 step 1–6 (runChildPi decomposition), verified
