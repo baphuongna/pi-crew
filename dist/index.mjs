@@ -47756,23 +47756,39 @@ async function runCoalescedTaskGroup(input) {
   await saveRunTasksAsync(manifest, updatedTasks);
   let rawOutput = "";
   let success = false;
+  let heartbeatTimer = null;
+  let heartbeatInFlight = false;
+  let heartbeatPromise = null;
+  let finalWriteStarted = false;
   if (!executeWorkers) {
     rawOutput = buildScaffoldOutput(groupTasks);
     success = true;
   } else {
-    const heartbeatTimer = setInterval(async () => {
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      updatedTasks = updatedTasks.map((t2) => {
-        if (!taskIds.includes(t2.id)) return t2;
-        return {
-          ...t2,
-          heartbeat: touchWorkerHeartbeat(t2.heartbeat ?? createWorkerHeartbeat(t2.id), { alive: true })
-        };
-      });
-      try {
-        await saveRunTasksAsync(manifest, updatedTasks);
-      } catch {
-      }
+    heartbeatTimer = setInterval(() => {
+      if (heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      heartbeatPromise = (async () => {
+        try {
+          updatedTasks = updatedTasks.map((t2) => {
+            if (!taskIds.includes(t2.id)) return t2;
+            if (t2.status === "completed" || t2.status === "failed") return t2;
+            return {
+              ...t2,
+              heartbeat: touchWorkerHeartbeat(t2.heartbeat ?? createWorkerHeartbeat(t2.id), { alive: true })
+            };
+          });
+          await saveRunTasksAsync(manifest, updatedTasks);
+        } catch {
+        } finally {
+          heartbeatInFlight = false;
+          if (finalWriteStarted) {
+            try {
+              await saveRunTasksAsync(manifest, updatedTasks);
+            } catch {
+            }
+          }
+        }
+      })();
     }, 15e3);
     try {
       const result4 = await executeWithRetry(
@@ -47796,7 +47812,7 @@ async function runCoalescedTaskGroup(input) {
       rawOutput = `Worker dispatch failed: ${err2 instanceof Error ? err2.message : String(err2)}`;
       success = false;
     } finally {
-      clearInterval(heartbeatTimer);
+      if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
     }
   }
   const split = splitCoalescedOutput(rawOutput, taskIds);
@@ -47826,6 +47842,22 @@ async function runCoalescedTaskGroup(input) {
       resultArtifact
     };
   });
+  finalWriteStarted = true;
+  if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
+  const pendingHeartbeat = heartbeatPromise;
+  if (pendingHeartbeat) {
+    let drainTimeout;
+    try {
+      await Promise.race([
+        pendingHeartbeat,
+        new Promise((resolve22) => {
+          drainTimeout = setTimeout(resolve22, 5e3);
+        })
+      ]);
+    } finally {
+      if (drainTimeout !== void 0) clearTimeout(drainTimeout);
+    }
+  }
   await saveRunTasksAsync(manifest, updatedTasks);
   let updatedManifest = {
     ...manifest,

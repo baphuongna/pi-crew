@@ -8297,7 +8297,7 @@
       "format": "esm"
     },
     "src/runtime/run-coalesced-task-group.ts": {
-      "bytes": 8999,
+      "bytes": 11679,
       "imports": [
         {
           "path": "src/state/artifact-store.ts",
@@ -12985,7 +12985,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6019097
+      "bytes": 6022611
     },
     "dist/index.mjs": {
       "imports": [
@@ -15733,7 +15733,7 @@
           "bytesInOutput": 7286
         },
         "src/runtime/run-coalesced-task-group.ts": {
-          "bytesInOutput": 6596
+          "bytesInOutput": 7581
         },
         "src/runtime/runtime-policy.ts": {
           "bytesInOutput": 575
@@ -16171,7 +16171,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2798145
+      "bytes": 2799130
     }
   }
 }
