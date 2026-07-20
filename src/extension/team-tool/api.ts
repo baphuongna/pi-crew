@@ -15,8 +15,10 @@ import { withRunLock, withRunLockSync } from "../../state/locks.ts";
 import {
 	acknowledgeMailboxMessage,
 	appendFollowUpMessage,
+	appendFollowUpMessageAsync,
 	appendMailboxMessage,
 	appendSteeringMessage,
+	appendSteeringMessageAsync,
 	type MailboxDirection,
 	type MailboxMessageKind,
 	readDeliveryState,
@@ -619,7 +621,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			if (operation === "steer-agent") {
 				const text = message ?? "Please report current status and wrap up if possible.";
 				const realtime = await steerLiveAgent(agentId, text);
-				const mailboxMessage = appendSteeringMessage(loaded.manifest, {
+				const mailboxMessage = await appendSteeringMessageAsync(loaded.manifest, {
 					taskId: targetTaskId,
 					body: text,
 					status: "delivered",
@@ -644,7 +646,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 						true,
 					);
 				const realtime = await followUpLiveAgent(agentId, prompt);
-				const mailboxMessage = appendFollowUpMessage(loaded.manifest, {
+				const mailboxMessage = await appendFollowUpMessageAsync(loaded.manifest, {
 					taskId: targetTaskId,
 					body: prompt,
 					status: "delivered",

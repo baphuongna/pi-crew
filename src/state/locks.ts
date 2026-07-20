@@ -447,6 +447,36 @@ const lockCtx = new AsyncLocalStorage<Set<string>>();
 // at the top of withFileLockSync for the full deadlock mechanism.
 const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
 
+// --- Async file lock (non-blocking alternative to withFileLockSync) ---
+// Uses a promise-chain pattern to serialize per-path access without blocking
+// the Node.js event loop. Unlike withFileLockSync (which uses O_EXCL +
+// sleepSync for cross-process safety), this is **in-process only** —
+// sufficient for single-process mailbox writes (team-runner is single-process).
+// Mirrors the structure of withEventLogLockAsync in event-log.ts.
+const fileAsyncLocks = new Map<string, Promise<unknown>>();
+
+export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+	const prev = fileAsyncLocks.get(filePath) ?? Promise.resolve();
+	// Chain fn after the previous holder. `next` may reject (propagating to the
+	// caller), but `stored` never rejects so subsequent waiters aren't blocked.
+	const next = prev.then(() => fn());
+	const stored = next.then(
+		() => undefined,
+		() => undefined,
+	);
+	fileAsyncLocks.set(filePath, stored);
+	try {
+		return await next;
+	} finally {
+		// Compare-and-delete: only remove our entry if it still points at `stored`.
+		// With 3+ overlapping callers, an earlier caller's finally would otherwise
+		// delete a later caller's promise, breaking mutual exclusion.
+		if (fileAsyncLocks.get(filePath) === stored) {
+			fileAsyncLocks.delete(filePath);
+		}
+	}
+}
+
 export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, options: RunLockOptions = {}): T {
 	const filePath = lockPath(manifest);
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;

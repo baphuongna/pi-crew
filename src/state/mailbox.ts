@@ -5,7 +5,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { withEventLogLockSync } from "./event-log.ts";
-import { withFileLockSync } from "./locks.ts";
+import { withFileLockAsync, withFileLockSync } from "./locks.ts";
 import type { TeamRunManifest } from "./types.ts";
 
 export type MailboxDirection = "inbox" | "outbox";
@@ -377,19 +377,61 @@ function readAllInboxMessages(manifest: TeamRunManifest): MailboxMessage[] {
 	return readAllMessages(manifest, "inbox");
 }
 
+// FIND-01: in-process delivery cache to avoid O(N²) re-reads on every append.
+// Keyed by delivery file path; invalidated by mtime check on read + updated on
+// write. Team-runner is single-process so in-process caching is sufficient.
+const deliveryCache = new Map<string, { mtimeMs: number; state: MailboxDeliveryState }>();
+const MAX_DELIVERY_CACHE_ENTRIES = 256;
+// R1 review fix: setDeliveryCacheEntry stores an immutable snapshot (deep
+// copy of `messages`) so callers mutating the returned state cannot corrupt
+// the cache (TOCTOU race), and bounds the map size with FIFO eviction to
+// prevent unbounded growth across runs.
+function setDeliveryCacheEntry(filePath: string, entry: { mtimeMs: number; state: MailboxDeliveryState }): void {
+	if (deliveryCache.size >= MAX_DELIVERY_CACHE_ENTRIES) {
+		const oldest = deliveryCache.keys().next().value;
+		if (oldest !== undefined) deliveryCache.delete(oldest);
+	}
+	deliveryCache.set(filePath, {
+		mtimeMs: entry.mtimeMs,
+		state: { ...entry.state, messages: { ...entry.state.messages } },
+	});
+}
+
 export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliveryState {
+	const filePath = deliveryFile(manifest);
+	let stat: fs.Stats;
 	try {
-		const raw = JSON.parse(fs.readFileSync(deliveryFile(manifest), "utf-8")) as unknown;
+		stat = fs.statSync(filePath);
+	} catch (e) {
+		// R1 review fix: narrow to ENOENT so permission errors aren't silently
+		// treated as "missing file" (would wipe a valid cache entry).
+		if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+		deliveryCache.delete(filePath);
+		return { messages: {}, updatedAt: new Date().toISOString() };
+	}
+	const cached = deliveryCache.get(filePath);
+	if (cached && cached.mtimeMs === stat.mtimeMs) {
+		// R2 review fix: return a copy so callers mutating the result cannot
+		// leak into the cached snapshot (residual TOCTOU: the cache holds the
+		// snapshot until the next write replaces it; without this copy, a
+		// pre-write mutation by one caller would be persisted into the
+		// post-write snapshot by the next writer's setDeliveryCacheEntry).
+		return { ...cached.state, messages: { ...cached.state.messages } };
+	}
+	try {
+		const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid delivery state.");
 		const obj = raw as Record<string, unknown>;
 		const messages: Record<string, MailboxMessageStatus> = {};
 		if (obj.messages && typeof obj.messages === "object" && !Array.isArray(obj.messages)) {
 			for (const [id, status] of Object.entries(obj.messages)) if (isStatus(status)) messages[id] = status;
 		}
-		return {
+		const state: MailboxDeliveryState = {
 			messages,
 			updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : new Date().toISOString(),
 		};
+		setDeliveryCacheEntry(filePath, { mtimeMs: stat.mtimeMs, state });
+		return state;
 	} catch {
 		return { messages: {}, updatedAt: new Date().toISOString() };
 	}
@@ -414,9 +456,20 @@ function writeDeliveryState(
 	// F4: mailbox delivery is informational — accept losing the very last write on
 	// a hard crash (the next message will overwrite it on disk). Cheaper fsync on
 	// the hot path; terminal/reply paths still pass full durability below.
-	atomicWriteFile(deliveryFile(manifest, true), `${JSON.stringify(redactSecrets(state), null, 2)}\n`, {
+	const filePath = deliveryFile(manifest, true);
+	atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state), null, 2)}\n`, {
 		durability: options?.durability ?? "best-effort",
 	});
+	// FIND-01: update cache with post-write mtime so subsequent reads get a hit.
+	try {
+		const postStat = fs.statSync(filePath);
+		// setDeliveryCacheEntry stores an immutable snapshot (deep copy of
+		// messages) so subsequent read-modify-write callers mutating the
+		// returned state cannot corrupt the cache.
+		setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state });
+	} catch {
+		deliveryCache.delete(filePath);
+	}
 }
 
 /**
@@ -528,6 +581,114 @@ export function appendFollowUpMessage(
 	},
 ): MailboxMessage {
 	return appendMailboxMessage(manifest, {
+		direction: "inbox",
+		from: input.from ?? "leader",
+		to: input.to ?? input.taskId,
+		taskId: input.taskId,
+		body: input.body,
+		kind: "follow-up",
+		priority: input.priority ?? "normal",
+		deliveryMode: "next_turn",
+		status: input.status,
+		data: { ...(input.data ?? {}), kind: "follow-up" },
+	});
+}
+
+/**
+ * FIND-02: Async variant of appendMailboxMessage for the live-session path.
+ * Uses withFileLockAsync (promise-chain, no sleepSync) instead of
+ * withEventLogLockSync/withFileLockSync, preventing event-loop stalls during
+ * steering/follow-up delivery. readDeliveryState/writeDeliveryState remain
+ * sync but are cheap thanks to the FIND-01 delivery cache.
+ */
+export async function appendMailboxMessageAsync(
+	manifest: TeamRunManifest,
+	message: Omit<MailboxMessage, "id" | "runId" | "createdAt" | "status"> & {
+		id?: string;
+		status?: MailboxMessageStatus;
+	},
+): Promise<MailboxMessage> {
+	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
+	else ensureRunMailbox(manifest);
+	const createdAt = new Date().toISOString();
+	const complete: MailboxMessage = {
+		id: message.id ?? `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+		runId: manifest.runId,
+		direction: message.direction,
+		from: message.from,
+		to: message.to,
+		body: message.body,
+		createdAt,
+		status: message.status ?? "queued",
+		kind: message.kind,
+		priority: message.priority,
+		deliveryMode: message.deliveryMode,
+		taskId: message.taskId,
+		data: message.data,
+		replyTo: message.replyTo,
+		replyFrom: message.replyFrom,
+		replyDeadline: message.replyDeadline,
+		repliedAt: message.repliedAt,
+		replyContent: message.replyContent,
+	};
+	const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
+	await withFileLockAsync(mbFile, async () => {
+		await fs.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		rotateMailboxFileIfNeeded(mbFile);
+	});
+	// R1 review fix / plan §5 #6: delivery RMW uses the cross-process sync
+	// lock (withFileLockSync) so sync callers (acknowledgeMailboxMessage,
+	// replayPendingMailboxMessages) serialize against this async path. The
+	// body has no await, so sync locking is safe and restores the
+	// cross-process safety net that the async lock cannot provide.
+	withFileLockSync(deliveryFile(manifest, true), () => {
+		const delivery = readDeliveryState(manifest);
+		delivery.messages[complete.id] = complete.status;
+		delivery.updatedAt = createdAt;
+		writeDeliveryState(manifest, delivery, { durability: "full" });
+	});
+	return complete;
+}
+
+export async function appendSteeringMessageAsync(
+	manifest: TeamRunManifest,
+	input: {
+		taskId: string;
+		body: string;
+		from?: string;
+		to?: string;
+		priority?: MailboxMessagePriority;
+		status?: MailboxMessageStatus;
+		data?: Record<string, unknown>;
+	},
+): Promise<MailboxMessage> {
+	return appendMailboxMessageAsync(manifest, {
+		direction: "inbox",
+		from: input.from ?? "leader",
+		to: input.to ?? input.taskId,
+		taskId: input.taskId,
+		body: input.body,
+		kind: "steer",
+		priority: input.priority ?? "urgent",
+		deliveryMode: "interrupt",
+		status: input.status,
+		data: { ...(input.data ?? {}), kind: "steer" },
+	});
+}
+
+export async function appendFollowUpMessageAsync(
+	manifest: TeamRunManifest,
+	input: {
+		taskId: string;
+		body: string;
+		from?: string;
+		to?: string;
+		priority?: MailboxMessagePriority;
+		status?: MailboxMessageStatus;
+		data?: Record<string, unknown>;
+	},
+): Promise<MailboxMessage> {
+	return appendMailboxMessageAsync(manifest, {
 		direction: "inbox",
 		from: input.from ?? "leader",
 		to: input.to ?? input.taskId,
