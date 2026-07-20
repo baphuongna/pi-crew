@@ -347,6 +347,10 @@ test("background subagent completion does not wake a newer session", async () =>
 		fake.api.events.emit("session_start", {}, ctx);
 		await new Promise((resolve) => setTimeout(resolve, 3500));
 		assert.equal(fake.sentUserMessages.length, 0);
+		// Let any deferred subagent async (e.g. run-state mkdir from the
+		// completion IIFE) settle before cleanup. Windows CI's slower fs
+		// can otherwise race the finally's fs.rmSync (ENOENT unhandled).
+		await new Promise((resolve) => setTimeout(resolve, 1200));
 	} finally {
 		fake?.api.events.emit("session_shutdown", {});
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
