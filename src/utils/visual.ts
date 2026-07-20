@@ -1,98 +1,28 @@
+import { visibleWidth as tuiVisibleWidth } from "@earendil-works/pi-tui";
+
 export const ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 const WIDTH_CACHE_LIMIT = 256;
 const widthCache = new Map<string, number>();
 
-/** Code-point ranges that render as width 2 in most terminals (CJK + emoji). */
-const WIDE_RANGES: Array<[number, number]> = [
-	// CJK Unified Ideographs
-	[0x4e00, 0x9fff],
-	// CJK Extension A
-	[0x3400, 0x4dbf],
-	// CJK Compatibility Ideographs
-	[0xf900, 0xfaff],
-	// Hangul Syllables
-	[0xac00, 0xd7af],
-	// CJK Symbols and Punctuation, Hiragana, Katakana
-	[0x3000, 0x33ff],
-	// Fullwidth forms
-	[0xff01, 0xff60],
-	// Emoji blocks
-	// Emoji-presentation codepoints in 0x2600-0x27BF (narrow chars like ✓✗★ excluded)
-	[0x2615, 0x2615],
-	[0x2648, 0x2653],
-	[0x267f, 0x267f],
-	[0x2693, 0x2693],
-	[0x26a1, 0x26a1],
-	[0x26aa, 0x26ab],
-	[0x26bd, 0x26be],
-	[0x26c4, 0x26c5],
-	[0x26ce, 0x26ce],
-	[0x26d4, 0x26d4],
-	[0x26ea, 0x26ea],
-	[0x26f2, 0x26f3],
-	[0x26f5, 0x26f5],
-	[0x26fa, 0x26fa],
-	[0x26fd, 0x26fd],
-	[0x2702, 0x2702],
-	[0x2705, 0x2705],
-	[0x2708, 0x270d],
-	[0x270f, 0x270f],
-	[0x2712, 0x2712],
-	[0x2714, 0x2714],
-	[0x2716, 0x2716],
-	[0x271d, 0x271d],
-	[0x2721, 0x2721],
-	[0x2728, 0x2728],
-	[0x2733, 0x2734],
-	[0x2744, 0x2744],
-	[0x2747, 0x2747],
-	[0x274c, 0x274c],
-	[0x274e, 0x274e],
-	[0x2753, 0x2755],
-	[0x2757, 0x2757],
-	[0x2763, 0x2764],
-	[0x2795, 0x2797],
-	[0x27a1, 0x27a1],
-	[0x27b0, 0x27b0],
-	[0x27bf, 0x27bf],
-	// Geometric Shapes / Misc Symbols-Arrows emoji that pi-tui upstream counts as
-	// width=2 (RGI emoji). Mismatch here caused the "Rendered line N exceeds
-	// terminal width (160 > 159)" TUI crash: pi-crew truncated to width 159 by
-	// its own (mismatched) measure, then Box padded to 159 chars, but pi-tui
-	// re-measured the padded line at 160 because ⬜ counts as 2 upstream.
-	[0x2b1b, 0x2b1c], // ⬛ BLACK LARGE SQUARE, ⬜ WHITE LARGE SQUARE
-	[0x1f300, 0x1f9ff], // Misc Symbols, Emoticons, Transport, Map, Supplement
-	[0x1fa00, 0x1faff], // Symbols Extended-A
-	[0x1f000, 0x1f02f], // Mahjong, Dominos
-	[0xfe00, 0xfe0f], // Variation Selectors (emoji presentation)
-];
-// NOTE: U+200D (Zero Width Joiner, ZWJ) is intentionally NOT listed as wide.
-// ZWJ has zero advance width by Unicode definition; miscounting it as 2 caused
-// slight over-truncation/over-padding of compound-emoji goals (T-1).
-
-function isWideCodePoint(code: number): boolean {
-	for (const [lo, hi] of WIDE_RANGES) {
-		if (code >= lo && code <= hi) return true;
-	}
-	return false;
-}
+// NOTE: width measurement is delegated to pi-tui's `visibleWidth` (see below).
+// pi-tui is the renderer that HARD-ABORTS the session if any line exceeds the
+// terminal width by ITS measure, so our truncate/pad/wrap MUST agree with it.
+// A previous hand-maintained WIDE_RANGES table diverged from pi-tui's
+// grapheme+RGI-emoji model on codepoints like ⏳ U+23F3 (hourglass: we counted
+// 1, pi-tui counts 2) → lines we believed fit were rejected →
+// "Rendered line N exceeds terminal width (160 > 159)" crash. Delegating makes
+// divergence structurally impossible.
 
 export function visibleWidth(value: string): number {
-	// Skip caching for very long strings to avoid memory pressure.
-	if (value.length > 4096) {
-		let length = 0;
-		for (const char of value.replace(ANSI_PATTERN, "")) {
-			if (char !== "\n") length += isWideCodePoint(char.codePointAt(0) ?? 0) ? 2 : 1;
-		}
-		return length;
-	}
+	// Delegate to pi-tui's authoritative width model so our truncate/pad/wrap
+	// can never disagree with the renderer's doRender measurement. Keep our own
+	// LRU cache on top (pi-tui caches too, but this avoids repeated calls for the
+	// hot render path).
+	if (value.length > 4096) return tuiVisibleWidth(value);
 	const cached = widthCache.get(value);
 	if (cached !== undefined) return cached;
-	let length = 0;
-	for (const char of value.replace(ANSI_PATTERN, "")) {
-		if (char !== "\n") length += isWideCodePoint(char.codePointAt(0) ?? 0) ? 2 : 1;
-	}
+	const length = tuiVisibleWidth(value);
 	if (widthCache.size >= WIDTH_CACHE_LIMIT) {
 		const firstKey = widthCache.keys().next().value;
 		if (firstKey !== undefined) widthCache.delete(firstKey);

@@ -6932,8 +6932,14 @@
       "format": "esm"
     },
     "src/utils/visual.ts": {
-      "bytes": 8407,
-      "imports": [],
+      "bytes": 6697,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
       "format": "esm"
     },
     "src/ui/live-duration.ts": {
@@ -12990,7 +12996,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6032205
+      "bytes": 6028626
     },
     "dist/index.mjs": {
       "imports": [
@@ -13936,6 +13942,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -15540,7 +15551,7 @@
           "bytesInOutput": 1979
         },
         "src/utils/visual.ts": {
-          "bytesInOutput": 6973
+          "bytesInOutput": 4545
         },
         "src/ui/live-duration.ts": {
           "bytesInOutput": 793
@@ -16176,7 +16187,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2800770
+      "bytes": 2798342
     }
   }
 }

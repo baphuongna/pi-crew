@@ -40771,26 +40771,12 @@ var init_render_coalescer = __esm({
 });
 
 // src/utils/visual.ts
-function isWideCodePoint(code) {
-  for (const [lo, hi] of WIDE_RANGES) {
-    if (code >= lo && code <= hi) return true;
-  }
-  return false;
-}
+import { visibleWidth as tuiVisibleWidth } from "@earendil-works/pi-tui";
 function visibleWidth(value) {
-  if (value.length > 4096) {
-    let length2 = 0;
-    for (const char of value.replace(ANSI_PATTERN, "")) {
-      if (char !== "\n") length2 += isWideCodePoint(char.codePointAt(0) ?? 0) ? 2 : 1;
-    }
-    return length2;
-  }
+  if (value.length > 4096) return tuiVisibleWidth(value);
   const cached = widthCache.get(value);
   if (cached !== void 0) return cached;
-  let length = 0;
-  for (const char of value.replace(ANSI_PATTERN, "")) {
-    if (char !== "\n") length += isWideCodePoint(char.codePointAt(0) ?? 0) ? 2 : 1;
-  }
+  const length = tuiVisibleWidth(value);
   if (widthCache.size >= WIDTH_CACHE_LIMIT) {
     const firstKey = widthCache.keys().next().value;
     if (firstKey !== void 0) widthCache.delete(firstKey);
@@ -40923,81 +40909,12 @@ function truncateToVisualLines(text, maxVisualLines, width, paddingX = 0) {
   const truncated = visualLines.slice(-limit);
   return { visualLines: truncated, skippedCount: visualLines.length - limit };
 }
-var ANSI_PATTERN, WIDTH_CACHE_LIMIT, widthCache, WIDE_RANGES, truncate;
+var WIDTH_CACHE_LIMIT, widthCache, truncate;
 var init_visual = __esm({
   "src/utils/visual.ts"() {
     "use strict";
-    ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
     WIDTH_CACHE_LIMIT = 256;
     widthCache = /* @__PURE__ */ new Map();
-    WIDE_RANGES = [
-      // CJK Unified Ideographs
-      [19968, 40959],
-      // CJK Extension A
-      [13312, 19903],
-      // CJK Compatibility Ideographs
-      [63744, 64255],
-      // Hangul Syllables
-      [44032, 55215],
-      // CJK Symbols and Punctuation, Hiragana, Katakana
-      [12288, 13311],
-      // Fullwidth forms
-      [65281, 65376],
-      // Emoji blocks
-      // Emoji-presentation codepoints in 0x2600-0x27BF (narrow chars like ✓✗★ excluded)
-      [9749, 9749],
-      [9800, 9811],
-      [9855, 9855],
-      [9875, 9875],
-      [9889, 9889],
-      [9898, 9899],
-      [9917, 9918],
-      [9924, 9925],
-      [9934, 9934],
-      [9940, 9940],
-      [9962, 9962],
-      [9970, 9971],
-      [9973, 9973],
-      [9978, 9978],
-      [9981, 9981],
-      [9986, 9986],
-      [9989, 9989],
-      [9992, 9997],
-      [9999, 9999],
-      [10002, 10002],
-      [10004, 10004],
-      [10006, 10006],
-      [10013, 10013],
-      [10017, 10017],
-      [10024, 10024],
-      [10035, 10036],
-      [10052, 10052],
-      [10055, 10055],
-      [10060, 10060],
-      [10062, 10062],
-      [10067, 10069],
-      [10071, 10071],
-      [10083, 10084],
-      [10133, 10135],
-      [10145, 10145],
-      [10160, 10160],
-      [10175, 10175],
-      // Geometric Shapes / Misc Symbols-Arrows emoji that pi-tui upstream counts as
-      // width=2 (RGI emoji). Mismatch here caused the "Rendered line N exceeds
-      // terminal width (160 > 159)" TUI crash: pi-crew truncated to width 159 by
-      // its own (mismatched) measure, then Box padded to 159 chars, but pi-tui
-      // re-measured the padded line at 160 because ⬜ counts as 2 upstream.
-      [11035, 11036],
-      // ⬛ BLACK LARGE SQUARE, ⬜ WHITE LARGE SQUARE
-      [127744, 129535],
-      // Misc Symbols, Emoticons, Transport, Map, Supplement
-      [129536, 129791],
-      // Symbols Extended-A
-      [126976, 127023],
-      // Mahjong, Dominos
-      [65024, 65039]
-      // Variation Selectors (emoji presentation)
-    ];
     truncate = truncateToWidth;
   }
 });

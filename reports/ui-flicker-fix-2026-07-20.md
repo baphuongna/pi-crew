@@ -72,6 +72,18 @@ With the cache always populated, `activeWidgetRuns` returns a **stable** run set
 - **Regression test is mutation-verified**: replacing the fixed `onInvalidate` contract with the old buggy logic (`invalidate(undefined)` on a no-runId tick) makes `lifecycle-flicker-regression.test.ts` test 3 fail, confirming the test catches the exact regression.
 - `npm run build:bundle` regenerated `dist/index.mjs` (required — `index.ts` loads the bundle by default) with the fix included.
 
+## Post-fix follow-up — width-overflow crash (2026-07-20, same session)
+
+Exercising the fix live (3 background explorers) exposed a **latent width bug that the flicker fix unmasked**. With the cache now always populated, the crew widget renders the full agent-activity row on every tick instead of `"(loading…)"`. An explorer emitted `⏳` (U+23F3) in its output; pi-crew's own `visibleWidth` counted it as 1 column while pi-tui (the renderer) counts it as 2 → pi-crew padded a line to 159 (its measure) but pi-tui measured 160 → hard abort:
+
+```
+Error: Rendered line 2219 exceeds terminal width (160 > 159).
+```
+
+This is the same class of crash "fixed" twice before (commits `7a3ac8b` truncate widget lines; `3cd9001` ⬜/⬛ width) by patching individual codepoints — whack-a-mole, since ANY emoji in agent output can trigger it.
+
+**Definitive fix**: `src/utils/visual.ts` `visibleWidth` now **delegates to pi-tui's own `visibleWidth`** (the function that drives the crash assert). truncate/pad/wrap therefore always agree with the renderer, so an emoji-width mismatch is structurally impossible. Verified: `visibleWidth("⏳")` 1→2; `pad(crashLine,159)` measures 159 (was 160); `visual.test.ts` 7/7; broad UI sweep 68/68; bundle rebuilt.
+
 ## Follow-ups
 
 - ✅ **Regression test added** — `test/unit/lifecycle-flicker-regression.test.ts`: characterizes the destructive `invalidate(undefined)` + safe `refresh`/`refreshIfStale` APIs, and drives the full fixed `onInvalidate`/`onRunChange`/`crewRunWatcherOnChange` contract through a real `RenderScheduler` to assert a no-runId fallback tick never empties the cache and the widget never drops to `"(loading…)"`. Mutation-verified (fails on the old buggy logic).
