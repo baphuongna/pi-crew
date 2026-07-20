@@ -521,7 +521,15 @@ function setupRenderLoop(
 		{
 			const onRunChange = (runId: string): void => {
 				if (ctx.cleanedUp || ctx.sessionGeneration !== ownerGeneration) return;
-				ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).invalidate(runId);
+				// FLICKER FIX: rebuild-in-place instead of deleting the entry. The
+				// file just changed on disk, so force a fresh snapshot while keeping
+				// the entry populated — deleting it left a window where the widget's
+				// `get()` returned undefined and dropped the run to "(loading…)".
+				try {
+					ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+				} catch (error) {
+					logInternalError("register.runWatcher.refresh", error, runId);
+				}
 				ctx.renderScheduler?.schedule({ runId });
 			};
 			const onWatchErr = (error: unknown): void => {
@@ -678,7 +686,23 @@ function setupRenderLoop(
 				typeof (payload as { runId: unknown }).runId === "string"
 					? (payload as { runId: string }).runId
 					: undefined;
-			ctx.getRunSnapshotCache(extensionCtx.cwd).invalidate(runId);
+			// FLICKER FIX: never hard-delete snapshot entries from a render-scheduler
+			// invalidate. A no-runId payload — emitted by EVERY fallback tick
+			// (~every 160ms while a run is active) — previously ran
+			// `invalidate(undefined)` → `entries.clear()`, wiping ALL snapshots.
+			// The next `renderTick` then saw `get() === undefined` for every run,
+			// so `activeWidgetRuns` dropped them to "(loading…)" until the async
+			// preload rebuilt the cache — an endless visible flicker. For a
+			// specific runId we now refresh-if-stale (stale-while-revalidate) so
+			// the widget always sees a populated snapshot; a no-runId tick does
+			// nothing (renderTick itself repaints; the cache's own
+			// run:state/worker:lifecycle subscription refreshes affected runs).
+			if (!runId) return;
+			try {
+				ctx.getRunSnapshotCache(extensionCtx.cwd).refreshIfStale(runId);
+			} catch (error) {
+				logInternalError("register.renderScheduler.refresh", error, runId);
+			}
 		},
 	});
 	// Fix D: bridge internal runEventBus events to renderScheduler so the UI
@@ -697,7 +721,14 @@ function setupRenderLoop(
 	// Bounded run watcher setup (pts/2 hang fix 2026-06-16).
 	const crewRunWatcherOnChange = (runId: string): void => {
 		if (ctx.cleanedUp || ctx.sessionGeneration !== ownerGeneration) return;
-		ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).invalidate(runId);
+		// FLICKER FIX: rebuild-in-place instead of deleting the entry (see
+		// onRunChange above). A hard delete left `get()` returning undefined for
+		// a frame, dropping the run to "(loading…)" and causing visible flicker.
+		try {
+			ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+		} catch (error) {
+			logInternalError("register.crewRunWatcher.refresh", error, runId);
+		}
 		ctx.renderScheduler?.schedule({ runId });
 	};
 	const crewRunWatcherOnError = (error: unknown): void => {
