@@ -22,6 +22,18 @@ const MAX_CONCURRENT_SUBAGENTS = 4;
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 1000;
 
 /**
+ * How long to defer a background-subagent terminal notification before emitting
+ * it. The notification is otherwise fired at DETECTION time (when the
+ * SubagentManager's 1s poll notices completion) — BEFORE a leader that joins
+ * the result post-completion can mark `resultConsumed`. The leader then gets a
+ * redundant "changed state" wake-up after it already called `get_subagent_result`.
+ * Deferring gives the leader a window to consume first; the `resultConsumed`
+ * re-check (run after the defer, and again right before emit) then suppresses.
+ * 1.5s balances suppression coverage against delaying genuine notifications.
+ */
+const NOTIFY_DEFER_MS = 1500;
+
+/**
  * Build the SubagentManager with terminal-status + event callbacks, and
  * install it into the registration context.
  *
@@ -47,9 +59,11 @@ export function installSubagentManager(pi: ExtensionAPI, ctx: RegistrationContex
  *   • If the record is not a background task, return early.
  *   • If the session has switched (different ownerGeneration), suppress.
  *   • If the record's status is not terminal, suppress.
- *   • Rule 2 (consume-race fix): defer the notification to a MACROTASK
- *     so a leader's `await record.promise` continuation can mark
- *     resultConsumed=true before we re-check.
+ *   • Rule 2 (consume-race fix): defer the notification by NOTIFY_DEFER_MS so
+ *     a leader that joins the result — either via `await record.promise` at
+ *     detect time OR a prompt `get_subagent_result` after completion — can
+ *     mark resultConsumed=true before we re-check. A final consume re-check
+ *     also gates the emit itself (covers a join during the defer window).
  *   • Rule 1 (batch coalescing): if the agent belongs to a batch, never
  *     emit individually. Instead, record its terminal state in the
  *     BatchBarrier and emit ONE consolidated notification when all
@@ -107,7 +121,11 @@ function onTerminalStatus(
 		if (ctx.cleanedUp) return;
 		const fresh = ctx.subagentManager.getRecord(agentId);
 		const persisted = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, agentId) : undefined;
-		// Leader already joined the result -> suppress redundant notify.
+		// Post-defer consume check: the NOTIFY_DEFER_MS window gave the leader a
+		// chance to call get_subagent_result (sets resultConsumed). If it did,
+		// suppress the now-redundant notify. (The original 0ms defer only covered
+		// a leader actively awaiting record.promise at detect time — not the far
+		// more common "agent completed, leader joins shortly after" case.)
 		if (fresh?.resultConsumed || persisted?.resultConsumed) return;
 		if (!ctx.isOwnerSessionCurrent(fresh?.ownerSessionGeneration ?? ownerGen)) return;
 		// Rule 1 (batch coalescing): if this agent belongs to a batch, never
@@ -167,6 +185,14 @@ function onTerminalStatus(
 			"```",
 			`Call get_subagent_result with agent_id="${agentId}" now, read the output, then continue the user's original task without waiting for another user prompt.`,
 		].join("\n");
+		// Final consume re-check right before emitting. The NOTIFY_DEFER_MS window
+		// may have spanned a leader get_subagent_result that marked resultConsumed
+		// after the top-of-callback check; defense-in-depth before the wake-up.
+		{
+			const f2 = ctx.subagentManager.getRecord(agentId);
+			const p2 = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, agentId) : undefined;
+			if (f2?.resultConsumed || p2?.resultConsumed) return;
+		}
 		sendAgentWakeUp(pi, joinInstruction);
 		ctx.notifyOperator({
 			id: `subagent:${agentId}:${agentStatus}`,
@@ -176,7 +202,7 @@ function onTerminalStatus(
 			title: `pi-crew subagent ${agentId} ${agentStatus}.`,
 			body: `Use get_subagent_result with agent_id=${agentId} for output.`,
 		});
-	}, 0);
+	}, NOTIFY_DEFER_MS);
 }
 
 /**

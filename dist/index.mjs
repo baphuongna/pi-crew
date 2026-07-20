@@ -74593,6 +74593,7 @@ init_manager2();
 init_subagent_helpers();
 var MAX_CONCURRENT_SUBAGENTS = 4;
 var SUBAGENT_DEFAULT_TIMEOUT_MS = 1e3;
+var NOTIFY_DEFER_MS = 1500;
 function installSubagentManager(pi, ctx) {
   const manager = new SubagentManager(
     MAX_CONCURRENT_SUBAGENTS,
@@ -74681,6 +74682,11 @@ function onTerminalStatus(pi, ctx, record) {
       "```",
       `Call get_subagent_result with agent_id="${agentId}" now, read the output, then continue the user's original task without waiting for another user prompt.`
     ].join("\n");
+    {
+      const f2 = ctx.subagentManager.getRecord(agentId);
+      const p2 = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, agentId) : void 0;
+      if (f2?.resultConsumed || p2?.resultConsumed) return;
+    }
     sendAgentWakeUp(pi, joinInstruction);
     ctx.notifyOperator({
       id: `subagent:${agentId}:${agentStatus}`,
@@ -74690,7 +74696,7 @@ function onTerminalStatus(pi, ctx, record) {
       title: `pi-crew subagent ${agentId} ${agentStatus}.`,
       body: `Use get_subagent_result with agent_id=${agentId} for output.`
     });
-  }, 0);
+  }, NOTIFY_DEFER_MS);
 }
 function onInternalEvent(pi, ctx, event, payload) {
   const ownerGeneration = typeof payload?.ownerSessionGeneration === "number" ? payload.ownerSessionGeneration : void 0;
