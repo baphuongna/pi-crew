@@ -65,7 +65,10 @@ test("flushStderr redacts an Authorization: Bearer header in body", () => {
 	const fakeBearer = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
 	const line = formatStderrLine(`HTTP request failed: Authorization: ${fakeBearer}\n`);
 	assert.ok(!line.includes("eyJhbGciOiJIUzI1NiJ9"), `raw JWT must NOT appear in logged line, got: ${line}`);
-	assert.ok(!line.includes("SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"), `raw JWT signature must NOT appear in logged line, got: ${line}`);
+	assert.ok(
+		!line.includes("SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"),
+		`raw JWT signature must NOT appear in logged line, got: ${line}`,
+	);
 	assert.ok(line.includes("Authorization:"), `header label must be preserved, got: ${line}`);
 });
 

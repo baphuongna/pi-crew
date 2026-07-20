@@ -32,7 +32,7 @@ import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { runCoalescedTaskGroup } from "../../src/runtime/run-coalesced-task-group.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 
@@ -105,11 +105,7 @@ test("runCoalescedTaskGroup scaffold path produces correct terminal state + resu
 		// all tasks should be "completed".
 		for (const task of result.tasks) {
 			if (result.taskIds.includes(task.id)) {
-				assert.equal(
-					task.status,
-					"completed",
-					`task ${task.id} should be completed (got ${task.status})`,
-				);
+				assert.equal(task.status, "completed", `task ${task.id} should be completed (got ${task.status})`);
 				assert.ok(task.finishedAt, `task ${task.id} should have finishedAt`);
 				assert.ok(task.resultArtifact, `task ${task.id} should have resultArtifact`);
 			}
@@ -120,10 +116,7 @@ test("runCoalescedTaskGroup scaffold path produces correct terminal state + resu
 			const task = result.tasks.find((t) => t.id === taskId)!;
 			const artifact = task.resultArtifact!;
 			assert.equal(artifact.kind, "result", `artifact kind should be 'result' for ${taskId}`);
-			assert.ok(
-				artifact.path?.includes(`${taskId}.txt`),
-				`artifact path should include ${taskId}.txt (got ${artifact.path})`,
-			);
+			assert.ok(artifact.path?.includes(`${taskId}.txt`), `artifact path should include ${taskId}.txt (got ${artifact.path})`);
 			// The artifact file should actually exist on disk.
 			assert.ok(fs.existsSync(artifact.path), `artifact file should exist: ${artifact.path}`);
 			const content = fs.readFileSync(artifact.path, "utf-8");
@@ -133,17 +126,10 @@ test("runCoalescedTaskGroup scaffold path produces correct terminal state + resu
 		// ── Manifest artifact merge ──
 		const manifestArtifacts = result.manifest.artifacts;
 		const resultArtifacts = manifestArtifacts.filter((a) => a.kind === "result");
-		assert.equal(
-			resultArtifacts.length,
-			result.taskIds.length,
-			"manifest should have one result artifact per task",
-		);
+		assert.equal(resultArtifacts.length, result.taskIds.length, "manifest should have one result artifact per task");
 
 		// ── rawOutput should contain scaffold markers ──
-		assert.ok(
-			result.rawOutput.includes("<<<TASK_RESULT:"),
-			"scaffold output should contain TASK_RESULT delimiters",
-		);
+		assert.ok(result.rawOutput.includes("<<<TASK_RESULT:"), "scaffold output should contain TASK_RESULT delimiters");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

@@ -15,16 +15,7 @@ const READ_ONLY_ROLES = new Set(["explorer", "reviewer", "security-reviewer", "a
 // cache writes; `chain-executor` is the chain-workflow executor variant;
 // `worker` is the autonomous goal-loop + dynamic-workflow executor role
 // (goal-loop-runner.ts, run.ts dynamic workflow synthesis).
-const WRITE_ROLES = new Set([
-	"executor",
-	"test-engineer",
-	"writer",
-	"verifier",
-	"agent",
-	"cold-verifier",
-	"chain-executor",
-	"worker",
-]);
+const WRITE_ROLES = new Set(["executor", "test-engineer", "writer", "verifier", "agent", "cold-verifier", "chain-executor", "worker"]);
 export interface PermissionCheckResult {
 	allowed: boolean;
 	mode: RolePermissionMode;

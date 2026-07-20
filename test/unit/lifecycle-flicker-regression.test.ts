@@ -29,7 +29,7 @@ import { createRunSnapshotCache } from "../../src/ui/run-snapshot-cache.ts";
 import { activeWidgetRuns } from "../../src/ui/widget/widget-model.ts";
 
 function tempCwd(prefix: string): string {
-	let cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	return cwd;
 }
@@ -70,9 +70,7 @@ function fixtures(cwd: string): { manifest: TeamRunManifest } {
 }
 
 /** Replicates the FIXED `onInvalidate` contract from lifecycle-handlers.ts. */
-function makeOnInvalidate(
-	cache: ReturnType<typeof createRunSnapshotCache>,
-): (payload: unknown) => void {
+function makeOnInvalidate(cache: ReturnType<typeof createRunSnapshotCache>): (payload: unknown) => void {
 	return (payload: unknown) => {
 		const runId =
 			payload !== null &&
@@ -93,9 +91,7 @@ function makeOnInvalidate(
 }
 
 /** Replicates the FIXED `onRunChange`/`crewRunWatcherOnChange` contract. */
-function makeOnChange(
-	cache: ReturnType<typeof createRunSnapshotCache>,
-): (runId: string) => void {
+function makeOnChange(cache: ReturnType<typeof createRunSnapshotCache>): (runId: string) => void {
 	return (runId: string) => {
 		try {
 			cache.refresh(runId);
@@ -170,21 +166,13 @@ test("flicker regression: a no-runId RenderScheduler fallback tick must NOT clea
 		});
 		try {
 			// Precondition: widget sees the run (not dropped to "(loading…)").
-			assert.equal(
-				activeWidgetRuns(cwd, undefined, cache, [manifest]).length,
-				1,
-				"precondition: widget renders the run",
-			);
+			assert.equal(activeWidgetRuns(cwd, undefined, cache, [manifest]).length, 1, "precondition: widget renders the run");
 			// Simulate a fallback tick: schedule() with NO payload.
 			scheduler.schedule();
 			assert.equal(invalidateCalls, 1, "no-runId payload forwarded to onInvalidate synchronously");
 			// The cache must be intact — this is the exact condition the fix
 			// restores. The OLD code cleared it here.
-			assert.equal(
-				cache.get(manifest.runId) !== undefined,
-				true,
-				"no-runId tick must NOT clear the entry",
-			);
+			assert.equal(cache.get(manifest.runId) !== undefined, true, "no-runId tick must NOT clear the entry");
 			assert.equal(cache.snapshotsByKey().size, 1, "cache still has exactly one entry");
 			// Repeated ticks (the endless-flicker scenario) must stay stable.
 			scheduler.schedule();
@@ -216,19 +204,11 @@ test("flicker regression: runId refreshIfStale and fs.watch refresh keep the wid
 		// entry → one-frame empty window). Now: refreshIfStale → stays populated.
 		onInvalidate({ runId: manifest.runId });
 		assert.equal(cache.get(manifest.runId) !== undefined, true, "runId invalidate keeps entry populated");
-		assert.equal(
-			activeWidgetRuns(cwd, undefined, cache, [manifest]).length,
-			1,
-			"widget renders run after runId invalidate",
-		);
+		assert.equal(activeWidgetRuns(cwd, undefined, cache, [manifest]).length, 1, "widget renders run after runId invalidate");
 		// fs.watch change path (onRunChange / crewRunWatcherOnChange).
 		onChange(manifest.runId);
 		assert.equal(cache.get(manifest.runId) !== undefined, true, "refresh keeps entry populated");
-		assert.equal(
-			activeWidgetRuns(cwd, undefined, cache, [manifest]).length,
-			1,
-			"widget renders run after fs.watch refresh",
-		);
+		assert.equal(activeWidgetRuns(cwd, undefined, cache, [manifest]).length, 1, "widget renders run after fs.watch refresh");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

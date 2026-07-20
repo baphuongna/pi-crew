@@ -9,12 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import {
-	appendMailboxMessage,
-	appendMailboxMessageAsync,
-	readDeliveryState,
-	readMailbox,
-} from "../../src/state/mailbox.ts";
+import { appendMailboxMessage, appendMailboxMessageAsync, readDeliveryState, readMailbox } from "../../src/state/mailbox.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 

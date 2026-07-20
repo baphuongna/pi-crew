@@ -160,10 +160,7 @@ test("listActive re-scans after cache.clear() (the watcher invalidation path)", 
 			cache.clear();
 			cache.listActive(1000);
 			const afterClear = statCounter.count() - before;
-			assert.ok(
-				afterClear >= 5,
-				`post-clear call must re-stat manifests; expected >=5 new stats, got ${afterClear}`,
-			);
+			assert.ok(afterClear >= 5, `post-clear call must re-stat manifests; expected >=5 new stats, got ${afterClear}`);
 		} finally {
 			statCounter.restore();
 		}
@@ -202,11 +199,7 @@ test("listActive cache does NOT cap by list()'s top-N (all-running semantic pres
 		for (const id of runningIds) {
 			if (expandedSet.has(id)) includedCount++;
 		}
-		assert.equal(
-			includedCount,
-			20,
-			`cached un-capped set must surface all 20 created runs (got ${includedCount}/20)`,
-		);
+		assert.equal(includedCount, 20, `cached un-capped set must surface all 20 created runs (got ${includedCount}/20)`);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

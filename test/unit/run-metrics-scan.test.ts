@@ -22,7 +22,6 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { getRunMetricsSummary, type RunMetrics, saveRunMetrics } from "../../src/state/run-metrics.ts";
@@ -108,11 +107,7 @@ test("getRunMetricsSummary only reads `limit` files (not MAX_METRIC_FILES_TO_SCA
 			const summary = getRunMetricsSummary(tmpDir, 5);
 			const reads = counter.count();
 			assert.equal(summary.length, 5, "limit=5 must return 5 entries");
-			assert.equal(
-				reads,
-				5,
-				`expected exactly 5 metric-file reads (limit=5 against ${total} files); got ${reads}`,
-			);
+			assert.equal(reads, 5, `expected exactly 5 metric-file reads (limit=5 against ${total} files); got ${reads}`);
 			// The 5 returned must be the 5 newest (mtime DESC). We don't
 			// assume the exact newestFirst[0..5] because the safety cap
 			// (MAX_METRIC_FILES_TO_SCAN) and the sort tiebreaker could
@@ -142,11 +137,7 @@ test("getRunMetricsSummary counts malformed newest files against the strict read
 		for (let i = 0; i < 3; i++) {
 			const runId = `valid-${i}`;
 			saveRunMetrics(tmpDir, makeMetric(runId, new Date(base + i * 1000).toISOString()));
-			fs.utimesSync(
-				path.join(metricsDir, `${runId}.json`),
-				new Date(base + (i + 1) * 1000),
-				new Date(base + (i + 1) * 1000),
-			);
+			fs.utimesSync(path.join(metricsDir, `${runId}.json`), new Date(base + (i + 1) * 1000), new Date(base + (i + 1) * 1000));
 		}
 		for (let i = 0; i < 2; i++) {
 			const filePath = path.join(metricsDir, `invalid-newest-${i}.json`);
@@ -182,10 +173,7 @@ test("getRunMetricsSummary with limit > file count reads every file (no padding)
 	fs.mkdirSync(path.join(tmpDir, ".crew"), { recursive: true });
 	try {
 		for (let i = 0; i < 3; i++) {
-			saveRunMetrics(
-				tmpDir,
-				makeMetric(`run-${i}`, new Date(Date.UTC(2026, 6, 20, 0, 0, i)).toISOString()),
-			);
+			saveRunMetrics(tmpDir, makeMetric(`run-${i}`, new Date(Date.UTC(2026, 6, 20, 0, 0, i)).toISOString()));
 		}
 
 		const metricsDir = path.join(tmpDir, ".crew", "state", "metrics");

@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { type ConflictReport, detectImportConflicts } from "../runtime/delta-conflict.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { logInternalError } from "../utils/internal-error.ts";
 import { assertRunBundle } from "./run-bundle-schema.ts";
 
 export interface ImportedRunBundleInfo {

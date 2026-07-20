@@ -1285,9 +1285,7 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 	if (all.length > TAIL_EVENT_CAP) {
 		logInternalError(
 			"event-log.cursor-full-read",
-			new Error(
-				`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`,
-			),
+			new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
 			`eventsPath=${eventsPath}`,
 		);
 		all = all.slice(-TAIL_EVENT_CAP);

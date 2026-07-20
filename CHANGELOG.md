@@ -3,6 +3,61 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.46] — UI stability + notification coalescing (2026-07-20)
+
+Three user-facing UI/notification fixes layered on top of the v0.9.45
+remediation, plus CI hygiene. All verified live in a restarted Pi session.
+
+### UI flicker — stop render-path snapshot-cache deletes
+
+The run-snapshot cache has a deliberate stale-while-revalidate design so the
+widget always shows a populated snapshot. That was defeated by three hot-path
+call sites in `lifecycle-handlers.ts` that hard-deleted cache entries; the worst
+ran `invalidate(undefined)` on every ~160ms fallback tick, wiping ALL entries
+→ `activeWidgetRuns` dropped every run to "(loading…)" until the async preload
+rebuilt the cache → continuous flicker across the widget, powerbar, and live
+sidebar/dashboard. (`src/extension/registration/lifecycle-handlers.ts`)
+
+**Fix:** never hard-delete from the render path. A no-runId tick is now a no-op;
+a specific runId calls `refreshIfStale` (stale-while-revalidate); the two
+`fs.watch` change handlers call `refresh` (rebuild-in-place). All three keep the
+entry populated so `get()` never returns `undefined`.
+
+### TUI width-overflow crash — delegate `visibleWidth` to pi-tui
+
+`Rendered line N exceeds terminal width (160 > 159)` killed the host Pi process
+whenever an agent emitted an emoji that pi-crew's hand-maintained `WIDE_RANGES`
+table counted as 1 column but pi-tui (the renderer) counted as 2 (e.g. `⏳`
+U+23F3). pi-crew truncated/padded to its own measure, pi-tui re-measured and
+hard-aborted. This was patched twice before by adding individual codepoints —
+whack-a-mole, since ANY emoji in agent output could trigger it.
+(`src/utils/visual.ts`)
+
+**Definitive fix:** `visibleWidth` now delegates to pi-tui's own `visibleWidth`
+(the function that drives the crash assert). truncate/pad/wrap therefore always
+agree with the renderer; an emoji-width mismatch is structurally impossible. The
+hand-maintained `WIDE_RANGES`/`isWideCodePoint` table is removed.
+
+### Notification coalescing — N drip → 1 consolidated wake-up
+
+Launching N background subagents (no `batch_id`) produced N separate "changed
+state" wake-ups, delivered one-per-turn at turn boundaries; after the leader
+joined them all, redundant per-agent notices kept dripping in over later turns.
+(`src/extension/registration/subagent-manager-setup.ts`)
+
+**Fix (Rule 3):** a debounced coalescer for non-batch completions. Completions
+within an 800ms window (reset on each new arrival) merge into ONE wake-up; each
+is `resultConsumed`-re-checked before emit (Rule 2), so already-joined agents
+are dropped and an all-consumed batch is suppressed entirely. Completions far
+apart (>800ms) still flush separately. The explicit-`batch_id` path (Rule 1,
+BatchBarrier) is unchanged.
+
+### CI hygiene
+
+`biome check --write` applied across the v0.9.45 remediation files (lint +
+format), and two unused test imports were removed — the local remediation
+commits had never been CI-checked; this brings lint + format:check green.
+
 ## [0.9.45] — Deep-review 2026-07-20 remediation (all 5 phases, 14 findings)
 
 ### ⚠️ BREAKING: custom agent roles default to read-only (FIND-12)

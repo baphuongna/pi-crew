@@ -282,7 +282,28 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 - `test/functional/pi-crew-live.test.ts` + `test/functional/pi-crew-live-broad.test.ts` — 16 live integration tests run against the **real pi binary + real LLM provider** (verified after v0.9.42 audit, ~26 commits). Use these when you want to confirm end-to-end behavior, not just unit-level invariants.
 
-## Recent changes (since v0.9.42)
+## Recent changes
+
+### v0.9.45 – v0.9.46 (2026-07-20): security + perf remediation, UI stability
+
+- **Custom agent roles default to read-only (FIND-12, breaking):**
+  `permissionForRole()` returns `"read_only"` for unknown roles (was
+  permissive `"workspace_write"`). Write-capable roles are now an explicit
+  allowlist (`WRITE_ROLES`). See `CHANGELOG.md` for the migration.
+- **Mailbox / snapshot-cache / scan perf:** delivery cache + async append
+  (FIND-01/02), `listActive` TTL + mtime-sort strict limit (FIND-03/04),
+  byte-bounded event-log tail-read (FIND-05).
+- **Heartbeat race (FIND-06):** in-flight guard + drain + terminal-safety +
+  late-save repair in the coalesced task group.
+- **UI flicker eliminated:** the render path no longer hard-deletes snapshot
+  entries, so the crew widget / powerbar / live sidebar stay stable (no more
+  "(loading…)" flashing every ~160ms).
+- **Emoji width-overflow crash fixed for good:** `visibleWidth` delegates to
+  pi-tui's own measure, so agent-output emoji can never exceed terminal width.
+- **Background-subagent notifications coalesce:** N near-simultaneous
+  completions now produce ONE consolidated wake-up instead of N drips.
+
+### v0.9.42 – v0.9.44: 4-wave audit + flaky-CI fixes
 
 A 4-wave audit + fix pass was completed (see `UPGRADE_REVIEW.md` for the full 647-line report and `CHANGELOG.md` for the diff):
 

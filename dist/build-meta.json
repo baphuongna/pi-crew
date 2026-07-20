@@ -1194,7 +1194,7 @@
       "format": "esm"
     },
     "src/utils/incremental-reader.ts": {
-      "bytes": 6216,
+      "bytes": 6221,
       "imports": [
         {
           "path": "node:fs",
@@ -1231,7 +1231,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 54442,
+      "bytes": 54432,
       "imports": [
         {
           "path": "node:crypto",
@@ -3645,7 +3645,7 @@
       "format": "esm"
     },
     "src/runtime/role-permission.ts": {
-      "bytes": 2949,
+      "bytes": 2938,
       "imports": [],
       "format": "esm"
     },
@@ -6704,6 +6704,11 @@
           "original": "../state/atomic-write.ts"
         },
         {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
           "path": "src/utils/paths.ts",
           "kind": "import-statement",
           "original": "../utils/paths.ts"
@@ -6712,11 +6717,6 @@
           "path": "src/utils/safe-paths.ts",
           "kind": "import-statement",
           "original": "../utils/safe-paths.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/extension/run-bundle-schema.ts",
@@ -12996,7 +12996,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6035644
+      "bytes": 6035557
     },
     "dist/index.mjs": {
       "imports": [
@@ -14792,7 +14792,7 @@
           "bytesInOutput": 4480
         },
         "src/state/event-log.ts": {
-          "bytesInOutput": 28880
+          "bytesInOutput": 28864
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -15125,7 +15125,7 @@
           "bytesInOutput": 15395
         },
         "src/runtime/role-permission.ts": {
-          "bytesInOutput": 1104
+          "bytesInOutput": 1050
         },
         "src/runtime/worker-heartbeat.ts": {
           "bytesInOutput": 580
@@ -16187,7 +16187,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2800998
+      "bytes": 2800928
     }
   }
 }

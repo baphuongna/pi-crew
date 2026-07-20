@@ -192,9 +192,7 @@ test("readEventsCursor reports a truncated multi-MB tail and returns the newest 
 				"oldest returned seq must match the first complete event in the 4MB tail",
 			);
 			assert.equal(cursor.events.at(-1)?.metadata?.seq, total, "newest returned event must be seq 6000");
-			const truncationCall = captured.calls.find((call) =>
-				call.includes("[pi-crew:event-log.cursor-tail-truncated]"),
-			);
+			const truncationCall = captured.calls.find((call) => call.includes("[pi-crew:event-log.cursor-tail-truncated]"));
 			assert.ok(truncationCall, `expected event-log.cursor-tail-truncated warning; got ${captured.calls.join(" | ")}`);
 			assert.ok(truncationCall.includes(`"eventsPath":"${eventsPath}"`), "warning must identify the truncated log");
 			assert.ok(truncationCall.includes('"tailBytes":4194304'), "warning must report the 4MB tail budget");

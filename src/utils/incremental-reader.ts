@@ -29,7 +29,10 @@ const CHUNK_SIZE = 64 * 1024;
  * read path (FIND-05) to avoid the O(total events) cost of the legacy
  * `readFileSync`+`split("\n")`+`JSON.parse` approach.
  */
-export function readJsonlTail<T>(filePath: string, tailBytes: number): {
+export function readJsonlTail<T>(
+	filePath: string,
+	tailBytes: number,
+): {
 	items: T[];
 	fileSize: number;
 	bytesRead: number;

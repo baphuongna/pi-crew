@@ -10052,9 +10052,7 @@ function readEventsCursor(eventsPath, options = {}) {
   if (all.length > TAIL_EVENT_CAP) {
     logInternalError(
       "event-log.cursor-full-read",
-      new Error(
-        `readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`
-      ),
+      new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
       `eventsPath=${eventsPath}`
     );
     all = all.slice(-TAIL_EVENT_CAP);
@@ -22920,16 +22918,7 @@ var init_role_permission = __esm({
   "src/runtime/role-permission.ts"() {
     "use strict";
     READ_ONLY_ROLES = /* @__PURE__ */ new Set(["explorer", "reviewer", "security-reviewer", "analyst", "critic", "planner"]);
-    WRITE_ROLES = /* @__PURE__ */ new Set([
-      "executor",
-      "test-engineer",
-      "writer",
-      "verifier",
-      "agent",
-      "cold-verifier",
-      "chain-executor",
-      "worker"
-    ]);
+    WRITE_ROLES = /* @__PURE__ */ new Set(["executor", "test-engineer", "writer", "verifier", "agent", "cold-verifier", "chain-executor", "worker"]);
   }
 });
 
@@ -39851,9 +39840,9 @@ var init_run_import = __esm({
     init_defaults();
     init_delta_conflict();
     init_atomic_write();
+    init_internal_error();
     init_paths();
     init_safe_paths();
-    init_internal_error();
     init_run_bundle_schema();
   }
 });
