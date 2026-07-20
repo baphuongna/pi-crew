@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { DEFAULT_EVENT_LOG } from "../config/defaults.ts";
 import { errors } from "../errors.ts";
 import { emitFromTeamEvent } from "../ui/run-event-bus.ts";
-import { type IncrementalReadState, readJsonlSince } from "../utils/incremental-reader.ts";
+import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../utils/incremental-reader.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 import { sleepSync } from "../utils/sleep.ts";
@@ -1217,24 +1217,40 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		};
 	}
 
-	// Original behavior: read entire file.
-	// FIX (Round 14, H7): When called WITHOUT fromByteOffset on a large file,
-	// fall back to reading only the tail (last 1MB) plus metadata about the
-	// dropped prefix. This avoids O(n) memory load on hot UI paths while
-	// preserving a sensible default.
+	// FIND-05 default path: byte-level tail read (last 4MB) instead of
+	// full-file read. Bounds CPU to O(tail bytes) instead of O(total
+	// events). The legacy readEvents() full parse path is preserved for
+	// callers that explicitly need the full history (e.g. tests that
+	// assert exact contents) and as a small-file fallback.
+	//
+	// The 5000-event tail cap and the "event-log.cursor-full-read"
+	// warning are preserved. A separate cursor-tail-truncated warning is
+	// emitted whenever the file exceeds the 4MB tail budget, signalling
+	// that a prefix was dropped and callers should pass fromByteOffset for
+	// streaming reads.
+	const TAIL_BYTES = 4 * 1024 * 1024; // 4 MB
+	const TAIL_EVENT_CAP = 5000;
 	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
 	const limit = positiveInteger(options.limit);
-	let all = readEvents(eventsPath);
-	const totalAll = all.length;
-	if (totalAll > 5000 && options.fromByteOffset === undefined) {
-		// TAIL READ: keep the most recent 5000 events to bound memory.
-		// Callers that need full history should pass fromByteOffset to stream.
+
+	const tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
+	let all = tail.items;
+	if (tail.truncated) {
+		logInternalError("event-log.cursor-tail-truncated", {
+			eventsPath,
+			returned: all.length,
+			tailBytes: TAIL_BYTES,
+		});
+	}
+	if (all.length > TAIL_EVENT_CAP) {
 		logInternalError(
 			"event-log.cursor-full-read",
-			new Error(`readEventsCursor read entire ${totalAll}-event log; pass fromByteOffset for incremental reads`),
+			new Error(
+				`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`,
+			),
 			`eventsPath=${eventsPath}`,
 		);
-		all = all.slice(-5000);
+		all = all.slice(-TAIL_EVENT_CAP);
 	}
 	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
 	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;

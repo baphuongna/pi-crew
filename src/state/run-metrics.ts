@@ -107,6 +107,16 @@ export function loadRunMetrics(cwd: string, runId: string): RunMetrics | undefin
  * List recent metrics files up to `limit` entries (newest first).
  * Returns an array of { runId, timestamp, taskCount, completedCount, failedCount, totalTokens, totalCost, durationMs, consistencyScore }.
  * Gracefully skips files that cannot be read or parsed.
+ *
+ * FIND-04 perf: sort dirents by mtime descending BEFORE reading any of
+ * them, then read at most `limit` files. Malformed files within that
+ * selected window reduce the returned count; the scan does not continue
+ * past the window to backfill them. Previously the function read up
+ * to MAX_METRIC_FILES_TO_SCAN (500) files via loadRunMetrics() and only
+ * THEN sorted+sliced to `limit` (default 25) — wasting 475 readFileSync +
+ * JSON.parse calls on the hot dashboard path. The sort is O(N log N) and
+ * uses the run-id timestamp prefix as a cheap secondary signal when
+ * mtimes tie (e.g. multiple files saved in the same millisecond).
  */
 export function getRunMetricsSummary(cwd: string, limit = 25): RunMetrics[] {
 	const dir = metricsDir(cwd);
@@ -117,21 +127,39 @@ export function getRunMetricsSummary(cwd: string, limit = 25): RunMetrics[] {
 		return [];
 	}
 
+	// Cap the directory-order candidate set before collecting mtimes. This
+	// is a safety valve against unbounded scan cost; the mtime sort below
+	// only reorders entries within this bounded candidate window.
+	const cap = Math.max(0, limit);
+	const sorted = entries
+		.filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+		.slice(0, MAX_METRIC_FILES_TO_SCAN)
+		.map((entry) => {
+			const fullPath = path.join(dir, entry.name);
+			let mtimeMs = 0;
+			try {
+				mtimeMs = fs.statSync(fullPath).mtimeMs;
+			} catch {
+				// stat failure: fall through with mtimeMs=0; the sort still
+				// produces a deterministic order (filenames tiebreak).
+			}
+			return { name: entry.name, mtimeMs };
+		})
+		.sort((a, b) => {
+			const diff = b.mtimeMs - a.mtimeMs;
+			if (diff !== 0) return diff;
+			// Filename tiebreaker: the run-id prefix is a YYYYMMDDhhmmss
+			// timestamp (e.g. team_20260720050617_abc123) so a descending
+			// string compare yields newest-first within a tie group.
+			return b.name.localeCompare(a.name);
+		});
+
 	const metrics: RunMetrics[] = [];
-	for (const entry of entries) {
-		if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-		const runId = entry.name.replace(/\.json$/, "");
+	for (const { name } of sorted.slice(0, cap)) {
+		const runId = name.replace(/\.json$/, "");
 		const m = loadRunMetrics(cwd, runId);
 		if (m) metrics.push(m);
-		if (metrics.length >= MAX_METRIC_FILES_TO_SCAN) break;
 	}
 
-	// Sort newest first (by timestamp, then runId as tiebreaker).
-	metrics.sort((a, b) => {
-		const diff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-		if (diff !== 0) return diff;
-		return b.runId.localeCompare(a.runId);
-	});
-
-	return metrics.slice(0, limit);
+	return metrics;
 }

@@ -164,6 +164,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			manifestIndex.clear();
 		}
 		listCache.clear();
+		invalidateListActive();
 	}
 
 	function scheduleListRefresh(): void {
@@ -174,12 +175,17 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			const timer = listTimer;
 			listTimer = undefined;
 			listCache.clear();
+			invalidateListActive();
 			timer?.unref();
 		}, ttlMs);
 		// Unref immediately so the timer never blocks process exit (defense in
 		// depth: the in-callback unref above may not run if shutdown happens
 		// before the timer fires).
 		listTimer.unref();
+		// FIND-03: invalidate the listActive() cache eagerly on every watcher
+		// tick. The TTL is the fallback for missed events; the watcher-driven
+		// path gives the tightest possible invalidation.
+		invalidateListActive();
 	}
 
 	function loadManifest(runId: string, rootsToCheck: string[]): CachedManifest | undefined {
@@ -266,6 +272,18 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		return undefined;
 	}
 
+	// FIND-03: short-TTL cache for listActive(). Mirrors the listCache pattern
+	// used by list(): we cache the un-capped running set and apply the caller's
+	// `limit` post-hoc on every return. Storing the full set (not a
+	// limit-sliced array) is what preserves the RT-F3 contract — callers with
+	// different `limit` values all see the same underlying "every running run"
+	// result, never a top-N createdAt-filtered view.
+	let listActiveCache: { result: TeamRunManifest[] | null; expiresAt: number } = { result: null, expiresAt: 0 };
+
+	function invalidateListActive(): void {
+		listActiveCache = { result: null, expiresAt: 0 };
+	}
+
 	/**
 	 * RT-F3: filter to `status === "running"` BEFORE applying the limit so an
 	 * orphaned run that has been pushed past the top-N by recent successful
@@ -277,9 +295,19 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 	 * silently drop "running" runs that fell past the top-N createdAt cutoff.
 	 * Still goes through parseManifestIfChanged for stat+size memoization, so
 	 * the per-run I/O cost is the same as list().
+	 *
+	 * FIND-03 perf: the full scan is memoized behind a 500ms TTL (same TTL as
+	 * list()). fs.watch-driven scheduleListRefresh() invalidates the cache
+	 * immediately so the next call re-scans. The cap is applied AFTER the
+	 * cache lookup so a cached scan result can be sliced to ANY limit without
+	 * re-scanning.
 	 */
 	function listActive(limit: number): TeamRunManifest[] {
 		const cap = Math.max(0, limit);
+		const now = Date.now();
+		if (listActiveCache.result !== null && listActiveCache.expiresAt > now) {
+			return listActiveCache.result.slice(0, cap);
+		}
 		const parsedEntries = [
 			...roots.flatMap((root) => collectRoots(root)),
 			...activeRunEntries().map((entry) => ({
@@ -303,6 +331,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			.filter((value): value is CachedManifest => value !== undefined)
 			.map((value) => value.manifest)
 			.filter((manifest) => manifest.status === "running");
+		listActiveCache = { result: running, expiresAt: now + ttlMs };
 		return running.slice(0, cap);
 	}
 
@@ -340,6 +369,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			watchers = [];
 			manifestIndex.clear();
 			listCache.clear();
+			invalidateListActive();
 		},
 	};
 }

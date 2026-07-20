@@ -14,6 +14,103 @@ export interface IncrementalReadResult {
 const CHUNK_SIZE = 64 * 1024;
 
 /**
+ * Read the last `tailBytes` bytes of a file and parse it as JSONL,
+ * returning each successfully-parsed item in file order. If the file is
+ * shorter than `tailBytes`, the entire file is read from offset 0.
+ *
+ * Returns:
+ *   - items: parsed JSONL items (T may be any deserializable type)
+ *   - fileSize: total file size in bytes
+ *   - bytesRead: number of bytes actually read (≤ min(fileSize, tailBytes))
+ *   - truncated: true when `bytesRead < fileSize` (a prefix was dropped)
+ *
+ * The function bounds the read to `tailBytes`, so CPU is O(tail bytes)
+ * regardless of how large the file grows. Used by the event-log tail
+ * read path (FIND-05) to avoid the O(total events) cost of the legacy
+ * `readFileSync`+`split("\n")`+`JSON.parse` approach.
+ */
+export function readJsonlTail<T>(filePath: string, tailBytes: number): {
+	items: T[];
+	fileSize: number;
+	bytesRead: number;
+	truncated: boolean;
+} {
+	const limit = Math.max(0, Math.floor(tailBytes));
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(filePath);
+	} catch {
+		return { items: [], fileSize: 0, bytesRead: 0, truncated: false };
+	}
+	const fileSize = stat.size;
+	if (fileSize === 0 || limit === 0) {
+		return { items: [], fileSize, bytesRead: 0, truncated: false };
+	}
+
+	const startOffset = Math.max(0, fileSize - limit);
+	const bytesToRead = fileSize - startOffset;
+	const truncated = startOffset > 0;
+
+	let fd: number | undefined;
+	try {
+		fd = fs.openSync(filePath, "r");
+	} catch {
+		return { items: [], fileSize, bytesRead: 0, truncated: false };
+	}
+	try {
+		const buf = Buffer.alloc(bytesToRead);
+		let totalRead = 0;
+		while (totalRead < bytesToRead) {
+			const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
+			const bytesRead = fs.readSync(fd, buf, totalRead, chunkSize, startOffset + totalRead);
+			if (bytesRead === 0) break;
+			totalRead += bytesRead;
+		}
+
+		// Decode the slice we actually read; the buffer may be partially
+		// filled on short reads. We use totalRead (not bytesToRead) so the
+		// JSONL split lands on actual data, not a zero-padded tail.
+		const content = buf.toString("utf-8", 0, totalRead);
+
+		// If we truncated the file, the first decoded line may be a
+		// half-line from the cut. Drop it — we can't trust the JSON.
+		// Use a single indexOf("\n") to find the first newline; if there
+		// is none, the whole tail is one partial line and we drop it.
+		let body = content;
+		if (truncated) {
+			const firstNewline = body.indexOf("\n");
+			if (firstNewline < 0) {
+				// No newline at all in the tail → the entire tail is one
+				// partial line. Return no items; the caller should fall
+				// back to a wider tail or full read.
+				return { items: [], fileSize, bytesRead: totalRead, truncated: true };
+			}
+			body = body.slice(firstNewline + 1);
+		}
+
+		const items: T[] = [];
+		for (const line of body.split("\n")) {
+			const trimmed = line.trim();
+			if (!trimmed) continue;
+			try {
+				items.push(JSON.parse(trimmed) as T);
+			} catch {
+				// Skip malformed lines (mirrors readJsonlSince's behavior).
+			}
+		}
+		return { items, fileSize, bytesRead: totalRead, truncated };
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+}
+
+/**
  * Read new lines from a text file since last known byte offset.
  * Uses fs.openSync + fs.readSync for efficient incremental reading.
  */
