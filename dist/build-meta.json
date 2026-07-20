@@ -12409,7 +12409,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 28646,
+      "bytes": 30286,
       "imports": [
         {
           "path": "node:fs",
@@ -12990,7 +12990,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6030168
+      "bytes": 6032205
     },
     "dist/index.mjs": {
       "imports": [
@@ -16128,7 +16128,7 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 20920
+          "bytesInOutput": 21304
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -16176,7 +16176,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2800386
+      "bytes": 2800770
     }
   }
 }

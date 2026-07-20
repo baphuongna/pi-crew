@@ -74325,7 +74325,11 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     {
       const onRunChange = (runId) => {
         if (ctx.cleanedUp || ctx.sessionGeneration !== ownerGeneration) return;
-        ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).invalidate(runId);
+        try {
+          ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+        } catch (error) {
+          logInternalError("register.runWatcher.refresh", error, runId);
+        }
         ctx.renderScheduler?.schedule({ runId });
       };
       const onWatchErr = (error) => {
@@ -74463,7 +74467,12 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     fallbackMs: effectiveRefreshMs,
     onInvalidate: (payload) => {
       const runId = typeof payload === "object" && payload !== null && "runId" in payload && typeof payload.runId === "string" ? payload.runId : void 0;
-      ctx.getRunSnapshotCache(extensionCtx.cwd).invalidate(runId);
+      if (!runId) return;
+      try {
+        ctx.getRunSnapshotCache(extensionCtx.cwd).refreshIfStale(runId);
+      } catch (error) {
+        logInternalError("register.renderScheduler.refresh", error, runId);
+      }
     }
   });
   const sched = ctx.renderScheduler;
@@ -74478,7 +74487,11 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   startPreloadLoop(fallbackMs, effectiveRefreshMs);
   const crewRunWatcherOnChange = (runId) => {
     if (ctx.cleanedUp || ctx.sessionGeneration !== ownerGeneration) return;
-    ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).invalidate(runId);
+    try {
+      ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+    } catch (error) {
+      logInternalError("register.crewRunWatcher.refresh", error, runId);
+    }
     ctx.renderScheduler?.schedule({ runId });
   };
   const crewRunWatcherOnError = (error) => {
