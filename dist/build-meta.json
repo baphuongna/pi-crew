@@ -126,7 +126,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 21665,
+      "bytes": 22991,
       "imports": [
         {
           "path": "node:async_hooks",
@@ -1537,7 +1537,7 @@
       "format": "esm"
     },
     "src/state/mailbox.ts": {
-      "bytes": 28080,
+      "bytes": 34179,
       "imports": [
         {
           "path": "node:fs",
@@ -5389,7 +5389,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api.ts": {
-      "bytes": 40596,
+      "bytes": 40676,
       "imports": [
         {
           "path": "node:fs",
@@ -6229,7 +6229,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 14825,
+      "bytes": 15391,
       "imports": [
         {
           "path": "node:child_process",
@@ -6280,6 +6280,11 @@
           "path": "src/utils/paths.ts",
           "kind": "import-statement",
           "original": "../utils/paths.ts"
+        },
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "../utils/redaction.ts"
         },
         {
           "path": "src/runtime/orphan-worker-registry.ts",
@@ -10722,7 +10727,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 38956,
+      "bytes": 38776,
       "imports": [
         {
           "path": "node:fs",
@@ -10815,11 +10820,6 @@
           "original": "./keybinding-map.ts"
         },
         {
-          "path": "src/ui/layout-primitives.ts",
-          "kind": "import-statement",
-          "original": "./layout-primitives.ts"
-        },
-        {
           "path": "src/ui/overlays/help-overlay.ts",
           "kind": "import-statement",
           "original": "./overlays/help-overlay.ts"
@@ -10848,6 +10848,11 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "./theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/widget/widget-renderer.ts",
+          "kind": "import-statement",
+          "original": "./widget/widget-renderer.ts"
         }
       ],
       "format": "esm"
@@ -11665,7 +11670,7 @@
       "format": "esm"
     },
     "src/ui/live-run-sidebar.ts": {
-      "bytes": 11936,
+      "bytes": 11756,
       "imports": [
         {
           "path": "node:fs",
@@ -11708,11 +11713,6 @@
           "original": "../utils/visual.ts"
         },
         {
-          "path": "src/ui/layout-primitives.ts",
-          "kind": "import-statement",
-          "original": "./layout-primitives.ts"
-        },
-        {
           "path": "src/ui/render-scheduler.ts",
           "kind": "import-statement",
           "original": "./render-scheduler.ts"
@@ -11736,6 +11736,11 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "./theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/widget/widget-renderer.ts",
+          "kind": "import-statement",
+          "original": "./widget/widget-renderer.ts"
         }
       ],
       "format": "esm"
@@ -12980,7 +12985,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5999575
+      "bytes": 6010344
     },
     "dist/index.mjs": {
       "imports": [
@@ -14624,7 +14629,7 @@
           "bytesInOutput": 4426
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 8382
+          "bytesInOutput": 8854
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -14810,7 +14815,7 @@
           "bytesInOutput": 4465
         },
         "src/state/mailbox.ts": {
-          "bytesInOutput": 18349
+          "bytesInOutput": 21862
         },
         "src/extension/help.ts": {
           "bytesInOutput": 2863
@@ -15383,7 +15388,7 @@
           "bytesInOutput": 241
         },
         "src/extension/team-tool/api.ts": {
-          "bytesInOutput": 41740
+          "bytesInOutput": 41762
         },
         "src/runtime/checkpoint.ts": {
           "bytesInOutput": 2566
@@ -15464,7 +15469,7 @@
           "bytesInOutput": 7769
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 9083
+          "bytesInOutput": 9162
         },
         "src/subagents/async-entry.ts": {
           "bytesInOutput": 119
@@ -15944,7 +15949,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 29994
+          "bytesInOutput": 29822
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -15980,7 +15985,7 @@
           "bytesInOutput": 4563
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9966
+          "bytesInOutput": 9794
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4277
@@ -16166,7 +16171,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2791928
+      "bytes": 2795670
     }
   }
 }

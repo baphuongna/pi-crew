@@ -1406,6 +1406,22 @@ function withFileLockSync(filePath, fn, options = {}) {
     releaseLock(lockFile, token);
   }
 }
+async function withFileLockAsync(filePath, fn) {
+  const prev = fileAsyncLocks.get(filePath) ?? Promise.resolve();
+  const next = prev.then(() => fn());
+  const stored = next.then(
+    () => void 0,
+    () => void 0
+  );
+  fileAsyncLocks.set(filePath, stored);
+  try {
+    return await next;
+  } finally {
+    if (fileAsyncLocks.get(filePath) === stored) {
+      fileAsyncLocks.delete(filePath);
+    }
+  }
+}
 function withRunLockSync(manifest, fn, options = {}) {
   const filePath = lockPath(manifest);
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
@@ -1444,7 +1460,7 @@ async function withRunLock(manifest, fn, options = {}) {
     }
   });
 }
-var DEFAULT_STALE_MS, lockCtx, fileLockHeldByUs;
+var DEFAULT_STALE_MS, lockCtx, fileLockHeldByUs, fileAsyncLocks;
 var init_locks = __esm({
   "src/state/locks.ts"() {
     "use strict";
@@ -1455,6 +1471,7 @@ var init_locks = __esm({
     DEFAULT_STALE_MS = DEFAULT_LOCKS.staleMs;
     lockCtx = new AsyncLocalStorage();
     fileLockHeldByUs = /* @__PURE__ */ new Map();
+    fileAsyncLocks = /* @__PURE__ */ new Map();
   }
 });
 
@@ -9448,9 +9465,9 @@ function appendEvent(eventsPath, event) {
   return withEventLogLockSync(eventsPath, () => appendEventInsideLock(eventsPath, event));
 }
 async function drainAsyncQueues() {
-  const promises10 = [...asyncQueues.values()];
-  if (promises10.length === 0) return;
-  await Promise.allSettled(promises10);
+  const promises11 = [...asyncQueues.values()];
+  if (promises11.length === 0) return;
+  await Promise.allSettled(promises11);
 }
 async function withEventLogLockAsync(eventsPath, fn) {
   const queueKey = eventsPath;
@@ -11750,19 +11767,44 @@ function readAllMessages(manifest, direction, signal) {
 function readAllInboxMessages(manifest) {
   return readAllMessages(manifest, "inbox");
 }
+function setDeliveryCacheEntry(filePath, entry) {
+  if (deliveryCache.size >= MAX_DELIVERY_CACHE_ENTRIES) {
+    const oldest = deliveryCache.keys().next().value;
+    if (oldest !== void 0) deliveryCache.delete(oldest);
+  }
+  deliveryCache.set(filePath, {
+    mtimeMs: entry.mtimeMs,
+    state: { ...entry.state, messages: { ...entry.state.messages } }
+  });
+}
 function readDeliveryState(manifest) {
+  const filePath = deliveryFile(manifest);
+  let stat2;
   try {
-    const raw = JSON.parse(fs29.readFileSync(deliveryFile(manifest), "utf-8"));
+    stat2 = fs29.statSync(filePath);
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+    deliveryCache.delete(filePath);
+    return { messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+  const cached = deliveryCache.get(filePath);
+  if (cached && cached.mtimeMs === stat2.mtimeMs) {
+    return { ...cached.state, messages: { ...cached.state.messages } };
+  }
+  try {
+    const raw = JSON.parse(fs29.readFileSync(filePath, "utf-8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid delivery state.");
     const obj = raw;
     const messages = {};
     if (obj.messages && typeof obj.messages === "object" && !Array.isArray(obj.messages)) {
       for (const [id, status] of Object.entries(obj.messages)) if (isStatus(status)) messages[id] = status;
     }
-    return {
+    const state = {
       messages,
       updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : (/* @__PURE__ */ new Date()).toISOString()
     };
+    setDeliveryCacheEntry(filePath, { mtimeMs: stat2.mtimeMs, state });
+    return state;
   } catch {
     return { messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   }
@@ -11778,10 +11820,17 @@ function writeDeliveryState(manifest, state, options) {
     const trimmed = sorted.slice(0, MAX_DELIVERY_MESSAGES);
     state.messages = Object.fromEntries(trimmed);
   }
-  atomicWriteFile(deliveryFile(manifest, true), `${JSON.stringify(redactSecrets(state), null, 2)}
+  const filePath = deliveryFile(manifest, true);
+  atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state), null, 2)}
 `, {
     durability: options?.durability ?? "best-effort"
   });
+  try {
+    const postStat = fs29.statSync(filePath);
+    setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state });
+  } catch {
+    deliveryCache.delete(filePath);
+  }
 }
 function appendMailboxMessage(manifest, message) {
   if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
@@ -11840,6 +11889,72 @@ function appendSteeringMessage(manifest, input) {
 }
 function appendFollowUpMessage(manifest, input) {
   return appendMailboxMessage(manifest, {
+    direction: "inbox",
+    from: input.from ?? "leader",
+    to: input.to ?? input.taskId,
+    taskId: input.taskId,
+    body: input.body,
+    kind: "follow-up",
+    priority: input.priority ?? "normal",
+    deliveryMode: "next_turn",
+    status: input.status,
+    data: { ...input.data ?? {}, kind: "follow-up" }
+  });
+}
+async function appendMailboxMessageAsync(manifest, message) {
+  if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
+  else ensureRunMailbox(manifest);
+  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+  const complete = {
+    id: message.id ?? `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    runId: manifest.runId,
+    direction: message.direction,
+    from: message.from,
+    to: message.to,
+    body: message.body,
+    createdAt,
+    status: message.status ?? "queued",
+    kind: message.kind,
+    priority: message.priority,
+    deliveryMode: message.deliveryMode,
+    taskId: message.taskId,
+    data: message.data,
+    replyTo: message.replyTo,
+    replyFrom: message.replyFrom,
+    replyDeadline: message.replyDeadline,
+    repliedAt: message.repliedAt,
+    replyContent: message.replyContent
+  };
+  const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
+  await withFileLockAsync(mbFile, async () => {
+    await fs29.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}
+`, "utf-8");
+    rotateMailboxFileIfNeeded(mbFile);
+  });
+  withFileLockSync(deliveryFile(manifest, true), () => {
+    const delivery = readDeliveryState(manifest);
+    delivery.messages[complete.id] = complete.status;
+    delivery.updatedAt = createdAt;
+    writeDeliveryState(manifest, delivery, { durability: "full" });
+  });
+  return complete;
+}
+async function appendSteeringMessageAsync(manifest, input) {
+  return appendMailboxMessageAsync(manifest, {
+    direction: "inbox",
+    from: input.from ?? "leader",
+    to: input.to ?? input.taskId,
+    taskId: input.taskId,
+    body: input.body,
+    kind: "steer",
+    priority: input.priority ?? "urgent",
+    deliveryMode: "interrupt",
+    status: input.status,
+    data: { ...input.data ?? {}, kind: "steer" }
+  });
+}
+async function appendFollowUpMessageAsync(manifest, input) {
+  return appendMailboxMessageAsync(manifest, {
     direction: "inbox",
     from: input.from ?? "leader",
     to: input.to ?? input.taskId,
@@ -11983,7 +12098,7 @@ function validateMailbox(manifest, options = {}) {
   }
   return { issues, repaired };
 }
-var MAILBOX_ARCHIVE_THRESHOLD_BYTES;
+var MAILBOX_ARCHIVE_THRESHOLD_BYTES, deliveryCache, MAX_DELIVERY_CACHE_ENTRIES;
 var init_mailbox = __esm({
   "src/state/mailbox.ts"() {
     "use strict";
@@ -11994,6 +12109,8 @@ var init_mailbox = __esm({
     init_event_log();
     init_locks();
     MAILBOX_ARCHIVE_THRESHOLD_BYTES = DEFAULT_MAILBOX.perFileThresholdBytes;
+    deliveryCache = /* @__PURE__ */ new Map();
+    MAX_DELIVERY_CACHE_ENTRIES = 256;
   }
 });
 
@@ -31947,7 +32064,7 @@ async function handleApi(params, ctx) {
       if (operation === "steer-agent") {
         const text = message ?? "Please report current status and wrap up if possible.";
         const realtime = await steerLiveAgent(agentId, text);
-        const mailboxMessage = appendSteeringMessage(loaded.manifest, {
+        const mailboxMessage = await appendSteeringMessageAsync(loaded.manifest, {
           taskId: targetTaskId,
           body: text,
           status: "delivered",
@@ -31972,7 +32089,7 @@ async function handleApi(params, ctx) {
             true
           );
         const realtime = await followUpLiveAgent(agentId, prompt);
-        const mailboxMessage = appendFollowUpMessage(loaded.manifest, {
+        const mailboxMessage = await appendFollowUpMessageAsync(loaded.manifest, {
           taskId: targetTaskId,
           body: prompt,
           status: "delivered",
@@ -37019,7 +37136,8 @@ async function spawnBackgroundTeamRun(manifest) {
     }
     stderrChunks.length = 0;
     try {
-      fs54.appendFileSync(logPath, `[child stderr] ${body}${body.endsWith("\n") ? "" : "\n"}`, "utf-8");
+      const redacted = redactSecretString(body);
+      fs54.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
     } catch {
     }
   };
@@ -37072,6 +37190,7 @@ var init_async_runner = __esm({
     init_env_filter();
     init_internal_error();
     init_paths();
+    init_redaction();
     init_orphan_worker_registry();
     init_peer_dep();
     requireFromHere = createRequire3(import.meta.url);
@@ -62863,13 +62982,6 @@ function formatAge2(iso) {
   if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
   return `${Math.floor(ms / 36e5)}h`;
 }
-function renderLines2(lines, width) {
-  const box = new Box(0, 0);
-  for (const line4 of lines) {
-    box.addChild(new Text3(line4));
-  }
-  return box.render(width);
-}
 function readProgressPreview(run, maxLines = 5, snapshotCache) {
   const snapshot = snapshotFor(run, snapshotCache);
   if (snapshot?.recentOutputLines?.length) {
@@ -63065,13 +63177,13 @@ var init_run_dashboard = __esm({
     init_transcript_pane();
     init_dynamic_border();
     init_keybinding_map();
-    init_layout_primitives();
     init_help_overlay();
     init_render_scheduler();
     init_run_event_bus();
     init_spinner();
     init_status_colors();
     init_theme_adapter();
+    init_widget_renderer();
     lastActivePane = "agents";
     TASK_READ_TTL_MS2 = 1e3;
     RUN_LIST_MAX = 8;
@@ -63239,7 +63351,7 @@ var init_run_dashboard = __esm({
           return this.renderUnsafe(width);
         } catch (error) {
           logInternalError("run-dashboard.render", error);
-          return renderLines2(["Dashboard error \u2014 see logs for details.", "Press r to reload \xB7 Esc to close."], width);
+          return renderLines(["Dashboard error \u2014 see logs for details.", "Press r to reload \xB7 Esc to close."], width);
         }
       }
       renderUnsafe(width) {
@@ -63388,7 +63500,7 @@ var init_run_dashboard = __esm({
             lines.length = target - 1;
             lines.push(bottom);
           }
-          this.cachedLines = renderLines2(
+          this.cachedLines = renderLines(
             lines.map((line4) => truncate(line4, width)),
             width
           );
@@ -66935,13 +67047,6 @@ __export(live_run_sidebar_exports, {
   LiveRunSidebar: () => LiveRunSidebar
 });
 import * as fs100 from "node:fs";
-function renderLines3(lines, width) {
-  const box = new Box(0, 0);
-  for (const line4 of lines) {
-    box.addChild(new Text3(line4));
-  }
-  return box.render(width);
-}
 function line3(text, width) {
   return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
 }
@@ -66974,12 +67079,12 @@ var init_live_run_sidebar = __esm({
     init_usage();
     init_file_coalescer();
     init_visual();
-    init_layout_primitives();
     init_render_scheduler();
     init_run_event_bus();
     init_spinner();
     init_status_colors();
     init_theme_adapter();
+    init_widget_renderer();
     TASK_READ_TTL_MS3 = 200;
     LiveRunSidebar = class {
       cwd;
@@ -67072,7 +67177,7 @@ var init_live_run_sidebar = __esm({
         } else {
           const loaded = loadRunManifestById(this.cwd, this.runId);
           if (!loaded) {
-            return renderLines3(
+            return renderLines(
               [
                 border("\u256D", "\u2500", "\u256E", w),
                 line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
@@ -67159,7 +67264,7 @@ var init_live_run_sidebar = __esm({
             this.autoCloseTimeout = void 0;
           }
           lines.push(border("\u2570", "\u2500", "\u256F", w));
-          this.cachedLines = renderLines3(
+          this.cachedLines = renderLines(
             lines.map((entry) => this.colorLine(entry)),
             w
           );
