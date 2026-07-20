@@ -9,6 +9,7 @@ import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { packageRoot } from "../utils/paths.ts";
+import { redactSecretString } from "../utils/redaction.ts";
 import { registerWorker, unregisterWorker } from "./orphan-worker-registry.ts";
 import { PEER_DEP_DIR_ENV, resolvePeerDepDir } from "./peer-dep.ts";
 
@@ -318,7 +319,14 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		}
 		stderrChunks.length = 0;
 		try {
-			fs.appendFileSync(logPath, `[child stderr] ${body}${body.endsWith("\n") ? "" : "\n"}`, "utf-8");
+			// FIND-14: route child stderr through redactSecretString before writing
+			// to the log so API keys / bearer tokens / inline secrets emitted by the
+			// child are scrubbed. Without this, a child crash trace containing
+			// `Authorization: Bearer ...` or a stack trace with `MINIMAX_API_KEY=...`
+			// would land in background.log unredacted and ship to disk (and to the
+			// V8 fatal-error report which writes environmentVariables unredacted).
+			const redacted = redactSecretString(body);
+			fs.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
 		} catch {
 			/* best-effort */
 		}

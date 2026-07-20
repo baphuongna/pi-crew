@@ -8,7 +8,6 @@ import type { TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { pad, truncate } from "../utils/visual.ts";
-import { Box, Text } from "./layout-primitives.ts";
 import { RenderScheduler } from "./render-scheduler.ts";
 import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
@@ -16,16 +15,9 @@ import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "./status-colors.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
+import { renderLines } from "./widget/widget-renderer.ts";
 
 const TASK_READ_TTL_MS = 200;
-
-function renderLines(lines: string[], width: number): string[] {
-	const box = new Box(0, 0);
-	for (const line of lines) {
-		box.addChild(new Text(line));
-	}
-	return box.render(width);
-}
 
 type Done = (value: undefined) => void;
 

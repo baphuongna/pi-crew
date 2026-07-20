@@ -19,7 +19,6 @@ import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
 import { dashboardActionForKey } from "./keybinding-map.ts";
-import { Box, Text } from "./layout-primitives.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
 import { RenderScheduler } from "./render-scheduler.ts";
 import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
@@ -28,6 +27,7 @@ import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { applyStatusColor, colorizeStatusGlyphs, iconForStatus, type RunStatus } from "./status-colors.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
+import { renderLines } from "./widget/widget-renderer.ts";
 
 /** S05 — wrap a pane render in try/catch so a single pane crash does not bring down the whole dashboard. */
 function safeRenderPane(name: string, fn: () => string[]): string[] {
@@ -157,14 +157,6 @@ function formatAge(iso: string | undefined): string | undefined {
 	if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
 	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
 	return `${Math.floor(ms / 3_600_000)}h`;
-}
-
-function renderLines(lines: string[], width: number): string[] {
-	const box = new Box(0, 0);
-	for (const line of lines) {
-		box.addChild(new Text(line));
-	}
-	return box.render(width);
 }
 
 function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?: RunSnapshotCache): string[] {
