@@ -108,6 +108,12 @@ class CrewWidgetComponent implements WidgetComponent {
 	private cachedLines: string[] = [];
 	private cachedBaseLines: string[] = [];
 	private cachedTheme: CrewTheme;
+	/** Peak line count seen during the current active cycle. The widget pads
+	 * returned lines up to this height so the terminal layout never reflows
+	 * when agents spawn/complete mid-run (only the content changes, not the
+	 * height). Reset to 0 when all runs leave the display-active set, so the
+	 * widget disappears cleanly once every task is done. */
+	private peakHeight = 0;
 	private readonly tui: unknown;
 	private readonly unsubscribeTheme: () => void;
 	private readonly renderScheduler: RenderScheduler;
@@ -228,6 +234,7 @@ class CrewWidgetComponent implements WidgetComponent {
 
 		if (runs.length === 0) {
 			this.invalidate();
+			this.peakHeight = 0; // all tasks done → release reserved height, widget disappears
 			// P0-6: render from snapshots only — never read disk on every render tick.
 			// When the snapshot cache is provided but hasn't populated yet, paint a
 			// single "(loading…)" line so the pre-load frame is well-formed instead
@@ -238,7 +245,13 @@ class CrewWidgetComponent implements WidgetComponent {
 
 		const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
 		this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
-		return this.cachedLines.map((line) => truncate(line, width));
+		const out = this.cachedLines.map((line) => truncate(line, width));
+		// Lock height to the peak seen this cycle: pad with blank rows so agent
+		// spawn/complete never changes the widget height (only content changes).
+		// Resets to 0 once all runs leave the display-active set (runs.length===0).
+		this.peakHeight = Math.max(this.peakHeight, out.length);
+		while (out.length < this.peakHeight) out.push("");
+		return out;
 	}
 }
 

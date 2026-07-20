@@ -670,16 +670,16 @@ function setupRenderLoop(
 	const effectiveRefreshMs = () => (hasActiveWork() ? liveRefreshMs : fallbackMs);
 	ctx.renderScheduler = new RenderScheduler(pi.events, renderTick, {
 		fallbackMs: effectiveRefreshMs,
-		onInvalidate: (payload: unknown) => {
-			const runId =
-				typeof payload === "object" &&
-				payload !== null &&
-				"runId" in payload &&
-				typeof (payload as { runId: unknown }).runId === "string"
-					? (payload as { runId: string }).runId
-					: undefined;
-			ctx.getRunSnapshotCache(extensionCtx.cwd).invalidate(runId);
-		},
+		// ponytail: onInvalidate is intentionally a no-op.
+		// The snapshot cache refreshes itself via its own onChannel → scheduleRefresh
+		// subscription (80ms coalesced, non-destructive — marks stale, never deletes).
+		// Calling invalidate(runId) here hard-deletes the entry (entries.delete), and the
+		// crew widget path uses snapshotCache.get() (returns undefined, no rebuild) while
+		// Dashboard/Sidebar use refreshIfStale() (rebuild). So every runEventBus event
+		// made the widget flash between "(loading…)" and the full agent list at 2–5Hz.
+		// cache-control.ts invalidateSnapshot() calls invalidate() directly + emits its
+		// own event, so it does not depend on this callback.
+		onInvalidate: () => {},
 	});
 	// Fix D: bridge internal runEventBus events to renderScheduler so the UI
 	// re-renders within debounceMs of any agent lifecycle event.
