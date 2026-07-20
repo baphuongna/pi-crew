@@ -61,8 +61,15 @@ const workflow: WorkflowConfig = {
  * Node.js test suite (test/parallel/test-mock-fs-statSync).
  */
 function countStatsUnder(root: string): { count: () => number; restore: () => void } {
-	const fsDefault = (fs as unknown as { default?: typeof fs }).default ?? (fs as unknown as typeof fs);
-	const original = (fsDefault as { statSync: typeof fs.statSync }).statSync;
+	// Wrap fs.statSync on the NAMESPACE import (what parseManifestIfChanged calls).
+	// The previous fs.default ?? fs heuristic wrapped fs.default.statSync on
+	// platforms where fs.default exists (CJS interop differs on macOS/Windows),
+	// which is a DIFFERENT reference from fs.statSync, so the spy silently
+	// missed every call (count 0). Wrap the namespace directly; also belt-and-
+	// suspenders wrap fs.default.statSync if it points to a distinct function.
+	const fsNs = fs as unknown as { statSync: typeof fs.statSync };
+	const defaultFs = (fsNs as { default?: { statSync?: typeof fs.statSync } }).default;
+	const original = fsNs.statSync;
 	let calls = 0;
 	const wrapped = ((target: fs.PathLike, ...rest: unknown[]) => {
 		try {
@@ -73,14 +80,25 @@ function countStatsUnder(root: string): { count: () => number; restore: () => vo
 		} catch {
 			/* ignore path normalization errors */
 		}
-		return (original as (...a: unknown[]) => fs.Stats).call(fsDefault, target, ...rest);
+		return original.call(fsNs as unknown as typeof fs, target, ...rest);
 	}) as typeof fs.statSync;
-	(fsDefault as { statSync: typeof fs.statSync }).statSync = wrapped;
+	fsNs.statSync = wrapped;
+	if (
+		defaultFs &&
+		typeof defaultFs.statSync === "function" &&
+		defaultFs.statSync !== original &&
+		defaultFs.statSync !== wrapped
+	) {
+		(defaultFs as { statSync: typeof fs.statSync }).statSync = wrapped;
+	}
 	syncBuiltinESMExports();
 	return {
 		count: () => calls,
 		restore: () => {
-			(fsDefault as { statSync: typeof fs.statSync }).statSync = original;
+			fsNs.statSync = original;
+			if (defaultFs && (defaultFs as { statSync?: typeof fs.statSync }).statSync === wrapped) {
+				(defaultFs as { statSync: typeof fs.statSync }).statSync = original;
+			}
 			syncBuiltinESMExports();
 		},
 	};
