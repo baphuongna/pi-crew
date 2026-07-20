@@ -40791,15 +40791,15 @@ function truncateToWidth(value, width, ellipsis = "\u2026") {
   if (width <= ellipsis.length) return ellipsis.slice(0, width);
   let output = "";
   let renderedWidth = 0;
-  for (let i = 0; i < value.length; i++) {
+  for (let i = 0; i < value.length; ) {
     const ansiLen = consumeAnsi(value, i);
     if (ansiLen) {
       output += value.slice(i, i + ansiLen);
-      i += ansiLen - 1;
+      i += ansiLen;
       continue;
     }
-    const char = value[i];
-    const nextIndex = (char.codePointAt(0) ?? 0) > 65535 ? i + 2 : i + 1;
+    const codepoint = value.codePointAt(i) ?? 0;
+    const nextIndex = codepoint > 65535 ? i + 2 : i + 1;
     const segment = value.slice(i, nextIndex);
     const charWidth = visibleWidth(segment);
     if (renderedWidth + charWidth > width - ellipsis.length) {
@@ -40807,7 +40807,7 @@ function truncateToWidth(value, width, ellipsis = "\u2026") {
     }
     output += segment;
     renderedWidth += charWidth;
-    i = nextIndex - 1;
+    i = nextIndex;
   }
   return output;
 }

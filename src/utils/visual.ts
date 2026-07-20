@@ -62,15 +62,21 @@ export function truncateToWidth(value: string, width: number, ellipsis = "…"):
 	if (width <= ellipsis.length) return ellipsis.slice(0, width);
 	let output = "";
 	let renderedWidth = 0;
-	for (let i = 0; i < value.length; i++) {
+	for (let i = 0; i < value.length; ) {
 		const ansiLen = consumeAnsi(value, i);
 		if (ansiLen) {
 			output += value.slice(i, i + ansiLen);
-			i += ansiLen - 1;
+			i += ansiLen;
 			continue;
 		}
-		const char = value[i] as string;
-		const nextIndex = (char.codePointAt(0) ?? 0) > 0xffff ? i + 2 : i + 1;
+		// Read the codepoint at position i on the FULL string — NOT
+		// `value[i].codePointAt(0)`, which for a surrogate pair returns the
+		// lone half (≤ 0xFFFF) and slices each half separately. pi-tui's
+		// visibleWidth zero-widths lone `\p{Surrogate}` halves, so 🤖 would
+		// undercount as 0 and truncation would never cut (latent bug unmasked
+		// once visibleWidth delegated to pi-tui).
+		const codepoint = value.codePointAt(i) ?? 0;
+		const nextIndex = codepoint > 0xffff ? i + 2 : i + 1;
 		const segment = value.slice(i, nextIndex);
 		const charWidth = visibleWidth(segment);
 		if (renderedWidth + charWidth > width - ellipsis.length) {
@@ -78,7 +84,7 @@ export function truncateToWidth(value: string, width: number, ellipsis = "…"):
 		}
 		output += segment;
 		renderedWidth += charWidth;
-		i = nextIndex - 1;
+		i = nextIndex;
 	}
 	return output;
 }
