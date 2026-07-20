@@ -1194,7 +1194,7 @@
       "format": "esm"
     },
     "src/utils/incremental-reader.ts": {
-      "bytes": 2588,
+      "bytes": 5810,
       "imports": [
         {
           "path": "node:fs",
@@ -1231,7 +1231,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 52073,
+      "bytes": 52538,
       "imports": [
         {
           "path": "node:crypto",
@@ -9348,7 +9348,7 @@
       "format": "esm"
     },
     "src/state/run-metrics.ts": {
-      "bytes": 4530,
+      "bytes": 5832,
       "imports": [
         {
           "path": "node:fs",
@@ -11443,7 +11443,7 @@
       "format": "esm"
     },
     "src/runtime/manifest-cache.ts": {
-      "bytes": 11387,
+      "bytes": 12865,
       "imports": [
         {
           "path": "node:fs",
@@ -12985,7 +12985,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6010344
+      "bytes": 6019097
     },
     "dist/index.mjs": {
       "imports": [
@@ -14770,13 +14770,13 @@
           "bytesInOutput": 10871
         },
         "src/utils/incremental-reader.ts": {
-          "bytesInOutput": 2166
+          "bytesInOutput": 3886
         },
         "src/state/event-log-rotation.ts": {
           "bytesInOutput": 4480
         },
         "src/state/event-log.ts": {
-          "bytesInOutput": 28022
+          "bytesInOutput": 28281
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -16096,7 +16096,7 @@
           "bytesInOutput": 3062
         },
         "src/runtime/manifest-cache.ts": {
-          "bytesInOutput": 8432
+          "bytesInOutput": 8928
         },
         "src/utils/fs-watch.ts": {
           "bytesInOutput": 382
@@ -16171,7 +16171,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2795670
+      "bytes": 2798145
     }
   }
 }

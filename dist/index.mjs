@@ -9027,6 +9027,64 @@ var init_run_event_bus = __esm({
 
 // src/utils/incremental-reader.ts
 import * as fs23 from "node:fs";
+function readJsonlTail(filePath, tailBytes) {
+  const limit = Math.max(0, Math.floor(tailBytes));
+  let stat2;
+  try {
+    stat2 = fs23.statSync(filePath);
+  } catch {
+    return { items: [], fileSize: 0, bytesRead: 0, truncated: false };
+  }
+  const fileSize = stat2.size;
+  if (fileSize === 0 || limit === 0) {
+    return { items: [], fileSize, bytesRead: 0, truncated: false };
+  }
+  const startOffset = Math.max(0, fileSize - limit);
+  const bytesToRead = fileSize - startOffset;
+  const truncated = startOffset > 0;
+  let fd;
+  try {
+    fd = fs23.openSync(filePath, "r");
+  } catch {
+    return { items: [], fileSize, bytesRead: 0, truncated: false };
+  }
+  try {
+    const buf = Buffer.alloc(bytesToRead);
+    let totalRead = 0;
+    while (totalRead < bytesToRead) {
+      const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
+      const bytesRead = fs23.readSync(fd, buf, totalRead, chunkSize, startOffset + totalRead);
+      if (bytesRead === 0) break;
+      totalRead += bytesRead;
+    }
+    const content = buf.toString("utf-8", 0, totalRead);
+    let body = content;
+    if (truncated) {
+      const firstNewline = body.indexOf("\n");
+      if (firstNewline < 0) {
+        return { items: [], fileSize, bytesRead: totalRead, truncated: true };
+      }
+      body = body.slice(firstNewline + 1);
+    }
+    const items = [];
+    for (const line4 of body.split("\n")) {
+      const trimmed = line4.trim();
+      if (!trimmed) continue;
+      try {
+        items.push(JSON.parse(trimmed));
+      } catch {
+      }
+    }
+    return { items, fileSize, bytesRead: totalRead, truncated };
+  } finally {
+    if (fd !== void 0) {
+      try {
+        fs23.closeSync(fd);
+      } catch {
+      }
+    }
+  }
+}
 function readLinesSince(filePath, state) {
   let fd;
   try {
@@ -9950,17 +10008,28 @@ function readEventsCursor(eventsPath, options = {}) {
       nextByteOffset: newState.byteOffset
     };
   }
+  const TAIL_BYTES = 4 * 1024 * 1024;
+  const TAIL_EVENT_CAP = 5e3;
   const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
   const limit = positiveInteger(options.limit);
-  let all = readEvents(eventsPath);
-  const totalAll = all.length;
-  if (totalAll > 5e3 && options.fromByteOffset === void 0) {
+  const tail = readJsonlTail(eventsPath, TAIL_BYTES);
+  let all = tail.items;
+  if (tail.truncated) {
+    logInternalError("event-log.cursor-tail-truncated", {
+      eventsPath,
+      returned: all.length,
+      tailBytes: TAIL_BYTES
+    });
+  }
+  if (all.length > TAIL_EVENT_CAP) {
     logInternalError(
       "event-log.cursor-full-read",
-      new Error(`readEventsCursor read entire ${totalAll}-event log; pass fromByteOffset for incremental reads`),
+      new Error(
+        `readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`
+      ),
       `eventsPath=${eventsPath}`
     );
-    all = all.slice(-5e3);
+    all = all.slice(-TAIL_EVENT_CAP);
   }
   const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
   const events = limit !== void 0 ? filtered.slice(0, limit) : filtered;
@@ -36463,7 +36532,7 @@ var init_explain = __esm({
 });
 
 // src/runtime/goal-state-store.ts
-import { closeSync as closeSync10, existsSync as existsSync39, mkdirSync as mkdirSync23, openSync as openSync10, readdirSync as readdirSync20, readFileSync as readFileSync36, statSync as statSync27, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync10, existsSync as existsSync39, mkdirSync as mkdirSync23, openSync as openSync10, readdirSync as readdirSync20, readFileSync as readFileSync36, statSync as statSync28, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname22 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -36594,7 +36663,7 @@ var init_goal_state_store = __esm({
           const code = error.code;
           if (code !== "EEXIST") return false;
           try {
-            const stat2 = statSync27(lockPath2);
+            const stat2 = statSync28(lockPath2);
             if (Date.now() - stat2.mtimeMs > 5e3) {
               unlinkSync7(lockPath2);
               const fd = openSync10(lockPath2, "wx");
@@ -36685,7 +36754,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash6 } from "node:crypto";
-import { closeSync as closeSync11, existsSync as existsSync40, mkdirSync as mkdirSync24, openSync as openSync11, readdirSync as readdirSync21, readFileSync as readFileSync38, statSync as statSync29, unlinkSync as unlinkSync8, writeFileSync as writeFileSync7 } from "node:fs";
+import { closeSync as closeSync11, existsSync as existsSync40, mkdirSync as mkdirSync24, openSync as openSync11, readdirSync as readdirSync21, readFileSync as readFileSync38, statSync as statSync30, unlinkSync as unlinkSync8, writeFileSync as writeFileSync7 } from "node:fs";
 import * as path44 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path44.resolve(cwd);
@@ -44083,7 +44152,7 @@ var init_tool_progress_formatter = __esm({
 });
 
 // src/extension/registration/team-tool.ts
-import { statSync as statSync34 } from "node:fs";
+import { statSync as statSync35 } from "node:fs";
 import { Text as Text4 } from "@earendil-works/pi-tui";
 async function handleTeamTool(params, ctx) {
   if (!_cachedHandleTeamTool) {
@@ -44096,7 +44165,7 @@ function resolveCwdOverride(baseCwd, override) {
   if (!override) return { ok: true, cwd: baseCwd };
   try {
     const resolved = resolveRealContainedPath(baseCwd, override);
-    const stat2 = statSync34(resolved);
+    const stat2 = statSync35(resolved);
     if (!stat2.isDirectory())
       return {
         ok: false,
@@ -72112,6 +72181,7 @@ function createManifestCache(cwd, options = {}) {
       manifestIndex.clear();
     }
     listCache.clear();
+    invalidateListActive();
   }
   function scheduleListRefresh() {
     if (listTimer) {
@@ -72121,9 +72191,11 @@ function createManifestCache(cwd, options = {}) {
       const timer = listTimer;
       listTimer = void 0;
       listCache.clear();
+      invalidateListActive();
       timer?.unref();
     }, ttlMs);
     listTimer.unref();
+    invalidateListActive();
   }
   function loadManifest(runId, rootsToCheck) {
     const cached = manifestIndex.get(runId);
@@ -72196,8 +72268,16 @@ function createManifestCache(cwd, options = {}) {
     if (cached) return cached.manifest;
     return void 0;
   }
+  let listActiveCache = { result: null, expiresAt: 0 };
+  function invalidateListActive() {
+    listActiveCache = { result: null, expiresAt: 0 };
+  }
   function listActive(limit) {
     const cap = Math.max(0, limit);
+    const now = Date.now();
+    if (listActiveCache.result !== null && listActiveCache.expiresAt > now) {
+      return listActiveCache.result.slice(0, cap);
+    }
     const parsedEntries = [
       ...roots.flatMap((root) => collectRoots(root)),
       ...activeRunEntries().map((entry) => ({
@@ -72218,6 +72298,7 @@ function createManifestCache(cwd, options = {}) {
       if (cached) unique2.set(entry.runId, cached);
     }
     const running = [...unique2.values()].filter((value) => value !== void 0).map((value) => value.manifest).filter((manifest) => manifest.status === "running");
+    listActiveCache = { result: running, expiresAt: now + ttlMs };
     return running.slice(0, cap);
   }
   if (options.watch ?? true) {
@@ -72253,6 +72334,7 @@ function createManifestCache(cwd, options = {}) {
       watchers = [];
       manifestIndex.clear();
       listCache.clear();
+      invalidateListActive();
     }
   };
 }
