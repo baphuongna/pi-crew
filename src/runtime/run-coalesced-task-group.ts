@@ -80,6 +80,18 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 
 	let rawOutput = "";
 	let success = false;
+	// FIND-06: serialize heartbeat saves and retain the active save so terminal
+	// results can drain it before their final write.
+	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	let heartbeatInFlight = false;
+	let heartbeatPromise: Promise<void> | null = null;
+	// FIND-06 P1 fix (R1 review): a heartbeat save that exceeds the 5s drain
+	// timeout continues in the background and can rename its temp file AFTER
+	// the terminal write, clobbering terminal state with the pre-terminal
+	// snapshot. finalWriteStarted lets the IIFE repair that by re-writing the
+	// (now-terminal) updatedTasks AFTER its own save resolves, so the terminal
+	// state always lands last regardless of disk timing.
+	let finalWriteStarted = false;
 	if (!executeWorkers) {
 		rawOutput = buildScaffoldOutput(groupTasks);
 		success = true;
@@ -87,20 +99,41 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		// Heartbeat refresher: touch every task's heartbeat every 15s while the
 		// worker is alive. Set `alive: true` explicitly so post-completion
 		// staleness checks immediately recognize liveness.
-		const heartbeatTimer = setInterval(async () => {
-			const now = new Date().toISOString();
-			updatedTasks = updatedTasks.map((t) => {
-				if (!taskIds.includes(t.id)) return t;
-				return {
-					...t,
-					heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
-				};
-			});
-			try {
-				await saveRunTasksAsync(manifest, updatedTasks);
-			} catch {
-				// Run may have been pruned mid-dispatch — best-effort only.
-			}
+		heartbeatTimer = setInterval(() => {
+			// FIND-06: setInterval does not await async callbacks. Do not start a
+			// second read/modify/write while the preceding heartbeat save is active.
+			if (heartbeatInFlight) return;
+			heartbeatInFlight = true;
+			heartbeatPromise = (async () => {
+				try {
+					updatedTasks = updatedTasks.map((t) => {
+						if (!taskIds.includes(t.id)) return t;
+						// FIND-06 belt-and-suspenders: never replace terminal state or its
+						// resultArtifact with a heartbeat-only snapshot.
+						if (t.status === "completed" || t.status === "failed") return t;
+						return {
+							...t,
+							heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
+						};
+					});
+					await saveRunTasksAsync(manifest, updatedTasks);
+				} catch {
+					// Run may have been pruned mid-dispatch — best-effort only.
+				} finally {
+					heartbeatInFlight = false;
+					// FIND-06 P1 fix: if the terminal write started while our heartbeat
+					// save was in flight, re-write the (now-terminal) updatedTasks so
+					// our late snapshot cannot leave stale pre-terminal state on disk.
+					// Runs after our own save resolves, so it always lands last.
+					if (finalWriteStarted) {
+						try {
+							await saveRunTasksAsync(manifest, updatedTasks);
+						} catch {
+							// best-effort repair — same swallow policy as the heartbeat.
+						}
+					}
+				}
+			})();
 		}, 15_000);
 		try {
 			const result = await executeWithRetry(
@@ -124,7 +157,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			rawOutput = `Worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`;
 			success = false;
 		} finally {
-			clearInterval(heartbeatTimer);
+			if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
 		}
 	}
 
@@ -163,6 +196,30 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			resultArtifact,
 		};
 	});
+
+	// FIND-06: stop ticks and drain the snapshot captured by any active
+	// heartbeat before persisting terminal results. Bound the wait so a stuck
+	// filesystem operation cannot block dispatch completion indefinitely.
+	// P1 fix (R1 review): set finalWriteStarted BEFORE the drain so any pending
+	// heartbeat IIFE observes it and re-writes the terminal state after its
+	// own (possibly late) save resolves — preventing a late heartbeat snapshot
+	// from clobbering the terminal write.
+	finalWriteStarted = true;
+	if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
+	const pendingHeartbeat = heartbeatPromise;
+	if (pendingHeartbeat) {
+		let drainTimeout: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				pendingHeartbeat,
+				new Promise<void>((resolve) => {
+					drainTimeout = setTimeout(resolve, 5_000);
+				}),
+			]);
+		} finally {
+			if (drainTimeout !== undefined) clearTimeout(drainTimeout);
+		}
+	}
 	await saveRunTasksAsync(manifest, updatedTasks);
 	let updatedManifest: TeamRunManifest = {
 		...manifest,
