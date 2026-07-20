@@ -9591,9 +9591,11 @@ async function appendEventAsync(eventsPath, event) {
       fileStat = await fs25.promises.stat(eventsPath).catch(() => void 0);
     } catch {
     }
+    let overflowHandled = false;
     if (!isTerminal && fileStat) {
       const stat2 = fileStat;
       if (stat2.size > MAX_EVENTS_BYTES) {
+        overflowHandled = true;
         try {
           compactEventLog(eventsPath);
         } catch (error) {
@@ -9612,9 +9614,13 @@ async function appendEventAsync(eventsPath, event) {
       }
     }
     let sizeCheckStat;
-    try {
-      sizeCheckStat = await fs25.promises.stat(eventsPath).catch(() => void 0);
-    } catch {
+    if (overflowHandled) {
+      try {
+        sizeCheckStat = await fs25.promises.stat(eventsPath).catch(() => void 0);
+      } catch {
+      }
+    } else {
+      sizeCheckStat = fileStat;
     }
     try {
       if (sizeCheckStat && sizeCheckStat.size > MAX_EVENTS_BYTES) {
@@ -9628,25 +9634,36 @@ async function appendEventAsync(eventsPath, event) {
     } catch (error) {
       logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
     }
+    let postAppendStat;
     if (!skippedDueToSize) {
       const line4 = JSON.stringify(redactSecrets(fullEvent)) + "\n";
       if (isWorkerAtomicWriterEnabled()) {
         await appendFileViaWorker(eventsPath, line4);
+        const fd = await fs25.promises.open(eventsPath, "r+");
+        try {
+          await fd.sync();
+        } finally {
+          await fd.close();
+        }
       } else {
-        await fs25.promises.appendFile(eventsPath, line4, {
-          encoding: "utf-8",
-          flag: "a"
-        });
-      }
-      const fd = await fs25.promises.open(eventsPath, "r+");
-      try {
-        await fd.sync();
-      } finally {
-        await fd.close();
+        const fd = await fs25.promises.open(eventsPath, "a");
+        try {
+          await fd.appendFile(line4, "utf-8");
+          await fd.sync();
+          try {
+            postAppendStat = await fd.stat();
+          } catch {
+            postAppendStat = void 0;
+          }
+        } finally {
+          await fd.close();
+        }
       }
       persistSequence(eventsPath, seq);
     }
+    let compactedAfterAppend = false;
     if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+      compactedAfterAppend = true;
       try {
         compactEventLog(eventsPath);
       } catch (error) {
@@ -9661,9 +9678,13 @@ async function appendEventAsync(eventsPath, event) {
     const finalSeq = fullEvent.metadata?.seq ?? 0;
     try {
       let statResult;
-      try {
-        statResult = await fs25.promises.stat(eventsPath).catch(() => void 0);
-      } catch {
+      if (postAppendStat && !compactedAfterAppend) {
+        statResult = postAppendStat;
+      } else {
+        try {
+          statResult = await fs25.promises.stat(eventsPath).catch(() => void 0);
+        } catch {
+        }
       }
       if (statResult) {
         if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
@@ -22871,7 +22892,7 @@ var init_live_agent_manager = __esm({
 function permissionForRole(role) {
   if (READ_ONLY_ROLES.has(role)) return "read_only";
   if (WRITE_ROLES.has(role)) return "workspace_write";
-  return "workspace_write";
+  return "read_only";
 }
 function currentCrewRole(env = process.env) {
   return env.PI_CREW_ROLE?.trim() || env.PI_TEAMS_ROLE?.trim() || void 0;
@@ -22892,7 +22913,16 @@ var init_role_permission = __esm({
   "src/runtime/role-permission.ts"() {
     "use strict";
     READ_ONLY_ROLES = /* @__PURE__ */ new Set(["explorer", "reviewer", "security-reviewer", "analyst", "critic", "planner"]);
-    WRITE_ROLES = /* @__PURE__ */ new Set(["executor", "test-engineer", "writer", "verifier"]);
+    WRITE_ROLES = /* @__PURE__ */ new Set([
+      "executor",
+      "test-engineer",
+      "writer",
+      "verifier",
+      "agent",
+      "cold-verifier",
+      "chain-executor",
+      "worker"
+    ]);
   }
 });
 
@@ -39744,6 +39774,12 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
   }
   const runId = assertSafePathId("runId", raw.manifest.runId);
   const importedAt = (/* @__PURE__ */ new Date()).toISOString();
+  logInternalError(
+    "security.bundle_imported",
+    new Error("bundle imported"),
+    `runId="${runId}" source="${resolvedPath}" scope="${scope}"`,
+    "warn"
+  );
   let conflictReport;
   try {
     const existingManifestPath = path52.join(importRoot(cwd, scope), runId, "run-export.json");
@@ -39810,6 +39846,7 @@ var init_run_import = __esm({
     init_atomic_write();
     init_paths();
     init_safe_paths();
+    init_internal_error();
     init_run_bundle_schema();
   }
 });
@@ -69897,8 +69934,8 @@ function isNotFoundResult(result4) {
 }
 function isPiDiffLoaded(pi) {
   try {
-    const piAny = pi;
-    const extensions = piAny?.extensions ?? piAny?._extensions ?? [];
+    const piExt = pi;
+    const extensions = piExt?.extensions ?? piExt?._extensions ?? [];
     const names = Array.isArray(extensions) ? extensions.map((e) => typeof e === "string" ? e : e?.name ?? "") : Object.keys(extensions);
     return names.some((n) => typeof n === "string" && n.includes("pi-diff"));
   } catch {

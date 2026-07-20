@@ -3,6 +3,27 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [unreleased] — Deep-review Phase 5 remediation (2026-07-20)
+
+### ⚠️ BREAKING: custom agent roles default to read-only (FIND-12)
+
+`permissionForRole()` now returns `"read_only"` for unknown/custom agent
+roles instead of the previous permissive `"workspace_write"`. This is a
+security hardening (default-deny) to prevent privilege escalation via
+typo'd or unrecognized agent names.
+
+**Migration:** write-capable roles are now an EXPLICIT allowlist
+(`WRITE_ROLES` in `src/runtime/role-permission.ts`). All shipped
+write-capable roles are listed: `executor`, `writer`, `verifier`,
+`test-engineer`, `agent` (direct-agent default), `cold-verifier`,
+`chain-executor` (chain workflow), and `worker` (goal-loop + dynamic
+workflow). A custom agent role that needs workspace write access
+must be added to `WRITE_ROLES`. Built-in read-only roles (`explorer`,
+`reviewer`, `security-reviewer`, `analyst`, `critic`, `planner`) are
+unaffected. (An earlier draft proposed a `permissions.workspaceWrite`
+agent-config opt-in; it was dropped — unreachable from the call sites.)
+
+
 ## [0.9.44] — 3 flaky CI test fixes (2026-07-19)
 
 Three pre-existing flaky tests in the CI suite have been fixed, completing

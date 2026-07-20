@@ -85,7 +85,7 @@ export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
 
 	// Generate a deterministic hash-based task ID for traceability and logging.
 	// Uses goal + step ID + run ID as content parts.
-	// TODO: Once TaskPacket type gains a hashId field, include this in the packet.
+	// TODO(hashId): tracked — add hashId to TaskPacket when the schema supports it.
 	const _taskHashId = generateTaskHashId([input.manifest.goal, input.step.id, input.manifest.runId]);
 
 	return {

@@ -120,7 +120,7 @@ const securityEventLog: SecurityEvent[] = [];
 
 /**
  * Log a security event for audit purposes.
- * TODO: In production, integrate with project's logging infrastructure
+ * TODO(security-siem): tracked — integrate with project's logging infrastructure
  *       (e.g., send to SIEM, log aggregator, or security webhook).
  */
 function logSecurityEvent(event: SecurityEvent): void {

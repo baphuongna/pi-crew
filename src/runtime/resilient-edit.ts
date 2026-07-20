@@ -25,13 +25,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type ReplaceResult, replace } from "../runtime/replace.ts";
 
-interface ToolLike {
+interface EditToolLike {
 	name: string;
 	description: string;
 	parameters: unknown;
-	execute: (toolCallId: string, params: any, signal: any, onUpdate: any) => Promise<unknown>;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	[key: string]: any;
+	execute: (toolCallId: string, params: unknown, signal: unknown, onUpdate: unknown) => Promise<unknown>;
 }
 
 interface EditParams {
@@ -62,12 +60,11 @@ function isNotFoundResult(result: unknown): boolean {
 /** Detect whether pi-diff is loaded (to avoid double-wrapping edit). */
 function isPiDiffLoaded(pi: ExtensionAPI): boolean {
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const piAny = pi as any;
-		const extensions = piAny?.extensions ?? piAny?._extensions ?? [];
+		const piExt = pi as unknown as { extensions?: unknown[] | Record<string, unknown>; _extensions?: unknown[] };
+		const extensions = piExt?.extensions ?? piExt?._extensions ?? [];
 		const names = Array.isArray(extensions)
 			? extensions.map((e: unknown) => (typeof e === "string" ? e : ((e as { name?: string })?.name ?? "")))
-			: Object.keys(extensions);
+			: Object.keys(extensions as Record<string, unknown>);
 		return names.some((n: string) => typeof n === "string" && n.includes("pi-diff"));
 	} catch {
 		return false;
@@ -82,28 +79,32 @@ function isPiDiffLoaded(pi: ExtensionAPI): boolean {
  * @param tools   optional injected tool registry (for testing)
  * @returns true if the wrapper was applied, false if skipped
  */
-export function wrapEditWithResilientReplace(pi: ExtensionAPI, tools?: { edit: ToolLike }): boolean {
+export function wrapEditWithResilientReplace(pi: ExtensionAPI, tools?: { edit: EditToolLike }): boolean {
 	// Auto-disable if pi-diff is present (it has its own replace integration).
 	if (isPiDiffLoaded(pi)) {
 		return false;
 	}
 
-	const t = tools ?? (pi as unknown as { tools?: { edit?: ToolLike } }).tools;
+	const t = tools ?? (pi as unknown as { tools?: { edit?: EditToolLike } }).tools;
 	if (!t?.edit?.execute) return false;
 
 	const nativeExecute = t.edit.execute.bind(t.edit);
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	t.edit.execute = async function resilientExecute(toolCallId: string, params: any, signal: any, onUpdate: any): Promise<unknown> {
+	t.edit.execute = async function resilientExecute(
+		toolCallId: string,
+		params: unknown,
+		signal: unknown,
+		onUpdate: unknown,
+	): Promise<unknown> {
 		try {
 			const result = await nativeExecute(toolCallId, params, signal, onUpdate);
 			if (!isNotFoundResult(result)) return result;
 			// Fall through to resilient retry.
-			return await retryWithReplace(params, toolCallId, signal, onUpdate);
+			return await retryWithReplace(params as EditParams, toolCallId, signal, onUpdate);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			if (NOT_FOUND_PATTERNS.some((re) => re.test(msg))) {
-				return await retryWithReplace(params, toolCallId, signal, onUpdate);
+				return await retryWithReplace(params as EditParams, toolCallId, signal, onUpdate);
 			}
 			throw err;
 		}
@@ -111,7 +112,7 @@ export function wrapEditWithResilientReplace(pi: ExtensionAPI, tools?: { edit: T
 
 	return true;
 
-	async function retryWithReplace(params: EditParams, toolCallId: string, signal: any, onUpdate: any): Promise<unknown> {
+	async function retryWithReplace(params: EditParams, toolCallId: string, signal: unknown, onUpdate: unknown): Promise<unknown> {
 		const filePath = params.path ?? params.filePath;
 		const oldStr = params.oldString ?? params.old_string;
 		const newStr = params.newString ?? params.new_string;

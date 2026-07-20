@@ -378,7 +378,7 @@
       "format": "esm"
     },
     "src/agents/discover-agents.ts": {
-      "bytes": 25646,
+      "bytes": 25658,
       "imports": [
         {
           "path": "node:fs",
@@ -1231,7 +1231,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 52538,
+      "bytes": 54442,
       "imports": [
         {
           "path": "node:crypto",
@@ -3645,7 +3645,7 @@
       "format": "esm"
     },
     "src/runtime/role-permission.ts": {
-      "bytes": 1396,
+      "bytes": 2949,
       "imports": [],
       "format": "esm"
     },
@@ -6671,7 +6671,7 @@
       "format": "esm"
     },
     "src/extension/run-import.ts": {
-      "bytes": 5982,
+      "bytes": 7115,
       "imports": [
         {
           "path": "node:crypto",
@@ -6712,6 +6712,11 @@
           "path": "src/utils/safe-paths.ts",
           "kind": "import-statement",
           "original": "../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/extension/run-bundle-schema.ts",
@@ -8255,7 +8260,7 @@
       "format": "esm"
     },
     "src/runtime/task-packet.ts": {
-      "bytes": 10509,
+      "bytes": 10512,
       "imports": [
         {
           "path": "node:path",
@@ -12807,7 +12812,7 @@
       "format": "esm"
     },
     "src/runtime/resilient-edit.ts": {
-      "bytes": 5549,
+      "bytes": 5531,
       "imports": [
         {
           "path": "src/runtime/replace.ts",
@@ -12985,7 +12990,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6022611
+      "bytes": 6028075
     },
     "dist/index.mjs": {
       "imports": [
@@ -14776,7 +14781,7 @@
           "bytesInOutput": 4480
         },
         "src/state/event-log.ts": {
-          "bytesInOutput": 28281
+          "bytesInOutput": 28880
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -15109,7 +15114,7 @@
           "bytesInOutput": 15395
         },
         "src/runtime/role-permission.ts": {
-          "bytesInOutput": 1002
+          "bytesInOutput": 1104
         },
         "src/runtime/worker-heartbeat.ts": {
           "bytesInOutput": 580
@@ -15517,7 +15522,7 @@
           "bytesInOutput": 4221
         },
         "src/extension/run-import.ts": {
-          "bytesInOutput": 4272
+          "bytesInOutput": 4467
         },
         "src/extension/run-maintenance.ts": {
           "bytesInOutput": 4797
@@ -16171,7 +16176,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2799130
+      "bytes": 2800026
     }
   }
 }

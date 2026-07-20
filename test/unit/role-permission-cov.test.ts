@@ -59,8 +59,35 @@ describe("permissionForRole", () => {
 		assert.strictEqual(permissionForRole("test-engineer"), "workspace_write");
 	});
 
-	it("returns 'workspace_write' for unknown role", () => {
-		assert.strictEqual(permissionForRole("unknown-role"), "workspace_write");
+	it("returns 'read_only' for unknown role (FIND-12 default-deny)", () => {
+		// FIND-12 (2026-07-20): unknown/custom roles default to read-only
+		// instead of the previous permissive workspace_write. This prevents
+		// privilege escalation via unrecognized agent names. Custom write-capable
+		// roles must be added to the WRITE_ROLES allowlist in role-permission.ts.
+		assert.strictEqual(permissionForRole("unknown-role"), "read_only");
+	});
+
+	// FIND-12 R1 regression test: every SHIPPED write-capable role must resolve
+	// to workspace_write. The executor's initial WRITE_ROLES set omitted these,
+	// silently demoting them (breaking direct-agent + cold-verifier + the chain
+	// workflow). Asserting the real shipped roles guards against future gaps.
+	it("returns 'workspace_write' for the default 'agent' role (direct-agent default)", () => {
+		assert.strictEqual(permissionForRole("agent"), "workspace_write");
+	});
+
+	it("returns 'workspace_write' for cold-verifier (runs bash + cache writes)", () => {
+		assert.strictEqual(permissionForRole("cold-verifier"), "workspace_write");
+	});
+
+	it("returns 'workspace_write' for chain-executor (chain workflow role)", () => {
+		assert.strictEqual(permissionForRole("chain-executor"), "workspace_write");
+	});
+
+	it("returns 'workspace_write' for worker (goal-loop + dynamic-workflow executor)", () => {
+		// FIND-12 R2: the autonomous goal-loop worker (goal-loop-runner.ts) and
+		// dynamic-workflow synthesized roles (run.ts) use role 'worker' — must
+		// stay write-capable or they'd be told not to modify files.
+		assert.strictEqual(permissionForRole("worker"), "workspace_write");
 	});
 });
 

@@ -6,6 +6,7 @@ import { type ConflictReport, detectImportConflicts } from "../runtime/delta-con
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { assertRunBundle } from "./run-bundle-schema.ts";
 
 export interface ImportedRunBundleInfo {
@@ -55,7 +56,15 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 	const raw = JSON.parse(fs.readFileSync(resolvedPath, "utf-8")) as unknown;
 	assertRunBundle(raw);
 
-	// Integrity check: verify SHA-256 hash if present in manifest
+	// Integrity check: verify SHA-256 hash if present in manifest.
+	// SECURITY NOTE: This SHA-256 is a CORRUPTION-DETECTION hash only — it
+	// detects accidental bit-rot or truncation during transfer. It is NOT an
+	// authenticity or tamper-resistance guarantee: the hash is stored INSIDE the
+	// bundle (self-referential), so an attacker who can modify the bundle file
+	// can also recompute and embed a matching hash. For tamper-evidence, an
+	// external HMAC or detached signature would be needed (out of scope).
+	// Blast radius is bounded: imports write to imports/<runId>/ only, execute
+	// no code, and are validated by isContained + assertSafePathId.
 	const bundleJson = fs.readFileSync(resolvedPath, "utf-8");
 	const parsedForHash = JSON.parse(bundleJson) as {
 		manifest?: { sha256?: string };
@@ -78,6 +87,17 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 
 	const runId = assertSafePathId("runId", raw.manifest.runId);
 	const importedAt = new Date().toISOString();
+
+	// FIND-11: audit the import for security traceability. The SHA-256 check
+	// above is corruption-detection only (NOT authenticity/tamper-resistance) —
+	// a tampered bundle carries a matching/absent hash. Use "warn" severity so
+	// this ALWAYS emits ("debug" is gated behind PI_TEAMS_DEBUG → no-op in prod).
+	logInternalError(
+		"security.bundle_imported",
+		new Error("bundle imported"),
+		`runId="${runId}" source="${resolvedPath}" scope="${scope}"`,
+		"warn",
+	);
 
 	// Non-blocking conflict detection: compare incoming bundle against any existing state.
 	let conflictReport: ConflictReport | undefined;

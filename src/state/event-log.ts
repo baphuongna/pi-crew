@@ -543,9 +543,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		} catch {
 			/* file does not exist */
 		}
+		// FIND-10: track whether overflow handling modified the file so we can
+		// reuse fileStat for the post-overflow size check (avoids redundant stat).
+		let overflowHandled = false;
 		if (!isTerminal && fileStat) {
 			const stat = fileStat;
 			if (stat.size > MAX_EVENTS_BYTES) {
+				overflowHandled = true;
 				try {
 					compactEventLog(eventsPath);
 				} catch (error) {
@@ -564,11 +568,17 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				}
 			}
 		}
+		// FIND-10: collapse redundant stat. If no overflow handling occurred,
+		// the file hasn't changed since fileStat — reuse it instead of re-stat'ing.
 		let sizeCheckStat: fs.Stats | undefined;
-		try {
-			sizeCheckStat = await fs.promises.stat(eventsPath).catch(() => undefined);
-		} catch {
-			/* file does not exist */
+		if (overflowHandled) {
+			try {
+				sizeCheckStat = await fs.promises.stat(eventsPath).catch(() => undefined);
+			} catch {
+				/* file does not exist */
+			}
+		} else {
+			sizeCheckStat = fileStat;
 		}
 		try {
 			if (sizeCheckStat && sizeCheckStat.size > MAX_EVENTS_BYTES) {
@@ -583,25 +593,44 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 		}
 
+		// FIND-10: post-append stat captured from the same fd (non-worker path)
+		// for reuse in the cache update below, avoiding a redundant path stat.
+		let postAppendStat: fs.Stats | undefined;
 		if (!skippedDueToSize) {
 			const line = JSON.stringify(redactSecrets(fullEvent)) + "\n";
 			// Phase 1.5: when worker atomic writer is enabled, append via worker.
 			if (isWorkerAtomicWriterEnabled()) {
 				await appendFileViaWorker(eventsPath, line);
+				// Worker path: fsync via a separate open (worker manages its own fd).
+				const fd = await fs.promises.open(eventsPath, "r+");
+				try {
+					await fd.sync();
+				} finally {
+					await fd.close();
+				}
 			} else {
-				await fs.promises.appendFile(eventsPath, line, {
-					encoding: "utf-8",
-					flag: "a",
-				});
-			}
-			// FIX: fsync to ensure event content is flushed to disk before persisting
-			// the sequence number. This closes the crash window between appendFile and
-			// persistSequence where sequence reuse could occur on restart.
-			const fd = await fs.promises.open(eventsPath, "r+");
-			try {
-				await fd.sync();
-			} finally {
-				await fd.close();
+				// FIND-10: single-fd append+fsync. Opens in append mode, writes,
+				// fsyncs on the SAME fd, then closes — eliminating the separate
+				// open("r+") + sync that previously doubled the fd count. The
+				// fsync (seq-integrity protection) is preserved exactly: it still
+				// closes the crash window between append and persistSequence.
+				const fd = await fs.promises.open(eventsPath, "a");
+				try {
+					await fd.appendFile(line, "utf-8");
+					await fd.sync();
+					// FIND-10 R1 fix: the cache-optimization fd.stat() must NOT sit in the
+					// seq-durability critical path. If it threw (rare — fd invalidated),
+					// it would skip persistSequence below and reopen the seq-reuse
+					// window the fsync just closed. Guard it; fall back to undefined
+					// (the later cache-update takes a path stat instead).
+					try {
+						postAppendStat = await fd.stat();
+					} catch {
+						postAppendStat = undefined;
+					}
+				} finally {
+					await fd.close();
+				}
 			}
 			// FIX: Persist sequence AFTER successful appendFile to ensure sidecar
 			// is only updated when the event is definitively written. If appendFile
@@ -609,7 +638,11 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			// preventing sequence reuse on restart.
 			persistSequence(eventsPath, seq);
 		}
+		// FIND-10: track whether compaction happened after the append so the
+		// cache-update stat can safely reuse postAppendStat (file unchanged).
+		let compactedAfterAppend = false;
 		if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+			compactedAfterAppend = true;
 			try {
 				compactEventLog(eventsPath);
 			} catch (error) {
@@ -626,11 +659,18 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		// Only update the cache here (the sidecar persist is already done).
 		const finalSeq = fullEvent.metadata?.seq ?? 0;
 		try {
+			// FIND-10: reuse post-append fd stat when available and no compaction
+			// happened after the append (file unchanged). Falls back to path stat
+			// for the worker path, skipped events, or post-compaction cases.
 			let statResult: fs.Stats | undefined;
-			try {
-				statResult = await fs.promises.stat(eventsPath).catch(() => undefined);
-			} catch {
-				/* file may not exist */
+			if (postAppendStat && !compactedAfterAppend) {
+				statResult = postAppendStat;
+			} else {
+				try {
+					statResult = await fs.promises.stat(eventsPath).catch(() => undefined);
+				} catch {
+					/* file may not exist */
+				}
 			}
 			if (statResult) {
 				if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
