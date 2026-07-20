@@ -808,3 +808,71 @@ test("Rule 1: no batch_id preserves individual notification (default behavior)",
 		await removeDirWithRetry(cwd);
 	}
 });
+
+test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rule3-coalesce-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousCrewRole = process.env.PI_CREW_ROLE;
+	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
+	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	delete process.env.PI_CREW_ROLE;
+	delete process.env.PI_TEAMS_ROLE;
+	let fake: ReturnType<typeof createFakePi> | undefined;
+	try {
+		fake = createFakePi();
+		registerPiTeams(fake.api as never);
+		const ctx = fakeCtx(cwd) as never;
+		// Launch 3 background agents with NO batch_id, WITHOUT joining. Their
+		// near-simultaneous completions should be auto-coalesced (Rule 3) into
+		// fewer wake-ups than agents — ideally ONE consolidated notify.
+		for (const desc of ["X", "Y", "Z"]) {
+			await fake.tools.get("Agent").execute(
+				`rule3-${desc}`,
+				{
+					prompt: `Task ${desc}`,
+					description: `agent ${desc}`,
+					subagent_type: "explorer",
+					run_in_background: true,
+				},
+				undefined,
+				undefined,
+				ctx,
+			);
+		}
+		// Wait for notifications, then a grace window for any stragglers.
+		const deadline = Date.now() + 30_000;
+		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+		const graceDeadline = Date.now() + 2500;
+		while (Date.now() < graceDeadline) await new Promise((resolve) => setTimeout(resolve, 100));
+		// Rule 3: coalescing must reduce 3 near-simultaneous completions to fewer
+		// than 3 wake-ups (ideally 1; timing may split into 2 — both prove
+		// coalescing occurred, vs the un-coalesced baseline of 3 individual drips).
+		assert.ok(
+			fake.sentUserMessages.length < 3,
+			`Rule 3 coalescing expected < 3 notifies for 3 near-simultaneous completions, got ${fake.sentUserMessages.length}`,
+		);
+		// And at least one notify must be the coalesced (multi-agent) form.
+		assert.ok(
+			fake.sentUserMessages.some((m) => /background subagents changed state \(coalesced\)/.test(m.content)),
+			"expected at least one coalesced (multi-agent) notification",
+		);
+	} finally {
+		fake?.api.events.emit("session_shutdown", {});
+		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
+		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
+		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
+		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
+		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
+		else process.env.PI_CREW_ROLE = previousCrewRole;
+		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
+		else process.env.PI_TEAMS_ROLE = previousTeamsRole;
+		await removeDirWithRetry(cwd);
+	}
+});
