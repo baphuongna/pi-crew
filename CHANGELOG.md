@@ -3,7 +3,7 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
-## [unreleased] — Deep-review Phase 5 remediation (2026-07-20)
+## [0.9.45] — Deep-review 2026-07-20 remediation (all 5 phases, 14 findings)
 
 ### ⚠️ BREAKING: custom agent roles default to read-only (FIND-12)
 
