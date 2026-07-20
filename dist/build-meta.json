@@ -126,7 +126,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 22991,
+      "bytes": 24376,
       "imports": [
         {
           "path": "node:async_hooks",
@@ -1194,7 +1194,7 @@
       "format": "esm"
     },
     "src/utils/incremental-reader.ts": {
-      "bytes": 5810,
+      "bytes": 6216,
       "imports": [
         {
           "path": "node:fs",
@@ -12990,7 +12990,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6028075
+      "bytes": 6030168
     },
     "dist/index.mjs": {
       "imports": [
@@ -14634,7 +14634,7 @@
           "bytesInOutput": 4426
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 8854
+          "bytesInOutput": 9166
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -14775,7 +14775,7 @@
           "bytesInOutput": 10871
         },
         "src/utils/incremental-reader.ts": {
-          "bytesInOutput": 3886
+          "bytesInOutput": 3934
         },
         "src/state/event-log-rotation.ts": {
           "bytesInOutput": 4480
@@ -16176,7 +16176,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2800026
+      "bytes": 2800386
     }
   }
 }

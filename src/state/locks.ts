@@ -455,11 +455,34 @@ const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
 // Mirrors the structure of withEventLogLockAsync in event-log.ts.
 const fileAsyncLocks = new Map<string, Promise<unknown>>();
 
+// FIND-02 follow-up (P3): re-entrance guard for the async file lock, mirroring
+// the lockCtx pattern used by withRunLock. A future caller doing same-path
+// nested withFileLockAsync(path, ...) inside another withFileLockAsync(path,
+// ...) in the SAME async context would otherwise deadlock (the nested call
+// chains after the outer's still-pending promise). AsyncLocalStorage scopes
+// the held set to the current async context so cross-context callers still
+// serialize via the promise chain (Phase 1 mailbox path is unaffected).
+const fileAsyncLockCtx = new AsyncLocalStorage<Set<string>>();
+
 export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+	// Re-entrant within the same async context — run fn() directly (no chaining).
+	// Same semantics as the sync guard in withFileLockSync (fileLockHeldByUs)
+	// and the async guard in withRunLock (lockCtx).
+	if (fileAsyncLockCtx.getStore()?.has(filePath)) {
+		return await fn();
+	}
+	// Merge with the parent context's held set so nested DIFFERENT-path locks
+	// also bypass correctly (prevents cross-path deadlock, matching withRunLock).
+	const prevHeld = fileAsyncLockCtx.getStore() ?? new Set<string>();
+	const held = new Set(prevHeld);
+	held.add(filePath);
 	const prev = fileAsyncLocks.get(filePath) ?? Promise.resolve();
 	// Chain fn after the previous holder. `next` may reject (propagating to the
 	// caller), but `stored` never rejects so subsequent waiters aren't blocked.
-	const next = prev.then(() => fn());
+	// fn() is wrapped in fileAsyncLockCtx.run so nested same-context calls see
+	// `held` and bypass the promise chain (re-entrant), while cross-context
+	// callers chain normally via `prev`.
+	const next = prev.then(() => fileAsyncLockCtx.run(held, () => fn()));
 	const stored = next.then(
 		() => undefined,
 		() => undefined,

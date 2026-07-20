@@ -53,7 +53,12 @@ export function readJsonlTail<T>(filePath: string, tailBytes: number): {
 
 	let fd: number | undefined;
 	try {
-		fd = fs.openSync(filePath, "r");
+		// FIND-05 follow-up: O_NOFOLLOW refuses symlinks (defense-in-depth,
+		// consistent with atomicWriteFile / resolveRealContainedPath). The
+		// eventsPath is validated inside stateRoot, but this guards against a
+		// symlinked file appearing after validation. O_NOFOLLOW on a symlink
+		// yields ELOOP, which the catch below treats like ENOENT (return empty).
+		fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
 	} catch {
 		return { items: [], fileSize, bytesRead: 0, truncated: false };
 	}
