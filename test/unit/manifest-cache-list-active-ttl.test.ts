@@ -24,7 +24,6 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
@@ -60,91 +59,45 @@ const workflow: WorkflowConfig = {
  * refresh the ESM namespace. This is the same pattern documented in the
  * Node.js test suite (test/parallel/test-mock-fs-statSync).
  */
-function countStatsUnder(root: string): { count: () => number; restore: () => void } {
-	// Wrap fs.statSync on the NAMESPACE import (what parseManifestIfChanged calls).
-	// The previous fs.default ?? fs heuristic wrapped fs.default.statSync on
-	// platforms where fs.default exists (CJS interop differs on macOS/Windows),
-	// which is a DIFFERENT reference from fs.statSync, so the spy silently
-	// missed every call (count 0). Wrap the namespace directly; also belt-and-
-	// suspenders wrap fs.default.statSync if it points to a distinct function.
-	const fsNs = fs as unknown as { statSync: typeof fs.statSync };
-	const defaultFs = (fsNs as { default?: { statSync?: typeof fs.statSync } }).default;
-	const original = fsNs.statSync;
-	let calls = 0;
-	const wrapped = ((target: fs.PathLike, ...rest: unknown[]) => {
-		try {
-			const resolved = path.resolve(typeof target === "string" ? target : target.toString());
-			if (resolved.startsWith(path.resolve(root) + path.sep)) {
-				calls++;
-			}
-		} catch {
-			/* ignore path normalization errors */
-		}
-		return original.call(fsNs as unknown as typeof fs, target, ...rest);
-	}) as typeof fs.statSync;
-	fsNs.statSync = wrapped;
-	if (
-		defaultFs &&
-		typeof defaultFs.statSync === "function" &&
-		defaultFs.statSync !== original &&
-		defaultFs.statSync !== wrapped
-	) {
-		(defaultFs as { statSync: typeof fs.statSync }).statSync = wrapped;
-	}
-	syncBuiltinESMExports();
-	return {
-		count: () => calls,
-		restore: () => {
-			fsNs.statSync = original;
-			if (defaultFs && (defaultFs as { statSync?: typeof fs.statSync }).statSync === wrapped) {
-				(defaultFs as { statSync: typeof fs.statSync }).statSync = original;
-			}
-			syncBuiltinESMExports();
-		},
-	};
-}
-
 test("listActive memoizes within TTL — many calls only scan once", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-list-active-ttl-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
+		const runIds: string[] = [];
 		for (let i = 0; i < 5; i++) {
 			const { manifest } = createRunManifest({ cwd, team, workflow, goal: `g${i}` });
 			updateRunStatus(manifest, "running", "test");
+			runIds.push(manifest.runId);
 		}
 
 		const cache = createManifestCache(cwd, { watch: false });
 
-		// Warm the cache. This call triggers exactly 1 full scan → 5 stat
-		// calls (one per manifest in this cwd, plus stat calls for other
-		// active-run-registry manifests in userCrewRoot which we filter out).
-		const statCounter = countStatsUnder(path.join(cwd, ".crew"));
-		try {
-			const warm = cache.listActive(1000);
-			assert.ok(warm.length >= 5, "warm call should return at least the 5 created runs");
-			const baseline = statCounter.count();
-			assert.ok(baseline >= 5, `warm scan must stat at least 5 manifests (got ${baseline})`);
+		// Warm the cache (1 full scan reads all manifests → all status "running").
+		const warm = cache.listActive(1000);
+		assert.ok(warm.length >= 5, "warm call should return at least the 5 created runs");
 
-			// Do many calls back-to-back within the 500ms TTL. With the cache
-			// working, NO additional stats should be issued (parseManifestIfChanged
-			// is gated by the cache hit). Without the cache, we'd see 5 stats
-			// per call × 49 calls = 245 additional stats.
-			for (let i = 0; i < 49; i++) {
-				cache.listActive(1000);
-			}
-			const afterBurst = statCounter.count();
-			const delta = afterBurst - baseline;
-			assert.equal(
-				delta,
-				0,
-				`cached calls must NOT re-stat manifests; expected 0 new stats, got ${delta} (baseline=${baseline}, afterBurst=${afterBurst})`,
-			);
+		// Mutate one manifest on disk to status "completed". A re-scan would
+		// pick this up; a memoized (TTL-cached) call returns the cached
+		// "running" snapshot. We verify TTL behavior WITHOUT spying fs.statSync
+		// (which is a read-only property on modern Node ESM module namespaces,
+		// making stat-counting spies fragile across Node versions).
+		const mutated = runIds[0]!;
+		const mutatedManifest = warm.find((m) => m.runId === mutated)!;
+		updateRunStatus(mutatedManifest, "completed", "test");
 
-			// Sanity: the cap must be respected on the returned slice.
-			assert.equal(cache.listActive(2).length, 2, "capped slice must respect the limit");
-		} finally {
-			statCounter.restore();
-		}
+		// 49 calls within the 500ms TTL. None should re-scan, so the mutated
+		// runId must still report the cached "running" status.
+		for (let i = 0; i < 49; i++) cache.listActive(1000);
+		const afterBurst = cache.listActive(1000);
+		const mutatedObserved = afterBurst.find((m) => m.runId === mutated);
+		assert.equal(
+			mutatedObserved?.status,
+			"running",
+			`cached calls must NOT re-scan manifests; expected mutated runId=${mutated} to still report cached 'running', got '${mutatedObserved?.status}'`,
+		);
+
+		// Cap is applied post-cache on every return.
+		assert.equal(cache.listActive(2).length, 2, "capped slice must respect the limit");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -154,34 +107,38 @@ test("listActive re-scans after cache.clear() (the watcher invalidation path)", 
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-list-active-invalidate-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
+		const cache = createManifestCache(cwd, { watch: false });
+
+		// Create 5 manifests and warm the cache (snapshot of 5).
 		for (let i = 0; i < 5; i++) {
 			const { manifest } = createRunManifest({ cwd, team, workflow, goal: `g${i}` });
 			updateRunStatus(manifest, "running", "test");
 		}
+		const warm = cache.listActive(1000);
+		assert.ok(warm.length >= 5, "warm should return the 5 initial manifests");
 
-		const cache = createManifestCache(cwd, { watch: false });
-		// Warm the cache.
-		cache.listActive(1000);
+		// Add a 6th running manifest on disk AFTER warming. A memoized (TTL-cached)
+		// call won't see it; a re-scan (after clear) will.
+		const { manifest: newManifest } = createRunManifest({ cwd, team, workflow, goal: "g-new" });
+		updateRunStatus(newManifest, "running", "test");
+		const newRunId = newManifest.runId;
 
-		const statCounter = countStatsUnder(path.join(cwd, ".crew"));
-		try {
-			const before = statCounter.count();
-			// Calls within TTL — should not stat.
-			for (let i = 0; i < 10; i++) {
-				cache.listActive(1000);
-			}
-			assert.equal(statCounter.count() - before, 0, "warm cache must not re-stat");
+		// Within TTL: cached result must NOT include the newly-created run.
+		const cached = cache.listActive(1000);
+		assert.equal(
+			cached.some((m) => m.runId === newRunId),
+			false,
+			`pre-clear: cached call must NOT include the newly-created runId=${newRunId} (proves no re-scan)`,
+		);
 
-			// cache.clear() routes through invalidate() which now also drops
-			// the listActive cache. The next call must re-scan and produce
-			// at least 5 new stat calls (one per manifest).
-			cache.clear();
-			cache.listActive(1000);
-			const afterClear = statCounter.count() - before;
-			assert.ok(afterClear >= 5, `post-clear call must re-stat manifests; expected >=5 new stats, got ${afterClear}`);
-		} finally {
-			statCounter.restore();
-		}
+		// cache.clear() drops the listActive cache → next call must re-scan and
+		// surface the newly-created running manifest.
+		cache.clear();
+		const afterClear = cache.listActive(1000);
+		assert.ok(
+			afterClear.some((m) => m.runId === newRunId),
+			`post-clear call must re-scan and include the newly-created runId=${newRunId} (proves clear drops cache)`,
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
