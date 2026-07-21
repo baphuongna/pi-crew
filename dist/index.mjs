@@ -64,7 +64,7 @@ var init_validation_types = __esm({
 
 // src/schema/config-schema.ts
 import { Type } from "@sinclair/typebox";
-var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, PiTeamsConfigSchema;
+var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, CrewBrokerConfigSchema, PiTeamsConfigSchema;
 var init_config_schema = __esm({
   "src/schema/config-schema.ts"() {
     "use strict";
@@ -311,6 +311,15 @@ var init_config_schema = __esm({
       },
       { additionalProperties: false }
     );
+    CrewBrokerConfigSchema = Type.Object(
+      {
+        enabled: Type.Optional(Type.Boolean()),
+        pathHashLen: Type.Optional(Type.Integer({ minimum: 4, maximum: 32 })),
+        maxFrameBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 1048576 })),
+        outboundQueueCap: Type.Optional(Type.Integer({ minimum: 32, maximum: 4096 }))
+      },
+      { additionalProperties: false }
+    );
     PiTeamsConfigSchema = Type.Object(
       {
         asyncByDefault: Type.Optional(Type.Boolean()),
@@ -332,10 +341,153 @@ var init_config_schema = __esm({
         observability: Type.Optional(PiTeamsObservabilityConfigSchema),
         reliability: Type.Optional(PiTeamsReliabilityConfigSchema),
         otlp: Type.Optional(PiTeamsOtlpConfigSchema),
-        ui: Type.Optional(PiTeamsUiConfigSchema)
+        ui: Type.Optional(PiTeamsUiConfigSchema),
+        broker: Type.Optional(CrewBrokerConfigSchema)
       },
       { additionalProperties: false }
     );
+  }
+});
+
+// src/config/defaults.ts
+function resolveBrokerEnvOverride(parsed) {
+  const override = process.env.PI_CREW_BROKER;
+  if (override === "1" || override === "0") {
+    const base = parsed ?? {};
+    return { ...base, enabled: override === "1" };
+  }
+  return parsed;
+}
+var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER;
+var init_defaults = __esm({
+  "src/config/defaults.ts"() {
+    "use strict";
+    DEFAULT_CHILD_PI = {
+      postExitStdioGuardMs: 3e3,
+      finalDrainMs: 5e3,
+      finalDrainQuietMs: 800,
+      hardKillMs: 3e3,
+      // Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
+      // Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
+      responseTimeoutMs: 5 * 6e4,
+      // #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
+      // diagnostic stderr is less likely to be silently truncated during hang analysis.
+      maxCaptureBytes: 512 * 1024,
+      // L4 output-handling: thresholds sized from real worker-output data
+      // (27 result artifacts measured: max 9226 bytes, median 8272, 100% < 16KB).
+      // Previous values (8192/1024/4096) truncated 62% of real results.
+      // See .crew/research/worker-output-handling.md + source/deer-flow/.research/.
+      maxAssistantTextChars: 16384,
+      maxToolResultChars: 8192,
+      maxToolInputChars: 4096,
+      maxCompactContentChars: 8192
+    };
+    DEFAULT_LIVE_SESSION = {
+      /** Maximum wall-clock time for a single live-session task before abort (ms). */
+      responseTimeoutMs: 10 * 6e4,
+      // 10 minutes - increased from 5min for complex verification
+      /** Maximum yield reminder attempts before accepting no-yield. */
+      maxYieldRetries: 3,
+      /** Polling interval for session idle check during yield enforcement (ms). */
+      yieldPollIntervalMs: 500,
+      /** Maximum time to wait for session idle after prompt (ms). */
+      idleWaitTimeoutMs: 6e4
+    };
+    DEFAULT_LOCKS = {
+      staleMs: 3e4
+    };
+    DEFAULT_CONCURRENCY = {
+      hardCap: 8,
+      workflow: {
+        parallelResearch: 4,
+        research: 3,
+        implementation: 4,
+        review: 3,
+        default: 3
+      },
+      fallback: 2
+    };
+    DEFAULT_EVENT_LOG = {
+      terminalEventTypes: [
+        "run.blocked",
+        "run.completed",
+        "run.failed",
+        "run.cancelled",
+        "task.completed",
+        "task.failed",
+        "task.skipped",
+        "task.cancelled",
+        "task.needs_attention"
+      ]
+    };
+    DEFAULT_ARTIFACT_CLEANUP = {
+      maxAgeDays: 7
+    };
+    DEFAULT_OUTPUT_CONTEXT = {
+      /** Per-dep inline-bytes cap (chars). Set by plan §5 L4 (96 KB total). */
+      maxResultInlineBytes: 32e3,
+      /** Total inline-bytes budget across all deps for one downstream worker. */
+      maxTotalDepInlineBytes: 96e3,
+      /** Tee recovery threshold: only when file > TEE_THRESHOLD_MULTIPLIER *
+       *  maxResultInlineBytes, the truncated inline is also written to a
+       *  tee file (R2: 1.25x = 40 KB). */
+      teeThresholdMultiplier: 1.25
+    };
+    DEFAULT_PATHS = {
+      state: {
+        runsSubdir: "state/runs",
+        artifactsSubdir: "artifacts",
+        subagentsSubdir: "state/subagents",
+        importsSubdir: "imports",
+        worktreesSubdir: "worktrees",
+        manifestFile: "manifest.json",
+        tasksFile: "tasks.json",
+        eventsFile: "events.jsonl"
+      }
+    };
+    DEFAULT_UI = {
+      refreshMs: 1e3,
+      notifierIntervalMs: 5e3,
+      widgetDefaultFrameMs: 1e3,
+      widgetPlacement: "aboveEditor",
+      widgetMaxLines: 8,
+      powerbar: true,
+      dashboardPlacement: "center",
+      dashboardWidth: 72,
+      dashboardLiveRefreshMs: 1e3,
+      autoOpenDashboard: false,
+      autoOpenDashboardForForegroundRuns: false,
+      showModel: true,
+      showTokens: true,
+      showTools: true,
+      transcriptTailBytes: 1024 * 1024,
+      mascotStyle: "cat",
+      mascotEffect: "random"
+    };
+    DEFAULT_NOTIFICATIONS = {
+      severityFilter: ["warning", "error", "critical"],
+      dedupWindowMs: 3e4,
+      batchWindowMs: 0,
+      sinkRetentionDays: 7
+    };
+    DEFAULT_CACHE = {
+      manifestMaxEntries: 64
+    };
+    DEFAULT_MAILBOX = {
+      perFileThresholdBytes: 10 * 1024 * 1024,
+      // 10MB per mailbox file
+      maxArchivesPerDirection: 10
+      // Keep at most 10 archives per direction per run
+    };
+    DEFAULT_SUBAGENT = {
+      stuckBlockedNotifyMs: 5 * 6e4
+    };
+    DEFAULT_BROKER = {
+      enabled: false,
+      pathHashLen: 8,
+      maxFrameBytes: 262144,
+      outboundQueueCap: 256
+    };
   }
 });
 
@@ -403,8 +555,8 @@ import * as path from "node:path";
 import { Worker } from "node:worker_threads";
 function getWorker() {
   if (worker) return worker;
-  const os17 = require2("node:os");
-  const tmpPath = path.join(fs.mkdtempSync(path.join(os17.tmpdir(), "pi-crew-waw-")), "worker.cjs");
+  const os18 = require2("node:os");
+  const tmpPath = path.join(fs.mkdtempSync(path.join(os18.tmpdir(), "pi-crew-waw-")), "worker.cjs");
   fs.writeFileSync(tmpPath, WORKER_SOURCE, "utf-8");
   worker = new Worker(tmpPath);
   worker.on("message", (msg) => {
@@ -885,8 +1037,8 @@ function atomicWriteFile(filePath, content, options) {
       }
     } catch (renameError) {
       try {
-        const lstat = fs2.lstatSync(filePath);
-        if (lstat.isSymbolicLink()) {
+        const lstat2 = fs2.lstatSync(filePath);
+        if (lstat2.isSymbolicLink()) {
           throw renameError;
         }
       } catch (checkError) {
@@ -1053,134 +1205,6 @@ var init_atomic_write = __esm({
     process.on("exit", () => flushPendingAtomicWrites());
     process.on("SIGTERM", () => setImmediate(() => flushPendingAtomicWrites()));
     process.on("SIGINT", () => setImmediate(() => flushPendingAtomicWrites()));
-  }
-});
-
-// src/config/defaults.ts
-var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT;
-var init_defaults = __esm({
-  "src/config/defaults.ts"() {
-    "use strict";
-    DEFAULT_CHILD_PI = {
-      postExitStdioGuardMs: 3e3,
-      finalDrainMs: 5e3,
-      finalDrainQuietMs: 800,
-      hardKillMs: 3e3,
-      // Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
-      // Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
-      responseTimeoutMs: 5 * 6e4,
-      // #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
-      // diagnostic stderr is less likely to be silently truncated during hang analysis.
-      maxCaptureBytes: 512 * 1024,
-      // L4 output-handling: thresholds sized from real worker-output data
-      // (27 result artifacts measured: max 9226 bytes, median 8272, 100% < 16KB).
-      // Previous values (8192/1024/4096) truncated 62% of real results.
-      // See .crew/research/worker-output-handling.md + source/deer-flow/.research/.
-      maxAssistantTextChars: 16384,
-      maxToolResultChars: 8192,
-      maxToolInputChars: 4096,
-      maxCompactContentChars: 8192
-    };
-    DEFAULT_LIVE_SESSION = {
-      /** Maximum wall-clock time for a single live-session task before abort (ms). */
-      responseTimeoutMs: 10 * 6e4,
-      // 10 minutes - increased from 5min for complex verification
-      /** Maximum yield reminder attempts before accepting no-yield. */
-      maxYieldRetries: 3,
-      /** Polling interval for session idle check during yield enforcement (ms). */
-      yieldPollIntervalMs: 500,
-      /** Maximum time to wait for session idle after prompt (ms). */
-      idleWaitTimeoutMs: 6e4
-    };
-    DEFAULT_LOCKS = {
-      staleMs: 3e4
-    };
-    DEFAULT_CONCURRENCY = {
-      hardCap: 8,
-      workflow: {
-        parallelResearch: 4,
-        research: 3,
-        implementation: 4,
-        review: 3,
-        default: 3
-      },
-      fallback: 2
-    };
-    DEFAULT_EVENT_LOG = {
-      terminalEventTypes: [
-        "run.blocked",
-        "run.completed",
-        "run.failed",
-        "run.cancelled",
-        "task.completed",
-        "task.failed",
-        "task.skipped",
-        "task.cancelled",
-        "task.needs_attention"
-      ]
-    };
-    DEFAULT_ARTIFACT_CLEANUP = {
-      maxAgeDays: 7
-    };
-    DEFAULT_OUTPUT_CONTEXT = {
-      /** Per-dep inline-bytes cap (chars). Set by plan §5 L4 (96 KB total). */
-      maxResultInlineBytes: 32e3,
-      /** Total inline-bytes budget across all deps for one downstream worker. */
-      maxTotalDepInlineBytes: 96e3,
-      /** Tee recovery threshold: only when file > TEE_THRESHOLD_MULTIPLIER *
-       *  maxResultInlineBytes, the truncated inline is also written to a
-       *  tee file (R2: 1.25x = 40 KB). */
-      teeThresholdMultiplier: 1.25
-    };
-    DEFAULT_PATHS = {
-      state: {
-        runsSubdir: "state/runs",
-        artifactsSubdir: "artifacts",
-        subagentsSubdir: "state/subagents",
-        importsSubdir: "imports",
-        worktreesSubdir: "worktrees",
-        manifestFile: "manifest.json",
-        tasksFile: "tasks.json",
-        eventsFile: "events.jsonl"
-      }
-    };
-    DEFAULT_UI = {
-      refreshMs: 1e3,
-      notifierIntervalMs: 5e3,
-      widgetDefaultFrameMs: 1e3,
-      widgetPlacement: "aboveEditor",
-      widgetMaxLines: 8,
-      powerbar: true,
-      dashboardPlacement: "center",
-      dashboardWidth: 72,
-      dashboardLiveRefreshMs: 1e3,
-      autoOpenDashboard: false,
-      autoOpenDashboardForForegroundRuns: false,
-      showModel: true,
-      showTokens: true,
-      showTools: true,
-      transcriptTailBytes: 1024 * 1024,
-      mascotStyle: "cat",
-      mascotEffect: "random"
-    };
-    DEFAULT_NOTIFICATIONS = {
-      severityFilter: ["warning", "error", "critical"],
-      dedupWindowMs: 3e4,
-      batchWindowMs: 0,
-      sinkRetentionDays: 7
-    };
-    DEFAULT_CACHE = {
-      manifestMaxEntries: 64
-    };
-    DEFAULT_MAILBOX = {
-      perFileThresholdBytes: 10 * 1024 * 1024,
-      // 10MB per mailbox file
-      maxArchivesPerDirection: 10
-      // Keep at most 10 archives per direction per run
-    };
-    DEFAULT_SUBAGENT = {
-      stuckBlockedNotifyMs: 5 * 6e4
-    };
   }
 });
 
@@ -1834,14 +1858,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!Value2.Check(PiTeamsConfigSchema, raw)) {
     return [...Value2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path83 = errorPathFromValidation(error);
+      const path84 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path83.split("/").pop() ?? path83;
+        const offendingKey = path84.split("/").pop() ?? path84;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path83}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path84}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path83}: ${message}`;
+      return `${path84}: ${message}`;
     });
   }
   return [];
@@ -2235,6 +2259,21 @@ function parseControlConfig(value) {
   };
   return Object.values(control).some((entry) => entry !== void 0) ? control : void 0;
 }
+function parseBrokerConfig(value) {
+  const obj = asRecord(value);
+  if (!obj) return void 0;
+  const broker = {
+    enabled: parseWithSchema(Type2.Boolean(), obj.enabled),
+    pathHashLen: parsePositiveInteger(obj.pathHashLen, 8),
+    maxFrameBytes: parsePositiveInteger(obj.maxFrameBytes, 262144),
+    outboundQueueCap: parsePositiveInteger(obj.outboundQueueCap, 256)
+  };
+  return Object.values(broker).some((entry) => entry !== void 0) ? broker : void 0;
+}
+function applyBrokerEnvOverrideAndDefaults(parsed) {
+  const envOverridden = resolveBrokerEnvOverride(parsed);
+  return { ...DEFAULT_BROKER, ...envOverridden };
+}
 function parseWorktreeConfig(value) {
   const obj = asRecord(value);
   if (!obj) return void 0;
@@ -2473,7 +2512,8 @@ function parseConfig(raw) {
     observability: parseObservabilityConfig(obj.observability),
     reliability: parseReliabilityConfig(obj.reliability),
     otlp: parseOtlpConfig(obj.otlp),
-    ui: parseUiConfig(obj.ui)
+    ui: parseUiConfig(obj.ui),
+    broker: parseBrokerConfig(obj.broker)
   };
 }
 function parseConfigWithWarnings(raw) {
@@ -2585,7 +2625,13 @@ function loadConfig(cwd) {
   const result4 = {
     path: filePath,
     paths,
-    config,
+    config: {
+      ...config,
+      // Phase 0 broker: layer in env override + defaults. Env wins over
+      // config; defaults fill any missing field. Env `"1"`/`"0"` forces
+      // the enabled flag even when no broker block is configured.
+      broker: applyBrokerEnvOverrideAndDefaults(config.broker)
+    },
     warnings: warnings.length > 0 ? warnings : void 0
   };
   if (Object.keys(readCacheMtimes(cacheParts)).length > 0) {
@@ -2641,6 +2687,7 @@ var init_config = __esm({
   "src/config/config.ts"() {
     "use strict";
     init_config_schema();
+    init_defaults();
     init_atomic_write();
     init_locks();
     init_internal_error();
@@ -3751,16 +3798,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path83 = "";
+  let path84 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path83 = scpLikeMatch[2] ?? "";
+    path84 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path83 = parsed.pathname.replace(/^\/+/, "");
+      path84 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -3770,13 +3817,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path83 = repoWithoutRef.slice(slashIndex + 1);
+    path84 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path83.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path84.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -5542,14 +5589,14 @@ function buildPiWorkerArgs(input) {
 function cleanupTempDir(tempDir) {
   if (!tempDir) return;
   try {
-    let lstat;
+    let lstat2;
     try {
-      lstat = fs16.lstatSync(tempDir);
+      lstat2 = fs16.lstatSync(tempDir);
     } catch {
       createdTempDirs.delete(tempDir);
       return;
     }
-    if (lstat.isSymbolicLink()) {
+    if (lstat2.isSymbolicLink()) {
       createdTempDirs.delete(tempDir);
       return;
     }
@@ -5563,15 +5610,15 @@ function cleanupAllTrackedTempDirs() {
   let failed = 0;
   for (const dir of [...createdTempDirs]) {
     try {
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         createdTempDirs.delete(dir);
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) {
+      if (lstat2.isSymbolicLink()) {
         createdTempDirs.delete(dir);
         continue;
       }
@@ -5605,14 +5652,14 @@ function cleanupOrphanTempDirs(now = Date.now(), baseDir = path16.join(userPiRoo
     for (const entry of candidates) {
       scanned++;
       const dir = path16.join(baseDir, entry.name);
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) continue;
+      if (lstat2.isSymbolicLink()) continue;
       if (createdTempDirs.has(dir)) continue;
       try {
         let preRmlstat;
@@ -5648,14 +5695,14 @@ function cleanupLegacyOrphanTempDirs(now = Date.now(), tmpDirOverride = os7.tmpd
     for (const entry of candidates) {
       scanned++;
       const dir = path16.join(tmpDir, entry.name);
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) continue;
+      if (lstat2.isSymbolicLink()) continue;
       const crewDir = path16.join(dir, ".crew");
       let crewDirLstat;
       try {
@@ -6297,6 +6344,10 @@ function prepareSpawnContext(input, effectiveTask) {
     role: input.role
   });
   if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+  if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
+    built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
+    built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+  }
   if (input.signal?.aborted) {
     return {
       kind: "aborted",
@@ -7401,7 +7452,18 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
     return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
   }
-  const spawnPrep = prepareSpawnContext(input, effectiveTask);
+  let brokerSpawn = input.brokerSpawn;
+  if (!brokerSpawn && input.brokerIssuer && input.runId) {
+    try {
+      brokerSpawn = await input.brokerIssuer(input.runId);
+    } catch {
+      brokerSpawn = void 0;
+    }
+  }
+  const spawnPrep = prepareSpawnContext(
+    brokerSpawn ? { ...input, brokerSpawn } : input,
+    effectiveTask
+  );
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
@@ -8677,13 +8739,13 @@ var init_errors = __esm({
       }
     };
     errors = {
-      fileRead(path83, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path83}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path84, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path83, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path83}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path84, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -13594,8 +13656,8 @@ var init_config_patch = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path83, value) {
-  const keys = path83.split(".");
+function setNested(obj, path84, value) {
+  const keys = path84.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -13605,8 +13667,8 @@ function setNested(obj, path83, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path83) {
-  const keys = path83.split(".");
+function getNested(obj, path84) {
+  const keys = path84.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -14559,17 +14621,17 @@ var require_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    function visit_(key, node, visitor, path83) {
-      const ctrl = callVisitor(key, node, visitor, path83);
+    function visit_(key, node, visitor, path84) {
+      const ctrl = callVisitor(key, node, visitor, path84);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path83, ctrl);
-        return visit_(key, ctrl, visitor, path83);
+        replaceNode(key, path84, ctrl);
+        return visit_(key, ctrl, visitor, path84);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path83 = Object.freeze(path83.concat(node));
+          path84 = Object.freeze(path84.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = visit_(i, node.items[i], visitor, path83);
+            const ci = visit_(i, node.items[i], visitor, path84);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14580,13 +14642,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path83 = Object.freeze(path83.concat(node));
-          const ck = visit_("key", node.key, visitor, path83);
+          path84 = Object.freeze(path84.concat(node));
+          const ck = visit_("key", node.key, visitor, path84);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = visit_("value", node.value, visitor, path83);
+          const cv = visit_("value", node.value, visitor, path84);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14607,17 +14669,17 @@ var require_visit = __commonJS({
     visitAsync.BREAK = BREAK;
     visitAsync.SKIP = SKIP;
     visitAsync.REMOVE = REMOVE;
-    async function visitAsync_(key, node, visitor, path83) {
-      const ctrl = await callVisitor(key, node, visitor, path83);
+    async function visitAsync_(key, node, visitor, path84) {
+      const ctrl = await callVisitor(key, node, visitor, path84);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path83, ctrl);
-        return visitAsync_(key, ctrl, visitor, path83);
+        replaceNode(key, path84, ctrl);
+        return visitAsync_(key, ctrl, visitor, path84);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path83 = Object.freeze(path83.concat(node));
+          path84 = Object.freeze(path84.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = await visitAsync_(i, node.items[i], visitor, path83);
+            const ci = await visitAsync_(i, node.items[i], visitor, path84);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14628,13 +14690,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path83 = Object.freeze(path83.concat(node));
-          const ck = await visitAsync_("key", node.key, visitor, path83);
+          path84 = Object.freeze(path84.concat(node));
+          const ck = await visitAsync_("key", node.key, visitor, path84);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = await visitAsync_("value", node.value, visitor, path83);
+          const cv = await visitAsync_("value", node.value, visitor, path84);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14661,23 +14723,23 @@ var require_visit = __commonJS({
       }
       return visitor;
     }
-    function callVisitor(key, node, visitor, path83) {
+    function callVisitor(key, node, visitor, path84) {
       if (typeof visitor === "function")
-        return visitor(key, node, path83);
+        return visitor(key, node, path84);
       if (identity.isMap(node))
-        return visitor.Map?.(key, node, path83);
+        return visitor.Map?.(key, node, path84);
       if (identity.isSeq(node))
-        return visitor.Seq?.(key, node, path83);
+        return visitor.Seq?.(key, node, path84);
       if (identity.isPair(node))
-        return visitor.Pair?.(key, node, path83);
+        return visitor.Pair?.(key, node, path84);
       if (identity.isScalar(node))
-        return visitor.Scalar?.(key, node, path83);
+        return visitor.Scalar?.(key, node, path84);
       if (identity.isAlias(node))
-        return visitor.Alias?.(key, node, path83);
+        return visitor.Alias?.(key, node, path84);
       return void 0;
     }
-    function replaceNode(key, path83, node) {
-      const parent = path83[path83.length - 1];
+    function replaceNode(key, path84, node) {
+      const parent = path84[path84.length - 1];
       if (identity.isCollection(parent)) {
         parent.items[key] = node;
       } else if (identity.isPair(parent)) {
@@ -15287,10 +15349,10 @@ var require_Collection = __commonJS({
     var createNode = require_createNode();
     var identity = require_identity();
     var Node = require_Node();
-    function collectionFromPath(schema, path83, value) {
+    function collectionFromPath(schema, path84, value) {
       let v = value;
-      for (let i = path83.length - 1; i >= 0; --i) {
-        const k = path83[i];
+      for (let i = path84.length - 1; i >= 0; --i) {
+        const k = path84[i];
         if (typeof k === "number" && Number.isInteger(k) && k >= 0) {
           const a = [];
           a[k] = v;
@@ -15309,7 +15371,7 @@ var require_Collection = __commonJS({
         sourceObjects: /* @__PURE__ */ new Map()
       });
     }
-    var isEmptyPath = (path83) => path83 == null || typeof path83 === "object" && !!path83[Symbol.iterator]().next().done;
+    var isEmptyPath = (path84) => path84 == null || typeof path84 === "object" && !!path84[Symbol.iterator]().next().done;
     var Collection = class extends Node.NodeBase {
       constructor(type, schema) {
         super(type);
@@ -15339,11 +15401,11 @@ var require_Collection = __commonJS({
        * be a Pair instance or a `{ key, value }` object, which may not have a key
        * that already exists in the map.
        */
-      addIn(path83, value) {
-        if (isEmptyPath(path83))
+      addIn(path84, value) {
+        if (isEmptyPath(path84))
           this.add(value);
         else {
-          const [key, ...rest] = path83;
+          const [key, ...rest] = path84;
           const node = this.get(key, true);
           if (identity.isCollection(node))
             node.addIn(rest, value);
@@ -15357,8 +15419,8 @@ var require_Collection = __commonJS({
        * Removes a value from the collection.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path83) {
-        const [key, ...rest] = path83;
+      deleteIn(path84) {
+        const [key, ...rest] = path84;
         if (rest.length === 0)
           return this.delete(key);
         const node = this.get(key, true);
@@ -15372,8 +15434,8 @@ var require_Collection = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path83, keepScalar) {
-        const [key, ...rest] = path83;
+      getIn(path84, keepScalar) {
+        const [key, ...rest] = path84;
         const node = this.get(key, true);
         if (rest.length === 0)
           return !keepScalar && identity.isScalar(node) ? node.value : node;
@@ -15391,8 +15453,8 @@ var require_Collection = __commonJS({
       /**
        * Checks if the collection includes a value with the key `key`.
        */
-      hasIn(path83) {
-        const [key, ...rest] = path83;
+      hasIn(path84) {
+        const [key, ...rest] = path84;
         if (rest.length === 0)
           return this.has(key);
         const node = this.get(key, true);
@@ -15402,8 +15464,8 @@ var require_Collection = __commonJS({
        * Sets a value in this collection. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path83, value) {
-        const [key, ...rest] = path83;
+      setIn(path84, value) {
+        const [key, ...rest] = path84;
         if (rest.length === 0) {
           this.set(key, value);
         } else {
@@ -17918,9 +17980,9 @@ var require_Document = __commonJS({
           this.contents.add(value);
       }
       /** Adds a value to the document. */
-      addIn(path83, value) {
+      addIn(path84, value) {
         if (assertCollection(this.contents))
-          this.contents.addIn(path83, value);
+          this.contents.addIn(path84, value);
       }
       /**
        * Create a new `Alias` node, ensuring that the target `node` has the required anchor.
@@ -17995,14 +18057,14 @@ var require_Document = __commonJS({
        * Removes a value from the document.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path83) {
-        if (Collection.isEmptyPath(path83)) {
+      deleteIn(path84) {
+        if (Collection.isEmptyPath(path84)) {
           if (this.contents == null)
             return false;
           this.contents = null;
           return true;
         }
-        return assertCollection(this.contents) ? this.contents.deleteIn(path83) : false;
+        return assertCollection(this.contents) ? this.contents.deleteIn(path84) : false;
       }
       /**
        * Returns item at `key`, or `undefined` if not found. By default unwraps
@@ -18017,10 +18079,10 @@ var require_Document = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path83, keepScalar) {
-        if (Collection.isEmptyPath(path83))
+      getIn(path84, keepScalar) {
+        if (Collection.isEmptyPath(path84))
           return !keepScalar && identity.isScalar(this.contents) ? this.contents.value : this.contents;
-        return identity.isCollection(this.contents) ? this.contents.getIn(path83, keepScalar) : void 0;
+        return identity.isCollection(this.contents) ? this.contents.getIn(path84, keepScalar) : void 0;
       }
       /**
        * Checks if the document includes a value with the key `key`.
@@ -18031,10 +18093,10 @@ var require_Document = __commonJS({
       /**
        * Checks if the document includes a value at `path`.
        */
-      hasIn(path83) {
-        if (Collection.isEmptyPath(path83))
+      hasIn(path84) {
+        if (Collection.isEmptyPath(path84))
           return this.contents !== void 0;
-        return identity.isCollection(this.contents) ? this.contents.hasIn(path83) : false;
+        return identity.isCollection(this.contents) ? this.contents.hasIn(path84) : false;
       }
       /**
        * Sets a value in this document. For `!!set`, `value` needs to be a
@@ -18051,13 +18113,13 @@ var require_Document = __commonJS({
        * Sets a value in this document. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path83, value) {
-        if (Collection.isEmptyPath(path83)) {
+      setIn(path84, value) {
+        if (Collection.isEmptyPath(path84)) {
           this.contents = value;
         } else if (this.contents == null) {
-          this.contents = Collection.collectionFromPath(this.schema, Array.from(path83), value);
+          this.contents = Collection.collectionFromPath(this.schema, Array.from(path84), value);
         } else if (assertCollection(this.contents)) {
-          this.contents.setIn(path83, value);
+          this.contents.setIn(path84, value);
         }
       }
       /**
@@ -20017,9 +20079,9 @@ var require_cst_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    visit.itemAtPath = (cst, path83) => {
+    visit.itemAtPath = (cst, path84) => {
       let item = cst;
-      for (const [field, index] of path83) {
+      for (const [field, index] of path84) {
         const tok = item?.[field];
         if (tok && "items" in tok) {
           item = tok.items[index];
@@ -20028,23 +20090,23 @@ var require_cst_visit = __commonJS({
       }
       return item;
     };
-    visit.parentCollection = (cst, path83) => {
-      const parent = visit.itemAtPath(cst, path83.slice(0, -1));
-      const field = path83[path83.length - 1][0];
+    visit.parentCollection = (cst, path84) => {
+      const parent = visit.itemAtPath(cst, path84.slice(0, -1));
+      const field = path84[path84.length - 1][0];
       const coll = parent?.[field];
       if (coll && "items" in coll)
         return coll;
       throw new Error("Parent collection not found");
     };
-    function _visit(path83, item, visitor) {
-      let ctrl = visitor(item, path83);
+    function _visit(path84, item, visitor) {
+      let ctrl = visitor(item, path84);
       if (typeof ctrl === "symbol")
         return ctrl;
       for (const field of ["key", "value"]) {
         const token = item[field];
         if (token && "items" in token) {
           for (let i = 0; i < token.items.length; ++i) {
-            const ci = _visit(Object.freeze(path83.concat([[field, i]])), token.items[i], visitor);
+            const ci = _visit(Object.freeze(path84.concat([[field, i]])), token.items[i], visitor);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -20055,10 +20117,10 @@ var require_cst_visit = __commonJS({
             }
           }
           if (typeof ctrl === "function" && field === "key")
-            ctrl = ctrl(item, path83);
+            ctrl = ctrl(item, path84);
         }
       }
-      return typeof ctrl === "function" ? ctrl(item, path83) : ctrl;
+      return typeof ctrl === "function" ? ctrl(item, path84) : ctrl;
     }
     exports.visit = visit;
   }
@@ -21832,11 +21894,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path83, field, reason) {
-  return { path: path83, field, reason, severity: "error" };
+function hard(path84, field, reason) {
+  return { path: path84, field, reason, severity: "error" };
 }
-function warn(path83, field, reason) {
-  return { path: path83, field, reason, severity: "warn" };
+function warn(path84, field, reason) {
+  return { path: path84, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -27265,8 +27327,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path83) {
-      let input = path83;
+    function removeDotSegments(path84) {
+      let input = path84;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -27518,8 +27580,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path83, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path83 && path83 !== "/" ? path83 : void 0;
+        const [path84, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path84 && path84 !== "/" ? path84 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -33137,17 +33199,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path83 = getSkillActivationsPath(cwd, activation.runId);
+  const path84 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync6(path83, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync6(path84, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path83 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync32(path83)) {
+  const path84 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync32(path84)) {
     return [];
   }
-  const content = readFileSync30(path83, "utf-8");
+  const content = readFileSync30(path84, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -35387,11 +35449,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path83 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path84 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path83, key];
+    const childPath = [...path84, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -35403,8 +35465,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path83 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path83) {
-  return path83.length === 4 && path83[0] === "agents" && path83[1] === "overrides";
+function isAgentOverrideKeyPath(path84) {
+  return path84.length === 4 && path84[0] === "agents" && path84[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -36589,10 +36651,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path83 = goalFilePath(this.cwd, goalId);
+        const path84 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync39(path83)) return void 0;
-          const raw = readFileSync36(path83, "utf-8");
+          if (!existsSync39(path84)) return void 0;
+          const raw = readFileSync36(path84, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -36603,11 +36665,11 @@ var init_goal_state_store = __esm({
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
       save(state, eventsPath) {
         assertSafePathId("goalId", state.goalId);
-        const path83 = goalFilePath(this.cwd, state.goalId);
+        const path84 = goalFilePath(this.cwd, state.goalId);
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync23(dirname22(path83), { recursive: true });
-          atomicWriteJson(path83, next);
+          mkdirSync23(dirname22(path84), { recursive: true });
+          atomicWriteJson(path84, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
@@ -36704,9 +36766,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path83 = goalFilePath(this.cwd, goalId);
-          if (!existsSync39(path83)) return false;
-          unlinkSync7(path83);
+          const path84 = goalFilePath(this.cwd, goalId);
+          if (!existsSync39(path84)) return false;
+          unlinkSync7(path84);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -57588,8 +57650,8 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
       return JSON.parse(text);
     }
     var fs106 = __require("fs");
-    var os17 = __require("os");
-    var path83 = __require("path");
+    var os18 = __require("os");
+    var path84 = __require("path");
     var ESBUILD_BINARY_PATH = process.env.ESBUILD_BINARY_PATH || ESBUILD_BINARY_PATH;
     var isValidBinaryPath = (x) => !!x && x !== "/usr/bin/esbuild";
     var packageDarwin_arm64 = "@esbuild/darwin-arm64";
@@ -57630,7 +57692,7 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
       let pkg;
       let subpath;
       let isWASM = false;
-      let platformKey = `${process.platform} ${os17.arch()} ${os17.endianness()}`;
+      let platformKey = `${process.platform} ${os18.arch()} ${os18.endianness()}`;
       if (platformKey in knownWindowsPackages) {
         pkg = knownWindowsPackages[platformKey];
         subpath = "esbuild.exe";
@@ -57648,19 +57710,19 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
     }
     function pkgForSomeOtherPlatform() {
       const libMainJS = __require.resolve("esbuild");
-      const nodeModulesDirectory = path83.dirname(path83.dirname(path83.dirname(libMainJS)));
-      if (path83.basename(nodeModulesDirectory) === "node_modules") {
+      const nodeModulesDirectory = path84.dirname(path84.dirname(path84.dirname(libMainJS)));
+      if (path84.basename(nodeModulesDirectory) === "node_modules") {
         for (const unixKey in knownUnixlikePackages) {
           try {
             const pkg = knownUnixlikePackages[unixKey];
-            if (fs106.existsSync(path83.join(nodeModulesDirectory, pkg))) return pkg;
+            if (fs106.existsSync(path84.join(nodeModulesDirectory, pkg))) return pkg;
           } catch {
           }
         }
         for (const windowsKey in knownWindowsPackages) {
           try {
             const pkg = knownWindowsPackages[windowsKey];
-            if (fs106.existsSync(path83.join(nodeModulesDirectory, pkg))) return pkg;
+            if (fs106.existsSync(path84.join(nodeModulesDirectory, pkg))) return pkg;
           } catch {
           }
         }
@@ -57668,8 +57730,8 @@ ${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
       return null;
     }
     function downloadedBinPath(pkg, subpath) {
-      const esbuildLibDir = path83.dirname(__require.resolve("esbuild"));
-      return path83.join(esbuildLibDir, `downloaded-${pkg.replace("/", "-")}-${path83.basename(subpath)}`);
+      const esbuildLibDir = path84.dirname(__require.resolve("esbuild"));
+      return path84.join(esbuildLibDir, `downloaded-${pkg.replace("/", "-")}-${path84.basename(subpath)}`);
     }
     function generateBinPath() {
       if (isValidBinaryPath(ESBUILD_BINARY_PATH)) {
@@ -57759,15 +57821,15 @@ for your current platform.`);
         }
         if (pnpapi) {
           const root = pnpapi.getPackageInformation(pnpapi.topLevel).packageLocation;
-          const binTargetPath = path83.join(
+          const binTargetPath = path84.join(
             root,
             "node_modules",
             ".cache",
             "esbuild",
-            `pnpapi-${pkg.replace("/", "-")}-${"0.28.1"}-${path83.basename(subpath)}`
+            `pnpapi-${pkg.replace("/", "-")}-${"0.28.1"}-${path84.basename(subpath)}`
           );
           if (!fs106.existsSync(binTargetPath)) {
-            fs106.mkdirSync(path83.dirname(binTargetPath), { recursive: true });
+            fs106.mkdirSync(path84.dirname(binTargetPath), { recursive: true });
             fs106.copyFileSync(binPath, binTargetPath);
             fs106.chmodSync(binTargetPath, 493);
           }
@@ -58348,10 +58410,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path83 = this.path;
+        const path84 = this.path;
         try {
-          if (!existsSync70(path83)) return void 0;
-          const raw = readFileSync64(path83, "utf-8");
+          if (!existsSync70(path84)) return void 0;
+          const raw = readFileSync64(path84, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -58361,11 +58423,11 @@ var init_dwf_state_store = __esm({
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
       save(state) {
-        const path83 = this.path;
+        const path84 = this.path;
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync39(dirname35(path83), { recursive: true });
-          atomicWriteJson(path83, next);
+          mkdirSync39(dirname35(path84), { recursive: true });
+          atomicWriteJson(path84, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state.runId}`);
           throw error;
@@ -58373,10 +58435,10 @@ var init_dwf_state_store = __esm({
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path83 = this.path;
+        const path84 = this.path;
         try {
-          if (!existsSync70(path83)) return;
-          unlinkSync10(path83);
+          if (!existsSync70(path84)) return;
+          unlinkSync10(path84);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -61826,26 +61888,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs91 from "node:fs";
-function cacheKey(path83, options) {
-  return `${path83}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path84, options) {
+  return `${path84}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path83, options = {}) {
+function getTranscriptCacheEntry(path84, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path83, normalized)) ?? transcriptCache.get(path83);
+  return transcriptCache.get(cacheKey(path84, normalized)) ?? transcriptCache.get(path84);
 }
-function readTranscriptText(path83, stat2, options) {
+function readTranscriptText(path84, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs91.readFileSync(path83, "utf-8"),
+      text: fs91.readFileSync(path84, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs91.openSync(path83, "r");
+  const fd = fs91.openSync(path84, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs91.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -61857,16 +61919,16 @@ function readTranscriptText(path83, stat2, options) {
     fs91.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path83, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path84, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path83, normalized);
+  const key = cacheKey(path84, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs91.statSync(path83);
+    stat2 = fs91.statSync(path84);
   } catch {
     return previous?.lines ?? [];
   }
@@ -61875,10 +61937,10 @@ function readTranscriptLinesCached(path83, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path83, stat2, normalized);
+    const read = readTranscriptText(path84, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path83,
+      path: path84,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -64657,8 +64719,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path83) {
-  const keys = path83.split(".");
+function getNestedValue(obj, path84) {
+  const keys = path84.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -67104,13 +67166,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks3(path83) {
+function readTasks3(path84) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs100.readFileSync(path83, "utf-8"));
+    const parsed = JSON.parse(fs100.readFileSync(path84, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path83, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path84, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -70357,11 +70419,11 @@ import { existsSync as existsSync75, readFileSync as readFileSync70 } from "node
 import { homedir as homedir11, platform } from "node:os";
 import { join as join72 } from "node:path";
 function fontPath() {
-  const os17 = platform();
+  const os18 = platform();
   const home = homedir11();
-  if (os17 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os17 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os17 === "win32") {
+  if (os18 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
+  if (os18 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
+  if (os18 === "win32") {
     const local = process.env.LOCALAPPDATA ?? join72(home, "AppData", "Local");
     return join72(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
   }
@@ -70525,17 +70587,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path83 = configPath2();
-    if (!existsSync76(path83)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync71(path83, "utf8")));
+    const path84 = configPath2();
+    if (!existsSync76(path84)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync71(path84, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path83 = configPath2();
-  mkdirSync42(dirname37(path83), { recursive: true });
-  writeFileSync11(path83, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path84 = configPath2();
+  mkdirSync42(dirname37(path84), { recursive: true });
+  writeFileSync11(path84, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -72053,9 +72115,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path83, listener, onError) {
+function watchWithErrorHandler(path84, listener, onError) {
   try {
-    const watcher = fs95.watch(path83, listener);
+    const watcher = fs95.watch(path84, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -73224,7 +73286,11 @@ function buildRegistrationContext(pi) {
     startForegroundRun: void 0,
     abortForegroundRun: () => false,
     openLiveSidebar: () => {
-    }
+    },
+    // Phase 0 inter-pi broker controller. Initially undefined; register.ts
+    // replaces this with a real controller (or no-op) after lifecycle
+    // handlers are installed.
+    brokerController: void 0
   };
   ctx.notifyOperator = (notification) => {
     try {
@@ -73445,9 +73511,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path83, content) {
-  if (seenContent.has(path83)) seenContent.delete(path83);
-  seenContent.set(path83, content);
+function rememberSeen(path84, content) {
+  if (seenContent.has(path84)) seenContent.delete(path84);
+  seenContent.set(path84, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -73656,7 +73722,7 @@ init_orphan_worker_registry();
 init_pi_args();
 init_scheduler();
 import * as fs105 from "node:fs";
-import * as path82 from "node:path";
+import * as path83 from "node:path";
 
 // src/runtime/session-resources.ts
 init_internal_error();
@@ -73693,6 +73759,653 @@ function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGenerati
 
 // src/extension/registration/lifecycle-handlers.ts
 init_settings_store();
+
+// src/runtime/crew-broker.ts
+import * as fsp3 from "node:fs/promises";
+import * as net2 from "node:net";
+init_internal_error();
+init_redaction();
+
+// src/runtime/crew-broker-deps.ts
+import { createHash as createHash11, randomUUID as randomUUID8 } from "node:crypto";
+import * as fsp2 from "node:fs/promises";
+import * as net from "node:net";
+import * as os17 from "node:os";
+import * as path81 from "node:path";
+var MAX_BROKER_FRAME_BYTES = 256 * 1024;
+var BrokerError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "BrokerError";
+    this.code = code;
+  }
+};
+function encodeBrokerFrame(value) {
+  const json = JSON.stringify(value);
+  if (json === void 0) {
+    throw new BrokerError("protocol", "encodeBrokerFrame: value is not JSON-serializable");
+  }
+  const enc = Buffer.from(json, "utf8");
+  if (enc.length + 1 > MAX_BROKER_FRAME_BYTES) {
+    throw new BrokerError("oversize-frame", `frame exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${enc.length + 1})`);
+  }
+  const out = Buffer.allocUnsafe(enc.length + 1);
+  enc.copy(out);
+  out[enc.length] = 10;
+  return out;
+}
+var MAX_DECODER_BUFFER = 2 * MAX_BROKER_FRAME_BYTES;
+var NdjsonDecoder = class {
+  buffer = Buffer.alloc(0);
+  /**
+   * Push a chunk; return the array of complete parsed values (each was
+   * followed by a `\n` in the stream). May return zero items (no full
+   * frame yet), one item, or many items. Malformed JSON throws
+   * BrokerError("protocol"); over-size accumulated buffer throws
+   * BrokerError("oversize-frame"). Callers must catch and close the socket.
+   */
+  push(chunk) {
+    if (chunk.length === 0) return [];
+    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length > MAX_DECODER_BUFFER) {
+      throw new BrokerError("oversize-frame", `decoder buffer exceeded ${MAX_DECODER_BUFFER} bytes`);
+    }
+    const out = [];
+    let idx = this.buffer.indexOf(10);
+    while (idx !== -1) {
+      const line4 = this.buffer.subarray(0, idx);
+      if (line4.length > 0) {
+        if (line4.length > MAX_BROKER_FRAME_BYTES) {
+          throw new BrokerError("oversize-frame", `line exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${line4.length})`);
+        }
+        try {
+          out.push(JSON.parse(line4.toString("utf8")));
+        } catch (cause) {
+          throw new BrokerError("protocol", `ndjson: malformed JSON: ${cause.message}`);
+        }
+      }
+      this.buffer = this.buffer.subarray(idx + 1);
+      idx = this.buffer.indexOf(10);
+    }
+    return out;
+  }
+  reset() {
+    this.buffer = Buffer.alloc(0);
+  }
+};
+var DEFAULT_PATH_HASH_LEN = 8;
+var POSIX_SUN_PATH_BUDGET = 107;
+function hashSessionId(sessionId, length = DEFAULT_PATH_HASH_LEN) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error("hashSessionId: sessionId must be a non-empty string");
+  }
+  if (!Number.isInteger(length) || length < 4 || length > 32) {
+    throw new Error(`hashSessionId: length must be an integer in [4, 32] (got ${length})`);
+  }
+  const hex = createHash11("sha256").update(sessionId, "utf8").digest("hex");
+  return hex.substring(0, length);
+}
+function getBrokerSocketPath(sessionId, platform2 = process.platform) {
+  const hash = hashSessionId(sessionId);
+  if (platform2 === "win32") {
+    return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
+  }
+  const base = process.env.XDG_RUNTIME_DIR || os17.tmpdir();
+  const sock = path81.join(base, `pi-crew-${hash}.sock`);
+  const encoded = Buffer.byteLength(sock, "utf8");
+  if (encoded > POSIX_SUN_PATH_BUDGET) {
+    throw new Error(
+      `broker socket path ${encoded} bytes exceeds sun_path budget (${POSIX_SUN_PATH_BUDGET}); check XDG_RUNTIME_DIR or use a shorter hash`
+    );
+  }
+  return sock;
+}
+async function prepareBrokerSocketDir(sockPath) {
+  if (process.platform === "win32") return;
+  const dir = path81.dirname(sockPath);
+  await fsp2.mkdir(dir, { recursive: true, mode: 448 });
+  try {
+    await fsp2.chmod(dir, 448);
+  } catch {
+  }
+}
+async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
+  let st;
+  try {
+    st = await fsp2.lstat(sockPath);
+  } catch (e) {
+    const code = e.code;
+    if (code === "ENOENT") return "absent";
+    throw e;
+  }
+  if (st.isSymbolicLink()) return "refused";
+  const live = await new Promise((resolve22) => {
+    let settled = false;
+    const sock = net.createConnection(sockPath);
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      try {
+        sock.destroy();
+      } catch {
+      }
+      resolve22(v);
+    };
+    sock.once("connect", () => finish(true));
+    sock.once("error", () => finish(false));
+    setTimeout(() => finish(false), probeTimeoutMs);
+  });
+  if (live) return "kept";
+  try {
+    await fsp2.unlink(sockPath);
+    return "removed";
+  } catch (e) {
+    const code = e.code;
+    if (code === "ENOENT") return "absent";
+    throw e;
+  }
+}
+
+// src/runtime/crew-broker-tokens.ts
+import { randomUUID as randomUUID9, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+function newBrokerToken() {
+  return randomUUID9();
+}
+var BrokerTokenRegistry = class {
+  map = /* @__PURE__ */ new Map();
+  /** Register or replace a runId's token. Returns the new token. */
+  issue(runId, token = newBrokerToken()) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+    }
+    this.map.set(runId, token);
+    return token;
+  }
+  /** Look up the token for `runId`. Returns undefined if absent. */
+  get(runId) {
+    return this.map.get(runId);
+  }
+  /** Constant-time equality check. Returns false on length mismatch. */
+  matches(runId, candidate) {
+    const expected = this.map.get(runId);
+    if (expected === void 0) return false;
+    if (typeof candidate !== "string" || candidate.length === 0) return false;
+    const a = Buffer.from(expected, "utf8");
+    const b = Buffer.from(candidate, "utf8");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual3(a, b);
+  }
+  /** Remove the token for `runId`. */
+  revoke(runId) {
+    this.map.delete(runId);
+  }
+  /** Wipe every token. Called from CrewBroker.stop(). */
+  clear() {
+    this.map.clear();
+  }
+  /** Diagnostic — count of registered tokens. Never returns the tokens. */
+  get size() {
+    return this.map.size;
+  }
+};
+
+// src/runtime/crew-broker.ts
+var BROKER_PROTOCOL = 1;
+var HELLO_DEADLINE_MS = 1e3;
+var DEFAULT_OUTBOUND_QUEUE_CAP = 256;
+var CrewBroker = class {
+  options;
+  tokens = new BrokerTokenRegistry();
+  server = null;
+  resolvedSocketPath = null;
+  stopped = false;
+  starting = false;
+  startingPromise = null;
+  connections = /* @__PURE__ */ new Set();
+  /** A single observable handshake counter (test/observability). */
+  handshakeCount = 0;
+  constructor(options) {
+    if (!options || typeof options !== "object") {
+      throw new Error("CrewBroker: options is required");
+    }
+    if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
+      throw new Error("CrewBroker: sessionId must be a non-empty string");
+    }
+    this.options = {
+      sessionId: options.sessionId,
+      enabled: options.enabled === true,
+      socketPath: options.socketPath,
+      maxFrameBytes: options.maxFrameBytes,
+      outboundQueueCap: options.outboundQueueCap,
+      cwd: options.cwd,
+      netModule: options.netModule
+    };
+  }
+  /** Read the resolved socket path. Available after start() resolves. */
+  get socketPath() {
+    return this.resolvedSocketPath ?? this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+  }
+  /** Diagnostic: number of connections currently registered. */
+  get connectionCount() {
+    return this.connections.size;
+  }
+  /** Diagnostic: number of completed handshakes since start(). */
+  get handshakes() {
+    return this.handshakeCount;
+  }
+  /** Diagnostic: number of registered tokens. */
+  get tokenCount() {
+    return this.tokens.size;
+  }
+  /** Issue a fresh token for `runId`. The token is stored in the heap-only
+   *  registry and is the only way a child can complete `hello`. Never log
+   *  the return value; never write it to disk. */
+  issueRunToken(runId) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
+    }
+    return this.tokens.issue(runId);
+  }
+  /** Start the broker. Idempotent (subsequent calls return the same promise).
+   *  When `enabled=false`, this is a no-op and no socket is created. */
+  start() {
+    if (!this.options.enabled) {
+      logInternalError("crew-broker.start.disabled", new Error("broker disabled"), `sessionId=${this.options.sessionId}`);
+      return Promise.resolve();
+    }
+    if (this.server) return Promise.resolve();
+    if (this.startingPromise) return this.startingPromise;
+    this.starting = true;
+    this.startingPromise = this.doStart().then(() => {
+      this.starting = false;
+    }).catch((err2) => {
+      this.starting = false;
+      this.startingPromise = null;
+      throw err2;
+    });
+    return this.startingPromise;
+  }
+  async doStart() {
+    const sockPath = this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+    this.resolvedSocketPath = sockPath;
+    await prepareBrokerSocketDir(sockPath);
+    const staleResult = await removeStaleBrokerSocket(sockPath);
+    if (staleResult === "refused") {
+      throw new BrokerError("protocol", `refusing to follow symlinked broker socket: ${sockPath}`);
+    }
+    const netModule = this.options.netModule ?? net2;
+    const server = netModule.createServer({ allowHalfOpen: false }, (sock) => {
+      this.handleConnection(sock).catch((err2) => {
+        logInternalError(
+          "crew-broker.connection.crashed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+      });
+    });
+    await new Promise((resolve22, reject) => {
+      const onError = (err2) => {
+        server.removeListener("listening", onListening);
+        reject(err2);
+      };
+      const onListening = () => {
+        server.removeListener("error", onError);
+        resolve22();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      try {
+        server.listen(sockPath);
+      } catch (err2) {
+        server.removeListener("error", onError);
+        server.removeListener("listening", onListening);
+        reject(err2);
+      }
+    });
+    if (process.platform !== "win32") {
+      try {
+        await fsp3.chmod(sockPath, 384);
+      } catch (err2) {
+        logInternalError(
+          "crew-broker.start.chmod-failed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `path=${redactSecretString(sockPath)}`
+        );
+      }
+    }
+    this.server = server;
+    server.on("error", (err2) => {
+      logInternalError(
+        "crew-broker.server.error",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+    });
+  }
+  /** Stop the broker. Idempotent. Closes every active connection, unlinks
+   *  ONLY the recorded socket path (never `process.kill`), and clears the
+   *  token registry. Safe to call twice. */
+  async stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    for (const conn of [...this.connections]) {
+      try {
+        conn.closed = true;
+        if (conn.helloTimer) {
+          clearTimeout(conn.helloTimer);
+          conn.helloTimer = null;
+        }
+        conn.socket.end();
+        setTimeout(() => {
+          try {
+            conn.socket.destroy();
+          } catch {
+          }
+        }, 50).unref();
+      } catch (err2) {
+        logInternalError(
+          "crew-broker.stop.close-conn-failed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+      }
+    }
+    this.connections.clear();
+    if (this.server) {
+      await new Promise((resolve22) => {
+        const srv = this.server;
+        if (!srv) return resolve22();
+        srv.close(() => resolve22());
+        setTimeout(() => resolve22(), 250).unref();
+      });
+      this.server = null;
+    }
+    this.tokens.clear();
+    const sockPath = this.resolvedSocketPath ?? this.options.socketPath;
+    if (sockPath && process.platform !== "win32") {
+      try {
+        await fsp3.unlink(sockPath);
+      } catch (err2) {
+        const code = err2.code;
+        if (code !== "ENOENT") {
+          logInternalError(
+            "crew-broker.stop.unlink-failed",
+            err2 instanceof Error ? err2 : new Error(String(err2)),
+            `path=${redactSecretString(sockPath)}`
+          );
+        }
+      }
+    }
+    this.resolvedSocketPath = null;
+  }
+  /**
+   * Non-throwing enqueue entry point for the post-append mailbox observer
+   * (Phase 1) or any other in-process producer. Phase 0 accepts `notifyMessage`
+   * as a no-op shape so the lifecycle controller can install a single
+   * observer regardless of broker state.
+   *
+   * Fanout goes ONLY to authenticated connections matching the recipient.
+   * Phase 0 keeps this as a typed no-op (`not-implemented` would be
+   * inappropriate here — the caller is in-process and shouldn't be
+   * punished for testing the broker skeleton).
+   */
+  notifyMessage(_message) {
+  }
+  // ------------------------------------------------------------------------
+  // Connection lifecycle
+  // ------------------------------------------------------------------------
+  async handleConnection(sock) {
+    const conn = {
+      socket: sock,
+      decoder: new NdjsonDecoder(),
+      authed: false,
+      runId: void 0,
+      taskId: void 0,
+      outbound: [],
+      needsResync: false,
+      closed: false,
+      helloTimer: null,
+      outboundSeq: 0
+    };
+    this.connections.add(conn);
+    conn.helloTimer = setTimeout(() => {
+      if (!conn.authed && !conn.closed) {
+        logInternalError(
+          "crew-broker.hello.deadline",
+          new Error("hello deadline"),
+          `sessionId=${this.options.sessionId}`
+        );
+        conn.closed = true;
+        try {
+          sock.end();
+        } catch {
+        }
+      }
+    }, HELLO_DEADLINE_MS);
+    conn.helloTimer.unref?.();
+    sock.on("data", (chunk) => {
+      this.handleData(conn, chunk).catch((err2) => {
+        logInternalError(
+          "crew-broker.connection.data-crashed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+        this.closeConnection(conn);
+      });
+    });
+    sock.on("error", (err2) => {
+      logInternalError(
+        "crew-broker.connection.socket-error",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+      this.closeConnection(conn);
+    });
+    sock.on("close", () => {
+      this.closeConnection(conn);
+    });
+  }
+  closeConnection(conn) {
+    if (conn.closed) return;
+    conn.closed = true;
+    if (conn.helloTimer) {
+      clearTimeout(conn.helloTimer);
+      conn.helloTimer = null;
+    }
+    this.connections.delete(conn);
+    try {
+      conn.socket.destroy();
+    } catch {
+    }
+  }
+  async handleData(conn, chunk) {
+    if (conn.closed) return;
+    let frames;
+    try {
+      frames = conn.decoder.push(chunk);
+    } catch (err2) {
+      if (err2 instanceof BrokerError) {
+        logInternalError(
+          "crew-broker.decoder.error",
+          err2,
+          `code=${err2.code} sessionId=${this.options.sessionId}`
+        );
+        this.sendErrorAndClose(conn, void 0, err2.code === "oversize-frame" ? "oversize-frame" : "protocol", err2.message);
+        return;
+      }
+      throw err2;
+    }
+    for (const frame of frames) {
+      await this.dispatchFrame(conn, frame);
+      if (conn.closed) return;
+    }
+  }
+  async dispatchFrame(conn, frame) {
+    if (!isRequestObject(frame)) {
+      this.sendErrorAndClose(conn, void 0, "protocol", "malformed request");
+      return;
+    }
+    const { id, method, params } = frame;
+    if (!conn.authed) {
+      if (method !== "hello") {
+        this.sendErrorAndClose(conn, id, "protocol", "hello required");
+        return;
+      }
+      await this.handleHello(conn, id, params);
+      return;
+    }
+    switch (method) {
+      case "ping":
+        this.sendResult(conn, id, { pong: true, protocol: BROKER_PROTOCOL });
+        return;
+      case "hello":
+        this.sendErrorAndClose(conn, id, "protocol", "hello already completed");
+        return;
+      default:
+        this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented in phase 0`);
+        return;
+    }
+  }
+  async handleHello(conn, id, params) {
+    if (!isHelloParams(params)) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    const { protocol, runId, taskId, token } = params;
+    if (protocol !== BROKER_PROTOCOL) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (!this.tokens.matches(runId, token)) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (typeof taskId !== "string" || taskId.length === 0 || taskId.length > 256) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (typeof runId !== "string" || runId.length === 0 || runId.length > 256) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    conn.authed = true;
+    conn.runId = runId;
+    conn.taskId = taskId;
+    if (conn.helloTimer) {
+      clearTimeout(conn.helloTimer);
+      conn.helloTimer = null;
+    }
+    this.handshakeCount += 1;
+    this.sendResult(conn, id, {
+      protocol: BROKER_PROTOCOL,
+      session: this.options.sessionId,
+      run: runId,
+      ok: true
+    });
+  }
+  // ------------------------------------------------------------------------
+  // Outbound queue + drop-newest + needsResync
+  // ------------------------------------------------------------------------
+  sendResult(conn, id, result4) {
+    this.enqueueFrame(conn, { id, result: result4 });
+  }
+  sendError(conn, id, code, message) {
+    this.enqueueFrame(conn, { id, error: { code, message: redactSecretString(message) } });
+  }
+  sendErrorAndClose(conn, id, code, message) {
+    if (id !== void 0) {
+      try {
+        const buf = encodeBrokerFrame({ id, error: { code, message: redactSecretString(message) } });
+        this.writeOrQueue(
+          conn,
+          buf,
+          /*force*/
+          true
+        );
+      } catch {
+      }
+    }
+    this.closeConnection(conn);
+  }
+  enqueueFrame(conn, payload) {
+    let buf;
+    try {
+      buf = encodeBrokerFrame(payload);
+    } catch (err2) {
+      logInternalError(
+        "crew-broker.enqueue.encode-failed",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+      return;
+    }
+    this.writeOrQueue(
+      conn,
+      buf,
+      /*force*/
+      false
+    );
+  }
+  writeOrQueue(conn, buf, force) {
+    if (conn.closed) return;
+    const cap = this.options.outboundQueueCap ?? DEFAULT_OUTBOUND_QUEUE_CAP;
+    if (conn.outbound.length >= cap) {
+      if (force) {
+        try {
+          conn.socket.write(buf);
+        } catch {
+        }
+        return;
+      }
+      conn.needsResync = true;
+      return;
+    }
+    conn.outbound.push(buf);
+    this.drainOutbound(conn);
+  }
+  drainOutbound(conn) {
+    while (conn.outbound.length > 0) {
+      const buf = conn.outbound[0];
+      if (buf === void 0) break;
+      try {
+        const ok = conn.socket.write(buf);
+        if (!ok) {
+          conn.socket.once("drain", () => {
+            if (!conn.closed) this.drainOutbound(conn);
+          });
+          return;
+        }
+      } catch {
+        this.closeConnection(conn);
+        return;
+      }
+      conn.outbound.shift();
+      conn.outboundSeq += 1;
+    }
+  }
+};
+function isRequestObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
+  if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
+  if (!/^[a-z][a-z0-9._-]{0,63}$/.test(v.method)) return false;
+  return "params" in v;
+}
+function isHelloParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (v.protocol !== BROKER_PROTOCOL) {
+    if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
+  }
+  if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
+  if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
+  if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
+  return true;
+}
+
+// src/extension/registration/lifecycle-handlers.ts
 init_state_store();
 
 // src/subagents/spawn.ts
@@ -73894,14 +74607,14 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as path81 from "node:path";
+import * as path82 from "node:path";
 function runArtifactCleanup(cwd) {
   try {
-    cleanupOldArtifacts(path81.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path82.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    cleanupOldArtifacts(path81.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path82.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
@@ -73972,6 +74685,7 @@ function installSessionStartHandler(pi, ctx) {
     ctx.widgetState.interval = void 0;
     notifyActiveRuns(extensionCtx);
     const currentSessionId = extractSessionId(extensionCtx);
+    ctx.brokerController?.setSessionId(currentSessionId);
     setTimeout(() => {
       void runDeferredSessionCleanup(pi, ctx, ownerGeneration, currentSessionId, extensionCtx);
     }, 0);
@@ -74406,7 +75120,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path82.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    const crewRunsDir = path83.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
     if (fs105.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -74417,7 +75131,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path82.join(userCrewRoot(), "state", "runs");
+    const userRunsDir = path83.join(userCrewRoot(), "state", "runs");
     if (fs105.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -74426,6 +75140,97 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     logInternalError("register.userCrewWatchers.start", error);
   }
   backgroundPreload();
+}
+function isRootSession(env = process.env) {
+  if (env.PI_CREW_KIND === "subagent") return false;
+  try {
+    return currentCrewDepth(env) === 0;
+  } catch {
+    return false;
+  }
+}
+function installCrewBrokerLifecycleController(_pi, _ctx) {
+  let broker = null;
+  let brokerSessionId;
+  let starting = null;
+  let cachedSessionId;
+  function effectiveEnabled() {
+    const envOverride = process.env.PI_CREW_BROKER;
+    if (envOverride === "0") return false;
+    try {
+      const cfg = loadConfig().config.broker;
+      if (envOverride === "1") return cfg !== void 0 ? cfg.enabled !== false : true;
+      return cfg?.enabled === true;
+    } catch {
+      return false;
+    }
+  }
+  async function getOrStartBroker(sessionId) {
+    if (broker && brokerSessionId === sessionId) return broker;
+    if (broker && brokerSessionId !== sessionId) {
+      try {
+        await broker.stop();
+      } catch {
+      }
+      broker = null;
+      brokerSessionId = void 0;
+    }
+    if (!broker && !starting) {
+      starting = (async () => {
+        const cfg = (() => {
+          try {
+            return loadConfig().config.broker;
+          } catch {
+            return void 0;
+          }
+        })();
+        const b = new CrewBroker({
+          sessionId,
+          socketPath: getBrokerSocketPath(sessionId),
+          maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
+          outboundQueueCap: cfg?.outboundQueueCap ?? 256,
+          enabled: true,
+          cwd: process.cwd()
+        });
+        await b.start();
+        broker = b;
+        brokerSessionId = sessionId;
+        starting = null;
+        return b;
+      })();
+    }
+    return starting;
+  }
+  return {
+    issueForChild: async (runId) => {
+      if (!runId || typeof runId !== "string") return void 0;
+      if (!isRootSession(process.env)) return void 0;
+      if (!effectiveEnabled()) return void 0;
+      const sessionId = cachedSessionId;
+      if (!sessionId) return void 0;
+      try {
+        const b = await getOrStartBroker(sessionId);
+        const token = b.issueRunToken(runId);
+        return { socketPath: b.socketPath, token };
+      } catch {
+        return void 0;
+      }
+    },
+    stop: async () => {
+      if (broker) {
+        try {
+          await broker.stop();
+        } catch {
+        }
+        broker = null;
+        brokerSessionId = void 0;
+      }
+    },
+    /** Test seam: remember the most recent session_id for token issuance. */
+    setSessionId: (sessionId) => {
+      cachedSessionId = sessionId;
+    }
+  };
 }
 
 // src/extension/registration/runtime-cleanup.ts
@@ -75184,7 +75989,7 @@ function registerPiTools(pi, ctx) {
 init_safe_paths();
 
 // src/extension/rpc-hmac.ts
-import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual4 } from "node:crypto";
 var RPC_HMAC_VERSION = 1;
 var SECRET_ENV_VAR = "PI_CREW_RPC_SECRET";
 var CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1e3;
@@ -75271,7 +76076,7 @@ function timingSafeCompare(a, b) {
   const safeB = Buffer.alloc(maxLen);
   bufA.copy(safeA);
   bufB.copy(safeB);
-  const equal = timingSafeEqual3(safeA, safeB);
+  const equal = timingSafeEqual4(safeA, safeB);
   return equal && bufA.length === bufB.length;
 }
 function extractSignaturePayload(params) {
@@ -75598,6 +76403,7 @@ function registerPiTeams(pi) {
   registerPiCommands(pi, ctx);
   installPiHooks(pi, ctx);
   installSessionLifecycleHandlers(pi, ctx);
+  ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
   registerCleanupHandler(pi);
   registerCompactionGuard(pi, {
     foregroundControllers: ctx.foregroundControllers,
