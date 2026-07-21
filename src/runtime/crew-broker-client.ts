@@ -179,6 +179,13 @@ export class CrewBrokerClient {
 
 		try {
 			const value = await promise;
+			// Detect the tagged broker-error envelope: per-request errors
+			// (bad-params, no-manifest, wait-timeout, etc.) resolve with
+			// `{__brokerError:true, code, message}` and do NOT enter fallback.
+			if (value && typeof value === "object" && (value as { __brokerError?: boolean }).__brokerError === true) {
+				const e = value as { code: string; message: string };
+				return { ok: false, fallback: true, errorCode: e.code };
+			}
 			return { ok: true, value: value as T };
 		} catch (err) {
 			// Reject from pending handlers → the typed error code.
@@ -466,8 +473,13 @@ export class CrewBrokerClient {
 				if (!pending) continue;
 				this.pending.delete(frame.id);
 				if (frame.error) {
-					const code = (frame.error as { code?: string }).code ?? "request-failed";
-					pending.reject(new BrokerError(code as never, "request error"));
+					// Per-request error response from the broker: NOT a protocol
+					// error, NOT a fallback condition. The broker explicitly rejected
+					// this call (e.g. bad-params, no-manifest, wait-timeout).
+					// Resolve with a tagged envelope so request() can return
+					// ok:false WITHOUT triggering fallback mode.
+					const errCode = (frame.error as { code?: string }).code ?? "request-failed";
+					pending.resolve({ __brokerError: true, code: errCode, message: (frame.error as { message?: string }).message ?? "" } as never);
 				} else {
 					pending.resolve(frame.result);
 				}

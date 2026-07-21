@@ -40,6 +40,7 @@ import {
 } from "../state/mailbox.ts";
 import { loadRunManifestById } from "../state/state-store.ts";
 import { readEventsCursor } from "../state/event-log.ts";
+import { runEventBus } from "../ui/run-event-bus.ts";
 import {
 	BrokerError,
 	MAX_BROKER_FRAME_BYTES,
@@ -115,6 +116,8 @@ export class CrewBroker {
 	private readonly connections = new Set<ServerConnection>();
 	/** Connections indexed by runId for live message fanout (Phase 1.3). */
 	private readonly connectionsByRun = new Map<string, Set<ServerConnection>>();
+	/** Per-connection event subscription unsubscribers (Phase 2: events.subscribe). */
+	private readonly subscriptionUnsubs = new WeakMap<ServerConnection, Set<() => void>>();
 	/** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
 	private mailboxObserverUnsub: (() => void) | null = null;
 	/** A single observable handshake counter (test/observability). */
@@ -424,6 +427,8 @@ export class CrewBroker {
 			this.closeConnection(conn);
 		});
 		sock.on("close", () => {
+			const stack = new Error("trace").stack;
+			console.error("DEBUG broker onClose: conn.taskId=", conn.taskId, "conn.authed=", conn.authed, "stack=", stack?.split("\n").slice(1, 6).join(" | "));
 			this.closeConnection(conn);
 		});
 	}
@@ -443,6 +448,15 @@ export class CrewBroker {
 				set.delete(conn);
 				if (set.size === 0) this.connectionsByRun.delete(conn.runId);
 			}
+		}
+		// Phase 2: tear down any per-connection event subscriptions.
+		const subs = this.subscriptionUnsubs.get(conn);
+		if (subs) {
+			for (const unsub of subs) {
+				try { unsub(); } catch { /* ignore */ }
+			}
+			subs.clear();
+			this.subscriptionUnsubs.delete(conn);
 		}
 		try {
 			conn.socket.destroy();
@@ -539,9 +553,20 @@ export class CrewBroker {
 			case "events.since":
 				await this.handleEventsSince(conn, id, params);
 				return;
+			case "events.subscribe":
+				await this.handleEventsSubscribe(conn, id, params);
+				return;
+			case "task.waitStatus":
+				await this.handleTaskWaitStatus(conn, id, params);
+				return;
+			case "steer.push":
+				await this.handleSteerPush(conn, id, params);
+				return;
+			case "escalate":
+				await this.handleEscalate(conn, id, params);
+				return;
 			default:
-				// Future methods (events.since, events.subscribe, task.waitStatus,
-				// steer.push, escalate) are typed not-implemented.
+				// Unhandled method → typed not-implemented.
 				this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
 				return;
 		}
@@ -617,6 +642,7 @@ export class CrewBroker {
 	}
 
 	private sendErrorAndClose(conn: ServerConnection, id: string | undefined, code: string, message: string): void {
+		console.error("DEBUG sendErrorAndClose: id=", id, "code=", code, "message=", redactSecretString(message));
 		if (id !== undefined) {
 			// Best-effort error frame before close. Even if the queue is full
 			// we still try to deliver the close reason.
@@ -867,6 +893,266 @@ export class CrewBroker {
 			this.sendError(conn, id, "replay-failed", (err as Error).message);
 		}
 	}
+
+	/**
+	 * Phase 2: events.subscribe — live event-stream subscription.
+	 * Replays events with seq > sinceSeq from the durable log, then pushes
+	 * live events as they are emitted. Delivery uses the same writeOrQueue
+	 * path as mailbox fanout (queue-cap 256, drop-newest on overflow).
+	 */
+	private async handleEventsSubscribe(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let eventsPath: string;
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			eventsPath = loaded.manifest.eventsPath;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+		// Live callback: enqueue a serialized event frame onto the connection's
+		// outbound queue (non-blocking; queue-cap enforces drop-newest).
+		const cb = (event: unknown) => {
+			if (conn.closed) return;
+			const seq = (event && typeof event === "object" && "seq" in (event as Record<string, unknown>))
+				? ((event as { seq?: unknown }).seq as number | undefined)
+				: undefined;
+			const eventFrame = encodeBrokerFrame({ event: "team.event", data: event, seq });
+			try {
+				this.writeOrQueue(conn, eventFrame, false);
+			} catch {
+				/* a slow/dead client must not break the bus */
+			}
+		};
+		const unsub = runEventBus.onWithReplay(conn.runId, eventsPath, sinceSeq, cb);
+		// Track the unsub so closeConnection can tear it down.
+		let bucket = this.subscriptionUnsubs.get(conn);
+		if (!bucket) {
+			bucket = new Set();
+			this.subscriptionUnsubs.set(conn, bucket);
+		}
+		bucket.add(unsub);
+		// Auto-cleanup on close.
+		const origUnsub = unsub;
+		const wrappedUnsub = () => {
+			try { origUnsub(); } catch { /* ignore */ }
+			const b = this.subscriptionUnsubs.get(conn);
+			if (b) b.delete(origUnsub);
+		};
+		bucket.delete(origUnsub);
+		bucket.add(wrappedUnsub);
+		this.sendResult(conn, id, { subscribed: true, sinceSeq });
+	}
+
+	/**
+	 * Phase 2: task.waitStatus — resolve when a task reaches `until` status.
+	 * Polls loadRunManifestById + tasks.json mtime with a bounded backoff.
+	 * Returns the current task state if already at the target.
+	 */
+	private async handleTaskWaitStatus(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const targetTaskId = typeof v.taskId === "string" ? v.taskId : undefined;
+		const targetStatus = typeof v.until === "string" ? v.until : undefined;
+		const timeoutMs = typeof v.timeoutMs === "number" && Number.isFinite(v.timeoutMs) ? Math.min(Math.max(0, Math.floor(v.timeoutMs)), 60_000) : 30_000;
+		if (!targetTaskId || !targetStatus) {
+			this.sendError(conn, id, "bad-params", "task.waitStatus: taskId and until are required");
+			return;
+		}
+		// Reject non-authed identity-supplying params.
+		if (targetTaskId.length === 0 || targetTaskId.length > 256) {
+			this.sendError(conn, id, "bad-params", "task.waitStatus: taskId out of range");
+			return;
+		}
+		const validStatuses = new Set(["queued", "running", "completed", "failed", "blocked", "cancelled"]);
+		if (!validStatuses.has(targetStatus)) {
+			this.sendError(conn, id, "bad-params", `task.waitStatus: invalid until '${targetStatus}'`);
+			return;
+		}
+		const isTerminal = (s: string) => s === "completed" || s === "failed" || s === "cancelled";
+		const start = Date.now();
+		const interval = 200; // 200ms poll; bounded by timeoutMs.
+		// Properly recursive: the promise returned by `pollUntilDone` only
+		// resolves when the task reaches the target status OR the timeout
+		// elapses OR the connection closes. Each iteration schedules the
+		// next via setTimeout to keep the event loop free.
+		const pollUntilDone = (): Promise<void> => new Promise<void>((resolve) => {
+			const tick = () => {
+				if (conn.closed) {
+					this.sendError(conn, id, "close", "connection closed during wait");
+					resolve();
+					return;
+				}
+				const connRunId = conn.runId;
+				if (!connRunId) {
+					this.sendError(conn, id, "auth", "not authed (post-narrow)");
+					resolve();
+					return;
+				}
+				if (Date.now() - start >= timeoutMs) {
+					this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
+					resolve();
+					return;
+				}
+				try {
+					const loaded = loadRunManifestById(cwd, connRunId);
+					if (!loaded) {
+						this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+						resolve();
+						return;
+					}
+					const task = loaded.tasks.find((t) => t.id === targetTaskId);
+					if (!task) {
+						this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
+						resolve();
+						return;
+					}
+					if (task.status === targetStatus || (isTerminal(targetStatus) && isTerminal(task.status))) {
+						this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
+						resolve();
+						return;
+					}
+				} catch (err) {
+					this.sendError(conn, id, "wait-failed", (err as Error).message);
+					resolve();
+					return;
+				}
+				setTimeout(tick, interval);
+			};
+			setTimeout(tick, 0);
+		});
+		await pollUntilDone();
+	}
+
+	/**
+	 * Phase 3: steer.push — push steering message to a running worker.
+	 * Uses the same file-based channel as the legacy PI_CREW_STEERING_FILE:
+	 * the broker appends to the run's tasks/<taskId>/steering inbox so the
+	 * child's existing pollSteering() picks it up on the next tick.
+	 */
+	private async handleSteerPush(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const targetTaskId = typeof v.taskId === "string" ? v.taskId : undefined;
+		const body = typeof v.body === "string" ? v.body : undefined;
+		if (!targetTaskId || body === undefined) {
+			this.sendError(conn, id, "bad-params", "steer.push: taskId and body are required");
+			return;
+		}
+		if (body.length > MAX_BROKER_FRAME_BYTES) {
+			this.sendError(conn, id, "oversize-frame", "steer.push: body too large");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			// Use the same append path the legacy file-write steering uses.
+			const messageId = `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+			await appendMailboxMessageAsync(loaded.manifest, {
+				id: messageId,
+				direction: "inbox",
+				from: conn.taskId ?? conn.runId,
+				to: targetTaskId,
+				taskId: targetTaskId,
+				body,
+				kind: "steer",
+				priority: (v.priority as "urgent" | "normal" | "low" | undefined) ?? "urgent",
+				deliveryMode: "interrupt",
+			});
+			this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
+		} catch (err) {
+			this.sendError(conn, id, "steer-failed", (err as Error).message);
+		}
+	}
+
+	/**
+	 * Phase 3: escalate — worker → orchestrator question/block.
+	 * For Phase 3, the durable path is via the same mailbox append
+	 * (kind = "follow-up" or "response") to the orchestrator's task
+	 * (conn.taskId of the SENDER, or runId itself). The live-fanout
+	 * via the mailbox observer will push the event frame to any connected
+	 * orchestrator.
+	 */
+	private async handleEscalate(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const body = typeof v.body === "string" ? v.body : undefined;
+		const to = typeof v.to === "string" ? v.to : undefined;
+		if (body === undefined) {
+			this.sendError(conn, id, "bad-params", "escalate: body is required");
+			return;
+		}
+		if (body.length > MAX_BROKER_FRAME_BYTES) {
+			this.sendError(conn, id, "oversize-frame", "escalate: body too large");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		// Default recipient: the sender's taskId (the orchestrator that
+		// spawned this worker). If 'to' is provided, use it instead.
+		const target = to ?? conn.taskId ?? conn.runId;
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			const messageId = `esc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+			await appendMailboxMessageAsync(loaded.manifest, {
+				id: messageId,
+				direction: "inbox",
+				from: conn.taskId ?? conn.runId,
+				to: target,
+				taskId: target,
+				body,
+				kind: "follow-up",
+				priority: (v.priority as "urgent" | "normal" | "low" | undefined) ?? "normal",
+				deliveryMode: "next_turn",
+			});
+			this.sendResult(conn, id, { messageId, to: target, durable: true });
+		} catch (err) {
+			this.sendError(conn, id, "escalate-failed", (err as Error).message);
+		}
+	}
 }
 
 // ============================================================================
@@ -880,7 +1166,7 @@ function isRequestObject(value: unknown): value is { id: string; method: string;
 	if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
 	// Method names are restricted to a small safe charset. This guards against
 	// odd inputs (control chars, very long names) reaching the dispatcher.
-	if (!/^[a-z][a-z0-9._-]{0,63}$/.test(v.method)) return false;
+	if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(v.method)) return false;
 	// params may be anything (validated per-method), but not undefined-shaped.
 	return "params" in v;
 }
