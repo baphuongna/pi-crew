@@ -203,7 +203,7 @@
       "format": "esm"
     },
     "src/config/config.ts": {
-      "bytes": 52418,
+      "bytes": 52707,
       "imports": [
         {
           "path": "node:fs",
@@ -12377,7 +12377,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker.ts": {
-      "bytes": 33696,
+      "bytes": 34008,
       "imports": [
         {
           "path": "node:crypto",
@@ -12533,7 +12533,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 35422,
+      "bytes": 36110,
       "imports": [
         {
           "path": "node:fs",
@@ -13124,7 +13124,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6124036
+      "bytes": 6125539
     },
     "dist/index.mjs": {
       "imports": [
@@ -14822,7 +14822,7 @@
           "bytesInOutput": 1325
         },
         "src/config/config.ts": {
-          "bytesInOutput": 41526
+          "bytesInOutput": 41539
         },
         "src/runtime/pi-spawn.ts": {
           "bytesInOutput": 6666
@@ -16307,7 +16307,7 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 23868
+          "bytesInOutput": 24086
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -16316,7 +16316,7 @@
           "bytesInOutput": 409
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 24013
+          "bytesInOutput": 23986
         },
         "src/runtime/crew-broker-deps.ts": {
           "bytesInOutput": 4744
@@ -16364,7 +16364,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2837038
+      "bytes": 2837242
     }
   }
 }

@@ -2264,9 +2264,9 @@ function parseBrokerConfig(value) {
   if (!obj) return void 0;
   const broker = {
     enabled: parseWithSchema(Type2.Boolean(), obj.enabled),
-    pathHashLen: parsePositiveInteger(obj.pathHashLen, 8),
-    maxFrameBytes: parsePositiveInteger(obj.maxFrameBytes, 262144),
-    outboundQueueCap: parsePositiveInteger(obj.outboundQueueCap, 256)
+    pathHashLen: parseIntegerInRange(obj.pathHashLen, 4, 32),
+    maxFrameBytes: parseIntegerInRange(obj.maxFrameBytes, 1024, 1048576),
+    outboundQueueCap: parseIntegerInRange(obj.outboundQueueCap, 32, 4096)
   };
   return Object.values(broker).some((entry) => entry !== void 0) ? broker : void 0;
 }
@@ -74214,11 +74214,7 @@ var CrewBroker = class {
           new Error("hello deadline"),
           `sessionId=${this.options.sessionId}`
         );
-        conn.closed = true;
-        try {
-          sock.end();
-        } catch {
-        }
+        this.closeConnection(conn);
       }
     }, HELLO_DEADLINE_MS);
     conn.helloTimer.unref?.();
@@ -74616,10 +74612,11 @@ var CrewBroker = class {
     const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1e3) : 1e3;
     try {
       const result4 = readEventsCursor(eventsPath, { sinceSeq, limit });
+      const hasMore = result4.total > result4.events.length;
       this.sendResult(conn, id, {
         events: result4.events,
         nextSeq: result4.nextSeq,
-        hasMore: result4.events.length >= limit
+        hasMore
       });
     } catch (err2) {
       this.sendError(conn, id, "replay-failed", err2.message);
@@ -75471,11 +75468,16 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
           enabled: true,
           cwd: process.cwd()
         });
-        await b.start();
-        broker = b;
-        brokerSessionId = sessionId;
-        starting = null;
-        return b;
+        try {
+          await b.start();
+          broker = b;
+          brokerSessionId = sessionId;
+          return b;
+        } catch (err2) {
+          throw err2;
+        } finally {
+          starting = null;
+        }
       })();
     }
     return starting;
@@ -75507,6 +75509,8 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     },
     /** Test seam: remember the most recent session_id for token issuance. */
     setSessionId: (sessionId) => {
+      if (typeof sessionId !== "string") return;
+      if (sessionId.length === 0 || sessionId.length > 256) return;
       cachedSessionId = sessionId;
     }
   };
