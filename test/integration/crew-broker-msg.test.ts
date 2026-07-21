@@ -126,12 +126,12 @@ test("messaging: DM from task A to task B — durable write + inbox returns the 
 			});
 			assert.equal(sendResult.ok, true, "msg.send should succeed: " + JSON.stringify(sendResult));
 			if (sendResult.ok === true) {
-				const v = sendResult.value as { messageId: string; recipientCount: number; durableStatus: string };
-				assert.equal(v.recipientCount, 1);
-				assert.equal(v.durableStatus, "ok");
-				assert.ok(v.messageId.startsWith("msg_"));
-			}
-			const inboxResult = await b.request("msg.inbox", { limit: 100 });
+			const v = sendResult.value as { messageId: string; recipientCount: number; durableStatus: string };
+			assert.equal(v.recipientCount, 1);
+			assert.equal(v.durableStatus, "ok");
+			assert.ok(v.messageId.startsWith("msg_"));
+		}
+		const inboxResult = await b.request("msg.inbox", { limit: 100 });
 			assert.equal(inboxResult.ok, true, "msg.inbox should succeed: " + JSON.stringify(inboxResult));
 			if (inboxResult.ok === true) {
 				const v = inboxResult.value as { messages: Array<{ id: string; from: string; to: string; body: string; kind: string }>; total: number };

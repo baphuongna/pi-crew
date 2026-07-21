@@ -449,6 +449,15 @@ export class CrewBrokerClient {
 				return;
 			}
 			for (const frame of frames) {
+				// Distinguish unsolicited event frames (e.g. mailbox.message
+				// pushed by the broker's observer-driven live fanout) from
+				// request-response frames. Events have `event` + `data` (+ optional
+				// `seq`); responses have `id` + `result` or `error`. A frame that
+				// is shaped like an event is silently ignored here — Phase 1
+				// does not require an event handler.
+				if (isEventFrame(frame)) {
+					continue;
+				}
 				if (!isResponseObject(frame)) {
 					this.enterFallbackOnce("protocol", new Error("malformed response"));
 					return;
@@ -539,4 +548,17 @@ function isResponseObject(value: unknown): value is { id: string; result?: unkno
 		if (typeof errObj.message !== "string") return false;
 	}
 	return true;
+}
+
+/**
+ * Detect an unsolicited event frame (no `id`, has `event` + `data`).
+ * Event frames are pushed by the broker's live-fanout (e.g. mailbox.message)
+ * and must NOT be treated as request responses — otherwise the client's
+ * strict response validator would fall back on every push.
+ */
+function isEventFrame(value: unknown): boolean {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const v = value as Record<string, unknown>;
+	if (typeof v.event !== "string" || v.event.length === 0) return false;
+	return "data" in v;
 }
