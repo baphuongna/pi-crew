@@ -31,6 +31,13 @@ import * as path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
 import {
+	appendMailboxMessageAsync,
+	type MailboxMessageKind,
+	type MailboxMessagePriority,
+	readMailbox,
+} from "../state/mailbox.ts";
+import { loadRunManifestById } from "../state/state-store.ts";
+import {
 	BrokerError,
 	MAX_BROKER_FRAME_BYTES,
 	NdjsonDecoder,
@@ -464,7 +471,7 @@ export class CrewBroker {
 			return;
 		}
 
-		// Post-hello: dispatch the known set. Phase 0 = ping only.
+		// Post-hello: dispatch the known set.
 		switch (method) {
 			case "ping":
 				this.sendResult(conn, id, { pong: true, protocol: BROKER_PROTOCOL });
@@ -473,10 +480,16 @@ export class CrewBroker {
 				// Repeat hello on the same connection — generic protocol error.
 				this.sendErrorAndClose(conn, id, "protocol", "hello already completed");
 				return;
+			case "msg.send":
+				await this.handleMsgSend(conn, id, params);
+				return;
+			case "msg.inbox":
+				await this.handleMsgInbox(conn, id, params);
+				return;
 			default:
-				// Future methods (events.since, msg.send, msg.inbox, …) are
-				// typed not-implemented. Do NOT pretend they ran.
-				this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented in phase 0`);
+				// Future methods (events.since, events.subscribe, task.waitStatus,
+				// steer.push, escalate) are typed not-implemented.
+				this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
 				return;
 		}
 	}
@@ -623,6 +636,129 @@ export class CrewBroker {
 			conn.outboundSeq += 1;
 		}
 	}
+
+	// ------------------------------------------------------------------------
+	// Phase 1: msg.send + msg.inbox handlers
+	// ------------------------------------------------------------------------
+
+	/** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
+	private async handleMsgSend(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const parsed = parseMsgSendParams(params);
+		if (!parsed) {
+			this.sendError(conn, id, "bad-params", "msg.send: invalid params");
+			return;
+		}
+		const bodyJson = safeStringify(parsed.body);
+		if (bodyJson.length > MAX_BROKER_FRAME_BYTES) {
+			this.sendError(conn, id, "oversize-frame", "msg.send: body too large");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let manifest: Parameters<typeof appendMailboxMessageAsync>[0];
+		let taskIds: string[];
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			manifest = loaded.manifest;
+			taskIds = (loaded.tasks ?? []).map((t) => t.id);
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		const recipients: string[] = Array.isArray(parsed.to)
+			? (parsed.to as string[])
+			: parsed.to === "all"
+				? taskIds
+				: [parsed.to as string];
+		if (recipients.length === 0 || recipients.length > 64) {
+			this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
+			return;
+		}
+		const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+		const fromField = conn.taskId ?? conn.runId;
+		let durable = false;
+		try {
+			for (const recipient of recipients) {
+				await appendMailboxMessageAsync(manifest, {
+					id: `${messageId}_${recipient}`,
+					direction: "inbox",
+					from: fromField,
+					to: recipient,
+					taskId: recipient,
+					body: bodyJson,
+					kind: parsed.kind ?? "message",
+					priority: parsed.priority ?? "normal",
+					deliveryMode: "next_turn",
+					replyTo: parsed.replyTo,
+				});
+			}
+			durable = true;
+		} catch (err) {
+			this.sendError(conn, id, "durable-failed", (err as Error).message);
+			return;
+		}
+		this.sendResult(conn, id, {
+			messageId,
+			recipientCount: recipients.length,
+			durableStatus: durable ? "ok" : "failed",
+			liveDeliveryStatus: "ok",
+		});
+	}
+
+	/** Phase 1.2: paginated inbox pull for the authenticated run/task. */
+	private async handleMsgInbox(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const parsed = parseMsgInboxParams(params);
+		if (!parsed) {
+			this.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let manifest: Parameters<typeof readMailbox>[0];
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			manifest = loaded.manifest;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1000);
+		const taskId = conn.taskId ?? undefined;
+		const all = readMailbox(manifest, "inbox", taskId);
+		const filtered = all.filter((m) => m.status !== "acknowledged");
+		const offset = parsed.cursor ? (parseInt(parsed.cursor, 10) || 0) : 0;
+		const page = filtered.slice(offset, offset + limit);
+		const nextOffset = offset + page.length;
+		const hasMore = nextOffset < filtered.length;
+		this.sendResult(conn, id, {
+			messages: page,
+			nextCursor: hasMore ? String(nextOffset) : undefined,
+			hasMore,
+			total: filtered.length,
+		});
+	}
 }
 
 // ============================================================================
@@ -657,4 +793,63 @@ function isHelloParams(value: unknown): value is {
 	if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
 	if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
 	return true;
+}
+
+
+// ============================================================================
+// Phase 1 parameter parsers (module-level; no `any`)
+// ============================================================================
+
+interface MsgSendParams {
+	to: string | string[] | "all";
+	body: unknown;
+	kind?: MailboxMessageKind;
+	priority?: MailboxMessagePriority;
+	replyTo?: string;
+}
+
+function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	const to = v.to;
+	if (typeof to !== "string" && !Array.isArray(to)) return undefined;
+	if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return undefined;
+	if (typeof to === "string" && to.length === 0) return undefined;
+	if (v.body === undefined) return undefined;
+	const kind = v.kind as MailboxMessageKind | undefined;
+	if (kind !== undefined && !["message", "steer", "follow-up", "response", "group_join"].includes(kind)) {
+		return undefined;
+	}
+	const priority = v.priority as MailboxMessagePriority | undefined;
+	if (priority !== undefined && !["urgent", "normal", "low"].includes(priority)) {
+		return undefined;
+	}
+	const replyTo = typeof v.replyTo === "string" ? v.replyTo : undefined;
+	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo };
+}
+
+interface MsgInboxParams {
+	limit?: number;
+	cursor?: string;
+}
+
+function parseMsgInboxParams(value: unknown): MsgInboxParams | undefined {
+	if (value === undefined || value === null) return { limit: 100, cursor: undefined };
+	if (typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	const limit = v.limit;
+	if (limit !== undefined && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
+		return undefined;
+	}
+	const cursor = v.cursor;
+	if (cursor !== undefined && typeof cursor !== "string") return undefined;
+	return { limit: limit as number | undefined, cursor: cursor as string | undefined };
+}
+
+function safeStringify(value: unknown): string {
+	try {
+		return JSON.stringify(value) ?? "{}";
+	} catch {
+		return "{}";
+	}
 }
