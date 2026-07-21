@@ -857,11 +857,20 @@ export function installCrewBrokerLifecycleController(
 					enabled: true,
 					cwd: process.cwd(),
 				});
-				await b.start();
-				broker = b;
-				brokerSessionId = sessionId;
-				starting = null;
-				return b;
+				try {
+					await b.start();
+					broker = b;
+					brokerSessionId = sessionId;
+					return b;
+				} catch (err) {
+					// Reset starting on failure so a future call can retry. Without
+					// this, a single bind error would leave the controller
+					// permanently dead (the `if (!broker && !starting)` gate
+					// would short-circuit every subsequent call).
+					throw err;
+				} finally {
+					starting = null;
+				}
 			})();
 		}
 		return starting!;
@@ -891,6 +900,12 @@ export function installCrewBrokerLifecycleController(
 		},
 		/** Test seam: remember the most recent session_id for token issuance. */
 		setSessionId: (sessionId: string | undefined) => {
+			// Runtime validation: cap the length and charset to defend against
+			// a hostile extension supplying a huge or pathological id. The
+			// socket path is already hash-derived (4..32 hex), so a longer
+			// sessionId is harmless on disk but wastes heap.
+			if (typeof sessionId !== "string") return;
+			if (sessionId.length === 0 || sessionId.length > 256) return;
 			cachedSessionId = sessionId;
 		},
 	};

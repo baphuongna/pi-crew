@@ -390,7 +390,8 @@ export class CrewBroker {
 		this.connections.add(conn);
 
 		// 1. Hello deadline. Fires after HELLO_DEADLINE_MS if hello has not
-		//    succeeded. We close with a generic protocol error.
+		//    succeeded. Route through closeConnection so the connection is
+		//    properly removed from this.connections + the per-run fanout index.
 		conn.helloTimer = setTimeout(() => {
 			if (!conn.authed && !conn.closed) {
 				logInternalError(
@@ -398,12 +399,7 @@ export class CrewBroker {
 					new Error("hello deadline"),
 					`sessionId=${this.options.sessionId}`,
 				);
-				conn.closed = true;
-				try {
-					sock.end();
-				} catch {
-					/* ignore */
-				}
+				this.closeConnection(conn);
 			}
 		}, HELLO_DEADLINE_MS);
 		conn.helloTimer.unref?.();
@@ -857,10 +853,15 @@ export class CrewBroker {
 		const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1000) : 1000;
 		try {
 			const result = readEventsCursor(eventsPath, { sinceSeq, limit });
+			// hasMore is true iff the total filtered count exceeds the page we
+			// returned. When `total === events.length` we are at the exact end
+			// of the stream (caller will discover this on the next call when
+			// `nextSeq` is unchanged from `sinceSeq`).
+			const hasMore = result.total > result.events.length;
 			this.sendResult(conn, id, {
 				events: result.events,
 				nextSeq: result.nextSeq,
-				hasMore: result.events.length >= limit,
+				hasMore,
 			});
 		} catch (err) {
 			this.sendError(conn, id, "replay-failed", (err as Error).message);

@@ -298,6 +298,9 @@ export class CrewBrokerClient {
 			const finish = (v: BrokerClientResult<true>) => {
 				if (settled) return;
 				settled = true;
+				// Cancel the per-attempt deadline timer so it cannot fire after
+				// a successful handshake and destroy the healthy connection.
+				try { clearTimeoutFn(timer); } catch { /* ignore */ }
 				try {
 					sock.removeAllListeners();
 				} catch {

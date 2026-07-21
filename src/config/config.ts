@@ -754,11 +754,15 @@ function parseControlConfig(value: unknown): CrewControlConfig | undefined {
 function parseBrokerConfig(value: unknown): CrewBrokerConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return undefined;
+	// Use the exact schema bounds (4..32 / 1024..1048576 / 32..4096). The
+	// previous version used parsePositiveInteger(value, default) which clamps
+	// the UPPER bound to the default — effectively pathHashLen was capped
+	// at 8, much narrower than the schema advertises.
 	const broker: CrewBrokerConfig = {
 		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
-		pathHashLen: parsePositiveInteger(obj.pathHashLen, 8),
-		maxFrameBytes: parsePositiveInteger(obj.maxFrameBytes, 262144),
-		outboundQueueCap: parsePositiveInteger(obj.outboundQueueCap, 256),
+		pathHashLen: parseIntegerInRange(obj.pathHashLen, 4, 32),
+		maxFrameBytes: parseIntegerInRange(obj.maxFrameBytes, 1024, 1_048_576),
+		outboundQueueCap: parseIntegerInRange(obj.outboundQueueCap, 32, 4096),
 	};
 	return Object.values(broker).some((entry) => entry !== undefined) ? broker : undefined;
 }

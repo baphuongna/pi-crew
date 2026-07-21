@@ -34,6 +34,7 @@ const PI_TEAMS_CONFIG_KEYS: readonly string[] = [
 	"reliability",
 	"otlp",
 	"ui",
+	"broker",
 ];
 
 describe("config-schema sync (CFG-2)", () => {
