@@ -12377,7 +12377,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker.ts": {
-      "bytes": 34008,
+      "bytes": 45168,
       "imports": [
         {
           "path": "node:crypto",
@@ -12433,6 +12433,11 @@
           "path": "src/state/event-log.ts",
           "kind": "import-statement",
           "original": "../state/event-log.ts"
+        },
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "../ui/run-event-bus.ts"
         },
         {
           "path": "src/runtime/crew-broker-deps.ts",
@@ -13124,7 +13129,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6125539
+      "bytes": 6144432
     },
     "dist/index.mjs": {
       "imports": [
@@ -16316,7 +16321,7 @@
           "bytesInOutput": 409
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 23986
+          "bytesInOutput": 34445
         },
         "src/runtime/crew-broker-deps.ts": {
           "bytesInOutput": 4744
@@ -16364,7 +16369,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2837242
+      "bytes": 2847701
     }
   }
 }
