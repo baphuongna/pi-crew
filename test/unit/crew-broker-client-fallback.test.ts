@@ -174,7 +174,7 @@ function makeClient(
 			// sequence completes in ~20ms instead of ~5s. We also mask the
 			// `unref` method via a Proxy so the client's calls become no-ops
 			// and timers keep the event loop alive until they fire.
-			const t = setTimeout(cb, 5);
+			const t = setTimeout(cb, 100);
 			return new Proxy(t, {
 				get(target, prop) {
 					if (prop === "unref" || prop === "ref" || prop === "hasRef") return undefined;
@@ -219,7 +219,7 @@ test("client: ECONNREFUSED → fallback, no exception, bounded attempts", async 
 	const fake = makeFakeNet();
 	fake.defaultSetup = (sock) => {
 		// Fire ECONNREFUSED on every new socket so all 4 retries see it.
-		queueMicrotask(() => sock.fireError("ECONNREFUSED"));
+		setImmediate(() => sock.fireError("ECONNREFUSED"));
 	};
 	const client = makeClient(fake);
 	console.error("DEBUG: about to request");
@@ -238,7 +238,7 @@ test("client: hello deadline (no ack) → fallback", async () => {
 	const fake = makeFakeNet();
 	fake.defaultSetup = (sock) => {
 		// Connect succeeds but no ack ever arrives → per-attempt deadline.
-		queueMicrotask(() => sock.fireConnect());
+		setImmediate(() => sock.fireConnect());
 	};
 	const client = makeClient(fake);
 	const result = await client.request("ping", null);
@@ -286,40 +286,46 @@ test("client: invalid hello ack (error field) → fallback", async () => {
 
 test("client: happy-path hello + request() round-trip returns the auto-reply", async () => {
 	const fake = makeFakeNet();
+	fake.defaultSetup = (sock) => {
+		// Fire connect on every new socket so the client's onConnect handler
+		// writes the hello frame. The test then sends the ack.
+		setImmediate(() => sock.fireConnect());
+	};
 	const client = makeClient(fake);
 	const promise = client.request("ping", null);
-	// Drain microtasks so the client's connectAndHello loop reaches the
-	// hello-write point. Under --test-force-exit the test runner does not
-	// wait for the event loop to drain, so we explicitly await several
-	// rounds here.
-	for (let i = 0; i < 5; i++) await new Promise<void>((r) => setImmediate(r));
-	assert.ok(fake.lastSocket);
-	fake.lastSocket!.fireConnect();
-	for (let i = 0; i < 5; i++) await new Promise<void>((r) => setImmediate(r));
-	// Wait until the client has actually written the hello frame. We poll
-	// the fake socket's written buffer instead of relying on a fixed
-	// microtask budget — this is robust under load (other tests running
-	// in the same process slow microtasks down).
+	// Drain microtasks until the client has actually written the hello frame.
+	// We use a real setTimeout-based wait so the test runner's --test-force-exit
+	// (which kills the process immediately on test return) cannot preempt the
+	// microtask drains we need.
 	let helloFrame: string | undefined;
-	for (let i = 0; i < 50 && !helloFrame; i++) {
-		helloFrame = fake.lastSocket!.text.split("\n").find((l) => l.includes('"method":"hello"'));
-		if (!helloFrame) await new Promise<void>((r) => setImmediate(r));
+	for (let i = 0; i < 1000; i++) {
+		const sock = fake.lastSocket;
+		if (sock) {
+			helloFrame = sock.text.split("\n").find((l) => l.includes('"method":"hello"'));
+			if (helloFrame) break;
+		}
+		await new Promise<void>((r) => setImmediate(r));
 	}
-	assert.ok(helloFrame, "expected a hello frame to be written");
+	assert.ok(fake.lastSocket && helloFrame, "expected a hello frame to be written");
+	// (connect already fired via defaultSetup.) Now send the hello ack and
+	// wait for the post-hello handler replacement + ping write.
 	const helloId = (JSON.parse(helloFrame!) as { id: string }).id;
 	fake.lastSocket!.fireFrame({ id: helloId, result: { protocol: 1, ok: true } });
-	// Wait for the client to wire up its post-hello handlers AND write the
-	// ping frame. Same polling strategy.
 	let pingFrame: string | undefined;
-	for (let i = 0; i < 50 && !pingFrame; i++) {
+	for (let i = 0; i < 1000; i++) {
 		pingFrame = fake.lastSocket!.text.split("\n").reverse().find((l) => l.includes('"method":"ping"'));
-		if (!pingFrame) await new Promise<void>((r) => setImmediate(r));
+		if (pingFrame) break;
+		await new Promise<void>((r) => setImmediate(r));
 	}
 	assert.ok(pingFrame, "expected a ping frame to be written after hello ack");
+	// Drain once more to ensure the ack is processed before the ping reply.
+	for (let i = 0; i < 50; i++) await new Promise<void>((r) => setImmediate(r));
 	const pingId = (JSON.parse(pingFrame!) as { id: string }).id;
 	fake.lastSocket!.fireFrame({ id: pingId, result: { pong: true } });
-	// The result promise will resolve via the wireSocketHandlers data path.
+	// Drain so the wireSocketHandlers data path resolves the pending request.
+	for (let i = 0; i < 50; i++) await new Promise<void>((r) => setImmediate(r));
 	const result = await promise;
+	
 	assert.equal(result.ok, true);
 	if (result.ok === true) {
 		assert.deepEqual(result.value, { pong: true });
@@ -330,7 +336,7 @@ test("client: happy-path hello + request() round-trip returns the auto-reply", a
 test("client: close() removes listeners and clears pending requests", async () => {
 	const fake = makeFakeNet();
 	fake.defaultSetup = (sock) => {
-		queueMicrotask(() => sock.fireConnect());
+		setImmediate(() => sock.fireConnect());
 		// Never send an ack — keep the request hanging.
 	};
 	const client = makeClient(fake);
@@ -380,7 +386,7 @@ test("client: malformed NDJSON after hello → fallback; socket torn down", asyn
 test("client: token is redacted in error/log surfaces", async () => {
 	const fake = makeFakeNet();
 	fake.defaultSetup = (sock) => {
-		queueMicrotask(() => sock.fireError("ECONNREFUSED"));
+		setImmediate(() => sock.fireError("ECONNREFUSED"));
 	};
 	const secret = "very-secret-token-abcdef";
 	const client = makeClient(fake, { token: secret });

@@ -64,6 +64,9 @@ export interface CrewBrokerOptions {
 	 *  Lets the lifecycle controller install the broker unconditionally and
 	 *  have a single kill switch. */
 	enabled: boolean;
+	/** CWD for `loadRunManifestById` (Phase 1 msg.send / msg.inbox resolution).
+	 *  When omitted, manifest-touching methods return no-manifest errors. */
+	cwd?: string;
 	/** Optional test seam: override the `net` module (allows fake-server tests). */
 	netModule?: typeof net;
 }
@@ -92,7 +95,7 @@ interface ServerConnection {
 
 export class CrewBroker {
 	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled">> &
-		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "netModule">;
+		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "cwd" | "netModule">;
 	private readonly tokens = new BrokerTokenRegistry();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
@@ -116,6 +119,7 @@ export class CrewBroker {
 			socketPath: options.socketPath,
 			maxFrameBytes: options.maxFrameBytes,
 			outboundQueueCap: options.outboundQueueCap,
+			cwd: options.cwd,
 			netModule: options.netModule,
 		};
 	}

@@ -855,6 +855,7 @@ export function installCrewBrokerLifecycleController(
 					maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
 					outboundQueueCap: cfg?.outboundQueueCap ?? 256,
 					enabled: true,
+					cwd: process.cwd(),
 				});
 				await b.start();
 				broker = b;
