@@ -36,7 +36,7 @@ import { importCrashRecovery, purgeStaleActiveRunIndexSyncIfLoaded } from "./reg
 import { installForegroundRunController } from "./registration/foreground-run-controller.ts";
 import { installPiHooks } from "./registration/hook-registration.ts";
 import { installLazyConfigurers } from "./registration/lazy-configurers.ts";
-import { installSessionLifecycleHandlers } from "./registration/lifecycle-handlers.ts";
+import { installCrewBrokerLifecycleController, installSessionLifecycleHandlers } from "./registration/lifecycle-handlers.ts";
 import { installRuntimeCleanup } from "./registration/runtime-cleanup.ts";
 import { __test__subagentSpawnParams } from "./registration/subagent-helpers.ts";
 import { installSubagentManager } from "./registration/subagent-manager-setup.ts";
@@ -73,6 +73,11 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	registerPiCommands(pi, ctx);
 	installPiHooks(pi, ctx);
 	installSessionLifecycleHandlers(pi, ctx);
+	// Phase 0 inter-pi broker: install the lifecycle controller immediately
+	// after the session handlers. The controller's gate (broker.enabled AND
+	// root-session only) decides whether anything is actually done; for
+	// subagents or when the flag is off, it returns a no-op controller.
+	ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
 
 	registerCleanupHandler(pi);
 	registerCompactionGuard(pi, {

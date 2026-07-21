@@ -1,0 +1,656 @@
+/**
+ * crew-broker.ts — Root-only local socket server for cross-process pi-worker
+ *                  message transport. PHASE 0 skeleton (sub-task 0.4).
+ *
+ *  - Bound to a `node:net` Unix domain socket or Windows named pipe.
+ *  - One broker per root session; per-run token auth on first `hello`.
+ *  - NDJSON framing, 256 KiB UTF-8 cap, 1s hello deadline.
+ *  - Per-connection outbound queue cap (default 256) with drop-newest +
+ *    `needsResync` marker.
+ *  - Phase 0 dispatches ONLY `hello` and `ping`. All other methods return
+ *    a typed `not-implemented` response (preserves forward-compat without
+ *    pretending Phase 1 methods are live).
+ *  - Token map is HEAP ONLY; cleared on `stop()`. Never serialized.
+ *  - `stop()` is idempotent. Never calls `process.kill`.
+ *  - All log/error scopes use `crew-broker.*` prefix; every diagnostic
+ *    passes through `redactSecretString` from `src/utils/redaction.ts`.
+ *
+ *  NO outbound TCP. NO persistence. NO children. NO process killing.
+ *
+ *  See `reports/inter-pi-broker-impl-plan-2026-07-21.md` §"0.4" for the
+ *  full contract and acceptance criteria.
+ */
+
+import { timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import * as fsp from "node:fs/promises";
+import * as net from "node:net";
+import * as os from "node:os";
+import * as path from "node:path";
+
+import { logInternalError } from "../utils/internal-error.ts";
+import { redactSecretString } from "../utils/redaction.ts";
+import {
+	BrokerError,
+	MAX_BROKER_FRAME_BYTES,
+	NdjsonDecoder,
+	encodeBrokerFrame,
+	getBrokerSocketPath,
+	prepareBrokerSocketDir,
+	removeStaleBrokerSocket,
+} from "./crew-broker-deps.ts";
+import { BrokerTokenRegistry, newBrokerToken } from "./crew-broker-tokens.ts";
+
+/** Protocol version negotiated at `hello` time. Bump on breaking change. */
+const BROKER_PROTOCOL = 1;
+
+/** Hard hello deadline (per spec). After 1s, the connection is closed with a
+ *  generic auth/protocol code. */
+const HELLO_DEADLINE_MS = 1_000;
+
+/** Default per-connection outbound queue cap (events). */
+const DEFAULT_OUTBOUND_QUEUE_CAP = 256;
+
+export interface CrewBrokerOptions {
+	/** Root session ID used to derive the socket path. */
+	sessionId: string;
+	/** Pre-resolved socket path (skips re-derivation; useful for tests). */
+	socketPath?: string;
+	/** Frame cap in UTF-8 bytes. Default 256 KiB. */
+	maxFrameBytes?: number;
+	/** Per-connection outbound queue cap. Default 256. */
+	outboundQueueCap?: number;
+	/** Required: when false, start() is a no-op and the server never binds.
+	 *  Lets the lifecycle controller install the broker unconditionally and
+	 *  have a single kill switch. */
+	enabled: boolean;
+	/** Optional test seam: override the `net` module (allows fake-server tests). */
+	netModule?: typeof net;
+}
+
+/** Per-connection server-side state. */
+interface ServerConnection {
+	socket: net.Socket;
+	decoder: NdjsonDecoder;
+	/** Whether the connection has completed `hello` successfully. */
+	authed: boolean;
+	/** Run id bound by hello. */
+	runId?: string;
+	/** Task id bound by hello. */
+	taskId?: string;
+	/** Outbound queue of encoded frames awaiting drain. */
+	outbound: Buffer[];
+	/** Set when the queue has hit the cap and a frame was dropped. */
+	needsResync: boolean;
+	/** Set when the connection is closing (idempotent). */
+	closed: boolean;
+	/** Timer for the hello deadline. */
+	helloTimer: NodeJS.Timeout | null;
+	/** Monotonic seq counter for outbound events (diagnostic). */
+	outboundSeq: number;
+}
+
+export class CrewBroker {
+	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled">> &
+		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "netModule">;
+	private readonly tokens = new BrokerTokenRegistry();
+	private server: net.Server | null = null;
+	private resolvedSocketPath: string | null = null;
+	private stopped = false;
+	private starting = false;
+	private startingPromise: Promise<void> | null = null;
+	private readonly connections = new Set<ServerConnection>();
+	/** A single observable handshake counter (test/observability). */
+	private handshakeCount = 0;
+
+	constructor(options: CrewBrokerOptions) {
+		if (!options || typeof options !== "object") {
+			throw new Error("CrewBroker: options is required");
+		}
+		if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
+			throw new Error("CrewBroker: sessionId must be a non-empty string");
+		}
+		this.options = {
+			sessionId: options.sessionId,
+			enabled: options.enabled === true,
+			socketPath: options.socketPath,
+			maxFrameBytes: options.maxFrameBytes,
+			outboundQueueCap: options.outboundQueueCap,
+			netModule: options.netModule,
+		};
+	}
+
+	/** Read the resolved socket path. Available after start() resolves. */
+	get socketPath(): string {
+		return this.resolvedSocketPath ?? this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+	}
+
+	/** Diagnostic: number of connections currently registered. */
+	get connectionCount(): number {
+		return this.connections.size;
+	}
+
+	/** Diagnostic: number of completed handshakes since start(). */
+	get handshakes(): number {
+		return this.handshakeCount;
+	}
+
+	/** Diagnostic: number of registered tokens. */
+	get tokenCount(): number {
+		return this.tokens.size;
+	}
+
+	/** Issue a fresh token for `runId`. The token is stored in the heap-only
+	 *  registry and is the only way a child can complete `hello`. Never log
+	 *  the return value; never write it to disk. */
+	issueRunToken(runId: string): string {
+		if (typeof runId !== "string" || runId.length === 0) {
+			throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
+		}
+		return this.tokens.issue(runId);
+	}
+
+	/** Start the broker. Idempotent (subsequent calls return the same promise).
+	 *  When `enabled=false`, this is a no-op and no socket is created. */
+	start(): Promise<void> {
+		if (!this.options.enabled) {
+			// Disabled path: ensure the server is NOT bound. This is the
+			// disabled-path proof — no socket created, no listener installed.
+			logInternalError("crew-broker.start.disabled", new Error("broker disabled"), `sessionId=${this.options.sessionId}`);
+			return Promise.resolve();
+		}
+		if (this.server) return Promise.resolve();
+		if (this.startingPromise) return this.startingPromise;
+		this.starting = true;
+		this.startingPromise = this.doStart()
+			.then(() => {
+				this.starting = false;
+			})
+			.catch((err) => {
+				this.starting = false;
+				this.startingPromise = null;
+				throw err;
+			});
+		return this.startingPromise;
+	}
+
+	private async doStart(): Promise<void> {
+		// 1. Resolve socket path.
+		const sockPath = this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+		this.resolvedSocketPath = sockPath;
+
+		// 2. Ensure parent directory exists (mode 0700 on POSIX).
+		await prepareBrokerSocketDir(sockPath);
+
+		// 3. Connect-then-unlink any stale endpoint. A live listener MUST NOT
+		//    be replaced (we let EADDRINUSE surface on bind).
+		const staleResult = await removeStaleBrokerSocket(sockPath);
+		if (staleResult === "refused") {
+			// Symlink — refuse to proceed.
+			throw new BrokerError("protocol", `refusing to follow symlinked broker socket: ${sockPath}`);
+		}
+
+		// 4. Bind the server. allowHalfOpen:false so the other side's FIN is
+		//    the only end-of-stream signal; we won't keep reading from a
+		//    half-closed socket.
+		const netModule = this.options.netModule ?? net;
+		const server = netModule.createServer({ allowHalfOpen: false }, (sock) => {
+			this.handleConnection(sock).catch((err) => {
+				logInternalError(
+					"crew-broker.connection.crashed",
+					err instanceof Error ? err : new Error(String(err)),
+					`sessionId=${this.options.sessionId}`,
+				);
+			});
+		});
+
+		await new Promise<void>((resolve, reject) => {
+			const onError = (err: Error) => {
+				server.removeListener("listening", onListening);
+				reject(err);
+			};
+			const onListening = () => {
+				server.removeListener("error", onError);
+				resolve();
+			};
+			server.once("error", onError);
+			server.once("listening", onListening);
+			try {
+				server.listen(sockPath);
+			} catch (err) {
+				server.removeListener("error", onError);
+				server.removeListener("listening", onListening);
+				reject(err as Error);
+			}
+		});
+
+		// 5. Tighten socket permissions on POSIX. Node's net module has no
+		//    `mode` option (unlike `fs`), so we chmod after listen() succeeds.
+		if (process.platform !== "win32") {
+			try {
+				await fsp.chmod(sockPath, 0o600);
+			} catch (err) {
+				// chmod may fail on filesystems that don't support it; log and
+				// continue — the directory mode (0700) is the outer defense.
+				logInternalError(
+					"crew-broker.start.chmod-failed",
+					err instanceof Error ? err : new Error(String(err)),
+					`path=${redactSecretString(sockPath)}`,
+				);
+			}
+		}
+
+		this.server = server;
+		// Server-level safety net: any uncaught server error must not crash
+		// the parent. We log and let the close handler clean up.
+		server.on("error", (err) => {
+			logInternalError(
+				"crew-broker.server.error",
+				err instanceof Error ? err : new Error(String(err)),
+				`sessionId=${this.options.sessionId}`,
+			);
+		});
+	}
+
+	/** Stop the broker. Idempotent. Closes every active connection, unlinks
+	 *  ONLY the recorded socket path (never `process.kill`), and clears the
+	 *  token registry. Safe to call twice. */
+	async stop(): Promise<void> {
+		if (this.stopped) return;
+		this.stopped = true;
+
+		// 1. Close all live connections. We don't surface errors here — stop()
+		//    must be idempotent and never throw on individual connection faults.
+		for (const conn of [...this.connections]) {
+			try {
+				conn.closed = true;
+				if (conn.helloTimer) {
+					clearTimeout(conn.helloTimer);
+					conn.helloTimer = null;
+				}
+				conn.socket.end();
+				// Give Node a tick to flush; destroy after a short grace if not.
+				setTimeout(() => {
+					try {
+						conn.socket.destroy();
+					} catch {
+						/* ignore */
+					}
+				}, 50).unref();
+			} catch (err) {
+				logInternalError(
+					"crew-broker.stop.close-conn-failed",
+					err instanceof Error ? err : new Error(String(err)),
+					`sessionId=${this.options.sessionId}`,
+				);
+			}
+		}
+		this.connections.clear();
+
+		// 2. Close the server itself.
+		if (this.server) {
+			await new Promise<void>((resolve) => {
+				const srv = this.server;
+				if (!srv) return resolve();
+				srv.close(() => resolve());
+				// If the server is not currently listening, close() resolves
+				// synchronously — guard with a hard timeout for safety.
+				setTimeout(() => resolve(), 250).unref();
+			});
+			this.server = null;
+		}
+
+		// 3. Clear the token map. This is the single point where the heap
+		//    state for runIds is wiped. No persistence to clean up.
+		this.tokens.clear();
+
+		// 4. Unlink the recorded socket file IF we created it. We never
+		//    touch any other path. We also never `process.kill` anything.
+		const sockPath = this.resolvedSocketPath ?? this.options.socketPath;
+		if (sockPath && process.platform !== "win32") {
+			try {
+				await fsp.unlink(sockPath);
+			} catch (err) {
+				const code = (err as NodeJS.ErrnoException).code;
+				if (code !== "ENOENT") {
+					logInternalError(
+						"crew-broker.stop.unlink-failed",
+						err instanceof Error ? err : new Error(String(err)),
+						`path=${redactSecretString(sockPath)}`,
+					);
+				}
+			}
+		}
+		this.resolvedSocketPath = null;
+	}
+
+	/**
+	 * Non-throwing enqueue entry point for the post-append mailbox observer
+	 * (Phase 1) or any other in-process producer. Phase 0 accepts `notifyMessage`
+	 * as a no-op shape so the lifecycle controller can install a single
+	 * observer regardless of broker state.
+	 *
+	 * Fanout goes ONLY to authenticated connections matching the recipient.
+	 * Phase 0 keeps this as a typed no-op (`not-implemented` would be
+	 * inappropriate here — the caller is in-process and shouldn't be
+	 * punished for testing the broker skeleton).
+	 */
+	notifyMessage(_message: unknown): void {
+		// Phase 0: no fanout. Phase 1 replaces this with the single
+		// post-durable mailbox observer fanout.
+	}
+
+	// ------------------------------------------------------------------------
+	// Connection lifecycle
+	// ------------------------------------------------------------------------
+
+	private async handleConnection(sock: net.Socket): Promise<void> {
+		const conn: ServerConnection = {
+			socket: sock,
+			decoder: new NdjsonDecoder(),
+			authed: false,
+			runId: undefined,
+			taskId: undefined,
+			outbound: [],
+			needsResync: false,
+			closed: false,
+			helloTimer: null,
+			outboundSeq: 0,
+		};
+		this.connections.add(conn);
+
+		// 1. Hello deadline. Fires after HELLO_DEADLINE_MS if hello has not
+		//    succeeded. We close with a generic protocol error.
+		conn.helloTimer = setTimeout(() => {
+			if (!conn.authed && !conn.closed) {
+				logInternalError(
+					"crew-broker.hello.deadline",
+					new Error("hello deadline"),
+					`sessionId=${this.options.sessionId}`,
+				);
+				conn.closed = true;
+				try {
+					sock.end();
+				} catch {
+					/* ignore */
+				}
+			}
+		}, HELLO_DEADLINE_MS);
+		conn.helloTimer.unref?.();
+
+		sock.on("data", (chunk: Buffer) => {
+			this.handleData(conn, chunk).catch((err) => {
+				logInternalError(
+					"crew-broker.connection.data-crashed",
+					err instanceof Error ? err : new Error(String(err)),
+					`sessionId=${this.options.sessionId}`,
+				);
+				this.closeConnection(conn);
+			});
+		});
+		sock.on("error", (err) => {
+			// socket-level error — log with redaction, then close.
+			logInternalError(
+				"crew-broker.connection.socket-error",
+				err instanceof Error ? err : new Error(String(err)),
+				`sessionId=${this.options.sessionId}`,
+			);
+			this.closeConnection(conn);
+		});
+		sock.on("close", () => {
+			this.closeConnection(conn);
+		});
+	}
+
+	private closeConnection(conn: ServerConnection): void {
+		if (conn.closed) return;
+		conn.closed = true;
+		if (conn.helloTimer) {
+			clearTimeout(conn.helloTimer);
+			conn.helloTimer = null;
+		}
+		this.connections.delete(conn);
+		try {
+			conn.socket.destroy();
+		} catch {
+			/* ignore */
+		}
+	}
+
+	private async handleData(conn: ServerConnection, chunk: Buffer): Promise<void> {
+		if (conn.closed) return;
+		let frames: unknown[];
+		try {
+			frames = conn.decoder.push(chunk);
+		} catch (err) {
+			// BrokerError from the decoder — typed close.
+			if (err instanceof BrokerError) {
+				logInternalError(
+					"crew-broker.decoder.error",
+					err,
+					`code=${err.code} sessionId=${this.options.sessionId}`,
+				);
+				this.sendErrorAndClose(conn, undefined, err.code === "oversize-frame" ? "oversize-frame" : "protocol", err.message);
+				return;
+			}
+			throw err;
+		}
+		for (const frame of frames) {
+			await this.dispatchFrame(conn, frame);
+			if (conn.closed) return;
+		}
+	}
+
+	private async dispatchFrame(conn: ServerConnection, frame: unknown): Promise<void> {
+		// Validate the frame is a request object.
+		if (!isRequestObject(frame)) {
+			this.sendErrorAndClose(conn, undefined, "protocol", "malformed request");
+			return;
+		}
+		const { id, method, params } = frame;
+
+		// Hello MUST be the first method. Any other method before hello
+		// returns a generic protocol error and closes.
+		if (!conn.authed) {
+			if (method !== "hello") {
+				this.sendErrorAndClose(conn, id, "protocol", "hello required");
+				return;
+			}
+			await this.handleHello(conn, id, params);
+			return;
+		}
+
+		// Post-hello: dispatch the known set. Phase 0 = ping only.
+		switch (method) {
+			case "ping":
+				this.sendResult(conn, id, { pong: true, protocol: BROKER_PROTOCOL });
+				return;
+			case "hello":
+				// Repeat hello on the same connection — generic protocol error.
+				this.sendErrorAndClose(conn, id, "protocol", "hello already completed");
+				return;
+			default:
+				// Future methods (events.since, msg.send, msg.inbox, …) are
+				// typed not-implemented. Do NOT pretend they ran.
+				this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented in phase 0`);
+				return;
+		}
+	}
+
+	private async handleHello(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		// Validate params shape. We deliberately do NOT disclose which field
+		// is wrong — return a generic auth/protocol code.
+		if (!isHelloParams(params)) {
+			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+			return;
+		}
+		const { protocol, runId, taskId, token } = params;
+
+		// Protocol must be exactly BROKER_PROTOCOL. Mismatch is a generic
+		// auth failure so we don't disclose whether the runId was valid.
+		if (protocol !== BROKER_PROTOCOL) {
+			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+			return;
+		}
+
+		// Token must match. We use constant-time compare and never include
+		// the token (or any substring) in the error path.
+		if (!this.tokens.matches(runId, token)) {
+			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+			return;
+		}
+
+		// Bounded identity checks. taskId must be a non-empty string.
+		if (typeof taskId !== "string" || taskId.length === 0 || taskId.length > 256) {
+			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+			return;
+		}
+		if (typeof runId !== "string" || runId.length === 0 || runId.length > 256) {
+			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+			return;
+		}
+
+		// Bind connection identity and ack. Ack never includes the token.
+		conn.authed = true;
+		conn.runId = runId;
+		conn.taskId = taskId;
+		if (conn.helloTimer) {
+			clearTimeout(conn.helloTimer);
+			conn.helloTimer = null;
+		}
+		this.handshakeCount += 1;
+		this.sendResult(conn, id, {
+			protocol: BROKER_PROTOCOL,
+			session: this.options.sessionId,
+			run: runId,
+			ok: true,
+		});
+	}
+
+	// ------------------------------------------------------------------------
+	// Outbound queue + drop-newest + needsResync
+	// ------------------------------------------------------------------------
+
+	private sendResult(conn: ServerConnection, id: string, result: unknown): void {
+		this.enqueueFrame(conn, { id, result });
+	}
+
+	private sendError(conn: ServerConnection, id: string, code: string, message: string): void {
+		this.enqueueFrame(conn, { id, error: { code, message: redactSecretString(message) } });
+	}
+
+	private sendErrorAndClose(conn: ServerConnection, id: string | undefined, code: string, message: string): void {
+		if (id !== undefined) {
+			// Best-effort error frame before close. Even if the queue is full
+			// we still try to deliver the close reason.
+			try {
+				const buf = encodeBrokerFrame({ id, error: { code, message: redactSecretString(message) } });
+				this.writeOrQueue(conn, buf, /*force*/ true);
+			} catch {
+				// encodeBrokerFrame may throw oversize-frame; we still want to
+				// close, so swallow.
+			}
+		}
+		this.closeConnection(conn);
+	}
+
+	private enqueueFrame(conn: ServerConnection, payload: unknown): void {
+		let buf: Buffer;
+		try {
+			buf = encodeBrokerFrame(payload);
+		} catch (err) {
+			logInternalError(
+				"crew-broker.enqueue.encode-failed",
+				err instanceof Error ? err : new Error(String(err)),
+				`sessionId=${this.options.sessionId}`,
+			);
+			return;
+		}
+		this.writeOrQueue(conn, buf, /*force*/ false);
+	}
+
+	private writeOrQueue(conn: ServerConnection, buf: Buffer, force: boolean): void {
+		if (conn.closed) return;
+		const cap = this.options.outboundQueueCap ?? DEFAULT_OUTBOUND_QUEUE_CAP;
+		if (conn.outbound.length >= cap) {
+			if (force) {
+				// Forced sends (e.g. close-reason) bypass the cap and attempt
+				// to flush directly; if the socket is busy they may still drop.
+				try {
+					conn.socket.write(buf);
+				} catch {
+					/* socket may have closed; the close handler will sweep. */
+				}
+				return;
+			}
+			// Drop-newest: do NOT add the new frame, mark needsResync, and stop
+			// further live fanout for this connection. The client must reconnect
+			// and replay (Phase 1: via events.since; Phase 0: protocol error).
+			conn.needsResync = true;
+			// We do NOT revoke auth — the connection is still authenticated; we
+			// simply pause live frame production. The client is expected to
+			// notice the queue-depth and resync.
+			return;
+		}
+		conn.outbound.push(buf);
+		this.drainOutbound(conn);
+	}
+
+	private drainOutbound(conn: ServerConnection): void {
+		while (conn.outbound.length > 0) {
+			const buf = conn.outbound[0];
+			if (buf === undefined) break;
+			// Try the write; if it returns false, wait for drain before pushing more.
+			try {
+				const ok = conn.socket.write(buf);
+				if (!ok) {
+					// Backpressure — re-arm on drain event.
+					conn.socket.once("drain", () => {
+						if (!conn.closed) this.drainOutbound(conn);
+					});
+					return;
+				}
+			} catch {
+				// Write failed — close the connection (we already had it open).
+				this.closeConnection(conn);
+				return;
+			}
+			conn.outbound.shift();
+			conn.outboundSeq += 1;
+		}
+	}
+}
+
+// ============================================================================
+// Type guards (no `any`)
+// ============================================================================
+
+function isRequestObject(value: unknown): value is { id: string; method: string; params: unknown } {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const v = value as Record<string, unknown>;
+	if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
+	if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
+	// Method names are restricted to a small safe charset. This guards against
+	// odd inputs (control chars, very long names) reaching the dispatcher.
+	if (!/^[a-z][a-z0-9._-]{0,63}$/.test(v.method)) return false;
+	// params may be anything (validated per-method), but not undefined-shaped.
+	return "params" in v;
+}
+
+function isHelloParams(value: unknown): value is {
+	protocol: number;
+	runId: string;
+	taskId: string;
+	token: string;
+} {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const v = value as Record<string, unknown>;
+	if (v.protocol !== BROKER_PROTOCOL) {
+		// Force exact-type comparison (must be the number 1, not "1").
+		if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
+	}
+	if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
+	if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
+	if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
+	return true;
+}

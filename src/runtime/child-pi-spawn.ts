@@ -201,6 +201,15 @@ export function prepareSpawnContext(
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
+	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
+	// credentials for this run — i.e. the broker is enabled AND this run is
+	// eligible. The token is heap-only on the parent; the child receives it
+	// solely through env. NEVER persisted to disk.
+	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
+		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
+		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+	}
 	// B5: if the parent already aborted before we spawn, do not start the child
 	// at all. Spawning a doomed process wastes resources, and the abort listener
 	// registered below will not re-fire for an already-aborted signal (so the

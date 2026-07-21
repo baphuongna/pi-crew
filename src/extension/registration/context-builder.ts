@@ -102,6 +102,10 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 		startForegroundRun: undefined as never,
 		abortForegroundRun: () => false,
 		openLiveSidebar: () => {},
+		// Phase 0 inter-pi broker controller. Initially undefined; register.ts
+		// replaces this with a real controller (or no-op) after lifecycle
+		// handlers are installed.
+		brokerController: undefined,
 	};
 
 	ctx.notifyOperator = (notification: NotificationDescriptor): void => {

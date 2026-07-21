@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { PiTeamsAutonomyProfileSchema, PiTeamsConfigSchema } from "../schema/config-schema.ts";
+import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "./defaults.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { withFileLockSync } from "../state/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -44,6 +45,7 @@ import type {
 	AgentOverrideConfig,
 	ConfigValidationResult,
 	CrewAgentsConfig,
+	CrewBrokerConfig,
 	CrewControlConfig,
 	CrewLimitsConfig,
 	CrewNotificationsConfig,
@@ -744,6 +746,34 @@ function parseControlConfig(value: unknown): CrewControlConfig | undefined {
 	return Object.values(control).some((entry) => entry !== undefined) ? control : undefined;
 }
 
+/**
+ * Phase 0 broker parser. Returns `undefined` only when input is not an object;
+ * otherwise returns the broker config (with only defined fields populated)
+ * so the caller can layer defaults on top.
+ */
+function parseBrokerConfig(value: unknown): CrewBrokerConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const broker: CrewBrokerConfig = {
+		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
+		pathHashLen: parsePositiveInteger(obj.pathHashLen, 8),
+		maxFrameBytes: parsePositiveInteger(obj.maxFrameBytes, 262144),
+		outboundQueueCap: parsePositiveInteger(obj.outboundQueueCap, 256),
+	};
+	return Object.values(broker).some((entry) => entry !== undefined) ? broker : undefined;
+}
+
+/**
+ * Apply PI_CREW_BROKER env override to the parsed broker config, then
+ * layer in DEFAULT_BROKER for any field the user did not set. Keeps the
+ * kill switch (enabled:false) reachable in three independent ways: env,
+ * config block, or default.
+ */
+function applyBrokerEnvOverrideAndDefaults(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig {
+	const envOverridden = resolveBrokerEnvOverride(parsed);
+	return { ...DEFAULT_BROKER, ...envOverridden };
+}
+
 function parseWorktreeConfig(value: unknown): CrewWorktreeConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return undefined;
@@ -1019,6 +1049,7 @@ export function parseConfig(raw: unknown): PiTeamsConfig {
 		reliability: parseReliabilityConfig(obj.reliability),
 		otlp: parseOtlpConfig(obj.otlp),
 		ui: parseUiConfig(obj.ui),
+		broker: parseBrokerConfig(obj.broker),
 	};
 }
 
@@ -1164,7 +1195,13 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 	const result: LoadedPiTeamsConfig = {
 		path: filePath,
 		paths,
-		config,
+		config: {
+			...config,
+			// Phase 0 broker: layer in env override + defaults. Env wins over
+			// config; defaults fill any missing field. Env `"1"`/`"0"` forces
+			// the enabled flag even when no broker block is configured.
+			broker: applyBrokerEnvOverrideAndDefaults(config.broker),
+		},
 		warnings: warnings.length > 0 ? warnings : undefined,
 	};
 	// Only cache when at least one of the watched paths exists — this avoids
