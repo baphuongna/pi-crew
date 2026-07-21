@@ -32,11 +32,14 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
 import {
 	appendMailboxMessageAsync,
+	type MailboxMessage,
 	type MailboxMessageKind,
 	type MailboxMessagePriority,
 	readMailbox,
+	registerMailboxAppendObserver,
 } from "../state/mailbox.ts";
 import { loadRunManifestById } from "../state/state-store.ts";
+import { readEventsCursor } from "../state/event-log.ts";
 import {
 	BrokerError,
 	MAX_BROKER_FRAME_BYTES,
@@ -110,6 +113,10 @@ export class CrewBroker {
 	private starting = false;
 	private startingPromise: Promise<void> | null = null;
 	private readonly connections = new Set<ServerConnection>();
+	/** Connections indexed by runId for live message fanout (Phase 1.3). */
+	private readonly connectionsByRun = new Map<string, Set<ServerConnection>>();
+	/** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
+	private mailboxObserverUnsub: (() => void) | null = null;
 	/** A single observable handshake counter (test/observability). */
 	private handshakeCount = 0;
 
@@ -252,6 +259,13 @@ export class CrewBroker {
 		}
 
 		this.server = server;
+		// Phase 1.3: register the mailbox append observer for live fanout.
+		// When a durable mailbox append completes, push the message to any
+		// connected recipient for that run. Best-effort — never blocks the
+		// append path (the notifier uses queueMicrotask internally).
+		this.mailboxObserverUnsub = registerMailboxAppendObserver((msg) => {
+			this.fanoutMailboxMessage(msg);
+		});
 		// Server-level safety net: any uncaught server error must not crash
 		// the parent. We log and let the close handler clean up.
 		server.on("error", (err) => {
@@ -269,6 +283,11 @@ export class CrewBroker {
 	async stop(): Promise<void> {
 		if (this.stopped) return;
 		this.stopped = true;
+		// Phase 1.3: unregister the mailbox observer before closing connections.
+		if (this.mailboxObserverUnsub) {
+			try { this.mailboxObserverUnsub(); } catch { /* ignore */ }
+			this.mailboxObserverUnsub = null;
+		}
 
 		// 1. Close all live connections. We don't surface errors here — stop()
 		//    must be idempotent and never throw on individual connection faults.
@@ -421,10 +440,45 @@ export class CrewBroker {
 			conn.helloTimer = null;
 		}
 		this.connections.delete(conn);
+		// Phase 1.3: remove from the per-run fanout index.
+		if (conn.runId) {
+			const set = this.connectionsByRun.get(conn.runId);
+			if (set) {
+				set.delete(conn);
+				if (set.size === 0) this.connectionsByRun.delete(conn.runId);
+			}
+		}
 		try {
 			conn.socket.destroy();
 		} catch {
 			/* ignore */
+		}
+	}
+
+	/**
+	 * Phase 1.3: push a durable-appended mailbox message to any connected
+	 * recipient for the message's run. Best-effort — silently skips
+	 * recipients that are offline (they recover via msg.inbox). Never throws.
+	 */
+	private fanoutMailboxMessage(msg: MailboxMessage): void {
+		const set = this.connectionsByRun.get(msg.runId);
+		if (!set || set.size === 0) return;
+		// Deliver as an unsolicited event frame. Recipients dedup by message id
+		// (the durable path is authoritative; this is a latency accelerator).
+		const eventFrame = encodeBrokerFrame({
+			event: "mailbox.message",
+			data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
+			seq: 0, // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
+		});
+		for (const conn of set) {
+			if (conn.closed || !conn.authed) continue;
+			// Recipient filter: deliver to the addressed task, or to all if 'all'.
+			if (msg.to && msg.to !== "all" && conn.taskId !== msg.to) continue;
+			try {
+				this.writeOrQueue(conn, eventFrame, false);
+			} catch {
+				/* a slow/dead recipient must not break fanout to others */
+			}
 		}
 	}
 
@@ -486,6 +540,9 @@ export class CrewBroker {
 			case "msg.inbox":
 				await this.handleMsgInbox(conn, id, params);
 				return;
+			case "events.since":
+				await this.handleEventsSince(conn, id, params);
+				return;
 			default:
 				// Future methods (events.since, events.subscribe, task.waitStatus,
 				// steer.push, escalate) are typed not-implemented.
@@ -531,6 +588,13 @@ export class CrewBroker {
 		conn.authed = true;
 		conn.runId = runId;
 		conn.taskId = taskId;
+		// Phase 1.3: index by runId for live mailbox fanout.
+		let connsForRun = this.connectionsByRun.get(runId);
+		if (!connsForRun) {
+			connsForRun = new Set();
+			this.connectionsByRun.set(runId, connsForRun);
+		}
+		connsForRun.add(conn);
 		if (conn.helloTimer) {
 			clearTimeout(conn.helloTimer);
 			conn.helloTimer = null;
@@ -758,6 +822,49 @@ export class CrewBroker {
 			hasMore,
 			total: filtered.length,
 		});
+	}
+
+	/**
+	 * Phase 1.5: events.since — bounded replay of structured events with seq >
+	 * sinceSeq from the durable log. Used by clients to resync after a missed
+	 * live frame (e.g. after a queue overflow or reconnect). Reuses the same
+	 * readEventsCursor + seq semantics as runEventBus.onWithReplay.
+	 */
+	private async handleEventsSince(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let eventsPath: string;
+		try {
+			const loaded = loadRunManifestById(cwd, conn.runId);
+			if (!loaded) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			eventsPath = loaded.manifest.eventsPath;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+		const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1000) : 1000;
+		try {
+			const result = readEventsCursor(eventsPath, { sinceSeq, limit });
+			this.sendResult(conn, id, {
+				events: result.events,
+				nextSeq: result.nextSeq,
+				hasMore: result.events.length >= limit,
+			});
+		} catch (err) {
+			this.sendError(conn, id, "replay-failed", (err as Error).message);
+		}
 	}
 }
 

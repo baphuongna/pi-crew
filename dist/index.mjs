@@ -11708,6 +11708,24 @@ var init_artifact_store = __esm({
 // src/state/mailbox.ts
 import * as fs29 from "node:fs";
 import * as path24 from "node:path";
+function registerMailboxAppendObserver(fn) {
+  mailboxAppendObservers.add(fn);
+  return () => {
+    mailboxAppendObservers.delete(fn);
+  };
+}
+function notifyMailboxAppended(message) {
+  if (mailboxAppendObservers.size === 0) return;
+  const snapshot = { ...message };
+  queueMicrotask(() => {
+    for (const fn of mailboxAppendObservers) {
+      try {
+        fn(snapshot);
+      } catch {
+      }
+    }
+  });
+}
 function mailboxDir(manifest) {
   return path24.join(manifest.stateRoot, "mailbox");
 }
@@ -12028,6 +12046,7 @@ function appendMailboxMessage(manifest, message) {
     delivery.updatedAt = createdAt;
     writeDeliveryState(manifest, delivery, { durability: "full" });
   });
+  notifyMailboxAppended(complete);
   return complete;
 }
 function appendSteeringMessage(manifest, input) {
@@ -12094,6 +12113,7 @@ async function appendMailboxMessageAsync(manifest, message) {
     delivery.updatedAt = createdAt;
     writeDeliveryState(manifest, delivery, { durability: "full" });
   });
+  notifyMailboxAppended(complete);
   return complete;
 }
 async function appendSteeringMessageAsync(manifest, input) {
@@ -12255,7 +12275,7 @@ function validateMailbox(manifest, options = {}) {
   }
   return { issues, repaired };
 }
-var MAILBOX_ARCHIVE_THRESHOLD_BYTES, deliveryCache, MAX_DELIVERY_CACHE_ENTRIES;
+var mailboxAppendObservers, MAILBOX_ARCHIVE_THRESHOLD_BYTES, deliveryCache, MAX_DELIVERY_CACHE_ENTRIES;
 var init_mailbox = __esm({
   "src/state/mailbox.ts"() {
     "use strict";
@@ -12265,6 +12285,7 @@ var init_mailbox = __esm({
     init_atomic_write();
     init_event_log();
     init_locks();
+    mailboxAppendObservers = /* @__PURE__ */ new Set();
     MAILBOX_ARCHIVE_THRESHOLD_BYTES = DEFAULT_MAILBOX.perFileThresholdBytes;
     deliveryCache = /* @__PURE__ */ new Map();
     MAX_DELIVERY_CACHE_ENTRIES = 256;
@@ -24200,12 +24221,12 @@ var require_code = __commonJS({
     exports._ = _;
     var plus = new _Code("+");
     function str(strs, ...args) {
-      const expr = [safeStringify(strs[0])];
+      const expr = [safeStringify2(strs[0])];
       let i = 0;
       while (i < args.length) {
         expr.push(plus);
         addCodeArg(expr, args[i]);
-        expr.push(plus, safeStringify(strs[++i]));
+        expr.push(plus, safeStringify2(strs[++i]));
       }
       optimize(expr);
       return new _Code(expr);
@@ -24257,16 +24278,16 @@ var require_code = __commonJS({
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
-      return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify(Array.isArray(x) ? x.join(",") : x);
+      return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify2(Array.isArray(x) ? x.join(",") : x);
     }
     function stringify(x) {
-      return new _Code(safeStringify(x));
+      return new _Code(safeStringify2(x));
     }
     exports.stringify = stringify;
-    function safeStringify(x) {
+    function safeStringify2(x) {
       return JSON.stringify(x).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
     }
-    exports.safeStringify = safeStringify;
+    exports.safeStringify = safeStringify2;
     function getProperty(key) {
       return typeof key == "string" && exports.IDENTIFIER.test(key) ? new _Code(`.${key}`) : _`[${key}]`;
     }
@@ -73765,6 +73786,9 @@ import * as fsp3 from "node:fs/promises";
 import * as net2 from "node:net";
 init_internal_error();
 init_redaction();
+init_mailbox();
+init_state_store();
+init_event_log();
 
 // src/runtime/crew-broker-deps.ts
 import { createHash as createHash11, randomUUID as randomUUID8 } from "node:crypto";
@@ -73963,6 +73987,10 @@ var CrewBroker = class {
   starting = false;
   startingPromise = null;
   connections = /* @__PURE__ */ new Set();
+  /** Connections indexed by runId for live message fanout (Phase 1.3). */
+  connectionsByRun = /* @__PURE__ */ new Map();
+  /** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
+  mailboxObserverUnsub = null;
   /** A single observable handshake counter (test/observability). */
   handshakeCount = 0;
   constructor(options) {
@@ -74075,6 +74103,9 @@ var CrewBroker = class {
       }
     }
     this.server = server;
+    this.mailboxObserverUnsub = registerMailboxAppendObserver((msg) => {
+      this.fanoutMailboxMessage(msg);
+    });
     server.on("error", (err2) => {
       logInternalError(
         "crew-broker.server.error",
@@ -74089,6 +74120,13 @@ var CrewBroker = class {
   async stop() {
     if (this.stopped) return;
     this.stopped = true;
+    if (this.mailboxObserverUnsub) {
+      try {
+        this.mailboxObserverUnsub();
+      } catch {
+      }
+      this.mailboxObserverUnsub = null;
+    }
     for (const conn of [...this.connections]) {
       try {
         conn.closed = true;
@@ -74214,9 +74252,39 @@ var CrewBroker = class {
       conn.helloTimer = null;
     }
     this.connections.delete(conn);
+    if (conn.runId) {
+      const set = this.connectionsByRun.get(conn.runId);
+      if (set) {
+        set.delete(conn);
+        if (set.size === 0) this.connectionsByRun.delete(conn.runId);
+      }
+    }
     try {
       conn.socket.destroy();
     } catch {
+    }
+  }
+  /**
+   * Phase 1.3: push a durable-appended mailbox message to any connected
+   * recipient for the message's run. Best-effort — silently skips
+   * recipients that are offline (they recover via msg.inbox). Never throws.
+   */
+  fanoutMailboxMessage(msg) {
+    const set = this.connectionsByRun.get(msg.runId);
+    if (!set || set.size === 0) return;
+    const eventFrame = encodeBrokerFrame({
+      event: "mailbox.message",
+      data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
+      seq: 0
+      // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
+    });
+    for (const conn of set) {
+      if (conn.closed || !conn.authed) continue;
+      if (msg.to && msg.to !== "all" && conn.taskId !== msg.to) continue;
+      try {
+        this.writeOrQueue(conn, eventFrame, false);
+      } catch {
+      }
     }
   }
   async handleData(conn, chunk) {
@@ -74262,8 +74330,17 @@ var CrewBroker = class {
       case "hello":
         this.sendErrorAndClose(conn, id, "protocol", "hello already completed");
         return;
+      case "msg.send":
+        await this.handleMsgSend(conn, id, params);
+        return;
+      case "msg.inbox":
+        await this.handleMsgInbox(conn, id, params);
+        return;
+      case "events.since":
+        await this.handleEventsSince(conn, id, params);
+        return;
       default:
-        this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented in phase 0`);
+        this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
         return;
     }
   }
@@ -74292,6 +74369,12 @@ var CrewBroker = class {
     conn.authed = true;
     conn.runId = runId;
     conn.taskId = taskId;
+    let connsForRun = this.connectionsByRun.get(runId);
+    if (!connsForRun) {
+      connsForRun = /* @__PURE__ */ new Set();
+      this.connectionsByRun.set(runId, connsForRun);
+    }
+    connsForRun.add(conn);
     if (conn.helloTimer) {
       clearTimeout(conn.helloTimer);
       conn.helloTimer = null;
@@ -74384,6 +74467,164 @@ var CrewBroker = class {
       conn.outboundSeq += 1;
     }
   }
+  // ------------------------------------------------------------------------
+  // Phase 1: msg.send + msg.inbox handlers
+  // ------------------------------------------------------------------------
+  /** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
+  async handleMsgSend(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const parsed = parseMsgSendParams(params);
+    if (!parsed) {
+      this.sendError(conn, id, "bad-params", "msg.send: invalid params");
+      return;
+    }
+    const bodyJson = safeStringify(parsed.body);
+    if (bodyJson.length > MAX_BROKER_FRAME_BYTES) {
+      this.sendError(conn, id, "oversize-frame", "msg.send: body too large");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let manifest;
+    let taskIds;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      manifest = loaded.manifest;
+      taskIds = (loaded.tasks ?? []).map((t2) => t2.id);
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const recipients = Array.isArray(parsed.to) ? parsed.to : parsed.to === "all" ? taskIds : [parsed.to];
+    if (recipients.length === 0 || recipients.length > 64) {
+      this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
+      return;
+    }
+    const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const fromField = conn.taskId ?? conn.runId;
+    let durable = false;
+    try {
+      for (const recipient of recipients) {
+        await appendMailboxMessageAsync(manifest, {
+          id: `${messageId}_${recipient}`,
+          direction: "inbox",
+          from: fromField,
+          to: recipient,
+          taskId: recipient,
+          body: bodyJson,
+          kind: parsed.kind ?? "message",
+          priority: parsed.priority ?? "normal",
+          deliveryMode: "next_turn",
+          replyTo: parsed.replyTo
+        });
+      }
+      durable = true;
+    } catch (err2) {
+      this.sendError(conn, id, "durable-failed", err2.message);
+      return;
+    }
+    this.sendResult(conn, id, {
+      messageId,
+      recipientCount: recipients.length,
+      durableStatus: durable ? "ok" : "failed",
+      liveDeliveryStatus: "ok"
+    });
+  }
+  /** Phase 1.2: paginated inbox pull for the authenticated run/task. */
+  async handleMsgInbox(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const parsed = parseMsgInboxParams(params);
+    if (!parsed) {
+      this.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let manifest;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      manifest = loaded.manifest;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1e3);
+    const taskId = conn.taskId ?? void 0;
+    const all = readMailbox(manifest, "inbox", taskId);
+    const filtered = all.filter((m) => m.status !== "acknowledged");
+    const offset = parsed.cursor ? parseInt(parsed.cursor, 10) || 0 : 0;
+    const page = filtered.slice(offset, offset + limit);
+    const nextOffset = offset + page.length;
+    const hasMore = nextOffset < filtered.length;
+    this.sendResult(conn, id, {
+      messages: page,
+      nextCursor: hasMore ? String(nextOffset) : void 0,
+      hasMore,
+      total: filtered.length
+    });
+  }
+  /**
+   * Phase 1.5: events.since — bounded replay of structured events with seq >
+   * sinceSeq from the durable log. Used by clients to resync after a missed
+   * live frame (e.g. after a queue overflow or reconnect). Reuses the same
+   * readEventsCursor + seq semantics as runEventBus.onWithReplay.
+   */
+  async handleEventsSince(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let eventsPath;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      eventsPath = loaded.manifest.eventsPath;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+    const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1e3) : 1e3;
+    try {
+      const result4 = readEventsCursor(eventsPath, { sinceSeq, limit });
+      this.sendResult(conn, id, {
+        events: result4.events,
+        nextSeq: result4.nextSeq,
+        hasMore: result4.events.length >= limit
+      });
+    } catch (err2) {
+      this.sendError(conn, id, "replay-failed", err2.message);
+    }
+  }
 };
 function isRequestObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -74403,6 +74644,44 @@ function isHelloParams(value) {
   if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
   if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
   return true;
+}
+function parseMsgSendParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const to = v.to;
+  if (typeof to !== "string" && !Array.isArray(to)) return void 0;
+  if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return void 0;
+  if (typeof to === "string" && to.length === 0) return void 0;
+  if (v.body === void 0) return void 0;
+  const kind = v.kind;
+  if (kind !== void 0 && !["message", "steer", "follow-up", "response", "group_join"].includes(kind)) {
+    return void 0;
+  }
+  const priority = v.priority;
+  if (priority !== void 0 && !["urgent", "normal", "low"].includes(priority)) {
+    return void 0;
+  }
+  const replyTo = typeof v.replyTo === "string" ? v.replyTo : void 0;
+  return { to, body: v.body, kind, priority, replyTo };
+}
+function parseMsgInboxParams(value) {
+  if (value === void 0 || value === null) return { limit: 100, cursor: void 0 };
+  if (typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const limit = v.limit;
+  if (limit !== void 0 && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
+    return void 0;
+  }
+  const cursor = v.cursor;
+  if (cursor !== void 0 && typeof cursor !== "string") return void 0;
+  return { limit, cursor };
+}
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value) ?? "{}";
+  } catch {
+    return "{}";
+  }
 }
 
 // src/extension/registration/lifecycle-handlers.ts

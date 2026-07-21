@@ -1542,7 +1542,7 @@
       "format": "esm"
     },
     "src/state/mailbox.ts": {
-      "bytes": 34179,
+      "bytes": 35802,
       "imports": [
         {
           "path": "node:fs",
@@ -12377,7 +12377,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker.ts": {
-      "bytes": 22682,
+      "bytes": 33696,
       "imports": [
         {
           "path": "node:crypto",
@@ -12418,6 +12418,21 @@
           "path": "src/utils/redaction.ts",
           "kind": "import-statement",
           "original": "../utils/redaction.ts"
+        },
+        {
+          "path": "src/state/mailbox.ts",
+          "kind": "import-statement",
+          "original": "../state/mailbox.ts"
+        },
+        {
+          "path": "src/state/state-store.ts",
+          "kind": "import-statement",
+          "original": "../state/state-store.ts"
+        },
+        {
+          "path": "src/state/event-log.ts",
+          "kind": "import-statement",
+          "original": "../state/event-log.ts"
         },
         {
           "path": "src/runtime/crew-broker-deps.ts",
@@ -13109,7 +13124,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6103805
+      "bytes": 6124036
     },
     "dist/index.mjs": {
       "imports": [
@@ -14984,7 +14999,7 @@
           "bytesInOutput": 4465
         },
         "src/state/mailbox.ts": {
-          "bytesInOutput": 21862
+          "bytesInOutput": 22424
         },
         "src/extension/help.ts": {
           "bytesInOutput": 2863
@@ -15341,7 +15356,7 @@
           "bytesInOutput": 1136
         },
         "node_modules/ajv/dist/compile/codegen/code.js": {
-          "bytesInOutput": 4828
+          "bytesInOutput": 4834
         },
         "node_modules/ajv/dist/compile/codegen/scope.js": {
           "bytesInOutput": 5314
@@ -16301,7 +16316,7 @@
           "bytesInOutput": 409
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 14692
+          "bytesInOutput": 24013
         },
         "src/runtime/crew-broker-deps.ts": {
           "bytesInOutput": 4744
@@ -16349,7 +16364,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2827149
+      "bytes": 2837038
     }
   }
 }

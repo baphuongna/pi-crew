@@ -373,11 +373,12 @@ test("handshake: not-implemented method after hello → typed not-implemented re
 		const client = await rawConnect(socketPath);
 		client.socket.write(encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId, taskId: "task-A", token } }));
 		await client.waitForFrame((f) => (f as { id?: string })?.id === "h-1");
-		// Now try a phase-1 method.
-		client.socket.write(encodeBrokerFrame({ id: "x-1", method: "msg.send", params: { to: "x", body: "y" } }));
+		// Now try a method that is genuinely not implemented in this phase
+		// (msg.send/msg.inbox/events.since ARE implemented; use steer.push which is Phase 3).
+		client.socket.write(encodeBrokerFrame({ id: "x-1", method: "steer.push", params: { taskId: "x", body: "y" } }));
 		const err = (await client.waitForFrame((f) => (f as { id?: string })?.id === "x-1")) as { error: { code: string; message: string } };
 		assert.equal(err.error.code, "not-implemented");
-		assert.match(err.error.message, /msg\.send/);
+		assert.match(err.error.message, /steer\.push/);
 		client.close();
 	} finally {
 		await broker.stop();
