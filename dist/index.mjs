@@ -62916,7 +62916,7 @@ var init_keybinding_map = __esm({
     init_key_utils();
     DASHBOARD_KEYS = {
       close: ["q", "escape", "\x1B"],
-      select: ["enter", "s", "\r", "\n"],
+      select: ["enter", "s", "\r", "\n", "tab", "	", " "],
       help: ["?"],
       root: {
         summary: ["u"],

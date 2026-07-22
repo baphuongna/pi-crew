@@ -28,7 +28,7 @@ import { keyOf } from "./key-utils.ts";
 
 export const DASHBOARD_KEYS = {
 	close: ["q", "escape", "\u001b"],
-	select: ["enter", "s", "\r", "\n"],
+	select: ["enter", "s", "\r", "\n", "tab", "\t", " "],
 	help: ["?"],
 	root: {
 		summary: ["u"],
