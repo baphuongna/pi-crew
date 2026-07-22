@@ -27,6 +27,7 @@ Examples:
 import argparse
 import os
 import pty
+import signal
 import sys
 import time
 
@@ -89,8 +90,14 @@ def main() -> int:
     pid, fd = pty.fork()
     if pid == 0:
         # Child: exec `pi` in the requested cwd.
-        os.chdir(args.cwd)
-        os.execvpe("pi", ["pi"], env)
+        try:
+            os.chdir(args.cwd)
+            os.execvpe("pi", ["pi"], env)
+        except OSError as exc:
+            # execvpe failed (e.g. `pi` not in PATH) — write to the pty
+            # so the parent's read surfaces the error instead of hanging.
+            os.write(1, f"pty_probe: failed to exec pi: {exc}\n".encode())
+            os._exit(127)
         # execvpe never returns on success.
         os._exit(127)
 
@@ -101,13 +108,53 @@ def main() -> int:
             os.write(fd, k.encode())
             time.sleep(args.per_key_sleep)
         time.sleep(args.startup_sleep)
-        sys.stdout.write(os.read(fd, args.read_chunk).decode(errors="replace"))
+        # Read with a short timeout so we don't block forever if pi is quiet.
+        import select
+        readable, _, _ = select.select([fd], [], [], 5.0)
+        if readable:
+            sys.stdout.write(os.read(fd, args.read_chunk).decode(errors="replace"))
+        else:
+            sys.stderr.write("pty_probe: no output from pi after 5s timeout\n")
     finally:
+        # Reap the child to avoid zombies. The DEFAULT_KEYS sequence ends
+        # with 'q','q' which should quit pi; if it didn't, escalate.
         try:
             os.close(fd)
         except OSError:
             pass
+        try:
+            # Give pi 2s to exit gracefully, then SIGTERM, then SIGKILL.
+            _reap_child(pid, grace_s=2.0)
+        except OSError:
+            pass
     return 0
+
+
+def _reap_child(pid: int, grace_s: float = 2.0) -> None:
+    """Wait for child to exit; escalate to SIGTERM then SIGKILL if needed."""
+    deadline = time.time() + grace_s
+    while time.time() < deadline:
+        waited, _status = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            return  # child exited cleanly
+        time.sleep(0.1)
+    # Still alive — SIGTERM.
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        waited, _status = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            return
+        time.sleep(0.1)
+    # Still alive — SIGKILL.
+    try:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    except ProcessLookupError:
+        pass
 
 
 if __name__ == "__main__":
