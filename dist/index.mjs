@@ -63359,7 +63359,11 @@ var init_run_dashboard = __esm({
     RUN_LIST_MAX = 8;
     SIGNATURE_CACHE_TTL_MS = 100;
     STALE_SNAPSHOT_MS = 15e3;
-    RunDashboard = class {
+    RunDashboard = class _RunDashboard {
+      // TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+      static _instanceCounter = 0;
+      _instanceId;
+      // END TEMP DIAGNOSTIC
       selected = 0;
       runScrollOffset = 0;
       showFullProgress = false;
@@ -63379,6 +63383,14 @@ var init_run_dashboard = __esm({
       unsubscribeTheme;
       renderScheduler;
       constructor(runs, done, theme = {}, options = {}) {
+        this._instanceId = ++_RunDashboard._instanceCounter;
+        try {
+          process.stderr.write(
+            `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}
+`
+          );
+        } catch {
+        }
         const filteredRuns = options.workspaceId ? runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === options.workspaceId) : runs;
         this.runs = filteredRuns;
         this.done = done;
@@ -63689,7 +63701,7 @@ var init_run_dashboard = __esm({
         if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
           try {
             process.stderr.write(
-              `[PI-CREW-DIAG] RunDashboard.handleInput data=${JSON.stringify(data)} focused=${this.focused}
+              `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.handleInput data=${JSON.stringify(data)} focused=${this.focused}
 `
             );
           } catch {
@@ -65480,15 +65492,6 @@ var init_settings_overlay = __esm({
         return this.submenu.render(innerWidth);
       }
       handleInput(data) {
-        if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
-          try {
-            process.stderr.write(
-              `[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}
-`
-            );
-          } catch {
-          }
-        }
         if (this.submenu) {
           this.submenu.handleInput(data);
           return;

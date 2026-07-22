@@ -401,6 +401,11 @@ function countByStatus(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache
 }
 
 export class RunDashboard implements DashboardComponent {
+	// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+	private static _instanceCounter = 0;
+	private readonly _instanceId: number;
+	// END TEMP DIAGNOSTIC
+
 	private selected = 0;
 	private runScrollOffset = 0;
 	private showFullProgress = false;
@@ -426,6 +431,14 @@ export class RunDashboard implements DashboardComponent {
 		theme: unknown = {},
 		options: RunDashboardOptions = {},
 	) {
+		// TEMP DIAGNOSTIC: log every constructor + handleInput + focus change
+		this._instanceId = ++RunDashboard._instanceCounter;
+		try {
+			process.stderr.write(
+				`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}\n`,
+			);
+		} catch {}
+		// END TEMP DIAGNOSTIC
 		// Filter runs by workspaceId for session isolation
 		// If workspaceId is provided, only show runs owned by that session or runs with no owner (legacy)
 		const filteredRuns = options.workspaceId
@@ -818,7 +831,7 @@ export class RunDashboard implements DashboardComponent {
 		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
 			try {
 				process.stderr.write(
-					`[PI-CREW-DIAG] RunDashboard.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
+					`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
 				);
 			} catch {}
 		}

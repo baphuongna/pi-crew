@@ -852,15 +852,7 @@ class SettingsOverlay {
 	}
 
 	handleInput(data: string): void {
-		// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
-		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
-			try {
-				process.stderr.write(
-					`[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
-				);
-			} catch {}
-		}
-		// Submenu takes priority
+			// Submenu takes priority
 		if (this.submenu) {
 			this.submenu.handleInput(data);
 			return;
