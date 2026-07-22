@@ -38,7 +38,7 @@ import { runEventBus } from "../ui/run-event-bus.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../utils/ndjson.ts";
 import { redactSecretString } from "../utils/redaction.ts";
-import { resolveContainedPath } from "../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../utils/socket-path.ts";
 import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 
@@ -1106,7 +1106,10 @@ export class CrewBroker {
 			// already succeeded).
 			try {
 				const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
-				const steeringPath = resolveContainedPath(steeringDir, `${targetTaskId}.jsonl`);
+				const steeringPath = resolveRealContainedPath(
+					loaded.manifest.artifactsRoot,
+					`steering/${targetTaskId}.jsonl`,
+				);
 				const line =
 					JSON.stringify({
 						type: "steer",
