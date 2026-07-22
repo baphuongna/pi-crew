@@ -6347,6 +6347,12 @@ function assertOnlyControlEnvKeys(builtEnv) {
     }
   }
 }
+function buildFinalChildPiSpawnOptions(cwd, mergedEnv, builtEnv, model) {
+  assertOnlyControlEnvKeys(builtEnv);
+  const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
+  spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+  return spawnOptions;
+}
 function prepareSpawnContext(input, effectiveTask) {
   const built = buildPiWorkerArgs({
     task: effectiveTask,
@@ -7301,6 +7307,7 @@ __export(child_pi_exports, {
   ChildPiLineObserver: () => ChildPiLineObserver,
   appendTranscript: () => appendTranscript,
   buildChildPiSpawnOptions: () => buildChildPiSpawnOptions,
+  buildFinalChildPiSpawnOptions: () => buildFinalChildPiSpawnOptions,
   compactString: () => compactString,
   compactValue: () => compactValue,
   flushPendingTranscriptWrites: () => flushPendingTranscriptWrites,
@@ -7482,9 +7489,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
     return await new Promise((resolve22) => {
-      assertOnlyControlEnvKeys(builtEnv);
-      const spawnOptions = buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model);
-      spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+      const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
       const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
         registerActiveChild(child.pid, child);
@@ -8045,6 +8050,7 @@ var init_child_pi = __esm({
     init_child_pi_steering();
     init_child_pi_streams();
     init_child_pi_kill();
+    init_child_pi_spawn();
     init_child_pi_spawn();
     init_child_pi_streams();
     init_crash_classification();
@@ -73768,6 +73774,60 @@ init_internal_error();
 import * as fsp3 from "node:fs/promises";
 import * as net2 from "node:net";
 
+// src/runtime/crew-broker-tokens.ts
+import { randomUUID as randomUUID8, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+function newBrokerToken() {
+  return randomUUID8();
+}
+var BrokerTokenRegistry = class {
+  map = /* @__PURE__ */ new Map();
+  /** Issue a token for `runId`. Idempotent per run: if a token already
+   *  exists for this runId, the existing token is returned unchanged so that
+   *  concurrent sibling tasks sharing a runId all authenticate with the same
+   *  per-run token (the spec's per-run token model). Pass an explicit
+   *  `token` only in tests that need a deterministic value. */
+  issue(runId, token) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+    }
+    if (token === void 0) {
+      const existing = this.map.get(runId);
+      if (existing !== void 0) return existing;
+      const fresh = newBrokerToken();
+      this.map.set(runId, fresh);
+      return fresh;
+    }
+    this.map.set(runId, token);
+    return token;
+  }
+  /** Look up the token for `runId`. Returns undefined if absent. */
+  get(runId) {
+    return this.map.get(runId);
+  }
+  /** Constant-time equality check. Returns false on length mismatch. */
+  matches(runId, candidate) {
+    const expected = this.map.get(runId);
+    if (expected === void 0) return false;
+    if (typeof candidate !== "string" || candidate.length === 0) return false;
+    const a = Buffer.from(expected, "utf8");
+    const b = Buffer.from(candidate, "utf8");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual3(a, b);
+  }
+  /** Remove the token for `runId`. */
+  revoke(runId) {
+    this.map.delete(runId);
+  }
+  /** Wipe every token. Called from CrewBroker.stop(). */
+  clear() {
+    this.map.clear();
+  }
+  /** Diagnostic — count of registered tokens. Never returns the tokens. */
+  get size() {
+    return this.map.size;
+  }
+};
+
 // src/utils/ndjson.ts
 var MAX_BROKER_FRAME_BYTES = 256 * 1024;
 var BrokerError = class extends Error {
@@ -73914,60 +73974,6 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
     throw e;
   }
 }
-
-// src/runtime/crew-broker-tokens.ts
-import { randomUUID as randomUUID8, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
-function newBrokerToken() {
-  return randomUUID8();
-}
-var BrokerTokenRegistry = class {
-  map = /* @__PURE__ */ new Map();
-  /** Issue a token for `runId`. Idempotent per run: if a token already
-   *  exists for this runId, the existing token is returned unchanged so that
-   *  concurrent sibling tasks sharing a runId all authenticate with the same
-   *  per-run token (the spec's per-run token model). Pass an explicit
-   *  `token` only in tests that need a deterministic value. */
-  issue(runId, token) {
-    if (typeof runId !== "string" || runId.length === 0) {
-      throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
-    }
-    if (token === void 0) {
-      const existing = this.map.get(runId);
-      if (existing !== void 0) return existing;
-      const fresh = newBrokerToken();
-      this.map.set(runId, fresh);
-      return fresh;
-    }
-    this.map.set(runId, token);
-    return token;
-  }
-  /** Look up the token for `runId`. Returns undefined if absent. */
-  get(runId) {
-    return this.map.get(runId);
-  }
-  /** Constant-time equality check. Returns false on length mismatch. */
-  matches(runId, candidate) {
-    const expected = this.map.get(runId);
-    if (expected === void 0) return false;
-    if (typeof candidate !== "string" || candidate.length === 0) return false;
-    const a = Buffer.from(expected, "utf8");
-    const b = Buffer.from(candidate, "utf8");
-    if (a.length !== b.length) return false;
-    return timingSafeEqual3(a, b);
-  }
-  /** Remove the token for `runId`. */
-  revoke(runId) {
-    this.map.delete(runId);
-  }
-  /** Wipe every token. Called from CrewBroker.stop(). */
-  clear() {
-    this.map.clear();
-  }
-  /** Diagnostic — count of registered tokens. Never returns the tokens. */
-  get size() {
-    return this.map.size;
-  }
-};
 
 // src/runtime/crew-broker.ts
 var BROKER_PROTOCOL = 1;
@@ -74785,7 +74791,7 @@ var CrewBroker = class {
    *  2. Steering-file append — writes the steer body to
    *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
    *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
-   *     the durable fallback: even if the broker connection is down, the
+   *     the durable fallback: even if the recipient child's broker connection is down, the
    *     child picks up the steer on its next poll tick.
    *
    * A steering-file write failure does NOT fail the steer push — the
@@ -74832,16 +74838,21 @@ var CrewBroker = class {
       });
       try {
         const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
-        const steeringPath = resolveContainedPath(steeringDir, `${targetTaskId}.jsonl`);
+        const steeringPath = resolveRealContainedPath(
+          loaded.manifest.artifactsRoot,
+          `steering/${targetTaskId}.jsonl`
+        );
         const line4 = JSON.stringify({
           type: "steer",
           message: body,
+          id: messageId,
           ts: (/* @__PURE__ */ new Date()).toISOString()
         }) + "\n";
         await fsp3.mkdir(steeringDir, { recursive: true });
         await fsp3.appendFile(steeringPath, line4, "utf-8");
       } catch (fileErr) {
-        logInternalError("crew-broker.steer-file-write-failed", fileErr, `taskId=${targetTaskId}`);
+        const safeMessage = fileErr instanceof Error ? redactSecretString(fileErr.message) : "";
+        logInternalError("crew-broker.steer-file-write-failed", new Error(safeMessage), `taskId=${targetTaskId}`);
       }
       this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
     } catch (err2) {

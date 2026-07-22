@@ -819,7 +819,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi-spawn.ts": {
-      "bytes": 11312,
+      "bytes": 13310,
       "imports": [
         {
           "path": "node:fs",
@@ -984,7 +984,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 47134,
+      "bytes": 46416,
       "imports": [
         {
           "path": "node:child_process",
@@ -1065,6 +1065,11 @@
           "path": "src/runtime/child-pi-kill.ts",
           "kind": "import-statement",
           "original": "./child-pi-kill.ts"
+        },
+        {
+          "path": "src/runtime/child-pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-spawn.ts"
         },
         {
           "path": "src/runtime/child-pi-spawn.ts",
@@ -12328,9 +12333,26 @@
       ],
       "format": "esm"
     },
+    "src/runtime/crew-broker-tokens.ts": {
+      "bytes": 2967,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
     "src/utils/ndjson.ts": {
-      "bytes": 4398,
-      "imports": [],
+      "bytes": 4731,
+      "imports": [
+        {
+          "path": "src/runtime/crew-broker-tokens.ts",
+          "kind": "import-statement",
+          "original": "../runtime/crew-broker-tokens.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/utils/socket-path.ts": {
@@ -12364,19 +12386,8 @@
       ],
       "format": "esm"
     },
-    "src/runtime/crew-broker-tokens.ts": {
-      "bytes": 2967,
-      "imports": [
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
     "src/runtime/crew-broker.ts": {
-      "bytes": 46156,
+      "bytes": 46371,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -13139,7 +13150,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6148899
+      "bytes": 6150986
     },
     "dist/index.mjs": {
       "imports": [
@@ -14754,6 +14765,11 @@
           "external": true
         },
         {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs/promises",
           "kind": "import-statement",
           "external": true
@@ -14770,11 +14786,6 @@
         },
         {
           "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:crypto",
           "kind": "import-statement",
           "external": true
         },
@@ -14921,7 +14932,7 @@
           "bytesInOutput": 3511
         },
         "src/runtime/child-pi-spawn.ts": {
-          "bytesInOutput": 4599
+          "bytesInOutput": 4867
         },
         "src/runtime/child-pi-steering.ts": {
           "bytesInOutput": 2917
@@ -14951,7 +14962,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 29459
+          "bytesInOutput": 29466
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -16328,16 +16339,16 @@
           "bytesInOutput": 24183
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 35136
+          "bytesInOutput": 35352
+        },
+        "src/runtime/crew-broker-tokens.ts": {
+          "bytesInOutput": 1900
         },
         "src/utils/ndjson.ts": {
           "bytesInOutput": 2208
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 2509
-        },
-        "src/runtime/crew-broker-tokens.ts": {
-          "bytesInOutput": 1900
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -16385,7 +16396,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2849595
+      "bytes": 2850086
     }
   }
 }
