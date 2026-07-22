@@ -1052,7 +1052,7 @@ export class CrewBroker {
 	 *  2. Steering-file append — writes the steer body to
 	 *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
 	 *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
-	 *     the durable fallback: even if the broker connection is down, the
+	 *     the durable fallback: even if the recipient child's broker connection is down, the
 	 *     child picks up the steer on its next poll tick.
 	 *
 	 * A steering-file write failure does NOT fail the steer push — the
@@ -1100,7 +1100,7 @@ export class CrewBroker {
 				deliveryMode: "interrupt",
 			});
 			// Write 2: steering file — durable fallback so pollSteering() picks
-			// up the steer even when the broker connection is down. Matches the
+			// up the steer even when the recipient child's broker connection is down. Matches the
 			// JSONL format of appendSteeringAsync in task-runner.ts.
 			// Best-effort: a failure here must NOT fail the push (mailbox write
 			// already succeeded).
