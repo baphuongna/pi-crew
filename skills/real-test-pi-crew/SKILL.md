@@ -33,10 +33,12 @@ Two locations hold pi-crew state:
 
 The 3-way resolution order for `dist/index.mjs` (per `index.ts:5-22`):
 ```
-1. dist/index.mjs (pre-built bundle) if present  ← DEFAULT since v0.9.17
+1. dist/index.mjs (pre-built bundle) if present  ← DEFAULT since the v0.9.17 bundle-as-default rollout
 2. Inline strip-types loading — fallback when bundle missing
    OR PI_CREW_USE_BUNDLE=0
 ```
+
+> **Note on version pins**: this skill mentions specific versions (v0.9.17, v0.9.46, v0.9.47) as anchors for *when a behavior was introduced*, not as a constraint on which version the skill applies to. The verification discipline (Tiers 1–8) applies to every pi-crew release. Verify the version pin is still accurate via `git log --oneline -- index.ts` and `git log --oneline -- src/ui/run-dashboard.ts`.
 
 **Workflow files are runtime data** — `workflows/*.workflow.md` and task prompt strings inside `src/runtime/plan-templates.ts` are loaded per-call, NOT bundled. Edits take effect immediately, no rebuild needed.
 
@@ -60,7 +62,7 @@ Before running any tier, verify these are available:
 Working directory should be the pi-crew repo root:
 
 ```bash
-cd /home/bom/source/my_pi/pi-crew
+cd ${PWD}
 ls package.json  # must exist
 ```
 
@@ -218,7 +220,7 @@ md5sum dist/index.mjs
 
 ```bash
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd /home/bom/source/my_pi/pi-crew && exec pi 2>&1'
+  'cd ${PWD} && exec pi 2>&1'
 ```
 
 **References**:
@@ -227,7 +229,7 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 |---|---|
 | Bundle resolution | `index.ts:5-22` — "dist/index.mjs (pre-built bundle) if present AND not explicitly disabled — DEFAULT since v0.9.17" |
 | Bundle size impact after Phase-4 flip | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` §Verification: "2.78 MB before and after the flip; the broker code was already in the bundle; only the default boolean changed" |
-| Symlink confirmation | verify with `readlink /home/bom/source/my_pi/node_modules/pi-crew` (returns `../pi-crew` for dev clones); production install is `/home/bom/.nvm/versions/node/v22.x.x/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` |
+| Symlink confirmation | verify with `readlink ${PWD}/node_modules/pi-crew` (returns `../pi-crew` for dev clones); for production `npm install -g`, the symlink lives under your Node global prefix — `npm root -g` shows the path. The pattern is always `<prefix>/node_modules/pi-crew → ${PWD}`. |
 
 ---
 
@@ -242,7 +244,7 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 ```bash
 # Spawn (160x50 fits ~standard TUI)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd /home/bom/source/my_pi/pi-crew && exec pi 2>&1'
+  'cd ${PWD} && exec pi 2>&1'
 
 # Wait for pi to start
 sleep 2
@@ -316,7 +318,7 @@ else:
     sys.stdout.write(os.read(fd, 65536).decode(errors='replace'))
 ```
 
-**`PI_CREW_BROKER_DIAG_UI=1`** makes `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr for every keystroke. (As of v0.9.46, the diag is wired only in `run-dashboard`, not in `settings-overlay` or other overlays.) Pair with `2>&1 | tee /tmp/diag.log`.
+**`PI_CREW_BROKER_DIAG_UI=1`** makes `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr for every keystroke. (The diag is currently wired only in `run-dashboard`, not in `settings-overlay` or other overlays — if you need diag in another overlay, port the `process.env.PI_CREW_BROKER_DIAG_UI === "1"` check from `src/ui/run-dashboard.ts:831`.) Pair with `2>&1 | tee /tmp/diag.log`.
 
 **References**:
 
@@ -341,8 +343,8 @@ else:
 #   team action='run' team='fast-fix' workflow='fast-fix' goal='...' async=false
 team:
   action: run              # run | status | events | cancel | retry | ...
-  team: fast-fix           # team name (default / fast-fix / implementation / ...)
-  workflow: fast-fix       # workflow to apply (default / fast-fix / plan-execute / ...)
+  team: fast-fix           # team (a role-set): default / fast-fix / implementation / parallel-research / research / review
+  workflow: fast-fix       # workflow (a phase DAG): default / fast-fix / plan-execute / implementation / review / research / parallel-research / pipeline / chain
   goal: "Smoke-verify <X>. Run `npm run test:critical && npx tsc --noEmit` once, cache output, report exact pass/fail counts + total time. Confirm verifier completes without hang (must be <300s)."
   async: false             # synchronous: wait for completion before returning
 ```
@@ -388,7 +390,7 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 md5sum dist/index.mjs
 
 # Session (ask user to run in their pi shell tool)
-md5sum /home/bom/source/my_pi/node_modules/pi-crew/dist/index.mjs
+md5sum ${PWD}/node_modules/pi-crew/dist/index.mjs
 # (or wherever the bundle is loaded from — see index.ts:5-22 for the symlink path)
 ```
 
@@ -398,7 +400,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 | What | Where |
 |---|---|
-| Symlink path | `index.ts:5-22` — `/home/bom/.nvm/versions/node/v22.x.x/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` (verify with `readlink`) |
+| Symlink path | `index.ts:5-22` — symlink pattern: `<node-global-prefix>/node_modules/pi-crew → ${PWD}`. For dev clones `${PWD}/node_modules/pi-crew → ../pi-crew`. Verify with `readlink` + `npm root -g`. |
 | Session load model | Same file: "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
 
 ---
@@ -457,6 +459,97 @@ If a tier runs over the hard limit, **stop and investigate** — don't bump the 
 
 ---
 
+## Edge cases
+
+### macOS specifics
+
+| Topic | Linux | macOS | Action |
+|---|---|---|---|
+| `md5sum` | yes | no (use `md5 -r`) | The Prerequisites table notes this. |
+| `XDG_RUNTIME_DIR` | `/run/user/<uid>` | unset by default | pi-crew falls back to `os.tmpdir()` (per-user `/var/folders/.../T/`). Broker works the same. |
+| Unix abstract socket | yes | no | The broker uses **concrete paths** under `$XDG_RUNTIME_DIR`, so it works on both. |
+| `tmux` | usually preinstalled | `brew install tmux` | Same commands; the `pty_probe.py` works on both. |
+| `/tmp/sock` | tmpfs | `/tmp` is `nodeboot`-protected (cleared on reboot but not on logout) | Same. |
+
+### Non-standard paths
+
+The skill assumes pi-crew is at `${PWD}` (the directory you `cd`'d into). If you have it elsewhere:
+
+```bash
+export PI_CREW_ROOT=/path/to/pi-crew
+cd $PI_CREW_ROOT
+# Now ${PWD} resolves correctly inside the skill
+```
+
+The 4 hardcoded `cd ${PWD}` calls in Tier 4, Tier 5, Tier 6, and Tier 8 all use the same path — once you `cd` once, all 4 work.
+
+### No-`tmux` fallback
+
+If `tmux` is not installed, use Tier 6 (Python pty) instead. Tier 6 doesn't depend on tmux; it spawns `pi` directly under a pty. The trade-off: Tier 5 gives you `capture-pane` for ASCII screenshots; Tier 6 gives you per-keystroke diag output.
+
+### Stale `/tmp/sock` (tmux session already exists)
+
+If a previous Tier 5 run left a `/tmp/sock` server running, `tmux new-session -S /tmp/sock` will reuse it instead of creating a fresh session. The new `pi` instance attaches to the existing session, which may have leftover state. To force a fresh session:
+
+```bash
+tmux -S /tmp/sock kill-server 2>/dev/null  # clean up
+tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi 'cd ${PWD} && exec pi 2>&1'
+```
+
+### Multiple concurrent Pi sessions
+
+When the user has multiple Pi sessions open (e.g., main + scratch), each loads the same `dist/index.mjs`. The `md5sum` check is global — if any session loaded the old bundle, you need to restart ALL of them, not just the one you're testing in. Tier 8 covers this only for the user's "main" Pi; warn them about siblings.
+
+### Broker on Windows
+
+`broker.enabled=true` is silently no-op on native Windows (no unix-domain socket). Users on WSL1/2 get full broker behavior. Don't waste time running Tier 7 smoke tests on native Windows — the verifier will run fine but the broker won't actually do anything. Use `PI_CREW_BROKER=0` to skip the broker entirely.
+
+---
+
+## Cross-skill notes
+
+This skill overlaps with these built-in/project skills. Pick the right one:
+
+| Skill | When to use instead |
+|---|---|
+| `test` (built-in) | When you want generic test execution guidance (not pi-crew-specific) |
+| `lint` (built-in) | When you only need lint + format (Tier 3's typecheck replaces it for TypeScript) |
+| `verify-before-complete` (project) | When claiming "done" without specific tier discipline; this skill's Tier 1-8 are stricter and pi-crew-specific |
+| `code-optimizer` (built-in) | When auditing for perf, not for verification |
+| `iterative-audit` (project) | When doing a multi-round codebase audit; this skill's "review kỹ" rounds are a different beast — they're verification, not audit |
+| `review` / `security-review` (built-in) | When reviewing someone else's PR diff; this skill is for verifying YOUR OWN changes |
+
+The "skill stack" for a typical pi-crew change:
+
+```
+1. Edit src/
+2. tier 1 (test:critical)        ← this skill
+3. tier 2 (3-path proof)         ← this skill, if broker change
+4. tier 3 (typecheck + bundle)   ← this skill
+5. tier 5/6 (live TUI)           ← this skill, if ui change
+6. tier 7 (smoke team)           ← this skill, if plan/workflow change
+7. commit + push
+8. verify-before-complete        ← make the "done" claim with evidence
+```
+
+---
+
+## Maintenance
+
+The skill mentions specific commits, line numbers, and version pins. As the code evolves, these will drift. Maintenance playbook:
+
+| What | When | How |
+|---|---|---|
+| Verify line refs after each `src/` commit | Every commit touching the cited file | `git log -p -- src/extension/registration/lifecycle-handlers.ts \| grep effectiveEnabled` — if line moved, update the skill |
+| Verify commit hashes still exist | Quarterly or before major edits | `git log --oneline -1 <hash>` — if gone, find the equivalent newer commit |
+| Verify version pins (v0.9.46, etc.) | Each release | `git log --oneline -- src/ui/run-dashboard.ts \| head -5` — find when diag was wired |
+| Verify `test:critical` still has 14 files | Each `src/runtime/crew-broker*.ts` edit | `cat package.json \| grep test:critical` — adjust the file list |
+| Verify Tier 7 verifier prompts still say `test:critical` | Each workflow file edit | `grep "Run FAST checks" workflows/*.workflow.md` |
+
+The skill does NOT need to be updated for every commit — only when the cited lines/files move. Consider it a "living reference" not a "live spec".
+
+---
+
 ## Quick reference — exact commands
 
 ```bash
@@ -473,7 +566,7 @@ md5sum dist/index.mjs
 # ask user: md5sum /path/to/loaded/bundle
 # Tier 5 (tmux probe)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd /home/bom/source/my_pi/pi-crew && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1'
+  'cd ${PWD} && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1'
 tmux send-keys -t pi '<key>' ; sleep 0.5
 tmux capture-pane -t pi -p
 # Tier 6 (pty probe)
