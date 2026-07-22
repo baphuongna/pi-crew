@@ -121,7 +121,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 6183,
+      "bytes": 6587,
       "imports": [],
       "format": "esm"
     },
@@ -9080,7 +9080,7 @@
       "format": "esm"
     },
     "src/runtime/plan-templates.ts": {
-      "bytes": 6266,
+      "bytes": 6660,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -12581,7 +12581,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 36623,
+      "bytes": 36758,
       "imports": [
         {
           "path": "node:fs",
@@ -13177,7 +13177,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6158222
+      "bytes": 6159181
     },
     "dist/index.mjs": {
       "imports": [
@@ -14873,7 +14873,7 @@
           "bytesInOutput": 19114
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 4815
+          "bytesInOutput": 4814
         },
         "src/state/locks.ts": {
           "bytesInOutput": 9166
@@ -16061,7 +16061,7 @@
           "bytesInOutput": 2471
         },
         "src/runtime/plan-templates.ts": {
-          "bytesInOutput": 3799
+          "bytesInOutput": 4199
         },
         "src/runtime/adaptive-plan.ts": {
           "bytesInOutput": 15523
@@ -16376,7 +16376,7 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 24189
+          "bytesInOutput": 24190
         },
         "src/runtime/crew-broker.ts": {
           "bytesInOutput": 35352
@@ -16436,7 +16436,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2852851
+      "bytes": 2853251
     }
   }
 }

@@ -2,13 +2,14 @@
  * crew-broker-feature-flag.test.ts — Phase 0 sub-task 0.6 test surface.
  *
  * Verifies the broker feature-flag plumbing:
- *  - DEFAULT_BROKER is off (enabled:false), bounded limits.
+ *  - DEFAULT_BROKER is on (enabled:true) since Phase 4 (v0.9.47),
+ *    bounded limits.
  *  - PI_CREW_BROKER=1 overrides config=false (forces enabled:true).
  *  - PI_CREW_BROKER=0 overrides config=true (forces enabled:false).
- *  - PI_CREW_BROKER=unset falls through to parsed config.
+ *  - PI_CREW_BROKER=unset falls through to parsed config + DEFAULT.
  *  - Schema rejects out-of-bounds numeric limits via TypeBox.
- *  - Disabled-path proof: when enabled is false (default), no broker
- *    credentials are constructed by the lifecycle controller.
+ *  - Disabled-path proof: when broker.enabled=false (override) or
+ *    PI_CREW_BROKER=0, no broker credentials are constructed.
  */
 
 import assert from "node:assert/strict";
@@ -24,11 +25,11 @@ function isValidBrokerConfig(value: unknown): boolean {
 }
 
 // ----------------------------------------------------------------------------
-// DEFAULT_BROKER shape + default-off guarantee
+// DEFAULT_BROKER shape + default-on guarantee (Phase 4)
 // ----------------------------------------------------------------------------
 
-test("DEFAULT_BROKER.enabled === false (kill switch default)", () => {
-	assert.equal(DEFAULT_BROKER.enabled, false);
+test("DEFAULT_BROKER.enabled === true (Phase 4 default-on)", () => {
+	assert.equal(DEFAULT_BROKER.enabled, true);
 });
 
 test("DEFAULT_BROKER pathHashLen within schema bounds (4..32, default 8)", () => {

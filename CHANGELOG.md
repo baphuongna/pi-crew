@@ -3,6 +3,48 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.47] — Broker Phase 4 gated ON (default-on flip) (2026-07-22)
+
+Flips `broker.enabled` from `false` to `true` as the new default on Linux
++ macOS. Windows users continue to see the broker silently disabled
+(decision doc `2026-07-21-broker-windows-perms.md` — no unix socket on
+native Windows). Three independent kill switches remain available:
+
+1. `broker.enabled: false` in user config
+2. env `PI_CREW_BROKER=0` (beats config=true)
+3. Windows — auto-disabled
+
+### Changes
+
+- **`src/config/defaults.ts`**: `DEFAULT_BROKER.enabled: false` → `true`.
+- **`src/extension/registration/lifecycle-handlers.ts`**: `effectiveEnabled()`
+  now returns `cfg?.enabled !== false` (default-on) instead of
+  `cfg?.enabled === true` (opt-in).
+- **`test/unit/crew-broker-feature-flag.test.ts`**: now asserts
+  `DEFAULT_BROKER.enabled === true` (Phase 4 default-on).
+- **`test/unit/crew-broker-server-gate.test.ts`**: "config flag off" test
+  renamed to "env kill switch (PI_CREW_BROKER=0)" — env is the load-bearing
+  kill switch under default-on.
+- **`docs/decisions/2026-07-22-broker-phase4-gated-on.md`**: new decision
+  doc supersedes the v0.9.46 default-off stance.
+- **Plan templates + workflows** (verifier fix from prior session):
+  `verificationCommand` now `npm run test:critical && npx tsc --noEmit`
+  (97 broker+UI tests in ~20s; well under worker 300s timeout) instead of
+  full `npm test` (>4 min). All 4 verifier workflow prompts updated.
+
+### Verification
+
+- Default-on: `npm run test:critical` → **97/97 pass in 21s**.
+- Disabled: `PI_CREW_BROKER=0 npm run test:critical` → **97/97 pass in 22s**.
+- Explicit-on: `PI_CREW_BROKER=1 npm run test:critical` → **97/97 pass in 25s**.
+- Typecheck clean. Bundle rebuilt (md5 `1cc4d55e18add7b9a036c569143320b6`).
+
+### Rollback
+
+If post-release issues emerge: flip `DEFAULT_BROKER.enabled` back to `false`
+in `src/config/defaults.ts`, rebuild bundle, cut v0.9.48. Users can also
+disable immediately via `broker.enabled: false` or `PI_CREW_BROKER=0`.
+
 ## [0.9.46] — UI stability + notification coalescing (2026-07-20)
 
 Three user-facing UI/notification fixes layered on top of the v0.9.45

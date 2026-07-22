@@ -1200,7 +1200,7 @@ var init_defaults = __esm({
       stuckBlockedNotifyMs: 5 * 6e4
     };
     DEFAULT_BROKER = {
-      enabled: false,
+      enabled: true,
       pathHashLen: 8,
       maxFrameBytes: 262144,
       outboundQueueCap: 256
@@ -51931,14 +51931,14 @@ var init_plan_templates = __esm({
         {
           name: "verify",
           role: "verifier",
-          taskTemplate: "Verify that all review findings are addressed. Run tests if applicable. Confirm: {{goal}} is achieved.",
+          taskTemplate: "Verify that all review findings are addressed. Run FAST checks (completes in <2 min): `npm run test:critical && npx tsc --noEmit`. Do NOT run `npm run test:unit` or `npm test` \u2014 too slow (642 files, >4 min). Confirm: {{goal}} is achieved.",
           maxTasks: 1,
           dependsOn: ["review"],
-          verificationCommand: "npm test"
+          verificationCommand: "npm run test:critical && npx tsc --noEmit"
         }
       ],
       verificationCommands: {
-        verify: "npm test"
+        verify: "npm run test:critical && npx tsc --noEmit"
       }
     });
     registerPlanTemplate({
@@ -51976,14 +51976,14 @@ var init_plan_templates = __esm({
         {
           name: "verify",
           role: "verifier",
-          taskTemplate: "Verify the complete implementation of: {{goal}}. Run tests, check types, validate all acceptance criteria.",
+          taskTemplate: "Verify the complete implementation of: {{goal}}. Run FAST checks (`npm run test:critical && npx tsc --noEmit`, completes in <2 min). Do NOT run `npm run test:unit` or `npm test` \u2014 too slow for in-loop verification (642 files, >4 min). Validate all acceptance criteria.",
           maxTasks: 1,
           dependsOn: ["review"],
-          verificationCommand: "npm test && npx tsc --noEmit"
+          verificationCommand: "npm run test:critical && npx tsc --noEmit"
         }
       ],
       verificationCommands: {
-        verify: "npm test && npx tsc --noEmit"
+        verify: "npm run test:critical && npx tsc --noEmit"
       }
     });
   }
@@ -75857,7 +75857,7 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     try {
       const cfg = loadConfig().config.broker;
       if (envOverride === "1") return cfg !== void 0 ? cfg.enabled !== false : true;
-      return cfg?.enabled === true;
+      return cfg?.enabled !== false;
     } catch {
       return false;
     }

@@ -152,15 +152,22 @@ export const DEFAULT_SUBAGENT = {
 
 /**
  * Phase 0 inter-pi broker defaults.
- * Default is OFF (enabled:false). The kill switch is config-only —
- * flip `broker.enabled = false` or set env `PI_CREW_BROKER=0`.
+ * Phase 4 (v0.9.47): default is ON (enabled:true). The broker runs
+ * automatically for users on supported platforms (Linux + macOS).
+ * Three independent ways to disable:
+ *   1. `broker.enabled: false` in user config
+ *   2. env `PI_CREW_BROKER=0` (beats config=true)
+ *   3. (Windows) auto-disabled — broker requires unix socket which Windows
+ *      supports only via WSL1/2; native Windows perm model lacks the
+ *      abstract-socket guarantees the broker relies on. See
+ *      docs/decisions/2026-07-21-broker-windows-perms.md.
  * Limits are bounded by `src/schema/config-schema.ts` CrewBrokerConfigSchema:
  *   pathHashLen       4..32     (default 8)
  *   maxFrameBytes     1024..1048576 (default 262144 = 256 KiB)
  *   outboundQueueCap  32..4096  (default 256)
  */
 export const DEFAULT_BROKER = {
-	enabled: false,
+	enabled: true,
 	pathHashLen: 8,
 	maxFrameBytes: 262144,
 	outboundQueueCap: 256,

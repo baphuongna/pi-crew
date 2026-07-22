@@ -824,8 +824,10 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		try {
 			const cfg = loadConfig().config.broker;
 			if (envOverride === "1") return cfg !== undefined ? cfg.enabled !== false : true;
-			return cfg?.enabled === true;
+			// Phase 4 (v0.9.47) default-on: enabled unless explicitly disabled.
+			return cfg?.enabled !== false;
 		} catch {
+			// Fail-safe: config load failed → keep broker disabled.
 			return false;
 		}
 	}

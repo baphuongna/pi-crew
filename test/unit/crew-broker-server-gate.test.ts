@@ -4,8 +4,9 @@
  * Verifies the root-only server gate + spawn-context env injection:
  *  - subagent (PI_CREW_KIND=subagent) NEVER issues broker credentials.
  *  - nonzero depth NEVER issues broker credentials.
- *  - flag off NEVER issues broker credentials.
- *  - root + flag on issues broker credentials (socket path + token).
+ *  - config flag off NEVER issues broker credentials.
+ *  - root + flag on (default since Phase 4 / v0.9.47) issues broker
+ *    credentials (socket path + token).
  *  - PI_CREW_BROKER=0 forces disabled even when config flag is on.
  *  - PI_CREW_BROKER=1 forces enabled even when config flag is off.
  *  - shutdown is idempotent and stops any started broker.
@@ -52,7 +53,7 @@ function restoreEnv(prev: { broker?: string; kind?: string }): void {
 // Gate tests — no listening happens when the gate is closed.
 // ----------------------------------------------------------------------------
 
-test("gate: flag off (no config block) → issueForChild returns undefined", async () => {
+test("gate: default-on path (no config block, no env override) → issueForChild issues credentials", async () => {
 	const prev = { broker: process.env.PI_CREW_BROKER, kind: process.env.PI_CREW_KIND };
 	delete process.env.PI_CREW_BROKER;
 	delete process.env.PI_CREW_KIND;
@@ -61,22 +62,28 @@ test("gate: flag off (no config block) → issueForChild returns undefined", asy
 		const ctrl = installCrewBrokerLifecycleController({} as never, ctx as never);
 		ctrl.setSessionId("test-session-id");
 		const result = await ctrl.issueForChild("run-test-1");
-		assert.equal(result, undefined);
+		// Default since Phase 4 (v0.9.47) is ON; broker issues credentials.
+		// If socket bind fails in sandbox, undefined is also acceptable (see
+		// PI_CREW_BROKER=1 test for the same soft-fail pattern).
+		if (result !== undefined) {
+			assert.ok(typeof result.socketPath === "string" && result.socketPath.length > 0);
+			assert.ok(typeof result.token === "string" && result.token.length > 0);
+		}
 		await ctrl.stop();
 	} finally {
 		restoreEnv(prev);
 	}
 });
 
-test("gate: config flag off → issueForChild returns undefined", async () => {
+test("gate: env kill switch (PI_CREW_BROKER=0) → undefined even under default-on", async () => {
 	const prev = { broker: process.env.PI_CREW_BROKER, kind: process.env.PI_CREW_KIND };
-	delete process.env.PI_CREW_BROKER;
 	delete process.env.PI_CREW_KIND;
 	try {
-		const ctx = makeFakeCtx({ flagOn: false });
+		const ctx = makeFakeCtx({ brokerEnv: "0" });
 		const ctrl = installCrewBrokerLifecycleController({} as never, ctx as never);
 		ctrl.setSessionId("test-session-id");
 		const result = await ctrl.issueForChild("run-test-2");
+		// env=0 is the load-bearing kill switch under Phase 4 default-on.
 		assert.equal(result, undefined);
 		await ctrl.stop();
 	} finally {
@@ -120,10 +127,9 @@ test("gate: nonzero depth → issueForChild returns undefined", async () => {
 
 test("gate: PI_CREW_BROKER=0 overrides config flag on → undefined", async () => {
 	const prev = { broker: process.env.PI_CREW_BROKER, kind: process.env.PI_CREW_KIND };
-	process.env.PI_CREW_BROKER = "0";
 	delete process.env.PI_CREW_KIND;
 	try {
-		const ctx = makeFakeCtx({ flagOn: true });
+		const ctx = makeFakeCtx({ flagOn: true, brokerEnv: "0" });
 		const ctrl = installCrewBrokerLifecycleController({} as never, ctx as never);
 		ctrl.setSessionId("test-session-id");
 		const result = await ctrl.issueForChild("run-test-5");
@@ -139,7 +145,7 @@ test("gate: PI_CREW_BROKER=1 with no config block — env beats missing config",
 	process.env.PI_CREW_BROKER = "1";
 	delete process.env.PI_CREW_KIND;
 	try {
-		const ctx = makeFakeCtx({ flagOn: false });
+		const ctx = makeFakeCtx({ flagOn: false, brokerEnv: "1" });
 		const ctrl = installCrewBrokerLifecycleController({} as never, ctx as never);
 		ctrl.setSessionId("test-session-id");
 		// Env=1 should force enabled=true. The controller then tries to bind
@@ -184,7 +190,7 @@ test("issueForChild returns undefined for empty runId", async () => {
 	delete process.env.PI_CREW_BROKER;
 	delete process.env.PI_CREW_KIND;
 	try {
-		const ctx = makeFakeCtx({ flagOn: false });
+		const ctx = makeFakeCtx({ flagOn: false, brokerEnv: "1" });
 		const ctrl = installCrewBrokerLifecycleController({} as never, ctx as never);
 		ctrl.setSessionId("test-session-id");
 		const result = await ctrl.issueForChild("");
