@@ -52,29 +52,36 @@ export function safeToPiSessionId(runId: string): string | undefined {
 /**
  * Extract the current Pi session id from an ExtensionContext.
  *
- * `ExtensionContext` does not declare `sessionId` in its type, but the runtime
- * attaches it as an own property. We read it via `getOwnPropertyDescriptor`
- * to safely bypass any Proxy traps, then validate it as a non-empty string.
+ * Pi's `ExtensionContext` exposes the session id via `sessionManager.getSessionId()`
+ * (there is NO top-level `sessionId` property on the context). This accessor
+ * reads it through the sessionManager and validates it as a non-empty string.
+ * A fallback to a direct `ctx.sessionId` property is kept for tests and any
+ * future Pi version that exposes it directly.
  *
  * This is the canonical accessor — every site that filters the SHARED
  * per-project `.crew/state/` tree down to the current session MUST use this,
  * otherwise cross-session state leaks (e.g. compaction-guard resuming another
- * session's runs, ambient-status injecting another session's runs).
+ * session's runs, ambient-status injecting another session's runs, or the
+ * inter-pi broker failing to bind because no session id was captured).
  *
  * Returns undefined when the session id is absent or unparseable — callers
  * must decide whether to treat that as "no filter" (back-compat) or "no runs".
  */
 export function extractSessionId(ctx: unknown): string | undefined {
 	if (typeof ctx !== "object" || ctx === null) return undefined;
-	let raw: unknown;
 	try {
-		raw = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		// Primary path: Pi's ExtensionContext exposes sessionManager.getSessionId().
+		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
+		const viaManager = sm?.getSessionId?.();
+		if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
+		// Fallback: a direct sessionId property (tests / future Pi versions).
+		const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		if (typeof direct === "string" && direct.length > 0) return direct;
+		return undefined;
 	} catch {
 		// Defensive: a hostile Proxy or exotic object may trap descriptor
 		// access. Real Pi ExtensionContext objects are plain, so this is
 		// only hit by adversarial/degenerate inputs — treat as no session id.
 		return undefined;
 	}
-	if (typeof raw !== "string" || raw.length === 0) return undefined;
-	return raw;
 }
