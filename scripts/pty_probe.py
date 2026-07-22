@@ -25,8 +25,10 @@ Examples:
     python3 scripts/pty_probe.py 2>&1 | tee /tmp/diag.log
 """
 import argparse
+import codecs
 import os
 import pty
+import select
 import signal
 import sys
 import time
@@ -83,7 +85,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    keys = [k for k in args.keys.split(",") if k]
+    keys = []
+    for k in args.keys.split(","):
+        k = k.strip()
+        if not k:
+            continue
+        # Decode shell escape sequences: bash single-quotes don't expand
+        # \x1b, \033, \n, \t — so we expand them here.
+        # (DEFAULT_KEYS uses Python string literals which already expand.)
+        try:
+            k = k.encode("utf-8").decode("unicode_escape")
+        except (UnicodeDecodeError, ValueError):
+            pass  # use as-is if decode fails
+        keys.append(k)
 
     env = {**os.environ, "PI_CREW_BROKER_DIAG_UI": "1"}
 
@@ -109,7 +123,6 @@ def main() -> int:
             time.sleep(args.per_key_sleep)
         time.sleep(args.startup_sleep)
         # Read with a short timeout so we don't block forever if pi is quiet.
-        import select
         readable, _, _ = select.select([fd], [], [], 5.0)
         if readable:
             sys.stdout.write(os.read(fd, args.read_chunk).decode(errors="replace"))

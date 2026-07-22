@@ -290,7 +290,7 @@ tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 
 **When to use**: when you need to probe dispatch across multiple keypresses, or want to verify each key reached the component's `handleInput`.
 
-**How**:
+**How** (simplified inline example — for the full hardened script with zombie reaping, non-blocking read, and escape-sequence decoding, use `scripts/pty_probe.py` directly):
 
 ```python
 #!/usr/bin/env python3
@@ -319,6 +319,12 @@ else:
     time.sleep(1)
     sys.stdout.write(os.read(fd, 65536).decode(errors='replace'))
 ```
+
+> ⚠️ The inline code above is a **teaching example**. For real use, run the bundled script (`scripts/pty_probe.py`, 161 lines) which adds zombie reaping (`_reap_child`), non-blocking read (`select.select` with 5s timeout), exec error handling, and `--keys` escape-sequence decoding:
+> ```bash
+> python3 scripts/pty_probe.py [--keys '\x1bOA,q,q'] [--cwd /path] [--startup-sleep 3]
+> ```
+> The inline code works for a quick one-off but **leaks a zombie `pi` process** on exit.
 
 **`PI_CREW_BROKER_DIAG_UI=1`** makes `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr for every keystroke. (The diag is currently wired only in `run-dashboard`, not in `settings-overlay` or other overlays — if you need diag in another overlay, port the `process.env.PI_CREW_BROKER_DIAG_UI === "1"` check from `src/ui/run-dashboard.ts:831`.) Pair with `2>&1 | tee /tmp/diag.log`.
 
