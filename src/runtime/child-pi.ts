@@ -12,7 +12,7 @@ import { redactSecretString } from "../utils/redaction.ts";
 import { getActiveBrokerIssuer } from "./broker-issuer.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
-import { assertOnlyControlEnvKeys, buildChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
+import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
@@ -27,6 +27,9 @@ export {
 // buildChildPiSpawnOptions was previously exported from child-pi.ts. Keep the
 // public API surface stable by re-exporting from the new module.
 export { buildChildPiSpawnOptions } from "./child-pi-spawn.ts";
+// buildFinalChildPiSpawnOptions (BLOCKER 2 / S5) — composed spawn helper that
+// owns the canary + filter + spread sequence; lives in child-pi-spawn.ts.
+export { buildFinalChildPiSpawnOptions } from "./child-pi-spawn.ts";
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
@@ -406,23 +409,9 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
-			// Runtime canary: verify built.env doesn't accidentally contain
-			// secret keys. We assert on builtEnv (not mergedEnv) because mergedEnv
-			// contains ALL process.env keys (PATH, HOME, SHELL, etc.) which is
-			// expected; those are filtered by the allowlist in buildChildPiSpawnOptions
-			// before reaching the child. The canary guards against accidental
-			// additions to built.env leaking secrets to children.
-			assertOnlyControlEnvKeys(builtEnv);
-			const spawnOptions = buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model);
-			// buildChildPiSpawnOptions filters the merged env down to
-			// BASE_ALLOWLIST (+ scoped provider keys), which DROPS execution-control
-			// vars like PI_CREW_STEERING_FILE, PI_CREW_KIND, PI_CREW_ROLE and the
-			// broker keys. Re-apply builtEnv (the per-call control vars) on top of
-			// the filtered env so they actually reach the child — this is the
-			// "merged separately via spread" behavior documented on
-			// assertOnlyControlEnvKeys. Safe: the canary above guarantees builtEnv
-			// contains ONLY PI_CREW_*/PI_TEAMS_* keys (no secrets, no provider keys).
-			spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+			// Compose the final SpawnOptions: canary + filter + spread are now
+			// owned by buildFinalChildPiSpawnOptions (see child-pi-spawn.ts, BLOCKER 2 / S5).
+			const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
 			const child = spawn(spawnSpec.command, spawnSpec.args, spawnOptions);
 			if (child.pid) {
 				registerActiveChild(child.pid, child);

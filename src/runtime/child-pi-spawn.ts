@@ -166,6 +166,44 @@ export function assertOnlyControlEnvKeys(builtEnv: Record<string, string | undef
 	}
 }
 
+/**
+ * Compose the final SpawnOptions for a child Pi worker: runs the runtime canary
+ * (assertOnlyControlEnvKeys) on builtEnv, builds the allowlist-filtered base
+ * SpawnOptions via buildChildPiSpawnOptions, then re-applies builtEnv on top
+ * so the PI_CREW_-prefixed / PI_TEAMS_-prefixed execution-control vars actually
+ * reach the child.
+ *
+ * Extracted from child-pi.ts (BLOCKER 2 / S5) so the spread step is testable
+ * in isolation and the canary lives in one place. Guarantees:
+ *   1. The canary runs FIRST — a non-control key in builtEnv throws before
+ *      buildChildPiSpawnOptions (and before spawn()) is ever called.
+ *   2. The spread always runs LAST on the SpawnOptions returned by
+ *      buildChildPiSpawnOptions — the filtered base env cannot accidentally
+ *      drop execution-control vars that the child needs (steering file, kind,
+ *      role, broker credentials, etc.).
+ *   3. The returned SpawnOptions.env contains BOTH the allowlist-filtered
+ *      system vars (PATH, HOME, …) AND the per-call control vars.
+ */
+export function buildFinalChildPiSpawnOptions(
+	cwd: string,
+	mergedEnv: NodeJS.ProcessEnv,
+	builtEnv: Record<string, string | undefined>,
+	model?: string,
+): SpawnOptions {
+	// (a) Canary: builtEnv must contain ONLY PI_CREW_*/PI_TEAMS_* keys.
+	assertOnlyControlEnvKeys(builtEnv);
+	// (b) Build the allowlist-filtered base SpawnOptions (cwd validation, env
+	//     filtering, provider-key scoping when model is set, NODE_PATH guard).
+	const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
+	// (c) Spread builtEnv back on top — the allowlist in step (b) intentionally
+	//     strips PI_CREW_*/PI_TEAMS_* keys, so without this spread the child
+	//     process would never see steering file, kind, role, or broker creds.
+	//     Safe because step (a) just proved builtEnv holds no secret keys.
+	spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+	// (d) Return the composed SpawnOptions for spawn(...).
+	return spawnOptions;
+}
+
 /** What the spawn site needs to start the child process. */
 export interface SpawnContext {
 	/** The command + args returned by getPiSpawnCommand. */
