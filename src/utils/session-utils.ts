@@ -49,54 +49,62 @@ export function safeToPiSessionId(runId: string): string | undefined {
 	}
 }
 
-const extractSessionIdCache = new WeakMap<object, string | undefined>();
-
 /**
  * Extract the current Pi session id from an ExtensionContext.
  *
- * Pi's `ExtensionContext` exposes the session id via `sessionManager.getSessionId()`
- * (there is NO top-level `sessionId` property on the context). This accessor
- * reads it through the sessionManager and validates it as a non-empty string.
- * A fallback to a direct `ctx.sessionId` property is kept for tests and any
- * future Pi version that exposes it directly.
+ * `ExtensionContext` does not declare `sessionId` in its type, but the runtime
+ * attaches it as an own property. We read it via `getOwnPropertyDescriptor`
+ * to safely bypass any Proxy traps, then validate it as a non-empty string.
  *
  * This is the canonical accessor — every site that filters the SHARED
  * per-project `.crew/state/` tree down to the current session MUST use this,
  * otherwise cross-session state leaks (e.g. compaction-guard resuming another
- * session's runs, ambient-status injecting another session's runs, or the
- * inter-pi broker failing to bind because no session id was captured).
+ * session's runs, ambient-status injecting another session's runs).
  *
  * Returns undefined when the session id is absent or unparseable — callers
  * must decide whether to treat that as "no filter" (back-compat) or "no runs".
  */
 export function extractSessionId(ctx: unknown): string | undefined {
 	if (typeof ctx !== "object" || ctx === null) return undefined;
-	// Cache the result per-ctx. context-status-injection calls this on EVERY
-	// `context` event (i.e. before every LLM call); sessionManager.getSessionId()
-	// is a real method call that touches session state — caching prevents
-	// per-turn UI hangs that surface as "team-dashboard/team-settings open but
-	// unresponsive, pi-crew UI not rendering". WeakMap lets the ctx object be
-	// GC'd; no manual invalidation is needed because Pi creates a fresh
-	// ExtensionContext per session switch.
-	const cached = extractSessionIdCache.get(ctx as object);
-	if (cached !== undefined) return cached;
-	let result: string | undefined;
+	let raw: unknown;
 	try {
-		// Primary path: Pi's ExtensionContext exposes sessionManager.getSessionId().
-		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
-		const viaManager = sm?.getSessionId?.();
-		if (typeof viaManager === "string" && viaManager.length > 0) result = viaManager;
-		else {
-			// Fallback: a direct sessionId property (tests / future Pi versions).
-			const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
-			if (typeof direct === "string" && direct.length > 0) result = direct;
-		}
+		raw = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
 	} catch {
 		// Defensive: a hostile Proxy or exotic object may trap descriptor
 		// access. Real Pi ExtensionContext objects are plain, so this is
 		// only hit by adversarial/degenerate inputs — treat as no session id.
-		result = undefined;
+		return undefined;
 	}
-	extractSessionIdCache.set(ctx as object, result);
-	return result;
+	if (typeof raw !== "string" || raw.length === 0) return undefined;
+	return raw;
+}
+
+/**
+ * Broker-only session id extractor.
+ *
+ * Pi's `ExtensionContext` does NOT expose a top-level `sessionId` property on
+ * its public surface — the id is reachable via `ctx.sessionManager.getSessionId()`.
+ * This helper is only called from `installCrewBrokerLifecycleController.setSessionId`
+ * (once per session_start), so the extra method invocation is safe here. It is
+ * INTENTIONALLY a separate function from `extractSessionId`, which is called on
+ * every `context` event (before every LLM call) from `context-status-injection.ts`
+ * — extending that hot path with method calls was observed to freeze the TUI
+ * (dashboard opens but is unresponsive, footer does not render) during smoke
+ * testing, so it stays on the trivial property lookup.
+ *
+ * Tries the sessionManager path first, then falls back to a direct
+ * `ctx.sessionId` for test mock compatibility.
+ */
+export function extractBrokerSessionId(ctx: unknown): string | undefined {
+	if (typeof ctx !== "object" || ctx === null) return undefined;
+	try {
+		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
+		const viaManager = sm?.getSessionId?.();
+		if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
+		const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		if (typeof direct === "string" && direct.length > 0) return direct;
+		return undefined;
+	} catch {
+		return undefined;
+	}
 }

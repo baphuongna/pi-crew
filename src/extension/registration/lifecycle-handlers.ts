@@ -49,7 +49,7 @@ import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
-import { extractSessionId } from "../../utils/session-utils.ts";
+import { extractSessionId, extractBrokerSessionId } from "../../utils/session-utils.ts";
 import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
@@ -172,7 +172,7 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		ctx.widgetState.interval = undefined;
 		notifyActiveRuns(extensionCtx);
 
-		const currentSessionId = extractSessionId(extensionCtx);
+		const currentSessionId = extractBrokerSessionId(extensionCtx);
 		// Phase 0 broker: feed the captured session_id to the controller so
 		// it can issue tokens for child runs in this session. The controller
 		// already gates by flag + root-session; this is a no-op when disabled.
