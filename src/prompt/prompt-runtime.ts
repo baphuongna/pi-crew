@@ -35,6 +35,59 @@ export interface SteerSanitizeResult {
 export interface SteerEntry {
 	type?: string;
 	message?: string;
+	/** Message id. Present in entries the broker writes; absent in legacy
+	 *  entries pre-dating the broker id-forwarding change. */
+	id?: string;
+}
+
+// ── FIX-S1: Cross-channel steer dedup state ──────────────────────────────
+// Both the live broker push (mailbox.message → onSteer) and the durable
+// file poll (pollSteering JSONL) can deliver the SAME steer to the worker
+// for two reasons:
+//   1. The broker writes to BOTH the mailbox AND the steering JSONL for
+//      durability. A connected child receives the broker push FIRST, then
+//      file-poll sees the JSONL shortly after (the broker's own write is
+//      what populates that file).
+//   2. A reconnect / catch-up from a previously-disconnected child can
+//      re-deliver the same mailbox.message id a second time.
+//
+// We dedup at the recipient (worker) by tracking steer ids across BOTH
+// channels in a single bounded FIFO set. Entries without an id (legacy
+// JSONL rows written before S1) are NOT deduped, because they lack a
+// stable identity — the file-poll path is their only delivery route.
+const SEEN_STEER_ID_CAP = 1024;
+
+/**
+ * Bounded FIFO seen-set for steer message ids.
+ *
+ * - `markOrSkip(undefined)` returns true (the file-poll path may emit
+ *   legacy id-less entries; forward them).
+ * - `markOrSkip('a')` first call returns true; the same call again returns
+ *   false (id already seen → drop the duplicate deliver).
+ * - When the cap is exceeded, the oldest id is evicted so the set stays
+ *   bounded under long-running workers with high steer churn.
+ *
+ * Factory-shaped so multiple prompt-runtime instances (tests, parallel
+ * workers) get independent sets.
+ */
+export function createSeenSteerIdSet(): { markOrSkip: (id?: string) => boolean; size: () => number } {
+	const seen: string[] = [];
+	const set = new Set<string>();
+	return {
+		markOrSkip(id?: string): boolean {
+			if (id === undefined) return true; // legacy steers have no id; only file-poll path can produce these
+			if (set.has(id)) return false;
+			set.add(id);
+			seen.push(id);
+			// FIFO eviction: when the cap is exceeded, drop the oldest entry.
+			while (seen.length > SEEN_STEER_ID_CAP) {
+				const oldest = seen.shift();
+				if (oldest !== undefined) set.delete(oldest);
+			}
+			return true;
+		},
+		size: () => set.size,
+	};
 }
 
 /**
@@ -158,6 +211,16 @@ export function rewriteTeamWorkerPrompt(prompt: string, options: { inheritProjec
 }
 
 export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
+	// ── FIX-S1: cross-channel steer dedup state ────────────────────────────
+	// Both the broker push (mailbox.message → onSteer callback below) and the
+	// file poll (pollSteering below) are wired to sendMessage. The broker
+	// writes to BOTH the mailbox observer (live fanout) AND the steering
+	// JSONL (durable fallback) so a connected worker will see the same steer
+	// twice: once via the broker, once via the next poll tick. We dedup at the
+	// consumer by tracking steer ids in a bounded FIFO set shared by both
+	// delivery paths. Without id-bearing entries (legacy producer), pollSteering
+	// is the only delivery channel and dedup is a no-op for id-less entries.
+	const seenSteers = createSeenSteerIdSet();
 	// ── Feature 1: maxTokens cap ──────────────────────────────────────────
 	// Cap output tokens per API call for background workers. Reads
 	// PI_CREW_MAX_OUTPUT_TOKENS env (set by pi-args.ts from agent.maxTokens).
@@ -221,6 +284,17 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 							try {
 								const entry = JSON.parse(line) as SteerEntry;
 								if (entry.type !== "steer") continue;
+								// FIX-S1: cross-channel dedup. The broker writes the
+								// same steer to both the mailbox (live fanout via the
+								// onSteer callback below) and this JSONL file. A
+								// connected worker receives it via the broker first
+								// and via this poll second; the seen-id set ensures
+								// only the first arrival reaches pi.sendMessage.
+								const entryId =
+									typeof (entry as { id?: unknown }).id === "string"
+										? ((entry as { id: string }).id)
+										: undefined;
+								if (!seenSteers.markOrSkip(entryId)) continue;
 								// FIX-02: sanitize each steer entry before forwarding
 								// to pi.sendMessage. Reject oversized payloads,
 								// excessive newlines, and control characters.
@@ -264,7 +338,14 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// file poll above. The file poll remains the durable fallback; a broker
 	// connect failure is invisible to the worker.
 	const brokerHandle = startChildBrokerClient({
-		onSteer: (rawMessage) => {
+		onSteer: (rawMessage, id) => {
+			// FIX-S1: cross-channel dedup. The broker persists every steer to
+			// the steering JSONL (durable) AND pushes it via the mailbox
+			// observer (live). This callback sees the live push; the
+			// pollSteering path above will see the same steer on its next
+			// tick. Keying on `id` (a stable identifier emitted by the broker)
+			// guarantees a single pi.sendMessage per steer.
+			if (!seenSteers.markOrSkip(id)) return;
 			const sanitized = sanitizeSteerMessage({ type: "steer", message: rawMessage });
 			if (!sanitized.valid || sanitized.message === undefined) {
 				logInternalError(
