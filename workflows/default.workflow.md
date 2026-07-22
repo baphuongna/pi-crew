@@ -28,4 +28,4 @@ dependsOn: execute
 verify: true
 
 Verify completion for: {goal}
-Run tests ONCE (cache to .crew/cache/), read changed files from executor context. Cross-reference test output with the changes. Do NOT re-run tests. Give PASS or FAIL with specific test evidence.
+Run FAST checks ONCE (cache output to .crew/cache/): `npm run test:critical && npx tsc --noEmit` (completes in <60s). Do NOT run `npm run test:unit` or `npm test` — too slow (642 files, >4 min). Cross-reference cached output with the changes. Do NOT re-run tests. Give PASS or FAIL with specific test evidence.
