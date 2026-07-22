@@ -518,7 +518,7 @@
       "format": "esm"
     },
     "src/utils/session-utils.ts": {
-      "bytes": 2917,
+      "bytes": 3497,
       "imports": [],
       "format": "esm"
     },
@@ -13150,7 +13150,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6150986
+      "bytes": 6151675
     },
     "dist/index.mjs": {
       "imports": [
@@ -14887,7 +14887,7 @@
           "bytesInOutput": 8917
         },
         "src/utils/session-utils.ts": {
-          "bytesInOutput": 540
+          "bytesInOutput": 713
         },
         "src/runtime/cancellation.ts": {
           "bytesInOutput": 2293
@@ -16396,7 +16396,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2850086
+      "bytes": 2850259
     }
   }
 }

@@ -4455,14 +4455,16 @@ function toPiSessionId(runId) {
 }
 function extractSessionId(ctx) {
   if (typeof ctx !== "object" || ctx === null) return void 0;
-  let raw;
   try {
-    raw = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+    const sm = ctx.sessionManager;
+    const viaManager = sm?.getSessionId?.();
+    if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
+    const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+    if (typeof direct === "string" && direct.length > 0) return direct;
+    return void 0;
   } catch {
     return void 0;
   }
-  if (typeof raw !== "string" || raw.length === 0) return void 0;
-  return raw;
 }
 var init_session_utils = __esm({
   "src/utils/session-utils.ts"() {
