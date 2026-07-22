@@ -62864,11 +62864,48 @@ var init_dynamic_border = __esm({
   }
 });
 
+// src/ui/key-utils.ts
+import { matchesKey } from "@earendil-works/pi-tui";
+function keyOf(data) {
+  for (const id of COMMON_IDS) {
+    if (matchesKey(data, id)) return id;
+  }
+  return data;
+}
+var COMMON_IDS;
+var init_key_utils = __esm({
+  "src/ui/key-utils.ts"() {
+    "use strict";
+    COMMON_IDS = [
+      "up",
+      "down",
+      "left",
+      "right",
+      "enter",
+      "escape",
+      "tab",
+      "shift+tab",
+      "space",
+      "backspace",
+      "home",
+      "end",
+      "pageUp",
+      "pageDown"
+    ];
+  }
+});
+
 // src/ui/keybinding-map.ts
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 function dashboardActionForKey(data, activePane) {
+  const key = keyOf(data);
   for (const binding of BINDINGS) {
     if (binding.pane !== void 0 && binding.pane !== activePane) continue;
-    if (binding.keys.includes(data)) return binding.action;
+    for (const candidate of binding.keys) {
+      if (data === candidate) return binding.action;
+      if (key === candidate) return binding.action;
+      if (matchesKey2(data, candidate)) return binding.action;
+    }
   }
   return void 0;
 }
@@ -62876,9 +62913,10 @@ var DASHBOARD_KEYS, BINDINGS, KEY_RESERVED;
 var init_keybinding_map = __esm({
   "src/ui/keybinding-map.ts"() {
     "use strict";
+    init_key_utils();
     DASHBOARD_KEYS = {
-      close: ["q", "\x1B"],
-      select: ["\r", "\n", "s"],
+      close: ["q", "escape", "\x1B"],
+      select: ["enter", "s", "\r", "\n"],
       help: ["?"],
       root: {
         summary: ["u"],
@@ -62901,7 +62939,7 @@ var init_keybinding_map = __esm({
         health: ["5"],
         metrics: ["6"]
       },
-      navigation: { up: ["k", "\x1B[A"], down: ["j", "\x1B[B"] },
+      navigation: { up: ["k", "up"], down: ["j", "down"] },
       mailbox: {
         ack: ["A"],
         nudge: ["N"],
@@ -64834,6 +64872,7 @@ var init_settings_overlay = __esm({
     init_visual();
     init_dynamic_border();
     init_theme_discovery();
+    init_key_utils();
     TABS = [
       { id: "runtime", label: "Runtime", icon: "\u2699" },
       { id: "limits", label: "Limits", icon: "\u{1F4D0}" },
@@ -65198,21 +65237,22 @@ var init_settings_overlay = __esm({
         return lines;
       }
       handleInput(data) {
-        if (data === "\x1B[A" || data === "k") {
+        const k = keyOf(data);
+        if (k === "up" || k === "k") {
           this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
           this.ensureVisible();
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
           this.ensureVisible();
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (k === "enter") {
           this.onSelect(this.items[this.selectedIndex]);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.onCancel();
           return;
         }
@@ -65249,15 +65289,16 @@ var init_settings_overlay = __esm({
         return lines;
       }
       handleInput(data) {
-        if (data === "\r" || data === "\n") {
+        const k = keyOf(data);
+        if (k === "enter") {
           this.onSubmit(this.buffer);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.onCancel();
           return;
         }
-        if (data === "\x7F" || data === "\b") {
+        if (data === "\x7F" || data === "\b" || k === "backspace") {
           this.buffer = this.buffer.slice(0, -1);
           return;
         }
@@ -65338,15 +65379,16 @@ var init_settings_overlay = __esm({
       }
       handleInput(data) {
         if (this.editField) return this.handleEditInput(data);
-        if (data === "\x1B[A" || data === "k") {
+        const k = keyOf(data);
+        if (k === "up" || k === "k") {
           this.selectedIndex = (this.selectedIndex - 1 + this.agents.length) % this.agents.length;
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = (this.selectedIndex + 1) % this.agents.length;
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (k === "enter") {
           const agent = this.agents[this.selectedIndex];
           this.editField = "model";
           this.editBuffer = this.overrides[agent]?.model ?? "";
@@ -65358,13 +65400,14 @@ var init_settings_overlay = __esm({
           this.editBuffer = this.overrides[agent]?.thinking ?? "";
           return;
         }
-        if (data === "\x1B") {
+        if (k === "escape") {
           this.onCancel();
           return;
         }
       }
       handleEditInput(data) {
-        if (data === "\r" || data === "\n") {
+        const k = keyOf(data);
+        if (k === "enter") {
           const agent = this.agents[this.selectedIndex];
           if (!this.overrides[agent]) this.overrides[agent] = {};
           if (this.editField === "model") {
@@ -65378,11 +65421,11 @@ var init_settings_overlay = __esm({
           this.editField = null;
           return;
         }
-        if (data === "\x1B") {
+        if (k === "escape") {
           this.editField = null;
           return;
         }
-        if (data === "\x7F" || data === "\b") {
+        if (data === "\x7F" || data === "\b" || k === "backspace") {
           this.editBuffer = this.editBuffer.slice(0, -1);
           return;
         }
@@ -65492,21 +65535,22 @@ var init_settings_overlay = __esm({
         return this.submenu.render(innerWidth);
       }
       handleInput(data) {
+        const k = keyOf(data);
         if (this.submenu) {
           this.submenu.handleInput(data);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.callbacks.onClose();
           return;
         }
-        if (data === "	" || data === "\x1B[C") {
+        if (k === "tab") {
           this.currentTabIndex = (this.currentTabIndex + 1) % TABS.length;
           this.selectedIndex = 0;
           this.scrollOffset = 0;
           return;
         }
-        if (data === "Z" || data === "\x1B[D") {
+        if (k === "shift+tab") {
           this.currentTabIndex = (this.currentTabIndex - 1 + TABS.length) % TABS.length;
           this.selectedIndex = 0;
           this.scrollOffset = 0;
@@ -65514,17 +65558,17 @@ var init_settings_overlay = __esm({
         }
         const tabId = TABS[this.currentTabIndex]?.id ?? "runtime";
         const settings = SETTINGS.filter((s) => s.tab === tabId);
-        if (data === "\x1B[A" || data === "k") {
+        if (k === "up" || k === "k") {
           this.selectedIndex = Math.max(0, this.selectedIndex - 1);
           this.ensureVisible(settings.length);
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = Math.min(settings.length - 1, this.selectedIndex + 1);
           this.ensureVisible(settings.length);
           return;
         }
-        if (data === "\r" || data === "\n" || data === " ") {
+        if (k === "enter" || k === "space") {
           this.activateItem(settings);
         }
       }

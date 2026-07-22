@@ -10726,9 +10726,31 @@
       "imports": [],
       "format": "esm"
     },
+    "src/ui/key-utils.ts": {
+      "bytes": 1224,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/keybinding-map.ts": {
-      "bytes": 8114,
-      "imports": [],
+      "bytes": 8863,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "./key-utils.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/overlays/help-overlay.ts": {
@@ -11025,7 +11047,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31411,
+      "bytes": 31879,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -11041,6 +11063,11 @@
           "path": "src/ui/theme-discovery.ts",
           "kind": "import-statement",
           "original": "./theme-discovery.ts"
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "./key-utils.ts"
         }
       ],
       "format": "esm"
@@ -13150,7 +13177,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6154968
+      "bytes": 6158182
     },
     "dist/index.mjs": {
       "imports": [
@@ -14541,6 +14568,16 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -16155,8 +16192,11 @@
         "src/ui/dynamic-border.ts": {
           "bytesInOutput": 850
         },
+        "src/ui/key-utils.ts": {
+          "bytesInOutput": 508
+        },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 3859
+          "bytesInOutput": 4147
         },
         "src/ui/overlays/help-overlay.ts": {
           "bytesInOutput": 4154
@@ -16183,7 +16223,7 @@
           "bytesInOutput": 15857
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30767
+          "bytesInOutput": 30796
         },
         "src/extension/registration/commands.ts": {
           "bytesInOutput": 40620
@@ -16396,7 +16436,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2851985
+      "bytes": 2852834
     }
   }
 }

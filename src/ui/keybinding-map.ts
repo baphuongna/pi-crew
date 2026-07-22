@@ -23,9 +23,12 @@
  * `use-global-shortcuts.ts:38-61`.
  */
 
+import { matchesKey, type KeyId } from "@earendil-works/pi-tui";
+import { keyOf } from "./key-utils.ts";
+
 export const DASHBOARD_KEYS = {
-	close: ["q", "\u001b"],
-	select: ["\r", "\n", "s"],
+	close: ["q", "escape", "\u001b"],
+	select: ["enter", "s", "\r", "\n"],
 	help: ["?"],
 	root: {
 		summary: ["u"],
@@ -48,7 +51,7 @@ export const DASHBOARD_KEYS = {
 		health: ["5"],
 		metrics: ["6"],
 	},
-	navigation: { up: ["k", "\u001b[A"], down: ["j", "\u001b[B"] },
+	navigation: { up: ["k", "up"], down: ["j", "down"] },
 	mailbox: {
 		ack: ["A"],
 		nudge: ["N"],
@@ -214,9 +217,21 @@ export { KEY_RESERVED };
  *                   arg skipped the `activePane === ...` branches).
  */
 export function dashboardActionForKey(data: string, activePane?: ActivePane): DashboardKeyAction | undefined {
+	// Terminal-aware dispatch: first resolve the raw key bytes to a canonical
+	// KeyId (`up`, `escape`, `space`, …) using pi-tui's matchesKey(), then
+	// match each candidate id against that. For pure-ASCII candidates like
+	// `q`, `s`, etc. the data string itself is the candidate. This single
+	// pass handles legacy CSI escapes (`\x1b[A`), application-cursor-mode
+	// escapes (`\x1bOA`), and Kitty-protocol variants (`\x1b[A;1:u`) the
+	// same way.
+	const key = keyOf(data);
 	for (const binding of BINDINGS) {
 		if (binding.pane !== undefined && binding.pane !== activePane) continue;
-		if (binding.keys.includes(data)) return binding.action;
+		for (const candidate of binding.keys) {
+			if (data === candidate) return binding.action;
+			if (key === candidate) return binding.action;
+			if (matchesKey(data, candidate as KeyId)) return binding.action;
+		}
 	}
 	return undefined;
 }

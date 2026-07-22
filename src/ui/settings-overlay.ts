@@ -8,6 +8,7 @@ import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
+import { keyOf } from "./key-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -480,22 +481,25 @@ class SelectSubmenu {
 	}
 
 	handleInput(data: string): void {
-		// (SelectSubmenu: keep dispatch clean. Diag lives on SettingsOverlay.)
-		if (data === "\x1b[A" || data === "k") {
+		// Use keyOf() so that upstream Arrow / Esc encodings (legacy CSI,
+		// application cursor mode, Kitty protocol) all dispatch correctly.
+		// See key-utils.ts for details.
+		const k = keyOf(data);
+		if (k === "up" || k === "k") {
 			this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
 			this.ensureVisible();
 			return;
 		}
-		if (data === "\x1b[B" || data === "j") {
+		if (k === "down" || k === "j") {
 			this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
 			this.ensureVisible();
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (k === "enter") {
 			this.onSelect(this.items[this.selectedIndex]!);
 			return;
 		}
-		if (data === "\x1b" || data === "q") {
+		if (k === "escape" || k === "q") {
 			this.onCancel();
 			return;
 		}
@@ -547,16 +551,17 @@ class TextinputSubmenu {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\r" || data === "\n") {
+		const k = keyOf(data);
+		if (k === "enter") {
 			this.onSubmit(this.buffer);
 			return;
 		}
-		if (data === "\x1b" || data === "q") {
+		if (k === "escape" || k === "q") {
 			this.onCancel();
 			return;
 		}
 		// Backspace
-		if (data === "\x7f" || data === "\b") {
+		if (data === "\x7f" || data === "\b" || k === "backspace") {
 			this.buffer = this.buffer.slice(0, -1);
 			return;
 		}
@@ -658,15 +663,16 @@ class AgentOverridesSubmenu {
 	handleInput(data: string): void {
 		if (this.editField) return this.handleEditInput(data);
 
-		if (data === "\x1b[A" || data === "k") {
+		const k = keyOf(data);
+		if (k === "up" || k === "k") {
 			this.selectedIndex = (this.selectedIndex - 1 + this.agents.length) % this.agents.length;
 			return;
 		}
-		if (data === "\x1b[B" || data === "j") {
+		if (k === "down" || k === "j") {
 			this.selectedIndex = (this.selectedIndex + 1) % this.agents.length;
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (k === "enter") {
 			const agent = this.agents[this.selectedIndex]!;
 			this.editField = "model";
 			this.editBuffer = this.overrides[agent]?.model ?? "";
@@ -678,14 +684,15 @@ class AgentOverridesSubmenu {
 			this.editBuffer = this.overrides[agent]?.thinking ?? "";
 			return;
 		}
-		if (data === "\x1b") {
+		if (k === "escape") {
 			this.onCancel();
 			return;
 		}
 	}
 
 	private handleEditInput(data: string): void {
-		if (data === "\r" || data === "\n") {
+		const k = keyOf(data);
+		if (k === "enter") {
 			const agent = this.agents[this.selectedIndex]!;
 			if (!this.overrides[agent]) this.overrides[agent] = {};
 			if (this.editField === "model") {
@@ -700,11 +707,11 @@ class AgentOverridesSubmenu {
 			this.editField = null;
 			return;
 		}
-		if (data === "\x1b") {
+		if (k === "escape") {
 			this.editField = null;
 			return;
 		}
-		if (data === "\x7f" || data === "\b") {
+		if (data === "\x7f" || data === "\b" || k === "backspace") {
 			this.editBuffer = this.editBuffer.slice(0, -1);
 			return;
 		}
@@ -852,26 +859,30 @@ class SettingsOverlay {
 	}
 
 	handleInput(data: string): void {
-			// Submenu takes priority
+		// Route through keyOf() so upstream Arrow/Esc/Tab/Enter encodings
+		// (legacy CSI, application cursor mode, Kitty protocol, shift-modifier
+		// variants) are all recognized. See key-utils.ts.
+		const k = keyOf(data);
+		// Submenu takes priority
 		if (this.submenu) {
 			this.submenu.handleInput(data);
 			return;
 		}
 
 		// Escape closes overlay
-		if (data === "\x1b" || data === "q") {
+		if (k === "escape" || k === "q") {
 			this.callbacks.onClose();
 			return;
 		}
 
-		// Tab navigation
-		if (data === "\t" || data === "\x1b[C") {
+		// Tab navigation — tab (forward) + shift+tab (backtab)
+		if (k === "tab") {
 			this.currentTabIndex = (this.currentTabIndex + 1) % TABS.length;
 			this.selectedIndex = 0;
 			this.scrollOffset = 0;
 			return;
 		}
-		if (data === "Z" || data === "\x1b[D") {
+		if (k === "shift+tab") {
 			this.currentTabIndex = (this.currentTabIndex - 1 + TABS.length) % TABS.length;
 			this.selectedIndex = 0;
 			this.scrollOffset = 0;
@@ -882,19 +893,20 @@ class SettingsOverlay {
 		const tabId = TABS[this.currentTabIndex]?.id ?? "runtime";
 		const settings = SETTINGS.filter((s) => s.tab === tabId);
 
-		if (data === "\x1b[A" || data === "k") {
+		if (k === "up" || k === "k") {
 			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
 			this.ensureVisible(settings.length);
 			return;
 		}
-		if (data === "\x1b[B" || data === "j") {
+		if (k === "down" || k === "j") {
 			this.selectedIndex = Math.min(settings.length - 1, this.selectedIndex + 1);
 			this.ensureVisible(settings.length);
 			return;
 		}
 
-		// Activate item
-		if (data === "\r" || data === "\n" || data === " ") {
+		// Activate item — Enter, Space, or Space-bar; matchesKey unifies carriage
+		// return / newline / spacebar as the same key family.
+		if (k === "enter" || k === "space") {
 			this.activateItem(settings);
 		}
 	}
