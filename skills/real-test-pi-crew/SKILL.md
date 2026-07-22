@@ -164,7 +164,7 @@ All three must show `# pass 97 # fail 0`. Measured times in this session: ~20s f
 | `DEFAULT_BROKER` constant | `src/config/defaults.ts:169-173` (Phase 4: `enabled: true`) |
 | Precedence function | `src/extension/registration/lifecycle-handlers.ts:819-833` (`return cfg?.enabled !== false;` at line 828) |
 | `resolveBrokerEnvOverride` | `src/config/defaults.ts:186-193` |
-| Env-precedence unit tests | `test/unit/crew-broker-feature-flag.test.ts:31` (default-on assertion), `:50-95` (env=1/env=0/unset cases) |
+| Env-precedence unit tests | `test/unit/crew-broker-feature-flag.test.ts:31` (default-on assertion), `:54-110` (env=1/env=0/unset/arbitrary cases at lines 54, 66, 78, 90, 103) |
 | Controller-gate tests | `test/unit/crew-broker-server-gate.test.ts:78` (env kill switch under default-on), `:143` (env=1 with no config) |
 | Decision doc | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` |
 | Superseded doc | `docs/decisions/2026-07-21-broker-phase4-default-on.md` (marked SUPERSEDED in commit `4186284`) |
@@ -195,7 +195,7 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 | Bundle builder | `scripts/build-bundle.mjs` (esbuild-based, bundles `index.bundle.ts` → `dist/index.mjs`) |
 | Bundle resolution rule | `index.ts:5-22` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
 | Postinstall hook | `scripts/postinstall.mjs:43` — best-effort bundle rebuild; falls back to strip-types if esbuild missing |
-| Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (2.78 MB, no size change vs default-off) |
+| Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (~2.78 MB at the time; bundle size drifts ±5% between releases, check current `ls -la dist/index.mjs`) |
 
 ---
 
@@ -220,7 +220,7 @@ md5sum dist/index.mjs
 
 ```bash
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd ${PWD} && exec pi 2>&1'
+  "cd ${PWD} && exec pi 2>&1"
 ```
 
 **References**:
@@ -244,7 +244,7 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 ```bash
 # Spawn (160x50 fits ~standard TUI)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd ${PWD} && exec pi 2>&1'
+  "cd ${PWD} && exec pi 2>&1"
 
 # Wait for pi to start
 sleep 2
@@ -260,7 +260,7 @@ sleep 0.5
 tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 ```
 
-**Key gotcha**: terminals send arrow keys as one of 3 byte sequences. Pi-crew's `matchesKey()` helper (`src/ui/key-utils.ts:37-42`, the `keyOf()` function) normalizes all of them — but verify it does in your probe:
+**Key gotcha**: terminals send arrow keys as one of 3 byte sequences. pi-crew's `matchesKey()` helper (`src/ui/key-utils.ts:37-42`, the `keyOf()` function) normalizes all of them — but verify it does in your probe:
 
 | Mode | Up arrow | Down arrow | Source |
 |---|---|---|---|
@@ -274,7 +274,7 @@ tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 |---|---|
 | `keyOf()` helper | `src/ui/key-utils.ts:37-42` (import + type alias at lines 16-18) |
 | Dispatch path | `src/ui/keybinding-map.ts` (migrated to `matchesKey()` in commit `f05a10d`) |
-| Golden snapshot test | `test/unit/keybinding-map.parity.test.ts` — 282 entries covering raw bytes + named KeyId |
+| Golden snapshot test | `test/unit/keybinding-map.parity.test.ts` — 7 `it()` blocks asserting parity against a generated golden snapshot; BINDINGS table has 27 entries (`src/ui/keybinding-map.ts:132-180`) |
 | Live probe test | `test/unit/pi-tui-dispatch-probe.test.ts` — direct probe of dispatch (3 tests) |
 | Probe commit | `84944f7 test(probe): add invalidate() to control object so typecheck passes` |
 | Tab/Space bind | `src/ui/run-dashboard.ts` + commit `15a0ffe fix(ui): also bind Tab/Space/Enter/S to select in dashboard dispatch` |
@@ -356,7 +356,7 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 | Run ID | Goal | Result | Wall-clock |
 |---|---|---|---|
 | `team_20260722083504_cae04a2804a24d79` | smoke full-implementation | 3/4 phases, 04_verify hung on `npm test` | 572s |
-| `team_20260722095143_2e58fce2ce91af19` | first smoke-fix smoke | 3/3 PASS, but verifier's bash hit 600s watchdog | 907s |
+| `team_20260722095143_2e58fce2ce91af19` | first smoke-fix smoke | 3/3 PASS, verifier used fast path but ran multiple LLM turns (think→bash→observe→respond) totaling ~907s cumulative | 907s |
 | `team_20260722100811_9bf95bebff2b052a` | re-smoke after workflow prompt fix | 3/3 PASS, verifier used `test:critical` cache | 449s |
 
 **References**:
@@ -493,7 +493,7 @@ If a previous Tier 5 run left a `/tmp/sock` server running, `tmux new-session -S
 
 ```bash
 tmux -S /tmp/sock kill-server 2>/dev/null  # clean up
-tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi 'cd ${PWD} && exec pi 2>&1'
+tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi "cd ${PWD} && exec pi 2>&1"
 ```
 
 ### Multiple concurrent Pi sessions
@@ -566,7 +566,7 @@ md5sum dist/index.mjs
 # ask user: md5sum /path/to/loaded/bundle
 # Tier 5 (tmux probe)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  'cd ${PWD} && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1'
+  "cd ${PWD} && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1"
 tmux send-keys -t pi '<key>' ; sleep 0.5
 tmux capture-pane -t pi -p
 # Tier 6 (pty probe)
