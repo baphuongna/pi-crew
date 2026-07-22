@@ -4455,20 +4455,28 @@ function toPiSessionId(runId) {
 }
 function extractSessionId(ctx) {
   if (typeof ctx !== "object" || ctx === null) return void 0;
+  const cached = extractSessionIdCache.get(ctx);
+  if (cached !== void 0) return cached;
+  let result4;
   try {
     const sm = ctx.sessionManager;
     const viaManager = sm?.getSessionId?.();
-    if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
-    const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
-    if (typeof direct === "string" && direct.length > 0) return direct;
-    return void 0;
+    if (typeof viaManager === "string" && viaManager.length > 0) result4 = viaManager;
+    else {
+      const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+      if (typeof direct === "string" && direct.length > 0) result4 = direct;
+    }
   } catch {
-    return void 0;
+    result4 = void 0;
   }
+  extractSessionIdCache.set(ctx, result4);
+  return result4;
 }
+var extractSessionIdCache;
 var init_session_utils = __esm({
   "src/utils/session-utils.ts"() {
     "use strict";
+    extractSessionIdCache = /* @__PURE__ */ new WeakMap();
   }
 });
 
