@@ -78,3 +78,14 @@ its own token, validated server-side against the parent's
 - Plan: `reports/inter-pi-broker-impl-plan-2026-07-21.md` §Q3.
 - Spec: `reports/inter-pi-broker-spec-2026-07-21.md` §3.3.
 - herdr analog: `source-refs/herdr/src/api/ipc.rs`.
+
+## Phase 4 update (default-on flip)
+
+When `broker.enabled` flipped from `false` to `true` (decision doc
+`2026-07-22-broker-phase4-gated-on.md`), the broker became the default
+on Linux + macOS. Windows users see the broker auto-disabled because
+the broker requires a Unix-domain socket (or a Windows named pipe with
+the `readableAll:false` / `writableAll:false` flags above). The
+per-run random token remains the canonical authentication boundary
+on every platform; this doc's residual risk analysis is unchanged
+by the default flip.

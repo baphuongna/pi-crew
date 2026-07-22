@@ -1,9 +1,15 @@
 # Decision: Phase 4 — Do not flip broker.enabled default to true
 
 **Date:** 2026-07-21
-**Status:** accepted (broker stays off-by-default)
+**Status:** ⛔ SUPERSEDED on 2026-07-22 by `2026-07-22-broker-phase4-gated-on.md` (default flipped ON).
+**Original status:** accepted (broker stays off-by-default)
 **Scope:** Inter-pi broker default-off kill switch (broker.enabled, PI_CREW_BROKER env)
 **Context:** Plan §7 Phase 4 + §Security invariant #11
+
+> **Superseded by** [`2026-07-22-broker-phase4-gated-on.md`](2026-07-22-broker-phase4-gated-on.md).
+> The Phase 4 default-on flip has shipped. This doc is preserved as the
+> historical record of the conditions that gated the flip and the
+> rationale for keeping default-off at v0.9.46.
 
 ## Context
 
