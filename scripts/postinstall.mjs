@@ -6,14 +6,17 @@
  *      let Pi fall back to strip-types loading).
  *   2. Install the bundled crew-vibes.ttf into the user fonts directory so
  *      the crew-vibes speed/capacity PUA glyphs render.
+ *   3. Copy bundled skills to ~/.pi/agent/skills/ so they are available
+ *      globally (not just inside the pi-crew project).
  *
  * Replaces the old `postinstall` shell chain so the font install runs on
  * every platform without relying on shell-specific chaining (`;`/`&&`).
  */
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -23,6 +26,35 @@ function run(scriptRel) {
 	if (!existsSync(abs)) return 1;
 	const result = spawnSync(process.execPath, [abs], { stdio: "inherit" });
 	return result.status ?? 1;
+}
+
+/**
+ * Copy each skill directory from pi-crew/skills/ to ~/.pi/agent/skills/.
+ * Best-effort: must never fail the install.
+ */
+function copySkills() {
+	const srcSkillsDir = join(root, "skills");
+	if (!existsSync(srcSkillsDir)) return;
+
+	const destSkillsDir = join(homedir(), ".pi", "agent", "skills");
+	try {
+		mkdirSync(destSkillsDir, { recursive: true });
+	} catch {
+		return; // can't create dest — skip silently
+	}
+
+	for (const entry of readdirSync(srcSkillsDir, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const skillMd = join(srcSkillsDir, entry.name, "SKILL.md");
+		if (!existsSync(skillMd)) continue;
+		try {
+			cpSync(join(srcSkillsDir, entry.name), join(destSkillsDir, entry.name), {
+				recursive: true,
+			});
+		} catch {
+			// best-effort: skip this skill on error
+		}
+	}
 }
 
 function main() {
@@ -42,6 +74,8 @@ function main() {
 		}
 		// Font install is best-effort and must never fail the install.
 		run("scripts/install-crew-vibes-font.mjs");
+		// Copy bundled skills to ~/.pi/agent/skills/ for global availability.
+		copySkills();
 	} catch (err) {
 		// Postinstall must NEVER fail the install (SEC-M2).
 		console.warn("[pi-crew] postinstall: best-effort step failed:", err instanceof Error ? err.message : err);
