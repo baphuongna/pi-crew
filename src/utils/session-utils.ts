@@ -49,6 +49,8 @@ export function safeToPiSessionId(runId: string): string | undefined {
 	}
 }
 
+const extractSessionIdCache = new WeakMap<object, string | undefined>();
+
 /**
  * Extract the current Pi session id from an ExtensionContext.
  *
@@ -69,19 +71,32 @@ export function safeToPiSessionId(runId: string): string | undefined {
  */
 export function extractSessionId(ctx: unknown): string | undefined {
 	if (typeof ctx !== "object" || ctx === null) return undefined;
+	// Cache the result per-ctx. context-status-injection calls this on EVERY
+	// `context` event (i.e. before every LLM call); sessionManager.getSessionId()
+	// is a real method call that touches session state — caching prevents
+	// per-turn UI hangs that surface as "team-dashboard/team-settings open but
+	// unresponsive, pi-crew UI not rendering". WeakMap lets the ctx object be
+	// GC'd; no manual invalidation is needed because Pi creates a fresh
+	// ExtensionContext per session switch.
+	const cached = extractSessionIdCache.get(ctx as object);
+	if (cached !== undefined) return cached;
+	let result: string | undefined;
 	try {
 		// Primary path: Pi's ExtensionContext exposes sessionManager.getSessionId().
 		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
 		const viaManager = sm?.getSessionId?.();
-		if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
-		// Fallback: a direct sessionId property (tests / future Pi versions).
-		const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
-		if (typeof direct === "string" && direct.length > 0) return direct;
-		return undefined;
+		if (typeof viaManager === "string" && viaManager.length > 0) result = viaManager;
+		else {
+			// Fallback: a direct sessionId property (tests / future Pi versions).
+			const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+			if (typeof direct === "string" && direct.length > 0) result = direct;
+		}
 	} catch {
 		// Defensive: a hostile Proxy or exotic object may trap descriptor
 		// access. Real Pi ExtensionContext objects are plain, so this is
 		// only hit by adversarial/degenerate inputs — treat as no session id.
-		return undefined;
+		result = undefined;
 	}
+	extractSessionIdCache.set(ctx as object, result);
+	return result;
 }
