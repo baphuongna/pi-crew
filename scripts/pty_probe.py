@@ -5,7 +5,8 @@ Spawns a real `pi` session under a pty, sends a sequence of keys with
 short sleeps, captures the resulting output. Useful for verifying that
 keystrokes reached the component's handleInput after a ui/ change.
 
-Requires Python 3.x on PATH. On Linux only (uses Unix-only `pty.fork`).
+Requires Python 3.x on PATH. Unix only (Linux + macOS) — uses POSIX `pty.fork`.
+Does NOT work on native Windows (no `pty` module); use WSL or Tier 5 (tmux) instead.
 
 Usage:
     python3 scripts/pty_probe.py [--keys j,k,q] [--cwd /path/to/repo]
@@ -25,7 +26,6 @@ Examples:
     python3 scripts/pty_probe.py 2>&1 | tee /tmp/diag.log
 """
 import argparse
-import codecs
 import os
 import pty
 import select
