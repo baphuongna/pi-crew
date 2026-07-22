@@ -13,7 +13,11 @@ triggers:
   - "check bundle md5"
   - "tmux test"
   - "pty probe"
-  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7"
+  - "did the verifier hang"
+  - "worker timeout"
+  - "verifier hangs"
+  - "rebuild and retry"
+  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7 / tier 8"
 ---
 
 # real-test-pi-crew
@@ -37,6 +41,63 @@ The 3-way resolution order for `dist/index.mjs` (per `index.ts:5-22`):
 **Workflow files are runtime data** — `workflows/*.workflow.md` and task prompt strings inside `src/runtime/plan-templates.ts` are loaded per-call, NOT bundled. Edits take effect immediately, no rebuild needed.
 
 **The most common silent-failure mode**: edit `src/`, run `npm test` (pass!), rebuild bundle (good md5!), but the session still has the old code because Pi wasn't `/quit`-ed + reopened.
+
+## Prerequisites
+
+Before running any tier, verify these are available:
+
+| Tool | Used in | Check |
+|---|---|---|
+| `node` (>=22) | Tiers 1, 2, 3 | `node --version` |
+| `npm` | All tiers | `npm --version` |
+| `bash` | All tiers | `echo $BASH_VERSION` |
+| `md5sum` | Tiers 3, 4, 8 | `which md5sum` (or `md5` on macOS) |
+| `tmux` | Tier 5 | `which tmux` (optional — Tier 6 is the fallback) |
+| `python3` | Tier 6 | `python3 --version` (optional — Tier 5 is the fallback) |
+| `pi` in PATH | Tiers 5, 6 | `which pi` (must be installed via `npx pi install .`) |
+| `git` | Reference lookups | `git log --oneline -1` should work |
+
+Working directory should be the pi-crew repo root:
+
+```bash
+cd /home/bom/source/my_pi/pi-crew
+ls package.json  # must exist
+```
+
+### CI integration
+
+The skill maps to existing CI gates as follows:
+
+| CI gate | Skill tier | File |
+|---|---|---|
+| `npm test:critical` (manual / pre-commit) | Tier 1 | n/a — not in CI by default |
+| `PI_CREW_BROKER=0 npm run test:critical` | Tier 2 (env kill switch path) | n/a — manual |
+| `npm run typecheck` | Tier 3 | `.github/workflows/*.yml` (every PR) |
+| Bundle-staleness check | Tier 3 last step | `scripts/check-bundle-staleness.mjs` |
+| Multi-OS CI | n/a (skill is local) | `.github/workflows/*.yml` — Linux + macOS + Windows |
+| Full `npm test` (>5 min) | n/a — too slow for in-loop | CI only |
+
+To add Tier 1 to a pre-commit hook:
+
+```bash
+# .git/hooks/pre-commit (or via husky / pre-commit framework)
+npm run test:critical || {
+  echo "✋ test:critical failed — fix before commit"
+  exit 1
+}
+```
+
+To add Tier 1 to CI as a fast-feedback gate (under 30s):
+
+```yaml
+# .github/workflows/fast.yml
+- name: Critical unit tests
+  run: npm run test:critical
+- name: Disabled-path proof
+  run: PI_CREW_BROKER=0 npm run test:critical
+- name: Explicit-on proof
+  run: PI_CREW_BROKER=1 npm run test:critical
+```
 
 ---
 
@@ -353,6 +414,46 @@ If the two md5s match → session is on the latest code. If not → user must `/
 | Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `index.ts:5-22` — bundle resolution rules |
 | Skip disabled-path proof | `effectiveEnabled()` regression slips through | n/a (permanent) | Tier 2 above |
 | `npm run test:unit` against 642 files | >4 min; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
+| Skip typecheck | TS errors slip past `test:critical` (which uses `--test-timeout=30000`) | n/a (permanent) | Tier 3 above |
+| Run `pi` from a stale bundle | Session shows old behavior despite src/ edits | n/a (permanent) | `scripts/check-bundle-staleness.mjs` — CI gate |
+| Test by reading code | Proves nothing about runtime | n/a (permanent) | All tiers above |
+| `makeFakeCtx({ flagOn: false })` without `brokerEnv: "0"` | `makeFakeCtx` deletes `PI_CREW_BROKER` env if `brokerEnv` is undefined | `612e18b` (test fix) | `test/unit/crew-broker-server-gate.test.ts:78` — pass `brokerEnv: "0"` to preserve env |
+| Trust green CI on one OS | macOS/Windows regressions slip through | n/a (permanent) | `.crew/knowledge.md` — "CI runs 3 OSes ... A flake on one OS IS a real bug" |
+
+---
+
+## Failure symptoms + recovery
+
+When a tier fails, the recovery is usually quick. Match the symptom to the cause:
+
+| Symptom | Likely cause | Recovery |
+|---|---|---|
+| `test:critical` returns `# fail N>0` | Regression in touched source | Read the failing test's name + assertion; fix the source; rerun |
+| `test:critical` hangs >60s | One test opened a socket/pty that didn't close | Run individual file: `node --import tsx/esm --test --test-force-exit test/unit/<file>.test.ts`; check for missing `await` or unclosed handle |
+| `typecheck` fails with `TS2xxx` | TS type drift after src/ edit | Fix the type error; do not commit until exit 0 |
+| `build:bundle` fails | esbuild error in `index.bundle.ts` | Run `npx esbuild --bundle src/index.bundle.ts --outfile=dist/index.mjs` for the verbose error |
+| `md5sum dist/index.mjs` differs from session | Stale bundle in user's Pi | User must `/quit` + reopen Pi; new extension cold-start loads new bundle |
+| Tmux probe: keys not reaching component | Wrong terminal encoding | Check `pi-tui` env; use both `\x1b[A` and `\x1bOA`; check `matchesKey` is wired in the dispatched class |
+| `pty_probe.py` errors `OSError: [Errno 6] No such device` | Pty already closed | Reduce `--startup-sleep` or check `pi` actually launched |
+| Smoke team: 04_verify exits with 143 | Verifier ran slow command (typically `npm test`) | Read worker transcript for actual command run; fix the verifier prompt per Tier 7 |
+| Smoke team: worker times out at 300s | Either verifier command slow OR LLM thinking cap | Check `RESPONSE_TIMEOUT_MS` (300s); bump only if you verified the command itself finishes <300s |
+| `stale-ctx` error in worker output | Extension ctx is stale after session replacement | This is runtime noise, not a regression; ignore. (Source: `.crew/knowledge.md` "Process Safety" notes) |
+| Bundle md5 not changing after rebuild | Stale `dist/` cache or esbuild no-op | `rm -rf dist/ && npm run build:bundle`; verify new md5 |
+
+## Performance budget (per-tier soft limits)
+
+| Tier | Soft limit | Hard limit | What happens over hard limit |
+|---|---|---|---|
+| 1 (`test:critical`) | 25s | 60s | Worker likely hung — cancel + bisect by file |
+| 2 (3-path proof, total) | 75s | 180s | Same as above |
+| 3 (`typecheck` + `build:bundle`) | 25s | 60s | `typecheck` regression — check imports |
+| 4 (md5 sync check) | <1s | 5s | Disk/symlink issue |
+| 5 (tmux spawn) | 5s | 15s | tmux server issue |
+| 6 (pty probe) | 5s | 15s | `pi` not in PATH |
+| 7 (smoke team) | 60s (verifier only) | 300s (worker hard limit) | Worker killed by `RESPONSE_TIMEOUT_MS` |
+| 8 (final md5 sync) | <1s | 5s | Disk/symlink issue |
+
+If a tier runs over the hard limit, **stop and investigate** — don't bump the budget silently. The budget exists precisely so regressions in test runtime (which usually means a regression in test setup/teardown) are caught early.
 
 ---
 
