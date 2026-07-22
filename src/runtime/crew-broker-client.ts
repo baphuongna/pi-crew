@@ -96,13 +96,19 @@ export class CrewBrokerClient {
 	private decoder: NdjsonDecoder | null = null;
 	private readonly pending = new Map<string, PendingRequest>();
 	private attempts = 0;
-	/** Stored rejector for in-flight connect-and-hello. */
-	private connectingReject: ((err: Error) => void) | null = null;
 	/** Listeners attached to the current socket; kept for explicit close(). */
 	private readonly socketListeners: Array<{
 		event: string;
 		listener: (...args: unknown[]) => void;
 	}> = [];
+	/** Set in close(); gates reconnect attempts and backoff loops. */
+	private closed = false;
+	/** Handle to the in-flight backoff timer so close() can cancel it. */
+	private backoffTimer: NodeJS.Timeout | null = null;
+	/** Resolver for the in-flight backoff await so close() can unblock it.
+	 *  Without this, cancelling the timer leaves the connectAndHello await
+	 *  hanging forever (resolve() never fires). */
+	private backoffResolver: (() => void) | null = null;
 
 	constructor(options: CrewBrokerClientOptions) {
 		if (!options || typeof options !== "object") {
@@ -226,6 +232,10 @@ export class CrewBrokerClient {
 	 * after a known broker restart.
 	 */
 	async reconnect(): Promise<boolean> {
+		// Reset the closed flag: reconnect() is the documented way to
+		// bring a closed client back. Without this, the closed gate in
+		// connectAndHello/attemptHello would short-circuit to 'closed'.
+		this.closed = false;
 		// Close the current socket if any.
 		this.teardownSocket();
 		this.attempts = 0;
@@ -241,6 +251,33 @@ export class CrewBrokerClient {
 	 * reconnecting in the background).
 	 */
 	async close(): Promise<void> {
+		// Set the closed flag FIRST so any backoff-loop iteration that
+		// resumes after teardownSocket (e.g. after a queued backoff timer
+		// fires) sees it and returns immediately with a typed error.
+		this.closed = true;
+		// Cancel any queued backoff timer. Without this, the in-flight
+		// connectAndHello would resume its retry loop after close() and
+		// create new sockets against a torn-down client.
+		if (this.backoffTimer !== null) {
+			try {
+				(this.options.clearTimeoutFn ?? ((t: NodeJS.Timeout) => clearTimeout(t)))(this.backoffTimer);
+			} catch {
+				/* ignore — best-effort cancel */
+			}
+			this.backoffTimer = null;
+		}
+		// Unblock the in-flight backoff await. Cancelling the timer alone
+		// leaves the connectAndHello Promise stuck on resolve(); this lets
+		// the loop unblock, observe this.closed, and return typed 'closed'.
+		if (this.backoffResolver !== null) {
+			const resolveBackoff = this.backoffResolver;
+			this.backoffResolver = null;
+			try {
+				resolveBackoff();
+			} catch {
+				/* ignore — best-effort unblock */
+			}
+		}
 		this.teardownSocket();
 		// Reject every pending request. Using reject (not resolve) so the
 		// request() catch block kicks in and returns {ok:false, fallback:true}.
@@ -269,9 +306,26 @@ export class CrewBrokerClient {
 		const jitter = this.options.jitter ?? (() => 0.75 + Math.random() * 0.5); // [0.75, 1.25]
 
 		for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+			// Closed gate at the top of each iteration: catches the case
+			// where close() was called while we were awaiting attemptHello()
+			// or while a previous backoff timer was firing. After close(),
+			// the client must not open any new sockets.
+			if (this.closed) {
+				return { ok: false, fallback: true, errorCode: "closed" };
+			}
 			this.attempts = attempt + 1;
 			const result = await this.attemptHello(netModule);
 			if (result.ok) {
+				// Belt-and-suspenders: a successful hello can still race
+				// with close() (e.g. close() called between the hello ack
+				// being processed and this return). If we are now closed,
+				// tear down the socket we just opened and return the typed
+				// error rather than handing back a connected client.
+				if (this.closed) {
+					this.teardownSocket();
+					this._mode = "fallback";
+					return { ok: false, fallback: true, errorCode: "closed" };
+				}
 				this._mode = "connected";
 				return result;
 			}
@@ -289,7 +343,17 @@ export class CrewBrokerClient {
 			const base = BACKOFF_SCHEDULE_MS[attempt] ?? 800;
 			const delay = Math.max(1, Math.floor(base * jitter()));
 			await new Promise<void>((resolve) => {
-				const t = setTimeoutFn(() => resolve(), delay);
+				// Capture the resolver so close() can unblock the await
+				// even after cancelling the timer (timer cancellation alone
+				// leaves resolve() unfired). We also clear the resolver
+				// when the timer fires so a stale handle never leaks.
+				this.backoffResolver = resolve;
+				const t = setTimeoutFn(() => {
+					if (this.backoffResolver === resolve) this.backoffResolver = null;
+					this.backoffTimer = null;
+					resolve();
+				}, delay);
+				this.backoffTimer = t;
 				if (t && typeof (t as { unref?: () => void }).unref === "function") {
 					(t as { unref?: () => void }).unref?.();
 				}
@@ -305,6 +369,13 @@ export class CrewBrokerClient {
 
 	private attemptHello(netModule: typeof net): Promise<BrokerClientResult<true>> {
 		return new Promise<BrokerClientResult<true>>((resolve) => {
+			// Belt-and-suspenders closed gate: the backoff loop in
+			// connectAndHello already checks this.closed, but attemptHello
+			// can also be entered via reconnect() after the flag is set.
+			if (this.closed) {
+				resolve({ ok: false, fallback: true, errorCode: "closed" });
+				return;
+			}
 			const sock = netModule.createConnection(this.options.socketPath!);
 			let settled = false;
 			const finish = (v: BrokerClientResult<true>) => {
