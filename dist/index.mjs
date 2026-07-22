@@ -349,148 +349,6 @@ var init_config_schema = __esm({
   }
 });
 
-// src/config/defaults.ts
-function resolveBrokerEnvOverride(parsed) {
-  const override = process.env.PI_CREW_BROKER;
-  if (override === "1" || override === "0") {
-    const base = parsed ?? {};
-    return { ...base, enabled: override === "1" };
-  }
-  return parsed;
-}
-var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER;
-var init_defaults = __esm({
-  "src/config/defaults.ts"() {
-    "use strict";
-    DEFAULT_CHILD_PI = {
-      postExitStdioGuardMs: 3e3,
-      finalDrainMs: 5e3,
-      finalDrainQuietMs: 800,
-      hardKillMs: 3e3,
-      // Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
-      // Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
-      responseTimeoutMs: 5 * 6e4,
-      // #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
-      // diagnostic stderr is less likely to be silently truncated during hang analysis.
-      maxCaptureBytes: 512 * 1024,
-      // L4 output-handling: thresholds sized from real worker-output data
-      // (27 result artifacts measured: max 9226 bytes, median 8272, 100% < 16KB).
-      // Previous values (8192/1024/4096) truncated 62% of real results.
-      // See .crew/research/worker-output-handling.md + source/deer-flow/.research/.
-      maxAssistantTextChars: 16384,
-      maxToolResultChars: 8192,
-      maxToolInputChars: 4096,
-      maxCompactContentChars: 8192
-    };
-    DEFAULT_LIVE_SESSION = {
-      /** Maximum wall-clock time for a single live-session task before abort (ms). */
-      responseTimeoutMs: 10 * 6e4,
-      // 10 minutes - increased from 5min for complex verification
-      /** Maximum yield reminder attempts before accepting no-yield. */
-      maxYieldRetries: 3,
-      /** Polling interval for session idle check during yield enforcement (ms). */
-      yieldPollIntervalMs: 500,
-      /** Maximum time to wait for session idle after prompt (ms). */
-      idleWaitTimeoutMs: 6e4
-    };
-    DEFAULT_LOCKS = {
-      staleMs: 3e4
-    };
-    DEFAULT_CONCURRENCY = {
-      hardCap: 8,
-      workflow: {
-        parallelResearch: 4,
-        research: 3,
-        implementation: 4,
-        review: 3,
-        default: 3
-      },
-      fallback: 2
-    };
-    DEFAULT_EVENT_LOG = {
-      terminalEventTypes: [
-        "run.blocked",
-        "run.completed",
-        "run.failed",
-        "run.cancelled",
-        "task.completed",
-        "task.failed",
-        "task.skipped",
-        "task.cancelled",
-        "task.needs_attention"
-      ]
-    };
-    DEFAULT_ARTIFACT_CLEANUP = {
-      maxAgeDays: 7
-    };
-    DEFAULT_OUTPUT_CONTEXT = {
-      /** Per-dep inline-bytes cap (chars). Set by plan §5 L4 (96 KB total). */
-      maxResultInlineBytes: 32e3,
-      /** Total inline-bytes budget across all deps for one downstream worker. */
-      maxTotalDepInlineBytes: 96e3,
-      /** Tee recovery threshold: only when file > TEE_THRESHOLD_MULTIPLIER *
-       *  maxResultInlineBytes, the truncated inline is also written to a
-       *  tee file (R2: 1.25x = 40 KB). */
-      teeThresholdMultiplier: 1.25
-    };
-    DEFAULT_PATHS = {
-      state: {
-        runsSubdir: "state/runs",
-        artifactsSubdir: "artifacts",
-        subagentsSubdir: "state/subagents",
-        importsSubdir: "imports",
-        worktreesSubdir: "worktrees",
-        manifestFile: "manifest.json",
-        tasksFile: "tasks.json",
-        eventsFile: "events.jsonl"
-      }
-    };
-    DEFAULT_UI = {
-      refreshMs: 1e3,
-      notifierIntervalMs: 5e3,
-      widgetDefaultFrameMs: 1e3,
-      widgetPlacement: "aboveEditor",
-      widgetMaxLines: 8,
-      powerbar: true,
-      dashboardPlacement: "center",
-      dashboardWidth: 72,
-      dashboardLiveRefreshMs: 1e3,
-      autoOpenDashboard: false,
-      autoOpenDashboardForForegroundRuns: false,
-      showModel: true,
-      showTokens: true,
-      showTools: true,
-      transcriptTailBytes: 1024 * 1024,
-      mascotStyle: "cat",
-      mascotEffect: "random"
-    };
-    DEFAULT_NOTIFICATIONS = {
-      severityFilter: ["warning", "error", "critical"],
-      dedupWindowMs: 3e4,
-      batchWindowMs: 0,
-      sinkRetentionDays: 7
-    };
-    DEFAULT_CACHE = {
-      manifestMaxEntries: 64
-    };
-    DEFAULT_MAILBOX = {
-      perFileThresholdBytes: 10 * 1024 * 1024,
-      // 10MB per mailbox file
-      maxArchivesPerDirection: 10
-      // Keep at most 10 archives per direction per run
-    };
-    DEFAULT_SUBAGENT = {
-      stuckBlockedNotifyMs: 5 * 6e4
-    };
-    DEFAULT_BROKER = {
-      enabled: false,
-      pathHashLen: 8,
-      maxFrameBytes: 262144,
-      outboundQueueCap: 256
-    };
-  }
-});
-
 // src/utils/internal-error.ts
 function logInternalError(scope, error, details, severity) {
   if (!severity || severity === "debug") {
@@ -1205,6 +1063,148 @@ var init_atomic_write = __esm({
     process.on("exit", () => flushPendingAtomicWrites());
     process.on("SIGTERM", () => setImmediate(() => flushPendingAtomicWrites()));
     process.on("SIGINT", () => setImmediate(() => flushPendingAtomicWrites()));
+  }
+});
+
+// src/config/defaults.ts
+function resolveBrokerEnvOverride(parsed) {
+  const override = process.env.PI_CREW_BROKER;
+  if (override === "1" || override === "0") {
+    const base = parsed ?? {};
+    return { ...base, enabled: override === "1" };
+  }
+  return parsed;
+}
+var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER;
+var init_defaults = __esm({
+  "src/config/defaults.ts"() {
+    "use strict";
+    DEFAULT_CHILD_PI = {
+      postExitStdioGuardMs: 3e3,
+      finalDrainMs: 5e3,
+      finalDrainQuietMs: 800,
+      hardKillMs: 3e3,
+      // Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
+      // Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
+      responseTimeoutMs: 5 * 6e4,
+      // #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
+      // diagnostic stderr is less likely to be silently truncated during hang analysis.
+      maxCaptureBytes: 512 * 1024,
+      // L4 output-handling: thresholds sized from real worker-output data
+      // (27 result artifacts measured: max 9226 bytes, median 8272, 100% < 16KB).
+      // Previous values (8192/1024/4096) truncated 62% of real results.
+      // See .crew/research/worker-output-handling.md + source/deer-flow/.research/.
+      maxAssistantTextChars: 16384,
+      maxToolResultChars: 8192,
+      maxToolInputChars: 4096,
+      maxCompactContentChars: 8192
+    };
+    DEFAULT_LIVE_SESSION = {
+      /** Maximum wall-clock time for a single live-session task before abort (ms). */
+      responseTimeoutMs: 10 * 6e4,
+      // 10 minutes - increased from 5min for complex verification
+      /** Maximum yield reminder attempts before accepting no-yield. */
+      maxYieldRetries: 3,
+      /** Polling interval for session idle check during yield enforcement (ms). */
+      yieldPollIntervalMs: 500,
+      /** Maximum time to wait for session idle after prompt (ms). */
+      idleWaitTimeoutMs: 6e4
+    };
+    DEFAULT_LOCKS = {
+      staleMs: 3e4
+    };
+    DEFAULT_CONCURRENCY = {
+      hardCap: 8,
+      workflow: {
+        parallelResearch: 4,
+        research: 3,
+        implementation: 4,
+        review: 3,
+        default: 3
+      },
+      fallback: 2
+    };
+    DEFAULT_EVENT_LOG = {
+      terminalEventTypes: [
+        "run.blocked",
+        "run.completed",
+        "run.failed",
+        "run.cancelled",
+        "task.completed",
+        "task.failed",
+        "task.skipped",
+        "task.cancelled",
+        "task.needs_attention"
+      ]
+    };
+    DEFAULT_ARTIFACT_CLEANUP = {
+      maxAgeDays: 7
+    };
+    DEFAULT_OUTPUT_CONTEXT = {
+      /** Per-dep inline-bytes cap (chars). Set by plan §5 L4 (96 KB total). */
+      maxResultInlineBytes: 32e3,
+      /** Total inline-bytes budget across all deps for one downstream worker. */
+      maxTotalDepInlineBytes: 96e3,
+      /** Tee recovery threshold: only when file > TEE_THRESHOLD_MULTIPLIER *
+       *  maxResultInlineBytes, the truncated inline is also written to a
+       *  tee file (R2: 1.25x = 40 KB). */
+      teeThresholdMultiplier: 1.25
+    };
+    DEFAULT_PATHS = {
+      state: {
+        runsSubdir: "state/runs",
+        artifactsSubdir: "artifacts",
+        subagentsSubdir: "state/subagents",
+        importsSubdir: "imports",
+        worktreesSubdir: "worktrees",
+        manifestFile: "manifest.json",
+        tasksFile: "tasks.json",
+        eventsFile: "events.jsonl"
+      }
+    };
+    DEFAULT_UI = {
+      refreshMs: 1e3,
+      notifierIntervalMs: 5e3,
+      widgetDefaultFrameMs: 1e3,
+      widgetPlacement: "aboveEditor",
+      widgetMaxLines: 8,
+      powerbar: true,
+      dashboardPlacement: "center",
+      dashboardWidth: 72,
+      dashboardLiveRefreshMs: 1e3,
+      autoOpenDashboard: false,
+      autoOpenDashboardForForegroundRuns: false,
+      showModel: true,
+      showTokens: true,
+      showTools: true,
+      transcriptTailBytes: 1024 * 1024,
+      mascotStyle: "cat",
+      mascotEffect: "random"
+    };
+    DEFAULT_NOTIFICATIONS = {
+      severityFilter: ["warning", "error", "critical"],
+      dedupWindowMs: 3e4,
+      batchWindowMs: 0,
+      sinkRetentionDays: 7
+    };
+    DEFAULT_CACHE = {
+      manifestMaxEntries: 64
+    };
+    DEFAULT_MAILBOX = {
+      perFileThresholdBytes: 10 * 1024 * 1024,
+      // 10MB per mailbox file
+      maxArchivesPerDirection: 10
+      // Keep at most 10 archives per direction per run
+    };
+    DEFAULT_SUBAGENT = {
+      stuckBlockedNotifyMs: 5 * 6e4
+    };
+    DEFAULT_BROKER = {
+      enabled: false,
+      pathHashLen: 8,
+      maxFrameBytes: 262144,
+      outboundQueueCap: 256
+    };
   }
 });
 
@@ -2687,11 +2687,11 @@ var init_config = __esm({
   "src/config/config.ts"() {
     "use strict";
     init_config_schema();
-    init_defaults();
     init_atomic_write();
     init_locks();
     init_internal_error();
     init_paths();
+    init_defaults();
     init_suggestions();
     CONFIG_CACHE_TTL_MS = 2e3;
     configCache = /* @__PURE__ */ new Map();
@@ -5962,6 +5962,20 @@ var init_redaction = __esm({
   }
 });
 
+// src/runtime/broker-issuer.ts
+function setActiveBrokerIssuer(issuer) {
+  activeIssuer = issuer;
+}
+function getActiveBrokerIssuer() {
+  return activeIssuer;
+}
+var activeIssuer;
+var init_broker_issuer = __esm({
+  "src/runtime/broker-issuer.ts"() {
+    "use strict";
+  }
+});
+
 // src/runtime/child-pi-constants.ts
 var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
 var init_child_pi_constants = __esm({
@@ -6347,6 +6361,8 @@ function prepareSpawnContext(input, effectiveTask) {
   if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
     built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
     built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+    if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+    if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
   }
   if (input.signal?.aborted) {
     return {
@@ -7453,23 +7469,23 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
   }
   let brokerSpawn = input.brokerSpawn;
-  if (!brokerSpawn && input.brokerIssuer && input.runId) {
+  const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
+  if (!brokerSpawn && brokerIssuer && input.runId) {
     try {
-      brokerSpawn = await input.brokerIssuer(input.runId);
+      brokerSpawn = await brokerIssuer(input.runId);
     } catch {
       brokerSpawn = void 0;
     }
   }
-  const spawnPrep = prepareSpawnContext(
-    brokerSpawn ? { ...input, brokerSpawn } : input,
-    effectiveTask
-  );
+  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask);
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
     return await new Promise((resolve22) => {
       assertOnlyControlEnvKeys(builtEnv);
-      const child = spawn2(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
+      const spawnOptions = buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model);
+      spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+      const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
         registerActiveChild(child.pid, child);
         input.onSpawn?.(child.pid);
@@ -8022,6 +8038,7 @@ var init_child_pi = __esm({
     init_atomic_write();
     init_internal_error();
     init_redaction();
+    init_broker_issuer();
     init_child_pi_constants();
     init_child_pi_kill();
     init_child_pi_spawn();
@@ -73737,66 +73754,21 @@ async function configureDeliveryCoordinatorImpl(pi, ctx) {
 init_config();
 init_defaults();
 init_run_maintenance();
+init_broker_issuer();
 init_crash_recovery();
-init_live_agent_manager();
-init_orphan_worker_registry();
-init_pi_args();
-init_scheduler();
 import * as fs105 from "node:fs";
 import * as path83 from "node:path";
 
-// src/runtime/session-resources.ts
-init_internal_error();
-function tryRegisterSessionCleanup(pi, cleanup) {
-  const api = pi;
-  const registerFn = api.registerSessionResourceCleanup;
-  if (typeof registerFn === "function") {
-    try {
-      const unregister = registerFn(cleanup);
-      if (typeof unregister === "function") return unregister;
-      return void 0;
-    } catch (error) {
-      logInternalError("session-resources.register", error);
-      return void 0;
-    }
-  }
-  return void 0;
-}
-
-// src/runtime/session-snapshot.ts
-function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGeneration) {
-  const taskSummary = {};
-  for (const run of activeRuns) {
-    taskSummary[run.status] = (taskSummary[run.status] ?? 0) + 1;
-  }
-  return {
-    capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    activeRunIds: activeRuns.map((r) => r.runId),
-    pendingDeliveryCount,
-    sessionGeneration,
-    taskSummary
-  };
-}
-
-// src/extension/registration/lifecycle-handlers.ts
-init_settings_store();
-
 // src/runtime/crew-broker.ts
-import * as fsp3 from "node:fs/promises";
-import * as net2 from "node:net";
-init_internal_error();
-init_redaction();
+init_event_log();
 init_mailbox();
 init_state_store();
-init_event_log();
 init_run_event_bus();
+init_internal_error();
+import * as fsp3 from "node:fs/promises";
+import * as net2 from "node:net";
 
-// src/runtime/crew-broker-deps.ts
-import { createHash as createHash11, randomUUID as randomUUID8 } from "node:crypto";
-import * as fsp2 from "node:fs/promises";
-import * as net from "node:net";
-import * as os17 from "node:os";
-import * as path81 from "node:path";
+// src/utils/ndjson.ts
 var MAX_BROKER_FRAME_BYTES = 256 * 1024;
 var BrokerError = class extends Error {
   code;
@@ -73859,6 +73831,17 @@ var NdjsonDecoder = class {
     this.buffer = Buffer.alloc(0);
   }
 };
+
+// src/runtime/crew-broker.ts
+init_redaction();
+init_safe_paths();
+
+// src/utils/socket-path.ts
+import { createHash as createHash11 } from "node:crypto";
+import * as fsp2 from "node:fs/promises";
+import * as net from "node:net";
+import * as os17 from "node:os";
+import * as path81 from "node:path";
 var DEFAULT_PATH_HASH_LEN = 8;
 var POSIX_SUN_PATH_BUDGET = 107;
 function hashSessionId(sessionId, length = DEFAULT_PATH_HASH_LEN) {
@@ -73933,16 +73916,27 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
 }
 
 // src/runtime/crew-broker-tokens.ts
-import { randomUUID as randomUUID9, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+import { randomUUID as randomUUID8, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
 function newBrokerToken() {
-  return randomUUID9();
+  return randomUUID8();
 }
 var BrokerTokenRegistry = class {
   map = /* @__PURE__ */ new Map();
-  /** Register or replace a runId's token. Returns the new token. */
-  issue(runId, token = newBrokerToken()) {
+  /** Issue a token for `runId`. Idempotent per run: if a token already
+   *  exists for this runId, the existing token is returned unchanged so that
+   *  concurrent sibling tasks sharing a runId all authenticate with the same
+   *  per-run token (the spec's per-run token model). Pass an explicit
+   *  `token` only in tests that need a deterministic value. */
+  issue(runId, token) {
     if (typeof runId !== "string" || runId.length === 0) {
       throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+    }
+    if (token === void 0) {
+      const existing = this.map.get(runId);
+      if (existing !== void 0) return existing;
+      const fresh = newBrokerToken();
+      this.map.set(runId, fresh);
+      return fresh;
     }
     this.map.set(runId, token);
     return token;
@@ -74212,11 +74206,7 @@ var CrewBroker = class {
     this.connections.add(conn);
     conn.helloTimer = setTimeout(() => {
       if (!conn.authed && !conn.closed) {
-        logInternalError(
-          "crew-broker.hello.deadline",
-          new Error("hello deadline"),
-          `sessionId=${this.options.sessionId}`
-        );
+        logInternalError("crew-broker.hello.deadline", new Error("hello deadline"), `sessionId=${this.options.sessionId}`);
         this.closeConnection(conn);
       }
     }, HELLO_DEADLINE_MS);
@@ -74240,8 +74230,6 @@ var CrewBroker = class {
       this.closeConnection(conn);
     });
     sock.on("close", () => {
-      const stack = new Error("trace").stack;
-      console.error("DEBUG broker onClose: conn.taskId=", conn.taskId, "conn.authed=", conn.authed, "stack=", stack?.split("\n").slice(1, 6).join(" | "));
       this.closeConnection(conn);
     });
   }
@@ -74306,11 +74294,7 @@ var CrewBroker = class {
       frames = conn.decoder.push(chunk);
     } catch (err2) {
       if (err2 instanceof BrokerError) {
-        logInternalError(
-          "crew-broker.decoder.error",
-          err2,
-          `code=${err2.code} sessionId=${this.options.sessionId}`
-        );
+        logInternalError("crew-broker.decoder.error", err2, `code=${err2.code} sessionId=${this.options.sessionId}`);
         this.sendErrorAndClose(conn, void 0, err2.code === "oversize-frame" ? "oversize-frame" : "protocol", err2.message);
         return;
       }
@@ -74421,7 +74405,6 @@ var CrewBroker = class {
     this.enqueueFrame(conn, { id, error: { code, message: redactSecretString(message) } });
   }
   sendErrorAndClose(conn, id, code, message) {
-    console.error("DEBUG sendErrorAndClose: id=", id, "code=", code, "message=", redactSecretString(message));
     if (id !== void 0) {
       try {
         const buf = encodeBrokerFrame({ id, error: { code, message: redactSecretString(message) } });
@@ -74794,9 +74777,19 @@ var CrewBroker = class {
   }
   /**
    * Phase 3: steer.push — push steering message to a running worker.
-   * Uses the same file-based channel as the legacy PI_CREW_STEERING_FILE:
-   * the broker appends to the run's tasks/<taskId>/steering inbox so the
-   * child's existing pollSteering() picks it up on the next tick.
+   *
+   * Dual-write strategy for durability:
+   *  1. Mailbox append (appendMailboxMessageAsync) — feeds the live broker
+   *     fanout to connected subscribers AND persists to the mailbox inbox
+   *     JSONL for later read.
+   *  2. Steering-file append — writes the steer body to
+   *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
+   *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
+   *     the durable fallback: even if the broker connection is down, the
+   *     child picks up the steer on its next poll tick.
+   *
+   * A steering-file write failure does NOT fail the steer push — the
+   * mailbox write (1) has already succeeded.
    */
   async handleSteerPush(conn, id, params) {
     if (!conn.runId) {
@@ -74837,6 +74830,19 @@ var CrewBroker = class {
         priority: v.priority ?? "urgent",
         deliveryMode: "interrupt"
       });
+      try {
+        const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
+        const steeringPath = resolveContainedPath(steeringDir, `${targetTaskId}.jsonl`);
+        const line4 = JSON.stringify({
+          type: "steer",
+          message: body,
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        }) + "\n";
+        await fsp3.mkdir(steeringDir, { recursive: true });
+        await fsp3.appendFile(steeringPath, line4, "utf-8");
+      } catch (fileErr) {
+        logInternalError("crew-broker.steer-file-write-failed", fileErr, `taskId=${targetTaskId}`);
+      }
       this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
     } catch (err2) {
       this.sendError(conn, id, "steer-failed", err2.message);
@@ -74955,6 +74961,46 @@ function safeStringify(value) {
 }
 
 // src/extension/registration/lifecycle-handlers.ts
+init_live_agent_manager();
+init_orphan_worker_registry();
+init_pi_args();
+init_scheduler();
+
+// src/runtime/session-resources.ts
+init_internal_error();
+function tryRegisterSessionCleanup(pi, cleanup) {
+  const api = pi;
+  const registerFn = api.registerSessionResourceCleanup;
+  if (typeof registerFn === "function") {
+    try {
+      const unregister = registerFn(cleanup);
+      if (typeof unregister === "function") return unregister;
+      return void 0;
+    } catch (error) {
+      logInternalError("session-resources.register", error);
+      return void 0;
+    }
+  }
+  return void 0;
+}
+
+// src/runtime/session-snapshot.ts
+function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGeneration) {
+  const taskSummary = {};
+  for (const run of activeRuns) {
+    taskSummary[run.status] = (taskSummary[run.status] ?? 0) + 1;
+  }
+  return {
+    capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    activeRunIds: activeRuns.map((r) => r.runId),
+    pendingDeliveryCount,
+    sessionGeneration,
+    taskSummary
+  };
+}
+
+// src/extension/registration/lifecycle-handlers.ts
+init_settings_store();
 init_state_store();
 
 // src/subagents/spawn.ts
@@ -75755,22 +75801,25 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     }
     return starting;
   }
+  const issueForChild = async (runId) => {
+    if (!runId || typeof runId !== "string") return void 0;
+    if (!isRootSession(process.env)) return void 0;
+    if (!effectiveEnabled()) return void 0;
+    const sessionId = cachedSessionId;
+    if (!sessionId) return void 0;
+    try {
+      const b = await getOrStartBroker(sessionId);
+      const token = b.issueRunToken(runId);
+      return { socketPath: b.socketPath, token };
+    } catch {
+      return void 0;
+    }
+  };
+  setActiveBrokerIssuer(issueForChild);
   return {
-    issueForChild: async (runId) => {
-      if (!runId || typeof runId !== "string") return void 0;
-      if (!isRootSession(process.env)) return void 0;
-      if (!effectiveEnabled()) return void 0;
-      const sessionId = cachedSessionId;
-      if (!sessionId) return void 0;
-      try {
-        const b = await getOrStartBroker(sessionId);
-        const token = b.issueRunToken(runId);
-        return { socketPath: b.socketPath, token };
-      } catch {
-        return void 0;
-      }
-    },
+    issueForChild,
     stop: async () => {
+      setActiveBrokerIssuer(void 0);
       if (broker) {
         try {
           await broker.stop();
