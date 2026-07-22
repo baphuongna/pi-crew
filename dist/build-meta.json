@@ -10758,7 +10758,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 38776,
+      "bytes": 39407,
       "imports": [
         {
           "path": "node:fs",
@@ -11025,7 +11025,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31049,
+      "bytes": 31699,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -13150,7 +13150,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6152831
+      "bytes": 6154660
     },
     "dist/index.mjs": {
       "imports": [
@@ -16162,7 +16162,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 29822
+          "bytesInOutput": 30464
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -16183,7 +16183,7 @@
           "bytesInOutput": 15857
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30473
+          "bytesInOutput": 31045
         },
         "src/extension/registration/commands.ts": {
           "bytesInOutput": 40620
@@ -16396,7 +16396,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2850570
+      "bytes": 2851784
     }
   }
 }

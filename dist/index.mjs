@@ -63679,7 +63679,22 @@ var init_run_dashboard = __esm({
         }
         return this.cachedLines;
       }
+      // Pi 0.81+ requires the Focusable contract: a string-indexable `focused`
+      // marker that TUI toggles to track which component currently receives
+      // input. Without it, isFocusable() returns false and downstream
+      // dispatch may skip the component. Declared as an own property so
+      // `"focused" in component` is true.
+      focused = false;
       handleInput(data) {
+        if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+          try {
+            process.stderr.write(
+              `[PI-CREW-DIAG] RunDashboard.handleInput data=${JSON.stringify(data)} focused=${this.focused}
+`
+            );
+          } catch {
+          }
+        }
         const action = dashboardActionForKey(data, this.activePane);
         if (action === "help") {
           this.showHelp = !this.showHelp;
@@ -65114,6 +65129,7 @@ var init_settings_overlay = __esm({
       "notifications.enabled": false
     };
     SelectSubmenu = class {
+      focused = false;
       selectedIndex = 0;
       scrollOffset = 0;
       maxVisible = 14;
@@ -65191,6 +65207,7 @@ var init_settings_overlay = __esm({
       }
     };
     TextinputSubmenu = class {
+      focused = false;
       buffer = "";
       title;
       description;
@@ -65239,6 +65256,7 @@ var init_settings_overlay = __esm({
       }
     };
     AgentOverridesSubmenu = class {
+      focused = false;
       overrides;
       theme;
       agents;
@@ -65365,6 +65383,10 @@ var init_settings_overlay = __esm({
       config;
       theme;
       callbacks;
+      // Pi 0.81+ Focusable contract — see RunDashboard. Same reasoning: without
+      // `focused` as an own property, isFocusable() returns false and keybind
+      // dispatch may skip the overlay.
+      focused = false;
       currentTabIndex = 0;
       selectedIndex = 0;
       scrollOffset = 0;
@@ -65458,6 +65480,15 @@ var init_settings_overlay = __esm({
         return this.submenu.render(innerWidth);
       }
       handleInput(data) {
+        if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+          try {
+            process.stderr.write(
+              `[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}
+`
+            );
+          } catch {
+          }
+        }
         if (this.submenu) {
           this.submenu.handleInput(data);
           return;

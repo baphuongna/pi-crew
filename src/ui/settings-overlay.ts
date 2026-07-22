@@ -410,6 +410,7 @@ function currentValueFor(config: Record<string, unknown>, id: string): unknown {
 // ---------------------------------------------------------------------------
 
 class SelectSubmenu {
+	public focused = false;
 	private selectedIndex = 0;
 	private scrollOffset = 0;
 	private readonly maxVisible = 14;
@@ -479,14 +480,7 @@ class SelectSubmenu {
 	}
 
 	handleInput(data: string): void {
-		// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
-		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
-			try {
-				process.stderr.write(
-					`[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
-				);
-			} catch {}
-		}
+		// (SelectSubmenu: keep dispatch clean. Diag lives on SettingsOverlay.)
 		if (data === "\x1b[A" || data === "k") {
 			this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
 			this.ensureVisible();
@@ -513,6 +507,7 @@ class SelectSubmenu {
 // ---------------------------------------------------------------------------
 
 class TextinputSubmenu {
+	public focused = false;
 	private buffer = "";
 	private readonly title: string;
 	private readonly description: string;
@@ -578,6 +573,7 @@ class TextinputSubmenu {
 // ---------------------------------------------------------------------------
 
 class AgentOverridesSubmenu {
+	public focused = false;
 	private readonly overrides: Record<string, { model?: string; thinking?: string }>;
 	private readonly theme: CrewTheme;
 	private readonly agents: string[];
@@ -856,6 +852,14 @@ class SettingsOverlay {
 	}
 
 	handleInput(data: string): void {
+		// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+			try {
+				process.stderr.write(
+					`[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
+				);
+			} catch {}
+		}
 		// Submenu takes priority
 		if (this.submenu) {
 			this.submenu.handleInput(data);
