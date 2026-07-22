@@ -1117,7 +1117,8 @@ export class CrewBroker {
 				await fsp.mkdir(steeringDir, { recursive: true });
 				await fsp.appendFile(steeringPath, line, "utf-8");
 			} catch (fileErr) {
-				logInternalError("crew-broker.steer-file-write-failed", fileErr as Error, `taskId=${targetTaskId}`);
+				const safeMessage = fileErr instanceof Error ? redactSecretString(fileErr.message) : "";
+				logInternalError("crew-broker.steer-file-write-failed", new Error(safeMessage), `taskId=${targetTaskId}`);
 			}
 			this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
 		} catch (err) {
