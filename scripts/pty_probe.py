@@ -12,7 +12,7 @@ Usage:
 
 Env:
     PI_CREW_BROKER_DIAG_UI=1   enable diag stderr writes from run-dashboard
-    PI_CREW_BROKER_DIAG_KEYS=1 capture per-keystroke data lines to stderr
+                              (only component wired; see src/ui/run-dashboard.ts:831)
 
 Examples:
     # Default probe (vim nav + arrow keys + quit)

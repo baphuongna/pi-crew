@@ -203,7 +203,7 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 
 **What**: ensure the user's running Pi sees your changes.
 
-**The 2-second rule**:
+**The immediate-vs-rebuild rule** (which edits take effect without a rebuild):
 - `workflows/*.workflow.md` edits → **immediate**, no rebuild, no restart
 - `src/runtime/plan-templates.ts` `taskTemplate` strings → **immediate**, runtime data
 - Everything else (`src/` edits, `package.json`) → must `npm run build:bundle` THEN user `/quit` + reopen Pi
@@ -229,7 +229,7 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 |---|---|
 | Bundle resolution | `index.ts:5-22` — "dist/index.mjs (pre-built bundle) if present AND not explicitly disabled — DEFAULT since v0.9.17" |
 | Bundle size impact after Phase-4 flip | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` §Verification: "2.78 MB before and after the flip; the broker code was already in the bundle; only the default boolean changed" |
-| Symlink confirmation | verify with `readlink ${PWD}/node_modules/pi-crew` (returns `../pi-crew` for dev clones); for production `npm install -g`, the symlink lives under your Node global prefix — `npm root -g` shows the path. The pattern is always `<prefix>/node_modules/pi-crew → ${PWD}`. |
+| Symlink confirmation | **The symlink lives in the CONSUMING project, not inside pi-crew itself.** From the pi-crew repo, check the parent: `readlink ../node_modules/pi-crew` (returns `../pi-crew` for dev clones). For global installs: `readlink "$(npm root -g)"/pi-crew`. Pattern is always `<consumer>/node_modules/pi-crew → <pi-crew-repo>`. |
 
 ---
 
@@ -379,9 +379,9 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 
 ---
 
-## Tier 8 — Bundle-vs-session sync via grep (final integrity check)
+## Tier 8 — Bundle-vs-session md5 sync (operational check)
 
-**What**: one-shot check that the session's loaded code matches what's on disk.
+**What**: the concrete md5 comparison step that *proves* Tier 4's claim. Tier 4 explains *when* you need a rebuild; Tier 8 is the *command* you run to confirm the session picked it up. Run Tier 8 as the final integrity check after Tier 3-4.
 
 **How**:
 
@@ -390,8 +390,11 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 md5sum dist/index.mjs
 
 # Session (ask user to run in their pi shell tool)
-md5sum ${PWD}/node_modules/pi-crew/dist/index.mjs
-# (or wherever the bundle is loaded from — see index.ts:5-22 for the symlink path)
+# The symlink is in the CONSUMING project, not inside pi-crew:
+readlink ../node_modules/pi-crew/dist/index.mjs 2>/dev/null \
+  || readlink "$(npm root -g)"/pi-crew/dist/index.mjs \
+  || md5sum "$(npm root -g)"/pi-crew/dist/index.mjs
+# (the consuming project loads pi-crew via this symlink — see index.ts:5-22)
 ```
 
 If the two md5s match → session is on the latest code. If not → user must `/quit` + reopen Pi.
@@ -400,7 +403,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 | What | Where |
 |---|---|
-| Symlink path | `index.ts:5-22` — symlink pattern: `<node-global-prefix>/node_modules/pi-crew → ${PWD}`. For dev clones `${PWD}/node_modules/pi-crew → ../pi-crew`. Verify with `readlink` + `npm root -g`. |
+| Symlink path | `index.ts:5-22` — **the symlink lives in the CONSUMING project** (parent dir or global prefix), not inside pi-crew itself. From the repo: `readlink ../node_modules/pi-crew` (dev) or `readlink "$(npm root -g)"/pi-crew` (global). Verify with `readlink` + `npm root -g`. |
 | Session load model | Same file: "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
 
 ---
@@ -481,7 +484,7 @@ cd $PI_CREW_ROOT
 # Now ${PWD} resolves correctly inside the skill
 ```
 
-The 4 hardcoded `cd ${PWD}` calls in Tier 4, Tier 5, Tier 6, and Tier 8 all use the same path — once you `cd` once, all 4 work.
+The `cd ${PWD}` calls appear in the Prerequisites section, Tier 4, Tier 5, and the Quick reference section — all use the same path. Once you `cd` into the repo once, all commands that reference `${PWD}` resolve correctly. Tier 6 uses `scripts/pty_probe.py --cwd` instead, and Tier 8 uses `readlink` (no `cd` needed).
 
 ### No-`tmux` fallback
 
