@@ -479,6 +479,14 @@ class SelectSubmenu {
 	}
 
 	handleInput(data: string): void {
+		// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+			try {
+				process.stderr.write(
+					`[PI-CREW-DIAG] SettingsOverlay.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
+				);
+			} catch {}
+		}
 		if (data === "\x1b[A" || data === "k") {
 			this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
 			this.ensureVisible();
@@ -718,6 +726,10 @@ class SettingsOverlay {
 	private config: Record<string, unknown>;
 	private theme: CrewTheme;
 	private callbacks: SettingsOverlayCallbacks;
+	// Pi 0.81+ Focusable contract — see RunDashboard. Same reasoning: without
+	// `focused` as an own property, isFocusable() returns false and keybind
+	// dispatch may skip the overlay.
+	public focused = false;
 	private currentTabIndex = 0;
 	private selectedIndex = 0;
 	private scrollOffset = 0;

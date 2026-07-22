@@ -806,7 +806,22 @@ export class RunDashboard implements DashboardComponent {
 		return this.cachedLines;
 	}
 
+	// Pi 0.81+ requires the Focusable contract: a string-indexable `focused`
+	// marker that TUI toggles to track which component currently receives
+	// input. Without it, isFocusable() returns false and downstream
+	// dispatch may skip the component. Declared as an own property so
+	// `"focused" in component` is true.
+	public focused = false;
+
 	handleInput(data: string): void {
+		// TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+			try {
+				process.stderr.write(
+					`[PI-CREW-DIAG] RunDashboard.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
+				);
+			} catch {}
+		}
 		const action = dashboardActionForKey(data, this.activePane);
 		// K-1: "?" toggles the help overlay; while it is shown, any other key
 		// (including Esc) just dismisses it first instead of acting.
