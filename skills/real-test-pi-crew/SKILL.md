@@ -27,7 +27,7 @@ Two locations hold pi-crew state:
 1. **Source** (`src/`, `test/`, `package.json`, `workflows/`, `src/runtime/plan-templates.ts`) — git-tracked, `git diff` shows it.
 2. **Bundle** (`dist/index.mjs`) — pre-built, loaded by Pi at **extension cold-start only**.
 
-The 3-way resolution order for `dist/index.mjs` (per `.crew/knowledge.md`):
+The 3-way resolution order for `dist/index.mjs` (per `index.ts:5-22`):
 ```
 1. dist/index.mjs (pre-built bundle) if present  ← DEFAULT since v0.9.17
 2. Inline strip-types loading — fallback when bundle missing
@@ -72,7 +72,7 @@ Expected output: `# tests 97 # pass 97 # fail 0 # duration_ms ~21000`.
 
 **What**: prove all three precedence paths in `effectiveEnabled()` still resolve correctly.
 
-**Why**: any change to `DEFAULT_BROKER` (in `src/config/defaults.ts:169`) or `effectiveEnabled()` (in `src/extension/registration/lifecycle-handlers.ts:819-832`) can silently break the precedence chain. The chain:
+**Why**: any change to `DEFAULT_BROKER` (in `src/config/defaults.ts:169`) or `effectiveEnabled()` (in `src/extension/registration/lifecycle-handlers.ts:819-833`) can silently break the precedence chain. The chain:
 
 ```
 PI_CREW_BROKER=0     → disabled (env always wins)
@@ -92,15 +92,15 @@ PI_CREW_BROKER=0 npm run test:critical
 PI_CREW_BROKER=1 npm run test:critical
 ```
 
-All three must show `# pass 97 # fail 0`. Measured times in this session: 21s, 22s, 25s respectively.
+All three must show `# pass 97 # fail 0`. Measured times in this session: ~20s for default and `PI_CREW_BROKER=0`, ~21s for `PI_CREW_BROKER=1` (varies ±1s run-to-run).
 
 **References**:
 
 | What | Where |
 |---|---|
 | `DEFAULT_BROKER` constant | `src/config/defaults.ts:169-173` (Phase 4: `enabled: true`) |
-| Precedence function | `src/extension/registration/lifecycle-handlers.ts:819-832` (`return cfg?.enabled !== false;` at line 828) |
-| `resolveBrokerEnvOverride` | `src/config/defaults.ts:177-187` |
+| Precedence function | `src/extension/registration/lifecycle-handlers.ts:819-833` (`return cfg?.enabled !== false;` at line 828) |
+| `resolveBrokerEnvOverride` | `src/config/defaults.ts:186-193` |
 | Env-precedence unit tests | `test/unit/crew-broker-feature-flag.test.ts:31` (default-on assertion), `:50-95` (env=1/env=0/unset cases) |
 | Controller-gate tests | `test/unit/crew-broker-server-gate.test.ts:78` (env kill switch under default-on), `:143` (env=1 with no config) |
 | Decision doc | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` |
@@ -130,7 +130,7 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 | `typecheck` script | `package.json` `"typecheck"` — runs `tsc --noEmit && node --experimental-strip-types -e "await import('./index.ts'); ..."` |
 | `build:bundle` script | `package.json` `"build:bundle"` — runs `node scripts/build-bundle.mjs` |
 | Bundle builder | `scripts/build-bundle.mjs` (esbuild-based, bundles `index.bundle.ts` → `dist/index.mjs`) |
-| Bundle resolution rule | `.crew/knowledge.md` — "Entry point resolution order" section; **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
+| Bundle resolution rule | `index.ts:5-22` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
 | Postinstall hook | `scripts/postinstall.mjs:43` — best-effort bundle rebuild; falls back to strip-types if esbuild missing |
 | Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (2.78 MB, no size change vs default-off) |
 
@@ -164,9 +164,9 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 
 | What | Where |
 |---|---|
-| Bundle resolution | `.crew/knowledge.md` — "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
+| Bundle resolution | `index.ts:5-22` — "dist/index.mjs (pre-built bundle) if present AND not explicitly disabled — DEFAULT since v0.9.17" |
 | Bundle size impact after Phase-4 flip | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` §Verification: "2.78 MB before and after the flip; the broker code was already in the bundle; only the default boolean changed" |
-| Symlink confirmation | `.crew/knowledge.md` — `/home/bom/.nvm/versions/node/v22.22.0/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` |
+| Symlink confirmation | verify with `readlink /home/bom/source/my_pi/node_modules/pi-crew` (returns `../pi-crew` for dev clones); production install is `/home/bom/.nvm/versions/node/v22.x.x/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` |
 
 ---
 
@@ -197,7 +197,7 @@ sleep 0.5
 tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 ```
 
-**Key gotcha**: terminals send arrow keys as one of 3 byte sequences. Pi-crew's `matchesKey()` helper (`src/ui/key-utils.ts:14-29`) normalizes all of them — but verify it does in your probe:
+**Key gotcha**: terminals send arrow keys as one of 3 byte sequences. Pi-crew's `matchesKey()` helper (`src/ui/key-utils.ts:37-42`, the `keyOf()` function) normalizes all of them — but verify it does in your probe:
 
 | Mode | Up arrow | Down arrow | Source |
 |---|---|---|---|
@@ -209,7 +209,7 @@ tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 
 | What | Where |
 |---|---|
-| `keyOf()` helper | `src/ui/key-utils.ts:14-29` |
+| `keyOf()` helper | `src/ui/key-utils.ts:37-42` (import + type alias at lines 16-18) |
 | Dispatch path | `src/ui/keybinding-map.ts` (migrated to `matchesKey()` in commit `f05a10d`) |
 | Golden snapshot test | `test/unit/keybinding-map.parity.test.ts` — 282 entries covering raw bytes + named KeyId |
 | Live probe test | `test/unit/pi-tui-dispatch-probe.test.ts` — direct probe of dispatch (3 tests) |
@@ -255,14 +255,15 @@ else:
     sys.stdout.write(os.read(fd, 65536).decode(errors='replace'))
 ```
 
-**`PI_CREW_BROKER_DIAG_UI=1`** makes the component's `handleInput` write a `[PI-CREW-DIAG] component.handleInput data=…` line to stderr for every keystroke. Pair with `2>&1 | tee /tmp/diag.log`.
+**`PI_CREW_BROKER_DIAG_UI=1`** makes `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr for every keystroke. (As of v0.9.46, the diag is wired only in `run-dashboard`, not in `settings-overlay` or other overlays.) Pair with `2>&1 | tee /tmp/diag.log`.
 
 **References**:
 
 | What | Where |
 |---|---|
-| Diag env var | `PI_CREW_BROKER_DIAG_UI=1` — written in `src/ui/run-dashboard.ts:handleInput` (and other overlay components) |
-| Removed in commit | `00e8ba0 chore(broker): strip diagnostic noise from focused-field fix` — diag calls left in but no longer noisy |
+| Diag env var | `PI_CREW_BROKER_DIAG_UI=1` — checked at `src/ui/run-dashboard.ts:831` |
+| Reduced-noise commit | `00e8ba0 chore(broker): strip diagnostic noise from focused-field fix` — diag calls left in but no longer noisy |
+| Original probe | `84944f7 test(probe): add invalidate() to control object so typecheck passes` |
 
 ---
 
@@ -275,13 +276,17 @@ else:
 **How** (from parent Pi session — `team` is a tool, not a shell command):
 
 ```yaml
+# illustrative — the actual tool takes positional + named params:
+#   team action='run' team='fast-fix' workflow='fast-fix' goal='...' async=false
 team:
-  action: run
-  team: fast-fix
-  workflow: fast-fix
+  action: run              # run | status | events | cancel | retry | ...
+  team: fast-fix           # team name (default / fast-fix / implementation / ...)
+  workflow: fast-fix       # workflow to apply (default / fast-fix / plan-execute / ...)
   goal: "Smoke-verify <X>. Run `npm run test:critical && npx tsc --noEmit` once, cache output, report exact pass/fail counts + total time. Confirm verifier completes without hang (must be <300s)."
-  async: false
+  async: false             # synchronous: wait for completion before returning
 ```
+
+The `team` tool is described in the agent's system prompt. Use `team action='status' <runId>` to inspect mid-run, `team action='events' <runId> <limit>` for the event log, `team action='cancel' <runId>` to abort.
 
 **Real measured outcomes from this session**:
 
@@ -323,7 +328,7 @@ md5sum dist/index.mjs
 
 # Session (ask user to run in their pi shell tool)
 md5sum /home/bom/source/my_pi/node_modules/pi-crew/dist/index.mjs
-# (or wherever the bundle is loaded from — see .crew/knowledge.md for the symlink path)
+# (or wherever the bundle is loaded from — see index.ts:5-22 for the symlink path)
 ```
 
 If the two md5s match → session is on the latest code. If not → user must `/quit` + reopen Pi.
@@ -332,7 +337,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 | What | Where |
 |---|---|
-| Symlink path | `.crew/knowledge.md` — `/home/bom/.nvm/versions/node/v22.22.0/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` |
+| Symlink path | `index.ts:5-22` — `/home/bom/.nvm/versions/node/v22.x.x/lib/node_modules/pi-crew → /home/bom/source/my_pi/pi-crew` (verify with `readlink`) |
 | Session load model | Same file: "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
 
 ---
@@ -345,7 +350,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 | `npm run test:unit` for in-loop verify | >4 min, same hang | `1cb2dca` | `package.json:67` (`test:critical` script) |
 | Default-off assumption in tests | Break when default flips | `612e18b` | `test/unit/crew-broker-feature-flag.test.ts:31` (`DEFAULT_BROKER.enabled === true`) |
 | Test using real `loadConfig()` to mock config | Flaky when env / disk config changes | `612e18b` | `test/unit/crew-broker-server-gate.test.ts:78` (use `brokerEnv: "0"` instead of `flagOn: false`) |
-| Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `.crew/knowledge.md` — bundle resolution rules |
+| Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `index.ts:5-22` — bundle resolution rules |
 | Skip disabled-path proof | `effectiveEnabled()` regression slips through | n/a (permanent) | Tier 2 above |
 | `npm run test:unit` against 642 files | >4 min; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
 
@@ -405,14 +410,15 @@ Decision docs:
 
 Source files (critical paths):
 - `src/config/defaults.ts:155-187` — `DEFAULT_BROKER` + `resolveBrokerEnvOverride`
-- `src/extension/registration/lifecycle-handlers.ts:819-832` — `effectiveEnabled()` (precedence)
+- `src/extension/registration/lifecycle-handlers.ts:819-833` — `effectiveEnabled()` (precedence)
 - `src/runtime/child-pi-constants.ts:23` — `RESPONSE_TIMEOUT_MS = 300_000`
 - `src/runtime/plan-templates.ts:143, 146, 190, 193` — verifier `taskTemplate` + `verificationCommand`
 - `src/runtime/crew-broker.ts` — broker server (per-connection gate, NDJSON framing)
 - `src/runtime/crew-broker-client.ts` — client (`isEventFrame()` distinguishes event vs response frames)
-- `src/runtime/crew-broker-deps.ts` — socket-path + NDJSON + types consolidated
 - `src/runtime/crew-broker-tokens.ts` — `BrokerTokenRegistry` with `timingSafeEqual`
-- `src/ui/key-utils.ts:14-29` — `keyOf()` using pi-tui `matchesKey()`
+- `src/runtime/broker-issuer.ts` — per-run broker issuer (env injection at spawn)
+- `src/runtime/crew-broker-child.ts` — child-side broker client wiring
+- `src/ui/key-utils.ts:37-42` — `keyOf()` using pi-tui `matchesKey()`
 - `src/ui/keybinding-map.ts` — dispatch using `matchesKey()` (commit `f05a10d`)
 
 Test files (the 14 in `test:critical`):
