@@ -465,8 +465,8 @@ export class CrewBroker {
 	private fanoutMailboxMessage(msg: MailboxMessage): void {
 		const set = this.connectionsByRun.get(msg.runId);
 		if (!set || set.size === 0) return;
-		// Deliver as an unsolicited event frame. Recipients dedup by message id
-		// (the durable path is authoritative; this is a latency accelerator).
+		// Recipient delivery dedup lives in src/prompt/prompt-runtime.ts and is
+		// keyed by the same message id in this mailbox event and the steering JSONL.
 		const eventFrame = encodeBrokerFrame({
 			event: "mailbox.message",
 			data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
@@ -1111,6 +1111,7 @@ export class CrewBroker {
 					JSON.stringify({
 						type: "steer",
 						message: body,
+						id: messageId,
 						ts: new Date().toISOString(),
 					}) + "\n";
 				await fsp.mkdir(steeringDir, { recursive: true });

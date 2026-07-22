@@ -27,10 +27,10 @@ export interface ChildBrokerClientHandle {
 export interface StartChildBrokerClientOptions {
 	/** Env source (defaults to process.env). */
 	env?: NodeJS.ProcessEnv;
-	/** Invoked with the raw (untrusted) steer body for every pushed
-	 *  `mailbox.message` whose kind === "steer". The caller MUST sanitize
-	 *  before delivering to the agent. */
-	onSteer?: (message: string) => void;
+	/** Invoked with the raw (untrusted) steer body and optional message id for
+	 *  every pushed `mailbox.message` whose kind === "steer". The caller MUST
+	 *  sanitize before delivering to the agent and may use `id` for dedup. */
+	onSteer?: (message: string, id?: string) => void;
 	/** Optional observer for every received event frame (diagnostics/tests). */
 	onEvent?: (event: BrokerEventFrame) => void;
 	/** Test seam: override the net module. */
@@ -64,9 +64,9 @@ export function startChildBrokerClient(options: StartChildBrokerClientOptions = 
 		onEvent: (ev) => {
 			options.onEvent?.(ev);
 			if (ev.event === "mailbox.message" && options.onSteer) {
-				const data = ev.data as { kind?: unknown; body?: unknown } | undefined;
+				const data = ev.data as { id?: unknown; kind?: unknown; body?: unknown } | undefined;
 				if (data && data.kind === "steer" && typeof data.body === "string") {
-					options.onSteer(data.body);
+					options.onSteer(data.body, typeof data.id === "string" ? data.id : undefined);
 				}
 			}
 		},
