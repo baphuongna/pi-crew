@@ -518,7 +518,7 @@
       "format": "esm"
     },
     "src/utils/session-utils.ts": {
-      "bytes": 4266,
+      "bytes": 4361,
       "imports": [],
       "format": "esm"
     },
@@ -12554,7 +12554,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 36593,
+      "bytes": 36623,
       "imports": [
         {
           "path": "node:fs",
@@ -13150,7 +13150,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6152672
+      "bytes": 6152831
     },
     "dist/index.mjs": {
       "imports": [
@@ -14887,7 +14887,7 @@
           "bytesInOutput": 8917
         },
         "src/utils/session-utils.ts": {
-          "bytesInOutput": 975
+          "bytesInOutput": 1018
         },
         "src/runtime/cancellation.ts": {
           "bytesInOutput": 2293
@@ -16336,7 +16336,7 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 24183
+          "bytesInOutput": 24189
         },
         "src/runtime/crew-broker.ts": {
           "bytesInOutput": 35352
@@ -16396,7 +16396,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2850521
+      "bytes": 2850570
     }
   }
 }
