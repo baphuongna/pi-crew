@@ -1,6 +1,6 @@
 ---
 name: real-test-pi-crew
-description: "End-to-end verification for pi-crew changes via fast unit tests, 3-path kill-switch proof, bundle md5 sync, tmux/pty live TUI probing, and smoke team runs. Use after any change to broker/, ui/, keybindings, config, plan-templates, or verifier workflows — or before any commit touching these paths."
+description: "End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, and smoke team runs."
 origin: pi-crew
 triggers:
   - "test the change"
@@ -23,6 +23,8 @@ triggers:
 # real-test-pi-crew
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
+
+**When to use**: after any change to `src/runtime/crew-broker*.ts`, `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi-spawn.ts`, `src/runtime/plan-templates.ts`, `workflows/*.workflow.md`, or before any commit touching these paths.
 
 ## Core principle: disk ≠ live Pi
 
@@ -565,8 +567,9 @@ PI_CREW_BROKER=1 npm run test:critical
 npm run typecheck
 npm run build:bundle
 md5sum dist/index.mjs
-# Tier 4 (sync check)
-# ask user: md5sum /path/to/loaded/bundle
+# Tier 4 (sync check — symlink is in the CONSUMING project)
+readlink ../node_modules/pi-crew  # dev: → ../pi-crew
+readlink "$(npm root -g)"/pi-crew  # global install
 # Tier 5 (tmux probe)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
   "cd ${PWD} && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1"
@@ -576,8 +579,10 @@ tmux capture-pane -t pi -p
 python3 scripts/pty_probe.py 2>&1 | tee /tmp/diag.log
 # Tier 7 (smoke team)
 # from parent Pi session only — uses the `team` tool, not shell
-# Tier 8 (final md5 sync)
-md5sum dist/index.mjs && md5sum /loaded/bundle/path
+# Tier 8 (final md5 sync — compare disk vs loaded bundle)
+md5sum dist/index.mjs
+md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
+  || md5sum ../node_modules/pi-crew/dist/index.mjs
 ```
 
 ---
