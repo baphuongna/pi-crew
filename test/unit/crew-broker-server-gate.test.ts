@@ -12,8 +12,6 @@
  */
 
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import test from "node:test";
 
 import { installCrewBrokerLifecycleController } from "../../src/extension/registration/lifecycle-handlers.ts";
@@ -27,10 +25,7 @@ interface FakeRegistrationContext extends RegistrationContext {
 	_loadedConfig?: { config?: { broker?: { enabled?: boolean } } };
 }
 
-function makeFakeCtx(opts: {
-	flagOn?: boolean;
-	brokerEnv?: string;
-} = {}): FakeRegistrationContext {
+function makeFakeCtx(opts: { flagOn?: boolean; brokerEnv?: string } = {}): FakeRegistrationContext {
 	const previousEnv = process.env.PI_CREW_BROKER;
 	const previousKind = process.env.PI_CREW_KIND;
 	if (opts.brokerEnv === undefined) delete process.env.PI_CREW_BROKER;

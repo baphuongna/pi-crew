@@ -21,15 +21,10 @@
  *  full contract and acceptance criteria.
  */
 
-import { timingSafeEqual } from "node:crypto";
-import { randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
-import * as os from "node:os";
-import * as path from "node:path";
 
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactSecretString } from "../utils/redaction.ts";
+import { readEventsCursor } from "../state/event-log.ts";
 import {
 	appendMailboxMessageAsync,
 	type MailboxMessage,
@@ -39,18 +34,13 @@ import {
 	registerMailboxAppendObserver,
 } from "../state/mailbox.ts";
 import { loadRunManifestById } from "../state/state-store.ts";
-import { readEventsCursor } from "../state/event-log.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
-import {
-	BrokerError,
-	MAX_BROKER_FRAME_BYTES,
-	NdjsonDecoder,
-	encodeBrokerFrame,
-	getBrokerSocketPath,
-	prepareBrokerSocketDir,
-	removeStaleBrokerSocket,
-} from "./crew-broker-deps.ts";
-import { BrokerTokenRegistry, newBrokerToken } from "./crew-broker-tokens.ts";
+import { logInternalError } from "../utils/internal-error.ts";
+import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../utils/ndjson.ts";
+import { redactSecretString } from "../utils/redaction.ts";
+import { resolveContainedPath } from "../utils/safe-paths.ts";
+import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../utils/socket-path.ts";
+import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */
 const BROKER_PROTOCOL = 1;
@@ -288,7 +278,11 @@ export class CrewBroker {
 		this.stopped = true;
 		// Phase 1.3: unregister the mailbox observer before closing connections.
 		if (this.mailboxObserverUnsub) {
-			try { this.mailboxObserverUnsub(); } catch { /* ignore */ }
+			try {
+				this.mailboxObserverUnsub();
+			} catch {
+				/* ignore */
+			}
 			this.mailboxObserverUnsub = null;
 		}
 
@@ -397,11 +391,7 @@ export class CrewBroker {
 		//    properly removed from this.connections + the per-run fanout index.
 		conn.helloTimer = setTimeout(() => {
 			if (!conn.authed && !conn.closed) {
-				logInternalError(
-					"crew-broker.hello.deadline",
-					new Error("hello deadline"),
-					`sessionId=${this.options.sessionId}`,
-				);
+				logInternalError("crew-broker.hello.deadline", new Error("hello deadline"), `sessionId=${this.options.sessionId}`);
 				this.closeConnection(conn);
 			}
 		}, HELLO_DEADLINE_MS);
@@ -427,8 +417,6 @@ export class CrewBroker {
 			this.closeConnection(conn);
 		});
 		sock.on("close", () => {
-			const stack = new Error("trace").stack;
-			console.error("DEBUG broker onClose: conn.taskId=", conn.taskId, "conn.authed=", conn.authed, "stack=", stack?.split("\n").slice(1, 6).join(" | "));
 			this.closeConnection(conn);
 		});
 	}
@@ -453,7 +441,11 @@ export class CrewBroker {
 		const subs = this.subscriptionUnsubs.get(conn);
 		if (subs) {
 			for (const unsub of subs) {
-				try { unsub(); } catch { /* ignore */ }
+				try {
+					unsub();
+				} catch {
+					/* ignore */
+				}
 			}
 			subs.clear();
 			this.subscriptionUnsubs.delete(conn);
@@ -500,11 +492,7 @@ export class CrewBroker {
 		} catch (err) {
 			// BrokerError from the decoder — typed close.
 			if (err instanceof BrokerError) {
-				logInternalError(
-					"crew-broker.decoder.error",
-					err,
-					`code=${err.code} sessionId=${this.options.sessionId}`,
-				);
+				logInternalError("crew-broker.decoder.error", err, `code=${err.code} sessionId=${this.options.sessionId}`);
 				this.sendErrorAndClose(conn, undefined, err.code === "oversize-frame" ? "oversize-frame" : "protocol", err.message);
 				return;
 			}
@@ -642,7 +630,6 @@ export class CrewBroker {
 	}
 
 	private sendErrorAndClose(conn: ServerConnection, id: string | undefined, code: string, message: string): void {
-		console.error("DEBUG sendErrorAndClose: id=", id, "code=", code, "message=", redactSecretString(message));
 		if (id !== undefined) {
 			// Best-effort error frame before close. Even if the queue is full
 			// we still try to deliver the close reason.
@@ -834,7 +821,7 @@ export class CrewBroker {
 		const taskId = conn.taskId ?? undefined;
 		const all = readMailbox(manifest, "inbox", taskId);
 		const filtered = all.filter((m) => m.status !== "acknowledged");
-		const offset = parsed.cursor ? (parseInt(parsed.cursor, 10) || 0) : 0;
+		const offset = parsed.cursor ? parseInt(parsed.cursor, 10) || 0 : 0;
 		const page = filtered.slice(offset, offset + limit);
 		const nextOffset = offset + page.length;
 		const hasMore = nextOffset < filtered.length;
@@ -874,7 +861,7 @@ export class CrewBroker {
 			this.sendError(conn, id, "no-manifest", (err as Error).message);
 			return;
 		}
-		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 		const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
 		const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1000) : 1000;
 		try {
@@ -922,15 +909,16 @@ export class CrewBroker {
 			this.sendError(conn, id, "no-manifest", (err as Error).message);
 			return;
 		}
-		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 		const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
 		// Live callback: enqueue a serialized event frame onto the connection's
 		// outbound queue (non-blocking; queue-cap enforces drop-newest).
 		const cb = (event: unknown) => {
 			if (conn.closed) return;
-			const seq = (event && typeof event === "object" && "seq" in (event as Record<string, unknown>))
-				? ((event as { seq?: unknown }).seq as number | undefined)
-				: undefined;
+			const seq =
+				event && typeof event === "object" && "seq" in (event as Record<string, unknown>)
+					? ((event as { seq?: unknown }).seq as number | undefined)
+					: undefined;
 			const eventFrame = encodeBrokerFrame({ event: "team.event", data: event, seq });
 			try {
 				this.writeOrQueue(conn, eventFrame, false);
@@ -949,7 +937,11 @@ export class CrewBroker {
 		// Auto-cleanup on close.
 		const origUnsub = unsub;
 		const wrappedUnsub = () => {
-			try { origUnsub(); } catch { /* ignore */ }
+			try {
+				origUnsub();
+			} catch {
+				/* ignore */
+			}
 			const b = this.subscriptionUnsubs.get(conn);
 			if (b) b.delete(origUnsub);
 		};
@@ -973,10 +965,13 @@ export class CrewBroker {
 			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
 			return;
 		}
-		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 		const targetTaskId = typeof v.taskId === "string" ? v.taskId : undefined;
 		const targetStatus = typeof v.until === "string" ? v.until : undefined;
-		const timeoutMs = typeof v.timeoutMs === "number" && Number.isFinite(v.timeoutMs) ? Math.min(Math.max(0, Math.floor(v.timeoutMs)), 60_000) : 30_000;
+		const timeoutMs =
+			typeof v.timeoutMs === "number" && Number.isFinite(v.timeoutMs)
+				? Math.min(Math.max(0, Math.floor(v.timeoutMs)), 60_000)
+				: 30_000;
 		if (!targetTaskId || !targetStatus) {
 			this.sendError(conn, id, "bad-params", "task.waitStatus: taskId and until are required");
 			return;
@@ -998,66 +993,77 @@ export class CrewBroker {
 		// resolves when the task reaches the target status OR the timeout
 		// elapses OR the connection closes. Each iteration schedules the
 		// next via setTimeout to keep the event loop free.
-		const pollUntilDone = (): Promise<void> => new Promise<void>((resolve) => {
-			const tick = () => {
-				if (conn.closed) {
-					this.sendError(conn, id, "close", "connection closed during wait");
-					resolve();
-					return;
-				}
-				const connRunId = conn.runId;
-				if (!connRunId) {
-					this.sendError(conn, id, "auth", "not authed (post-narrow)");
-					resolve();
-					return;
-				}
-				if (Date.now() - start >= timeoutMs) {
-					this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
-					resolve();
-					return;
-				}
-				try {
-					const loaded = loadRunManifestById(cwd, connRunId);
-					if (!loaded) {
-						this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+		const pollUntilDone = (): Promise<void> =>
+			new Promise<void>((resolve) => {
+				const tick = () => {
+					if (conn.closed) {
+						this.sendError(conn, id, "close", "connection closed during wait");
 						resolve();
 						return;
 					}
-					const task = loaded.tasks.find((t) => t.id === targetTaskId);
-					if (!task) {
-						this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
+					const connRunId = conn.runId;
+					if (!connRunId) {
+						this.sendError(conn, id, "auth", "not authed (post-narrow)");
 						resolve();
 						return;
 					}
-					if (task.status === targetStatus || (isTerminal(targetStatus) && isTerminal(task.status))) {
-						this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
+					if (Date.now() - start >= timeoutMs) {
+						this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
 						resolve();
 						return;
 					}
-				} catch (err) {
-					this.sendError(conn, id, "wait-failed", (err as Error).message);
-					resolve();
-					return;
-				}
-				setTimeout(tick, interval);
-			};
-			setTimeout(tick, 0);
-		});
+					try {
+						const loaded = loadRunManifestById(cwd, connRunId);
+						if (!loaded) {
+							this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+							resolve();
+							return;
+						}
+						const task = loaded.tasks.find((t) => t.id === targetTaskId);
+						if (!task) {
+							this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
+							resolve();
+							return;
+						}
+						if (task.status === targetStatus || (isTerminal(targetStatus) && isTerminal(task.status))) {
+							this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
+							resolve();
+							return;
+						}
+					} catch (err) {
+						this.sendError(conn, id, "wait-failed", (err as Error).message);
+						resolve();
+						return;
+					}
+					setTimeout(tick, interval);
+				};
+				setTimeout(tick, 0);
+			});
 		await pollUntilDone();
 	}
 
 	/**
 	 * Phase 3: steer.push — push steering message to a running worker.
-	 * Uses the same file-based channel as the legacy PI_CREW_STEERING_FILE:
-	 * the broker appends to the run's tasks/<taskId>/steering inbox so the
-	 * child's existing pollSteering() picks it up on the next tick.
+	 *
+	 * Dual-write strategy for durability:
+	 *  1. Mailbox append (appendMailboxMessageAsync) — feeds the live broker
+	 *     fanout to connected subscribers AND persists to the mailbox inbox
+	 *     JSONL for later read.
+	 *  2. Steering-file append — writes the steer body to
+	 *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
+	 *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
+	 *     the durable fallback: even if the broker connection is down, the
+	 *     child picks up the steer on its next poll tick.
+	 *
+	 * A steering-file write failure does NOT fail the steer push — the
+	 * mailbox write (1) has already succeeded.
 	 */
 	private async handleSteerPush(conn: ServerConnection, id: string, params: unknown): Promise<void> {
 		if (!conn.runId) {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
 		}
-		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 		const targetTaskId = typeof v.taskId === "string" ? v.taskId : undefined;
 		const body = typeof v.body === "string" ? v.body : undefined;
 		if (!targetTaskId || body === undefined) {
@@ -1079,8 +1085,9 @@ export class CrewBroker {
 				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
 				return;
 			}
-			// Use the same append path the legacy file-write steering uses.
+
 			const messageId = `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+			// Write 1: mailbox — live broker fanout + persistent inbox read.
 			await appendMailboxMessageAsync(loaded.manifest, {
 				id: messageId,
 				direction: "inbox",
@@ -1092,6 +1099,25 @@ export class CrewBroker {
 				priority: (v.priority as "urgent" | "normal" | "low" | undefined) ?? "urgent",
 				deliveryMode: "interrupt",
 			});
+			// Write 2: steering file — durable fallback so pollSteering() picks
+			// up the steer even when the broker connection is down. Matches the
+			// JSONL format of appendSteeringAsync in task-runner.ts.
+			// Best-effort: a failure here must NOT fail the push (mailbox write
+			// already succeeded).
+			try {
+				const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
+				const steeringPath = resolveContainedPath(steeringDir, `${targetTaskId}.jsonl`);
+				const line =
+					JSON.stringify({
+						type: "steer",
+						message: body,
+						ts: new Date().toISOString(),
+					}) + "\n";
+				await fsp.mkdir(steeringDir, { recursive: true });
+				await fsp.appendFile(steeringPath, line, "utf-8");
+			} catch (fileErr) {
+				logInternalError("crew-broker.steer-file-write-failed", fileErr as Error, `taskId=${targetTaskId}`);
+			}
 			this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
 		} catch (err) {
 			this.sendError(conn, id, "steer-failed", (err as Error).message);
@@ -1111,7 +1137,7 @@ export class CrewBroker {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
 		}
-		const v = (params && typeof params === "object" && !Array.isArray(params)) ? params as Record<string, unknown> : {};
+		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 		const body = typeof v.body === "string" ? v.body : undefined;
 		const to = typeof v.to === "string" ? v.to : undefined;
 		if (body === undefined) {
@@ -1188,7 +1214,6 @@ function isHelloParams(value: unknown): value is {
 	if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
 	return true;
 }
-
 
 // ============================================================================
 // Phase 1 parameter parsers (module-level; no `any`)

@@ -21,17 +21,20 @@
  *  full contract and acceptance criteria.
  */
 
-import * as net from "node:net";
 import { randomUUID } from "node:crypto";
+import * as net from "node:net";
 
 import { logInternalError } from "../utils/internal-error.ts";
+import { BrokerError, encodeBrokerFrame, NdjsonDecoder } from "../utils/ndjson.ts";
 import { redactSecretString } from "../utils/redaction.ts";
-import {
-	BrokerError,
-	MAX_BROKER_FRAME_BYTES,
-	NdjsonDecoder,
-	encodeBrokerFrame,
-} from "./crew-broker-deps.ts";
+
+/** Shape of an unsolicited event frame pushed by the broker (mailbox.message,
+ *  team.event, etc.). */
+export interface BrokerEventFrame {
+	event: string;
+	data: unknown;
+	seq?: number;
+}
 
 /** Protocol version negotiated at hello. Must match the broker. */
 const BROKER_PROTOCOL = 1;
@@ -47,9 +50,7 @@ const MAX_ATTEMPTS = 4;
 
 export type BrokerClientMode = "unstarted" | "connected" | "fallback";
 
-export type BrokerClientResult<T> =
-	| { ok: true; value: T }
-	| { ok: false; fallback: true; errorCode?: string; error?: Error };
+export type BrokerClientResult<T> = { ok: true; value: T } | { ok: false; fallback: true; errorCode?: string; error?: Error };
 
 export interface CrewBrokerClientOptions {
 	runId: string;
@@ -71,6 +72,10 @@ export interface CrewBrokerClientOptions {
 	clearTimeoutFn?: (timer: NodeJS.Timeout) => void;
 	/** Test seam: random jitter source (returns a multiplier in [0.75, 1.25]). */
 	jitter?: () => number;
+	/** Handler for unsolicited event frames pushed by the broker after hello
+	 *  (e.g. `mailbox.message`, `team.event`). When omitted, event frames are
+	 *  silently ignored (Phase 0 behavior). Never throws into the socket loop. */
+	onEvent?: (event: BrokerEventFrame) => void;
 }
 
 interface PendingRequest {
@@ -82,7 +87,10 @@ interface PendingRequest {
 
 export class CrewBrokerClient {
 	private readonly options: Required<Pick<CrewBrokerClientOptions, "runId" | "taskId">> &
-		Pick<CrewBrokerClientOptions, "socketPath" | "token" | "env" | "netModule" | "now" | "setTimeoutFn" | "clearTimeoutFn" | "jitter">;
+		Pick<
+			CrewBrokerClientOptions,
+			"socketPath" | "token" | "env" | "netModule" | "now" | "setTimeoutFn" | "clearTimeoutFn" | "jitter" | "onEvent"
+		>;
 	private _mode: BrokerClientMode = "unstarted";
 	private socket: net.Socket | null = null;
 	private decoder: NdjsonDecoder | null = null;
@@ -117,6 +125,7 @@ export class CrewBrokerClient {
 			setTimeoutFn: options.setTimeoutFn,
 			clearTimeoutFn: options.clearTimeoutFn,
 			jitter: options.jitter,
+			onEvent: options.onEvent,
 		};
 	}
 
@@ -201,11 +210,7 @@ export class CrewBrokerClient {
 	 * transitions to fallback if the connection is lost. The caller can
 	 * continue using the file poll path.
 	 */
-	subscribe(options: {
-		runId: string;
-		sinceSeq: number;
-		onEvent: (event: unknown) => void;
-	}): () => void {
+	subscribe(options: { runId: string; sinceSeq: number; onEvent: (event: unknown) => void }): () => void {
 		// Phase 0: subscription is a typed not-implemented. We register a
 		// no-op unsubscribe so the caller can call it without errors.
 		void options;
@@ -307,7 +312,11 @@ export class CrewBrokerClient {
 				settled = true;
 				// Cancel the per-attempt deadline timer so it cannot fire after
 				// a successful handshake and destroy the healthy connection.
-				try { clearTimeoutFn(timer); } catch { /* ignore */ }
+				try {
+					clearTimeoutFn(timer);
+				} catch {
+					/* ignore */
+				}
 				try {
 					sock.removeAllListeners();
 				} catch {
@@ -439,6 +448,10 @@ export class CrewBrokerClient {
 	private wireSocketHandlers(sock: net.Socket): void {
 		// After hello, attach persistent handlers. The once-handlers from
 		// attemptHello are already removed in finish().
+		// Unref the socket so a still-open broker connection never keeps a
+		// finished child worker's event loop alive (mirrors the file-poll
+		// steering timer's unref). Pushes still arrive while the worker runs.
+		(sock as { unref?: () => void }).unref?.();
 		const onData = (chunk: Buffer | string) => {
 			if (!this.decoder) return;
 			const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
@@ -459,10 +472,19 @@ export class CrewBrokerClient {
 				// Distinguish unsolicited event frames (e.g. mailbox.message
 				// pushed by the broker's observer-driven live fanout) from
 				// request-response frames. Events have `event` + `data` (+ optional
-				// `seq`); responses have `id` + `result` or `error`. A frame that
-				// is shaped like an event is silently ignored here — Phase 1
-				// does not require an event handler.
+				// `seq`); responses have `id` + `result` or `error`. Event frames
+				// are routed to the optional `onEvent` handler; a missing handler
+				// silently drops them (the durable path remains authoritative).
 				if (isEventFrame(frame)) {
+					const handler = this.options.onEvent;
+					if (handler) {
+						const ev = frame as Record<string, unknown>;
+						try {
+							handler({ event: ev.event as string, data: ev.data, seq: typeof ev.seq === "number" ? ev.seq : undefined });
+						} catch {
+							/* an onEvent handler fault must never break the socket loop */
+						}
+					}
 					continue;
 				}
 				if (!isResponseObject(frame)) {
@@ -479,7 +501,11 @@ export class CrewBrokerClient {
 					// Resolve with a tagged envelope so request() can return
 					// ok:false WITHOUT triggering fallback mode.
 					const errCode = (frame.error as { code?: string }).code ?? "request-failed";
-					pending.resolve({ __brokerError: true, code: errCode, message: (frame.error as { message?: string }).message ?? "" } as never);
+					pending.resolve({
+						__brokerError: true,
+						code: errCode,
+						message: (frame.error as { message?: string }).message ?? "",
+					} as never);
 				} else {
 					pending.resolve(frame.result);
 				}
@@ -540,7 +566,11 @@ export class CrewBrokerClient {
 		// so token-like bytes cannot leak via the error message.
 		const safeCause = cause instanceof Error ? cause.message : cause ? String(cause) : undefined;
 		const safe = safeCause ? redactSecretString(safeCause) : undefined;
-		logInternalError("crew-broker.client.fallback", new Error(`fallback (${code})`), `runId=${this.options.runId}${safe ? ` cause=${safe}` : ""}`);
+		logInternalError(
+			"crew-broker.client.fallback",
+			new Error(`fallback (${code})`),
+			`runId=${this.options.runId}${safe ? ` cause=${safe}` : ""}`,
+		);
 	}
 }
 

@@ -12,12 +12,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-
-import {
-	appendMailboxMessageAsync,
-	registerMailboxAppendObserver,
-} from "../../src/state/mailbox.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import { appendMailboxMessageAsync, registerMailboxAppendObserver } from "../../src/state/mailbox.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 // ----------------------------------------------------------------------------
@@ -78,15 +74,27 @@ test("observer: unsubscribe stops further notifications", async () => {
 		const taskId = loaded.tasks[0].id;
 
 		let count = 0;
-		const unsub = registerMailboxAppendObserver(() => { count += 1; });
+		const unsub = registerMailboxAppendObserver(() => {
+			count += 1;
+		});
 		await appendMailboxMessageAsync(loaded.manifest, {
-			direction: "inbox", from: "x", to: taskId, taskId, body: "first", kind: "message",
+			direction: "inbox",
+			from: "x",
+			to: taskId,
+			taskId,
+			body: "first",
+			kind: "message",
 		});
 		await new Promise<void>((r) => setImmediate(r));
 		assert.equal(count, 1);
 		unsub();
 		await appendMailboxMessageAsync(loaded.manifest, {
-			direction: "inbox", from: "x", to: taskId, taskId, body: "second", kind: "message",
+			direction: "inbox",
+			from: "x",
+			to: taskId,
+			taskId,
+			body: "second",
+			kind: "message",
 		});
 		await new Promise<void>((r) => setImmediate(r));
 		assert.equal(count, 1, "observer must not fire after unsubscribe");
@@ -107,11 +115,18 @@ test("observer: a throwing observer does not break the durable append", async ()
 		const loaded = loadRunManifestById(cwd, runId)!;
 		const taskId = loaded.tasks[0].id;
 
-		const unsub = registerMailboxAppendObserver(() => { throw new Error("boom"); });
+		const unsub = registerMailboxAppendObserver(() => {
+			throw new Error("boom");
+		});
 		try {
 			// The append must succeed despite the observer throwing.
 			const result = await appendMailboxMessageAsync(loaded.manifest, {
-				direction: "inbox", from: "x", to: taskId, taskId, body: "survives", kind: "message",
+				direction: "inbox",
+				from: "x",
+				to: taskId,
+				taskId,
+				body: "survives",
+				kind: "message",
 			});
 			assert.ok(result.id);
 			await new Promise<void>((r) => setImmediate(r));

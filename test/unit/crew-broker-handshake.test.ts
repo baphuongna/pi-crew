@@ -27,11 +27,7 @@ import * as path from "node:path";
 import test from "node:test";
 
 import { CrewBroker } from "../../src/runtime/crew-broker.ts";
-import {
-	MAX_BROKER_FRAME_BYTES,
-	NdjsonDecoder,
-	encodeBrokerFrame,
-} from "../../src/runtime/crew-broker-deps.ts";
+import { encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../src/utils/ndjson.ts";
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -252,7 +248,9 @@ test("handshake: first method other than hello → protocol error and close", as
 	try {
 		const client = await rawConnect(socketPath);
 		client.socket.write(encodeBrokerFrame({ id: "p-1", method: "ping", params: null }));
-		const err = (await client.waitForFrame((f) => !!(f as { error?: unknown })?.error)) as { error: { code: string; message?: string } };
+		const err = (await client.waitForFrame((f) => !!(f as { error?: unknown })?.error)) as {
+			error: { code: string; message?: string };
+		};
 		assert.equal(err.error.code, "protocol");
 		assert.match(err.error.message ?? "", /hello required/i);
 	} finally {
@@ -307,7 +305,9 @@ test("handshake: oversize hello → encoder throws oversize-frame BEFORE any wri
 				params: { protocol: 1, runId, taskId: "task-A", token },
 			}),
 		);
-		const ack = (await client.waitForFrame((f) => (f as { id?: string; result?: { ok?: boolean } })?.id === "hello-2")) as { result: { ok: boolean } };
+		const ack = (await client.waitForFrame((f) => (f as { id?: string; result?: { ok?: boolean } })?.id === "hello-2")) as {
+			result: { ok: boolean };
+		};
 		assert.equal(ack.result.ok, true);
 		client.close();
 	} finally {
@@ -342,8 +342,12 @@ test("handshake: two clients have independent outbound queues", async () => {
 	try {
 		const a = await rawConnect(socketPath);
 		const b = await rawConnect(socketPath);
-		a.socket.write(encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId: runA, taskId: "ta", token: tokenA } }));
-		b.socket.write(encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId: runB, taskId: "tb", token: tokenB } }));
+		a.socket.write(
+			encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId: runA, taskId: "ta", token: tokenA } }),
+		);
+		b.socket.write(
+			encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId: runB, taskId: "tb", token: tokenB } }),
+		);
 		// Both acks.
 		const ackA = (await a.waitForFrame((f) => (f as { id?: string })?.id === "h-1")) as { result: { run: string } };
 		const ackB = (await b.waitForFrame((f) => (f as { id?: string })?.id === "h-1")) as { result: { run: string } };
@@ -378,7 +382,9 @@ test("handshake: not-implemented method after hello → typed not-implemented re
 		// steer.push/escalate are all implemented; use a name the dispatch
 		// table does not recognize to land on the not-implemented default).
 		client.socket.write(encodeBrokerFrame({ id: "x-1", method: "run.kill", params: {} }));
-		const err = (await client.waitForFrame((f) => (f as { id?: string })?.id === "x-1")) as { error: { code: string; message: string } };
+		const err = (await client.waitForFrame((f) => (f as { id?: string })?.id === "x-1")) as {
+			error: { code: string; message: string };
+		};
 		assert.equal(err.error.code, "not-implemented");
 		assert.match(err.error.message, /run\.kill/);
 		client.close();

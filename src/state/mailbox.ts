@@ -30,7 +30,9 @@ const mailboxAppendObservers = new Set<MailboxAppendObserver>();
 /** Register a post-append observer. Returns an unsubscribe function. */
 export function registerMailboxAppendObserver(fn: MailboxAppendObserver): () => void {
 	mailboxAppendObservers.add(fn);
-	return () => { mailboxAppendObservers.delete(fn); };
+	return () => {
+		mailboxAppendObservers.delete(fn);
+	};
 }
 
 /**
@@ -44,7 +46,11 @@ function notifyMailboxAppended(message: MailboxMessage): void {
 	const snapshot = { ...message };
 	queueMicrotask(() => {
 		for (const fn of mailboxAppendObservers) {
-			try { fn(snapshot); } catch { /* observer must not break the append path */ }
+			try {
+				fn(snapshot);
+			} catch {
+				/* observer must not break the append path */
+			}
 		}
 	});
 }

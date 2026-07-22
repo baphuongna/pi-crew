@@ -176,9 +176,7 @@ export const DEFAULT_BROKER = {
  * Phase 0 scope: only the `enabled` flag is overridable via env; numeric
  * bounds must go through the schema + parser path, not env.
  */
-export function resolveBrokerEnvOverride(
-	parsed: CrewBrokerConfig | undefined,
-): CrewBrokerConfig | undefined {
+export function resolveBrokerEnvOverride(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig | undefined {
 	const override = process.env.PI_CREW_BROKER;
 	if (override === "1" || override === "0") {
 		const base: CrewBrokerConfig = parsed ?? {};

@@ -14,10 +14,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-
+import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { CrewBroker } from "../../src/runtime/crew-broker.ts";
 import { CrewBrokerClient } from "../../src/runtime/crew-broker-client.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 // ----------------------------------------------------------------------------
@@ -60,18 +59,21 @@ async function makePhase23Fixture(): Promise<Phase23Fixture> {
 	await broker.start();
 	const token = broker.issueRunToken(runId);
 	const cleanup = async () => {
-		try { await broker.stop(); } catch { /* ignore */ }
-		try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* ignore */ }
+		try {
+			await broker.stop();
+		} catch {
+			/* ignore */
+		}
+		try {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		} catch {
+			/* ignore */
+		}
 	};
 	return { cwd, runId, broker, token, taskIds, cleanup };
 }
 
-async function connectClient(args: {
-	runId: string;
-	taskId: string;
-	token: string;
-	socketPath: string;
-}): Promise<CrewBrokerClient> {
+async function connectClient(args: { runId: string; taskId: string; token: string; socketPath: string }): Promise<CrewBrokerClient> {
 	const client = new CrewBrokerClient({
 		runId: args.runId,
 		taskId: args.taskId,
@@ -96,7 +98,11 @@ async function connectClient(args: {
 }
 
 /** Read the first non-hello, non-ping frame from the client within a deadline. */
-async function waitForFrame(client: CrewBrokerClient, predicate: (f: { event?: string; data?: unknown; id?: string }) => boolean, deadlineMs = 5000): Promise<unknown> {
+async function waitForFrame(
+	client: CrewBrokerClient,
+	predicate: (f: { event?: string; data?: unknown; id?: string }) => boolean,
+	deadlineMs = 5000,
+): Promise<unknown> {
 	const start = Date.now();
 	while (Date.now() - start < deadlineMs) {
 		const r = await client.request("ping", null);

@@ -20,7 +20,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
+import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker-issuer.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
+import { CrewBroker } from "../../runtime/crew-broker.ts";
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
@@ -29,8 +31,6 @@ import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
-import { CrewBroker } from "../../runtime/crew-broker.ts";
-import { getBrokerSocketPath, hashSessionId } from "../../runtime/crew-broker-deps.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
@@ -50,6 +50,7 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
 import { extractSessionId } from "../../utils/session-utils.ts";
+import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
 import { notifyActiveRuns } from "../session-summary.ts";
@@ -790,15 +791,10 @@ function setupRenderLoop(
 // The gate is re-evaluated on every `issueForChild` call (cheap env+depth
 // check) so the kill switch (PI_CREW_BROKER=0) takes effect immediately.
 
-export interface CrewBrokerSpawnContext {
-	socketPath: string;
-	token: string;
-}
-
 export interface CrewBrokerLifecycleController {
 	/** Issue credentials for a child run. Returns undefined when the broker
 	 *  is disabled, this process is a subagent, or no session_id is known. */
-	issueForChild(runId: string): Promise<CrewBrokerSpawnContext | undefined>;
+	issueForChild(runId: string): Promise<BrokerSpawnCredentials | undefined>;
 	/** Stop the broker (idempotent). Called on session_shutdown. */
 	stop(): Promise<void>;
 	/** Test/lifecycle seam: remember the most recent session_id for token issuance. */
@@ -814,10 +810,7 @@ function isRootSession(env: NodeJS.ProcessEnv = process.env): boolean {
 	}
 }
 
-export function installCrewBrokerLifecycleController(
-	_pi: ExtensionAPI,
-	_ctx: RegistrationContext,
-): CrewBrokerLifecycleController {
+export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: RegistrationContext): CrewBrokerLifecycleController {
 	let broker: CrewBroker | null = null;
 	let brokerSessionId: string | undefined;
 	let starting: Promise<CrewBroker> | null = null;
@@ -840,14 +833,22 @@ export function installCrewBrokerLifecycleController(
 	async function getOrStartBroker(sessionId: string): Promise<CrewBroker> {
 		if (broker && brokerSessionId === sessionId) return broker;
 		if (broker && brokerSessionId !== sessionId) {
-			try { await broker.stop(); } catch { /* ignore */ }
+			try {
+				await broker.stop();
+			} catch {
+				/* ignore */
+			}
 			broker = null;
 			brokerSessionId = undefined;
 		}
 		if (!broker && !starting) {
 			starting = (async () => {
 				const cfg = (() => {
-					try { return loadConfig().config.broker; } catch { return undefined; }
+					try {
+						return loadConfig().config.broker;
+					} catch {
+						return undefined;
+					}
 				})();
 				const b = new CrewBroker({
 					sessionId,
@@ -876,24 +877,37 @@ export function installCrewBrokerLifecycleController(
 		return starting!;
 	}
 
+	const issueForChild = async (runId: string): Promise<BrokerSpawnCredentials | undefined> => {
+		if (!runId || typeof runId !== "string") return undefined;
+		if (!isRootSession(process.env)) return undefined;
+		if (!effectiveEnabled()) return undefined;
+		const sessionId = cachedSessionId;
+		if (!sessionId) return undefined;
+		try {
+			const b = await getOrStartBroker(sessionId);
+			const token = b.issueRunToken(runId);
+			return { socketPath: b.socketPath, token };
+		} catch {
+			return undefined;
+		}
+	};
+
+	// Publish this issuer as the process-local active issuer so runChildPi can
+	// default `brokerIssuer` without the registration context being threaded
+	// through every runner call site. The issuer self-gates (root + flag), so
+	// publishing it unconditionally is safe even when the broker is disabled.
+	setActiveBrokerIssuer(issueForChild);
+
 	return {
-		issueForChild: async (runId: string) => {
-			if (!runId || typeof runId !== "string") return undefined;
-			if (!isRootSession(process.env)) return undefined;
-			if (!effectiveEnabled()) return undefined;
-			const sessionId = cachedSessionId;
-			if (!sessionId) return undefined;
-			try {
-				const b = await getOrStartBroker(sessionId);
-				const token = b.issueRunToken(runId);
-				return { socketPath: b.socketPath, token };
-			} catch {
-				return undefined;
-			}
-		},
+		issueForChild,
 		stop: async () => {
+			setActiveBrokerIssuer(undefined);
 			if (broker) {
-				try { await broker.stop(); } catch { /* ignore */ }
+				try {
+					await broker.stop();
+				} catch {
+					/* ignore */
+				}
 				broker = null;
 				brokerSessionId = undefined;
 			}

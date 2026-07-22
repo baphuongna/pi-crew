@@ -20,10 +20,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-
+import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { CrewBroker } from "../../src/runtime/crew-broker.ts";
 import { CrewBrokerClient } from "../../src/runtime/crew-broker-client.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 // ----------------------------------------------------------------------------
@@ -69,19 +68,22 @@ async function makeMsgFixture(): Promise<MsgFixture> {
 	const token = broker.issueRunToken(runId);
 
 	const cleanup = async () => {
-		try { await broker.stop(); } catch { /* ignore */ }
-		try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* ignore */ }
+		try {
+			await broker.stop();
+		} catch {
+			/* ignore */
+		}
+		try {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		} catch {
+			/* ignore */
+		}
 	};
 	return { cwd, runId, broker, token, taskIds, cleanup };
 }
 
 /** Connect a client + complete hello via a ping. Returns the live client. */
-async function connectClient(args: {
-	runId: string;
-	taskId: string;
-	token: string;
-	socketPath: string;
-}): Promise<CrewBrokerClient> {
+async function connectClient(args: { runId: string; taskId: string; token: string; socketPath: string }): Promise<CrewBrokerClient> {
 	const client = new CrewBrokerClient({
 		runId: args.runId,
 		taskId: args.taskId,
@@ -126,15 +128,18 @@ test("messaging: DM from task A to task B — durable write + inbox returns the 
 			});
 			assert.equal(sendResult.ok, true, "msg.send should succeed: " + JSON.stringify(sendResult));
 			if (sendResult.ok === true) {
-			const v = sendResult.value as { messageId: string; recipientCount: number; durableStatus: string };
-			assert.equal(v.recipientCount, 1);
-			assert.equal(v.durableStatus, "ok");
-			assert.ok(v.messageId.startsWith("msg_"));
-		}
-		const inboxResult = await b.request("msg.inbox", { limit: 100 });
+				const v = sendResult.value as { messageId: string; recipientCount: number; durableStatus: string };
+				assert.equal(v.recipientCount, 1);
+				assert.equal(v.durableStatus, "ok");
+				assert.ok(v.messageId.startsWith("msg_"));
+			}
+			const inboxResult = await b.request("msg.inbox", { limit: 100 });
 			assert.equal(inboxResult.ok, true, "msg.inbox should succeed: " + JSON.stringify(inboxResult));
 			if (inboxResult.ok === true) {
-				const v = inboxResult.value as { messages: Array<{ id: string; from: string; to: string; body: string; kind: string }>; total: number };
+				const v = inboxResult.value as {
+					messages: Array<{ id: string; from: string; to: string; body: string; kind: string }>;
+					total: number;
+				};
 				assert.equal(v.total, 1, "expected exactly 1 message in B's inbox");
 				assert.equal(v.messages.length, 1);
 				const msg = v.messages[0];

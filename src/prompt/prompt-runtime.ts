@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { startChildBrokerClient } from "../runtime/crew-broker-child.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 
@@ -256,6 +257,34 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 			timer.unref?.();
 		}
 	}
+
+	// ── Feature 2b: broker push steering (opt-in, layered on the file poll) ──
+	// When the parent injected broker credentials, connect a broker client and
+	// deliver pushed steers with the SAME sanitize + pi.sendMessage path as the
+	// file poll above. The file poll remains the durable fallback; a broker
+	// connect failure is invisible to the worker.
+	const brokerHandle = startChildBrokerClient({
+		onSteer: (rawMessage) => {
+			const sanitized = sanitizeSteerMessage({ type: "steer", message: rawMessage });
+			if (!sanitized.valid || sanitized.message === undefined) {
+				logInternalError(
+					"prompt-runtime.broker-steer-rejected",
+					new Error(sanitized.reason ?? "steer-sanitization-failed"),
+					undefined,
+					"warn",
+				);
+				return;
+			}
+			pi.sendMessage({ customType: "crew-steer", content: sanitized.message, display: false }, { deliverAs: "steer" });
+		},
+	});
+	// Close the broker connection on session shutdown to avoid leaking the
+	// persistent socket / reconnect timer. Fire-and-forget: the socket is
+	// already .unref()'d so it never blocks event-loop exit; errors are
+	// swallowed because teardown failures during shutdown are harmless.
+	pi.on("session_shutdown", () => {
+		void brokerHandle.close().catch(() => {});
+	});
 
 	// ── Prompt rewriting (existing) ────────────────────────────────────────
 	pi.on("before_agent_start", (event) => {

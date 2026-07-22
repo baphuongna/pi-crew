@@ -28,15 +28,9 @@
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import * as fs from "node:fs";
-import * as fsp from "node:fs/promises";
 import test from "node:test";
-
-import { encodeBrokerFrame } from "../../src/runtime/crew-broker-deps.ts";
-import {
-	CrewBrokerClient,
-	type CrewBrokerClientOptions,
-} from "../../src/runtime/crew-broker-client.ts";
+import { CrewBrokerClient, type CrewBrokerClientOptions } from "../../src/runtime/crew-broker-client.ts";
+import { encodeBrokerFrame } from "../../src/utils/ndjson.ts";
 
 // ----------------------------------------------------------------------------
 // FakeSocket — extends EventEmitter, behaves like a net.Socket for the
@@ -150,10 +144,7 @@ function makeFakeNet(): FakeNet {
 }
 
 /** Make a fresh client wired to the given fake net + token. */
-function makeClient(
-	fake: FakeNet,
-	opts: Partial<CrewBrokerClientOptions> = {},
-): CrewBrokerClient {
+function makeClient(fake: FakeNet, opts: Partial<CrewBrokerClientOptions> = {}): CrewBrokerClient {
 	const client = new CrewBrokerClient({
 		runId: opts.runId ?? "run-test",
 		taskId: opts.taskId ?? "task-test",
@@ -313,7 +304,10 @@ test("client: happy-path hello + request() round-trip returns the auto-reply", a
 	fake.lastSocket!.fireFrame({ id: helloId, result: { protocol: 1, ok: true } });
 	let pingFrame: string | undefined;
 	for (let i = 0; i < 1000; i++) {
-		pingFrame = fake.lastSocket!.text.split("\n").reverse().find((l) => l.includes('"method":"ping"'));
+		pingFrame = fake
+			.lastSocket!.text.split("\n")
+			.reverse()
+			.find((l) => l.includes('"method":"ping"'));
 		if (pingFrame) break;
 		await new Promise<void>((r) => setImmediate(r));
 	}
@@ -325,7 +319,7 @@ test("client: happy-path hello + request() round-trip returns the auto-reply", a
 	// Drain so the wireSocketHandlers data path resolves the pending request.
 	for (let i = 0; i < 50; i++) await new Promise<void>((r) => setImmediate(r));
 	const result = await promise;
-	
+
 	assert.equal(result.ok, true);
 	if (result.ok === true) {
 		assert.deepEqual(result.value, { pong: true });
@@ -409,10 +403,7 @@ test("client: token is redacted in error/log surfaces", async () => {
 		console.warn = origWarn;
 	}
 	for (const line of captured) {
-		assert.ok(
-			!line.includes(secret),
-			`token leaked into log: ${line}`,
-		);
+		assert.ok(!line.includes(secret), `token leaked into log: ${line}`);
 	}
 });
 
@@ -432,7 +423,10 @@ test("client: token never persisted — happy-path request completes without fs 
 				const helloId = (JSON.parse(helloFrame) as { id: string }).id;
 				sock.fireFrame({ id: helloId, result: { protocol: 1, ok: true } });
 				setImmediate(() => {
-					const pingFrame = sock.text.split("\n").reverse().find((l) => l.includes('"method":"ping"'));
+					const pingFrame = sock.text
+						.split("\n")
+						.reverse()
+						.find((l) => l.includes('"method":"ping"'));
 					if (!pingFrame) return;
 					const pingId = (JSON.parse(pingFrame) as { id: string }).id;
 					sock.fireFrame({ id: pingId, result: { pong: true } });

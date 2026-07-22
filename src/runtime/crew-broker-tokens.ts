@@ -31,10 +31,21 @@ export function newBrokerToken(): BrokerToken {
 export class BrokerTokenRegistry {
 	private readonly map = new Map<string, BrokerToken>();
 
-	/** Register or replace a runId's token. Returns the new token. */
-	issue(runId: string, token: BrokerToken = newBrokerToken()): BrokerToken {
+	/** Issue a token for `runId`. Idempotent per run: if a token already
+	 *  exists for this runId, the existing token is returned unchanged so that
+	 *  concurrent sibling tasks sharing a runId all authenticate with the same
+	 *  per-run token (the spec's per-run token model). Pass an explicit
+	 *  `token` only in tests that need a deterministic value. */
+	issue(runId: string, token?: BrokerToken): BrokerToken {
 		if (typeof runId !== "string" || runId.length === 0) {
 			throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+		}
+		if (token === undefined) {
+			const existing = this.map.get(runId);
+			if (existing !== undefined) return existing;
+			const fresh = newBrokerToken();
+			this.map.set(runId, fresh);
+			return fresh;
 		}
 		this.map.set(runId, token);
 		return token;

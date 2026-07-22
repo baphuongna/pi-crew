@@ -209,6 +209,12 @@ export function prepareSpawnContext(
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
 		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+		// The child needs its own runId + taskId to complete the broker `hello`
+		// (the token is validated against the runId; the taskId binds the
+		// connection for message routing). Both are control-namespace keys so
+		// they pass assertOnlyControlEnvKeys. agentId is the per-task id.
+		if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+		if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
 	}
 	// B5: if the parent already aborted before we spawn, do not start the child
 	// at all. Spawning a doomed process wastes resources, and the abort listener
