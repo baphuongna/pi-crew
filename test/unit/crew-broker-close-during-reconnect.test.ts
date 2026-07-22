@@ -365,4 +365,9 @@ test("S4: close() called before any request() is a clean no-op teardown", async 
 		assert.equal(result.errorCode, "fallback-sticky");
 	}
 	assert.equal(fakeNet.connectCount, 0, "subsequent request must still NOT call netModule.createConnection");
+
+	// close() is terminal even for the explicit reconnect path.
+	const reconnected = await client.reconnect();
+	assert.equal(reconnected, false, "reconnect() after close() must remain closed");
+	assert.equal(fakeNet.connectCount, 0, "reconnect() after close() must NOT call netModule.createConnection");
 });

@@ -232,10 +232,6 @@ export class CrewBrokerClient {
 	 * after a known broker restart.
 	 */
 	async reconnect(): Promise<boolean> {
-		// Reset the closed flag: reconnect() is the documented way to
-		// bring a closed client back. Without this, the closed gate in
-		// connectAndHello/attemptHello would short-circuit to 'closed'.
-		this.closed = false;
 		// Close the current socket if any.
 		this.teardownSocket();
 		this.attempts = 0;
