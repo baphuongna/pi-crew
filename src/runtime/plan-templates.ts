@@ -140,14 +140,14 @@ registerPlanTemplate({
 		{
 			name: "verify",
 			role: "verifier",
-			taskTemplate: "Verify that all review findings are addressed. Run tests if applicable. Confirm: {{goal}} is achieved.",
+			taskTemplate: "Verify that all review findings are addressed. Run FAST checks (completes in <2 min): `npm run test:critical && npx tsc --noEmit`. Do NOT run `npm run test:unit` or `npm test` — too slow (642 files, >4 min). Confirm: {{goal}} is achieved.",
 			maxTasks: 1,
 			dependsOn: ["review"],
-			verificationCommand: "npm test",
+			verificationCommand: "npm run test:critical && npx tsc --noEmit",
 		},
 	],
 	verificationCommands: {
-		verify: "npm test",
+		verify: "npm run test:critical && npx tsc --noEmit",
 	},
 });
 
@@ -187,13 +187,13 @@ registerPlanTemplate({
 		{
 			name: "verify",
 			role: "verifier",
-			taskTemplate: "Verify the complete implementation of: {{goal}}. Run tests, check types, validate all acceptance criteria.",
+			taskTemplate: "Verify the complete implementation of: {{goal}}. Run FAST checks (`npm run test:critical && npx tsc --noEmit`, completes in <2 min). Do NOT run `npm run test:unit` or `npm test` — too slow for in-loop verification (642 files, >4 min). Validate all acceptance criteria.",
 			maxTasks: 1,
 			dependsOn: ["review"],
-			verificationCommand: "npm test && npx tsc --noEmit",
+			verificationCommand: "npm run test:critical && npx tsc --noEmit",
 		},
 	],
 	verificationCommands: {
-		verify: "npm test && npx tsc --noEmit",
+		verify: "npm run test:critical && npx tsc --noEmit",
 	},
 });
