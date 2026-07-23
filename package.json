@@ -43,6 +43,7 @@
     "scripts/postinstall.mjs",
     "scripts/install-crew-vibes-font.mjs",
     "scripts/build-crew-vibes-font.py",
+    "scripts/pty_probe.py",
     "README.md",
     "AGENTS.md",
     "docs/",

@@ -31,13 +31,31 @@ native Windows). Three independent kill switches remain available:
   `verificationCommand` now `npm run test:critical && npx tsc --noEmit`
   (97 broker+UI tests in ~20s; well under worker 300s timeout) instead of
   full `npm test` (>4 min). All 4 verifier workflow prompts updated.
+- **`package.json`**: new `test:critical` script — a curated 14-file subset
+  (97 tests, ~20s) for fast in-loop verification of broker/UI/config changes.
+  Full `npm test` (>4 min) caused verifier workers to hit the 300s
+  `RESPONSE_TIMEOUT_MS` and get SIGKILLed (exit 143).
+- **`skills/real-test-pi-crew/SKILL.md`**: new skill distilling the 8-tier
+  end-to-end verification discipline used to ship the broker Phase-4 rollout
+  (critical tests → 3-path kill-switch proof → typecheck+bundle → bundle md5
+  sync → live TUI probing via tmux/pty → smoke team run). 659 lines, 26
+  sections, 15 triggers. Bundled `scripts/pty_probe.py` (174-line hardened
+  TUI probe with zombie reaping).
+- **`scripts/postinstall.mjs`**: new `copySkills()` step mirrors every
+  `skills/<name>/` dir to `~/.pi/agent/skills/` on install, so pi-crew's
+  skills are available globally (not just inside the pi-crew project).
+  Best-effort, never fails the install.
 
 ### Verification
 
-- Default-on: `npm run test:critical` → **97/97 pass in 21s**.
-- Disabled: `PI_CREW_BROKER=0 npm run test:critical` → **97/97 pass in 22s**.
-- Explicit-on: `PI_CREW_BROKER=1 npm run test:critical` → **97/97 pass in 25s**.
-- Typecheck clean. Bundle rebuilt (md5 `1cc4d55e18add7b9a036c569143320b6`).
+- Default-on: `npm run test:critical` → **97/97 pass in ~15s**.
+- Disabled: `PI_CREW_BROKER=0 npm run test:critical` → **97/97 pass in ~15s**.
+- Explicit-on: `PI_CREW_BROKER=1 npm run test:critical` → **97/97 pass in ~15s**.
+- Typecheck clean. Bundle rebuilt (md5 `a2e42f40c8c16168a46951450251a6d3`, ~2.68 MB).
+- Live TUI verified via tmux + pty probe (`/team-help` renders, no zombie
+  processes).
+- Smoke team run `team_20260723154250_8955437a182b3f12` (fast-fix): 3/3 PASS,
+  verifier used `test:critical` cache, completed in 386s wall-clock (no hang).
 
 ### Rollback
 
