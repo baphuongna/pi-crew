@@ -22,7 +22,7 @@ export const DEFAULT_CHILD_PI: Readonly<{
 	hardKillMs: 3000,
 	// Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
 	// Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
-	responseTimeoutMs: 5 * 60_000,
+	responseTimeoutMs: 10 * 60_000,
 	// #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
 	// diagnostic stderr is less likely to be silently truncated during hang analysis.
 	maxCaptureBytes: 512 * 1024,

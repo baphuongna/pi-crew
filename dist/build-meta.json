@@ -121,7 +121,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 6587,
+      "bytes": 6588,
       "imports": [],
       "format": "esm"
     },
@@ -9616,72 +9616,6 @@
       ],
       "format": "esm"
     },
-    "node_modules/esbuild/lib/main.js": {
-      "bytes": 97214,
-      "imports": [
-        {
-          "path": "fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "os",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "path",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "pnpapi",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "child_process",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "crypto",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "path",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "os",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "tty",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "worker_threads",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "<runtime>",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "cjs"
-    },
     "src/runtime/deterministic-ast.ts": {
       "bytes": 5850,
       "imports": [
@@ -9757,7 +9691,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-context.ts": {
-      "bytes": 43478,
+      "bytes": 44124,
       "imports": [
         {
           "path": "node:crypto",
@@ -9838,7 +9772,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-runner.ts": {
-      "bytes": 14029,
+      "bytes": 14093,
       "imports": [
         {
           "path": "node:fs",
@@ -9851,9 +9785,9 @@
           "external": true
         },
         {
-          "path": "node_modules/esbuild/lib/main.js",
+          "path": "esbuild",
           "kind": "import-statement",
-          "original": "esbuild"
+          "external": true
         },
         {
           "path": "src/state/artifact-store.ts",
@@ -13177,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6159181
+      "bytes": 5996352
     },
     "dist/index.mjs": {
       "imports": [
@@ -14437,61 +14371,6 @@
           "external": true
         },
         {
-          "path": "fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "os",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "path",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "pnpapi",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "child_process",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "crypto",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "path",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "os",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "tty",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "worker_threads",
-          "kind": "require-call",
-          "external": true
-        },
-        {
           "path": "acorn",
           "kind": "import-statement",
           "external": true
@@ -14528,6 +14407,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "esbuild",
           "kind": "import-statement",
           "external": true
         },
@@ -14873,7 +14757,7 @@
           "bytesInOutput": 19114
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 4814
+          "bytesInOutput": 4815
         },
         "src/state/locks.ts": {
           "bytesInOutput": 9166
@@ -16105,9 +15989,6 @@
         "src/runtime/parallel-research.ts": {
           "bytesInOutput": 2683
         },
-        "node_modules/esbuild/lib/main.js": {
-          "bytesInOutput": 105459
-        },
         "src/runtime/deterministic-ast.ts": {
           "bytesInOutput": 3753
         },
@@ -16127,10 +16008,10 @@
           "bytesInOutput": 4272
         },
         "src/runtime/dynamic-workflow-context.ts": {
-          "bytesInOutput": 21421
+          "bytesInOutput": 22078
         },
         "src/runtime/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 6600
+          "bytesInOutput": 6553
         },
         "src/extension/team-tool/run.ts": {
           "bytesInOutput": 31463
@@ -16436,7 +16317,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2853251
+      "bytes": 2748366
     }
   }
 }

@@ -236,9 +236,13 @@ export function synthesizeAgentConfig(name: string, model?: string): AgentConfig
 		description: `Synthesized agent for dynamic workflow (${name}).`,
 		source: "dynamic",
 		filePath: `<dynamic-workflow>`,
-		systemPrompt: `You are ${name}.`,
+		systemPrompt: `You are ${name}, an agent in a dynamic pi-crew workflow. Use the provided tools (read, grep, find, ls, bash) to investigate the target and produce concrete written findings. Do not return an empty response — always output substantive content for your task.`,
 		model,
-		tools: [],
+		// Round-N fix: give synthesized agents the STANDARD file-investigation toolkit
+		// (matches real built-in agents). Previously tools:[] relied on pi-args default
+		// behavior, which left most synthesized agents (explorer/analyst/critic/executor)
+		// unable to read the codebase → 10/11 agents returned empty/!ok in distill-dwf runs.
+		tools: ["read", "grep", "find", "ls", "bash"],
 		inheritProjectContext: false,
 		inheritSkills: false,
 	};
@@ -420,7 +424,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				// This correctly reduces spent when actualUsage < ESTIMATE.
 				wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - ESTIMATE;
 				reserved = false;
-				let text = parsed.finalText ?? "";
+				let text = childResult.rawFinalText || parsed.finalText || "";
 				// Round-11 test fix: parsePiJsonOutput only extracts text from pi event stream
 				// ({type:"message_end", message:{role:"assistant", content:[...]}}). When the
 				// agent emits plain JSON, plain text, or a different format, finalText is empty.
