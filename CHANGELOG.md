@@ -51,7 +51,7 @@ native Windows). Three independent kill switches remain available:
 - Default-on: `npm run test:critical` → **97/97 pass in ~15s**.
 - Disabled: `PI_CREW_BROKER=0 npm run test:critical` → **97/97 pass in ~15s**.
 - Explicit-on: `PI_CREW_BROKER=1 npm run test:critical` → **97/97 pass in ~15s**.
-- Typecheck clean. Bundle rebuilt (md5 `a2e42f40c8c16168a46951450251a6d3`, ~2.68 MB).
+- Typecheck clean. Bundle rebuilt (md5 `f3c3d4d232d011612d4a5ac353c9cbe7`, ~2.68 MB).
 - Live TUI verified via tmux + pty probe (`/team-help` renders, no zombie
   processes).
 - Smoke team run `team_20260723154250_8955437a182b3f12` (fast-fix): 3/3 PASS,

@@ -83,12 +83,7 @@ describe("buildFinalChildPiSpawnOptions: PI_CREW_* / PI_TEAMS_* control keys rea
 	});
 
 	it("returns SpawnOptions where PI_CREW_* control keys survive even with a model-scoped allowlist", () => {
-		const spawnOptions = buildFinalChildPiSpawnOptions(
-			CWD,
-			MERGED_ENV,
-			CONTROL_KEYS,
-			"openai/gpt-4o",
-		);
+		const spawnOptions = buildFinalChildPiSpawnOptions(CWD, MERGED_ENV, CONTROL_KEYS, "openai/gpt-4o");
 		const env = spawnOptions.env as Record<string, string>;
 
 		// Model scoping adds OPENAI_API_KEY to the allowlist but does NOT add
@@ -145,17 +140,9 @@ describe("buildFinalChildPiSpawnOptions: PI_CREW_* / PI_TEAMS_* control keys rea
 
 	it("assertOnlyControlEnvKeys (used internally) throws for any non-control key", () => {
 		// Direct test of the canary so the chain is verifiable from both ends.
-		assert.throws(
-			() => assertOnlyControlEnvKeys({ OPENAI_API_KEY: "x" }),
-			/SECURITY.*OPENAI_API_KEY/,
-		);
-		assert.throws(
-			() => assertOnlyControlEnvKeys({ SOME_OTHER_KEY: "x" }),
-			/SECURITY.*SOME_OTHER_KEY/,
-		);
+		assert.throws(() => assertOnlyControlEnvKeys({ OPENAI_API_KEY: "x" }), /SECURITY.*OPENAI_API_KEY/);
+		assert.throws(() => assertOnlyControlEnvKeys({ SOME_OTHER_KEY: "x" }), /SECURITY.*SOME_OTHER_KEY/);
 		// Control-namespace keys must still pass.
-		assert.doesNotThrow(() =>
-			assertOnlyControlEnvKeys({ PI_CREW_FOO: "1", PI_TEAMS_BAR: "2" }),
-		);
+		assert.doesNotThrow(() => assertOnlyControlEnvKeys({ PI_CREW_FOO: "1", PI_TEAMS_BAR: "2" }));
 	});
 });

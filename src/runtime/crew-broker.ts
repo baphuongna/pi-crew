@@ -1106,10 +1106,7 @@ export class CrewBroker {
 			// already succeeded).
 			try {
 				const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
-				const steeringPath = resolveRealContainedPath(
-					loaded.manifest.artifactsRoot,
-					`steering/${targetTaskId}.jsonl`,
-				);
+				const steeringPath = resolveRealContainedPath(loaded.manifest.artifactsRoot, `steering/${targetTaskId}.jsonl`);
 				const line =
 					JSON.stringify({
 						type: "steer",

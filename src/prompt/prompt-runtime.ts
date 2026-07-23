@@ -291,9 +291,7 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 								// and via this poll second; the seen-id set ensures
 								// only the first arrival reaches pi.sendMessage.
 								const entryId =
-									typeof (entry as { id?: unknown }).id === "string"
-										? ((entry as { id: string }).id)
-										: undefined;
+									typeof (entry as { id?: unknown }).id === "string" ? (entry as { id: string }).id : undefined;
 								if (!seenSteers.markOrSkip(entryId)) continue;
 								// FIX-02: sanitize each steer entry before forwarding
 								// to pi.sendMessage. Reject oversized payloads,

@@ -6,9 +6,9 @@
 
 import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
+import { keyOf } from "./key-utils.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
-import { keyOf } from "./key-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Types

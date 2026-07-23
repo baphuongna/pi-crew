@@ -8064,7 +8064,6 @@ var init_child_pi = __esm({
     init_child_pi_streams();
     init_child_pi_kill();
     init_child_pi_spawn();
-    init_child_pi_spawn();
     init_child_pi_streams();
     init_crash_classification();
     init_pi_args();
@@ -62373,8 +62372,8 @@ var init_settings_overlay = __esm({
     "use strict";
     init_visual();
     init_dynamic_border();
-    init_theme_discovery();
     init_key_utils();
+    init_theme_discovery();
     TABS = [
       { id: "runtime", label: "Runtime", icon: "\u2699" },
       { id: "limits", label: "Limits", icon: "\u{1F4D0}" },
@@ -72431,10 +72430,7 @@ var CrewBroker = class {
       });
       try {
         const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
-        const steeringPath = resolveRealContainedPath(
-          loaded.manifest.artifactsRoot,
-          `steering/${targetTaskId}.jsonl`
-        );
+        const steeringPath = resolveRealContainedPath(loaded.manifest.artifactsRoot, `steering/${targetTaskId}.jsonl`);
         const line4 = JSON.stringify({
           type: "steer",
           message: body,
@@ -73396,8 +73392,6 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
           broker = b;
           brokerSessionId = sessionId;
           return b;
-        } catch (err2) {
-          throw err2;
         } finally {
           starting = null;
         }

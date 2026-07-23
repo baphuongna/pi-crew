@@ -984,7 +984,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 46416,
+      "bytes": 46378,
       "imports": [
         {
           "path": "node:child_process",
@@ -1065,11 +1065,6 @@
           "path": "src/runtime/child-pi-kill.ts",
           "kind": "import-statement",
           "original": "./child-pi-kill.ts"
-        },
-        {
-          "path": "src/runtime/child-pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-spawn.ts"
         },
         {
           "path": "src/runtime/child-pi-spawn.ts",
@@ -9080,7 +9075,7 @@
       "format": "esm"
     },
     "src/runtime/plan-templates.ts": {
-      "bytes": 6660,
+      "bytes": 6668,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -10994,14 +10989,14 @@
           "original": "./dynamic-border.ts"
         },
         {
-          "path": "src/ui/theme-discovery.ts",
-          "kind": "import-statement",
-          "original": "./theme-discovery.ts"
-        },
-        {
           "path": "src/ui/key-utils.ts",
           "kind": "import-statement",
           "original": "./key-utils.ts"
+        },
+        {
+          "path": "src/ui/theme-discovery.ts",
+          "kind": "import-statement",
+          "original": "./theme-discovery.ts"
         }
       ],
       "format": "esm"
@@ -12348,7 +12343,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker.ts": {
-      "bytes": 46371,
+      "bytes": 46354,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -12515,7 +12510,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 36758,
+      "bytes": 36458,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,7 +13106,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5996352
+      "bytes": 5995911
     },
     "dist/index.mjs": {
       "imports": [
@@ -14883,7 +14878,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 29466
+          "bytesInOutput": 29439
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 2872
@@ -16257,10 +16252,10 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 24190
+          "bytesInOutput": 24143
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 35352
+          "bytesInOutput": 35322
         },
         "src/runtime/crew-broker-tokens.ts": {
           "bytesInOutput": 1900
@@ -16317,7 +16312,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2748366
+      "bytes": 2748262
     }
   }
 }

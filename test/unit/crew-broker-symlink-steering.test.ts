@@ -12,12 +12,7 @@ function isSymlinkTestUnsupportedOn(): boolean {
 	return process.platform === "win32" || process.platform === "darwin";
 }
 
-async function connectClient(args: {
-	runId: string;
-	taskId: string;
-	token: string;
-	socketPath: string;
-}): Promise<CrewBrokerClient> {
+async function connectClient(args: { runId: string; taskId: string; token: string; socketPath: string }): Promise<CrewBrokerClient> {
 	const client = new CrewBrokerClient({
 		...args,
 		setTimeoutFn: ((cb: () => void, _ms: number) => {
@@ -82,7 +77,10 @@ test("steer.push does not follow a symlinked steering directory outside artifact
 
 		const escapedPath = path.join(outsideDir, `${targetTaskId}.jsonl`);
 		assert.equal(fs.existsSync(escapedPath), false, "steering JSONL must not be written through the symlink");
-		const outsideContent = fs.readdirSync(outsideDir).map((name) => fs.readFileSync(path.join(outsideDir, name), "utf8")).join("\n");
+		const outsideContent = fs
+			.readdirSync(outsideDir)
+			.map((name) => fs.readFileSync(path.join(outsideDir, name), "utf8"))
+			.join("\n");
 		assert.equal(outsideContent.includes(steerBody), false, "outside directory must not contain the steer body");
 	} finally {
 		await client?.close();

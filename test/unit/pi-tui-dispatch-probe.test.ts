@@ -31,17 +31,12 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 	it("TUI dispatch reaches the component's handleInput", async () => {
 		const runs: never[] = [];
 		const events: string[] = [];
-		const dashboard = new RunDashboard(
-			runs,
-			(sel) => events.push(`done:${JSON.stringify(sel)}`),
-			{} as never,
-			{
-				placement: "center",
-				showModel: false,
-				showTokens: false,
-				showTools: false,
-			},
-		);
+		const dashboard = new RunDashboard(runs, (sel) => events.push(`done:${JSON.stringify(sel)}`), {} as never, {
+			placement: "center",
+			showModel: false,
+			showTokens: false,
+			showTools: false,
+		});
 
 		// Monkey-patch handleInput to capture calls
 		const orig = (dashboard as unknown as { handleInput: (d: string) => void }).handleInput.bind(dashboard);
@@ -72,16 +67,17 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 		};
 		fakeTui.handleInput("q");
 
-		assert.deepEqual(
-			events,
-			["handleInput:\"q\"", "done:undefined"],
-			"handleInput must be dispatched and 'q' must trigger close",
-		);
+		assert.deepEqual(events, ['handleInput:"q"', "done:undefined"], "handleInput must be dispatched and 'q' must trigger close");
 	});
 
 	it("isFocusable still returns false on a plain object without `focused`", () => {
 		// Control test: a plain object should fail isFocusable.
-		const obj = { render() { return []; }, invalidate() {} };
+		const obj = {
+			render() {
+				return [];
+			},
+			invalidate() {},
+		};
 		assert.equal(piTui.isFocusable(obj), false);
 	});
 });

@@ -26,10 +26,9 @@ export {
 // ── Re-export from child-pi-spawn.ts (H-7 decomposition step 6) ──
 // buildChildPiSpawnOptions was previously exported from child-pi.ts. Keep the
 // public API surface stable by re-exporting from the new module.
-export { buildChildPiSpawnOptions } from "./child-pi-spawn.ts";
 // buildFinalChildPiSpawnOptions (BLOCKER 2 / S5) — composed spawn helper that
 // owns the canary + filter + spread sequence; lives in child-pi-spawn.ts.
-export { buildFinalChildPiSpawnOptions } from "./child-pi-spawn.ts";
+export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child-pi-spawn.ts";
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 

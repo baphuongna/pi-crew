@@ -275,16 +275,9 @@ test("S4: close() during reconnect cancels backoff timer and prevents further cr
 
 	// Assert (a): clearTimeoutFn was called with the backoff timer handle.
 	assert.ok(clock.cancelCount >= 1, `clearTimeoutFn must be called at least once, got ${clock.cancelCount}`);
-	assert.equal(
-		clock.wasCleared(backoffTimerId),
-		true,
-		"the backoff timer (id 1) must be cleared by close()",
-	);
+	assert.equal(clock.wasCleared(backoffTimerId), true, "the backoff timer (id 1) must be cleared by close()");
 	// And the cancellation recorded the right id.
-	assert.ok(
-		clock.wasCleared(backoffTimerId),
-		`cancellations should include the backoff timer id ${backoffTimerId}`,
-	);
+	assert.ok(clock.wasCleared(backoffTimerId), `cancellations should include the backoff timer id ${backoffTimerId}`);
 
 	// Assert (c): close() promise resolved cleanly.
 	// (We awaited it above; reaching here means it did.)
@@ -295,11 +288,7 @@ test("S4: close() during reconnect cancels backoff timer and prevents further cr
 	await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
 	// Assert (b): NO further createConnection calls happened.
-	assert.equal(
-		fakeNet.connectCount,
-		1,
-		`createConnection must not be called again after close(), got ${fakeNet.connectCount}`,
-	);
+	assert.equal(fakeNet.connectCount, 1, `createConnection must not be called again after close(), got ${fakeNet.connectCount}`);
 
 	// After the close() unblocked the backoff, connectAndHello resumes and
 	// observes this.closed at the top of the next loop iteration, returning
@@ -337,11 +326,7 @@ test("S4: close() during reconnect cancels backoff timer and prevents further cr
 	// after close()).
 	const beforeFireCount = clock.scheduledCount;
 	clock.fireAll();
-	assert.equal(
-		clock.scheduledCount,
-		beforeFireCount,
-		"no new timers should be scheduled after fireAll() — clock is quiescent",
-	);
+	assert.equal(clock.scheduledCount, beforeFireCount, "no new timers should be scheduled after fireAll() — clock is quiescent");
 });
 
 test("S4: close() called before any request() is a clean no-op teardown", async () => {

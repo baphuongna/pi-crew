@@ -23,10 +23,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-	extractBrokerSessionId,
-	extractSessionId,
-} from "../../src/utils/session-utils.ts";
+import { extractBrokerSessionId, extractSessionId } from "../../src/utils/session-utils.ts";
 
 describe("extractSessionId (hot path — property lookup only)", () => {
 	it("returns the session id from a direct ctx.sessionId property (legacy/test shape)", () => {
@@ -76,17 +73,11 @@ describe("extractBrokerSessionId (broker-only path — full lookup)", () => {
 			sessionManager: { getSessionId: () => "019f8852-6c6a-7936-b6f2-b6b55330dc10" },
 			modelRegistry: {},
 		};
-		assert.equal(
-			extractBrokerSessionId(ctx),
-			"019f8852-6c6a-7936-b6f2-b6b55330dc10",
-		);
+		assert.equal(extractBrokerSessionId(ctx), "019f8852-6c6a-7936-b6f2-b6b55330dc10");
 	});
 
 	it("falls back to a direct ctx.sessionId property (test/future-Pi compat)", () => {
-		assert.equal(
-			extractBrokerSessionId({ sessionId: "crew-test-direct" }),
-			"crew-test-direct",
-		);
+		assert.equal(extractBrokerSessionId({ sessionId: "crew-test-direct" }), "crew-test-direct");
 	});
 
 	it("prefers sessionManager.getSessionId() over a direct sessionId property", () => {

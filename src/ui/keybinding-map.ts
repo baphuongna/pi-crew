@@ -23,7 +23,7 @@
  * `use-global-shortcuts.ts:38-61`.
  */
 
-import { matchesKey, type KeyId } from "@earendil-works/pi-tui";
+import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import { keyOf } from "./key-utils.ts";
 
 export const DASHBOARD_KEYS = {

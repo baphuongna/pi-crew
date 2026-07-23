@@ -49,7 +49,7 @@ import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
-import { extractSessionId, extractBrokerSessionId } from "../../utils/session-utils.ts";
+import { extractBrokerSessionId } from "../../utils/session-utils.ts";
 import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
@@ -865,12 +865,6 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					broker = b;
 					brokerSessionId = sessionId;
 					return b;
-				} catch (err) {
-					// Reset starting on failure so a future call can retry. Without
-					// this, a single bind error would leave the controller
-					// permanently dead (the `if (!broker && !starting)` gate
-					// would short-circuit every subsequent call).
-					throw err;
 				} finally {
 					starting = null;
 				}
