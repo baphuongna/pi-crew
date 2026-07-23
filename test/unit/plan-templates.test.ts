@@ -120,6 +120,6 @@ describe("plan-templates: renderPlanTemplate", () => {
 
 		const verifyPhase = rendered!.phases.find((p) => p.name === "verify");
 		assert.ok(verifyPhase);
-		assert.equal(verifyPhase!.verificationCommand, "npm test");
+		assert.equal(verifyPhase!.verificationCommand, "npm run test:critical && npx tsc --noEmit");
 	});
 });

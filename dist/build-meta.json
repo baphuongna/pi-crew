@@ -10667,7 +10667,7 @@
       "format": "esm"
     },
     "src/ui/keybinding-map.ts": {
-      "bytes": 8881,
+      "bytes": 9514,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -13106,7 +13106,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5995911
+      "bytes": 5996671
     },
     "dist/index.mjs": {
       "imports": [
@@ -16072,7 +16072,7 @@
           "bytesInOutput": 508
         },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 4164
+          "bytesInOutput": 4285
         },
         "src/ui/overlays/help-overlay.ts": {
           "bytesInOutput": 4154
@@ -16312,7 +16312,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2748262
+      "bytes": 2748383
     }
   }
 }

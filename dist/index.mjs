@@ -60399,11 +60399,14 @@ var init_key_utils = __esm({
 // src/ui/keybinding-map.ts
 import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 function dashboardActionForKey(data, activePane) {
+  for (const binding of BINDINGS) {
+    if (binding.pane !== void 0 && binding.pane !== activePane) continue;
+    if (binding.keys.includes(data)) return binding.action;
+  }
   const key = keyOf(data);
   for (const binding of BINDINGS) {
     if (binding.pane !== void 0 && binding.pane !== activePane) continue;
     for (const candidate of binding.keys) {
-      if (data === candidate) return binding.action;
       if (key === candidate) return binding.action;
       if (matchesKey2(data, candidate)) return binding.action;
     }

@@ -217,18 +217,29 @@ export { KEY_RESERVED };
  *                   arg skipped the `activePane === ...` branches).
  */
 export function dashboardActionForKey(data: string, activePane?: ActivePane): DashboardKeyAction | undefined {
-	// Terminal-aware dispatch: first resolve the raw key bytes to a canonical
-	// KeyId (`up`, `escape`, `space`, …) using pi-tui's matchesKey(), then
-	// match each candidate id against that. For pure-ASCII candidates like
-	// `q`, `s`, etc. the data string itself is the candidate. This single
-	// pass handles legacy CSI escapes (`\x1b[A`), application-cursor-mode
-	// escapes (`\x1bOA`), and Kitty-protocol variants (`\x1b[A;1:u`) the
-	// same way.
+	// Two-pass dispatch to preserve case-sensitivity for plain ASCII keys
+	// while still normalizing escape sequences via matchesKey().
+	//
+	// Background: pi-tui's matchesKey() is case-insensitive, so matchesKey("d",
+	// "D") === true. A single-pass loop that intermixes exact + matchesKey
+	// checks would let the pane-scoped health-diagnostic-export binding
+	// (candidate "D") win over the unscoped agents binding (candidate "d")
+	// when activePane === "health" — collapsing the d/D case distinction.
+	//
+	// Pass 1 — exact string match (case-sensitive). Handles literal ASCII
+	// keystrokes ('d', 'D', 'q', 'S', …) and preserves their distinct meanings.
+	for (const binding of BINDINGS) {
+		if (binding.pane !== undefined && binding.pane !== activePane) continue;
+		if (binding.keys.includes(data)) return binding.action;
+	}
+	// Pass 2 — terminal-aware match for escape sequences / canonical KeyIds.
+	// Only reached when no exact ASCII match exists (data is e.g. '\x1b[A',
+	// '\x1bOA', or an app-cursor-mode variant). Uses matchesKey() to normalize
+	// legacy CSI, app-cursor-mode, and Kitty-protocol variants uniformly.
 	const key = keyOf(data);
 	for (const binding of BINDINGS) {
 		if (binding.pane !== undefined && binding.pane !== activePane) continue;
 		for (const candidate of binding.keys) {
-			if (data === candidate) return binding.action;
 			if (key === candidate) return binding.action;
 			if (matchesKey(data, candidate as KeyId)) return binding.action;
 		}
