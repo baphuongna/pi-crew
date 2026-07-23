@@ -166,6 +166,44 @@ export function assertOnlyControlEnvKeys(builtEnv: Record<string, string | undef
 	}
 }
 
+/**
+ * Compose the final SpawnOptions for a child Pi worker: runs the runtime canary
+ * (assertOnlyControlEnvKeys) on builtEnv, builds the allowlist-filtered base
+ * SpawnOptions via buildChildPiSpawnOptions, then re-applies builtEnv on top
+ * so the PI_CREW_-prefixed / PI_TEAMS_-prefixed execution-control vars actually
+ * reach the child.
+ *
+ * Extracted from child-pi.ts (BLOCKER 2 / S5) so the spread step is testable
+ * in isolation and the canary lives in one place. Guarantees:
+ *   1. The canary runs FIRST — a non-control key in builtEnv throws before
+ *      buildChildPiSpawnOptions (and before spawn()) is ever called.
+ *   2. The spread always runs LAST on the SpawnOptions returned by
+ *      buildChildPiSpawnOptions — the filtered base env cannot accidentally
+ *      drop execution-control vars that the child needs (steering file, kind,
+ *      role, broker credentials, etc.).
+ *   3. The returned SpawnOptions.env contains BOTH the allowlist-filtered
+ *      system vars (PATH, HOME, …) AND the per-call control vars.
+ */
+export function buildFinalChildPiSpawnOptions(
+	cwd: string,
+	mergedEnv: NodeJS.ProcessEnv,
+	builtEnv: Record<string, string | undefined>,
+	model?: string,
+): SpawnOptions {
+	// (a) Canary: builtEnv must contain ONLY PI_CREW_*/PI_TEAMS_* keys.
+	assertOnlyControlEnvKeys(builtEnv);
+	// (b) Build the allowlist-filtered base SpawnOptions (cwd validation, env
+	//     filtering, provider-key scoping when model is set, NODE_PATH guard).
+	const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
+	// (c) Spread builtEnv back on top — the allowlist in step (b) intentionally
+	//     strips PI_CREW_*/PI_TEAMS_* keys, so without this spread the child
+	//     process would never see steering file, kind, role, or broker creds.
+	//     Safe because step (a) just proved builtEnv holds no secret keys.
+	spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+	// (d) Return the composed SpawnOptions for spawn(...).
+	return spawnOptions;
+}
+
 /** What the spawn site needs to start the child process. */
 export interface SpawnContext {
 	/** The command + args returned by getPiSpawnCommand. */
@@ -201,6 +239,21 @@ export function prepareSpawnContext(
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
+	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
+	// credentials for this run — i.e. the broker is enabled AND this run is
+	// eligible. The token is heap-only on the parent; the child receives it
+	// solely through env. NEVER persisted to disk.
+	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
+		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
+		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+		// The child needs its own runId + taskId to complete the broker `hello`
+		// (the token is validated against the runId; the taskId binds the
+		// connection for message routing). Both are control-namespace keys so
+		// they pass assertOnlyControlEnvKeys. agentId is the per-task id.
+		if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+		if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+	}
 	// B5: if the parent already aborted before we spawn, do not start the child
 	// at all. Spawning a doomed process wastes resources, and the abort listener
 	// registered below will not re-fire for an already-aborted signal (so the

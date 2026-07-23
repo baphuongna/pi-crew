@@ -1,3 +1,5 @@
+import type { CrewBrokerConfig } from "./types.ts";
+
 export const DEFAULT_CHILD_PI: Readonly<{
 	postExitStdioGuardMs: number;
 	finalDrainMs: number;
@@ -20,7 +22,7 @@ export const DEFAULT_CHILD_PI: Readonly<{
 	hardKillMs: 3000,
 	// Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
 	// Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
-	responseTimeoutMs: 5 * 60_000,
+	responseTimeoutMs: 10 * 60_000,
 	// #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
 	// diagnostic stderr is less likely to be silently truncated during hang analysis.
 	maxCaptureBytes: 512 * 1024,
@@ -147,3 +149,45 @@ export const DEFAULT_MAILBOX = {
 export const DEFAULT_SUBAGENT = {
 	stuckBlockedNotifyMs: 5 * 60_000,
 };
+
+/**
+ * Phase 0 inter-pi broker defaults.
+ * Phase 4 (v0.9.47): default is ON (enabled:true). The broker runs
+ * automatically for users on supported platforms (Linux + macOS).
+ * Three independent ways to disable:
+ *   1. `broker.enabled: false` in user config
+ *   2. env `PI_CREW_BROKER=0` (beats config=true)
+ *   3. (Windows) auto-disabled — broker requires unix socket which Windows
+ *      supports only via WSL1/2; native Windows perm model lacks the
+ *      abstract-socket guarantees the broker relies on. See
+ *      docs/decisions/2026-07-21-broker-windows-perms.md.
+ * Limits are bounded by `src/schema/config-schema.ts` CrewBrokerConfigSchema:
+ *   pathHashLen       4..32     (default 8)
+ *   maxFrameBytes     1024..1048576 (default 262144 = 256 KiB)
+ *   outboundQueueCap  32..4096  (default 256)
+ */
+export const DEFAULT_BROKER = {
+	enabled: true,
+	pathHashLen: 8,
+	maxFrameBytes: 262144,
+	outboundQueueCap: 256,
+} as const;
+
+/**
+ * Apply `PI_CREW_BROKER` env override to a parsed broker config.
+ * - `"1"` forces `enabled: true` (beats a config of `false` AND the
+ *   default of `false` when no broker block is configured).
+ * - `"0"` forces `enabled: false` (beats a config of `true`).
+ * - unset / any other value falls through to the parsed value (which
+ *   may itself be `undefined`; the loadConfig merge layer fills defaults).
+ * Phase 0 scope: only the `enabled` flag is overridable via env; numeric
+ * bounds must go through the schema + parser path, not env.
+ */
+export function resolveBrokerEnvOverride(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig | undefined {
+	const override = process.env.PI_CREW_BROKER;
+	if (override === "1" || override === "0") {
+		const base: CrewBrokerConfig = parsed ?? {};
+		return { ...base, enabled: override === "1" };
+	}
+	return parsed;
+}

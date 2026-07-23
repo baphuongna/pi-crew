@@ -34,3 +34,6 @@ live-test-research.md
 fallow-audit-report/
 
 /.crew/
+# Python bytecode cache (from pty_probe.py)
+__pycache__/
+*.pyc

@@ -20,11 +20,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
+import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker-issuer.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
+import { CrewBroker } from "../../runtime/crew-broker.ts";
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
-import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs } from "../../runtime/pi-args.ts";
+import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/pi-args.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
@@ -47,7 +49,8 @@ import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { RunWatcherRegistry } from "../../utils/run-watcher-registry.ts";
-import { extractSessionId } from "../../utils/session-utils.ts";
+import { extractBrokerSessionId } from "../../utils/session-utils.ts";
+import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
 import { notifyActiveRuns } from "../session-summary.ts";
@@ -169,7 +172,11 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		ctx.widgetState.interval = undefined;
 		notifyActiveRuns(extensionCtx);
 
-		const currentSessionId = extractSessionId(extensionCtx);
+		const currentSessionId = extractBrokerSessionId(extensionCtx);
+		// Phase 0 broker: feed the captured session_id to the controller so
+		// it can issue tokens for child runs in this session. The controller
+		// already gates by flag + root-session; this is a no-op when disabled.
+		ctx.brokerController?.setSessionId(currentSessionId);
 
 		// Defer ALL heavy cleanup to after the session_start handler returns.
 		// These operations involve synchronous directory scanning (readdirSync, readFileSync)
@@ -760,3 +767,159 @@ function setupRenderLoop(
 	// watchers for any runs that are already active on session start.
 	backgroundPreload();
 }
+
+// =============================================================================
+// Phase 0 inter-pi broker lifecycle controller (sub-task 0.5)
+// =============================================================================
+//
+// `installCrewBrokerLifecycleController` wires the per-session broker into
+// the existing extension lifecycle. The controller:
+//
+//  - is a no-op unless broker.enabled is true AND the current process is the
+//    root pi session (PI_CREW_KIND !== "subagent" AND currentCrewDepth === 0).
+//    Children NEVER install a broker.
+//  - lazily constructs a single CrewBroker instance per session_id. listen()
+//    is deferred until the first child run actually requests broker credentials.
+//  - issues a heap-only token per child run via `issueForChild`. The token
+//    NEVER leaves the parent's heap and the child's env (PI_CREW_BROKER_TOKEN).
+//    It is never written to disk.
+//  - retains the broker across session switches when the session_id is
+//    unchanged; on a session_id change, stops the old broker and binds a new
+//    one on the next acquire.
+//  - stops the broker during session_shutdown BEFORE the runtime cleanup path.
+//
+// The gate is re-evaluated on every `issueForChild` call (cheap env+depth
+// check) so the kill switch (PI_CREW_BROKER=0) takes effect immediately.
+
+export interface CrewBrokerLifecycleController {
+	/** Issue credentials for a child run. Returns undefined when the broker
+	 *  is disabled, this process is a subagent, or no session_id is known. */
+	issueForChild(runId: string): Promise<BrokerSpawnCredentials | undefined>;
+	/** Stop the broker (idempotent). Called on session_shutdown. */
+	stop(): Promise<void>;
+	/** Test/lifecycle seam: remember the most recent session_id for token issuance. */
+	setSessionId(sessionId: string | undefined): void;
+}
+
+function isRootSession(env: NodeJS.ProcessEnv = process.env): boolean {
+	if (env.PI_CREW_KIND === "subagent") return false;
+	try {
+		return currentCrewDepth(env) === 0;
+	} catch {
+		return false;
+	}
+}
+
+export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: RegistrationContext): CrewBrokerLifecycleController {
+	let broker: CrewBroker | null = null;
+	let brokerSessionId: string | undefined;
+	let starting: Promise<CrewBroker> | null = null;
+	let cachedSessionId: string | undefined;
+
+	function effectiveEnabled(): boolean {
+		// Env wins over config. PI_CREW_BROKER=1 forces on, =0 forces off.
+		const envOverride = process.env.PI_CREW_BROKER;
+		if (envOverride === "0") return false;
+		// Config block: read fresh so a runtime config update takes effect.
+		try {
+			const cfg = loadConfig().config.broker;
+			if (envOverride === "1") return cfg !== undefined ? cfg.enabled !== false : true;
+			// Phase 4 (v0.9.47) default-on: enabled unless explicitly disabled.
+			return cfg?.enabled !== false;
+		} catch {
+			// Fail-safe: config load failed → keep broker disabled.
+			return false;
+		}
+	}
+
+	async function getOrStartBroker(sessionId: string): Promise<CrewBroker> {
+		if (broker && brokerSessionId === sessionId) return broker;
+		if (broker && brokerSessionId !== sessionId) {
+			try {
+				await broker.stop();
+			} catch {
+				/* ignore */
+			}
+			broker = null;
+			brokerSessionId = undefined;
+		}
+		if (!broker && !starting) {
+			starting = (async () => {
+				const cfg = (() => {
+					try {
+						return loadConfig().config.broker;
+					} catch {
+						return undefined;
+					}
+				})();
+				const b = new CrewBroker({
+					sessionId,
+					socketPath: getBrokerSocketPath(sessionId),
+					maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
+					outboundQueueCap: cfg?.outboundQueueCap ?? 256,
+					enabled: true,
+					cwd: process.cwd(),
+				});
+				try {
+					await b.start();
+					broker = b;
+					brokerSessionId = sessionId;
+					return b;
+				} finally {
+					starting = null;
+				}
+			})();
+		}
+		return starting!;
+	}
+
+	const issueForChild = async (runId: string): Promise<BrokerSpawnCredentials | undefined> => {
+		if (!runId || typeof runId !== "string") return undefined;
+		if (!isRootSession(process.env)) return undefined;
+		if (!effectiveEnabled()) return undefined;
+		const sessionId = cachedSessionId;
+		if (!sessionId) return undefined;
+		try {
+			const b = await getOrStartBroker(sessionId);
+			const token = b.issueRunToken(runId);
+			return { socketPath: b.socketPath, token };
+		} catch {
+			return undefined;
+		}
+	};
+
+	// Publish this issuer as the process-local active issuer so runChildPi can
+	// default `brokerIssuer` without the registration context being threaded
+	// through every runner call site. The issuer self-gates (root + flag), so
+	// publishing it unconditionally is safe even when the broker is disabled.
+	setActiveBrokerIssuer(issueForChild);
+
+	return {
+		issueForChild,
+		stop: async () => {
+			setActiveBrokerIssuer(undefined);
+			if (broker) {
+				try {
+					await broker.stop();
+				} catch {
+					/* ignore */
+				}
+				broker = null;
+				brokerSessionId = undefined;
+			}
+		},
+		/** Test seam: remember the most recent session_id for token issuance. */
+		setSessionId: (sessionId: string | undefined) => {
+			// Runtime validation: cap the length and charset to defend against
+			// a hostile extension supplying a huge or pathological id. The
+			// socket path is already hash-derived (4..32 hex), so a longer
+			// sessionId is harmless on disk but wastes heap.
+			if (typeof sessionId !== "string") return;
+			if (sessionId.length === 0 || sessionId.length > 256) return;
+			cachedSessionId = sessionId;
+		},
+	};
+}
+
+/** Marker used by tests to confirm the controller object identity. */
+export const __test__brokerControllerMarker = true;

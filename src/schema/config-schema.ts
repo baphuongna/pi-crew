@@ -275,6 +275,19 @@ export const PiTeamsUiConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** Phase 0 inter-pi broker config schema. Numeric limits are bounded per
+ *  the plan: pathHashLen 4..32, maxFrameBytes 1024..1048576 (default 256 KiB),
+ *  outboundQueueCap 32..4096 (default 256). */
+export const CrewBrokerConfigSchema = Type.Object(
+	{
+		enabled: Type.Optional(Type.Boolean()),
+		pathHashLen: Type.Optional(Type.Integer({ minimum: 4, maximum: 32 })),
+		maxFrameBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 1_048_576 })),
+		outboundQueueCap: Type.Optional(Type.Integer({ minimum: 32, maximum: 4096 })),
+	},
+	{ additionalProperties: false },
+);
+
 export const PiTeamsConfigSchema = Type.Object(
 	{
 		asyncByDefault: Type.Optional(Type.Boolean()),
@@ -297,6 +310,7 @@ export const PiTeamsConfigSchema = Type.Object(
 		reliability: Type.Optional(PiTeamsReliabilityConfigSchema),
 		otlp: Type.Optional(PiTeamsOtlpConfigSchema),
 		ui: Type.Optional(PiTeamsUiConfigSchema),
+		broker: Type.Optional(CrewBrokerConfigSchema),
 	},
 	{ additionalProperties: false },
 );

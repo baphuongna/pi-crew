@@ -14,6 +14,47 @@ export type MailboxMessageKind = "message" | "steer" | "follow-up" | "response" 
 export type MailboxMessagePriority = "urgent" | "normal" | "low";
 export type MailboxDeliveryMode = "interrupt" | "next_turn";
 
+// ============================================================================
+// Phase 1.3: post-append observer (single notification point)
+// ============================================================================
+// A registry of callbacks invoked AFTER a durable mailbox append completes
+// (both sync and async paths). The broker registers here to fan out live
+// notifications to connected recipients. The notifier is non-throwing and
+// never blocks the append — it queues work via queueMicrotask so a slow
+// observer cannot stall the mailbox write path. Registration is idempotent.
+
+export type MailboxAppendObserver = (message: MailboxMessage) => void;
+
+const mailboxAppendObservers = new Set<MailboxAppendObserver>();
+
+/** Register a post-append observer. Returns an unsubscribe function. */
+export function registerMailboxAppendObserver(fn: MailboxAppendObserver): () => void {
+	mailboxAppendObservers.add(fn);
+	return () => {
+		mailboxAppendObservers.delete(fn);
+	};
+}
+
+/**
+ * Internal: invoked by appendMailboxMessage[Async] AFTER the durable write +
+ * delivery RMW have completed. Non-throwing; never blocks the caller.
+ */
+function notifyMailboxAppended(message: MailboxMessage): void {
+	if (mailboxAppendObservers.size === 0) return;
+	// Snapshot the message so a later mutation by the caller cannot affect
+	// what the observer sees.
+	const snapshot = { ...message };
+	queueMicrotask(() => {
+		for (const fn of mailboxAppendObservers) {
+			try {
+				fn(snapshot);
+			} catch {
+				/* observer must not break the append path */
+			}
+		}
+	});
+}
+
 export interface MailboxMessage {
 	id: string;
 	runId: string;
@@ -539,6 +580,7 @@ export function appendMailboxMessage(
 		// F4: complete transitions are terminal-ish — keep full durability.
 		writeDeliveryState(manifest, delivery, { durability: "full" });
 	});
+	notifyMailboxAppended(complete);
 	return complete;
 }
 
@@ -647,6 +689,7 @@ export async function appendMailboxMessageAsync(
 		delivery.updatedAt = createdAt;
 		writeDeliveryState(manifest, delivery, { durability: "full" });
 	});
+	notifyMailboxAppended(complete);
 	return complete;
 }
 

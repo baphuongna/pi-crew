@@ -224,6 +224,25 @@ export interface PiTeamsConfig {
 	reliability?: CrewReliabilityConfig;
 	otlp?: CrewOtlpConfig;
 	ui?: CrewUiConfig;
+	/**
+	 * Inter-pi broker (Phase 0). Local-only socket transport between parent
+	 * and child pi workers. Default is OFF (`enabled:false`) — keep it that
+	 * way until Phase 4 soak completes. Numeric limits are bounded by the
+	 * schema (`src/schema/config-schema.ts`).
+	 */
+	broker?: CrewBrokerConfig;
+}
+
+/** CrewBroker config (Phase 0 inter-pi broker). */
+export interface CrewBrokerConfig {
+	/** Master switch. `false` keeps the broker fully dormant. */
+	enabled?: boolean;
+	/** Length of the SHA-256 hex prefix used in the socket filename. 4..32. */
+	pathHashLen?: number;
+	/** Maximum NDJSON frame size in UTF-8 bytes (default 262144 = 256 KiB). 1024..1048576. */
+	maxFrameBytes?: number;
+	/** Per-connection outbound queue cap. 32..4096 (default 256). */
+	outboundQueueCap?: number;
 }
 
 export interface LoadedPiTeamsConfig {

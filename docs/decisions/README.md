@@ -21,3 +21,6 @@ Current decisions derived from 9 review rounds and 13 bug fixes.
 | 0003 | Depth guard for nested live-session | Accepted |
 | 0004 | execFileSync over execSync | Accepted |
 | 0005 | No TypeScript parameter properties | Accepted |
+| 2026-07-21-broker-windows-perms | Windows broker named-pipe permissions | Accepted |
+| 2026-07-21-broker-phase4-default-on | Phase 4 — do **not** flip default to true (interim) | **Superseded** by `2026-07-22-broker-phase4-gated-on` |
+| 2026-07-22-broker-phase4-gated-on | Phase 4 — flip `broker.enabled` default to true | Accepted (default-on) |

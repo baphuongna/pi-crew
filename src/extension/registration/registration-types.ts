@@ -146,4 +146,13 @@ export interface RegistrationContext {
 	startForegroundRun: (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string) => void;
 	abortForegroundRun: (runId: string) => boolean;
 	openLiveSidebar: (ctx: ExtensionContext, runId: string) => void;
+	/**
+	 * Phase 0 inter-pi broker lifecycle controller. Set by `register.ts`
+	 * after `installSessionLifecycleHandlers`. The controller is a no-op
+	 * when the broker is disabled or the current process is a subagent;
+	 * callers (e.g. child-pi-spawn consumers) MUST handle the case where
+	 * `issueForChild` returns undefined. The controller is stopped
+	 * during session_shutdown via `stop()`.
+	 */
+	brokerController: import("./lifecycle-handlers.ts").CrewBrokerLifecycleController | undefined;
 }

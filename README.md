@@ -68,6 +68,8 @@ repo: https://github.com/baphuongna/pi-crew
 - **Strict SKILL.md validation** (L3, v0.9.8) — skills with malformed frontmatter (missing/malformed `name`/`description`, type mismatches) now **fail-fast at discovery** with visible diagnostics, instead of silently producing broken behavior at runtime. HYBRID policy: HARD on required fields, SOFT (warn) on unknown props for forward-compat. Surfaced via `buildSkillValidationDiagnostics()`.
 - **Durable event replay** (L1, v0.9.8) — `RunEventBus.onWithReplay()` catches up a re-subscribing dashboard/overlay with events it missed during transient absence (toggle, reconnect), replaying from the durable JSONL log with seq-based dedup. No information loss even if the live subscriber was briefly gone.
 - **Lossless-by-default output handling** (L4, v0.9.8) — worker output thresholds sized from measured data (100% of real outputs fit without compaction); when compaction is unavoidable it keeps head+tail (preserves closing code fences/headings) instead of head-only truncation. No more `[pi-crew compacted N chars]` markers eating the end of a worker's result.
+- **Inter-pi broker** (v0.9.47, default-on) — a Unix-domain-socket message bus that lets concurrently-running Pi sessions pass messages, steering notes, and task-status events to each other. **On by default** on Linux + macOS; auto-disabled on native Windows (no unix socket). Three independent kill switches: `broker.enabled: false` (config), `PI_CREW_BROKER=0` (env, always wins), Windows auto-disable. See [docs/decisions/2026-07-22-broker-phase4-gated-on.md](docs/decisions/2026-07-22-broker-phase4-gated-on.md).
+- **`test:critical` + `real-test-pi-crew` skill** (v0.9.47) — a curated 14-file / 97-test subset (`npm run test:critical`, ~20s) for fast in-loop verification, plus a bundled skill distilling the full 8-tier end-to-end verification discipline (unit → 3-path kill-switch proof → typecheck/bundle → live TUI probing → smoke team run). Prevents the verifier-worker hang that full `npm test` (>4 min) caused against the 300s worker timeout.
 
 ---
 
@@ -283,6 +285,14 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 - `test/functional/pi-crew-live.test.ts` + `test/functional/pi-crew-live-broad.test.ts` — 16 live integration tests run against the **real pi binary + real LLM provider** (verified after v0.9.42 audit, ~26 commits). Use these when you want to confirm end-to-end behavior, not just unit-level invariants.
 
 ## Recent changes
+
+### v0.9.47 (2026-07-22): Inter-pi broker Phase 4 (default-on) + verifier-hang fix + verification skill
+
+- **Broker default-on**: `broker.enabled` flipped `false` → `true` on Linux + macOS. The inter-pi broker lets concurrent Pi sessions exchange messages, steering notes, and task-status events over a Unix-domain socket. Three kill switches remain: config `broker.enabled: false`, env `PI_CREW_BROKER=0` (always wins), Windows auto-disable.
+- **Verifier-hang fix**: `npm run test:critical` — a curated 14-file / 97-test subset (~20s) replaces full `npm test` (>4 min) in verifier prompts. The full suite was exceeding the 300s `RESPONSE_TIMEOUT_MS`, killing workers with exit 143. Both plan-templates and all 4 workflow verifier prompts now specify the fast command.
+- **`real-test-pi-crew` skill** (659 lines): distills the 8-tier verification discipline used to ship this release (critical tests → 3-path kill-switch proof → typecheck/bundle → bundle md5 sync → live TUI probing via tmux/pty → smoke team run). Bundled `scripts/pty_probe.py`.
+- **Postinstall `copySkills()`**: `npx pi install .` now mirrors every `skills/<name>/` to `~/.pi/agent/skills/` for global availability.
+- See [CHANGELOG.md](CHANGELOG.md) §0.9.47 and [docs/decisions/2026-07-22-broker-phase4-gated-on.md](docs/decisions/2026-07-22-broker-phase4-gated-on.md).
 
 ### v0.9.45 – v0.9.46 (2026-07-20): security + perf remediation, UI stability
 
@@ -645,6 +655,9 @@ Your system prompt here.
 
 | Variable | Purpose |
 |----------|---------|
+| `PI_CREW_BROKER=0` | **Disable the inter-pi broker entirely** (always wins over config). Use to opt out of cross-session messaging. |
+| `PI_CREW_BROKER=1` | Explicitly enable the broker (redundant under the v0.9.47 default-on; useful for overriding a config `broker.enabled: false`). |
+| `PI_CREW_BROKER_DIAG_UI=1` | Make the run-dashboard `handleInput` emit a `[PI-CREW-DIAG]` line to stderr per keystroke — for TUI keybinding probes. |
 | `PI_CREW_USE_BUNDLE=1` | Load via bundled `dist/index.mjs` (~5% faster cold-start). Default: strip-types. Requires `npm run build:bundle` to have produced `dist/`. Falls back to strip-types with a one-time warning if the bundle is missing. See `scripts/bench-cold-start.mjs`. |
 | `PI_CREW_EXECUTE_WORKERS=0` | Disable child workers (scaffold mode) |
 | `PI_TEAMS_EXECUTE_WORKERS=0` | Legacy disable flag |
@@ -677,13 +690,14 @@ The watcher is the dev-loop companion to `check:bundle-staleness` (CI gate) — 
 ```bash
 cd pi-crew
 npm install          # dependencies
-npm test             # unit + integration tests (~4,800 tests)
+npm test             # unit + integration tests (~6,500 tests)
+npm run test:critical # fast subset: 97 broker/UI tests in ~20s
 npm run typecheck    # tsc --noEmit
 npm run ci           # full CI-equivalent check
 npm pack --dry-run   # package verification
 ```
 
-Stats: **431 source files** (87K lines) · **606 test files** (85K lines) · **~5,860 tests, 0 failures** · **CI: Ubuntu ✅ macOS ✅ Windows ✅**
+Stats: **477 source files** (108K lines) · **682 test files** (~6,500 tests) · **CI: Ubuntu ✅ macOS ✅ Windows ✅**
 
 ---
 

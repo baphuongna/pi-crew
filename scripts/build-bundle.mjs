@@ -57,6 +57,13 @@ const result = await build({
 		"jiti",
 		"@sinclair/typebox",
 		"acorn",
+		// esbuild must stay external: its CJS source references __filename/__dirname
+		// (CJS globals) for self-location. Bundling it into the ESM .mjs makes those
+		// undefined at runtime → "__filename is not defined" when the dynamic-workflow
+		// runner (or strip-types loader) invokes esbuild transformSync. Keeping it
+		// external lets it resolve from node_modules as proper CJS. (esbuild also
+		// ships a native binary, which shouldn't be bundled anyway.)
+		"esbuild",
 	],
 	// All node:* and Node-builtin modules are external by default for
 	// platform=node, but list explicitly for clarity.

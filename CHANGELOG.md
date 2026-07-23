@@ -3,6 +3,66 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.47] — Broker Phase 4 gated ON (default-on flip) (2026-07-22)
+
+Flips `broker.enabled` from `false` to `true` as the new default on Linux
++ macOS. Windows users continue to see the broker silently disabled
+(decision doc `2026-07-21-broker-windows-perms.md` — no unix socket on
+native Windows). Three independent kill switches remain available:
+
+1. `broker.enabled: false` in user config
+2. env `PI_CREW_BROKER=0` (beats config=true)
+3. Windows — auto-disabled
+
+### Changes
+
+- **`src/config/defaults.ts`**: `DEFAULT_BROKER.enabled: false` → `true`.
+- **`src/extension/registration/lifecycle-handlers.ts`**: `effectiveEnabled()`
+  now returns `cfg?.enabled !== false` (default-on) instead of
+  `cfg?.enabled === true` (opt-in).
+- **`test/unit/crew-broker-feature-flag.test.ts`**: now asserts
+  `DEFAULT_BROKER.enabled === true` (Phase 4 default-on).
+- **`test/unit/crew-broker-server-gate.test.ts`**: "config flag off" test
+  renamed to "env kill switch (PI_CREW_BROKER=0)" — env is the load-bearing
+  kill switch under default-on.
+- **`docs/decisions/2026-07-22-broker-phase4-gated-on.md`**: new decision
+  doc supersedes the v0.9.46 default-off stance.
+- **Plan templates + workflows** (verifier fix from prior session):
+  `verificationCommand` now `npm run test:critical && npx tsc --noEmit`
+  (97 broker+UI tests in ~20s; well under worker 300s timeout) instead of
+  full `npm test` (>4 min). All 4 verifier workflow prompts updated.
+- **`package.json`**: new `test:critical` script — a curated 14-file subset
+  (97 tests, ~20s) for fast in-loop verification of broker/UI/config changes.
+  Full `npm test` (>4 min) caused verifier workers to hit the 300s
+  `RESPONSE_TIMEOUT_MS` and get SIGKILLed (exit 143).
+- **`skills/real-test-pi-crew/SKILL.md`**: new skill distilling the 8-tier
+  end-to-end verification discipline used to ship the broker Phase-4 rollout
+  (critical tests → 3-path kill-switch proof → typecheck+bundle → bundle md5
+  sync → live TUI probing via tmux/pty → smoke team run). 659 lines, 26
+  sections, 15 triggers. Bundled `scripts/pty_probe.py` (174-line hardened
+  TUI probe with zombie reaping).
+- **`scripts/postinstall.mjs`**: new `copySkills()` step mirrors every
+  `skills/<name>/` dir to `~/.pi/agent/skills/` on install, so pi-crew's
+  skills are available globally (not just inside the pi-crew project).
+  Best-effort, never fails the install.
+
+### Verification
+
+- Default-on: `npm run test:critical` → **97/97 pass in ~15s**.
+- Disabled: `PI_CREW_BROKER=0 npm run test:critical` → **97/97 pass in ~15s**.
+- Explicit-on: `PI_CREW_BROKER=1 npm run test:critical` → **97/97 pass in ~15s**.
+- Typecheck clean. Bundle rebuilt (md5 `d9c8412cb090735239935f5fa6d7b79a`, ~2.68 MB).
+- Live TUI verified via tmux + pty probe (`/team-help` renders, no zombie
+  processes).
+- Smoke team run `team_20260723154250_8955437a182b3f12` (fast-fix): 3/3 PASS,
+  verifier used `test:critical` cache, completed in 386s wall-clock (no hang).
+
+### Rollback
+
+If post-release issues emerge: flip `DEFAULT_BROKER.enabled` back to `false`
+in `src/config/defaults.ts`, rebuild bundle, cut v0.9.48. Users can also
+disable immediately via `broker.enabled: false` or `PI_CREW_BROKER=0`.
+
 ## [0.9.46] — UI stability + notification coalescing (2026-07-20)
 
 Three user-facing UI/notification fixes layered on top of the v0.9.45

@@ -208,7 +208,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		// it does NOT kill the script. Promise.race with a hard timeout at least returns an
 		// error so the runner doesn't hang. The spawned child process is leaked, but the
 		// dynamic-workflow returns failure promptly. (v1.5: use Worker threads to actually kill.)
-		const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 600_000; // 10 min default
+		const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 1_800_000; // 30 min default (was 10 min; raised for distill-dwf + similar long pipelines)
 		let timeoutHandle: NodeJS.Timeout | undefined;
 		const timeoutPromise = new Promise<never>((_, reject) => {
 			timeoutHandle = setTimeout(() => {

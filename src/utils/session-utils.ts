@@ -78,3 +78,33 @@ export function extractSessionId(ctx: unknown): string | undefined {
 	if (typeof raw !== "string" || raw.length === 0) return undefined;
 	return raw;
 }
+
+/**
+ * Broker-only session id extractor.
+ *
+ * Pi's `ExtensionContext` does NOT expose a top-level `sessionId` property on
+ * its public surface — the id is reachable via `ctx.sessionManager.getSessionId()`.
+ * This helper is only called from `installCrewBrokerLifecycleController.setSessionId`
+ * (once per session_start), so the extra method invocation is safe here. It is
+ * INTENTIONALLY a separate function from `extractSessionId`, which is called on
+ * every `context` event (before every LLM call) from `context-status-injection.ts`
+ * — extending that hot path with method calls was observed to freeze the TUI
+ * (dashboard opens but is unresponsive, footer does not render) during smoke
+ * testing, so it stays on the trivial property lookup.
+ *
+ * Tries the sessionManager path first, then falls back to a direct
+ * `ctx.sessionId` for test mock compatibility.
+ */
+export function extractBrokerSessionId(ctx: unknown): string | undefined {
+	if (typeof ctx !== "object" || ctx === null) return undefined;
+	try {
+		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
+		const viaManager = sm?.getSessionId?.();
+		if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
+		const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		if (typeof direct === "string" && direct.length > 0) return direct;
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}

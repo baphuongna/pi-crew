@@ -64,7 +64,7 @@ var init_validation_types = __esm({
 
 // src/schema/config-schema.ts
 import { Type } from "@sinclair/typebox";
-var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, PiTeamsConfigSchema;
+var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, CrewBrokerConfigSchema, PiTeamsConfigSchema;
 var init_config_schema = __esm({
   "src/schema/config-schema.ts"() {
     "use strict";
@@ -311,6 +311,15 @@ var init_config_schema = __esm({
       },
       { additionalProperties: false }
     );
+    CrewBrokerConfigSchema = Type.Object(
+      {
+        enabled: Type.Optional(Type.Boolean()),
+        pathHashLen: Type.Optional(Type.Integer({ minimum: 4, maximum: 32 })),
+        maxFrameBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 1048576 })),
+        outboundQueueCap: Type.Optional(Type.Integer({ minimum: 32, maximum: 4096 }))
+      },
+      { additionalProperties: false }
+    );
     PiTeamsConfigSchema = Type.Object(
       {
         asyncByDefault: Type.Optional(Type.Boolean()),
@@ -332,7 +341,8 @@ var init_config_schema = __esm({
         observability: Type.Optional(PiTeamsObservabilityConfigSchema),
         reliability: Type.Optional(PiTeamsReliabilityConfigSchema),
         otlp: Type.Optional(PiTeamsOtlpConfigSchema),
-        ui: Type.Optional(PiTeamsUiConfigSchema)
+        ui: Type.Optional(PiTeamsUiConfigSchema),
+        broker: Type.Optional(CrewBrokerConfigSchema)
       },
       { additionalProperties: false }
     );
@@ -403,8 +413,8 @@ import * as path from "node:path";
 import { Worker } from "node:worker_threads";
 function getWorker() {
   if (worker) return worker;
-  const os17 = require2("node:os");
-  const tmpPath = path.join(fs.mkdtempSync(path.join(os17.tmpdir(), "pi-crew-waw-")), "worker.cjs");
+  const os18 = require2("node:os");
+  const tmpPath = path.join(fs.mkdtempSync(path.join(os18.tmpdir(), "pi-crew-waw-")), "worker.cjs");
   fs.writeFileSync(tmpPath, WORKER_SOURCE, "utf-8");
   worker = new Worker(tmpPath);
   worker.on("message", (msg) => {
@@ -885,8 +895,8 @@ function atomicWriteFile(filePath, content, options) {
       }
     } catch (renameError) {
       try {
-        const lstat = fs2.lstatSync(filePath);
-        if (lstat.isSymbolicLink()) {
+        const lstat2 = fs2.lstatSync(filePath);
+        if (lstat2.isSymbolicLink()) {
           throw renameError;
         }
       } catch (checkError) {
@@ -1057,7 +1067,15 @@ var init_atomic_write = __esm({
 });
 
 // src/config/defaults.ts
-var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT;
+function resolveBrokerEnvOverride(parsed) {
+  const override = process.env.PI_CREW_BROKER;
+  if (override === "1" || override === "0") {
+    const base = parsed ?? {};
+    return { ...base, enabled: override === "1" };
+  }
+  return parsed;
+}
+var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER;
 var init_defaults = __esm({
   "src/config/defaults.ts"() {
     "use strict";
@@ -1068,7 +1086,7 @@ var init_defaults = __esm({
       hardKillMs: 3e3,
       // Child workers can spend more than a few seconds in provider calls or long-running tools without emitting stdout.
       // Keep this as a coarse stuck-worker guard rather than a short per-message latency budget.
-      responseTimeoutMs: 5 * 6e4,
+      responseTimeoutMs: 10 * 6e4,
       // #3 unresponsive worker hardening: increased from 256KB to 512KB so critical
       // diagnostic stderr is less likely to be silently truncated during hang analysis.
       maxCaptureBytes: 512 * 1024,
@@ -1180,6 +1198,12 @@ var init_defaults = __esm({
     };
     DEFAULT_SUBAGENT = {
       stuckBlockedNotifyMs: 5 * 6e4
+    };
+    DEFAULT_BROKER = {
+      enabled: true,
+      pathHashLen: 8,
+      maxFrameBytes: 262144,
+      outboundQueueCap: 256
     };
   }
 });
@@ -1834,14 +1858,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!Value2.Check(PiTeamsConfigSchema, raw)) {
     return [...Value2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path83 = errorPathFromValidation(error);
+      const path84 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path83.split("/").pop() ?? path83;
+        const offendingKey = path84.split("/").pop() ?? path84;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path83}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path84}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path83}: ${message}`;
+      return `${path84}: ${message}`;
     });
   }
   return [];
@@ -2235,6 +2259,21 @@ function parseControlConfig(value) {
   };
   return Object.values(control).some((entry) => entry !== void 0) ? control : void 0;
 }
+function parseBrokerConfig(value) {
+  const obj = asRecord(value);
+  if (!obj) return void 0;
+  const broker = {
+    enabled: parseWithSchema(Type2.Boolean(), obj.enabled),
+    pathHashLen: parseIntegerInRange(obj.pathHashLen, 4, 32),
+    maxFrameBytes: parseIntegerInRange(obj.maxFrameBytes, 1024, 1048576),
+    outboundQueueCap: parseIntegerInRange(obj.outboundQueueCap, 32, 4096)
+  };
+  return Object.values(broker).some((entry) => entry !== void 0) ? broker : void 0;
+}
+function applyBrokerEnvOverrideAndDefaults(parsed) {
+  const envOverridden = resolveBrokerEnvOverride(parsed);
+  return { ...DEFAULT_BROKER, ...envOverridden };
+}
 function parseWorktreeConfig(value) {
   const obj = asRecord(value);
   if (!obj) return void 0;
@@ -2473,7 +2512,8 @@ function parseConfig(raw) {
     observability: parseObservabilityConfig(obj.observability),
     reliability: parseReliabilityConfig(obj.reliability),
     otlp: parseOtlpConfig(obj.otlp),
-    ui: parseUiConfig(obj.ui)
+    ui: parseUiConfig(obj.ui),
+    broker: parseBrokerConfig(obj.broker)
   };
 }
 function parseConfigWithWarnings(raw) {
@@ -2585,7 +2625,13 @@ function loadConfig(cwd) {
   const result4 = {
     path: filePath,
     paths,
-    config,
+    config: {
+      ...config,
+      // Phase 0 broker: layer in env override + defaults. Env wins over
+      // config; defaults fill any missing field. Env `"1"`/`"0"` forces
+      // the enabled flag even when no broker block is configured.
+      broker: applyBrokerEnvOverrideAndDefaults(config.broker)
+    },
     warnings: warnings.length > 0 ? warnings : void 0
   };
   if (Object.keys(readCacheMtimes(cacheParts)).length > 0) {
@@ -2645,6 +2691,7 @@ var init_config = __esm({
     init_locks();
     init_internal_error();
     init_paths();
+    init_defaults();
     init_suggestions();
     CONFIG_CACHE_TTL_MS = 2e3;
     configCache = /* @__PURE__ */ new Map();
@@ -3751,16 +3798,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path83 = "";
+  let path84 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path83 = scpLikeMatch[2] ?? "";
+    path84 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path83 = parsed.pathname.replace(/^\/+/, "");
+      path84 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -3770,13 +3817,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path83 = repoWithoutRef.slice(slashIndex + 1);
+    path84 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path83.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path84.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -4416,6 +4463,19 @@ function extractSessionId(ctx) {
   }
   if (typeof raw !== "string" || raw.length === 0) return void 0;
   return raw;
+}
+function extractBrokerSessionId(ctx) {
+  if (typeof ctx !== "object" || ctx === null) return void 0;
+  try {
+    const sm = ctx.sessionManager;
+    const viaManager = sm?.getSessionId?.();
+    if (typeof viaManager === "string" && viaManager.length > 0) return viaManager;
+    const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+    if (typeof direct === "string" && direct.length > 0) return direct;
+    return void 0;
+  } catch {
+    return void 0;
+  }
 }
 var init_session_utils = __esm({
   "src/utils/session-utils.ts"() {
@@ -5542,14 +5602,14 @@ function buildPiWorkerArgs(input) {
 function cleanupTempDir(tempDir) {
   if (!tempDir) return;
   try {
-    let lstat;
+    let lstat2;
     try {
-      lstat = fs16.lstatSync(tempDir);
+      lstat2 = fs16.lstatSync(tempDir);
     } catch {
       createdTempDirs.delete(tempDir);
       return;
     }
-    if (lstat.isSymbolicLink()) {
+    if (lstat2.isSymbolicLink()) {
       createdTempDirs.delete(tempDir);
       return;
     }
@@ -5563,15 +5623,15 @@ function cleanupAllTrackedTempDirs() {
   let failed = 0;
   for (const dir of [...createdTempDirs]) {
     try {
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         createdTempDirs.delete(dir);
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) {
+      if (lstat2.isSymbolicLink()) {
         createdTempDirs.delete(dir);
         continue;
       }
@@ -5605,14 +5665,14 @@ function cleanupOrphanTempDirs(now = Date.now(), baseDir = path16.join(userPiRoo
     for (const entry of candidates) {
       scanned++;
       const dir = path16.join(baseDir, entry.name);
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) continue;
+      if (lstat2.isSymbolicLink()) continue;
       if (createdTempDirs.has(dir)) continue;
       try {
         let preRmlstat;
@@ -5648,14 +5708,14 @@ function cleanupLegacyOrphanTempDirs(now = Date.now(), tmpDirOverride = os7.tmpd
     for (const entry of candidates) {
       scanned++;
       const dir = path16.join(tmpDir, entry.name);
-      let lstat;
+      let lstat2;
       try {
-        lstat = fs16.lstatSync(dir);
+        lstat2 = fs16.lstatSync(dir);
       } catch {
         failed++;
         continue;
       }
-      if (lstat.isSymbolicLink()) continue;
+      if (lstat2.isSymbolicLink()) continue;
       const crewDir = path16.join(dir, ".crew");
       let crewDirLstat;
       try {
@@ -5912,6 +5972,20 @@ var init_redaction = __esm({
     GOOGLE_API_KEY_PATTERN = /(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g;
     STRIPE_KEY_PATTERN = /(?<![A-Za-z0-9_])sk_live_[0-9a-zA-Z]{24}(?![0-9a-zA-Z])/g;
     AUTH_HEADER_BOUNDARY_CHARS = /* @__PURE__ */ new Set([" ", ",", "{", "[", '"', "\r", "\n", "-", "	"]);
+  }
+});
+
+// src/runtime/broker-issuer.ts
+function setActiveBrokerIssuer(issuer) {
+  activeIssuer = issuer;
+}
+function getActiveBrokerIssuer() {
+  return activeIssuer;
+}
+var activeIssuer;
+var init_broker_issuer = __esm({
+  "src/runtime/broker-issuer.ts"() {
+    "use strict";
   }
 });
 
@@ -6286,6 +6360,12 @@ function assertOnlyControlEnvKeys(builtEnv) {
     }
   }
 }
+function buildFinalChildPiSpawnOptions(cwd, mergedEnv, builtEnv, model) {
+  assertOnlyControlEnvKeys(builtEnv);
+  const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
+  spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+  return spawnOptions;
+}
 function prepareSpawnContext(input, effectiveTask) {
   const built = buildPiWorkerArgs({
     task: effectiveTask,
@@ -6297,6 +6377,12 @@ function prepareSpawnContext(input, effectiveTask) {
     role: input.role
   });
   if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+  if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
+    built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
+    built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+    if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+    if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+  }
   if (input.signal?.aborted) {
     return {
       kind: "aborted",
@@ -7234,6 +7320,7 @@ __export(child_pi_exports, {
   ChildPiLineObserver: () => ChildPiLineObserver,
   appendTranscript: () => appendTranscript,
   buildChildPiSpawnOptions: () => buildChildPiSpawnOptions,
+  buildFinalChildPiSpawnOptions: () => buildFinalChildPiSpawnOptions,
   compactString: () => compactString,
   compactValue: () => compactValue,
   flushPendingTranscriptWrites: () => flushPendingTranscriptWrites,
@@ -7401,13 +7488,22 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
     }
     return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
   }
-  const spawnPrep = prepareSpawnContext(input, effectiveTask);
+  let brokerSpawn = input.brokerSpawn;
+  const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
+  if (!brokerSpawn && brokerIssuer && input.runId) {
+    try {
+      brokerSpawn = await brokerIssuer(input.runId);
+    } catch {
+      brokerSpawn = void 0;
+    }
+  }
+  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask);
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
     return await new Promise((resolve22) => {
-      assertOnlyControlEnvKeys(builtEnv);
-      const child = spawn2(spawnSpec.command, spawnSpec.args, buildChildPiSpawnOptions(input.cwd, mergedEnv, input.model));
+      const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
+      const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
         registerActiveChild(child.pid, child);
         input.onSpawn?.(child.pid);
@@ -7960,6 +8056,7 @@ var init_child_pi = __esm({
     init_atomic_write();
     init_internal_error();
     init_redaction();
+    init_broker_issuer();
     init_child_pi_constants();
     init_child_pi_kill();
     init_child_pi_spawn();
@@ -8677,13 +8774,13 @@ var init_errors = __esm({
       }
     };
     errors = {
-      fileRead(path83, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path83}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path84, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path83, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path83}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path84, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -11646,6 +11743,24 @@ var init_artifact_store = __esm({
 // src/state/mailbox.ts
 import * as fs29 from "node:fs";
 import * as path24 from "node:path";
+function registerMailboxAppendObserver(fn) {
+  mailboxAppendObservers.add(fn);
+  return () => {
+    mailboxAppendObservers.delete(fn);
+  };
+}
+function notifyMailboxAppended(message) {
+  if (mailboxAppendObservers.size === 0) return;
+  const snapshot = { ...message };
+  queueMicrotask(() => {
+    for (const fn of mailboxAppendObservers) {
+      try {
+        fn(snapshot);
+      } catch {
+      }
+    }
+  });
+}
 function mailboxDir(manifest) {
   return path24.join(manifest.stateRoot, "mailbox");
 }
@@ -11966,6 +12081,7 @@ function appendMailboxMessage(manifest, message) {
     delivery.updatedAt = createdAt;
     writeDeliveryState(manifest, delivery, { durability: "full" });
   });
+  notifyMailboxAppended(complete);
   return complete;
 }
 function appendSteeringMessage(manifest, input) {
@@ -12032,6 +12148,7 @@ async function appendMailboxMessageAsync(manifest, message) {
     delivery.updatedAt = createdAt;
     writeDeliveryState(manifest, delivery, { durability: "full" });
   });
+  notifyMailboxAppended(complete);
   return complete;
 }
 async function appendSteeringMessageAsync(manifest, input) {
@@ -12193,7 +12310,7 @@ function validateMailbox(manifest, options = {}) {
   }
   return { issues, repaired };
 }
-var MAILBOX_ARCHIVE_THRESHOLD_BYTES, deliveryCache, MAX_DELIVERY_CACHE_ENTRIES;
+var mailboxAppendObservers, MAILBOX_ARCHIVE_THRESHOLD_BYTES, deliveryCache, MAX_DELIVERY_CACHE_ENTRIES;
 var init_mailbox = __esm({
   "src/state/mailbox.ts"() {
     "use strict";
@@ -12203,6 +12320,7 @@ var init_mailbox = __esm({
     init_atomic_write();
     init_event_log();
     init_locks();
+    mailboxAppendObservers = /* @__PURE__ */ new Set();
     MAILBOX_ARCHIVE_THRESHOLD_BYTES = DEFAULT_MAILBOX.perFileThresholdBytes;
     deliveryCache = /* @__PURE__ */ new Map();
     MAX_DELIVERY_CACHE_ENTRIES = 256;
@@ -13594,8 +13712,8 @@ var init_config_patch = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path83, value) {
-  const keys = path83.split(".");
+function setNested(obj, path84, value) {
+  const keys = path84.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -13605,8 +13723,8 @@ function setNested(obj, path83, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path83) {
-  const keys = path83.split(".");
+function getNested(obj, path84) {
+  const keys = path84.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -14559,17 +14677,17 @@ var require_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    function visit_(key, node, visitor, path83) {
-      const ctrl = callVisitor(key, node, visitor, path83);
+    function visit_(key, node, visitor, path84) {
+      const ctrl = callVisitor(key, node, visitor, path84);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path83, ctrl);
-        return visit_(key, ctrl, visitor, path83);
+        replaceNode(key, path84, ctrl);
+        return visit_(key, ctrl, visitor, path84);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path83 = Object.freeze(path83.concat(node));
+          path84 = Object.freeze(path84.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = visit_(i, node.items[i], visitor, path83);
+            const ci = visit_(i, node.items[i], visitor, path84);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14580,13 +14698,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path83 = Object.freeze(path83.concat(node));
-          const ck = visit_("key", node.key, visitor, path83);
+          path84 = Object.freeze(path84.concat(node));
+          const ck = visit_("key", node.key, visitor, path84);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = visit_("value", node.value, visitor, path83);
+          const cv = visit_("value", node.value, visitor, path84);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14607,17 +14725,17 @@ var require_visit = __commonJS({
     visitAsync.BREAK = BREAK;
     visitAsync.SKIP = SKIP;
     visitAsync.REMOVE = REMOVE;
-    async function visitAsync_(key, node, visitor, path83) {
-      const ctrl = await callVisitor(key, node, visitor, path83);
+    async function visitAsync_(key, node, visitor, path84) {
+      const ctrl = await callVisitor(key, node, visitor, path84);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path83, ctrl);
-        return visitAsync_(key, ctrl, visitor, path83);
+        replaceNode(key, path84, ctrl);
+        return visitAsync_(key, ctrl, visitor, path84);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path83 = Object.freeze(path83.concat(node));
+          path84 = Object.freeze(path84.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = await visitAsync_(i, node.items[i], visitor, path83);
+            const ci = await visitAsync_(i, node.items[i], visitor, path84);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14628,13 +14746,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path83 = Object.freeze(path83.concat(node));
-          const ck = await visitAsync_("key", node.key, visitor, path83);
+          path84 = Object.freeze(path84.concat(node));
+          const ck = await visitAsync_("key", node.key, visitor, path84);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = await visitAsync_("value", node.value, visitor, path83);
+          const cv = await visitAsync_("value", node.value, visitor, path84);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14661,23 +14779,23 @@ var require_visit = __commonJS({
       }
       return visitor;
     }
-    function callVisitor(key, node, visitor, path83) {
+    function callVisitor(key, node, visitor, path84) {
       if (typeof visitor === "function")
-        return visitor(key, node, path83);
+        return visitor(key, node, path84);
       if (identity.isMap(node))
-        return visitor.Map?.(key, node, path83);
+        return visitor.Map?.(key, node, path84);
       if (identity.isSeq(node))
-        return visitor.Seq?.(key, node, path83);
+        return visitor.Seq?.(key, node, path84);
       if (identity.isPair(node))
-        return visitor.Pair?.(key, node, path83);
+        return visitor.Pair?.(key, node, path84);
       if (identity.isScalar(node))
-        return visitor.Scalar?.(key, node, path83);
+        return visitor.Scalar?.(key, node, path84);
       if (identity.isAlias(node))
-        return visitor.Alias?.(key, node, path83);
+        return visitor.Alias?.(key, node, path84);
       return void 0;
     }
-    function replaceNode(key, path83, node) {
-      const parent = path83[path83.length - 1];
+    function replaceNode(key, path84, node) {
+      const parent = path84[path84.length - 1];
       if (identity.isCollection(parent)) {
         parent.items[key] = node;
       } else if (identity.isPair(parent)) {
@@ -15287,10 +15405,10 @@ var require_Collection = __commonJS({
     var createNode = require_createNode();
     var identity = require_identity();
     var Node = require_Node();
-    function collectionFromPath(schema, path83, value) {
+    function collectionFromPath(schema, path84, value) {
       let v = value;
-      for (let i = path83.length - 1; i >= 0; --i) {
-        const k = path83[i];
+      for (let i = path84.length - 1; i >= 0; --i) {
+        const k = path84[i];
         if (typeof k === "number" && Number.isInteger(k) && k >= 0) {
           const a = [];
           a[k] = v;
@@ -15309,7 +15427,7 @@ var require_Collection = __commonJS({
         sourceObjects: /* @__PURE__ */ new Map()
       });
     }
-    var isEmptyPath = (path83) => path83 == null || typeof path83 === "object" && !!path83[Symbol.iterator]().next().done;
+    var isEmptyPath = (path84) => path84 == null || typeof path84 === "object" && !!path84[Symbol.iterator]().next().done;
     var Collection = class extends Node.NodeBase {
       constructor(type, schema) {
         super(type);
@@ -15339,11 +15457,11 @@ var require_Collection = __commonJS({
        * be a Pair instance or a `{ key, value }` object, which may not have a key
        * that already exists in the map.
        */
-      addIn(path83, value) {
-        if (isEmptyPath(path83))
+      addIn(path84, value) {
+        if (isEmptyPath(path84))
           this.add(value);
         else {
-          const [key, ...rest] = path83;
+          const [key, ...rest] = path84;
           const node = this.get(key, true);
           if (identity.isCollection(node))
             node.addIn(rest, value);
@@ -15357,8 +15475,8 @@ var require_Collection = __commonJS({
        * Removes a value from the collection.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path83) {
-        const [key, ...rest] = path83;
+      deleteIn(path84) {
+        const [key, ...rest] = path84;
         if (rest.length === 0)
           return this.delete(key);
         const node = this.get(key, true);
@@ -15372,8 +15490,8 @@ var require_Collection = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path83, keepScalar) {
-        const [key, ...rest] = path83;
+      getIn(path84, keepScalar) {
+        const [key, ...rest] = path84;
         const node = this.get(key, true);
         if (rest.length === 0)
           return !keepScalar && identity.isScalar(node) ? node.value : node;
@@ -15391,8 +15509,8 @@ var require_Collection = __commonJS({
       /**
        * Checks if the collection includes a value with the key `key`.
        */
-      hasIn(path83) {
-        const [key, ...rest] = path83;
+      hasIn(path84) {
+        const [key, ...rest] = path84;
         if (rest.length === 0)
           return this.has(key);
         const node = this.get(key, true);
@@ -15402,8 +15520,8 @@ var require_Collection = __commonJS({
        * Sets a value in this collection. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path83, value) {
-        const [key, ...rest] = path83;
+      setIn(path84, value) {
+        const [key, ...rest] = path84;
         if (rest.length === 0) {
           this.set(key, value);
         } else {
@@ -17918,9 +18036,9 @@ var require_Document = __commonJS({
           this.contents.add(value);
       }
       /** Adds a value to the document. */
-      addIn(path83, value) {
+      addIn(path84, value) {
         if (assertCollection(this.contents))
-          this.contents.addIn(path83, value);
+          this.contents.addIn(path84, value);
       }
       /**
        * Create a new `Alias` node, ensuring that the target `node` has the required anchor.
@@ -17995,14 +18113,14 @@ var require_Document = __commonJS({
        * Removes a value from the document.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path83) {
-        if (Collection.isEmptyPath(path83)) {
+      deleteIn(path84) {
+        if (Collection.isEmptyPath(path84)) {
           if (this.contents == null)
             return false;
           this.contents = null;
           return true;
         }
-        return assertCollection(this.contents) ? this.contents.deleteIn(path83) : false;
+        return assertCollection(this.contents) ? this.contents.deleteIn(path84) : false;
       }
       /**
        * Returns item at `key`, or `undefined` if not found. By default unwraps
@@ -18017,10 +18135,10 @@ var require_Document = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path83, keepScalar) {
-        if (Collection.isEmptyPath(path83))
+      getIn(path84, keepScalar) {
+        if (Collection.isEmptyPath(path84))
           return !keepScalar && identity.isScalar(this.contents) ? this.contents.value : this.contents;
-        return identity.isCollection(this.contents) ? this.contents.getIn(path83, keepScalar) : void 0;
+        return identity.isCollection(this.contents) ? this.contents.getIn(path84, keepScalar) : void 0;
       }
       /**
        * Checks if the document includes a value with the key `key`.
@@ -18031,10 +18149,10 @@ var require_Document = __commonJS({
       /**
        * Checks if the document includes a value at `path`.
        */
-      hasIn(path83) {
-        if (Collection.isEmptyPath(path83))
+      hasIn(path84) {
+        if (Collection.isEmptyPath(path84))
           return this.contents !== void 0;
-        return identity.isCollection(this.contents) ? this.contents.hasIn(path83) : false;
+        return identity.isCollection(this.contents) ? this.contents.hasIn(path84) : false;
       }
       /**
        * Sets a value in this document. For `!!set`, `value` needs to be a
@@ -18051,13 +18169,13 @@ var require_Document = __commonJS({
        * Sets a value in this document. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path83, value) {
-        if (Collection.isEmptyPath(path83)) {
+      setIn(path84, value) {
+        if (Collection.isEmptyPath(path84)) {
           this.contents = value;
         } else if (this.contents == null) {
-          this.contents = Collection.collectionFromPath(this.schema, Array.from(path83), value);
+          this.contents = Collection.collectionFromPath(this.schema, Array.from(path84), value);
         } else if (assertCollection(this.contents)) {
-          this.contents.setIn(path83, value);
+          this.contents.setIn(path84, value);
         }
       }
       /**
@@ -20017,9 +20135,9 @@ var require_cst_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    visit.itemAtPath = (cst, path83) => {
+    visit.itemAtPath = (cst, path84) => {
       let item = cst;
-      for (const [field, index] of path83) {
+      for (const [field, index] of path84) {
         const tok = item?.[field];
         if (tok && "items" in tok) {
           item = tok.items[index];
@@ -20028,23 +20146,23 @@ var require_cst_visit = __commonJS({
       }
       return item;
     };
-    visit.parentCollection = (cst, path83) => {
-      const parent = visit.itemAtPath(cst, path83.slice(0, -1));
-      const field = path83[path83.length - 1][0];
+    visit.parentCollection = (cst, path84) => {
+      const parent = visit.itemAtPath(cst, path84.slice(0, -1));
+      const field = path84[path84.length - 1][0];
       const coll = parent?.[field];
       if (coll && "items" in coll)
         return coll;
       throw new Error("Parent collection not found");
     };
-    function _visit(path83, item, visitor) {
-      let ctrl = visitor(item, path83);
+    function _visit(path84, item, visitor) {
+      let ctrl = visitor(item, path84);
       if (typeof ctrl === "symbol")
         return ctrl;
       for (const field of ["key", "value"]) {
         const token = item[field];
         if (token && "items" in token) {
           for (let i = 0; i < token.items.length; ++i) {
-            const ci = _visit(Object.freeze(path83.concat([[field, i]])), token.items[i], visitor);
+            const ci = _visit(Object.freeze(path84.concat([[field, i]])), token.items[i], visitor);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -20055,10 +20173,10 @@ var require_cst_visit = __commonJS({
             }
           }
           if (typeof ctrl === "function" && field === "key")
-            ctrl = ctrl(item, path83);
+            ctrl = ctrl(item, path84);
         }
       }
-      return typeof ctrl === "function" ? ctrl(item, path83) : ctrl;
+      return typeof ctrl === "function" ? ctrl(item, path84) : ctrl;
     }
     exports.visit = visit;
   }
@@ -21832,11 +21950,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path83, field, reason) {
-  return { path: path83, field, reason, severity: "error" };
+function hard(path84, field, reason) {
+  return { path: path84, field, reason, severity: "error" };
 }
-function warn(path83, field, reason) {
-  return { path: path83, field, reason, severity: "warn" };
+function warn(path84, field, reason) {
+  return { path: path84, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -24138,12 +24256,12 @@ var require_code = __commonJS({
     exports._ = _;
     var plus = new _Code("+");
     function str(strs, ...args) {
-      const expr = [safeStringify(strs[0])];
+      const expr = [safeStringify2(strs[0])];
       let i = 0;
       while (i < args.length) {
         expr.push(plus);
         addCodeArg(expr, args[i]);
-        expr.push(plus, safeStringify(strs[++i]));
+        expr.push(plus, safeStringify2(strs[++i]));
       }
       optimize(expr);
       return new _Code(expr);
@@ -24195,16 +24313,16 @@ var require_code = __commonJS({
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
-      return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify(Array.isArray(x) ? x.join(",") : x);
+      return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify2(Array.isArray(x) ? x.join(",") : x);
     }
     function stringify(x) {
-      return new _Code(safeStringify(x));
+      return new _Code(safeStringify2(x));
     }
     exports.stringify = stringify;
-    function safeStringify(x) {
+    function safeStringify2(x) {
       return JSON.stringify(x).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
     }
-    exports.safeStringify = safeStringify;
+    exports.safeStringify = safeStringify2;
     function getProperty(key) {
       return typeof key == "string" && exports.IDENTIFIER.test(key) ? new _Code(`.${key}`) : _`[${key}]`;
     }
@@ -27265,8 +27383,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path83) {
-      let input = path83;
+    function removeDotSegments(path84) {
+      let input = path84;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -27518,8 +27636,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path83, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path83 && path83 !== "/" ? path83 : void 0;
+        const [path84, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path84 && path84 !== "/" ? path84 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -33137,17 +33255,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path83 = getSkillActivationsPath(cwd, activation.runId);
+  const path84 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync6(path83, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync6(path84, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path83 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync32(path83)) {
+  const path84 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync32(path84)) {
     return [];
   }
-  const content = readFileSync30(path83, "utf-8");
+  const content = readFileSync30(path84, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -35387,11 +35505,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path83 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path84 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path83, key];
+    const childPath = [...path84, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -35403,8 +35521,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path83 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path83) {
-  return path83.length === 4 && path83[0] === "agents" && path83[1] === "overrides";
+function isAgentOverrideKeyPath(path84) {
+  return path84.length === 4 && path84[0] === "agents" && path84[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -36589,10 +36707,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path83 = goalFilePath(this.cwd, goalId);
+        const path84 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync39(path83)) return void 0;
-          const raw = readFileSync36(path83, "utf-8");
+          if (!existsSync39(path84)) return void 0;
+          const raw = readFileSync36(path84, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -36603,11 +36721,11 @@ var init_goal_state_store = __esm({
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
       save(state, eventsPath) {
         assertSafePathId("goalId", state.goalId);
-        const path83 = goalFilePath(this.cwd, state.goalId);
+        const path84 = goalFilePath(this.cwd, state.goalId);
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync23(dirname22(path83), { recursive: true });
-          atomicWriteJson(path83, next);
+          mkdirSync23(dirname22(path84), { recursive: true });
+          atomicWriteJson(path84, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
@@ -36704,9 +36822,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path83 = goalFilePath(this.cwd, goalId);
-          if (!existsSync39(path83)) return false;
-          unlinkSync7(path83);
+          const path84 = goalFilePath(this.cwd, goalId);
+          if (!existsSync39(path84)) return false;
+          unlinkSync7(path84);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -51812,14 +51930,14 @@ var init_plan_templates = __esm({
         {
           name: "verify",
           role: "verifier",
-          taskTemplate: "Verify that all review findings are addressed. Run tests if applicable. Confirm: {{goal}} is achieved.",
+          taskTemplate: "Verify that all review findings are addressed. Run FAST checks (completes in <2 min): `npm run test:critical && npx tsc --noEmit`. Do NOT run `npm run test:unit` or `npm test` \u2014 too slow (642 files, >4 min). Confirm: {{goal}} is achieved.",
           maxTasks: 1,
           dependsOn: ["review"],
-          verificationCommand: "npm test"
+          verificationCommand: "npm run test:critical && npx tsc --noEmit"
         }
       ],
       verificationCommands: {
-        verify: "npm test"
+        verify: "npm run test:critical && npx tsc --noEmit"
       }
     });
     registerPlanTemplate({
@@ -51857,14 +51975,14 @@ var init_plan_templates = __esm({
         {
           name: "verify",
           role: "verifier",
-          taskTemplate: "Verify the complete implementation of: {{goal}}. Run tests, check types, validate all acceptance criteria.",
+          taskTemplate: "Verify the complete implementation of: {{goal}}. Run FAST checks (`npm run test:critical && npx tsc --noEmit`, completes in <2 min). Do NOT run `npm run test:unit` or `npm test` \u2014 too slow for in-loop verification (642 files, >4 min). Validate all acceptance criteria.",
           maxTasks: 1,
           dependsOn: ["review"],
-          verificationCommand: "npm test && npx tsc --noEmit"
+          verificationCommand: "npm run test:critical && npx tsc --noEmit"
         }
       ],
       verificationCommands: {
-        verify: "npm test && npx tsc --noEmit"
+        verify: "npm run test:critical && npx tsc --noEmit"
       }
     });
   }
@@ -55719,2507 +55837,6 @@ var init_parallel_research = __esm({
   }
 });
 
-// node_modules/esbuild/lib/main.js
-var require_main = __commonJS({
-  "node_modules/esbuild/lib/main.js"(exports, module) {
-    "use strict";
-    var __defProp2 = Object.defineProperty;
-    var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
-    var __getOwnPropNames2 = Object.getOwnPropertyNames;
-    var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export2 = (target, all) => {
-      for (var name in all)
-        __defProp2(target, name, { get: all[name], enumerable: true });
-    };
-    var __copyProps2 = (to, from, except, desc) => {
-      if (from && typeof from === "object" || typeof from === "function") {
-        for (let key of __getOwnPropNames2(from))
-          if (!__hasOwnProp2.call(to, key) && key !== except)
-            __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
-      }
-      return to;
-    };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
-    var node_exports = {};
-    __export2(node_exports, {
-      analyzeMetafile: () => analyzeMetafile,
-      analyzeMetafileSync: () => analyzeMetafileSync,
-      build: () => build,
-      buildSync: () => buildSync,
-      context: () => context,
-      default: () => node_default,
-      formatMessages: () => formatMessages,
-      formatMessagesSync: () => formatMessagesSync,
-      initialize: () => initialize,
-      stop: () => stop,
-      transform: () => transform,
-      transformSync: () => transformSync2,
-      version: () => version
-    });
-    module.exports = __toCommonJS(node_exports);
-    function encodePacket(packet) {
-      let visit = (value) => {
-        if (value === null) {
-          bb.write8(0);
-        } else if (typeof value === "boolean") {
-          bb.write8(1);
-          bb.write8(+value);
-        } else if (typeof value === "number") {
-          bb.write8(2);
-          bb.write32(value | 0);
-        } else if (typeof value === "string") {
-          bb.write8(3);
-          bb.write(encodeUTF8(value));
-        } else if (value instanceof Uint8Array) {
-          bb.write8(4);
-          bb.write(value);
-        } else if (value instanceof Array) {
-          bb.write8(5);
-          bb.write32(value.length);
-          for (let item of value) {
-            visit(item);
-          }
-        } else {
-          let keys = Object.keys(value);
-          bb.write8(6);
-          bb.write32(keys.length);
-          for (let key of keys) {
-            bb.write(encodeUTF8(key));
-            visit(value[key]);
-          }
-        }
-      };
-      let bb = new ByteBuffer();
-      bb.write32(0);
-      bb.write32(packet.id << 1 | +!packet.isRequest);
-      visit(packet.value);
-      writeUInt32LE(bb.buf, bb.len - 4, 0);
-      return bb.buf.subarray(0, bb.len);
-    }
-    function decodePacket(bytes) {
-      let visit = () => {
-        switch (bb.read8()) {
-          case 0:
-            return null;
-          case 1:
-            return !!bb.read8();
-          case 2:
-            return bb.read32();
-          case 3:
-            return decodeUTF8(bb.read());
-          case 4:
-            return bb.read();
-          case 5: {
-            let count2 = bb.read32();
-            let value2 = [];
-            for (let i = 0; i < count2; i++) {
-              value2.push(visit());
-            }
-            return value2;
-          }
-          case 6: {
-            let count2 = bb.read32();
-            let value2 = {};
-            for (let i = 0; i < count2; i++) {
-              value2[decodeUTF8(bb.read())] = visit();
-            }
-            return value2;
-          }
-          default:
-            throw new Error("Invalid packet");
-        }
-      };
-      let bb = new ByteBuffer(bytes);
-      let id = bb.read32();
-      let isRequest = (id & 1) === 0;
-      id >>>= 1;
-      let value = visit();
-      if (bb.ptr !== bytes.length) {
-        throw new Error("Invalid packet");
-      }
-      return { id, isRequest, value };
-    }
-    var ByteBuffer = class {
-      constructor(buf = new Uint8Array(1024)) {
-        this.buf = buf;
-        this.len = 0;
-        this.ptr = 0;
-      }
-      _write(delta) {
-        if (this.len + delta > this.buf.length) {
-          let clone = new Uint8Array((this.len + delta) * 2);
-          clone.set(this.buf);
-          this.buf = clone;
-        }
-        this.len += delta;
-        return this.len - delta;
-      }
-      write8(value) {
-        let offset = this._write(1);
-        this.buf[offset] = value;
-      }
-      write32(value) {
-        let offset = this._write(4);
-        writeUInt32LE(this.buf, value, offset);
-      }
-      write(bytes) {
-        let offset = this._write(4 + bytes.length);
-        writeUInt32LE(this.buf, bytes.length, offset);
-        this.buf.set(bytes, offset + 4);
-      }
-      _read(delta) {
-        if (this.ptr + delta > this.buf.length) {
-          throw new Error("Invalid packet");
-        }
-        this.ptr += delta;
-        return this.ptr - delta;
-      }
-      read8() {
-        return this.buf[this._read(1)];
-      }
-      read32() {
-        return readUInt32LE(this.buf, this._read(4));
-      }
-      read() {
-        let length = this.read32();
-        let bytes = new Uint8Array(length);
-        let ptr = this._read(bytes.length);
-        bytes.set(this.buf.subarray(ptr, ptr + length));
-        return bytes;
-      }
-    };
-    var encodeUTF8;
-    var decodeUTF8;
-    var encodeInvariant;
-    if (typeof TextEncoder !== "undefined" && typeof TextDecoder !== "undefined") {
-      let encoder = new TextEncoder();
-      let decoder = new TextDecoder();
-      encodeUTF8 = (text) => encoder.encode(text);
-      decodeUTF8 = (bytes) => decoder.decode(bytes);
-      encodeInvariant = 'new TextEncoder().encode("")';
-    } else if (typeof Buffer !== "undefined") {
-      encodeUTF8 = (text) => Buffer.from(text);
-      decodeUTF8 = (bytes) => {
-        let { buffer, byteOffset, byteLength } = bytes;
-        return Buffer.from(buffer, byteOffset, byteLength).toString();
-      };
-      encodeInvariant = 'Buffer.from("")';
-    } else {
-      throw new Error("No UTF-8 codec found");
-    }
-    if (!(encodeUTF8("") instanceof Uint8Array))
-      throw new Error(`Invariant violation: "${encodeInvariant} instanceof Uint8Array" is incorrectly false
-
-This indicates that your JavaScript environment is broken. You cannot use
-esbuild in this environment because esbuild relies on this invariant. This
-is not a problem with esbuild. You need to fix your environment instead.
-`);
-    function readUInt32LE(buffer, offset) {
-      return (buffer[offset++] | buffer[offset++] << 8 | buffer[offset++] << 16 | buffer[offset++] << 24) >>> 0;
-    }
-    function writeUInt32LE(buffer, value, offset) {
-      buffer[offset++] = value;
-      buffer[offset++] = value >> 8;
-      buffer[offset++] = value >> 16;
-      buffer[offset++] = value >> 24;
-    }
-    var fromCharCode = String.fromCharCode;
-    function throwSyntaxError(bytes, index, message) {
-      const c = bytes[index];
-      let line4 = 1;
-      let column = 0;
-      for (let i = 0; i < index; i++) {
-        if (bytes[i] === 10) {
-          line4++;
-          column = 0;
-        } else {
-          column++;
-        }
-      }
-      throw new SyntaxError(
-        message ? message : index === bytes.length ? "Unexpected end of input while parsing JSON" : c >= 32 && c <= 126 ? `Unexpected character ${fromCharCode(c)} in JSON at position ${index} (line ${line4}, column ${column})` : `Unexpected byte 0x${c.toString(16)} in JSON at position ${index} (line ${line4}, column ${column})`
-      );
-    }
-    function JSON_parse(bytes) {
-      if (!(bytes instanceof Uint8Array)) {
-        throw new Error(`JSON input must be a Uint8Array`);
-      }
-      const propertyStack = [];
-      const objectStack = [];
-      const stateStack = [];
-      const length = bytes.length;
-      let property = null;
-      let state = 0;
-      let object;
-      let i = 0;
-      while (i < length) {
-        let c = bytes[i++];
-        if (c <= 32) {
-          continue;
-        }
-        let value;
-        if (state === 2 && property === null && c !== 34 && c !== 125) {
-          throwSyntaxError(bytes, --i);
-        }
-        switch (c) {
-          // True
-          case 116: {
-            if (bytes[i++] !== 114 || bytes[i++] !== 117 || bytes[i++] !== 101) {
-              throwSyntaxError(bytes, --i);
-            }
-            value = true;
-            break;
-          }
-          // False
-          case 102: {
-            if (bytes[i++] !== 97 || bytes[i++] !== 108 || bytes[i++] !== 115 || bytes[i++] !== 101) {
-              throwSyntaxError(bytes, --i);
-            }
-            value = false;
-            break;
-          }
-          // Null
-          case 110: {
-            if (bytes[i++] !== 117 || bytes[i++] !== 108 || bytes[i++] !== 108) {
-              throwSyntaxError(bytes, --i);
-            }
-            value = null;
-            break;
-          }
-          // Number begin
-          case 45:
-          case 46:
-          case 48:
-          case 49:
-          case 50:
-          case 51:
-          case 52:
-          case 53:
-          case 54:
-          case 55:
-          case 56:
-          case 57: {
-            let index = i;
-            value = fromCharCode(c);
-            c = bytes[i];
-            while (true) {
-              switch (c) {
-                case 43:
-                case 45:
-                case 46:
-                case 48:
-                case 49:
-                case 50:
-                case 51:
-                case 52:
-                case 53:
-                case 54:
-                case 55:
-                case 56:
-                case 57:
-                case 101:
-                case 69: {
-                  value += fromCharCode(c);
-                  c = bytes[++i];
-                  continue;
-                }
-              }
-              break;
-            }
-            value = +value;
-            if (isNaN(value)) {
-              throwSyntaxError(bytes, --index, "Invalid number");
-            }
-            break;
-          }
-          // String begin
-          case 34: {
-            value = "";
-            while (true) {
-              if (i >= length) {
-                throwSyntaxError(bytes, length);
-              }
-              c = bytes[i++];
-              if (c === 34) {
-                break;
-              } else if (c === 92) {
-                switch (bytes[i++]) {
-                  // Normal escape sequence
-                  case 34:
-                    value += '"';
-                    break;
-                  case 47:
-                    value += "/";
-                    break;
-                  case 92:
-                    value += "\\";
-                    break;
-                  case 98:
-                    value += "\b";
-                    break;
-                  case 102:
-                    value += "\f";
-                    break;
-                  case 110:
-                    value += "\n";
-                    break;
-                  case 114:
-                    value += "\r";
-                    break;
-                  case 116:
-                    value += "	";
-                    break;
-                  // Unicode escape sequence
-                  case 117: {
-                    let code = 0;
-                    for (let j = 0; j < 4; j++) {
-                      c = bytes[i++];
-                      code <<= 4;
-                      if (c >= 48 && c <= 57) code |= c - 48;
-                      else if (c >= 97 && c <= 102) code |= c + (10 - 97);
-                      else if (c >= 65 && c <= 70) code |= c + (10 - 65);
-                      else throwSyntaxError(bytes, --i);
-                    }
-                    value += fromCharCode(code);
-                    break;
-                  }
-                  // Invalid escape sequence
-                  default:
-                    throwSyntaxError(bytes, --i);
-                    break;
-                }
-              } else if (c <= 127) {
-                value += fromCharCode(c);
-              } else if ((c & 224) === 192) {
-                value += fromCharCode((c & 31) << 6 | bytes[i++] & 63);
-              } else if ((c & 240) === 224) {
-                value += fromCharCode((c & 15) << 12 | (bytes[i++] & 63) << 6 | bytes[i++] & 63);
-              } else if ((c & 248) == 240) {
-                let codePoint = (c & 7) << 18 | (bytes[i++] & 63) << 12 | (bytes[i++] & 63) << 6 | bytes[i++] & 63;
-                if (codePoint > 65535) {
-                  codePoint -= 65536;
-                  value += fromCharCode(codePoint >> 10 & 1023 | 55296);
-                  codePoint = 56320 | codePoint & 1023;
-                }
-                value += fromCharCode(codePoint);
-              }
-            }
-            value[0];
-            break;
-          }
-          // Array begin
-          case 91: {
-            value = [];
-            propertyStack.push(property);
-            objectStack.push(object);
-            stateStack.push(state);
-            property = null;
-            object = value;
-            state = 1;
-            continue;
-          }
-          // Object begin
-          case 123: {
-            value = {};
-            propertyStack.push(property);
-            objectStack.push(object);
-            stateStack.push(state);
-            property = null;
-            object = value;
-            state = 2;
-            continue;
-          }
-          // Array end
-          case 93: {
-            if (state !== 1) {
-              throwSyntaxError(bytes, --i);
-            }
-            value = object;
-            property = propertyStack.pop();
-            object = objectStack.pop();
-            state = stateStack.pop();
-            break;
-          }
-          // Object end
-          case 125: {
-            if (state !== 2) {
-              throwSyntaxError(bytes, --i);
-            }
-            value = object;
-            property = propertyStack.pop();
-            object = objectStack.pop();
-            state = stateStack.pop();
-            break;
-          }
-          default: {
-            throwSyntaxError(bytes, --i);
-          }
-        }
-        c = bytes[i];
-        while (c <= 32) {
-          c = bytes[++i];
-        }
-        switch (state) {
-          case 0: {
-            if (i === length) {
-              return value;
-            }
-            break;
-          }
-          case 1: {
-            object.push(value);
-            if (c === 44) {
-              i++;
-              continue;
-            }
-            if (c === 93) {
-              continue;
-            }
-            break;
-          }
-          case 2: {
-            if (property === null) {
-              property = value;
-              if (c === 58) {
-                i++;
-                continue;
-              }
-            } else {
-              object[property] = value;
-              property = null;
-              if (c === 44) {
-                i++;
-                continue;
-              }
-              if (c === 125) {
-                continue;
-              }
-            }
-            break;
-          }
-        }
-        break;
-      }
-      throwSyntaxError(bytes, i);
-    }
-    var quote = JSON.stringify;
-    var buildLogLevelDefault = "warning";
-    var transformLogLevelDefault = "silent";
-    function validateAndJoinStringArray(values, what) {
-      const toJoin = [];
-      for (const value of values) {
-        validateStringValue(value, what);
-        if (value.indexOf(",") >= 0) throw new Error(`Invalid ${what}: ${value}`);
-        toJoin.push(value);
-      }
-      return toJoin.join(",");
-    }
-    var canBeAnything = () => null;
-    var mustBeBoolean = (value) => typeof value === "boolean" ? null : "a boolean";
-    var mustBeString = (value) => typeof value === "string" ? null : "a string";
-    var mustBeRegExp = (value) => value instanceof RegExp ? null : "a RegExp object";
-    var mustBeInteger = (value) => typeof value === "number" && value === (value | 0) ? null : "an integer";
-    var mustBeValidPortNumber = (value) => typeof value === "number" && value === (value | 0) && value >= 0 && value <= 65535 ? null : "a valid port number";
-    var mustBeFunction = (value) => typeof value === "function" ? null : "a function";
-    var mustBeArray = (value) => Array.isArray(value) ? null : "an array";
-    var mustBeArrayOfStrings = (value) => Array.isArray(value) && value.every((x) => typeof x === "string") ? null : "an array of strings";
-    var mustBeObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? null : "an object";
-    var mustBeEntryPoints = (value) => typeof value === "object" && value !== null ? null : "an array or an object";
-    var mustBeWebAssemblyModule = (value) => value instanceof WebAssembly.Module ? null : "a WebAssembly.Module";
-    var mustBeObjectOrNull = (value) => typeof value === "object" && !Array.isArray(value) ? null : "an object or null";
-    var mustBeStringOrBoolean = (value) => typeof value === "string" || typeof value === "boolean" ? null : "a string or a boolean";
-    var mustBeStringOrObject = (value) => typeof value === "string" || typeof value === "object" && value !== null && !Array.isArray(value) ? null : "a string or an object";
-    var mustBeStringOrArrayOfStrings = (value) => typeof value === "string" || Array.isArray(value) && value.every((x) => typeof x === "string") ? null : "a string or an array of strings";
-    var mustBeStringOrUint8Array = (value) => typeof value === "string" || value instanceof Uint8Array ? null : "a string or a Uint8Array";
-    var mustBeStringOrURL = (value) => typeof value === "string" || value instanceof URL ? null : "a string or a URL";
-    function getFlag(object, keys, key, mustBeFn) {
-      let value = object[key];
-      keys[key + ""] = true;
-      if (value === void 0) return void 0;
-      let mustBe = mustBeFn(value);
-      if (mustBe !== null) throw new Error(`${quote(key)} must be ${mustBe}`);
-      return value;
-    }
-    function checkForInvalidFlags(object, keys, where) {
-      for (let key in object) {
-        if (!(key in keys)) {
-          throw new Error(`Invalid option ${where}: ${quote(key)}`);
-        }
-      }
-    }
-    function validateInitializeOptions(options) {
-      let keys = /* @__PURE__ */ Object.create(null);
-      let wasmURL = getFlag(options, keys, "wasmURL", mustBeStringOrURL);
-      let wasmModule = getFlag(options, keys, "wasmModule", mustBeWebAssemblyModule);
-      let worker2 = getFlag(options, keys, "worker", mustBeBoolean);
-      checkForInvalidFlags(options, keys, "in initialize() call");
-      return {
-        wasmURL,
-        wasmModule,
-        worker: worker2
-      };
-    }
-    function validateMangleCache(mangleCache) {
-      let validated;
-      if (mangleCache !== void 0) {
-        validated = /* @__PURE__ */ Object.create(null);
-        for (let key in mangleCache) {
-          let value = mangleCache[key];
-          if (typeof value === "string" || value === false) {
-            validated[key] = value;
-          } else {
-            throw new Error(`Expected ${quote(key)} in mangle cache to map to either a string or false`);
-          }
-        }
-      }
-      return validated;
-    }
-    function pushLogFlags(flags, options, keys, isTTY2, logLevelDefault) {
-      let color = getFlag(options, keys, "color", mustBeBoolean);
-      let logLevel = getFlag(options, keys, "logLevel", mustBeString);
-      let logLimit = getFlag(options, keys, "logLimit", mustBeInteger);
-      if (color !== void 0) flags.push(`--color=${color}`);
-      else if (isTTY2) flags.push(`--color=true`);
-      flags.push(`--log-level=${logLevel || logLevelDefault}`);
-      flags.push(`--log-limit=${logLimit || 0}`);
-    }
-    function validateStringValue(value, what, key) {
-      if (typeof value !== "string") {
-        throw new Error(`Expected value for ${what}${key !== void 0 ? " " + quote(key) : ""} to be a string, got ${typeof value} instead`);
-      }
-      return value;
-    }
-    function pushCommonFlags(flags, options, keys) {
-      let legalComments = getFlag(options, keys, "legalComments", mustBeString);
-      let sourceRoot = getFlag(options, keys, "sourceRoot", mustBeString);
-      let sourcesContent = getFlag(options, keys, "sourcesContent", mustBeBoolean);
-      let target = getFlag(options, keys, "target", mustBeStringOrArrayOfStrings);
-      let format2 = getFlag(options, keys, "format", mustBeString);
-      let globalName = getFlag(options, keys, "globalName", mustBeString);
-      let mangleProps = getFlag(options, keys, "mangleProps", mustBeRegExp);
-      let reserveProps = getFlag(options, keys, "reserveProps", mustBeRegExp);
-      let mangleQuoted = getFlag(options, keys, "mangleQuoted", mustBeBoolean);
-      let minify = getFlag(options, keys, "minify", mustBeBoolean);
-      let minifySyntax = getFlag(options, keys, "minifySyntax", mustBeBoolean);
-      let minifyWhitespace = getFlag(options, keys, "minifyWhitespace", mustBeBoolean);
-      let minifyIdentifiers = getFlag(options, keys, "minifyIdentifiers", mustBeBoolean);
-      let lineLimit = getFlag(options, keys, "lineLimit", mustBeInteger);
-      let drop = getFlag(options, keys, "drop", mustBeArrayOfStrings);
-      let dropLabels = getFlag(options, keys, "dropLabels", mustBeArrayOfStrings);
-      let charset = getFlag(options, keys, "charset", mustBeString);
-      let treeShaking = getFlag(options, keys, "treeShaking", mustBeBoolean);
-      let ignoreAnnotations = getFlag(options, keys, "ignoreAnnotations", mustBeBoolean);
-      let jsx = getFlag(options, keys, "jsx", mustBeString);
-      let jsxFactory = getFlag(options, keys, "jsxFactory", mustBeString);
-      let jsxFragment = getFlag(options, keys, "jsxFragment", mustBeString);
-      let jsxImportSource = getFlag(options, keys, "jsxImportSource", mustBeString);
-      let jsxDev = getFlag(options, keys, "jsxDev", mustBeBoolean);
-      let jsxSideEffects = getFlag(options, keys, "jsxSideEffects", mustBeBoolean);
-      let define = getFlag(options, keys, "define", mustBeObject);
-      let logOverride = getFlag(options, keys, "logOverride", mustBeObject);
-      let supported = getFlag(options, keys, "supported", mustBeObject);
-      let pure = getFlag(options, keys, "pure", mustBeArrayOfStrings);
-      let keepNames = getFlag(options, keys, "keepNames", mustBeBoolean);
-      let platform2 = getFlag(options, keys, "platform", mustBeString);
-      let tsconfigRaw = getFlag(options, keys, "tsconfigRaw", mustBeStringOrObject);
-      let absPaths = getFlag(options, keys, "absPaths", mustBeArrayOfStrings);
-      if (legalComments) flags.push(`--legal-comments=${legalComments}`);
-      if (sourceRoot !== void 0) flags.push(`--source-root=${sourceRoot}`);
-      if (sourcesContent !== void 0) flags.push(`--sources-content=${sourcesContent}`);
-      if (target) flags.push(`--target=${validateAndJoinStringArray(Array.isArray(target) ? target : [target], "target")}`);
-      if (format2) flags.push(`--format=${format2}`);
-      if (globalName) flags.push(`--global-name=${globalName}`);
-      if (platform2) flags.push(`--platform=${platform2}`);
-      if (tsconfigRaw) flags.push(`--tsconfig-raw=${typeof tsconfigRaw === "string" ? tsconfigRaw : JSON.stringify(tsconfigRaw)}`);
-      if (minify) flags.push("--minify");
-      if (minifySyntax) flags.push("--minify-syntax");
-      if (minifyWhitespace) flags.push("--minify-whitespace");
-      if (minifyIdentifiers) flags.push("--minify-identifiers");
-      if (lineLimit) flags.push(`--line-limit=${lineLimit}`);
-      if (charset) flags.push(`--charset=${charset}`);
-      if (treeShaking !== void 0) flags.push(`--tree-shaking=${treeShaking}`);
-      if (ignoreAnnotations) flags.push(`--ignore-annotations`);
-      if (drop) for (let what of drop) flags.push(`--drop:${validateStringValue(what, "drop")}`);
-      if (dropLabels) flags.push(`--drop-labels=${validateAndJoinStringArray(dropLabels, "drop label")}`);
-      if (absPaths) flags.push(`--abs-paths=${validateAndJoinStringArray(absPaths, "abs paths")}`);
-      if (mangleProps) flags.push(`--mangle-props=${jsRegExpToGoRegExp(mangleProps)}`);
-      if (reserveProps) flags.push(`--reserve-props=${jsRegExpToGoRegExp(reserveProps)}`);
-      if (mangleQuoted !== void 0) flags.push(`--mangle-quoted=${mangleQuoted}`);
-      if (jsx) flags.push(`--jsx=${jsx}`);
-      if (jsxFactory) flags.push(`--jsx-factory=${jsxFactory}`);
-      if (jsxFragment) flags.push(`--jsx-fragment=${jsxFragment}`);
-      if (jsxImportSource) flags.push(`--jsx-import-source=${jsxImportSource}`);
-      if (jsxDev) flags.push(`--jsx-dev`);
-      if (jsxSideEffects) flags.push(`--jsx-side-effects`);
-      if (define) {
-        for (let key in define) {
-          if (key.indexOf("=") >= 0) throw new Error(`Invalid define: ${key}`);
-          flags.push(`--define:${key}=${validateStringValue(define[key], "define", key)}`);
-        }
-      }
-      if (logOverride) {
-        for (let key in logOverride) {
-          if (key.indexOf("=") >= 0) throw new Error(`Invalid log override: ${key}`);
-          flags.push(`--log-override:${key}=${validateStringValue(logOverride[key], "log override", key)}`);
-        }
-      }
-      if (supported) {
-        for (let key in supported) {
-          if (key.indexOf("=") >= 0) throw new Error(`Invalid supported: ${key}`);
-          const value = supported[key];
-          if (typeof value !== "boolean") throw new Error(`Expected value for supported ${quote(key)} to be a boolean, got ${typeof value} instead`);
-          flags.push(`--supported:${key}=${value}`);
-        }
-      }
-      if (pure) for (let fn of pure) flags.push(`--pure:${validateStringValue(fn, "pure")}`);
-      if (keepNames) flags.push(`--keep-names`);
-    }
-    function flagsForBuildOptions(callName, options, isTTY2, logLevelDefault, writeDefault) {
-      var _a2;
-      let flags = [];
-      let entries = [];
-      let keys = /* @__PURE__ */ Object.create(null);
-      let stdinContents = null;
-      let stdinResolveDir = null;
-      pushLogFlags(flags, options, keys, isTTY2, logLevelDefault);
-      pushCommonFlags(flags, options, keys);
-      let sourcemap = getFlag(options, keys, "sourcemap", mustBeStringOrBoolean);
-      let bundle = getFlag(options, keys, "bundle", mustBeBoolean);
-      let splitting = getFlag(options, keys, "splitting", mustBeBoolean);
-      let preserveSymlinks = getFlag(options, keys, "preserveSymlinks", mustBeBoolean);
-      let metafile = getFlag(options, keys, "metafile", mustBeBoolean);
-      let outfile = getFlag(options, keys, "outfile", mustBeString);
-      let outdir = getFlag(options, keys, "outdir", mustBeString);
-      let outbase = getFlag(options, keys, "outbase", mustBeString);
-      let tsconfig = getFlag(options, keys, "tsconfig", mustBeString);
-      let resolveExtensions = getFlag(options, keys, "resolveExtensions", mustBeArrayOfStrings);
-      let nodePathsInput = getFlag(options, keys, "nodePaths", mustBeArrayOfStrings);
-      let mainFields = getFlag(options, keys, "mainFields", mustBeArrayOfStrings);
-      let conditions = getFlag(options, keys, "conditions", mustBeArrayOfStrings);
-      let external = getFlag(options, keys, "external", mustBeArrayOfStrings);
-      let packages = getFlag(options, keys, "packages", mustBeString);
-      let alias = getFlag(options, keys, "alias", mustBeObject);
-      let loader = getFlag(options, keys, "loader", mustBeObject);
-      let outExtension = getFlag(options, keys, "outExtension", mustBeObject);
-      let publicPath = getFlag(options, keys, "publicPath", mustBeString);
-      let entryNames = getFlag(options, keys, "entryNames", mustBeString);
-      let chunkNames = getFlag(options, keys, "chunkNames", mustBeString);
-      let assetNames = getFlag(options, keys, "assetNames", mustBeString);
-      let inject = getFlag(options, keys, "inject", mustBeArrayOfStrings);
-      let banner = getFlag(options, keys, "banner", mustBeObject);
-      let footer = getFlag(options, keys, "footer", mustBeObject);
-      let entryPoints = getFlag(options, keys, "entryPoints", mustBeEntryPoints);
-      let absWorkingDir = getFlag(options, keys, "absWorkingDir", mustBeString);
-      let stdin = getFlag(options, keys, "stdin", mustBeObject);
-      let write2 = (_a2 = getFlag(options, keys, "write", mustBeBoolean)) != null ? _a2 : writeDefault;
-      let allowOverwrite = getFlag(options, keys, "allowOverwrite", mustBeBoolean);
-      let mangleCache = getFlag(options, keys, "mangleCache", mustBeObject);
-      keys.plugins = true;
-      checkForInvalidFlags(options, keys, `in ${callName}() call`);
-      if (sourcemap) flags.push(`--sourcemap${sourcemap === true ? "" : `=${sourcemap}`}`);
-      if (bundle) flags.push("--bundle");
-      if (allowOverwrite) flags.push("--allow-overwrite");
-      if (splitting) flags.push("--splitting");
-      if (preserveSymlinks) flags.push("--preserve-symlinks");
-      if (metafile) flags.push(`--metafile`);
-      if (outfile) flags.push(`--outfile=${outfile}`);
-      if (outdir) flags.push(`--outdir=${outdir}`);
-      if (outbase) flags.push(`--outbase=${outbase}`);
-      if (tsconfig) flags.push(`--tsconfig=${tsconfig}`);
-      if (packages) flags.push(`--packages=${packages}`);
-      if (resolveExtensions) flags.push(`--resolve-extensions=${validateAndJoinStringArray(resolveExtensions, "resolve extension")}`);
-      if (publicPath) flags.push(`--public-path=${publicPath}`);
-      if (entryNames) flags.push(`--entry-names=${entryNames}`);
-      if (chunkNames) flags.push(`--chunk-names=${chunkNames}`);
-      if (assetNames) flags.push(`--asset-names=${assetNames}`);
-      if (mainFields) flags.push(`--main-fields=${validateAndJoinStringArray(mainFields, "main field")}`);
-      if (conditions) flags.push(`--conditions=${validateAndJoinStringArray(conditions, "condition")}`);
-      if (external) for (let name of external) flags.push(`--external:${validateStringValue(name, "external")}`);
-      if (alias) {
-        for (let old in alias) {
-          if (old.indexOf("=") >= 0) throw new Error(`Invalid package name in alias: ${old}`);
-          flags.push(`--alias:${old}=${validateStringValue(alias[old], "alias", old)}`);
-        }
-      }
-      if (banner) {
-        for (let type in banner) {
-          if (type.indexOf("=") >= 0) throw new Error(`Invalid banner file type: ${type}`);
-          flags.push(`--banner:${type}=${validateStringValue(banner[type], "banner", type)}`);
-        }
-      }
-      if (footer) {
-        for (let type in footer) {
-          if (type.indexOf("=") >= 0) throw new Error(`Invalid footer file type: ${type}`);
-          flags.push(`--footer:${type}=${validateStringValue(footer[type], "footer", type)}`);
-        }
-      }
-      if (inject) for (let path310 of inject) flags.push(`--inject:${validateStringValue(path310, "inject")}`);
-      if (loader) {
-        for (let ext in loader) {
-          if (ext.indexOf("=") >= 0) throw new Error(`Invalid loader extension: ${ext}`);
-          flags.push(`--loader:${ext}=${validateStringValue(loader[ext], "loader", ext)}`);
-        }
-      }
-      if (outExtension) {
-        for (let ext in outExtension) {
-          if (ext.indexOf("=") >= 0) throw new Error(`Invalid out extension: ${ext}`);
-          flags.push(`--out-extension:${ext}=${validateStringValue(outExtension[ext], "out extension", ext)}`);
-        }
-      }
-      if (entryPoints) {
-        if (Array.isArray(entryPoints)) {
-          for (let i = 0, n = entryPoints.length; i < n; i++) {
-            let entryPoint = entryPoints[i];
-            if (typeof entryPoint === "object" && entryPoint !== null) {
-              let entryPointKeys = /* @__PURE__ */ Object.create(null);
-              let input = getFlag(entryPoint, entryPointKeys, "in", mustBeString);
-              let output = getFlag(entryPoint, entryPointKeys, "out", mustBeString);
-              checkForInvalidFlags(entryPoint, entryPointKeys, "in entry point at index " + i);
-              if (input === void 0) throw new Error('Missing property "in" for entry point at index ' + i);
-              if (output === void 0) throw new Error('Missing property "out" for entry point at index ' + i);
-              entries.push([output, input]);
-            } else {
-              entries.push(["", validateStringValue(entryPoint, "entry point at index " + i)]);
-            }
-          }
-        } else {
-          for (let key in entryPoints) {
-            entries.push([key, validateStringValue(entryPoints[key], "entry point", key)]);
-          }
-        }
-      }
-      if (stdin) {
-        let stdinKeys = /* @__PURE__ */ Object.create(null);
-        let contents = getFlag(stdin, stdinKeys, "contents", mustBeStringOrUint8Array);
-        let resolveDir = getFlag(stdin, stdinKeys, "resolveDir", mustBeString);
-        let sourcefile = getFlag(stdin, stdinKeys, "sourcefile", mustBeString);
-        let loader2 = getFlag(stdin, stdinKeys, "loader", mustBeString);
-        checkForInvalidFlags(stdin, stdinKeys, 'in "stdin" object');
-        if (sourcefile) flags.push(`--sourcefile=${sourcefile}`);
-        if (loader2) flags.push(`--loader=${loader2}`);
-        if (resolveDir) stdinResolveDir = resolveDir;
-        if (typeof contents === "string") stdinContents = encodeUTF8(contents);
-        else if (contents instanceof Uint8Array) stdinContents = contents;
-      }
-      let nodePaths = [];
-      if (nodePathsInput) {
-        for (let value of nodePathsInput) {
-          value += "";
-          nodePaths.push(value);
-        }
-      }
-      return {
-        entries,
-        flags,
-        write: write2,
-        stdinContents,
-        stdinResolveDir,
-        absWorkingDir,
-        nodePaths,
-        mangleCache: validateMangleCache(mangleCache)
-      };
-    }
-    function flagsForTransformOptions(callName, options, isTTY2, logLevelDefault) {
-      let flags = [];
-      let keys = /* @__PURE__ */ Object.create(null);
-      pushLogFlags(flags, options, keys, isTTY2, logLevelDefault);
-      pushCommonFlags(flags, options, keys);
-      let sourcemap = getFlag(options, keys, "sourcemap", mustBeStringOrBoolean);
-      let sourcefile = getFlag(options, keys, "sourcefile", mustBeString);
-      let loader = getFlag(options, keys, "loader", mustBeString);
-      let banner = getFlag(options, keys, "banner", mustBeString);
-      let footer = getFlag(options, keys, "footer", mustBeString);
-      let mangleCache = getFlag(options, keys, "mangleCache", mustBeObject);
-      checkForInvalidFlags(options, keys, `in ${callName}() call`);
-      if (sourcemap) flags.push(`--sourcemap=${sourcemap === true ? "external" : sourcemap}`);
-      if (sourcefile) flags.push(`--sourcefile=${sourcefile}`);
-      if (loader) flags.push(`--loader=${loader}`);
-      if (banner) flags.push(`--banner=${banner}`);
-      if (footer) flags.push(`--footer=${footer}`);
-      return {
-        flags,
-        mangleCache: validateMangleCache(mangleCache)
-      };
-    }
-    function createChannel(streamIn) {
-      const requestCallbacksByKey = {};
-      const closeData = { didClose: false, reason: "" };
-      let responseCallbacks = {};
-      let nextRequestID = 0;
-      let nextBuildKey = 0;
-      let stdout = new Uint8Array(16 * 1024);
-      let stdoutUsed = 0;
-      let readFromStdout = (chunk) => {
-        let limit = stdoutUsed + chunk.length;
-        if (limit > stdout.length) {
-          let swap = new Uint8Array(limit * 2);
-          swap.set(stdout);
-          stdout = swap;
-        }
-        stdout.set(chunk, stdoutUsed);
-        stdoutUsed += chunk.length;
-        let offset = 0;
-        while (offset + 4 <= stdoutUsed) {
-          let length = readUInt32LE(stdout, offset);
-          if (offset + 4 + length > stdoutUsed) {
-            break;
-          }
-          offset += 4;
-          handleIncomingPacket(stdout.subarray(offset, offset + length));
-          offset += length;
-        }
-        if (offset > 0) {
-          stdout.copyWithin(0, offset, stdoutUsed);
-          stdoutUsed -= offset;
-        }
-      };
-      let afterClose = (error) => {
-        closeData.didClose = true;
-        if (error) closeData.reason = ": " + (error.message || error);
-        const text = "The service was stopped" + closeData.reason;
-        for (let id in responseCallbacks) {
-          responseCallbacks[id](text, null);
-        }
-        responseCallbacks = {};
-      };
-      let sendRequest = (refs, value, callback) => {
-        if (closeData.didClose) return callback("The service is no longer running" + closeData.reason, null);
-        let id = nextRequestID++;
-        responseCallbacks[id] = (error, response) => {
-          try {
-            callback(error, response);
-          } finally {
-            if (refs) refs.unref();
-          }
-        };
-        if (refs) refs.ref();
-        streamIn.writeToStdin(encodePacket({ id, isRequest: true, value }));
-      };
-      let sendResponse = (id, value) => {
-        if (closeData.didClose) throw new Error("The service is no longer running" + closeData.reason);
-        streamIn.writeToStdin(encodePacket({ id, isRequest: false, value }));
-      };
-      let handleRequest = async (id, request) => {
-        try {
-          if (request.command === "ping") {
-            sendResponse(id, {});
-            return;
-          }
-          if (typeof request.key === "number") {
-            const requestCallbacks = requestCallbacksByKey[request.key];
-            if (!requestCallbacks) {
-              return;
-            }
-            const callback = requestCallbacks[request.command];
-            if (callback) {
-              await callback(id, request);
-              return;
-            }
-          }
-          throw new Error(`Invalid command: ` + request.command);
-        } catch (e) {
-          const errors2 = [extractErrorMessageV8(e, streamIn, null, void 0, "")];
-          try {
-            sendResponse(id, { errors: errors2 });
-          } catch {
-          }
-        }
-      };
-      let isFirstPacket = true;
-      let handleIncomingPacket = (bytes) => {
-        if (isFirstPacket) {
-          isFirstPacket = false;
-          let binaryVersion = String.fromCharCode(...bytes);
-          if (binaryVersion !== "0.28.1") {
-            throw new Error(`Cannot start service: Host version "${"0.28.1"}" does not match binary version ${quote(binaryVersion)}`);
-          }
-          return;
-        }
-        let packet = decodePacket(bytes);
-        if (packet.isRequest) {
-          handleRequest(packet.id, packet.value);
-        } else {
-          let callback = responseCallbacks[packet.id];
-          delete responseCallbacks[packet.id];
-          if (packet.value.error) callback(packet.value.error, {});
-          else callback(null, packet.value);
-        }
-      };
-      let buildOrContext = ({ callName, refs, options, isTTY: isTTY2, defaultWD: defaultWD2, callback }) => {
-        let refCount = 0;
-        const buildKey = nextBuildKey++;
-        const requestCallbacks = {};
-        const buildRefs = {
-          ref() {
-            if (++refCount === 1) {
-              if (refs) refs.ref();
-            }
-          },
-          unref() {
-            if (--refCount === 0) {
-              delete requestCallbacksByKey[buildKey];
-              if (refs) refs.unref();
-            }
-          }
-        };
-        requestCallbacksByKey[buildKey] = requestCallbacks;
-        buildRefs.ref();
-        buildOrContextImpl(
-          callName,
-          buildKey,
-          sendRequest,
-          sendResponse,
-          buildRefs,
-          streamIn,
-          requestCallbacks,
-          options,
-          isTTY2,
-          defaultWD2,
-          (err2, res) => {
-            try {
-              callback(err2, res);
-            } finally {
-              buildRefs.unref();
-            }
-          }
-        );
-      };
-      let transform2 = ({ callName, refs, input, options, isTTY: isTTY2, fs: fs310, callback }) => {
-        const details = createObjectStash();
-        let start = (inputPath) => {
-          try {
-            if (typeof input !== "string" && !(input instanceof Uint8Array))
-              throw new Error('The input to "transform" must be a string or a Uint8Array');
-            let {
-              flags,
-              mangleCache
-            } = flagsForTransformOptions(callName, options, isTTY2, transformLogLevelDefault);
-            let request = {
-              command: "transform",
-              flags,
-              inputFS: inputPath !== null,
-              input: inputPath !== null ? encodeUTF8(inputPath) : typeof input === "string" ? encodeUTF8(input) : input
-            };
-            if (mangleCache) request.mangleCache = mangleCache;
-            sendRequest(refs, request, (error, response) => {
-              if (error) return callback(new Error(error), null);
-              let errors2 = replaceDetailsInMessages(response.errors, details);
-              let warnings = replaceDetailsInMessages(response.warnings, details);
-              let outstanding = 1;
-              let next = () => {
-                if (--outstanding === 0) {
-                  let result4 = {
-                    warnings,
-                    code: response.code,
-                    map: response.map,
-                    mangleCache: void 0,
-                    legalComments: void 0
-                  };
-                  if ("legalComments" in response) result4.legalComments = response == null ? void 0 : response.legalComments;
-                  if (response.mangleCache) result4.mangleCache = response == null ? void 0 : response.mangleCache;
-                  callback(null, result4);
-                }
-              };
-              if (errors2.length > 0) return callback(failureErrorWithLog("Transform failed", errors2, warnings), null);
-              if (response.codeFS) {
-                outstanding++;
-                fs310.readFile(response.code, (err2, contents) => {
-                  if (err2 !== null) {
-                    callback(err2, null);
-                  } else {
-                    response.code = contents;
-                    next();
-                  }
-                });
-              }
-              if (response.mapFS) {
-                outstanding++;
-                fs310.readFile(response.map, (err2, contents) => {
-                  if (err2 !== null) {
-                    callback(err2, null);
-                  } else {
-                    response.map = contents;
-                    next();
-                  }
-                });
-              }
-              next();
-            });
-          } catch (e) {
-            let flags = [];
-            try {
-              pushLogFlags(flags, options, {}, isTTY2, transformLogLevelDefault);
-            } catch {
-            }
-            const error = extractErrorMessageV8(e, streamIn, details, void 0, "");
-            sendRequest(refs, { command: "error", flags, error }, () => {
-              error.detail = details.load(error.detail);
-              callback(failureErrorWithLog("Transform failed", [error], []), null);
-            });
-          }
-        };
-        if ((typeof input === "string" || input instanceof Uint8Array) && input.length > 1024 * 1024) {
-          let next = start;
-          start = () => fs310.writeFile(input, next);
-        }
-        start(null);
-      };
-      let formatMessages2 = ({ callName, refs, messages, options, callback }) => {
-        if (!options) throw new Error(`Missing second argument in ${callName}() call`);
-        let keys = {};
-        let kind = getFlag(options, keys, "kind", mustBeString);
-        let color = getFlag(options, keys, "color", mustBeBoolean);
-        let terminalWidth = getFlag(options, keys, "terminalWidth", mustBeInteger);
-        checkForInvalidFlags(options, keys, `in ${callName}() call`);
-        if (kind === void 0) throw new Error(`Missing "kind" in ${callName}() call`);
-        if (kind !== "error" && kind !== "warning") throw new Error(`Expected "kind" to be "error" or "warning" in ${callName}() call`);
-        let request = {
-          command: "format-msgs",
-          messages: sanitizeMessages(messages, "messages", null, "", terminalWidth),
-          isWarning: kind === "warning"
-        };
-        if (color !== void 0) request.color = color;
-        if (terminalWidth !== void 0) request.terminalWidth = terminalWidth;
-        sendRequest(refs, request, (error, response) => {
-          if (error) return callback(new Error(error), null);
-          callback(null, response.messages);
-        });
-      };
-      let analyzeMetafile2 = ({ callName, refs, metafile, options, callback }) => {
-        if (options === void 0) options = {};
-        let keys = {};
-        let color = getFlag(options, keys, "color", mustBeBoolean);
-        let verbose = getFlag(options, keys, "verbose", mustBeBoolean);
-        checkForInvalidFlags(options, keys, `in ${callName}() call`);
-        let request = {
-          command: "analyze-metafile",
-          metafile
-        };
-        if (color !== void 0) request.color = color;
-        if (verbose !== void 0) request.verbose = verbose;
-        sendRequest(refs, request, (error, response) => {
-          if (error) return callback(new Error(error), null);
-          callback(null, response.result);
-        });
-      };
-      return {
-        readFromStdout,
-        afterClose,
-        service: {
-          buildOrContext,
-          transform: transform2,
-          formatMessages: formatMessages2,
-          analyzeMetafile: analyzeMetafile2
-        }
-      };
-    }
-    function buildOrContextImpl(callName, buildKey, sendRequest, sendResponse, refs, streamIn, requestCallbacks, options, isTTY2, defaultWD2, callback) {
-      const details = createObjectStash();
-      const isContext = callName === "context";
-      const handleError = (e, pluginName) => {
-        const flags = [];
-        try {
-          pushLogFlags(flags, options, {}, isTTY2, buildLogLevelDefault);
-        } catch {
-        }
-        const message = extractErrorMessageV8(e, streamIn, details, void 0, pluginName);
-        sendRequest(refs, { command: "error", flags, error: message }, () => {
-          message.detail = details.load(message.detail);
-          callback(failureErrorWithLog(isContext ? "Context failed" : "Build failed", [message], []), null);
-        });
-      };
-      let plugins;
-      if (typeof options === "object") {
-        const value = options.plugins;
-        if (value !== void 0) {
-          if (!Array.isArray(value)) return handleError(new Error(`"plugins" must be an array`), "");
-          plugins = value;
-        }
-      }
-      if (plugins && plugins.length > 0) {
-        if (streamIn.isSync) return handleError(new Error("Cannot use plugins in synchronous API calls"), "");
-        handlePlugins(
-          buildKey,
-          sendRequest,
-          sendResponse,
-          refs,
-          streamIn,
-          requestCallbacks,
-          options,
-          plugins,
-          details
-        ).then(
-          (result4) => {
-            if (!result4.ok) return handleError(result4.error, result4.pluginName);
-            try {
-              buildOrContextContinue(result4.requestPlugins, result4.runOnEndCallbacks, result4.scheduleOnDisposeCallbacks);
-            } catch (e) {
-              handleError(e, "");
-            }
-          },
-          (e) => handleError(e, "")
-        );
-        return;
-      }
-      try {
-        buildOrContextContinue(null, (result4, done) => done([], []), () => {
-        });
-      } catch (e) {
-        handleError(e, "");
-      }
-      function buildOrContextContinue(requestPlugins, runOnEndCallbacks, scheduleOnDisposeCallbacks) {
-        const writeDefault = streamIn.hasFS;
-        const {
-          entries,
-          flags,
-          write: write2,
-          stdinContents,
-          stdinResolveDir,
-          absWorkingDir,
-          nodePaths,
-          mangleCache
-        } = flagsForBuildOptions(callName, options, isTTY2, buildLogLevelDefault, writeDefault);
-        if (write2 && !streamIn.hasFS) throw new Error(`The "write" option is unavailable in this environment`);
-        const request = {
-          command: "build",
-          key: buildKey,
-          entries,
-          flags,
-          write: write2,
-          stdinContents,
-          stdinResolveDir,
-          absWorkingDir: absWorkingDir || defaultWD2,
-          nodePaths,
-          context: isContext
-        };
-        if (requestPlugins) request.plugins = requestPlugins;
-        if (mangleCache) request.mangleCache = mangleCache;
-        const buildResponseToResult = (response, callback2) => {
-          const result4 = {
-            errors: replaceDetailsInMessages(response.errors, details),
-            warnings: replaceDetailsInMessages(response.warnings, details),
-            outputFiles: void 0,
-            metafile: void 0,
-            mangleCache: void 0
-          };
-          const originalErrors = result4.errors.slice();
-          const originalWarnings = result4.warnings.slice();
-          if (response.outputFiles) result4.outputFiles = response.outputFiles.map(convertOutputFiles);
-          if (response.metafile && response.metafile.length) result4.metafile = parseJSON(response.metafile);
-          if (response.mangleCache) result4.mangleCache = response.mangleCache;
-          if (response.writeToStdout !== void 0) console.log(decodeUTF8(response.writeToStdout).replace(/\n$/, ""));
-          runOnEndCallbacks(result4, (onEndErrors, onEndWarnings) => {
-            if (originalErrors.length > 0 || onEndErrors.length > 0) {
-              const error = failureErrorWithLog("Build failed", originalErrors.concat(onEndErrors), originalWarnings.concat(onEndWarnings));
-              return callback2(error, null, onEndErrors, onEndWarnings);
-            }
-            callback2(null, result4, onEndErrors, onEndWarnings);
-          });
-        };
-        let latestResultPromise;
-        let provideLatestResult;
-        if (isContext)
-          requestCallbacks["on-end"] = (id, request2) => new Promise((resolve22) => {
-            buildResponseToResult(request2, (err2, result4, onEndErrors, onEndWarnings) => {
-              const response = {
-                errors: onEndErrors,
-                warnings: onEndWarnings
-              };
-              if (provideLatestResult) provideLatestResult(err2, result4);
-              latestResultPromise = void 0;
-              provideLatestResult = void 0;
-              sendResponse(id, response);
-              resolve22();
-            });
-          });
-        sendRequest(refs, request, (error, response) => {
-          if (error) return callback(new Error(error), null);
-          if (!isContext) {
-            return buildResponseToResult(response, (err2, res) => {
-              scheduleOnDisposeCallbacks();
-              return callback(err2, res);
-            });
-          }
-          if (response.errors.length > 0) {
-            return callback(failureErrorWithLog("Context failed", response.errors, response.warnings), null);
-          }
-          let didDispose = false;
-          const result4 = {
-            rebuild: () => {
-              if (!latestResultPromise) latestResultPromise = new Promise((resolve22, reject) => {
-                let settlePromise;
-                provideLatestResult = (err2, result22) => {
-                  if (!settlePromise) settlePromise = () => err2 ? reject(err2) : resolve22(result22);
-                };
-                const triggerAnotherBuild = () => {
-                  const request2 = {
-                    command: "rebuild",
-                    key: buildKey
-                  };
-                  sendRequest(refs, request2, (error2, response2) => {
-                    if (error2) {
-                      reject(new Error(error2));
-                    } else if (settlePromise) {
-                      settlePromise();
-                    } else {
-                      triggerAnotherBuild();
-                    }
-                  });
-                };
-                triggerAnotherBuild();
-              });
-              return latestResultPromise;
-            },
-            watch: (options2 = {}) => new Promise((resolve22, reject) => {
-              if (!streamIn.hasFS) throw new Error(`Cannot use the "watch" API in this environment`);
-              const keys = {};
-              const delay = getFlag(options2, keys, "delay", mustBeInteger);
-              checkForInvalidFlags(options2, keys, `in watch() call`);
-              const request2 = {
-                command: "watch",
-                key: buildKey
-              };
-              if (delay) request2.delay = delay;
-              sendRequest(refs, request2, (error2) => {
-                if (error2) reject(new Error(error2));
-                else resolve22(void 0);
-              });
-            }),
-            serve: (options2 = {}) => new Promise((resolve22, reject) => {
-              if (!streamIn.hasFS) throw new Error(`Cannot use the "serve" API in this environment`);
-              const keys = {};
-              const port = getFlag(options2, keys, "port", mustBeValidPortNumber);
-              const host = getFlag(options2, keys, "host", mustBeString);
-              const servedir = getFlag(options2, keys, "servedir", mustBeString);
-              const keyfile = getFlag(options2, keys, "keyfile", mustBeString);
-              const certfile = getFlag(options2, keys, "certfile", mustBeString);
-              const fallback2 = getFlag(options2, keys, "fallback", mustBeString);
-              const cors = getFlag(options2, keys, "cors", mustBeObject);
-              const onRequest = getFlag(options2, keys, "onRequest", mustBeFunction);
-              checkForInvalidFlags(options2, keys, `in serve() call`);
-              const request2 = {
-                command: "serve",
-                key: buildKey,
-                onRequest: !!onRequest
-              };
-              if (port !== void 0) request2.port = port;
-              if (host !== void 0) request2.host = host;
-              if (servedir !== void 0) request2.servedir = servedir;
-              if (keyfile !== void 0) request2.keyfile = keyfile;
-              if (certfile !== void 0) request2.certfile = certfile;
-              if (fallback2 !== void 0) request2.fallback = fallback2;
-              if (cors) {
-                const corsKeys = {};
-                const origin = getFlag(cors, corsKeys, "origin", mustBeStringOrArrayOfStrings);
-                checkForInvalidFlags(cors, corsKeys, `on "cors" object`);
-                if (Array.isArray(origin)) request2.corsOrigin = origin;
-                else if (origin !== void 0) request2.corsOrigin = [origin];
-              }
-              sendRequest(refs, request2, (error2, response2) => {
-                if (error2) return reject(new Error(error2));
-                if (onRequest) {
-                  requestCallbacks["serve-request"] = (id, request3) => {
-                    onRequest(request3.args);
-                    sendResponse(id, {});
-                  };
-                }
-                resolve22(response2);
-              });
-            }),
-            cancel: () => new Promise((resolve22) => {
-              if (didDispose) return resolve22();
-              const request2 = {
-                command: "cancel",
-                key: buildKey
-              };
-              sendRequest(refs, request2, () => {
-                resolve22();
-              });
-            }),
-            dispose: () => new Promise((resolve22) => {
-              if (didDispose) return resolve22();
-              didDispose = true;
-              const request2 = {
-                command: "dispose",
-                key: buildKey
-              };
-              sendRequest(refs, request2, () => {
-                resolve22();
-                scheduleOnDisposeCallbacks();
-                refs.unref();
-              });
-            })
-          };
-          refs.ref();
-          callback(null, result4);
-        });
-      }
-    }
-    var handlePlugins = async (buildKey, sendRequest, sendResponse, refs, streamIn, requestCallbacks, initialOptions, plugins, details) => {
-      let onStartCallbacks = [];
-      let onEndCallbacks = [];
-      let onResolveCallbacks = {};
-      let onLoadCallbacks = {};
-      let onDisposeCallbacks = [];
-      let nextCallbackID = 0;
-      let i = 0;
-      let requestPlugins = [];
-      let isSetupDone = false;
-      plugins = [...plugins];
-      for (let item of plugins) {
-        let keys = {};
-        if (typeof item !== "object") throw new Error(`Plugin at index ${i} must be an object`);
-        const name = getFlag(item, keys, "name", mustBeString);
-        if (typeof name !== "string" || name === "") throw new Error(`Plugin at index ${i} is missing a name`);
-        try {
-          let setup = getFlag(item, keys, "setup", mustBeFunction);
-          if (typeof setup !== "function") throw new Error(`Plugin is missing a setup function`);
-          checkForInvalidFlags(item, keys, `on plugin ${quote(name)}`);
-          let plugin = {
-            name,
-            onStart: false,
-            onEnd: false,
-            onResolve: [],
-            onLoad: []
-          };
-          i++;
-          let resolve22 = (path310, options = {}) => {
-            if (!isSetupDone) throw new Error('Cannot call "resolve" before plugin setup has completed');
-            if (typeof path310 !== "string") throw new Error(`The path to resolve must be a string`);
-            let keys2 = /* @__PURE__ */ Object.create(null);
-            let pluginName = getFlag(options, keys2, "pluginName", mustBeString);
-            let importer = getFlag(options, keys2, "importer", mustBeString);
-            let namespace2 = getFlag(options, keys2, "namespace", mustBeString);
-            let resolveDir = getFlag(options, keys2, "resolveDir", mustBeString);
-            let kind = getFlag(options, keys2, "kind", mustBeString);
-            let pluginData = getFlag(options, keys2, "pluginData", canBeAnything);
-            let importAttributes = getFlag(options, keys2, "with", mustBeObject);
-            checkForInvalidFlags(options, keys2, "in resolve() call");
-            return new Promise((resolve23, reject) => {
-              const request = {
-                command: "resolve",
-                path: path310,
-                key: buildKey,
-                pluginName: name
-              };
-              if (pluginName != null) request.pluginName = pluginName;
-              if (importer != null) request.importer = importer;
-              if (namespace2 != null) request.namespace = namespace2;
-              if (resolveDir != null) request.resolveDir = resolveDir;
-              if (kind != null) request.kind = kind;
-              else throw new Error(`Must specify "kind" when calling "resolve"`);
-              if (pluginData != null) request.pluginData = details.store(pluginData);
-              if (importAttributes != null) request.with = sanitizeStringMap(importAttributes, "with");
-              sendRequest(refs, request, (error, response) => {
-                if (error !== null) reject(new Error(error));
-                else resolve23({
-                  errors: replaceDetailsInMessages(response.errors, details),
-                  warnings: replaceDetailsInMessages(response.warnings, details),
-                  path: response.path,
-                  external: response.external,
-                  sideEffects: response.sideEffects,
-                  namespace: response.namespace,
-                  suffix: response.suffix,
-                  pluginData: details.load(response.pluginData)
-                });
-              });
-            });
-          };
-          let promise = setup({
-            initialOptions,
-            resolve: resolve22,
-            onStart(callback) {
-              let registeredText = `This error came from the "onStart" callback registered here:`;
-              let registeredNote = extractCallerV8(new Error(registeredText), streamIn, "onStart");
-              onStartCallbacks.push({ name, callback, note: registeredNote });
-              plugin.onStart = true;
-            },
-            onEnd(callback) {
-              let registeredText = `This error came from the "onEnd" callback registered here:`;
-              let registeredNote = extractCallerV8(new Error(registeredText), streamIn, "onEnd");
-              onEndCallbacks.push({ name, callback, note: registeredNote });
-              plugin.onEnd = true;
-            },
-            onResolve(options, callback) {
-              let registeredText = `This error came from the "onResolve" callback registered here:`;
-              let registeredNote = extractCallerV8(new Error(registeredText), streamIn, "onResolve");
-              let keys2 = {};
-              let filter = getFlag(options, keys2, "filter", mustBeRegExp);
-              let namespace2 = getFlag(options, keys2, "namespace", mustBeString);
-              checkForInvalidFlags(options, keys2, `in onResolve() call for plugin ${quote(name)}`);
-              if (filter == null) throw new Error(`onResolve() call is missing a filter`);
-              let id = nextCallbackID++;
-              onResolveCallbacks[id] = { name, callback, note: registeredNote };
-              plugin.onResolve.push({ id, filter: jsRegExpToGoRegExp(filter), namespace: namespace2 || "" });
-            },
-            onLoad(options, callback) {
-              let registeredText = `This error came from the "onLoad" callback registered here:`;
-              let registeredNote = extractCallerV8(new Error(registeredText), streamIn, "onLoad");
-              let keys2 = {};
-              let filter = getFlag(options, keys2, "filter", mustBeRegExp);
-              let namespace2 = getFlag(options, keys2, "namespace", mustBeString);
-              checkForInvalidFlags(options, keys2, `in onLoad() call for plugin ${quote(name)}`);
-              if (filter == null) throw new Error(`onLoad() call is missing a filter`);
-              let id = nextCallbackID++;
-              onLoadCallbacks[id] = { name, callback, note: registeredNote };
-              plugin.onLoad.push({ id, filter: jsRegExpToGoRegExp(filter), namespace: namespace2 || "" });
-            },
-            onDispose(callback) {
-              onDisposeCallbacks.push(callback);
-            },
-            esbuild: streamIn.esbuild
-          });
-          if (promise) await promise;
-          requestPlugins.push(plugin);
-        } catch (e) {
-          return { ok: false, error: e, pluginName: name };
-        }
-      }
-      requestCallbacks["on-start"] = async (id, request) => {
-        details.clear();
-        let response = { errors: [], warnings: [] };
-        await Promise.all(onStartCallbacks.map(async ({ name, callback, note: note2 }) => {
-          try {
-            let result4 = await callback();
-            if (result4 != null) {
-              if (typeof result4 !== "object") throw new Error(`Expected onStart() callback in plugin ${quote(name)} to return an object`);
-              let keys = {};
-              let errors2 = getFlag(result4, keys, "errors", mustBeArray);
-              let warnings = getFlag(result4, keys, "warnings", mustBeArray);
-              checkForInvalidFlags(result4, keys, `from onStart() callback in plugin ${quote(name)}`);
-              if (errors2 != null) response.errors.push(...sanitizeMessages(errors2, "errors", details, name, void 0));
-              if (warnings != null) response.warnings.push(...sanitizeMessages(warnings, "warnings", details, name, void 0));
-            }
-          } catch (e) {
-            response.errors.push(extractErrorMessageV8(e, streamIn, details, note2 && note2(), name));
-          }
-        }));
-        sendResponse(id, response);
-      };
-      requestCallbacks["on-resolve"] = async (id, request) => {
-        let response = {}, name = "", callback, note2;
-        for (let id2 of request.ids) {
-          try {
-            ({ name, callback, note: note2 } = onResolveCallbacks[id2]);
-            let result4 = await callback({
-              path: request.path,
-              importer: request.importer,
-              namespace: request.namespace,
-              resolveDir: request.resolveDir,
-              kind: request.kind,
-              pluginData: details.load(request.pluginData),
-              with: request.with
-            });
-            if (result4 != null) {
-              if (typeof result4 !== "object") throw new Error(`Expected onResolve() callback in plugin ${quote(name)} to return an object`);
-              let keys = {};
-              let pluginName = getFlag(result4, keys, "pluginName", mustBeString);
-              let path310 = getFlag(result4, keys, "path", mustBeString);
-              let namespace2 = getFlag(result4, keys, "namespace", mustBeString);
-              let suffix = getFlag(result4, keys, "suffix", mustBeString);
-              let external = getFlag(result4, keys, "external", mustBeBoolean);
-              let sideEffects = getFlag(result4, keys, "sideEffects", mustBeBoolean);
-              let pluginData = getFlag(result4, keys, "pluginData", canBeAnything);
-              let errors2 = getFlag(result4, keys, "errors", mustBeArray);
-              let warnings = getFlag(result4, keys, "warnings", mustBeArray);
-              let watchFiles = getFlag(result4, keys, "watchFiles", mustBeArrayOfStrings);
-              let watchDirs = getFlag(result4, keys, "watchDirs", mustBeArrayOfStrings);
-              checkForInvalidFlags(result4, keys, `from onResolve() callback in plugin ${quote(name)}`);
-              response.id = id2;
-              if (pluginName != null) response.pluginName = pluginName;
-              if (path310 != null) response.path = path310;
-              if (namespace2 != null) response.namespace = namespace2;
-              if (suffix != null) response.suffix = suffix;
-              if (external != null) response.external = external;
-              if (sideEffects != null) response.sideEffects = sideEffects;
-              if (pluginData != null) response.pluginData = details.store(pluginData);
-              if (errors2 != null) response.errors = sanitizeMessages(errors2, "errors", details, name, void 0);
-              if (warnings != null) response.warnings = sanitizeMessages(warnings, "warnings", details, name, void 0);
-              if (watchFiles != null) response.watchFiles = sanitizeStringArray(watchFiles, "watchFiles");
-              if (watchDirs != null) response.watchDirs = sanitizeStringArray(watchDirs, "watchDirs");
-              break;
-            }
-          } catch (e) {
-            response = { id: id2, errors: [extractErrorMessageV8(e, streamIn, details, note2 && note2(), name)] };
-            break;
-          }
-        }
-        sendResponse(id, response);
-      };
-      requestCallbacks["on-load"] = async (id, request) => {
-        let response = {}, name = "", callback, note2;
-        for (let id2 of request.ids) {
-          try {
-            ({ name, callback, note: note2 } = onLoadCallbacks[id2]);
-            let result4 = await callback({
-              path: request.path,
-              namespace: request.namespace,
-              suffix: request.suffix,
-              pluginData: details.load(request.pluginData),
-              with: request.with
-            });
-            if (result4 != null) {
-              if (typeof result4 !== "object") throw new Error(`Expected onLoad() callback in plugin ${quote(name)} to return an object`);
-              let keys = {};
-              let pluginName = getFlag(result4, keys, "pluginName", mustBeString);
-              let contents = getFlag(result4, keys, "contents", mustBeStringOrUint8Array);
-              let resolveDir = getFlag(result4, keys, "resolveDir", mustBeString);
-              let pluginData = getFlag(result4, keys, "pluginData", canBeAnything);
-              let loader = getFlag(result4, keys, "loader", mustBeString);
-              let errors2 = getFlag(result4, keys, "errors", mustBeArray);
-              let warnings = getFlag(result4, keys, "warnings", mustBeArray);
-              let watchFiles = getFlag(result4, keys, "watchFiles", mustBeArrayOfStrings);
-              let watchDirs = getFlag(result4, keys, "watchDirs", mustBeArrayOfStrings);
-              checkForInvalidFlags(result4, keys, `from onLoad() callback in plugin ${quote(name)}`);
-              response.id = id2;
-              if (pluginName != null) response.pluginName = pluginName;
-              if (contents instanceof Uint8Array) response.contents = contents;
-              else if (contents != null) response.contents = encodeUTF8(contents);
-              if (resolveDir != null) response.resolveDir = resolveDir;
-              if (pluginData != null) response.pluginData = details.store(pluginData);
-              if (loader != null) response.loader = loader;
-              if (errors2 != null) response.errors = sanitizeMessages(errors2, "errors", details, name, void 0);
-              if (warnings != null) response.warnings = sanitizeMessages(warnings, "warnings", details, name, void 0);
-              if (watchFiles != null) response.watchFiles = sanitizeStringArray(watchFiles, "watchFiles");
-              if (watchDirs != null) response.watchDirs = sanitizeStringArray(watchDirs, "watchDirs");
-              break;
-            }
-          } catch (e) {
-            response = { id: id2, errors: [extractErrorMessageV8(e, streamIn, details, note2 && note2(), name)] };
-            break;
-          }
-        }
-        sendResponse(id, response);
-      };
-      let runOnEndCallbacks = (result4, done) => done([], []);
-      if (onEndCallbacks.length > 0) {
-        runOnEndCallbacks = (result4, done) => {
-          (async () => {
-            const onEndErrors = [];
-            const onEndWarnings = [];
-            for (const { name, callback, note: note2 } of onEndCallbacks) {
-              let newErrors;
-              let newWarnings;
-              try {
-                const value = await callback(result4);
-                if (value != null) {
-                  if (typeof value !== "object") throw new Error(`Expected onEnd() callback in plugin ${quote(name)} to return an object`);
-                  let keys = {};
-                  let errors2 = getFlag(value, keys, "errors", mustBeArray);
-                  let warnings = getFlag(value, keys, "warnings", mustBeArray);
-                  checkForInvalidFlags(value, keys, `from onEnd() callback in plugin ${quote(name)}`);
-                  if (errors2 != null) newErrors = sanitizeMessages(errors2, "errors", details, name, void 0);
-                  if (warnings != null) newWarnings = sanitizeMessages(warnings, "warnings", details, name, void 0);
-                }
-              } catch (e) {
-                newErrors = [extractErrorMessageV8(e, streamIn, details, note2 && note2(), name)];
-              }
-              if (newErrors) {
-                onEndErrors.push(...newErrors);
-                try {
-                  result4.errors.push(...newErrors);
-                } catch {
-                }
-              }
-              if (newWarnings) {
-                onEndWarnings.push(...newWarnings);
-                try {
-                  result4.warnings.push(...newWarnings);
-                } catch {
-                }
-              }
-            }
-            done(onEndErrors, onEndWarnings);
-          })();
-        };
-      }
-      let scheduleOnDisposeCallbacks = () => {
-        for (const cb of onDisposeCallbacks) {
-          setTimeout(() => cb(), 0);
-        }
-      };
-      isSetupDone = true;
-      return {
-        ok: true,
-        requestPlugins,
-        runOnEndCallbacks,
-        scheduleOnDisposeCallbacks
-      };
-    };
-    function createObjectStash() {
-      const map = /* @__PURE__ */ new Map();
-      let nextID = 0;
-      return {
-        clear() {
-          map.clear();
-        },
-        load(id) {
-          return map.get(id);
-        },
-        store(value) {
-          if (value === void 0) return -1;
-          const id = nextID++;
-          map.set(id, value);
-          return id;
-        }
-      };
-    }
-    function extractCallerV8(e, streamIn, ident) {
-      let note2;
-      let tried = false;
-      return () => {
-        if (tried) return note2;
-        tried = true;
-        try {
-          let lines = (e.stack + "").split("\n");
-          lines.splice(1, 1);
-          let location = parseStackLinesV8(streamIn, lines, ident);
-          if (location) {
-            note2 = { text: e.message, location };
-            return note2;
-          }
-        } catch {
-        }
-      };
-    }
-    function extractErrorMessageV8(e, streamIn, stash, note2, pluginName) {
-      let text = "Internal error";
-      let location = null;
-      try {
-        text = (e && e.message || e) + "";
-      } catch {
-      }
-      try {
-        location = parseStackLinesV8(streamIn, (e.stack + "").split("\n"), "");
-      } catch {
-      }
-      return { id: "", pluginName, text, location, notes: note2 ? [note2] : [], detail: stash ? stash.store(e) : -1 };
-    }
-    function parseStackLinesV8(streamIn, lines, ident) {
-      let at = "    at ";
-      if (streamIn.readFileSync && !lines[0].startsWith(at) && lines[1].startsWith(at)) {
-        for (let i = 1; i < lines.length; i++) {
-          let line4 = lines[i];
-          if (!line4.startsWith(at)) continue;
-          line4 = line4.slice(at.length);
-          while (true) {
-            let match = /^(?:new |async )?\S+ \((.*)\)$/.exec(line4);
-            if (match) {
-              line4 = match[1];
-              continue;
-            }
-            match = /^eval at \S+ \((.*)\)(?:, \S+:\d+:\d+)?$/.exec(line4);
-            if (match) {
-              line4 = match[1];
-              continue;
-            }
-            match = /^(\S+):(\d+):(\d+)$/.exec(line4);
-            if (match) {
-              let contents;
-              try {
-                contents = streamIn.readFileSync(match[1], "utf8");
-              } catch {
-                break;
-              }
-              let lineText = contents.split(/\r\n|\r|\n|\u2028|\u2029/)[+match[2] - 1] || "";
-              let column = +match[3] - 1;
-              let length = lineText.slice(column, column + ident.length) === ident ? ident.length : 0;
-              return {
-                file: match[1],
-                namespace: "file",
-                line: +match[2],
-                column: encodeUTF8(lineText.slice(0, column)).length,
-                length: encodeUTF8(lineText.slice(column, column + length)).length,
-                lineText: lineText + "\n" + lines.slice(1).join("\n"),
-                suggestion: ""
-              };
-            }
-            break;
-          }
-        }
-      }
-      return null;
-    }
-    function failureErrorWithLog(text, errors2, warnings) {
-      let limit = 5;
-      text += errors2.length < 1 ? "" : ` with ${errors2.length} error${errors2.length < 2 ? "" : "s"}:` + errors2.slice(0, limit + 1).map((e, i) => {
-        if (i === limit) return "\n...";
-        if (!e.location) return `
-error: ${e.text}`;
-        let { file, line: line4, column } = e.location;
-        let pluginText = e.pluginName ? `[plugin: ${e.pluginName}] ` : "";
-        return `
-${file}:${line4}:${column}: ERROR: ${pluginText}${e.text}`;
-      }).join("");
-      let error = new Error(text);
-      for (const [key, value] of [["errors", errors2], ["warnings", warnings]]) {
-        Object.defineProperty(error, key, {
-          configurable: true,
-          enumerable: true,
-          get: () => value,
-          set: (value2) => Object.defineProperty(error, key, {
-            configurable: true,
-            enumerable: true,
-            value: value2
-          })
-        });
-      }
-      return error;
-    }
-    function replaceDetailsInMessages(messages, stash) {
-      for (const message of messages) {
-        message.detail = stash.load(message.detail);
-      }
-      return messages;
-    }
-    function sanitizeLocation(location, where, terminalWidth) {
-      if (location == null) return null;
-      let keys = {};
-      let file = getFlag(location, keys, "file", mustBeString);
-      let namespace2 = getFlag(location, keys, "namespace", mustBeString);
-      let line4 = getFlag(location, keys, "line", mustBeInteger);
-      let column = getFlag(location, keys, "column", mustBeInteger);
-      let length = getFlag(location, keys, "length", mustBeInteger);
-      let lineText = getFlag(location, keys, "lineText", mustBeString);
-      let suggestion = getFlag(location, keys, "suggestion", mustBeString);
-      checkForInvalidFlags(location, keys, where);
-      if (lineText) {
-        const relevantASCII = lineText.slice(
-          0,
-          (column && column > 0 ? column : 0) + (length && length > 0 ? length : 0) + (terminalWidth && terminalWidth > 0 ? terminalWidth : 80)
-        );
-        if (!/[\x7F-\uFFFF]/.test(relevantASCII) && !/\n/.test(lineText)) {
-          lineText = relevantASCII;
-        }
-      }
-      return {
-        file: file || "",
-        namespace: namespace2 || "",
-        line: line4 || 0,
-        column: column || 0,
-        length: length || 0,
-        lineText: lineText || "",
-        suggestion: suggestion || ""
-      };
-    }
-    function sanitizeMessages(messages, property, stash, fallbackPluginName, terminalWidth) {
-      let messagesClone = [];
-      let index = 0;
-      for (const message of messages) {
-        let keys = {};
-        let id = getFlag(message, keys, "id", mustBeString);
-        let pluginName = getFlag(message, keys, "pluginName", mustBeString);
-        let text = getFlag(message, keys, "text", mustBeString);
-        let location = getFlag(message, keys, "location", mustBeObjectOrNull);
-        let notes = getFlag(message, keys, "notes", mustBeArray);
-        let detail = getFlag(message, keys, "detail", canBeAnything);
-        let where = `in element ${index} of "${property}"`;
-        checkForInvalidFlags(message, keys, where);
-        let notesClone = [];
-        if (notes) {
-          for (const note2 of notes) {
-            let noteKeys = {};
-            let noteText = getFlag(note2, noteKeys, "text", mustBeString);
-            let noteLocation = getFlag(note2, noteKeys, "location", mustBeObjectOrNull);
-            checkForInvalidFlags(note2, noteKeys, where);
-            notesClone.push({
-              text: noteText || "",
-              location: sanitizeLocation(noteLocation, where, terminalWidth)
-            });
-          }
-        }
-        messagesClone.push({
-          id: id || "",
-          pluginName: pluginName || fallbackPluginName,
-          text: text || "",
-          location: sanitizeLocation(location, where, terminalWidth),
-          notes: notesClone,
-          detail: stash ? stash.store(detail) : -1
-        });
-        index++;
-      }
-      return messagesClone;
-    }
-    function sanitizeStringArray(values, property) {
-      const result4 = [];
-      for (const value of values) {
-        if (typeof value !== "string") throw new Error(`${quote(property)} must be an array of strings`);
-        result4.push(value);
-      }
-      return result4;
-    }
-    function sanitizeStringMap(map, property) {
-      const result4 = /* @__PURE__ */ Object.create(null);
-      for (const key in map) {
-        const value = map[key];
-        if (typeof value !== "string") throw new Error(`key ${quote(key)} in object ${quote(property)} must be a string`);
-        result4[key] = value;
-      }
-      return result4;
-    }
-    function convertOutputFiles({ path: path310, contents, hash }) {
-      let text = null;
-      return {
-        path: path310,
-        contents,
-        hash,
-        get text() {
-          const binary = this.contents;
-          if (text === null || binary !== contents) {
-            contents = binary;
-            text = decodeUTF8(binary);
-          }
-          return text;
-        }
-      };
-    }
-    function jsRegExpToGoRegExp(regexp) {
-      let result4 = regexp.source;
-      if (regexp.flags) result4 = `(?${regexp.flags})${result4}`;
-      return result4;
-    }
-    function parseJSON(bytes) {
-      let text;
-      try {
-        text = decodeUTF8(bytes);
-      } catch {
-        return JSON_parse(bytes);
-      }
-      return JSON.parse(text);
-    }
-    var fs106 = __require("fs");
-    var os17 = __require("os");
-    var path83 = __require("path");
-    var ESBUILD_BINARY_PATH = process.env.ESBUILD_BINARY_PATH || ESBUILD_BINARY_PATH;
-    var isValidBinaryPath = (x) => !!x && x !== "/usr/bin/esbuild";
-    var packageDarwin_arm64 = "@esbuild/darwin-arm64";
-    var packageDarwin_x64 = "@esbuild/darwin-x64";
-    var knownWindowsPackages = {
-      "win32 arm64 LE": "@esbuild/win32-arm64",
-      "win32 ia32 LE": "@esbuild/win32-ia32",
-      "win32 x64 LE": "@esbuild/win32-x64"
-    };
-    var knownUnixlikePackages = {
-      "aix ppc64 BE": "@esbuild/aix-ppc64",
-      "android arm64 LE": "@esbuild/android-arm64",
-      "darwin arm64 LE": "@esbuild/darwin-arm64",
-      "darwin x64 LE": "@esbuild/darwin-x64",
-      "freebsd arm64 LE": "@esbuild/freebsd-arm64",
-      "freebsd x64 LE": "@esbuild/freebsd-x64",
-      "linux arm LE": "@esbuild/linux-arm",
-      "linux arm64 LE": "@esbuild/linux-arm64",
-      "linux ia32 LE": "@esbuild/linux-ia32",
-      "linux mips64el LE": "@esbuild/linux-mips64el",
-      "linux ppc64 LE": "@esbuild/linux-ppc64",
-      "linux riscv64 LE": "@esbuild/linux-riscv64",
-      "linux s390x BE": "@esbuild/linux-s390x",
-      "linux x64 LE": "@esbuild/linux-x64",
-      "linux loong64 LE": "@esbuild/linux-loong64",
-      "netbsd arm64 LE": "@esbuild/netbsd-arm64",
-      "netbsd x64 LE": "@esbuild/netbsd-x64",
-      "openbsd arm64 LE": "@esbuild/openbsd-arm64",
-      "openbsd x64 LE": "@esbuild/openbsd-x64",
-      "sunos x64 LE": "@esbuild/sunos-x64"
-    };
-    var knownWebAssemblyFallbackPackages = {
-      "android arm LE": "@esbuild/android-arm",
-      "android x64 LE": "@esbuild/android-x64",
-      "openharmony arm64 LE": "@esbuild/openharmony-arm64"
-    };
-    function pkgAndSubpathForCurrentPlatform() {
-      let pkg;
-      let subpath;
-      let isWASM = false;
-      let platformKey = `${process.platform} ${os17.arch()} ${os17.endianness()}`;
-      if (platformKey in knownWindowsPackages) {
-        pkg = knownWindowsPackages[platformKey];
-        subpath = "esbuild.exe";
-      } else if (platformKey in knownUnixlikePackages) {
-        pkg = knownUnixlikePackages[platformKey];
-        subpath = "bin/esbuild";
-      } else if (platformKey in knownWebAssemblyFallbackPackages) {
-        pkg = knownWebAssemblyFallbackPackages[platformKey];
-        subpath = "bin/esbuild";
-        isWASM = true;
-      } else {
-        throw new Error(`Unsupported platform: ${platformKey}`);
-      }
-      return { pkg, subpath, isWASM };
-    }
-    function pkgForSomeOtherPlatform() {
-      const libMainJS = __require.resolve("esbuild");
-      const nodeModulesDirectory = path83.dirname(path83.dirname(path83.dirname(libMainJS)));
-      if (path83.basename(nodeModulesDirectory) === "node_modules") {
-        for (const unixKey in knownUnixlikePackages) {
-          try {
-            const pkg = knownUnixlikePackages[unixKey];
-            if (fs106.existsSync(path83.join(nodeModulesDirectory, pkg))) return pkg;
-          } catch {
-          }
-        }
-        for (const windowsKey in knownWindowsPackages) {
-          try {
-            const pkg = knownWindowsPackages[windowsKey];
-            if (fs106.existsSync(path83.join(nodeModulesDirectory, pkg))) return pkg;
-          } catch {
-          }
-        }
-      }
-      return null;
-    }
-    function downloadedBinPath(pkg, subpath) {
-      const esbuildLibDir = path83.dirname(__require.resolve("esbuild"));
-      return path83.join(esbuildLibDir, `downloaded-${pkg.replace("/", "-")}-${path83.basename(subpath)}`);
-    }
-    function generateBinPath() {
-      if (isValidBinaryPath(ESBUILD_BINARY_PATH)) {
-        if (!fs106.existsSync(ESBUILD_BINARY_PATH)) {
-          console.warn(`[esbuild] Ignoring bad configuration: ESBUILD_BINARY_PATH=${ESBUILD_BINARY_PATH}`);
-        } else {
-          return { binPath: ESBUILD_BINARY_PATH, isWASM: false };
-        }
-      }
-      const { pkg, subpath, isWASM } = pkgAndSubpathForCurrentPlatform();
-      let binPath;
-      try {
-        binPath = __require.resolve(`${pkg}/${subpath}`);
-      } catch (e) {
-        binPath = downloadedBinPath(pkg, subpath);
-        if (!fs106.existsSync(binPath)) {
-          try {
-            __require.resolve(pkg);
-          } catch {
-            const otherPkg = pkgForSomeOtherPlatform();
-            if (otherPkg) {
-              let suggestions = `
-Specifically the "${otherPkg}" package is present but this platform
-needs the "${pkg}" package instead. People often get into this
-situation by installing esbuild on Windows or macOS and copying "node_modules"
-into a Docker image that runs Linux, or by copying "node_modules" between
-Windows and WSL environments.
-
-If you are installing with npm, you can try not copying the "node_modules"
-directory when you copy the files over, and running "npm ci" or "npm install"
-on the destination platform after the copy. Or you could consider using yarn
-instead of npm which has built-in support for installing a package on multiple
-platforms simultaneously.
-
-If you are installing with yarn, you can try listing both this platform and the
-other platform in your ".yarnrc.yml" file using the "supportedArchitectures"
-feature: https://yarnpkg.com/configuration/yarnrc/#supportedArchitectures
-Keep in mind that this means multiple copies of esbuild will be present.
-`;
-              if (pkg === packageDarwin_x64 && otherPkg === packageDarwin_arm64 || pkg === packageDarwin_arm64 && otherPkg === packageDarwin_x64) {
-                suggestions = `
-Specifically the "${otherPkg}" package is present but this platform
-needs the "${pkg}" package instead. People often get into this
-situation by installing esbuild with npm running inside of Rosetta 2 and then
-trying to use it with node running outside of Rosetta 2, or vice versa (Rosetta
-2 is Apple's on-the-fly x86_64-to-arm64 translation service).
-
-If you are installing with npm, you can try ensuring that both npm and node are
-not running under Rosetta 2 and then reinstalling esbuild. This likely involves
-changing how you installed npm and/or node. For example, installing node with
-the universal installer here should work: https://nodejs.org/en/download/. Or
-you could consider using yarn instead of npm which has built-in support for
-installing a package on multiple platforms simultaneously.
-
-If you are installing with yarn, you can try listing both "arm64" and "x64"
-in your ".yarnrc.yml" file using the "supportedArchitectures" feature:
-https://yarnpkg.com/configuration/yarnrc/#supportedArchitectures
-Keep in mind that this means multiple copies of esbuild will be present.
-`;
-              }
-              throw new Error(`
-You installed esbuild for another platform than the one you're currently using.
-This won't work because esbuild is written with native code and needs to
-install a platform-specific binary executable.
-${suggestions}
-Another alternative is to use the "esbuild-wasm" package instead, which works
-the same way on all platforms. But it comes with a heavy performance cost and
-can sometimes be 10x slower than the "esbuild" package, so you may also not
-want to do that.
-`);
-            }
-            throw new Error(`The package "${pkg}" could not be found, and is needed by esbuild.
-
-If you are installing esbuild with npm, make sure that you don't specify the
-"--no-optional" or "--omit=optional" flags. The "optionalDependencies" feature
-of "package.json" is used by esbuild to install the correct binary executable
-for your current platform.`);
-          }
-          throw e;
-        }
-      }
-      if (/\.zip\//.test(binPath)) {
-        let pnpapi;
-        try {
-          pnpapi = __require("pnpapi");
-        } catch (e) {
-        }
-        if (pnpapi) {
-          const root = pnpapi.getPackageInformation(pnpapi.topLevel).packageLocation;
-          const binTargetPath = path83.join(
-            root,
-            "node_modules",
-            ".cache",
-            "esbuild",
-            `pnpapi-${pkg.replace("/", "-")}-${"0.28.1"}-${path83.basename(subpath)}`
-          );
-          if (!fs106.existsSync(binTargetPath)) {
-            fs106.mkdirSync(path83.dirname(binTargetPath), { recursive: true });
-            fs106.copyFileSync(binPath, binTargetPath);
-            fs106.chmodSync(binTargetPath, 493);
-          }
-          return { binPath: binTargetPath, isWASM };
-        }
-      }
-      return { binPath, isWASM };
-    }
-    var child_process = __require("child_process");
-    var crypto8 = __require("crypto");
-    var path210 = __require("path");
-    var fs210 = __require("fs");
-    var os22 = __require("os");
-    var tty = __require("tty");
-    var worker_threads;
-    if (process.env.ESBUILD_WORKER_THREADS !== "0") {
-      try {
-        worker_threads = __require("worker_threads");
-      } catch {
-      }
-      let [major, minor] = process.versions.node.split(".");
-      if (
-        // <v12.17.0 does not work
-        +major < 12 || +major === 12 && +minor < 17 || +major === 13 && +minor < 13
-      ) {
-        worker_threads = void 0;
-      }
-    }
-    var _a;
-    var isInternalWorkerThread = ((_a = worker_threads == null ? void 0 : worker_threads.workerData) == null ? void 0 : _a.esbuildVersion) === "0.28.1";
-    var esbuildCommandAndArgs = () => {
-      if ((!ESBUILD_BINARY_PATH || false) && (path210.basename(__filename) !== "main.js" || path210.basename(__dirname) !== "lib")) {
-        throw new Error(
-          `The esbuild JavaScript API cannot be bundled. Please mark the "esbuild" package as external so it's not included in the bundle.
-
-More information: The file containing the code for esbuild's JavaScript API (${__filename}) does not appear to be inside the esbuild package on the file system, which usually means that the esbuild package was bundled into another file. This is problematic because the API needs to run a binary executable inside the esbuild package which is located using a relative path from the API code to the executable. If the esbuild package is bundled, the relative path will be incorrect and the executable won't be found.`
-        );
-      }
-      if (false) {
-        return ["node", [path210.join(__dirname, "..", "bin", "esbuild")]];
-      } else {
-        const { binPath, isWASM } = generateBinPath();
-        if (isWASM) {
-          return ["node", [binPath]];
-        } else {
-          return [binPath, []];
-        }
-      }
-    };
-    var isTTY = () => tty.isatty(2);
-    var fsSync = {
-      readFile(tempFile, callback) {
-        try {
-          let contents = fs210.readFileSync(tempFile, "utf8");
-          try {
-            fs210.unlinkSync(tempFile);
-          } catch {
-          }
-          callback(null, contents);
-        } catch (err2) {
-          callback(err2, null);
-        }
-      },
-      writeFile(contents, callback) {
-        try {
-          let tempFile = randomFileName();
-          fs210.writeFileSync(tempFile, contents);
-          callback(tempFile);
-        } catch {
-          callback(null);
-        }
-      }
-    };
-    var fsAsync = {
-      readFile(tempFile, callback) {
-        try {
-          fs210.readFile(tempFile, "utf8", (err2, contents) => {
-            try {
-              fs210.unlink(tempFile, () => callback(err2, contents));
-            } catch {
-              callback(err2, contents);
-            }
-          });
-        } catch (err2) {
-          callback(err2, null);
-        }
-      },
-      writeFile(contents, callback) {
-        try {
-          let tempFile = randomFileName();
-          fs210.writeFile(tempFile, contents, (err2) => err2 !== null ? callback(null) : callback(tempFile));
-        } catch {
-          callback(null);
-        }
-      }
-    };
-    var version = "0.28.1";
-    var build = (options) => ensureServiceIsRunning().build(options);
-    var context = (buildOptions) => ensureServiceIsRunning().context(buildOptions);
-    var transform = (input, options) => ensureServiceIsRunning().transform(input, options);
-    var formatMessages = (messages, options) => ensureServiceIsRunning().formatMessages(messages, options);
-    var analyzeMetafile = (messages, options) => ensureServiceIsRunning().analyzeMetafile(messages, options);
-    var buildSync = (options) => {
-      if (worker_threads && !isInternalWorkerThread) {
-        if (!workerThreadService) workerThreadService = startWorkerThreadService(worker_threads);
-        return workerThreadService.buildSync(options);
-      }
-      let result4;
-      runServiceSync((service) => service.buildOrContext({
-        callName: "buildSync",
-        refs: null,
-        options,
-        isTTY: isTTY(),
-        defaultWD,
-        callback: (err2, res) => {
-          if (err2) throw err2;
-          result4 = res;
-        }
-      }));
-      return result4;
-    };
-    var transformSync2 = (input, options) => {
-      if (worker_threads && !isInternalWorkerThread) {
-        if (!workerThreadService) workerThreadService = startWorkerThreadService(worker_threads);
-        return workerThreadService.transformSync(input, options);
-      }
-      let result4;
-      runServiceSync((service) => service.transform({
-        callName: "transformSync",
-        refs: null,
-        input,
-        options: options || {},
-        isTTY: isTTY(),
-        fs: fsSync,
-        callback: (err2, res) => {
-          if (err2) throw err2;
-          result4 = res;
-        }
-      }));
-      return result4;
-    };
-    var formatMessagesSync = (messages, options) => {
-      if (worker_threads && !isInternalWorkerThread) {
-        if (!workerThreadService) workerThreadService = startWorkerThreadService(worker_threads);
-        return workerThreadService.formatMessagesSync(messages, options);
-      }
-      let result4;
-      runServiceSync((service) => service.formatMessages({
-        callName: "formatMessagesSync",
-        refs: null,
-        messages,
-        options,
-        callback: (err2, res) => {
-          if (err2) throw err2;
-          result4 = res;
-        }
-      }));
-      return result4;
-    };
-    var analyzeMetafileSync = (metafile, options) => {
-      if (worker_threads && !isInternalWorkerThread) {
-        if (!workerThreadService) workerThreadService = startWorkerThreadService(worker_threads);
-        return workerThreadService.analyzeMetafileSync(metafile, options);
-      }
-      let result4;
-      runServiceSync((service) => service.analyzeMetafile({
-        callName: "analyzeMetafileSync",
-        refs: null,
-        metafile: typeof metafile === "string" ? metafile : JSON.stringify(metafile),
-        options,
-        callback: (err2, res) => {
-          if (err2) throw err2;
-          result4 = res;
-        }
-      }));
-      return result4;
-    };
-    var stop = () => {
-      if (stopService) stopService();
-      if (workerThreadService) workerThreadService.stop();
-      return Promise.resolve();
-    };
-    var initializeWasCalled = false;
-    var initialize = (options) => {
-      options = validateInitializeOptions(options || {});
-      if (options.wasmURL) throw new Error(`The "wasmURL" option only works in the browser`);
-      if (options.wasmModule) throw new Error(`The "wasmModule" option only works in the browser`);
-      if (options.worker) throw new Error(`The "worker" option only works in the browser`);
-      if (initializeWasCalled) throw new Error('Cannot call "initialize" more than once');
-      ensureServiceIsRunning();
-      initializeWasCalled = true;
-      return Promise.resolve();
-    };
-    var defaultWD = process.cwd();
-    var longLivedService;
-    var stopService;
-    var ensureServiceIsRunning = () => {
-      if (longLivedService) return longLivedService;
-      let [command, args] = esbuildCommandAndArgs();
-      let child = child_process.spawn(command, args.concat(`--service=${"0.28.1"}`, "--ping"), {
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "inherit"],
-        cwd: defaultWD
-      });
-      let { readFromStdout, afterClose, service } = createChannel({
-        writeToStdin(bytes) {
-          child.stdin.write(bytes, (err2) => {
-            if (err2) afterClose(err2);
-          });
-        },
-        readFileSync: fs210.readFileSync,
-        isSync: false,
-        hasFS: true,
-        esbuild: node_exports
-      });
-      child.stdin.on("error", afterClose);
-      child.on("error", afterClose);
-      const stdin = child.stdin;
-      const stdout = child.stdout;
-      stdout.on("data", readFromStdout);
-      stdout.on("end", afterClose);
-      stopService = () => {
-        stdin.destroy();
-        stdout.destroy();
-        child.kill();
-        initializeWasCalled = false;
-        longLivedService = void 0;
-        stopService = void 0;
-      };
-      let refCount = 0;
-      child.unref();
-      if (stdin.unref) {
-        stdin.unref();
-      }
-      if (stdout.unref) {
-        stdout.unref();
-      }
-      const refs = {
-        ref() {
-          if (++refCount === 1) child.ref();
-        },
-        unref() {
-          if (--refCount === 0) child.unref();
-        }
-      };
-      longLivedService = {
-        build: (options) => new Promise((resolve22, reject) => {
-          service.buildOrContext({
-            callName: "build",
-            refs,
-            options,
-            isTTY: isTTY(),
-            defaultWD,
-            callback: (err2, res) => err2 ? reject(err2) : resolve22(res)
-          });
-        }),
-        context: (options) => new Promise((resolve22, reject) => service.buildOrContext({
-          callName: "context",
-          refs,
-          options,
-          isTTY: isTTY(),
-          defaultWD,
-          callback: (err2, res) => err2 ? reject(err2) : resolve22(res)
-        })),
-        transform: (input, options) => new Promise((resolve22, reject) => service.transform({
-          callName: "transform",
-          refs,
-          input,
-          options: options || {},
-          isTTY: isTTY(),
-          fs: fsAsync,
-          callback: (err2, res) => err2 ? reject(err2) : resolve22(res)
-        })),
-        formatMessages: (messages, options) => new Promise((resolve22, reject) => service.formatMessages({
-          callName: "formatMessages",
-          refs,
-          messages,
-          options,
-          callback: (err2, res) => err2 ? reject(err2) : resolve22(res)
-        })),
-        analyzeMetafile: (metafile, options) => new Promise((resolve22, reject) => service.analyzeMetafile({
-          callName: "analyzeMetafile",
-          refs,
-          metafile: typeof metafile === "string" ? metafile : JSON.stringify(metafile),
-          options,
-          callback: (err2, res) => err2 ? reject(err2) : resolve22(res)
-        }))
-      };
-      return longLivedService;
-    };
-    var runServiceSync = (callback) => {
-      let [command, args] = esbuildCommandAndArgs();
-      let stdin = new Uint8Array();
-      let { readFromStdout, afterClose, service } = createChannel({
-        writeToStdin(bytes) {
-          if (stdin.length !== 0) throw new Error("Must run at most one command");
-          stdin = bytes;
-        },
-        isSync: true,
-        hasFS: true,
-        esbuild: node_exports
-      });
-      callback(service);
-      let stdout = child_process.execFileSync(command, args.concat(`--service=${"0.28.1"}`), {
-        cwd: defaultWD,
-        windowsHide: true,
-        input: stdin,
-        // We don't know how large the output could be. If it's too large, the
-        // command will fail with ENOBUFS. Reserve 16mb for now since that feels
-        // like it should be enough. Also allow overriding this with an environment
-        // variable.
-        maxBuffer: +process.env.ESBUILD_MAX_BUFFER || 16 * 1024 * 1024
-      });
-      readFromStdout(stdout);
-      afterClose(null);
-    };
-    var randomFileName = () => {
-      return path210.join(os22.tmpdir(), `esbuild-${crypto8.randomBytes(32).toString("hex")}`);
-    };
-    var workerThreadService = null;
-    var startWorkerThreadService = (worker_threads2) => {
-      let { port1: mainPort, port2: workerPort } = new worker_threads2.MessageChannel();
-      let worker2 = new worker_threads2.Worker(__filename, {
-        workerData: { workerPort, defaultWD, esbuildVersion: "0.28.1" },
-        transferList: [workerPort],
-        // From node's documentation: https://nodejs.org/api/worker_threads.html
-        //
-        //   Take care when launching worker threads from preload scripts (scripts loaded
-        //   and run using the `-r` command line flag). Unless the `execArgv` option is
-        //   explicitly set, new Worker threads automatically inherit the command line flags
-        //   from the running process and will preload the same preload scripts as the main
-        //   thread. If the preload script unconditionally launches a worker thread, every
-        //   thread spawned will spawn another until the application crashes.
-        //
-        execArgv: []
-      });
-      let nextID = 0;
-      let fakeBuildError = (text) => {
-        let error = new Error(`Build failed with 1 error:
-error: ${text}`);
-        let errors2 = [{ id: "", pluginName: "", text, location: null, notes: [], detail: void 0 }];
-        error.errors = errors2;
-        error.warnings = [];
-        return error;
-      };
-      let validateBuildSyncOptions = (options) => {
-        if (!options) return;
-        let plugins = options.plugins;
-        if (plugins && plugins.length > 0) throw fakeBuildError(`Cannot use plugins in synchronous API calls`);
-      };
-      let applyProperties = (object, properties) => {
-        for (let key in properties) {
-          object[key] = properties[key];
-        }
-      };
-      let runCallSync = (command, args) => {
-        let id = nextID++;
-        let sharedBuffer = new SharedArrayBuffer(8);
-        let sharedBufferView = new Int32Array(sharedBuffer);
-        let msg = { sharedBuffer, id, command, args };
-        worker2.postMessage(msg);
-        let status = Atomics.wait(sharedBufferView, 0, 0);
-        if (status !== "ok" && status !== "not-equal") throw new Error("Internal error: Atomics.wait() failed: " + status);
-        let { message: { id: id2, resolve: resolve22, reject, properties } } = worker_threads2.receiveMessageOnPort(mainPort);
-        if (id !== id2) throw new Error(`Internal error: Expected id ${id} but got id ${id2}`);
-        if (reject) {
-          applyProperties(reject, properties);
-          throw reject;
-        }
-        return resolve22;
-      };
-      worker2.unref();
-      return {
-        buildSync(options) {
-          validateBuildSyncOptions(options);
-          return runCallSync("build", [options]);
-        },
-        transformSync(input, options) {
-          return runCallSync("transform", [input, options]);
-        },
-        formatMessagesSync(messages, options) {
-          return runCallSync("formatMessages", [messages, options]);
-        },
-        analyzeMetafileSync(metafile, options) {
-          return runCallSync("analyzeMetafile", [metafile, options]);
-        },
-        stop() {
-          worker2.terminate();
-          workerThreadService = null;
-        }
-      };
-    };
-    var startSyncServiceWorker = () => {
-      let workerPort = worker_threads.workerData.workerPort;
-      let parentPort = worker_threads.parentPort;
-      let extractProperties = (object) => {
-        let properties = {};
-        if (object && typeof object === "object") {
-          for (let key in object) {
-            properties[key] = object[key];
-          }
-        }
-        return properties;
-      };
-      try {
-        let service = ensureServiceIsRunning();
-        defaultWD = worker_threads.workerData.defaultWD;
-        parentPort.on("message", (msg) => {
-          (async () => {
-            let { sharedBuffer, id, command, args } = msg;
-            let sharedBufferView = new Int32Array(sharedBuffer);
-            try {
-              switch (command) {
-                case "build":
-                  workerPort.postMessage({ id, resolve: await service.build(args[0]) });
-                  break;
-                case "transform":
-                  workerPort.postMessage({ id, resolve: await service.transform(args[0], args[1]) });
-                  break;
-                case "formatMessages":
-                  workerPort.postMessage({ id, resolve: await service.formatMessages(args[0], args[1]) });
-                  break;
-                case "analyzeMetafile":
-                  workerPort.postMessage({ id, resolve: await service.analyzeMetafile(args[0], args[1]) });
-                  break;
-                default:
-                  throw new Error(`Invalid command: ${command}`);
-              }
-            } catch (reject) {
-              workerPort.postMessage({ id, reject, properties: extractProperties(reject) });
-            }
-            Atomics.add(sharedBufferView, 0, 1);
-            Atomics.notify(sharedBufferView, 0, Infinity);
-          })();
-        });
-      } catch (reject) {
-        parentPort.on("message", (msg) => {
-          let { sharedBuffer, id } = msg;
-          let sharedBufferView = new Int32Array(sharedBuffer);
-          workerPort.postMessage({ id, reject, properties: extractProperties(reject) });
-          Atomics.add(sharedBufferView, 0, 1);
-          Atomics.notify(sharedBufferView, 0, Infinity);
-        });
-      }
-    };
-    if (isInternalWorkerThread) {
-      startSyncServiceWorker();
-    }
-    var node_default = node_exports;
-  }
-});
-
 // src/runtime/deterministic-ast.ts
 import { parse as parse3 } from "acorn";
 function assertDeterministicScript(script) {
@@ -58348,10 +55965,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path83 = this.path;
+        const path84 = this.path;
         try {
-          if (!existsSync70(path83)) return void 0;
-          const raw = readFileSync64(path83, "utf-8");
+          if (!existsSync70(path84)) return void 0;
+          const raw = readFileSync64(path84, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -58361,11 +55978,11 @@ var init_dwf_state_store = __esm({
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
       save(state) {
-        const path83 = this.path;
+        const path84 = this.path;
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync39(dirname35(path83), { recursive: true });
-          atomicWriteJson(path83, next);
+          mkdirSync39(dirname35(path84), { recursive: true });
+          atomicWriteJson(path84, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state.runId}`);
           throw error;
@@ -58373,10 +55990,10 @@ var init_dwf_state_store = __esm({
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path83 = this.path;
+        const path84 = this.path;
         try {
-          if (!existsSync70(path83)) return;
-          unlinkSync10(path83);
+          if (!existsSync70(path84)) return;
+          unlinkSync10(path84);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -58679,9 +56296,13 @@ function synthesizeAgentConfig(name, model) {
     description: `Synthesized agent for dynamic workflow (${name}).`,
     source: "dynamic",
     filePath: `<dynamic-workflow>`,
-    systemPrompt: `You are ${name}.`,
+    systemPrompt: `You are ${name}, an agent in a dynamic pi-crew workflow. Use the provided tools (read, grep, find, ls, bash) to investigate the target and produce concrete written findings. Do not return an empty response \u2014 always output substantive content for your task.`,
     model,
-    tools: [],
+    // Round-N fix: give synthesized agents the STANDARD file-investigation toolkit
+    // (matches real built-in agents). Previously tools:[] relied on pi-args default
+    // behavior, which left most synthesized agents (explorer/analyst/critic/executor)
+    // unable to read the codebase → 10/11 agents returned empty/!ok in distill-dwf runs.
+    tools: ["read", "grep", "find", "ls", "bash"],
     inheritProjectContext: false,
     inheritSkills: false
   };
@@ -58807,7 +56428,7 @@ function makeWorkflowCtx(manifest, opts) {
         const parsed = parsePiJsonOutput(childResult.stdout);
         wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - ESTIMATE;
         reserved = false;
-        let text = parsed.finalText ?? "";
+        let text = childResult.rawFinalText || parsed.finalText || "";
         if (!text.trim()) {
           text = extractTextFallback(childResult.stdout);
         }
@@ -59271,6 +56892,7 @@ __export(dynamic_workflow_runner_exports, {
 });
 import { readFileSync as readFileSync65 } from "node:fs";
 import { join as join68 } from "node:path";
+import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
   try {
     structuredClone(value);
@@ -59296,7 +56918,7 @@ function resolveScriptPath(workflow, cwd) {
 async function loadWorkflowModule(scriptPath) {
   const scriptSource = readFileSync65(scriptPath, "utf-8");
   if (isDeterminismCheckEnabled()) {
-    const js = (0, import_esbuild.transformSync)(scriptSource, { loader: "ts", format: "esm" }).code;
+    const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
   }
   const { createRequire: createRequire4 } = await import("node:module");
@@ -59355,7 +56977,7 @@ async function runDynamicWorkflow(input) {
   const frozenCtx = Object.freeze(ctx);
   try {
     const script = await loadWorkflowModule(scriptPath);
-    const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 6e5;
+    const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 18e5;
     let timeoutHandle;
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
@@ -59427,11 +57049,9 @@ function readFinalArtifact(artifactPath) {
     return `(failed to read final artifact ${artifactPath})`;
   }
 }
-var import_esbuild;
 var init_dynamic_workflow_runner = __esm({
   "src/runtime/dynamic-workflow-runner.ts"() {
     "use strict";
-    import_esbuild = __toESM(require_main(), 1);
     init_artifact_store();
     init_event_log();
     init_internal_error();
@@ -61826,26 +59446,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs91 from "node:fs";
-function cacheKey(path83, options) {
-  return `${path83}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path84, options) {
+  return `${path84}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path83, options = {}) {
+function getTranscriptCacheEntry(path84, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path83, normalized)) ?? transcriptCache.get(path83);
+  return transcriptCache.get(cacheKey(path84, normalized)) ?? transcriptCache.get(path84);
 }
-function readTranscriptText(path83, stat2, options) {
+function readTranscriptText(path84, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs91.readFileSync(path83, "utf-8"),
+      text: fs91.readFileSync(path84, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs91.openSync(path83, "r");
+  const fd = fs91.openSync(path84, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs91.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -61857,16 +59477,16 @@ function readTranscriptText(path83, stat2, options) {
     fs91.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path83, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path84, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path83, normalized);
+  const key = cacheKey(path84, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs91.statSync(path83);
+    stat2 = fs91.statSync(path84);
   } catch {
     return previous?.lines ?? [];
   }
@@ -61875,10 +59495,10 @@ function readTranscriptLinesCached(path83, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path83, stat2, normalized);
+    const read = readTranscriptText(path84, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path83,
+      path: path84,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -62745,11 +60365,51 @@ var init_dynamic_border = __esm({
   }
 });
 
+// src/ui/key-utils.ts
+import { matchesKey } from "@earendil-works/pi-tui";
+function keyOf(data) {
+  for (const id of COMMON_IDS) {
+    if (matchesKey(data, id)) return id;
+  }
+  return data;
+}
+var COMMON_IDS;
+var init_key_utils = __esm({
+  "src/ui/key-utils.ts"() {
+    "use strict";
+    COMMON_IDS = [
+      "up",
+      "down",
+      "left",
+      "right",
+      "enter",
+      "escape",
+      "tab",
+      "shift+tab",
+      "space",
+      "backspace",
+      "home",
+      "end",
+      "pageUp",
+      "pageDown"
+    ];
+  }
+});
+
 // src/ui/keybinding-map.ts
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 function dashboardActionForKey(data, activePane) {
   for (const binding of BINDINGS) {
     if (binding.pane !== void 0 && binding.pane !== activePane) continue;
     if (binding.keys.includes(data)) return binding.action;
+  }
+  const key = keyOf(data);
+  for (const binding of BINDINGS) {
+    if (binding.pane !== void 0 && binding.pane !== activePane) continue;
+    for (const candidate of binding.keys) {
+      if (key === candidate) return binding.action;
+      if (matchesKey2(data, candidate)) return binding.action;
+    }
   }
   return void 0;
 }
@@ -62757,9 +60417,10 @@ var DASHBOARD_KEYS, BINDINGS, KEY_RESERVED;
 var init_keybinding_map = __esm({
   "src/ui/keybinding-map.ts"() {
     "use strict";
+    init_key_utils();
     DASHBOARD_KEYS = {
-      close: ["q", "\x1B"],
-      select: ["\r", "\n", "s"],
+      close: ["q", "escape", "\x1B"],
+      select: ["enter", "s", "\r", "\n", "tab", "	", " "],
       help: ["?"],
       root: {
         summary: ["u"],
@@ -62782,7 +60443,7 @@ var init_keybinding_map = __esm({
         health: ["5"],
         metrics: ["6"]
       },
-      navigation: { up: ["k", "\x1B[A"], down: ["j", "\x1B[B"] },
+      navigation: { up: ["k", "up"], down: ["j", "down"] },
       mailbox: {
         ack: ["A"],
         nudge: ["N"],
@@ -63240,7 +60901,11 @@ var init_run_dashboard = __esm({
     RUN_LIST_MAX = 8;
     SIGNATURE_CACHE_TTL_MS = 100;
     STALE_SNAPSHOT_MS = 15e3;
-    RunDashboard = class {
+    RunDashboard = class _RunDashboard {
+      // TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
+      static _instanceCounter = 0;
+      _instanceId;
+      // END TEMP DIAGNOSTIC
       selected = 0;
       runScrollOffset = 0;
       showFullProgress = false;
@@ -63260,6 +60925,14 @@ var init_run_dashboard = __esm({
       unsubscribeTheme;
       renderScheduler;
       constructor(runs, done, theme = {}, options = {}) {
+        this._instanceId = ++_RunDashboard._instanceCounter;
+        try {
+          process.stderr.write(
+            `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}
+`
+          );
+        } catch {
+        }
         const filteredRuns = options.workspaceId ? runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === options.workspaceId) : runs;
         this.runs = filteredRuns;
         this.done = done;
@@ -63560,7 +61233,22 @@ var init_run_dashboard = __esm({
         }
         return this.cachedLines;
       }
+      // Pi 0.81+ requires the Focusable contract: a string-indexable `focused`
+      // marker that TUI toggles to track which component currently receives
+      // input. Without it, isFocusable() returns false and downstream
+      // dispatch may skip the component. Declared as an own property so
+      // `"focused" in component` is true.
+      focused = false;
       handleInput(data) {
+        if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+          try {
+            process.stderr.write(
+              `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.handleInput data=${JSON.stringify(data)} focused=${this.focused}
+`
+            );
+          } catch {
+          }
+        }
         const action = dashboardActionForKey(data, this.activePane);
         if (action === "help") {
           this.showHelp = !this.showHelp;
@@ -64657,8 +62345,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path83) {
-  const keys = path83.split(".");
+function getNestedValue(obj, path84) {
+  const keys = path84.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -64687,6 +62375,7 @@ var init_settings_overlay = __esm({
     "use strict";
     init_visual();
     init_dynamic_border();
+    init_key_utils();
     init_theme_discovery();
     TABS = [
       { id: "runtime", label: "Runtime", icon: "\u2699" },
@@ -64995,6 +62684,7 @@ var init_settings_overlay = __esm({
       "notifications.enabled": false
     };
     SelectSubmenu = class {
+      focused = false;
       selectedIndex = 0;
       scrollOffset = 0;
       maxVisible = 14;
@@ -65051,27 +62741,29 @@ var init_settings_overlay = __esm({
         return lines;
       }
       handleInput(data) {
-        if (data === "\x1B[A" || data === "k") {
+        const k = keyOf(data);
+        if (k === "up" || k === "k") {
           this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
           this.ensureVisible();
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
           this.ensureVisible();
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (k === "enter") {
           this.onSelect(this.items[this.selectedIndex]);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.onCancel();
           return;
         }
       }
     };
     TextinputSubmenu = class {
+      focused = false;
       buffer = "";
       title;
       description;
@@ -65101,15 +62793,16 @@ var init_settings_overlay = __esm({
         return lines;
       }
       handleInput(data) {
-        if (data === "\r" || data === "\n") {
+        const k = keyOf(data);
+        if (k === "enter") {
           this.onSubmit(this.buffer);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.onCancel();
           return;
         }
-        if (data === "\x7F" || data === "\b") {
+        if (data === "\x7F" || data === "\b" || k === "backspace") {
           this.buffer = this.buffer.slice(0, -1);
           return;
         }
@@ -65120,6 +62813,7 @@ var init_settings_overlay = __esm({
       }
     };
     AgentOverridesSubmenu = class {
+      focused = false;
       overrides;
       theme;
       agents;
@@ -65189,15 +62883,16 @@ var init_settings_overlay = __esm({
       }
       handleInput(data) {
         if (this.editField) return this.handleEditInput(data);
-        if (data === "\x1B[A" || data === "k") {
+        const k = keyOf(data);
+        if (k === "up" || k === "k") {
           this.selectedIndex = (this.selectedIndex - 1 + this.agents.length) % this.agents.length;
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = (this.selectedIndex + 1) % this.agents.length;
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (k === "enter") {
           const agent = this.agents[this.selectedIndex];
           this.editField = "model";
           this.editBuffer = this.overrides[agent]?.model ?? "";
@@ -65209,13 +62904,14 @@ var init_settings_overlay = __esm({
           this.editBuffer = this.overrides[agent]?.thinking ?? "";
           return;
         }
-        if (data === "\x1B") {
+        if (k === "escape") {
           this.onCancel();
           return;
         }
       }
       handleEditInput(data) {
-        if (data === "\r" || data === "\n") {
+        const k = keyOf(data);
+        if (k === "enter") {
           const agent = this.agents[this.selectedIndex];
           if (!this.overrides[agent]) this.overrides[agent] = {};
           if (this.editField === "model") {
@@ -65229,11 +62925,11 @@ var init_settings_overlay = __esm({
           this.editField = null;
           return;
         }
-        if (data === "\x1B") {
+        if (k === "escape") {
           this.editField = null;
           return;
         }
-        if (data === "\x7F" || data === "\b") {
+        if (data === "\x7F" || data === "\b" || k === "backspace") {
           this.editBuffer = this.editBuffer.slice(0, -1);
           return;
         }
@@ -65246,6 +62942,10 @@ var init_settings_overlay = __esm({
       config;
       theme;
       callbacks;
+      // Pi 0.81+ Focusable contract — see RunDashboard. Same reasoning: without
+      // `focused` as an own property, isFocusable() returns false and keybind
+      // dispatch may skip the overlay.
+      focused = false;
       currentTabIndex = 0;
       selectedIndex = 0;
       scrollOffset = 0;
@@ -65339,21 +63039,22 @@ var init_settings_overlay = __esm({
         return this.submenu.render(innerWidth);
       }
       handleInput(data) {
+        const k = keyOf(data);
         if (this.submenu) {
           this.submenu.handleInput(data);
           return;
         }
-        if (data === "\x1B" || data === "q") {
+        if (k === "escape" || k === "q") {
           this.callbacks.onClose();
           return;
         }
-        if (data === "	" || data === "\x1B[C") {
+        if (k === "tab") {
           this.currentTabIndex = (this.currentTabIndex + 1) % TABS.length;
           this.selectedIndex = 0;
           this.scrollOffset = 0;
           return;
         }
-        if (data === "Z" || data === "\x1B[D") {
+        if (k === "shift+tab") {
           this.currentTabIndex = (this.currentTabIndex - 1 + TABS.length) % TABS.length;
           this.selectedIndex = 0;
           this.scrollOffset = 0;
@@ -65361,17 +63062,17 @@ var init_settings_overlay = __esm({
         }
         const tabId = TABS[this.currentTabIndex]?.id ?? "runtime";
         const settings = SETTINGS.filter((s) => s.tab === tabId);
-        if (data === "\x1B[A" || data === "k") {
+        if (k === "up" || k === "k") {
           this.selectedIndex = Math.max(0, this.selectedIndex - 1);
           this.ensureVisible(settings.length);
           return;
         }
-        if (data === "\x1B[B" || data === "j") {
+        if (k === "down" || k === "j") {
           this.selectedIndex = Math.min(settings.length - 1, this.selectedIndex + 1);
           this.ensureVisible(settings.length);
           return;
         }
-        if (data === "\r" || data === "\n" || data === " ") {
+        if (k === "enter" || k === "space") {
           this.activateItem(settings);
         }
       }
@@ -67104,13 +64805,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks3(path83) {
+function readTasks3(path84) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs100.readFileSync(path83, "utf-8"));
+    const parsed = JSON.parse(fs100.readFileSync(path84, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path83, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path84, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -70357,11 +68058,11 @@ import { existsSync as existsSync75, readFileSync as readFileSync70 } from "node
 import { homedir as homedir11, platform } from "node:os";
 import { join as join72 } from "node:path";
 function fontPath() {
-  const os17 = platform();
+  const os18 = platform();
   const home = homedir11();
-  if (os17 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os17 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os17 === "win32") {
+  if (os18 === "darwin") return join72(home, "Library", "Fonts", "crew-vibes.ttf");
+  if (os18 === "linux") return join72(home, ".local", "share", "fonts", "crew-vibes.ttf");
+  if (os18 === "win32") {
     const local = process.env.LOCALAPPDATA ?? join72(home, "AppData", "Local");
     return join72(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
   }
@@ -70525,17 +68226,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path83 = configPath2();
-    if (!existsSync76(path83)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync71(path83, "utf8")));
+    const path84 = configPath2();
+    if (!existsSync76(path84)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync71(path84, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path83 = configPath2();
-  mkdirSync42(dirname37(path83), { recursive: true });
-  writeFileSync11(path83, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path84 = configPath2();
+  mkdirSync42(dirname37(path84), { recursive: true });
+  writeFileSync11(path84, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -72053,9 +69754,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path83, listener, onError) {
+function watchWithErrorHandler(path84, listener, onError) {
   try {
-    const watcher = fs95.watch(path83, listener);
+    const watcher = fs95.watch(path84, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -73224,7 +70925,11 @@ function buildRegistrationContext(pi) {
     startForegroundRun: void 0,
     abortForegroundRun: () => false,
     openLiveSidebar: () => {
-    }
+    },
+    // Phase 0 inter-pi broker controller. Initially undefined; register.ts
+    // replaces this with a real controller (or no-op) after lifecycle
+    // handlers are installed.
+    brokerController: void 0
   };
   ctx.notifyOperator = (notification) => {
     try {
@@ -73445,9 +71150,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path83, content) {
-  if (seenContent.has(path83)) seenContent.delete(path83);
-  seenContent.set(path83, content);
+function rememberSeen(path84, content) {
+  if (seenContent.has(path84)) seenContent.delete(path84);
+  seenContent.set(path84, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -73650,13 +71355,1219 @@ async function configureDeliveryCoordinatorImpl(pi, ctx) {
 init_config();
 init_defaults();
 init_run_maintenance();
+init_broker_issuer();
 init_crash_recovery();
+import * as fs105 from "node:fs";
+import * as path83 from "node:path";
+
+// src/runtime/crew-broker.ts
+init_event_log();
+init_mailbox();
+init_state_store();
+init_run_event_bus();
+init_internal_error();
+import * as fsp3 from "node:fs/promises";
+import * as net2 from "node:net";
+
+// src/runtime/crew-broker-tokens.ts
+import { randomUUID as randomUUID8, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+function newBrokerToken() {
+  return randomUUID8();
+}
+var BrokerTokenRegistry = class {
+  map = /* @__PURE__ */ new Map();
+  /** Issue a token for `runId`. Idempotent per run: if a token already
+   *  exists for this runId, the existing token is returned unchanged so that
+   *  concurrent sibling tasks sharing a runId all authenticate with the same
+   *  per-run token (the spec's per-run token model). Pass an explicit
+   *  `token` only in tests that need a deterministic value. */
+  issue(runId, token) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+    }
+    if (token === void 0) {
+      const existing = this.map.get(runId);
+      if (existing !== void 0) return existing;
+      const fresh = newBrokerToken();
+      this.map.set(runId, fresh);
+      return fresh;
+    }
+    this.map.set(runId, token);
+    return token;
+  }
+  /** Look up the token for `runId`. Returns undefined if absent. */
+  get(runId) {
+    return this.map.get(runId);
+  }
+  /** Constant-time equality check. Returns false on length mismatch. */
+  matches(runId, candidate) {
+    const expected = this.map.get(runId);
+    if (expected === void 0) return false;
+    if (typeof candidate !== "string" || candidate.length === 0) return false;
+    const a = Buffer.from(expected, "utf8");
+    const b = Buffer.from(candidate, "utf8");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual3(a, b);
+  }
+  /** Remove the token for `runId`. */
+  revoke(runId) {
+    this.map.delete(runId);
+  }
+  /** Wipe every token. Called from CrewBroker.stop(). */
+  clear() {
+    this.map.clear();
+  }
+  /** Diagnostic — count of registered tokens. Never returns the tokens. */
+  get size() {
+    return this.map.size;
+  }
+};
+
+// src/utils/ndjson.ts
+var MAX_BROKER_FRAME_BYTES = 256 * 1024;
+var BrokerError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "BrokerError";
+    this.code = code;
+  }
+};
+function encodeBrokerFrame(value) {
+  const json = JSON.stringify(value);
+  if (json === void 0) {
+    throw new BrokerError("protocol", "encodeBrokerFrame: value is not JSON-serializable");
+  }
+  const enc = Buffer.from(json, "utf8");
+  if (enc.length + 1 > MAX_BROKER_FRAME_BYTES) {
+    throw new BrokerError("oversize-frame", `frame exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${enc.length + 1})`);
+  }
+  const out = Buffer.allocUnsafe(enc.length + 1);
+  enc.copy(out);
+  out[enc.length] = 10;
+  return out;
+}
+var MAX_DECODER_BUFFER = 2 * MAX_BROKER_FRAME_BYTES;
+var NdjsonDecoder = class {
+  buffer = Buffer.alloc(0);
+  /**
+   * Push a chunk; return the array of complete parsed values (each was
+   * followed by a `\n` in the stream). May return zero items (no full
+   * frame yet), one item, or many items. Malformed JSON throws
+   * BrokerError("protocol"); over-size accumulated buffer throws
+   * BrokerError("oversize-frame"). Callers must catch and close the socket.
+   */
+  push(chunk) {
+    if (chunk.length === 0) return [];
+    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length > MAX_DECODER_BUFFER) {
+      throw new BrokerError("oversize-frame", `decoder buffer exceeded ${MAX_DECODER_BUFFER} bytes`);
+    }
+    const out = [];
+    let idx = this.buffer.indexOf(10);
+    while (idx !== -1) {
+      const line4 = this.buffer.subarray(0, idx);
+      if (line4.length > 0) {
+        if (line4.length > MAX_BROKER_FRAME_BYTES) {
+          throw new BrokerError("oversize-frame", `line exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${line4.length})`);
+        }
+        try {
+          out.push(JSON.parse(line4.toString("utf8")));
+        } catch (cause) {
+          throw new BrokerError("protocol", `ndjson: malformed JSON: ${cause.message}`);
+        }
+      }
+      this.buffer = this.buffer.subarray(idx + 1);
+      idx = this.buffer.indexOf(10);
+    }
+    return out;
+  }
+  reset() {
+    this.buffer = Buffer.alloc(0);
+  }
+};
+
+// src/runtime/crew-broker.ts
+init_redaction();
+init_safe_paths();
+
+// src/utils/socket-path.ts
+import { createHash as createHash11 } from "node:crypto";
+import * as fsp2 from "node:fs/promises";
+import * as net from "node:net";
+import * as os17 from "node:os";
+import * as path81 from "node:path";
+var DEFAULT_PATH_HASH_LEN = 8;
+var POSIX_SUN_PATH_BUDGET = 107;
+function hashSessionId(sessionId, length = DEFAULT_PATH_HASH_LEN) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error("hashSessionId: sessionId must be a non-empty string");
+  }
+  if (!Number.isInteger(length) || length < 4 || length > 32) {
+    throw new Error(`hashSessionId: length must be an integer in [4, 32] (got ${length})`);
+  }
+  const hex = createHash11("sha256").update(sessionId, "utf8").digest("hex");
+  return hex.substring(0, length);
+}
+function getBrokerSocketPath(sessionId, platform2 = process.platform) {
+  const hash = hashSessionId(sessionId);
+  if (platform2 === "win32") {
+    return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
+  }
+  const base = process.env.XDG_RUNTIME_DIR || os17.tmpdir();
+  const sock = path81.join(base, `pi-crew-${hash}.sock`);
+  const encoded = Buffer.byteLength(sock, "utf8");
+  if (encoded > POSIX_SUN_PATH_BUDGET) {
+    throw new Error(
+      `broker socket path ${encoded} bytes exceeds sun_path budget (${POSIX_SUN_PATH_BUDGET}); check XDG_RUNTIME_DIR or use a shorter hash`
+    );
+  }
+  return sock;
+}
+async function prepareBrokerSocketDir(sockPath) {
+  if (process.platform === "win32") return;
+  const dir = path81.dirname(sockPath);
+  await fsp2.mkdir(dir, { recursive: true, mode: 448 });
+  try {
+    await fsp2.chmod(dir, 448);
+  } catch {
+  }
+}
+async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
+  let st;
+  try {
+    st = await fsp2.lstat(sockPath);
+  } catch (e) {
+    const code = e.code;
+    if (code === "ENOENT") return "absent";
+    throw e;
+  }
+  if (st.isSymbolicLink()) return "refused";
+  const live = await new Promise((resolve22) => {
+    let settled = false;
+    const sock = net.createConnection(sockPath);
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      try {
+        sock.destroy();
+      } catch {
+      }
+      resolve22(v);
+    };
+    sock.once("connect", () => finish(true));
+    sock.once("error", () => finish(false));
+    setTimeout(() => finish(false), probeTimeoutMs);
+  });
+  if (live) return "kept";
+  try {
+    await fsp2.unlink(sockPath);
+    return "removed";
+  } catch (e) {
+    const code = e.code;
+    if (code === "ENOENT") return "absent";
+    throw e;
+  }
+}
+
+// src/runtime/crew-broker.ts
+var BROKER_PROTOCOL = 1;
+var HELLO_DEADLINE_MS = 1e3;
+var DEFAULT_OUTBOUND_QUEUE_CAP = 256;
+var CrewBroker = class {
+  options;
+  tokens = new BrokerTokenRegistry();
+  server = null;
+  resolvedSocketPath = null;
+  stopped = false;
+  starting = false;
+  startingPromise = null;
+  connections = /* @__PURE__ */ new Set();
+  /** Connections indexed by runId for live message fanout (Phase 1.3). */
+  connectionsByRun = /* @__PURE__ */ new Map();
+  /** Per-connection event subscription unsubscribers (Phase 2: events.subscribe). */
+  subscriptionUnsubs = /* @__PURE__ */ new WeakMap();
+  /** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
+  mailboxObserverUnsub = null;
+  /** A single observable handshake counter (test/observability). */
+  handshakeCount = 0;
+  constructor(options) {
+    if (!options || typeof options !== "object") {
+      throw new Error("CrewBroker: options is required");
+    }
+    if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
+      throw new Error("CrewBroker: sessionId must be a non-empty string");
+    }
+    this.options = {
+      sessionId: options.sessionId,
+      enabled: options.enabled === true,
+      socketPath: options.socketPath,
+      maxFrameBytes: options.maxFrameBytes,
+      outboundQueueCap: options.outboundQueueCap,
+      cwd: options.cwd,
+      netModule: options.netModule
+    };
+  }
+  /** Read the resolved socket path. Available after start() resolves. */
+  get socketPath() {
+    return this.resolvedSocketPath ?? this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+  }
+  /** Diagnostic: number of connections currently registered. */
+  get connectionCount() {
+    return this.connections.size;
+  }
+  /** Diagnostic: number of completed handshakes since start(). */
+  get handshakes() {
+    return this.handshakeCount;
+  }
+  /** Diagnostic: number of registered tokens. */
+  get tokenCount() {
+    return this.tokens.size;
+  }
+  /** Issue a fresh token for `runId`. The token is stored in the heap-only
+   *  registry and is the only way a child can complete `hello`. Never log
+   *  the return value; never write it to disk. */
+  issueRunToken(runId) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
+    }
+    return this.tokens.issue(runId);
+  }
+  /** Start the broker. Idempotent (subsequent calls return the same promise).
+   *  When `enabled=false`, this is a no-op and no socket is created. */
+  start() {
+    if (!this.options.enabled) {
+      logInternalError("crew-broker.start.disabled", new Error("broker disabled"), `sessionId=${this.options.sessionId}`);
+      return Promise.resolve();
+    }
+    if (this.server) return Promise.resolve();
+    if (this.startingPromise) return this.startingPromise;
+    this.starting = true;
+    this.startingPromise = this.doStart().then(() => {
+      this.starting = false;
+    }).catch((err2) => {
+      this.starting = false;
+      this.startingPromise = null;
+      throw err2;
+    });
+    return this.startingPromise;
+  }
+  async doStart() {
+    const sockPath = this.options.socketPath ?? getBrokerSocketPath(this.options.sessionId);
+    this.resolvedSocketPath = sockPath;
+    await prepareBrokerSocketDir(sockPath);
+    const staleResult = await removeStaleBrokerSocket(sockPath);
+    if (staleResult === "refused") {
+      throw new BrokerError("protocol", `refusing to follow symlinked broker socket: ${sockPath}`);
+    }
+    const netModule = this.options.netModule ?? net2;
+    const server = netModule.createServer({ allowHalfOpen: false }, (sock) => {
+      this.handleConnection(sock).catch((err2) => {
+        logInternalError(
+          "crew-broker.connection.crashed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+      });
+    });
+    await new Promise((resolve22, reject) => {
+      const onError = (err2) => {
+        server.removeListener("listening", onListening);
+        reject(err2);
+      };
+      const onListening = () => {
+        server.removeListener("error", onError);
+        resolve22();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      try {
+        server.listen(sockPath);
+      } catch (err2) {
+        server.removeListener("error", onError);
+        server.removeListener("listening", onListening);
+        reject(err2);
+      }
+    });
+    if (process.platform !== "win32") {
+      try {
+        await fsp3.chmod(sockPath, 384);
+      } catch (err2) {
+        logInternalError(
+          "crew-broker.start.chmod-failed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `path=${redactSecretString(sockPath)}`
+        );
+      }
+    }
+    this.server = server;
+    this.mailboxObserverUnsub = registerMailboxAppendObserver((msg) => {
+      this.fanoutMailboxMessage(msg);
+    });
+    server.on("error", (err2) => {
+      logInternalError(
+        "crew-broker.server.error",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+    });
+  }
+  /** Stop the broker. Idempotent. Closes every active connection, unlinks
+   *  ONLY the recorded socket path (never `process.kill`), and clears the
+   *  token registry. Safe to call twice. */
+  async stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    if (this.mailboxObserverUnsub) {
+      try {
+        this.mailboxObserverUnsub();
+      } catch {
+      }
+      this.mailboxObserverUnsub = null;
+    }
+    for (const conn of [...this.connections]) {
+      try {
+        conn.closed = true;
+        if (conn.helloTimer) {
+          clearTimeout(conn.helloTimer);
+          conn.helloTimer = null;
+        }
+        conn.socket.end();
+        setTimeout(() => {
+          try {
+            conn.socket.destroy();
+          } catch {
+          }
+        }, 50).unref();
+      } catch (err2) {
+        logInternalError(
+          "crew-broker.stop.close-conn-failed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+      }
+    }
+    this.connections.clear();
+    if (this.server) {
+      await new Promise((resolve22) => {
+        const srv = this.server;
+        if (!srv) return resolve22();
+        srv.close(() => resolve22());
+        setTimeout(() => resolve22(), 250).unref();
+      });
+      this.server = null;
+    }
+    this.tokens.clear();
+    const sockPath = this.resolvedSocketPath ?? this.options.socketPath;
+    if (sockPath && process.platform !== "win32") {
+      try {
+        await fsp3.unlink(sockPath);
+      } catch (err2) {
+        const code = err2.code;
+        if (code !== "ENOENT") {
+          logInternalError(
+            "crew-broker.stop.unlink-failed",
+            err2 instanceof Error ? err2 : new Error(String(err2)),
+            `path=${redactSecretString(sockPath)}`
+          );
+        }
+      }
+    }
+    this.resolvedSocketPath = null;
+  }
+  /**
+   * Non-throwing enqueue entry point for the post-append mailbox observer
+   * (Phase 1) or any other in-process producer. Phase 0 accepts `notifyMessage`
+   * as a no-op shape so the lifecycle controller can install a single
+   * observer regardless of broker state.
+   *
+   * Fanout goes ONLY to authenticated connections matching the recipient.
+   * Phase 0 keeps this as a typed no-op (`not-implemented` would be
+   * inappropriate here — the caller is in-process and shouldn't be
+   * punished for testing the broker skeleton).
+   */
+  notifyMessage(_message) {
+  }
+  // ------------------------------------------------------------------------
+  // Connection lifecycle
+  // ------------------------------------------------------------------------
+  async handleConnection(sock) {
+    const conn = {
+      socket: sock,
+      decoder: new NdjsonDecoder(),
+      authed: false,
+      runId: void 0,
+      taskId: void 0,
+      outbound: [],
+      needsResync: false,
+      closed: false,
+      helloTimer: null,
+      outboundSeq: 0
+    };
+    this.connections.add(conn);
+    conn.helloTimer = setTimeout(() => {
+      if (!conn.authed && !conn.closed) {
+        logInternalError("crew-broker.hello.deadline", new Error("hello deadline"), `sessionId=${this.options.sessionId}`);
+        this.closeConnection(conn);
+      }
+    }, HELLO_DEADLINE_MS);
+    conn.helloTimer.unref?.();
+    sock.on("data", (chunk) => {
+      this.handleData(conn, chunk).catch((err2) => {
+        logInternalError(
+          "crew-broker.connection.data-crashed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `sessionId=${this.options.sessionId}`
+        );
+        this.closeConnection(conn);
+      });
+    });
+    sock.on("error", (err2) => {
+      logInternalError(
+        "crew-broker.connection.socket-error",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+      this.closeConnection(conn);
+    });
+    sock.on("close", () => {
+      this.closeConnection(conn);
+    });
+  }
+  closeConnection(conn) {
+    if (conn.closed) return;
+    conn.closed = true;
+    if (conn.helloTimer) {
+      clearTimeout(conn.helloTimer);
+      conn.helloTimer = null;
+    }
+    this.connections.delete(conn);
+    if (conn.runId) {
+      const set = this.connectionsByRun.get(conn.runId);
+      if (set) {
+        set.delete(conn);
+        if (set.size === 0) this.connectionsByRun.delete(conn.runId);
+      }
+    }
+    const subs = this.subscriptionUnsubs.get(conn);
+    if (subs) {
+      for (const unsub of subs) {
+        try {
+          unsub();
+        } catch {
+        }
+      }
+      subs.clear();
+      this.subscriptionUnsubs.delete(conn);
+    }
+    try {
+      conn.socket.destroy();
+    } catch {
+    }
+  }
+  /**
+   * Phase 1.3: push a durable-appended mailbox message to any connected
+   * recipient for the message's run. Best-effort — silently skips
+   * recipients that are offline (they recover via msg.inbox). Never throws.
+   */
+  fanoutMailboxMessage(msg) {
+    const set = this.connectionsByRun.get(msg.runId);
+    if (!set || set.size === 0) return;
+    const eventFrame = encodeBrokerFrame({
+      event: "mailbox.message",
+      data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
+      seq: 0
+      // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
+    });
+    for (const conn of set) {
+      if (conn.closed || !conn.authed) continue;
+      if (msg.to && msg.to !== "all" && conn.taskId !== msg.to) continue;
+      try {
+        this.writeOrQueue(conn, eventFrame, false);
+      } catch {
+      }
+    }
+  }
+  async handleData(conn, chunk) {
+    if (conn.closed) return;
+    let frames;
+    try {
+      frames = conn.decoder.push(chunk);
+    } catch (err2) {
+      if (err2 instanceof BrokerError) {
+        logInternalError("crew-broker.decoder.error", err2, `code=${err2.code} sessionId=${this.options.sessionId}`);
+        this.sendErrorAndClose(conn, void 0, err2.code === "oversize-frame" ? "oversize-frame" : "protocol", err2.message);
+        return;
+      }
+      throw err2;
+    }
+    for (const frame of frames) {
+      await this.dispatchFrame(conn, frame);
+      if (conn.closed) return;
+    }
+  }
+  async dispatchFrame(conn, frame) {
+    if (!isRequestObject(frame)) {
+      this.sendErrorAndClose(conn, void 0, "protocol", "malformed request");
+      return;
+    }
+    const { id, method, params } = frame;
+    if (!conn.authed) {
+      if (method !== "hello") {
+        this.sendErrorAndClose(conn, id, "protocol", "hello required");
+        return;
+      }
+      await this.handleHello(conn, id, params);
+      return;
+    }
+    switch (method) {
+      case "ping":
+        this.sendResult(conn, id, { pong: true, protocol: BROKER_PROTOCOL });
+        return;
+      case "hello":
+        this.sendErrorAndClose(conn, id, "protocol", "hello already completed");
+        return;
+      case "msg.send":
+        await this.handleMsgSend(conn, id, params);
+        return;
+      case "msg.inbox":
+        await this.handleMsgInbox(conn, id, params);
+        return;
+      case "events.since":
+        await this.handleEventsSince(conn, id, params);
+        return;
+      case "events.subscribe":
+        await this.handleEventsSubscribe(conn, id, params);
+        return;
+      case "task.waitStatus":
+        await this.handleTaskWaitStatus(conn, id, params);
+        return;
+      case "steer.push":
+        await this.handleSteerPush(conn, id, params);
+        return;
+      case "escalate":
+        await this.handleEscalate(conn, id, params);
+        return;
+      default:
+        this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
+        return;
+    }
+  }
+  async handleHello(conn, id, params) {
+    if (!isHelloParams(params)) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    const { protocol, runId, taskId, token } = params;
+    if (protocol !== BROKER_PROTOCOL) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (!this.tokens.matches(runId, token)) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (typeof taskId !== "string" || taskId.length === 0 || taskId.length > 256) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    if (typeof runId !== "string" || runId.length === 0 || runId.length > 256) {
+      this.sendErrorAndClose(conn, id, "auth", "hello rejected");
+      return;
+    }
+    conn.authed = true;
+    conn.runId = runId;
+    conn.taskId = taskId;
+    let connsForRun = this.connectionsByRun.get(runId);
+    if (!connsForRun) {
+      connsForRun = /* @__PURE__ */ new Set();
+      this.connectionsByRun.set(runId, connsForRun);
+    }
+    connsForRun.add(conn);
+    if (conn.helloTimer) {
+      clearTimeout(conn.helloTimer);
+      conn.helloTimer = null;
+    }
+    this.handshakeCount += 1;
+    this.sendResult(conn, id, {
+      protocol: BROKER_PROTOCOL,
+      session: this.options.sessionId,
+      run: runId,
+      ok: true
+    });
+  }
+  // ------------------------------------------------------------------------
+  // Outbound queue + drop-newest + needsResync
+  // ------------------------------------------------------------------------
+  sendResult(conn, id, result4) {
+    this.enqueueFrame(conn, { id, result: result4 });
+  }
+  sendError(conn, id, code, message) {
+    this.enqueueFrame(conn, { id, error: { code, message: redactSecretString(message) } });
+  }
+  sendErrorAndClose(conn, id, code, message) {
+    if (id !== void 0) {
+      try {
+        const buf = encodeBrokerFrame({ id, error: { code, message: redactSecretString(message) } });
+        this.writeOrQueue(
+          conn,
+          buf,
+          /*force*/
+          true
+        );
+      } catch {
+      }
+    }
+    this.closeConnection(conn);
+  }
+  enqueueFrame(conn, payload) {
+    let buf;
+    try {
+      buf = encodeBrokerFrame(payload);
+    } catch (err2) {
+      logInternalError(
+        "crew-broker.enqueue.encode-failed",
+        err2 instanceof Error ? err2 : new Error(String(err2)),
+        `sessionId=${this.options.sessionId}`
+      );
+      return;
+    }
+    this.writeOrQueue(
+      conn,
+      buf,
+      /*force*/
+      false
+    );
+  }
+  writeOrQueue(conn, buf, force) {
+    if (conn.closed) return;
+    const cap = this.options.outboundQueueCap ?? DEFAULT_OUTBOUND_QUEUE_CAP;
+    if (conn.outbound.length >= cap) {
+      if (force) {
+        try {
+          conn.socket.write(buf);
+        } catch {
+        }
+        return;
+      }
+      conn.needsResync = true;
+      return;
+    }
+    conn.outbound.push(buf);
+    this.drainOutbound(conn);
+  }
+  drainOutbound(conn) {
+    while (conn.outbound.length > 0) {
+      const buf = conn.outbound[0];
+      if (buf === void 0) break;
+      try {
+        const ok = conn.socket.write(buf);
+        if (!ok) {
+          conn.socket.once("drain", () => {
+            if (!conn.closed) this.drainOutbound(conn);
+          });
+          return;
+        }
+      } catch {
+        this.closeConnection(conn);
+        return;
+      }
+      conn.outbound.shift();
+      conn.outboundSeq += 1;
+    }
+  }
+  // ------------------------------------------------------------------------
+  // Phase 1: msg.send + msg.inbox handlers
+  // ------------------------------------------------------------------------
+  /** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
+  async handleMsgSend(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const parsed = parseMsgSendParams(params);
+    if (!parsed) {
+      this.sendError(conn, id, "bad-params", "msg.send: invalid params");
+      return;
+    }
+    const bodyJson = safeStringify(parsed.body);
+    if (bodyJson.length > MAX_BROKER_FRAME_BYTES) {
+      this.sendError(conn, id, "oversize-frame", "msg.send: body too large");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let manifest;
+    let taskIds;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      manifest = loaded.manifest;
+      taskIds = (loaded.tasks ?? []).map((t2) => t2.id);
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const recipients = Array.isArray(parsed.to) ? parsed.to : parsed.to === "all" ? taskIds : [parsed.to];
+    if (recipients.length === 0 || recipients.length > 64) {
+      this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
+      return;
+    }
+    const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const fromField = conn.taskId ?? conn.runId;
+    let durable = false;
+    try {
+      for (const recipient of recipients) {
+        await appendMailboxMessageAsync(manifest, {
+          id: `${messageId}_${recipient}`,
+          direction: "inbox",
+          from: fromField,
+          to: recipient,
+          taskId: recipient,
+          body: bodyJson,
+          kind: parsed.kind ?? "message",
+          priority: parsed.priority ?? "normal",
+          deliveryMode: "next_turn",
+          replyTo: parsed.replyTo
+        });
+      }
+      durable = true;
+    } catch (err2) {
+      this.sendError(conn, id, "durable-failed", err2.message);
+      return;
+    }
+    this.sendResult(conn, id, {
+      messageId,
+      recipientCount: recipients.length,
+      durableStatus: durable ? "ok" : "failed",
+      liveDeliveryStatus: "ok"
+    });
+  }
+  /** Phase 1.2: paginated inbox pull for the authenticated run/task. */
+  async handleMsgInbox(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const parsed = parseMsgInboxParams(params);
+    if (!parsed) {
+      this.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let manifest;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      manifest = loaded.manifest;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1e3);
+    const taskId = conn.taskId ?? void 0;
+    const all = readMailbox(manifest, "inbox", taskId);
+    const filtered = all.filter((m) => m.status !== "acknowledged");
+    const offset = parsed.cursor ? parseInt(parsed.cursor, 10) || 0 : 0;
+    const page = filtered.slice(offset, offset + limit);
+    const nextOffset = offset + page.length;
+    const hasMore = nextOffset < filtered.length;
+    this.sendResult(conn, id, {
+      messages: page,
+      nextCursor: hasMore ? String(nextOffset) : void 0,
+      hasMore,
+      total: filtered.length
+    });
+  }
+  /**
+   * Phase 1.5: events.since — bounded replay of structured events with seq >
+   * sinceSeq from the durable log. Used by clients to resync after a missed
+   * live frame (e.g. after a queue overflow or reconnect). Reuses the same
+   * readEventsCursor + seq semantics as runEventBus.onWithReplay.
+   */
+  async handleEventsSince(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let eventsPath;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      eventsPath = loaded.manifest.eventsPath;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+    const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1e3) : 1e3;
+    try {
+      const result4 = readEventsCursor(eventsPath, { sinceSeq, limit });
+      const hasMore = result4.total > result4.events.length;
+      this.sendResult(conn, id, {
+        events: result4.events,
+        nextSeq: result4.nextSeq,
+        hasMore
+      });
+    } catch (err2) {
+      this.sendError(conn, id, "replay-failed", err2.message);
+    }
+  }
+  /**
+   * Phase 2: events.subscribe — live event-stream subscription.
+   * Replays events with seq > sinceSeq from the durable log, then pushes
+   * live events as they are emitted. Delivery uses the same writeOrQueue
+   * path as mailbox fanout (queue-cap 256, drop-newest on overflow).
+   */
+  async handleEventsSubscribe(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let eventsPath;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      eventsPath = loaded.manifest.eventsPath;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+    const cb = (event) => {
+      if (conn.closed) return;
+      const seq = event && typeof event === "object" && "seq" in event ? event.seq : void 0;
+      const eventFrame = encodeBrokerFrame({ event: "team.event", data: event, seq });
+      try {
+        this.writeOrQueue(conn, eventFrame, false);
+      } catch {
+      }
+    };
+    const unsub = runEventBus.onWithReplay(conn.runId, eventsPath, sinceSeq, cb);
+    let bucket = this.subscriptionUnsubs.get(conn);
+    if (!bucket) {
+      bucket = /* @__PURE__ */ new Set();
+      this.subscriptionUnsubs.set(conn, bucket);
+    }
+    bucket.add(unsub);
+    const origUnsub = unsub;
+    const wrappedUnsub = () => {
+      try {
+        origUnsub();
+      } catch {
+      }
+      const b = this.subscriptionUnsubs.get(conn);
+      if (b) b.delete(origUnsub);
+    };
+    bucket.delete(origUnsub);
+    bucket.add(wrappedUnsub);
+    this.sendResult(conn, id, { subscribed: true, sinceSeq });
+  }
+  /**
+   * Phase 2: task.waitStatus — resolve when a task reaches `until` status.
+   * Polls loadRunManifestById + tasks.json mtime with a bounded backoff.
+   * Returns the current task state if already at the target.
+   */
+  async handleTaskWaitStatus(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const targetTaskId = typeof v.taskId === "string" ? v.taskId : void 0;
+    const targetStatus = typeof v.until === "string" ? v.until : void 0;
+    const timeoutMs = typeof v.timeoutMs === "number" && Number.isFinite(v.timeoutMs) ? Math.min(Math.max(0, Math.floor(v.timeoutMs)), 6e4) : 3e4;
+    if (!targetTaskId || !targetStatus) {
+      this.sendError(conn, id, "bad-params", "task.waitStatus: taskId and until are required");
+      return;
+    }
+    if (targetTaskId.length === 0 || targetTaskId.length > 256) {
+      this.sendError(conn, id, "bad-params", "task.waitStatus: taskId out of range");
+      return;
+    }
+    const validStatuses = /* @__PURE__ */ new Set(["queued", "running", "completed", "failed", "blocked", "cancelled"]);
+    if (!validStatuses.has(targetStatus)) {
+      this.sendError(conn, id, "bad-params", `task.waitStatus: invalid until '${targetStatus}'`);
+      return;
+    }
+    const isTerminal = (s) => s === "completed" || s === "failed" || s === "cancelled";
+    const start = Date.now();
+    const interval = 200;
+    const pollUntilDone = () => new Promise((resolve22) => {
+      const tick = () => {
+        if (conn.closed) {
+          this.sendError(conn, id, "close", "connection closed during wait");
+          resolve22();
+          return;
+        }
+        const connRunId = conn.runId;
+        if (!connRunId) {
+          this.sendError(conn, id, "auth", "not authed (post-narrow)");
+          resolve22();
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
+          resolve22();
+          return;
+        }
+        try {
+          const loaded = loadRunManifestById(cwd, connRunId);
+          if (!loaded) {
+            this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+            resolve22();
+            return;
+          }
+          const task = loaded.tasks.find((t2) => t2.id === targetTaskId);
+          if (!task) {
+            this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
+            resolve22();
+            return;
+          }
+          if (task.status === targetStatus || isTerminal(targetStatus) && isTerminal(task.status)) {
+            this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
+            resolve22();
+            return;
+          }
+        } catch (err2) {
+          this.sendError(conn, id, "wait-failed", err2.message);
+          resolve22();
+          return;
+        }
+        setTimeout(tick, interval);
+      };
+      setTimeout(tick, 0);
+    });
+    await pollUntilDone();
+  }
+  /**
+   * Phase 3: steer.push — push steering message to a running worker.
+   *
+   * Dual-write strategy for durability:
+   *  1. Mailbox append (appendMailboxMessageAsync) — feeds the live broker
+   *     fanout to connected subscribers AND persists to the mailbox inbox
+   *     JSONL for later read.
+   *  2. Steering-file append — writes the steer body to
+   *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
+   *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
+   *     the durable fallback: even if the recipient child's broker connection is down, the
+   *     child picks up the steer on its next poll tick.
+   *
+   * A steering-file write failure does NOT fail the steer push — the
+   * mailbox write (1) has already succeeded.
+   */
+  async handleSteerPush(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const targetTaskId = typeof v.taskId === "string" ? v.taskId : void 0;
+    const body = typeof v.body === "string" ? v.body : void 0;
+    if (!targetTaskId || body === void 0) {
+      this.sendError(conn, id, "bad-params", "steer.push: taskId and body are required");
+      return;
+    }
+    if (body.length > MAX_BROKER_FRAME_BYTES) {
+      this.sendError(conn, id, "oversize-frame", "steer.push: body too large");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      const messageId = `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      await appendMailboxMessageAsync(loaded.manifest, {
+        id: messageId,
+        direction: "inbox",
+        from: conn.taskId ?? conn.runId,
+        to: targetTaskId,
+        taskId: targetTaskId,
+        body,
+        kind: "steer",
+        priority: v.priority ?? "urgent",
+        deliveryMode: "interrupt"
+      });
+      try {
+        const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
+        const steeringPath = resolveRealContainedPath(loaded.manifest.artifactsRoot, `steering/${targetTaskId}.jsonl`);
+        const line4 = JSON.stringify({
+          type: "steer",
+          message: body,
+          id: messageId,
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        }) + "\n";
+        await fsp3.mkdir(steeringDir, { recursive: true });
+        await fsp3.appendFile(steeringPath, line4, "utf-8");
+      } catch (fileErr) {
+        const safeMessage = fileErr instanceof Error ? redactSecretString(fileErr.message) : "";
+        logInternalError("crew-broker.steer-file-write-failed", new Error(safeMessage), `taskId=${targetTaskId}`);
+      }
+      this.sendResult(conn, id, { messageId, taskId: targetTaskId, durable: true });
+    } catch (err2) {
+      this.sendError(conn, id, "steer-failed", err2.message);
+    }
+  }
+  /**
+   * Phase 3: escalate — worker → orchestrator question/block.
+   * For Phase 3, the durable path is via the same mailbox append
+   * (kind = "follow-up" or "response") to the orchestrator's task
+   * (conn.taskId of the SENDER, or runId itself). The live-fanout
+   * via the mailbox observer will push the event frame to any connected
+   * orchestrator.
+   */
+  async handleEscalate(conn, id, params) {
+    if (!conn.runId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+    const body = typeof v.body === "string" ? v.body : void 0;
+    const to = typeof v.to === "string" ? v.to : void 0;
+    if (body === void 0) {
+      this.sendError(conn, id, "bad-params", "escalate: body is required");
+      return;
+    }
+    if (body.length > MAX_BROKER_FRAME_BYTES) {
+      this.sendError(conn, id, "oversize-frame", "escalate: body too large");
+      return;
+    }
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    const target = to ?? conn.taskId ?? conn.runId;
+    try {
+      const loaded = loadRunManifestById(cwd, conn.runId);
+      if (!loaded) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      const messageId = `esc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      await appendMailboxMessageAsync(loaded.manifest, {
+        id: messageId,
+        direction: "inbox",
+        from: conn.taskId ?? conn.runId,
+        to: target,
+        taskId: target,
+        body,
+        kind: "follow-up",
+        priority: v.priority ?? "normal",
+        deliveryMode: "next_turn"
+      });
+      this.sendResult(conn, id, { messageId, to: target, durable: true });
+    } catch (err2) {
+      this.sendError(conn, id, "escalate-failed", err2.message);
+    }
+  }
+};
+function isRequestObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
+  if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
+  if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(v.method)) return false;
+  return "params" in v;
+}
+function isHelloParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (v.protocol !== BROKER_PROTOCOL) {
+    if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
+  }
+  if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
+  if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
+  if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
+  return true;
+}
+function parseMsgSendParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const to = v.to;
+  if (typeof to !== "string" && !Array.isArray(to)) return void 0;
+  if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return void 0;
+  if (typeof to === "string" && to.length === 0) return void 0;
+  if (v.body === void 0) return void 0;
+  const kind = v.kind;
+  if (kind !== void 0 && !["message", "steer", "follow-up", "response", "group_join"].includes(kind)) {
+    return void 0;
+  }
+  const priority = v.priority;
+  if (priority !== void 0 && !["urgent", "normal", "low"].includes(priority)) {
+    return void 0;
+  }
+  const replyTo = typeof v.replyTo === "string" ? v.replyTo : void 0;
+  return { to, body: v.body, kind, priority, replyTo };
+}
+function parseMsgInboxParams(value) {
+  if (value === void 0 || value === null) return { limit: 100, cursor: void 0 };
+  if (typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const limit = v.limit;
+  if (limit !== void 0 && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
+    return void 0;
+  }
+  const cursor = v.cursor;
+  if (cursor !== void 0 && typeof cursor !== "string") return void 0;
+  return { limit, cursor };
+}
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value) ?? "{}";
+  } catch {
+    return "{}";
+  }
+}
+
+// src/extension/registration/lifecycle-handlers.ts
 init_live_agent_manager();
 init_orphan_worker_registry();
 init_pi_args();
 init_scheduler();
-import * as fs105 from "node:fs";
-import * as path82 from "node:path";
 
 // src/runtime/session-resources.ts
 init_internal_error();
@@ -73894,14 +72805,14 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as path81 from "node:path";
+import * as path82 from "node:path";
 function runArtifactCleanup(cwd) {
   try {
-    cleanupOldArtifacts(path81.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path82.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    cleanupOldArtifacts(path81.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path82.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
@@ -73971,7 +72882,8 @@ function installSessionStartHandler(pi, ctx) {
     if (ctx.widgetState.interval) clearInterval(ctx.widgetState.interval);
     ctx.widgetState.interval = void 0;
     notifyActiveRuns(extensionCtx);
-    const currentSessionId = extractSessionId(extensionCtx);
+    const currentSessionId = extractBrokerSessionId(extensionCtx);
+    ctx.brokerController?.setSessionId(currentSessionId);
     setTimeout(() => {
       void runDeferredSessionCleanup(pi, ctx, ownerGeneration, currentSessionId, extensionCtx);
     }, 0);
@@ -74406,7 +73318,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path82.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    const crewRunsDir = path83.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
     if (fs105.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -74417,7 +73329,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path82.join(userCrewRoot(), "state", "runs");
+    const userRunsDir = path83.join(userCrewRoot(), "state", "runs");
     if (fs105.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -74426,6 +73338,105 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     logInternalError("register.userCrewWatchers.start", error);
   }
   backgroundPreload();
+}
+function isRootSession(env = process.env) {
+  if (env.PI_CREW_KIND === "subagent") return false;
+  try {
+    return currentCrewDepth(env) === 0;
+  } catch {
+    return false;
+  }
+}
+function installCrewBrokerLifecycleController(_pi, _ctx) {
+  let broker = null;
+  let brokerSessionId;
+  let starting = null;
+  let cachedSessionId;
+  function effectiveEnabled() {
+    const envOverride = process.env.PI_CREW_BROKER;
+    if (envOverride === "0") return false;
+    try {
+      const cfg = loadConfig().config.broker;
+      if (envOverride === "1") return cfg !== void 0 ? cfg.enabled !== false : true;
+      return cfg?.enabled !== false;
+    } catch {
+      return false;
+    }
+  }
+  async function getOrStartBroker(sessionId) {
+    if (broker && brokerSessionId === sessionId) return broker;
+    if (broker && brokerSessionId !== sessionId) {
+      try {
+        await broker.stop();
+      } catch {
+      }
+      broker = null;
+      brokerSessionId = void 0;
+    }
+    if (!broker && !starting) {
+      starting = (async () => {
+        const cfg = (() => {
+          try {
+            return loadConfig().config.broker;
+          } catch {
+            return void 0;
+          }
+        })();
+        const b = new CrewBroker({
+          sessionId,
+          socketPath: getBrokerSocketPath(sessionId),
+          maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
+          outboundQueueCap: cfg?.outboundQueueCap ?? 256,
+          enabled: true,
+          cwd: process.cwd()
+        });
+        try {
+          await b.start();
+          broker = b;
+          brokerSessionId = sessionId;
+          return b;
+        } finally {
+          starting = null;
+        }
+      })();
+    }
+    return starting;
+  }
+  const issueForChild = async (runId) => {
+    if (!runId || typeof runId !== "string") return void 0;
+    if (!isRootSession(process.env)) return void 0;
+    if (!effectiveEnabled()) return void 0;
+    const sessionId = cachedSessionId;
+    if (!sessionId) return void 0;
+    try {
+      const b = await getOrStartBroker(sessionId);
+      const token = b.issueRunToken(runId);
+      return { socketPath: b.socketPath, token };
+    } catch {
+      return void 0;
+    }
+  };
+  setActiveBrokerIssuer(issueForChild);
+  return {
+    issueForChild,
+    stop: async () => {
+      setActiveBrokerIssuer(void 0);
+      if (broker) {
+        try {
+          await broker.stop();
+        } catch {
+        }
+        broker = null;
+        brokerSessionId = void 0;
+      }
+    },
+    /** Test seam: remember the most recent session_id for token issuance. */
+    setSessionId: (sessionId) => {
+      if (typeof sessionId !== "string") return;
+      if (sessionId.length === 0 || sessionId.length > 256) return;
+      cachedSessionId = sessionId;
+    }
+  };
 }
 
 // src/extension/registration/runtime-cleanup.ts
@@ -75184,7 +74195,7 @@ function registerPiTools(pi, ctx) {
 init_safe_paths();
 
 // src/extension/rpc-hmac.ts
-import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual4 } from "node:crypto";
 var RPC_HMAC_VERSION = 1;
 var SECRET_ENV_VAR = "PI_CREW_RPC_SECRET";
 var CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1e3;
@@ -75271,7 +74282,7 @@ function timingSafeCompare(a, b) {
   const safeB = Buffer.alloc(maxLen);
   bufA.copy(safeA);
   bufB.copy(safeB);
-  const equal = timingSafeEqual3(safeA, safeB);
+  const equal = timingSafeEqual4(safeA, safeB);
   return equal && bufA.length === bufB.length;
 }
 function extractSignaturePayload(params) {
@@ -75598,6 +74609,7 @@ function registerPiTeams(pi) {
   registerPiCommands(pi, ctx);
   installPiHooks(pi, ctx);
   installSessionLifecycleHandlers(pi, ctx);
+  ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
   registerCleanupHandler(pi);
   registerCompactionGuard(pi, {
     foregroundControllers: ctx.foregroundControllers,

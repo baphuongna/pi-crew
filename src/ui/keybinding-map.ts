@@ -23,9 +23,12 @@
  * `use-global-shortcuts.ts:38-61`.
  */
 
+import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
+import { keyOf } from "./key-utils.ts";
+
 export const DASHBOARD_KEYS = {
-	close: ["q", "\u001b"],
-	select: ["\r", "\n", "s"],
+	close: ["q", "escape", "\u001b"],
+	select: ["enter", "s", "\r", "\n", "tab", "\t", " "],
 	help: ["?"],
 	root: {
 		summary: ["u"],
@@ -48,7 +51,7 @@ export const DASHBOARD_KEYS = {
 		health: ["5"],
 		metrics: ["6"],
 	},
-	navigation: { up: ["k", "\u001b[A"], down: ["j", "\u001b[B"] },
+	navigation: { up: ["k", "up"], down: ["j", "down"] },
 	mailbox: {
 		ack: ["A"],
 		nudge: ["N"],
@@ -214,9 +217,32 @@ export { KEY_RESERVED };
  *                   arg skipped the `activePane === ...` branches).
  */
 export function dashboardActionForKey(data: string, activePane?: ActivePane): DashboardKeyAction | undefined {
+	// Two-pass dispatch to preserve case-sensitivity for plain ASCII keys
+	// while still normalizing escape sequences via matchesKey().
+	//
+	// Background: pi-tui's matchesKey() is case-insensitive, so matchesKey("d",
+	// "D") === true. A single-pass loop that intermixes exact + matchesKey
+	// checks would let the pane-scoped health-diagnostic-export binding
+	// (candidate "D") win over the unscoped agents binding (candidate "d")
+	// when activePane === "health" — collapsing the d/D case distinction.
+	//
+	// Pass 1 — exact string match (case-sensitive). Handles literal ASCII
+	// keystrokes ('d', 'D', 'q', 'S', …) and preserves their distinct meanings.
 	for (const binding of BINDINGS) {
 		if (binding.pane !== undefined && binding.pane !== activePane) continue;
 		if (binding.keys.includes(data)) return binding.action;
+	}
+	// Pass 2 — terminal-aware match for escape sequences / canonical KeyIds.
+	// Only reached when no exact ASCII match exists (data is e.g. '\x1b[A',
+	// '\x1bOA', or an app-cursor-mode variant). Uses matchesKey() to normalize
+	// legacy CSI, app-cursor-mode, and Kitty-protocol variants uniformly.
+	const key = keyOf(data);
+	for (const binding of BINDINGS) {
+		if (binding.pane !== undefined && binding.pane !== activePane) continue;
+		for (const candidate of binding.keys) {
+			if (key === candidate) return binding.action;
+			if (matchesKey(data, candidate as KeyId)) return binding.action;
+		}
 	}
 	return undefined;
 }
