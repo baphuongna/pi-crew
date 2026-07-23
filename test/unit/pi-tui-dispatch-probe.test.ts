@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import * as piTui from "/home/bom/.nvm/versions/node/v22.23.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.js";
+import * as piTui from "@earendil-works/pi-tui";
 
 import { RunDashboard } from "../../src/ui/run-dashboard.ts";
 
