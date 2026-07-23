@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -20,7 +21,13 @@ import test from "node:test";
 import { CrewBroker } from "../../src/runtime/crew-broker.ts";
 
 function tempSocketPath(suffix: string): string {
-	return path.join(os.tmpdir(), `pi-crew-broker-stale-${process.pid}-${Date.now()}-${suffix}.sock`);
+	// Keep the path short: macOS sun_path budget is 104 bytes (vs 108 on Linux),
+	// and os.tmpdir() on macOS is a long /var/folders/... path (~50 chars).
+	// The old pid+Date.now()+suffix form pushed the total over 104 bytes and
+	// net.listen() silently failed to create the socket file. A 6-hex token
+	// + suffix stays well under budget even for the longest suffix.
+	const tok = randomBytes(3).toString("hex");
+	return path.join(os.tmpdir(), `pc-${tok}-${suffix}.sock`);
 }
 
 /** Pre-create a stale socket file (just a regular file, not a real socket).

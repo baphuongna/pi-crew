@@ -20,6 +20,7 @@
  */
 
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -34,7 +35,11 @@ import { encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../
 // ----------------------------------------------------------------------------
 
 function tempSocketPath(suffix: string): string {
-	return path.join(os.tmpdir(), `pi-crew-broker-handshake-${process.pid}-${Date.now()}-${suffix}.sock`);
+	// Keep the path short: macOS sun_path budget is 104 bytes (vs 108 on Linux),
+	// and os.tmpdir() on macOS is a long /var/folders/... path. See
+	// crew-broker-stale-socket.test.ts for the failure this prevents.
+	const tok = randomBytes(3).toString("hex");
+	return path.join(os.tmpdir(), `pch-${tok}-${suffix}.sock`);
 }
 
 interface RawClient {
