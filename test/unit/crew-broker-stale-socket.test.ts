@@ -16,7 +16,14 @@ import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import { test as _test } from "node:test";
+
+// Broker file-socket tests are Unix-only — they exercise stale-file removal,
+// symlink refusal, and recording-owned unlink, all of which assume AF_UNIX
+// file-socket semantics. Windows named pipes have no equivalent (you can't
+// pre-create a stale pipe file or symlink a pipe), and the broker auto-
+// disables on native Windows anyway. Skip the whole file there.
+const test = process.platform === "win32" ? _test.skip : _test;
 
 import { CrewBroker } from "../../src/runtime/crew-broker.ts";
 

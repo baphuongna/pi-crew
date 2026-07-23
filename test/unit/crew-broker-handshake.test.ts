@@ -38,7 +38,12 @@ function tempSocketPath(suffix: string): string {
 	// Keep the path short: macOS sun_path budget is 104 bytes (vs 108 on Linux),
 	// and os.tmpdir() on macOS is a long /var/folders/... path. See
 	// crew-broker-stale-socket.test.ts for the failure this prevents.
+	// Windows: net.listen() needs a named-pipe path (\\.\pipe\...); a file
+	// path like C:\...\Temp\foo.sock gets EACCES.
 	const tok = randomBytes(3).toString("hex");
+	if (process.platform === "win32") {
+		return `\\\\.\\pipe\\pi-crew-test-${tok}-${suffix}`;
+	}
 	return path.join(os.tmpdir(), `pch-${tok}-${suffix}.sock`);
 }
 
