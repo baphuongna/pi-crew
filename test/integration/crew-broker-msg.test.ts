@@ -16,6 +16,7 @@
  */
 
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -60,7 +61,10 @@ async function makeMsgFixture(): Promise<MsgFixture> {
 
 	const broker = new CrewBroker({
 		sessionId: "msg-integration-" + Date.now(),
-		socketPath: path.join(os.tmpdir(), `pi-crew-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sock`),
+		socketPath:
+			process.platform === "win32"
+				? `\\\\.\\pipe\\pi-crew-test-msg-${randomBytes(3).toString("hex")}`
+				: path.join(os.tmpdir(), `pc-msg-${randomBytes(3).toString("hex")}.sock`),
 		enabled: true,
 		cwd,
 	});

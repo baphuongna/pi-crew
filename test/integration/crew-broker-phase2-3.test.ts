@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -52,7 +53,10 @@ async function makePhase23Fixture(): Promise<Phase23Fixture> {
 	if (taskIds.length < 2) throw new Error(`expected ≥2 tasks, got ${taskIds.length}`);
 	const broker = new CrewBroker({
 		sessionId: "phase23-" + Date.now(),
-		socketPath: path.join(os.tmpdir(), `pi-crew-phase23-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sock`),
+		socketPath:
+			process.platform === "win32"
+				? `\\\\.\\pipe\\pi-crew-test-p23-${randomBytes(3).toString("hex")}`
+				: path.join(os.tmpdir(), `pc-p23-${randomBytes(3).toString("hex")}.sock`),
 		enabled: true,
 		cwd,
 	});
