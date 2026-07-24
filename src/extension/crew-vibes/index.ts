@@ -100,9 +100,18 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		});
 	}
 
-	/** Trigger a footer repaint; the footer recomputes capacity/quota on render. */
+	/** Trigger a footer repaint; the footer recomputes capacity/quota on render.
+	 *
+	 *  Wrapped wholly in safeUiCall because fetchProviderAndRefresh is async: after
+	 *  its `await` the session may have shut down (session_shutdown clears the
+	 *  timers, but an in-flight fetchProviderAndRefresh still resumes), making ctx
+	 *  stale. Accessing the `hasUI` getter on a stale ctx throws — catch it so
+	 *  crew-vibes never crashes pi. Matches the file's core philosophy: "must
+	 *  NEVER break the user's session". */
 	function refreshFooter(ctx: ExtensionContext): void {
-		if (ctx?.hasUI) safeUiCall("refresh-footer", () => requestRender(ctx));
+		safeUiCall("refresh-footer", () => {
+			if (ctx?.hasUI) requestRender(ctx);
+		});
 	}
 
 	function publishSpeedFooter(ctx: ExtensionContext, speed = footerAnimator.value()): void {

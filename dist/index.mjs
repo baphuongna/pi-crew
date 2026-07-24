@@ -69199,7 +69199,9 @@ function registerCrewVibes(pi) {
     });
   }
   function refreshFooter(ctx) {
-    if (ctx?.hasUI) safeUiCall("refresh-footer", () => requestRender(ctx));
+    safeUiCall("refresh-footer", () => {
+      if (ctx?.hasUI) requestRender(ctx);
+    });
   }
   function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
     if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
