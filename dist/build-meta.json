@@ -367,7 +367,7 @@
       "format": "esm"
     },
     "src/config/role-tools.ts": {
-      "bytes": 4072,
+      "bytes": 4274,
       "imports": [],
       "format": "esm"
     },
@@ -12157,7 +12157,7 @@
       "format": "esm"
     },
     "src/runtime/heartbeat-watcher.ts": {
-      "bytes": 9280,
+      "bytes": 9553,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6000115
+      "bytes": 6000704
     },
     "dist/index.mjs": {
       "imports": [
@@ -14792,7 +14792,7 @@
           "bytesInOutput": 1900
         },
         "src/config/role-tools.ts": {
-          "bytesInOutput": 3222
+          "bytesInOutput": 3439
         },
         "src/agents/agent-config.ts": {
           "bytesInOutput": 1289
@@ -16166,7 +16166,7 @@
           "bytesInOutput": 2716
         },
         "src/runtime/heartbeat-watcher.ts": {
-          "bytesInOutput": 6338
+          "bytesInOutput": 6408
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7830
@@ -16322,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2749847
+      "bytes": 2750134
     }
   }
 }

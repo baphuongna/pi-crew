@@ -176,12 +176,16 @@ export class HeartbeatWatcher {
 							elapsedMs: Number.isFinite(elapsed) ? elapsed : undefined,
 						},
 					});
+					// W9 fix — prefix title with short run label (first 8 chars of runId)
+					// so ambient notifications are scannable when multiple runs are
+					// in flight. Full runId remains in the notification object.
+					const runLabel = run.runId.slice(0, 8);
 					this.opts.router.enqueue({
 						id: `dead_${run.runId}_${task.id}`,
 						severity: "warning",
 						source: "heartbeat-watcher",
 						runId: run.runId,
-						title: `Task ${task.id} heartbeat dead`,
+						title: `[${runLabel}] Task ${task.id} heartbeat dead`,
 						body: "Background watcher detected a stuck worker.",
 					});
 					this.opts.onDead?.(run.runId, task.id, Number.isFinite(elapsed) ? elapsed : thresholds.deadMs);

@@ -3233,10 +3233,13 @@ var init_role_tools = __esm({
   "src/config/role-tools.ts"() {
     "use strict";
     ROLE_TOOL_CONFIGS = {
-      // Explorer - Read-only, no write or execute
+      // Explorer - Read-only exploration; bash is included for git log/show
+      // (decisions stream needs commit-history mining) but edit/write stay
+      // excluded. State-mutation safety is enforced separately by
+      // READ_ONLY_ROLES in role-permission.ts.
       explorer: {
-        tools: ["read", "grep", "find", "ls", "glob"],
-        excludeTools: ["edit", "write", "bash", "web"]
+        tools: ["read", "grep", "find", "ls", "glob", "bash"],
+        excludeTools: ["edit", "write", "web"]
       },
       // Analyst - Read and analyze, limited execution
       analyst: {
@@ -67000,12 +67003,13 @@ var init_heartbeat_watcher = __esm({
                   elapsedMs: Number.isFinite(elapsed2) ? elapsed2 : void 0
                 }
               });
+              const runLabel2 = run.runId.slice(0, 8);
               this.opts.router.enqueue({
                 id: `dead_${run.runId}_${task.id}`,
                 severity: "warning",
                 source: "heartbeat-watcher",
                 runId: run.runId,
-                title: `Task ${task.id} heartbeat dead`,
+                title: `[${runLabel2}] Task ${task.id} heartbeat dead`,
                 body: "Background watcher detected a stuck worker."
               });
               this.opts.onDead?.(run.runId, task.id, Number.isFinite(elapsed2) ? elapsed2 : thresholds.deadMs);

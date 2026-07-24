@@ -11,10 +11,13 @@ export interface RoleToolConfig {
 }
 
 export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
-	// Explorer - Read-only, no write or execute
+	// Explorer - Read-only exploration; bash is included for git log/show
+	// (decisions stream needs commit-history mining) but edit/write stay
+	// excluded. State-mutation safety is enforced separately by
+	// READ_ONLY_ROLES in role-permission.ts.
 	explorer: {
-		tools: ["read", "grep", "find", "ls", "glob"],
-		excludeTools: ["edit", "write", "bash", "web"],
+		tools: ["read", "grep", "find", "ls", "glob", "bash"],
+		excludeTools: ["edit", "write", "web"],
 	},
 
 	// Analyst - Read and analyze, limited execution
