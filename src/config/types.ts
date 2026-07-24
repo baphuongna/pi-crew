@@ -44,6 +44,14 @@ export interface CrewRuntimeConfig {
 	allowChildProcessFallback?: boolean;
 	maxTurns?: number;
 	graceTurns?: number;
+	/**
+	 * W2 fix — wall-clock timeout per task in milliseconds. When the task
+	 * exceeds this limit, input.signal is aborted which triggers the existing
+	 * SIGTERM → SIGKILL escalation in child-pi.ts. Default 0 (no timeout).
+	 * Prevents runaway agent loops (e.g. 11_build in oh-my-pi distill run that
+	 * re-verified completed files 14+ times).
+	 */
+	taskTimeoutMs?: number;
 	inheritContext?: boolean;
 	promptMode?: "replace" | "append";
 	groupJoin?: "off" | "group" | "smart";

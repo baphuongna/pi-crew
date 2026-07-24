@@ -485,12 +485,43 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					data: { role: task.role, model: model ?? "default" },
 				});
 				upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+				// W2 fix — wall-clock timeout per task. We create our own
+				// AbortController, link the caller's signal to it, and abort
+				// from a timer. The internal signal is passed to runChildPi so
+				// the existing SIGTERM → SIGKILL escalation in child-pi.ts
+				// handles cleanup. Prevents runaway agent loops (e.g. 11_build
+				// in the oh-my-pi distill run that re-verified completed files
+				// 14+ times).
+				const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
+				const timeoutController = new AbortController();
+				if (input.signal) {
+					if (input.signal.aborted) {
+						timeoutController.abort(input.signal.reason);
+					} else {
+						input.signal.addEventListener(
+							"abort",
+							() => timeoutController.abort(input.signal!.reason),
+							{ once: true },
+						);
+					}
+				}
+				let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+				if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
+					timeoutHandle = setTimeout(() => {
+						if (!timeoutController.signal.aborted) {
+							timeoutController.abort(
+								new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`),
+							);
+						}
+					}, taskTimeoutMs);
+					timeoutHandle.unref?.();
+				}
 				const childResult = await runChildPi({
 					cwd: task.cwd,
 					task: prompt,
 					agent: input.agent,
 					model,
-					signal: input.signal,
+					signal: timeoutController.signal,
 					transcriptPath,
 					maxDepth: input.limits?.maxTaskDepth,
 					skillPaths,
@@ -610,6 +641,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 						}
 					},
 				});
+				if (timeoutHandle) clearTimeout(timeoutHandle);
 				const evidenceStatus = childResult.exitStatus?.cancelled
 					? "cancelled"
 					: childResult.error || (childResult.exitCode && childResult.exitCode !== 0)

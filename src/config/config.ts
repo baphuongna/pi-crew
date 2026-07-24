@@ -707,6 +707,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		allowChildProcessFallback: parseWithSchema(Type.Boolean(), obj.allowChildProcessFallback),
 		maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
 		graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
+		taskTimeoutMs: parsePositiveInteger(obj.taskTimeoutMs, LIMIT_CEILINGS.runtimeMaxTurns),
 		inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext) ?? true,
 		promptMode: parseWithSchema(Type.Union([Type.Literal("replace"), Type.Literal("append")]), obj.promptMode),
 		groupJoin: parseWithSchema(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")]), obj.groupJoin),

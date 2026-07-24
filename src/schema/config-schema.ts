@@ -51,6 +51,7 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		allowChildProcessFallback: Type.Optional(Type.Boolean()),
 		maxTurns: Type.Optional(Type.Integer({ minimum: 1 })),
 		graceTurns: Type.Optional(Type.Integer({ minimum: 1 })),
+		taskTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
 		inheritContext: Type.Optional(Type.Boolean()),
 		promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 		groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),

@@ -17,7 +17,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 12739,
+      "bytes": 12801,
       "imports": [
         {
           "path": "@sinclair/typebox",
@@ -203,7 +203,7 @@
       "format": "esm"
     },
     "src/config/config.ts": {
-      "bytes": 52707,
+      "bytes": 52797,
       "imports": [
         {
           "path": "node:fs",
@@ -8824,7 +8824,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 58135,
+      "bytes": 59426,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5997814
+      "bytes": 6000115
     },
     "dist/index.mjs": {
       "imports": [
@@ -14747,7 +14747,7 @@
           "bytesInOutput": 176
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 13433
+          "bytesInOutput": 13501
         },
         "src/utils/internal-error.ts": {
           "bytesInOutput": 502
@@ -14774,7 +14774,7 @@
           "bytesInOutput": 1325
         },
         "src/config/config.ts": {
-          "bytesInOutput": 41539
+          "bytesInOutput": 41631
         },
         "src/runtime/pi-spawn.ts": {
           "bytesInOutput": 6666
@@ -15944,7 +15944,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 44177
+          "bytesInOutput": 45137
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16322,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2748727
+      "bytes": 2749847
     }
   }
 }

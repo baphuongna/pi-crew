@@ -110,6 +110,7 @@ var init_config_schema = __esm({
         allowChildProcessFallback: Type.Optional(Type.Boolean()),
         maxTurns: Type.Optional(Type.Integer({ minimum: 1 })),
         graceTurns: Type.Optional(Type.Integer({ minimum: 1 })),
+        taskTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
         inheritContext: Type.Optional(Type.Boolean()),
         promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
         groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
@@ -2222,6 +2223,7 @@ function parseRuntimeConfig(value) {
     allowChildProcessFallback: parseWithSchema(Type2.Boolean(), obj.allowChildProcessFallback),
     maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
     graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
+    taskTimeoutMs: parsePositiveInteger(obj.taskTimeoutMs, LIMIT_CEILINGS.runtimeMaxTurns),
     inheritContext: parseWithSchema(Type2.Boolean(), obj.inheritContext) ?? true,
     promptMode: parseWithSchema(Type2.Union([Type2.Literal("replace"), Type2.Literal("append")]), obj.promptMode),
     groupJoin: parseWithSchema(Type2.Union([Type2.Literal("off"), Type2.Literal("group"), Type2.Literal("smart")]), obj.groupJoin),
@@ -51061,12 +51063,36 @@ async function runTeamTask(input) {
           data: { role: task.role, model: model ?? "default" }
         });
         upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+        const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
+        const timeoutController = new AbortController();
+        if (input.signal) {
+          if (input.signal.aborted) {
+            timeoutController.abort(input.signal.reason);
+          } else {
+            input.signal.addEventListener(
+              "abort",
+              () => timeoutController.abort(input.signal.reason),
+              { once: true }
+            );
+          }
+        }
+        let timeoutHandle;
+        if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
+          timeoutHandle = setTimeout(() => {
+            if (!timeoutController.signal.aborted) {
+              timeoutController.abort(
+                new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`)
+              );
+            }
+          }, taskTimeoutMs);
+          timeoutHandle.unref?.();
+        }
         const childResult = await runChildPi({
           cwd: task.cwd,
           task: prompt,
           agent: input.agent,
           model,
-          signal: input.signal,
+          signal: timeoutController.signal,
           transcriptPath,
           maxDepth: input.limits?.maxTaskDepth,
           skillPaths,
@@ -51170,6 +51196,7 @@ async function runTeamTask(input) {
             }
           }
         });
+        if (timeoutHandle) clearTimeout(timeoutHandle);
         const evidenceStatus = childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
         terminalEvidence = [
           ...terminalEvidence,
