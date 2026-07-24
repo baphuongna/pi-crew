@@ -513,9 +513,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
 					timeoutHandle = setTimeout(() => {
 						if (!timeoutController.signal.aborted) {
-							timeoutController.abort(
-								new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`),
-							);
+							timeoutController.abort(new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`));
 						}
 					}, taskTimeoutMs);
 					timeoutHandle.unref?.();
@@ -523,130 +521,130 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				let childResult;
 				try {
 					childResult = await runChildPi({
-					cwd: task.cwd,
-					task: prompt,
-					agent: input.agent,
-					model,
-					signal: timeoutController.signal,
-					transcriptPath,
-					maxDepth: input.limits?.maxTaskDepth,
-					skillPaths,
-					maxTurns: input.runtimeConfig?.maxTurns,
-					graceTurns: input.runtimeConfig?.graceTurns,
-					inheritContext: input.runtimeConfig?.inheritContext,
-					parentContext: input.parentContext,
-					excludeContextBash: input.runtimeConfig?.excludeContextBash,
-					sessionId: manifest.sessionId,
-					role: task.role,
-					runId: manifest.runId,
-					agentId: task.id,
-					artifactsRoot: manifest.artifactsRoot,
-					steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
-					onSpawn: (pid) => {
-						try {
-							({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
-							if (task.pendingSteers?.length) {
-								const steeringDir = `${manifest.artifactsRoot}/steering`;
-								// Fire-and-forget async write for steering events
-								void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
-								task.pendingSteers = [];
-								tasks = persistSingleTaskUpdate(manifest, tasks, task);
+						cwd: task.cwd,
+						task: prompt,
+						agent: input.agent,
+						model,
+						signal: timeoutController.signal,
+						transcriptPath,
+						maxDepth: input.limits?.maxTaskDepth,
+						skillPaths,
+						maxTurns: input.runtimeConfig?.maxTurns,
+						graceTurns: input.runtimeConfig?.graceTurns,
+						inheritContext: input.runtimeConfig?.inheritContext,
+						parentContext: input.parentContext,
+						excludeContextBash: input.runtimeConfig?.excludeContextBash,
+						sessionId: manifest.sessionId,
+						role: task.role,
+						runId: manifest.runId,
+						agentId: task.id,
+						artifactsRoot: manifest.artifactsRoot,
+						steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
+						onSpawn: (pid) => {
+							try {
+								({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+								if (task.pendingSteers?.length) {
+									const steeringDir = `${manifest.artifactsRoot}/steering`;
+									// Fire-and-forget async write for steering events
+									void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
+									task.pendingSteers = [];
+									tasks = persistSingleTaskUpdate(manifest, tasks, task);
+								}
+							} catch (err) {
+								logInternalError("task-runner.on-spawn", err as Error, `pid=${pid}, taskId=${task.id}`);
 							}
-						} catch (err) {
-							logInternalError("task-runner.on-spawn", err as Error, `pid=${pid}, taskId=${task.id}`);
-						}
-					},
-					onLifecycleEvent: (event: ChildPiLifecycleEvent) => {
-						void appendEventAsync(manifest.eventsPath, {
-							type: `worker.${event.type}` as const,
-							runId: manifest.runId,
-							taskId: task.id,
-							message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
-							data: { ...event },
-						}).catch((error) =>
-							logInternalError("task-runner.lifecycle-event", error, `taskId=${task.id}, type=${event.type}`),
-						);
-					},
-					onStdoutLine: (line) => {
-						appendCrewAgentOutput(manifest, task.id, line);
-						persistHeartbeat();
-						// Check for supervisor contact requests from child Pi
-						const contact = parseSupervisorContactFromLine(line);
-						if (contact) {
-							recordSupervisorContact(manifest, {
+						},
+						onLifecycleEvent: (event: ChildPiLifecycleEvent) => {
+							void appendEventAsync(manifest.eventsPath, {
+								type: `worker.${event.type}` as const,
 								runId: manifest.runId,
-								...contact,
-							});
-						}
-					},
-					onJsonEvent: (event) => {
-						// Top-level error boundary: prevent any single event from crashing the task.
-						// Errors are logged but processing continues so subsequent events still update state.
-						try {
-							appendCrewAgentEvent(manifest, task.id, event);
-							if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
-								collectedJsonEvents.push(event as Record<string, unknown>);
-							if (collectedJsonEvents && collectedJsonEvents.length > 1000) {
-								collectedJsonEvents.splice(0, collectedJsonEvents.length - 1000);
+								taskId: task.id,
+								message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
+								data: { ...event },
+							}).catch((error) =>
+								logInternalError("task-runner.lifecycle-event", error, `taskId=${task.id}, type=${event.type}`),
+							);
+						},
+						onStdoutLine: (line) => {
+							appendCrewAgentOutput(manifest, task.id, line);
+							persistHeartbeat();
+							// Check for supervisor contact requests from child Pi
+							const contact = parseSupervisorContactFromLine(line);
+							if (contact) {
+								recordSupervisorContact(manifest, {
+									runId: manifest.runId,
+									...contact,
+								});
 							}
-							// Accumulate lifetime usage via message_end events (survives compaction)
-							if (event && typeof event === "object" && (event as Record<string, unknown>).type === "message_end") {
-								const msg = (event as Record<string, unknown>).message as Record<string, unknown> | undefined;
-								if (msg?.role === "assistant") {
-									const usage = msg.usage as Record<string, number> | undefined;
-									if (usage) {
-										task.lifetimeUsage = {
-											input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
-											output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
-											cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
-										};
+						},
+						onJsonEvent: (event) => {
+							// Top-level error boundary: prevent any single event from crashing the task.
+							// Errors are logged but processing continues so subsequent events still update state.
+							try {
+								appendCrewAgentEvent(manifest, task.id, event);
+								if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
+									collectedJsonEvents.push(event as Record<string, unknown>);
+								if (collectedJsonEvents && collectedJsonEvents.length > 1000) {
+									collectedJsonEvents.splice(0, collectedJsonEvents.length - 1000);
+								}
+								// Accumulate lifetime usage via message_end events (survives compaction)
+								if (event && typeof event === "object" && (event as Record<string, unknown>).type === "message_end") {
+									const msg = (event as Record<string, unknown>).message as Record<string, unknown> | undefined;
+									if (msg?.role === "assistant") {
+										const usage = msg.usage as Record<string, number> | undefined;
+										if (usage) {
+											task.lifetimeUsage = {
+												input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
+												output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
+												cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
+											};
+										}
 									}
 								}
+								persistHeartbeat();
+								// Bug #3 fix: Write worker JSON events to background.log for debugging when running in background mode.
+								// This supplements the event log so developers can see what the child Pi worker produced.
+								if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
+									const bgLogPath = `${manifest.stateRoot}/background.log`;
+									const eventLine =
+										typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
+									// Fire-and-forget async write for background log
+									void appendBackgroundLogAsync(bgLogPath, eventLine);
+								}
+								// Always keep in-memory agentProgress fresh (cheap) so the UI/events see
+								// the latest progress, but THROTTLE the disk persist. Previously this
+								// did a full locked read-parse-write of tasks.json on EVERY child JSON
+								// event — a 200-event task produced 200 such cycles (Round 15 P1).
+								// Final state is force-flushed on task completion (persistHeartbeat(true)).
+								const nextProgress = applyAgentProgressEvent(
+									task.agentProgress ?? emptyCrewAgentProgress(),
+									event,
+									task.startedAt,
+								);
+								task = { ...task, agentProgress: nextProgress };
+								tasks = updateTask(tasks, task);
+								const progressNow = Date.now();
+								if (progressNow - lastTaskProgressPersistedAt >= 500) {
+									tasks = persistSingleTaskUpdate(manifest, tasks, task);
+									lastTaskProgressPersistedAt = progressNow;
+								}
+								// Bridge event to UI event bus for near-instant updates
+								const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
+								if (bridgeEvent) streamBridge?.handler(bridgeEvent);
+								// Feed overflow recovery tracker
+								if (input.onJsonEvent) {
+									input.onJsonEvent(task.id, manifest.runId, event);
+								}
+								if (!finalCheckpointWritten && isFinalChildEvent(event)) {
+									finalCheckpointWritten = true;
+									({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
+								}
+								persistChildProgress(event);
+							} catch (err) {
+								logInternalError("task-runner.on-json-event", err as Error, `taskId=${task.id}`);
 							}
-							persistHeartbeat();
-							// Bug #3 fix: Write worker JSON events to background.log for debugging when running in background mode.
-							// This supplements the event log so developers can see what the child Pi worker produced.
-							if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
-								const bgLogPath = `${manifest.stateRoot}/background.log`;
-								const eventLine =
-									typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
-								// Fire-and-forget async write for background log
-								void appendBackgroundLogAsync(bgLogPath, eventLine);
-							}
-							// Always keep in-memory agentProgress fresh (cheap) so the UI/events see
-							// the latest progress, but THROTTLE the disk persist. Previously this
-							// did a full locked read-parse-write of tasks.json on EVERY child JSON
-							// event — a 200-event task produced 200 such cycles (Round 15 P1).
-							// Final state is force-flushed on task completion (persistHeartbeat(true)).
-							const nextProgress = applyAgentProgressEvent(
-								task.agentProgress ?? emptyCrewAgentProgress(),
-								event,
-								task.startedAt,
-							);
-							task = { ...task, agentProgress: nextProgress };
-							tasks = updateTask(tasks, task);
-							const progressNow = Date.now();
-							if (progressNow - lastTaskProgressPersistedAt >= 500) {
-								tasks = persistSingleTaskUpdate(manifest, tasks, task);
-								lastTaskProgressPersistedAt = progressNow;
-							}
-							// Bridge event to UI event bus for near-instant updates
-							const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
-							if (bridgeEvent) streamBridge?.handler(bridgeEvent);
-							// Feed overflow recovery tracker
-							if (input.onJsonEvent) {
-								input.onJsonEvent(task.id, manifest.runId, event);
-							}
-							if (!finalCheckpointWritten && isFinalChildEvent(event)) {
-								finalCheckpointWritten = true;
-								({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
-							}
-							persistChildProgress(event);
-						} catch (err) {
-							logInternalError("task-runner.on-json-event", err as Error, `taskId=${task.id}`);
-						}
-					},
-				});
+						},
+					});
 				} finally {
 					if (timeoutHandle) clearTimeout(timeoutHandle);
 					// W2 fix — release the listener so it doesn't leak. {once:true}

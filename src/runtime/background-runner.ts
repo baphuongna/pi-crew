@@ -235,9 +235,7 @@ function runCleanup(
 	try {
 		killed = terminateActiveChildPiProcesses();
 	} catch (error) {
-		console.log(
-			`[background-runner] runCleanup: terminateActiveChildPiProcesses error: ${errorMessage(error)}`,
-		);
+		console.log(`[background-runner] runCleanup: terminateActiveChildPiProcesses error: ${errorMessage(error)}`);
 	}
 	console.log(`[background-runner] runCleanup: killed ${killed} child processes`);
 	// FIX Issue #5: Unregister this worker from the orphan registry on exit.
@@ -751,9 +749,7 @@ async function main(): Promise<void> {
 				}
 				console.log(`[background-runner] executeTeamRun returned, status=${result.manifest.status}`);
 			} catch (execError) {
-				console.log(
-					`[background-runner] executeTeamRun THREW: ${errorMessage(execError)}`,
-				);
+				console.log(`[background-runner] executeTeamRun THREW: ${errorMessage(execError)}`);
 				console.log(`[background-runner] stack: ${execError instanceof Error ? execError.stack : "N/A"}`);
 				throw execError;
 			}
@@ -808,9 +804,7 @@ async function main(): Promise<void> {
 				manifest.eventsPath,
 			);
 		} catch (cleanupError) {
-			console.error(
-				`[background-runner] runCleanup threw: ${errorMessage(cleanupError)}`,
-			);
+			console.error(`[background-runner] runCleanup threw: ${errorMessage(cleanupError)}`);
 		}
 		// NOTE: If exitDueToRejection was set, runCleanup() already called process.exit(1)
 		// so this finally block never continues past that point.
