@@ -31,6 +31,7 @@ export function registerPiCommands(pi: ExtensionAPI, ctx: RegistrationContext): 
 		getManifestCache: ctx.getManifestCache,
 		getRunSnapshotCache: ctx.getRunSnapshotCache,
 		getMetricRegistry: () => ctx.observabilityState.metricRegistry,
+		uiState: ctx.uiState,
 		dismissNotifications: () => {
 			ctx.widgetState.notificationCount = 0;
 			if (ctx.currentCtx) {

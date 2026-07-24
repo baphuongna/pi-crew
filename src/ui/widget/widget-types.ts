@@ -25,7 +25,6 @@ export interface CrewWidgetModel {
 
 export interface CrewWidgetState {
 	frame: number;
-	interval?: ReturnType<typeof setInterval>;
 	lastPlacement?: string;
 	lastVisibility?: "hidden" | "visible";
 	lastKey?: string;

@@ -1100,7 +1100,7 @@
       "format": "esm"
     },
     "src/extension/crew-cleanup.ts": {
-      "bytes": 5488,
+      "bytes": 6276,
       "imports": [
         {
           "path": "src/runtime/pi-args.ts",
@@ -6936,7 +6936,7 @@
       "format": "esm"
     },
     "src/ui/render-coalescer.ts": {
-      "bytes": 2540,
+      "bytes": 2718,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -7381,7 +7381,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 13698,
+      "bytes": 13630,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -10522,7 +10522,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 4252,
+      "bytes": 4299,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -10955,7 +10955,7 @@
       "format": "esm"
     },
     "src/ui/mascot.ts": {
-      "bytes": 14771,
+      "bytes": 14829,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -11002,7 +11002,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands.ts": {
-      "bytes": 46314,
+      "bytes": 46482,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -11377,7 +11377,7 @@
       "format": "esm"
     },
     "src/extension/registration/command-registration.ts": {
-      "bytes": 2118,
+      "bytes": 2142,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -11471,7 +11471,7 @@
       "format": "esm"
     },
     "src/ui/run-snapshot-cache.ts": {
-      "bytes": 36714,
+      "bytes": 36736,
       "imports": [
         {
           "path": "node:crypto",
@@ -11657,7 +11657,7 @@
       "format": "esm"
     },
     "src/ui/live-run-sidebar.ts": {
-      "bytes": 11756,
+      "bytes": 11862,
       "imports": [
         {
           "path": "node:fs",
@@ -11733,7 +11733,7 @@
       "format": "esm"
     },
     "src/extension/registration/ui.ts": {
-      "bytes": 6479,
+      "bytes": 6727,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -12515,7 +12515,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 36458,
+      "bytes": 36374,
       "imports": [
         {
           "path": "node:fs",
@@ -12949,7 +12949,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 5297,
+      "bytes": 5363,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -13111,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6002780
+      "bytes": 6004888
     },
     "dist/index.mjs": {
       "imports": [
@@ -14891,7 +14891,7 @@
           "bytesInOutput": 29439
         },
         "src/extension/crew-cleanup.ts": {
-          "bytesInOutput": 2872
+          "bytesInOutput": 3027
         },
         "src/utils/file-coalescer.ts": {
           "bytesInOutput": 1204
@@ -15671,7 +15671,7 @@
           "bytesInOutput": 1943
         },
         "src/ui/render-coalescer.ts": {
-          "bytesInOutput": 1979
+          "bytesInOutput": 2165
         },
         "src/utils/visual.ts": {
           "bytesInOutput": 4539
@@ -15728,7 +15728,7 @@
           "bytesInOutput": 6263
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 9607
+          "bytesInOutput": 9552
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
@@ -16049,7 +16049,7 @@
           "bytesInOutput": 14103
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 3182
+          "bytesInOutput": 3242
         },
         "src/ui/dashboard-panes/agents-pane.ts": {
           "bytesInOutput": 4528
@@ -16106,13 +16106,13 @@
           "bytesInOutput": 1913
         },
         "src/ui/mascot.ts": {
-          "bytesInOutput": 15857
+          "bytesInOutput": 15930
         },
         "src/ui/settings-overlay.ts": {
           "bytesInOutput": 30796
         },
         "src/extension/registration/commands.ts": {
-          "bytesInOutput": 40620
+          "bytesInOutput": 40730
         },
         "src/runtime/subagent-manager.ts": {
           "bytesInOutput": 16716
@@ -16124,7 +16124,7 @@
           "bytesInOutput": 4563
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9794
+          "bytesInOutput": 9918
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4277
@@ -16178,7 +16178,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 1848
+          "bytesInOutput": 1914
         },
         "src/ui/deploy-bundled-themes.ts": {
           "bytesInOutput": 1188
@@ -16223,7 +16223,7 @@
           "bytesInOutput": 2457
         },
         "src/extension/registration/command-registration.ts": {
-          "bytesInOutput": 1111
+          "bytesInOutput": 1137
         },
         "src/extension/registration/context-builder.ts": {
           "bytesInOutput": 3792
@@ -16241,7 +16241,7 @@
           "bytesInOutput": 382
         },
         "src/ui/run-snapshot-cache.ts": {
-          "bytesInOutput": 28658
+          "bytesInOutput": 28672
         },
         "src/extension/registration/crash-recovery-cache.ts": {
           "bytesInOutput": 701
@@ -16262,7 +16262,7 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 24143
+          "bytesInOutput": 24058
         },
         "src/runtime/crew-broker.ts": {
           "bytesInOutput": 35322
@@ -16322,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2750679
+      "bytes": 2751353
     }
   }
 }

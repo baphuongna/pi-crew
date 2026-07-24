@@ -154,7 +154,7 @@ class CrewWidgetComponent implements WidgetComponent {
 			[...listLiveAgents()].some((h) => h.status === "running");
 		const animation = hasRunning ? `:spin=${spinnerBucket()}` : "";
 
-		return (
+		const sig =
 			runs
 				.map(
 					(entry) =>
@@ -175,8 +175,8 @@ class CrewWidgetComponent implements WidgetComponent {
 								})
 								.join(","),
 				)
-				.join("|") + `|live:${liveSig}${animation}`
-		);
+				.join("|") + `|live:${liveSig}${animation}`;
+		return sig;
 	}
 
 	private colorize(lines: string[], width: number): string[] {
@@ -342,8 +342,6 @@ export function stopCrewWidget(
 	state: CrewWidgetState,
 	config?: CrewUiConfig,
 ): void {
-	if (state.interval) clearInterval(state.interval);
-	state.interval = undefined;
 	if (ctx?.hasUI) {
 		const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
 		ctx.ui.setStatus(STATUS_KEY, undefined);

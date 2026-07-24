@@ -226,7 +226,7 @@ export class AnimatedMascot {
 	private tickTypewriter(): boolean {
 		const state = this.effectState;
 		if (state.pos === undefined) return true;
-		for (let i = 0; i < 6; i++) {
+		for (let i = 0; i < 18; i++) {
 			const row = Math.floor(state.pos / ARMIN_WIDTH);
 			const x = state.pos % ARMIN_WIDTH;
 			if (row >= ARMIN_DISPLAY_HEIGHT) return true;
@@ -239,9 +239,11 @@ export class AnimatedMascot {
 	private tickScanline(): boolean {
 		const state = this.effectState;
 		if (state.row === undefined) return true;
-		if (state.row >= ARMIN_DISPLAY_HEIGHT) return true;
-		for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state.row][x] = this.finalArminGrid[state.row][x];
-		state.row++;
+		for (let step = 0; step < 3; step++) {
+			if (state.row >= ARMIN_DISPLAY_HEIGHT) return true;
+			for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state.row][x] = this.finalArminGrid[state.row][x];
+			state.row++;
+		}
 		return false;
 	}
 
@@ -264,7 +266,7 @@ export class AnimatedMascot {
 					break;
 				}
 			}
-			drop.y++;
+			drop.y += 3;
 			if (drop.y >= 0 && drop.y < ARMIN_DISPLAY_HEIGHT) {
 				if (targetRow >= 0 && drop.y >= targetRow) {
 					drop.settled = ARMIN_DISPLAY_HEIGHT - targetRow;
@@ -280,7 +282,7 @@ export class AnimatedMascot {
 	private tickFade(): boolean {
 		const state = this.effectState;
 		if (!state.positions || state.idx === undefined) return true;
-		for (let i = 0; i < 18; i++) {
+		for (let i = 0; i < 54; i++) {
 			if (state.idx >= state.positions.length) return true;
 			const [row, x] = state.positions[state.idx];
 			this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
@@ -299,7 +301,7 @@ export class AnimatedMascot {
 		for (let row = Math.max(0, top); row <= Math.min(ARMIN_DISPLAY_HEIGHT - 1, bottom); row++) {
 			for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
 		}
-		state.expansion++;
+		state.expansion += 3;
 		return state.expansion > ARMIN_DISPLAY_HEIGHT;
 	}
 
@@ -321,7 +323,7 @@ export class AnimatedMascot {
 					}
 				}
 			}
-			state.phase++;
+			state.phase += 3;
 			return false;
 		}
 		// Restore final grid in-place
@@ -336,7 +338,7 @@ export class AnimatedMascot {
 	private tickDissolve(): boolean {
 		const state = this.effectState;
 		if (!state.positions || state.idx === undefined) return true;
-		for (let i = 0; i < 22; i++) {
+		for (let i = 0; i < 66; i++) {
 			if (state.idx >= state.positions.length) return true;
 			const [row, x] = state.positions[state.idx];
 			this.currentArminGrid[row][x] = this.finalArminGrid[row][x];

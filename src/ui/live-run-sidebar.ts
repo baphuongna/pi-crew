@@ -270,10 +270,12 @@ export class LiveRunSidebar {
 			if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
 				const autoCloseMs = this.config?.autoCloseDashboardMs ?? 3000;
 				if (autoCloseMs > 0) {
+					if (this.autoCloseTimeout) clearTimeout(this.autoCloseTimeout);
 					this.autoCloseTimeout = setTimeout(() => {
 						this.hasAutoClosed = true;
 						this.done(undefined);
 					}, autoCloseMs);
+					this.autoCloseTimeout?.unref();
 					lines.push(line(`auto-close in ${Math.round(autoCloseMs / 1000)}s…`, w));
 				}
 			}

@@ -8078,7 +8078,8 @@ var init_child_pi = __esm({
 });
 
 // src/extension/crew-cleanup.ts
-function registerCleanupHandler(pi) {
+function registerCleanupHandler(pi, opts) {
+  terminalStatusDispose = opts?.disposeTerminalStatus;
   pi.on("session_shutdown", async () => {
     console.log("[pi-crew] Session shutdown - cleaning up resources");
     try {
@@ -8093,6 +8094,10 @@ function registerCleanupHandler(pi) {
     signalHandlersRegistered = true;
     const handleSignal = async (signal) => {
       console.log(`[pi-crew] Received ${signal} - starting cleanup`);
+      try {
+        terminalStatusDispose?.();
+      } catch {
+      }
       await cleanupChildProcesses();
     };
     process.on("SIGTERM", () => {
@@ -8140,7 +8145,7 @@ function registerChildProcess(pid, runId, agentId) {
 function unregisterChildProcess(pid) {
   childProcessRegistry.unregister(pid);
 }
-var signalHandlersRegistered, ChildProcessRegistry, childProcessRegistry;
+var signalHandlersRegistered, ChildProcessRegistry, childProcessRegistry, terminalStatusDispose;
 var init_crew_cleanup = __esm({
   "src/extension/crew-cleanup.ts"() {
     "use strict";
@@ -40864,6 +40869,14 @@ var init_render_coalescer = __esm({
           this.#timerId = null;
         }
         this.#pending = false;
+        const dropped = this.#dropped;
+        this.#dropped = 0;
+        if (dropped > 0) {
+          try {
+            this.#onDrop(dropped);
+          } catch {
+          }
+        }
         this.#callback();
       }
       /** Check if a render is pending. */
@@ -44021,8 +44034,6 @@ function updateCrewWidget(ctx, state, config, manifestCache2, snapshotCache, pre
   requestRender(ctx);
 }
 function stopCrewWidget(ctx, state, config) {
-  if (state.interval) clearInterval(state.interval);
-  state.interval = void 0;
   if (ctx?.hasUI) {
     const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
     ctx.ui.setStatus(STATUS_KEY, void 0);
@@ -44093,7 +44104,7 @@ var init_widget = __esm({
         ).join("|");
         const hasRunning = runs.some((entry) => entry.agents.some((a) => a.status === "running")) || [...listLiveAgents()].some((h) => h.status === "running");
         const animation = hasRunning ? `:spin=${spinnerBucket()}` : "";
-        return runs.map(
+        const sig = runs.map(
           (entry) => entry.snapshot?.signature ?? `${entry.run.runId}:${entry.run.status}:${entry.run.updatedAt}:` + entry.agents.map((a) => {
             const recentOutput = a.progress?.recentOutput.at(-1) ?? "";
             const progress = [
@@ -44107,6 +44118,7 @@ var init_widget = __esm({
             return `${a.status}:${a.startedAt}:${a.completedAt ?? ""}:${a.toolUses ?? 0}:${progress}`;
           }).join(",")
         ).join("|") + `|live:${liveSig}${animation}`;
+        return sig;
       }
       colorize(lines, width) {
         return renderLines(
@@ -59994,6 +60006,9 @@ async function openLiveConversation(ctx, initialRunId, initialTaskId) {
           }
         },
         invalidate() {
+        },
+        dispose() {
+          overlay.dispose();
         }
       };
     },
@@ -62168,7 +62183,7 @@ var init_mascot = __esm({
       tickTypewriter() {
         const state = this.effectState;
         if (state.pos === void 0) return true;
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 18; i++) {
           const row = Math.floor(state.pos / ARMIN_WIDTH);
           const x = state.pos % ARMIN_WIDTH;
           if (row >= ARMIN_DISPLAY_HEIGHT) return true;
@@ -62180,9 +62195,11 @@ var init_mascot = __esm({
       tickScanline() {
         const state = this.effectState;
         if (state.row === void 0) return true;
-        if (state.row >= ARMIN_DISPLAY_HEIGHT) return true;
-        for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state.row][x] = this.finalArminGrid[state.row][x];
-        state.row++;
+        for (let step = 0; step < 3; step++) {
+          if (state.row >= ARMIN_DISPLAY_HEIGHT) return true;
+          for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state.row][x] = this.finalArminGrid[state.row][x];
+          state.row++;
+        }
         return false;
       }
       tickRain() {
@@ -62204,7 +62221,7 @@ var init_mascot = __esm({
               break;
             }
           }
-          drop.y++;
+          drop.y += 3;
           if (drop.y >= 0 && drop.y < ARMIN_DISPLAY_HEIGHT) {
             if (targetRow >= 0 && drop.y >= targetRow) {
               drop.settled = ARMIN_DISPLAY_HEIGHT - targetRow;
@@ -62219,7 +62236,7 @@ var init_mascot = __esm({
       tickFade() {
         const state = this.effectState;
         if (!state.positions || state.idx === void 0) return true;
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < 54; i++) {
           if (state.idx >= state.positions.length) return true;
           const [row, x] = state.positions[state.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
@@ -62237,7 +62254,7 @@ var init_mascot = __esm({
         for (let row = Math.max(0, top); row <= Math.min(ARMIN_DISPLAY_HEIGHT - 1, bottom); row++) {
           for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
         }
-        state.expansion++;
+        state.expansion += 3;
         return state.expansion > ARMIN_DISPLAY_HEIGHT;
       }
       tickGlitch() {
@@ -62258,7 +62275,7 @@ var init_mascot = __esm({
               }
             }
           }
-          state.phase++;
+          state.phase += 3;
           return false;
         }
         for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
@@ -62271,7 +62288,7 @@ var init_mascot = __esm({
       tickDissolve() {
         const state = this.effectState;
         if (!state.positions || state.idx === void 0) return true;
-        for (let i = 0; i < 22; i++) {
+        for (let i = 0; i < 66; i++) {
           if (state.idx >= state.positions.length) return true;
           const [row, x] = state.positions[state.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
@@ -63519,6 +63536,7 @@ async function openTeamDashboard(ctx) {
   if (!ctx.hasUI) return;
   const deps = depsRef;
   if (!deps) return;
+  if (deps.uiState) deps.uiState.dashboardOpen = true;
   const cmdCtx = ctx;
   for (; ; ) {
     const sessionId = cmdCtx.sessionManager?.getSessionId?.();
@@ -63552,7 +63570,7 @@ async function openTeamDashboard(ctx) {
         } : { width, maxHeight: "90%", anchor: "center", margin: 2 }
       }
     );
-    if (!selection) return;
+    if (!selection) break;
     if (selection.action === "reload") continue;
     if (selection.action === "notifications-dismiss") {
       deps.dismissNotifications?.();
@@ -63646,8 +63664,9 @@ async function openTeamDashboard(ctx) {
       )
     );
     await notifyCommandResult(cmdCtx, commandText2(result4));
-    return;
+    break;
   }
+  if (deps.uiState) deps.uiState.dashboardOpen = false;
 }
 function registerTeamCommands(pi, deps) {
   depsRef = deps;
@@ -64025,7 +64044,7 @@ function registerTeamCommands(pi, deps) {
       const { AnimatedMascot: AnimatedMascot2 } = await ui();
       await ctx.ui.custom(
         (tui, theme, _keybindings, done) => new AnimatedMascot2(theme, () => done(void 0), {
-          frameIntervalMs: style === "armin" ? 33 : 180,
+          frameIntervalMs: style === "armin" ? 100 : 180,
           autoCloseMs: 7e3,
           requestRender: () => requestRenderTarget(tui),
           style,
@@ -65038,10 +65057,12 @@ var init_live_run_sidebar = __esm({
           if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
             const autoCloseMs = this.config?.autoCloseDashboardMs ?? 3e3;
             if (autoCloseMs > 0) {
+              if (this.autoCloseTimeout) clearTimeout(this.autoCloseTimeout);
               this.autoCloseTimeout = setTimeout(() => {
                 this.hasAutoClosed = true;
                 this.done(void 0);
               }, autoCloseMs);
+              this.autoCloseTimeout?.unref();
               lines.push(line3(`auto-close in ${Math.round(autoCloseMs / 1e3)}s\u2026`, w));
             }
           } else if (this.autoCloseTimeout) {
@@ -69527,6 +69548,7 @@ function registerPiCommands(pi, ctx) {
     getManifestCache: ctx.getManifestCache,
     getRunSnapshotCache: ctx.getRunSnapshotCache,
     getMetricRegistry: () => ctx.observabilityState.metricRegistry,
+    uiState: ctx.uiState,
     dismissNotifications: () => {
       ctx.widgetState.notificationCount = 0;
       if (ctx.currentCtx) {
@@ -70839,16 +70861,15 @@ function createRunSnapshotCache(cwd, options = {}) {
   const scheduleRefresh = (runId) => {
     const existing = pendingRefreshes.get(runId);
     if (existing) clearTimeout(existing);
-    pendingRefreshes.set(
-      runId,
-      setTimeout(() => {
-        pendingRefreshes.delete(runId);
-        try {
-          localRefreshIfStale(runId);
-        } catch {
-        }
-      }, INVAL_COALESCE_MS)
-    );
+    const timer = setTimeout(() => {
+      pendingRefreshes.delete(runId);
+      try {
+        localRefreshIfStale(runId);
+      } catch {
+      }
+    }, INVAL_COALESCE_MS);
+    timer.unref();
+    pendingRefreshes.set(runId, timer);
   };
   const unsubState = runEventBus.onChannel("run:state", (event) => {
     if (entries.has(event.runId)) scheduleRefresh(event.runId);
@@ -72921,8 +72942,6 @@ function installSessionStartHandler(pi, ctx) {
       ctx.crewAutocompleteRegistered = true;
       registerCrewAutocomplete(extensionCtx);
     }
-    if (ctx.widgetState.interval) clearInterval(ctx.widgetState.interval);
-    ctx.widgetState.interval = void 0;
     notifyActiveRuns(extensionCtx);
     const currentSessionId = extractBrokerSessionId(extensionCtx);
     ctx.brokerController?.setSessionId(currentSessionId);
@@ -73232,7 +73251,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     const snapshotCache = lastFrameSnapshotCache ?? ctx.getRunSnapshotCache(ctx.currentCtx.cwd);
     const manifests = lastPreloadedManifests;
     if (!lastPreloadedConfig) backgroundPreload();
-    if (ctx.uiState.liveSidebarRunId) {
+    if (ctx.uiState.liveSidebarRunId || ctx.uiState.dashboardOpen) {
       const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
       if (ctx.widgetState.lastVisibility !== "hidden" || ctx.widgetState.lastPlacement !== placement) {
         setExtensionWidget(ctx.currentCtx, "pi-crew", void 0, { placement });
@@ -74652,7 +74671,7 @@ function registerPiTeams(pi) {
   installPiHooks(pi, ctx);
   installSessionLifecycleHandlers(pi, ctx);
   ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
-  registerCleanupHandler(pi);
+  registerCleanupHandler(pi, { disposeTerminalStatus: () => ctx.terminalStatus?.dispose?.() });
   registerCompactionGuard(pi, {
     foregroundControllers: ctx.foregroundControllers,
     foregroundTeamRunControllers: ctx.foregroundTeamRunControllers

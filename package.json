@@ -39,7 +39,6 @@
     "skills/**",
     "themes/",
     "assets/crew-vibes.ttf",
-    "assets/runner-spritesheet.png",
     "scripts/postinstall.mjs",
     "scripts/install-crew-vibes-font.mjs",
     "scripts/build-crew-vibes-font.py",

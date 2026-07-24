@@ -1005,17 +1005,16 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 	const scheduleRefresh = (runId: string): void => {
 		const existing = pendingRefreshes.get(runId);
 		if (existing) clearTimeout(existing);
-		pendingRefreshes.set(
-			runId,
-			setTimeout(() => {
-				pendingRefreshes.delete(runId);
-				try {
-					localRefreshIfStale(runId);
-				} catch {
-					/* best-effort; widget falls back gracefully */
-				}
-			}, INVAL_COALESCE_MS),
-		);
+		const timer = setTimeout(() => {
+			pendingRefreshes.delete(runId);
+			try {
+				localRefreshIfStale(runId);
+			} catch {
+				/* best-effort; widget falls back gracefully */
+			}
+		}, INVAL_COALESCE_MS);
+		timer.unref();
+		pendingRefreshes.set(runId, timer);
 	};
 	const unsubState = runEventBus.onChannel("run:state", (event) => {
 		if (entries.has(event.runId)) scheduleRefresh(event.runId);

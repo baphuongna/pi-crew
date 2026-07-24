@@ -79,7 +79,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	// subagents or when the flag is off, it returns a no-op controller.
 	ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
 
-	registerCleanupHandler(pi);
+	registerCleanupHandler(pi, { disposeTerminalStatus: () => ctx.terminalStatus?.dispose?.() });
 	registerCompactionGuard(pi, {
 		foregroundControllers: ctx.foregroundControllers,
 		foregroundTeamRunControllers: ctx.foregroundTeamRunControllers,

@@ -168,8 +168,6 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 			ctx.crewAutocompleteRegistered = true;
 			registerCrewAutocomplete(extensionCtx);
 		}
-		if (ctx.widgetState.interval) clearInterval(ctx.widgetState.interval);
-		ctx.widgetState.interval = undefined;
 		notifyActiveRuns(extensionCtx);
 
 		const currentSessionId = extractBrokerSessionId(extensionCtx);
@@ -586,7 +584,7 @@ function setupRenderLoop(
 		const snapshotCache = lastFrameSnapshotCache ?? ctx.getRunSnapshotCache(ctx.currentCtx.cwd);
 		const manifests = lastPreloadedManifests;
 		if (!lastPreloadedConfig) backgroundPreload();
-		if (ctx.uiState.liveSidebarRunId) {
+		if (ctx.uiState.liveSidebarRunId || ctx.uiState.dashboardOpen) {
 			const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
 			if (ctx.widgetState.lastVisibility !== "hidden" || ctx.widgetState.lastPlacement !== placement) {
 				setExtensionWidget(ctx.currentCtx, "pi-crew", undefined, { placement });

@@ -62,6 +62,7 @@ import { piTeamsHelp } from "../help.ts";
 import { handleTeamManagerCommand } from "../team-manager-command.ts";
 import { withSessionId } from "../team-tool/context.ts";
 import { commandText, notifyCommandResult, parseRunArgs, parseScalar, pushUnset, setNestedConfig } from "./command-utils.ts";
+import type { UiState } from "./ui.ts";
 import { openLiveConversation, openTranscriptViewer, selectAgentTask } from "./viewers.ts";
 
 export interface RegisterTeamCommandsDeps {
@@ -73,6 +74,7 @@ export interface RegisterTeamCommandsDeps {
 	};
 	getRunSnapshotCache?: (cwd: string) => ReturnType<typeof createRunSnapshotCache>;
 	getMetricRegistry?: () => MetricRegistry | undefined;
+	uiState?: UiState;
 	dismissNotifications?: () => void;
 }
 
@@ -391,6 +393,7 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
 	const deps = depsRef;
 	if (!deps) return;
+	if (deps.uiState) deps.uiState.dashboardOpen = true;
 	const cmdCtx = ctx as ExtensionCommandContext;
 	for (;;) {
 		// Extract sessionId for workspace-scoped filtering
@@ -428,7 +431,7 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 					: { width, maxHeight: "90%", anchor: "center", margin: 2 },
 			},
 		);
-		if (!selection) return;
+		if (!selection) break;
 		if (selection.action === "reload") continue;
 		if (selection.action === "notifications-dismiss") {
 			deps.dismissNotifications?.();
@@ -537,8 +540,9 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 											teamCommandContext(cmdCtx),
 										);
 		await notifyCommandResult(cmdCtx, commandText(result));
-		return;
+		break;
 	}
+	if (deps.uiState) deps.uiState.dashboardOpen = false;
 }
 
 export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
@@ -963,7 +967,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommand
 			await ctx.ui.custom<undefined>(
 				(tui, theme, _keybindings, done) =>
 					new AnimatedMascot(theme, () => done(undefined), {
-						frameIntervalMs: style === "armin" ? 33 : 180,
+						frameIntervalMs: style === "armin" ? 100 : 180,
 						autoCloseMs: 7000,
 						requestRender: () => requestRenderTarget(tui),
 						style,

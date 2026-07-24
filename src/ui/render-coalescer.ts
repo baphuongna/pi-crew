@@ -73,6 +73,15 @@ export class RenderCoalescer {
 			this.#timerId = null;
 		}
 		this.#pending = false;
+		const dropped = this.#dropped;
+		this.#dropped = 0;
+		if (dropped > 0) {
+			try {
+				this.#onDrop(dropped);
+			} catch {
+				/* drop callback errors are non-fatal */
+			}
+		}
 		this.#callback();
 	}
 

@@ -51,7 +51,17 @@ class ChildProcessRegistry {
 
 export const childProcessRegistry = new ChildProcessRegistry();
 
-export function registerCleanupHandler(pi: ExtensionAPI): void {
+/**
+ * Optional UI timer disposal hook. Set by register.ts so the SIGTERM/SIGHUP
+ * signal handler can dispose terminal-status timers (idle re-assert loop +
+ * flash clear) that would otherwise keep the event loop alive.
+ */
+let terminalStatusDispose: (() => void) | undefined;
+
+export function registerCleanupHandler(pi: ExtensionAPI, opts?: { disposeTerminalStatus?: () => void }): void {
+	// Store the latest dispose fn at module level so the signal handler
+	// (registered once) always uses the current one even across re-registrations.
+	terminalStatusDispose = opts?.disposeTerminalStatus;
 	// Handle session_shutdown event
 	pi.on("session_shutdown", async () => {
 		console.log("[pi-crew] Session shutdown - cleaning up resources");
@@ -76,6 +86,13 @@ export function registerCleanupHandler(pi: ExtensionAPI): void {
 		signalHandlersRegistered = true;
 		const handleSignal = async (signal: string): Promise<void> => {
 			console.log(`[pi-crew] Received ${signal} - starting cleanup`);
+			// Dispose UI timers so the idle re-assert loop / flash clear don't
+			// keep the event loop alive after child processes are killed.
+			try {
+				terminalStatusDispose?.();
+			} catch {
+				// Best-effort — must not block child cleanup on signal.
+			}
 			await cleanupChildProcesses();
 		};
 		process.on("SIGTERM", () => {

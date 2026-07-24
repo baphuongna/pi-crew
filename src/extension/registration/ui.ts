@@ -42,6 +42,10 @@ async function importLiveRunSidebar(): Promise<typeof LiveRunSidebarType> {
 export interface UiState {
 	liveSidebarRunId: string | undefined;
 	dashboardOpened: boolean;
+	/** True while the full RunDashboard overlay (/team-dashboard) is open.
+	 * Checked by the global renderTick to skip crew-widget updates while the
+	 * dashboard obscures the widget (mirrors the liveSidebarRunId gate). */
+	dashboardOpen?: boolean;
 }
 
 /** Dependencies passed in by register.ts. */

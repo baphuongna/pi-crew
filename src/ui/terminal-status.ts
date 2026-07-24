@@ -213,6 +213,9 @@ export function createTerminalStatusController(ctx: TerminalStatusUi): TerminalS
 			setTerminalTitle(ctx, buildIdleTitle());
 			scheduleIdleReassert(Math.min(delay * 2, IDLE_REASSERT_MAX_MS));
 		}, delay);
+		// Unref so this recursive backoff timer never keeps the event loop alive
+		// (critical on SIGTERM where dispose() is not reached → process hang).
+		state.idleTimer.unref?.();
 	};
 
 	return {
@@ -240,6 +243,8 @@ export function createTerminalStatusController(ctx: TerminalStatusUi): TerminalS
 					ghosttyClear();
 				}
 			}, COMPLETE_FLASH_MS);
+			// Unref so the one-shot flash clear never blocks process exit.
+			state.flashTimer.unref?.();
 		},
 		onIdle(): void {
 			if (state.destroyed) return;

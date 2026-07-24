@@ -103,6 +103,9 @@ export async function openLiveConversation(
 				invalidate() {
 					/* overlay polls */
 				},
+				dispose() {
+					overlay.dispose();
+				},
 			};
 		},
 		{
