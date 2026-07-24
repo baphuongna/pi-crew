@@ -22,6 +22,7 @@
  * Repo resolution: git remote get-url origin from cwd.
  */
 import { execFileSync } from "node:child_process";
+import { errorMessage } from "./guards.ts";
 
 /** Resolve the default repo from `git remote get-url origin` in cwd. */
 export function resolveDefaultRepo(cwd: string): string {
@@ -44,7 +45,7 @@ export function resolveDefaultRepo(cwd: string): string {
 
 		throw new Error(`Could not parse git remote URL: ${remoteUrl}`);
 	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		throw new Error(`Failed to resolve default repo from git: ${msg}`);
 	}
 }
@@ -314,7 +315,7 @@ function runGh(cwd: string, args: string[]): string {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		throw new Error(`gh command failed: ${msg}`);
 	}
 }
@@ -375,7 +376,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 		try {
 			items = ghJson<GitHubListItem[]>(cwd, args);
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			throw new Error(`${scheme}:// listing failed: ${msg}`);
 		}
 
@@ -395,7 +396,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 		try {
 			repo = resolveDefaultRepo(cwd);
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			throw new Error(
 				`${scheme}://${(parsed as ParsedSingle).number} could not resolve a default repo from cwd '${cwd}': ${msg}\nUse ${scheme}://<owner>/<repo>/${(parsed as ParsedSingle).number} instead.`,
 			);
@@ -417,7 +418,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 					notes: [`Full diff for ${scheme}://${repo}/${parsed.number}`],
 				};
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				throw new Error(`pr://${parsed.number}/diff failed: ${msg}`);
 			}
 		}
@@ -456,7 +457,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 					notes: [`File listing for pr://${repo}/${parsed.number}`],
 				};
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				throw new Error(`pr://${parsed.number}/diff failed: ${msg}`);
 			}
 		}
@@ -503,7 +504,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 					notes: [`Diff for file ${parsed.index}/${fileLines.length}: ${fileName} in pr://${repo}/${parsed.number}`],
 				};
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				throw new Error(`pr://${parsed.number}/diff/${parsed.index} failed: ${msg}`);
 			}
 		}
@@ -539,7 +540,7 @@ export function resolveGitHubUrl(parsed: Parsed, scheme: "issue" | "pr", cwd: st
 			notes: [`${scheme}://${repo}/${single.number} via gh`],
 		};
 	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		throw new Error(`${scheme}://${repo}/${single.number} failed: ${msg}`);
 	}
 }

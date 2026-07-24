@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { errorMessage } from "../utils/guards.ts";
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
@@ -175,7 +176,7 @@ function setupUnhandledRejectionGuard(
 	setExitFlag: () => void,
 ): void {
 	process.on("unhandledRejection", (reason, promise) => {
-		const message = reason instanceof Error ? reason.message : String(reason);
+		const message = errorMessage(reason);
 		console.error("[background-runner] UNHANDLED REJECTION:", reason);
 		console.error("[background-runner] Stack:", reason instanceof Error ? reason.stack : "N/A");
 		try {
@@ -235,7 +236,7 @@ function runCleanup(
 		killed = terminateActiveChildPiProcesses();
 	} catch (error) {
 		console.log(
-			`[background-runner] runCleanup: terminateActiveChildPiProcesses error: ${error instanceof Error ? error.message : String(error)}`,
+			`[background-runner] runCleanup: terminateActiveChildPiProcesses error: ${errorMessage(error)}`,
 		);
 	}
 	console.log(`[background-runner] runCleanup: killed ${killed} child processes`);
@@ -245,13 +246,13 @@ function runCleanup(
 	try {
 		unregisterWorker(process.pid);
 	} catch (error) {
-		console.log(`[background-runner] runCleanup: unregisterWorker error: ${error instanceof Error ? error.message : String(error)}`);
+		console.log(`[background-runner] runCleanup: unregisterWorker error: ${errorMessage(error)}`);
 		if (eventsPath) {
 			try {
 				appendEvent(eventsPath, {
 					type: "background.unregister_worker_failed",
 					runId: argValue("--run-id") ?? "unknown",
-					message: `unregisterWorker failed: ${error instanceof Error ? error.message : String(error)}`,
+					message: `unregisterWorker failed: ${errorMessage(error)}`,
 					data: { pid: process.pid },
 				});
 			} catch {
@@ -391,7 +392,7 @@ async function main(): Promise<void> {
 			staleMs: 30_000,
 		});
 	} catch (lockErr) {
-		throw new Error(`Failed to acquire lock for run '${runId}': ${lockErr instanceof Error ? lockErr.message : String(lockErr)}`);
+		throw new Error(`Failed to acquire lock for run '${runId}': ${errorMessage(lockErr)}`);
 	}
 	if (!loaded) throw new Error(`Run '${runId}' not found.`);
 	let { manifest, tasks } = loaded;
@@ -751,7 +752,7 @@ async function main(): Promise<void> {
 				console.log(`[background-runner] executeTeamRun returned, status=${result.manifest.status}`);
 			} catch (execError) {
 				console.log(
-					`[background-runner] executeTeamRun THREW: ${execError instanceof Error ? execError.message : String(execError)}`,
+					`[background-runner] executeTeamRun THREW: ${errorMessage(execError)}`,
 				);
 				console.log(`[background-runner] stack: ${execError instanceof Error ? execError.stack : "N/A"}`);
 				throw execError;
@@ -782,7 +783,7 @@ async function main(): Promise<void> {
 		} catch {
 			/* best-effort */
 		}
-		const message = error instanceof Error ? error.message : String(error);
+		const message = errorMessage(error);
 		manifest = updateRunStatus(manifest, "failed", message);
 		appendEvent(manifest.eventsPath, {
 			type: "async.failed",
@@ -790,7 +791,7 @@ async function main(): Promise<void> {
 			message,
 		});
 		process.exitCode = 1;
-		console.log(`[background-runner] catch block, error=${error instanceof Error ? error.message : String(error)}`);
+		console.log(`[background-runner] catch block, error=${errorMessage(error)}`);
 	} finally {
 		// FIX Issue #4: Use shared runCleanup() function for consistent cleanup
 		// across all exit paths (normal, unhandled rejection, main() exception).
@@ -808,7 +809,7 @@ async function main(): Promise<void> {
 			);
 		} catch (cleanupError) {
 			console.error(
-				`[background-runner] runCleanup threw: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+				`[background-runner] runCleanup threw: ${errorMessage(cleanupError)}`,
 			);
 		}
 		// NOTE: If exitDueToRejection was set, runCleanup() already called process.exit(1)
@@ -828,7 +829,7 @@ async function main(): Promise<void> {
 try {
 	await main();
 } catch (err) {
-	console.error(`[background-runner] DEBUG: main() uncaught: ${err instanceof Error ? err.message : String(err)}`);
+	console.error(`[background-runner] DEBUG: main() uncaught: ${errorMessage(err)}`);
 	// FIX Issue #1: Set the flag so the finally block's runCleanup() call
 	// will trigger process.exit(1) after cleanup completes. Previously this
 	// called process.exit(1) directly, bypassing the finally block and leaving
