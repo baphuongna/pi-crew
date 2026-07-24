@@ -35,16 +35,17 @@ function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 
 describe("resolveToolPolicy — allowlist precedence", () => {
 	it("builtin agent: role-config allowlist wins over frontmatter", () => {
-		// explorer builtin has role-config tools [read,grep,find,ls,glob] and
-		// frontmatter tools [read,grep,find,ls] (no glob). Builtin must use the
-		// role-config allowlist (security: it's the authoritative read-only set).
+		// W7: explorer role-config tools now include `bash` (for research-5
+		// decisions stream's `git log --grep`). Frontmatter still omits bash.
+		// Builtin must use the role-config allowlist (security: it's the
+		// authoritative set).
 		const agent = makeAgent({
 			source: "builtin",
 			name: "explorer",
 			tools: ["read", "grep", "find", "ls"],
 		});
 		const policy = resolveToolPolicy(agent, "explorer");
-		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob"]);
+		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash"]);
 	});
 
 	it("builtin agent: frontmatter allowlist is the fallback when role has none", () => {
@@ -73,15 +74,15 @@ describe("resolveToolPolicy — allowlist precedence", () => {
 	});
 
 	it("user/project agent: role-config is the fallback when frontmatter omits tools", () => {
-		// A custom agent with no `tools:` frontmatter but spawned under the
-		// explorer role → inherits the explorer role-config allowlist.
+		// W7: explorer role-config now also includes `bash`. Custom agent
+		// spawned under explorer → inherits the role-config allowlist.
 		const agent = makeAgent({
 			source: "project",
 			name: "custom",
 			tools: undefined,
 		});
 		const policy = resolveToolPolicy(agent, "explorer");
-		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob"]);
+		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash"]);
 	});
 
 	it("no allowlist anywhere → tools undefined (all built-ins allowed)", () => {
@@ -97,8 +98,9 @@ describe("resolveToolPolicy — allowlist precedence", () => {
 
 describe("resolveToolPolicy — denylist is additive (merged)", () => {
 	it("merges role excludeTools + agent disallowedTools", () => {
-		// explorer role excludes [edit,write,bash,web]; agent disallows [foo].
-		// The merged denylist must contain ALL of them.
+		// W7: bash MOVED to explorer tools allowlist. excludeTools now
+		// [edit,write,web]. Agent disallows [foo]. Merged denylist must contain
+		// ALL of them.
 		const agent = makeAgent({
 			source: "builtin",
 			name: "explorer",
@@ -107,7 +109,7 @@ describe("resolveToolPolicy — denylist is additive (merged)", () => {
 		const policy = resolveToolPolicy(agent, "explorer");
 		assert.ok(policy.excludeTools, "denylist should be present");
 		const set = new Set(policy.excludeTools);
-		for (const expected of ["edit", "write", "bash", "web", "foo"]) {
+		for (const expected of ["edit", "write", "web", "foo"]) {
 			assert.ok(set.has(expected), `denylist should include ${expected}`);
 		}
 		// dedup: "edit" appears in both but only once

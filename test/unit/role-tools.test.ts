@@ -7,7 +7,14 @@ test("getToolConfig returns config for known roles", () => {
 	assert.ok(explorer.tools !== undefined);
 	assert.ok(explorer.tools!.includes("read"));
 	assert.ok(explorer.tools!.includes("grep"));
-	assert.ok(explorer.excludeTools!.includes("bash"));
+	// W7 update: bash is now in explorer's tools (not excludeTools) so the
+	// research-5 (decisions) stream can run `git log --grep` to mine commit
+	// history. State-mutation safety is enforced separately by READ_ONLY_ROLES
+	// in role-permission.ts; edit/write remain excluded.
+	assert.ok(explorer.tools!.includes("bash"));
+	assert.ok(explorer.excludeTools!.includes("edit"));
+	assert.ok(explorer.excludeTools!.includes("write"));
+	assert.ok(explorer.excludeTools!.includes("web"));
 
 	const executor = getToolConfig("executor");
 	assert.equal(executor.tools, undefined);
@@ -49,16 +56,21 @@ test("security-reviewer has strictest restrictions (F1: hyphen key resolves)", (
 	assert.ok(security.excludeTools!.includes("write"));
 });
 
-test("explorer has read-only tools", () => {
+test("explorer has read-only + bash tools, excludes edit/write", () => {
+	// W7 update: bash added for git log/show (decisions stream) + grep -r +
+	// find. Still no edit/write (file mutations are blocked at the
+	// READ_ONLY_ROLES layer in role-permission.ts). Renamed from
+	// "explorer has read-only tools" to reflect the new design.
 	const explorer = getToolConfig("explorer");
 	assert.ok(explorer.tools!.includes("read"));
 	assert.ok(explorer.tools!.includes("grep"));
 	assert.ok(explorer.tools!.includes("find"));
 	assert.ok(explorer.tools!.includes("ls"));
 	assert.ok(explorer.tools!.includes("glob"));
-	assert.ok(!explorer.tools!.includes("bash"));
+	assert.ok(explorer.tools!.includes("bash"));
 	assert.ok(!explorer.tools!.includes("edit"));
 	assert.ok(!explorer.tools!.includes("write"));
+	assert.ok(!explorer.tools!.includes("web"));
 });
 
 test("reviewer can use bash but not edit/write", () => {

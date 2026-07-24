@@ -14,7 +14,9 @@ test("builtin resources are discoverable", () => {
 	// Check builtin agents (excludes user/project agents that may override builtins)
 	assert.ok(discovery.builtin.length >= 10, `Expected at least 10 builtin agents, got ${discovery.builtin.length}`);
 	assert.equal(allTeams(discoverTeams(cwd)).length, 6);
-	assert.equal(allWorkflows(discoverWorkflows(cwd)).length, 9);
+	// 10 workflows since distill.workflow.md was added in v0.9.49
+	// (commit 25f17a0). Update here when adding new builtin workflows.
+	assert.equal(allWorkflows(discoverWorkflows(cwd)).length, 10);
 });
 
 test("workflow frontmatter can set maxConcurrency", () => {
