@@ -71,8 +71,11 @@ pi install npm:pi-crew
 1. Builds the ESM bundle (`scripts/build-bundle.mjs`) — best-effort, falls
    back to strip-types loading if esbuild is missing.
 2. Installs the bundled `crew-vibes.ttf` font into the user fonts directory.
-3. Copies every `skills/<name>/` dir to `~/.pi/agent/skills/` so pi-crew's
-   skills are available globally (not just inside the pi-crew project).
+3. Runs `cleanupStaleSkillCopies()` — a one-time migration that removes
+   stale skill copies from `~/.pi/agent/skills/` left by v0.9.47's (now-removed)
+   `copySkills()` step. Only removes **byte-identical** copies; user-customized
+   skills are preserved. Pi discovers skills natively from the npm package's
+   own `skills/` dir, so copies are never needed.
 
 All three steps are best-effort and never fail the install.
 

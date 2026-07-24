@@ -3,6 +3,29 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.48] — Fix postinstall skill-collision regression (2026-07-24)
+
+Removes the `copySkills()` postinstall step introduced in v0.9.47. That step
+redundantly copied every `skills/<name>/` to `~/.pi/agent/skills/`, but **Pi
+already discovers skills natively from the npm package dir**
+(`~/.pi/agent/npm/node_modules/pi-crew/skills/`). The duplication caused 31
+"skill collision" warnings on every Pi startup (user-level copy shadowing the
+package version).
+
+- **`scripts/postinstall.mjs`**: `copySkills()` **removed**. Replaced with
+  `cleanupStaleSkillCopies()`, a one-time migration that removes the stale
+  copies created by v0.9.47's `copySkills()` — but **only byte-identical**
+  copies (a skill the user has customized is preserved). On upgrade, this
+  silently removes the 31 stale copies and clears the collisions. Verified:
+  31 identical→remove, `pi-fork-sync` (user-only) untouched.
+
+### Verification
+
+- `npm run test:critical` → 97/97 pass.
+- Cleanup dry-run: 31/31 stale copies identified as byte-identical → safe removal.
+- User-only skill (`pi-fork-sync`) correctly preserved.
+
+
 ## [0.9.47] — Broker Phase 4 gated ON (default-on flip) (2026-07-22)
 
 Flips `broker.enabled` from `false` to `true` as the new default on Linux
@@ -41,10 +64,10 @@ native Windows). Three independent kill switches remain available:
   sync → live TUI probing via tmux/pty → smoke team run). 659 lines, 26
   sections, 15 triggers. Bundled `scripts/pty_probe.py` (174-line hardened
   TUI probe with zombie reaping).
-- **`scripts/postinstall.mjs`**: new `copySkills()` step mirrors every
-  `skills/<name>/` dir to `~/.pi/agent/skills/` on install, so pi-crew's
-  skills are available globally (not just inside the pi-crew project).
-  Best-effort, never fails the install.
+- **`scripts/postinstall.mjs`**: ~~new `copySkills()` step mirrors every
+  `skills/<name>/` dir to `~/.pi/agent/skills/`~~ **(reverted in v0.9.48 —
+  Pi discovers skills natively from the npm package; copying only created
+  collision warnings).** See v0.9.48 below.
 
 ### Verification
 
