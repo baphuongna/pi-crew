@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import { errorMessage } from "../utils/guards.ts";
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
@@ -9,6 +8,7 @@ import { withRunLockSync } from "../state/locks.ts";
 import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
+import { errorMessage } from "../utils/guards.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 // Heavy runtime — lazy-loaded to avoid pulling team-runner into background-runner
