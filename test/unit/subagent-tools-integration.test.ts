@@ -848,11 +848,28 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 				ctx,
 			);
 		}
-		// Wait for notifications, then a grace window for any stragglers.
+		// Wait for notifications, then settle for any stragglers. Uses
+		// a "settle" pattern (no new messages for 500ms) instead of a
+		// fixed grace window because Windows CI has higher FS latency
+		// and process scheduling jitter — the 3 background agents may
+		// complete across a 3-5s window there vs <1s on Linux. The
+		// settle pattern handles both fast and slow systems without
+		// flakiness. Max 10s cap to keep CI fast on real failures.
 		const deadline = Date.now() + 30_000;
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
-		const graceDeadline = Date.now() + 2500;
-		while (Date.now() < graceDeadline) await new Promise((resolve) => setTimeout(resolve, 100));
+		let lastCount = fake.sentUserMessages.length;
+		let stableSince = Date.now();
+		const settleDeadline = Date.now() + 10_000;
+		while (Date.now() < settleDeadline) {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			const currentCount = fake.sentUserMessages.length;
+			if (currentCount > lastCount) {
+				lastCount = currentCount;
+				stableSince = Date.now();
+			} else if (Date.now() - stableSince >= 500) {
+				break; // queue settled (no new messages for 500ms)
+			}
+		}
 		// Rule 3: coalescing must reduce 3 near-simultaneous completions to fewer
 		// than 3 wake-ups (ideally 1; timing may split into 2 — both prove
 		// coalescing occurred, vs the un-coalesced baseline of 3 individual drips).
