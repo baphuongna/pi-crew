@@ -77,3 +77,74 @@ test("HeartbeatWatcher emits dead notification once and triggers deadletter thre
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("W8 fix: completion-artifact suppresses false-positive dead when result file exists", () => {
+	let cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-heartbeat-w8-"));
+	try {
+		try {
+			const r = fs.realpathSync.native(cwd);
+			cwd = r.startsWith("\\\\?\\") ? r.slice(4) : r;
+		} catch {
+			/* keep as-is */
+		}
+		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
+		const created = createRunManifest({ cwd, team, workflow, goal: "w8" });
+		const manifest = updateRunStatus(created.manifest, "running", "running");
+		saveRunTasks(
+			manifest,
+			created.tasks.map((task) => ({
+				...task,
+				status: "running" as const,
+				heartbeat: {
+					workerId: task.id,
+					lastSeenAt: "2026-01-01T00:00:00.000Z",
+					alive: true,
+				},
+			})),
+		);
+		// Simulate the exit-before-manifest-update race:
+		// task status is still "running" but the result artifact already exists.
+		const taskId = created.tasks[0]!.id;
+		const resultsDir = path.join(manifest.artifactsRoot, "results");
+		fs.mkdirSync(resultsDir, { recursive: true });
+		fs.writeFileSync(path.join(resultsDir, `${taskId}.txt`), "task output", "utf-8");
+
+		const cache = createManifestCache(cwd, { watch: false, debounceMs: 0 });
+		const notifications: string[] = [];
+		const watcher = new HeartbeatWatcher({
+			cwd,
+			manifestCache: cache,
+			registry: createMetricRegistry(),
+			router: {
+				enqueue: (n) => {
+					notifications.push(n.id ?? "");
+					return true;
+				},
+			},
+			deadletterTickThreshold: 99,
+		});
+		const tickTime = Date.parse("2026-01-01T00:10:00.000Z"); // 10 min later → elapsed > deadMs (300s)
+		watcher.tick(tickTime);
+		// Result file exists → task completed → NO dead notification (downgraded to stale)
+		assert.equal(
+			notifications.filter((id) => id.startsWith("dead_")).length,
+			0,
+			"should NOT fire dead when result artifact exists (exit-before-manifest race)",
+		);
+
+		// Now remove the result file — simulates a genuine crash (no output produced)
+		fs.rmSync(path.join(resultsDir, `${taskId}.txt`));
+		notifications.length = 0;
+		watcher.tick(tickTime + 10_000);
+		// No result file → genuine stuck/crashed worker → dead fires
+		assert.equal(
+			notifications.filter((id) => id.startsWith("dead_")).length,
+			1,
+			"should fire dead when no result artifact (genuine crash)",
+		);
+		watcher.dispose();
+		cache.dispose();
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

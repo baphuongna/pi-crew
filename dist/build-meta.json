@@ -12157,10 +12157,15 @@
       "format": "esm"
     },
     "src/runtime/heartbeat-watcher.ts": {
-      "bytes": 8429,
+      "bytes": 9280,
       "imports": [
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -13106,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 5996671
+      "bytes": 5997814
     },
     "dist/index.mjs": {
       "imports": [
@@ -14532,6 +14537,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -16156,7 +16166,7 @@
           "bytesInOutput": 2716
         },
         "src/runtime/heartbeat-watcher.ts": {
-          "bytesInOutput": 5994
+          "bytesInOutput": 6338
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7830
@@ -16312,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2748383
+      "bytes": 2748727
     }
   }
 }

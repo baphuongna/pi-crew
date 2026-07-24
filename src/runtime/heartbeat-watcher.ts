@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { NotificationDescriptor } from "../extension/notification-router.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { appendEvent } from "../state/event-log.ts";
@@ -141,6 +142,20 @@ export class HeartbeatWatcher {
 								: "healthy";
 				if (level === "dead" && isProcessAlive) {
 					level = "stale";
+				}
+				// W8 fix: completion-artifact check — prevents false-positive "dead"
+				// during the exit-before-manifest-update race. When a worker process
+				// exits normally after completing its task, the result artifact is
+				// already on disk, but the manifest status update may lag by a few
+				// seconds (status + finishedAt are set atomically in task-runner.ts).
+				// If the result file exists, the task completed — downgrade to
+				// "stale" so the watcher doesn't fire a misleading "dead" notification
+				// for a task that already produced its output.
+				if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
+					const resultPath = path.join(loaded.manifest.artifactsRoot, "results", `${task.id}.txt`);
+					if (fs.existsSync(resultPath)) {
+						level = "stale";
+					}
 				}
 				this.opts.registry
 					.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds")

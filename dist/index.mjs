@@ -1858,14 +1858,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!Value2.Check(PiTeamsConfigSchema, raw)) {
     return [...Value2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path84 = errorPathFromValidation(error);
+      const path85 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path84.split("/").pop() ?? path84;
+        const offendingKey = path85.split("/").pop() ?? path85;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path84}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path85}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path84}: ${message}`;
+      return `${path85}: ${message}`;
     });
   }
   return [];
@@ -3798,16 +3798,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path84 = "";
+  let path85 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path84 = scpLikeMatch[2] ?? "";
+    path85 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path84 = parsed.pathname.replace(/^\/+/, "");
+      path85 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -3817,13 +3817,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path84 = repoWithoutRef.slice(slashIndex + 1);
+    path85 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path84.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path85.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -8774,13 +8774,13 @@ var init_errors = __esm({
       }
     };
     errors = {
-      fileRead(path84, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path85, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path85}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path84, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path84}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path85, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path85}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -13712,8 +13712,8 @@ var init_config_patch = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path84, value) {
-  const keys = path84.split(".");
+function setNested(obj, path85, value) {
+  const keys = path85.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -13723,8 +13723,8 @@ function setNested(obj, path84, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path84) {
-  const keys = path84.split(".");
+function getNested(obj, path85) {
+  const keys = path85.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -14677,17 +14677,17 @@ var require_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    function visit_(key, node, visitor, path84) {
-      const ctrl = callVisitor(key, node, visitor, path84);
+    function visit_(key, node, visitor, path85) {
+      const ctrl = callVisitor(key, node, visitor, path85);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path84, ctrl);
-        return visit_(key, ctrl, visitor, path84);
+        replaceNode(key, path85, ctrl);
+        return visit_(key, ctrl, visitor, path85);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path84 = Object.freeze(path84.concat(node));
+          path85 = Object.freeze(path85.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = visit_(i, node.items[i], visitor, path84);
+            const ci = visit_(i, node.items[i], visitor, path85);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14698,13 +14698,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path84 = Object.freeze(path84.concat(node));
-          const ck = visit_("key", node.key, visitor, path84);
+          path85 = Object.freeze(path85.concat(node));
+          const ck = visit_("key", node.key, visitor, path85);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = visit_("value", node.value, visitor, path84);
+          const cv = visit_("value", node.value, visitor, path85);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14725,17 +14725,17 @@ var require_visit = __commonJS({
     visitAsync.BREAK = BREAK;
     visitAsync.SKIP = SKIP;
     visitAsync.REMOVE = REMOVE;
-    async function visitAsync_(key, node, visitor, path84) {
-      const ctrl = await callVisitor(key, node, visitor, path84);
+    async function visitAsync_(key, node, visitor, path85) {
+      const ctrl = await callVisitor(key, node, visitor, path85);
       if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-        replaceNode(key, path84, ctrl);
-        return visitAsync_(key, ctrl, visitor, path84);
+        replaceNode(key, path85, ctrl);
+        return visitAsync_(key, ctrl, visitor, path85);
       }
       if (typeof ctrl !== "symbol") {
         if (identity.isCollection(node)) {
-          path84 = Object.freeze(path84.concat(node));
+          path85 = Object.freeze(path85.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci = await visitAsync_(i, node.items[i], visitor, path84);
+            const ci = await visitAsync_(i, node.items[i], visitor, path85);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -14746,13 +14746,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity.isPair(node)) {
-          path84 = Object.freeze(path84.concat(node));
-          const ck = await visitAsync_("key", node.key, visitor, path84);
+          path85 = Object.freeze(path85.concat(node));
+          const ck = await visitAsync_("key", node.key, visitor, path85);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = await visitAsync_("value", node.value, visitor, path84);
+          const cv = await visitAsync_("value", node.value, visitor, path85);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -14779,23 +14779,23 @@ var require_visit = __commonJS({
       }
       return visitor;
     }
-    function callVisitor(key, node, visitor, path84) {
+    function callVisitor(key, node, visitor, path85) {
       if (typeof visitor === "function")
-        return visitor(key, node, path84);
+        return visitor(key, node, path85);
       if (identity.isMap(node))
-        return visitor.Map?.(key, node, path84);
+        return visitor.Map?.(key, node, path85);
       if (identity.isSeq(node))
-        return visitor.Seq?.(key, node, path84);
+        return visitor.Seq?.(key, node, path85);
       if (identity.isPair(node))
-        return visitor.Pair?.(key, node, path84);
+        return visitor.Pair?.(key, node, path85);
       if (identity.isScalar(node))
-        return visitor.Scalar?.(key, node, path84);
+        return visitor.Scalar?.(key, node, path85);
       if (identity.isAlias(node))
-        return visitor.Alias?.(key, node, path84);
+        return visitor.Alias?.(key, node, path85);
       return void 0;
     }
-    function replaceNode(key, path84, node) {
-      const parent = path84[path84.length - 1];
+    function replaceNode(key, path85, node) {
+      const parent = path85[path85.length - 1];
       if (identity.isCollection(parent)) {
         parent.items[key] = node;
       } else if (identity.isPair(parent)) {
@@ -15405,10 +15405,10 @@ var require_Collection = __commonJS({
     var createNode = require_createNode();
     var identity = require_identity();
     var Node = require_Node();
-    function collectionFromPath(schema, path84, value) {
+    function collectionFromPath(schema, path85, value) {
       let v = value;
-      for (let i = path84.length - 1; i >= 0; --i) {
-        const k = path84[i];
+      for (let i = path85.length - 1; i >= 0; --i) {
+        const k = path85[i];
         if (typeof k === "number" && Number.isInteger(k) && k >= 0) {
           const a = [];
           a[k] = v;
@@ -15427,7 +15427,7 @@ var require_Collection = __commonJS({
         sourceObjects: /* @__PURE__ */ new Map()
       });
     }
-    var isEmptyPath = (path84) => path84 == null || typeof path84 === "object" && !!path84[Symbol.iterator]().next().done;
+    var isEmptyPath = (path85) => path85 == null || typeof path85 === "object" && !!path85[Symbol.iterator]().next().done;
     var Collection = class extends Node.NodeBase {
       constructor(type, schema) {
         super(type);
@@ -15457,11 +15457,11 @@ var require_Collection = __commonJS({
        * be a Pair instance or a `{ key, value }` object, which may not have a key
        * that already exists in the map.
        */
-      addIn(path84, value) {
-        if (isEmptyPath(path84))
+      addIn(path85, value) {
+        if (isEmptyPath(path85))
           this.add(value);
         else {
-          const [key, ...rest] = path84;
+          const [key, ...rest] = path85;
           const node = this.get(key, true);
           if (identity.isCollection(node))
             node.addIn(rest, value);
@@ -15475,8 +15475,8 @@ var require_Collection = __commonJS({
        * Removes a value from the collection.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path84) {
-        const [key, ...rest] = path84;
+      deleteIn(path85) {
+        const [key, ...rest] = path85;
         if (rest.length === 0)
           return this.delete(key);
         const node = this.get(key, true);
@@ -15490,8 +15490,8 @@ var require_Collection = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path84, keepScalar) {
-        const [key, ...rest] = path84;
+      getIn(path85, keepScalar) {
+        const [key, ...rest] = path85;
         const node = this.get(key, true);
         if (rest.length === 0)
           return !keepScalar && identity.isScalar(node) ? node.value : node;
@@ -15509,8 +15509,8 @@ var require_Collection = __commonJS({
       /**
        * Checks if the collection includes a value with the key `key`.
        */
-      hasIn(path84) {
-        const [key, ...rest] = path84;
+      hasIn(path85) {
+        const [key, ...rest] = path85;
         if (rest.length === 0)
           return this.has(key);
         const node = this.get(key, true);
@@ -15520,8 +15520,8 @@ var require_Collection = __commonJS({
        * Sets a value in this collection. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path84, value) {
-        const [key, ...rest] = path84;
+      setIn(path85, value) {
+        const [key, ...rest] = path85;
         if (rest.length === 0) {
           this.set(key, value);
         } else {
@@ -18036,9 +18036,9 @@ var require_Document = __commonJS({
           this.contents.add(value);
       }
       /** Adds a value to the document. */
-      addIn(path84, value) {
+      addIn(path85, value) {
         if (assertCollection(this.contents))
-          this.contents.addIn(path84, value);
+          this.contents.addIn(path85, value);
       }
       /**
        * Create a new `Alias` node, ensuring that the target `node` has the required anchor.
@@ -18113,14 +18113,14 @@ var require_Document = __commonJS({
        * Removes a value from the document.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path84) {
-        if (Collection.isEmptyPath(path84)) {
+      deleteIn(path85) {
+        if (Collection.isEmptyPath(path85)) {
           if (this.contents == null)
             return false;
           this.contents = null;
           return true;
         }
-        return assertCollection(this.contents) ? this.contents.deleteIn(path84) : false;
+        return assertCollection(this.contents) ? this.contents.deleteIn(path85) : false;
       }
       /**
        * Returns item at `key`, or `undefined` if not found. By default unwraps
@@ -18135,10 +18135,10 @@ var require_Document = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path84, keepScalar) {
-        if (Collection.isEmptyPath(path84))
+      getIn(path85, keepScalar) {
+        if (Collection.isEmptyPath(path85))
           return !keepScalar && identity.isScalar(this.contents) ? this.contents.value : this.contents;
-        return identity.isCollection(this.contents) ? this.contents.getIn(path84, keepScalar) : void 0;
+        return identity.isCollection(this.contents) ? this.contents.getIn(path85, keepScalar) : void 0;
       }
       /**
        * Checks if the document includes a value with the key `key`.
@@ -18149,10 +18149,10 @@ var require_Document = __commonJS({
       /**
        * Checks if the document includes a value at `path`.
        */
-      hasIn(path84) {
-        if (Collection.isEmptyPath(path84))
+      hasIn(path85) {
+        if (Collection.isEmptyPath(path85))
           return this.contents !== void 0;
-        return identity.isCollection(this.contents) ? this.contents.hasIn(path84) : false;
+        return identity.isCollection(this.contents) ? this.contents.hasIn(path85) : false;
       }
       /**
        * Sets a value in this document. For `!!set`, `value` needs to be a
@@ -18169,13 +18169,13 @@ var require_Document = __commonJS({
        * Sets a value in this document. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path84, value) {
-        if (Collection.isEmptyPath(path84)) {
+      setIn(path85, value) {
+        if (Collection.isEmptyPath(path85)) {
           this.contents = value;
         } else if (this.contents == null) {
-          this.contents = Collection.collectionFromPath(this.schema, Array.from(path84), value);
+          this.contents = Collection.collectionFromPath(this.schema, Array.from(path85), value);
         } else if (assertCollection(this.contents)) {
-          this.contents.setIn(path84, value);
+          this.contents.setIn(path85, value);
         }
       }
       /**
@@ -20135,9 +20135,9 @@ var require_cst_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    visit.itemAtPath = (cst, path84) => {
+    visit.itemAtPath = (cst, path85) => {
       let item = cst;
-      for (const [field, index] of path84) {
+      for (const [field, index] of path85) {
         const tok = item?.[field];
         if (tok && "items" in tok) {
           item = tok.items[index];
@@ -20146,23 +20146,23 @@ var require_cst_visit = __commonJS({
       }
       return item;
     };
-    visit.parentCollection = (cst, path84) => {
-      const parent = visit.itemAtPath(cst, path84.slice(0, -1));
-      const field = path84[path84.length - 1][0];
+    visit.parentCollection = (cst, path85) => {
+      const parent = visit.itemAtPath(cst, path85.slice(0, -1));
+      const field = path85[path85.length - 1][0];
       const coll = parent?.[field];
       if (coll && "items" in coll)
         return coll;
       throw new Error("Parent collection not found");
     };
-    function _visit(path84, item, visitor) {
-      let ctrl = visitor(item, path84);
+    function _visit(path85, item, visitor) {
+      let ctrl = visitor(item, path85);
       if (typeof ctrl === "symbol")
         return ctrl;
       for (const field of ["key", "value"]) {
         const token = item[field];
         if (token && "items" in token) {
           for (let i = 0; i < token.items.length; ++i) {
-            const ci = _visit(Object.freeze(path84.concat([[field, i]])), token.items[i], visitor);
+            const ci = _visit(Object.freeze(path85.concat([[field, i]])), token.items[i], visitor);
             if (typeof ci === "number")
               i = ci - 1;
             else if (ci === BREAK)
@@ -20173,10 +20173,10 @@ var require_cst_visit = __commonJS({
             }
           }
           if (typeof ctrl === "function" && field === "key")
-            ctrl = ctrl(item, path84);
+            ctrl = ctrl(item, path85);
         }
       }
-      return typeof ctrl === "function" ? ctrl(item, path84) : ctrl;
+      return typeof ctrl === "function" ? ctrl(item, path85) : ctrl;
     }
     exports.visit = visit;
   }
@@ -21950,11 +21950,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path84, field, reason) {
-  return { path: path84, field, reason, severity: "error" };
+function hard(path85, field, reason) {
+  return { path: path85, field, reason, severity: "error" };
 }
-function warn(path84, field, reason) {
-  return { path: path84, field, reason, severity: "warn" };
+function warn(path85, field, reason) {
+  return { path: path85, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -27383,8 +27383,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path84) {
-      let input = path84;
+    function removeDotSegments(path85) {
+      let input = path85;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -27636,8 +27636,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path84, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path84 && path84 !== "/" ? path84 : void 0;
+        const [path85, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path85 && path85 !== "/" ? path85 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -33255,17 +33255,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path84 = getSkillActivationsPath(cwd, activation.runId);
+  const path85 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync6(path84, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync6(path85, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path84 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync32(path84)) {
+  const path85 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync32(path85)) {
     return [];
   }
-  const content = readFileSync30(path84, "utf-8");
+  const content = readFileSync30(path85, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -35505,11 +35505,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path84 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path85 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path84, key];
+    const childPath = [...path85, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -35521,8 +35521,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path84 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path84) {
-  return path84.length === 4 && path84[0] === "agents" && path84[1] === "overrides";
+function isAgentOverrideKeyPath(path85) {
+  return path85.length === 4 && path85[0] === "agents" && path85[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -36707,10 +36707,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path84 = goalFilePath(this.cwd, goalId);
+        const path85 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync39(path84)) return void 0;
-          const raw = readFileSync36(path84, "utf-8");
+          if (!existsSync39(path85)) return void 0;
+          const raw = readFileSync36(path85, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -36721,11 +36721,11 @@ var init_goal_state_store = __esm({
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
       save(state, eventsPath) {
         assertSafePathId("goalId", state.goalId);
-        const path84 = goalFilePath(this.cwd, state.goalId);
+        const path85 = goalFilePath(this.cwd, state.goalId);
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync23(dirname22(path84), { recursive: true });
-          atomicWriteJson(path84, next);
+          mkdirSync23(dirname22(path85), { recursive: true });
+          atomicWriteJson(path85, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
@@ -36822,9 +36822,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path84 = goalFilePath(this.cwd, goalId);
-          if (!existsSync39(path84)) return false;
-          unlinkSync7(path84);
+          const path85 = goalFilePath(this.cwd, goalId);
+          if (!existsSync39(path85)) return false;
+          unlinkSync7(path85);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -55965,10 +55965,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path84 = this.path;
+        const path85 = this.path;
         try {
-          if (!existsSync70(path84)) return void 0;
-          const raw = readFileSync64(path84, "utf-8");
+          if (!existsSync70(path85)) return void 0;
+          const raw = readFileSync64(path85, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -55978,11 +55978,11 @@ var init_dwf_state_store = __esm({
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
       save(state) {
-        const path84 = this.path;
+        const path85 = this.path;
         const next = { ...state, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync39(dirname35(path84), { recursive: true });
-          atomicWriteJson(path84, next);
+          mkdirSync39(dirname35(path85), { recursive: true });
+          atomicWriteJson(path85, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state.runId}`);
           throw error;
@@ -55990,10 +55990,10 @@ var init_dwf_state_store = __esm({
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path84 = this.path;
+        const path85 = this.path;
         try {
-          if (!existsSync70(path84)) return;
-          unlinkSync10(path84);
+          if (!existsSync70(path85)) return;
+          unlinkSync10(path85);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -59446,26 +59446,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs91 from "node:fs";
-function cacheKey(path84, options) {
-  return `${path84}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path85, options) {
+  return `${path85}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path84, options = {}) {
+function getTranscriptCacheEntry(path85, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path84, normalized)) ?? transcriptCache.get(path84);
+  return transcriptCache.get(cacheKey(path85, normalized)) ?? transcriptCache.get(path85);
 }
-function readTranscriptText(path84, stat2, options) {
+function readTranscriptText(path85, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs91.readFileSync(path84, "utf-8"),
+      text: fs91.readFileSync(path85, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs91.openSync(path84, "r");
+  const fd = fs91.openSync(path85, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs91.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -59477,16 +59477,16 @@ function readTranscriptText(path84, stat2, options) {
     fs91.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path84, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path85, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path84, normalized);
+  const key = cacheKey(path85, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs91.statSync(path84);
+    stat2 = fs91.statSync(path85);
   } catch {
     return previous?.lines ?? [];
   }
@@ -59495,10 +59495,10 @@ function readTranscriptLinesCached(path84, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path84, stat2, normalized);
+    const read = readTranscriptText(path85, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path84,
+      path: path85,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -62345,8 +62345,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path84) {
-  const keys = path84.split(".");
+function getNestedValue(obj, path85) {
+  const keys = path85.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -64805,13 +64805,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks3(path84) {
+function readTasks3(path85) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs100.readFileSync(path84, "utf-8"));
+    const parsed = JSON.parse(fs100.readFileSync(path85, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path84, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path85, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -66871,6 +66871,7 @@ __export(heartbeat_watcher_exports, {
   HeartbeatWatcher: () => HeartbeatWatcher
 });
 import * as fs104 from "node:fs";
+import * as path81 from "node:path";
 var HeartbeatWatcher;
 var init_heartbeat_watcher = __esm({
   "src/runtime/heartbeat-watcher.ts"() {
@@ -66950,6 +66951,12 @@ var init_heartbeat_watcher = __esm({
             let level = elapsed2 > thresholds.deadMs ? "dead" : elapsed2 > thresholds.staleMs ? "stale" : elapsed2 > thresholds.warnMs ? "warn" : "healthy";
             if (level === "dead" && isProcessAlive) {
               level = "stale";
+            }
+            if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
+              const resultPath = path81.join(loaded.manifest.artifactsRoot, "results", `${task.id}.txt`);
+              if (fs104.existsSync(resultPath)) {
+                level = "stale";
+              }
             }
             this.opts.registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds").set({ runId: run.runId, taskId: task.id }, Number.isFinite(elapsed2) ? elapsed2 : thresholds.deadMs);
             this.opts.registry.counter("crew.heartbeat.level_total", "Heartbeat classifications by level").inc({ runId: run.runId, level });
@@ -68226,17 +68233,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path84 = configPath2();
-    if (!existsSync76(path84)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync71(path84, "utf8")));
+    const path85 = configPath2();
+    if (!existsSync76(path85)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync71(path85, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path84 = configPath2();
-  mkdirSync42(dirname37(path84), { recursive: true });
-  writeFileSync11(path84, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path85 = configPath2();
+  mkdirSync42(dirname37(path85), { recursive: true });
+  writeFileSync11(path85, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -69754,9 +69761,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path84, listener, onError) {
+function watchWithErrorHandler(path85, listener, onError) {
   try {
-    const watcher = fs95.watch(path84, listener);
+    const watcher = fs95.watch(path85, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -71150,9 +71157,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path84, content) {
-  if (seenContent.has(path84)) seenContent.delete(path84);
-  seenContent.set(path84, content);
+function rememberSeen(path85, content) {
+  if (seenContent.has(path85)) seenContent.delete(path85);
+  seenContent.set(path85, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -71358,7 +71365,7 @@ init_run_maintenance();
 init_broker_issuer();
 init_crash_recovery();
 import * as fs105 from "node:fs";
-import * as path83 from "node:path";
+import * as path84 from "node:path";
 
 // src/runtime/crew-broker.ts
 init_event_log();
@@ -71496,7 +71503,7 @@ import { createHash as createHash11 } from "node:crypto";
 import * as fsp2 from "node:fs/promises";
 import * as net from "node:net";
 import * as os17 from "node:os";
-import * as path81 from "node:path";
+import * as path82 from "node:path";
 var DEFAULT_PATH_HASH_LEN = 8;
 var POSIX_SUN_PATH_BUDGET = 107;
 function hashSessionId(sessionId, length = DEFAULT_PATH_HASH_LEN) {
@@ -71515,7 +71522,7 @@ function getBrokerSocketPath(sessionId, platform2 = process.platform) {
     return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
   }
   const base = process.env.XDG_RUNTIME_DIR || os17.tmpdir();
-  const sock = path81.join(base, `pi-crew-${hash}.sock`);
+  const sock = path82.join(base, `pi-crew-${hash}.sock`);
   const encoded = Buffer.byteLength(sock, "utf8");
   if (encoded > POSIX_SUN_PATH_BUDGET) {
     throw new Error(
@@ -71526,7 +71533,7 @@ function getBrokerSocketPath(sessionId, platform2 = process.platform) {
 }
 async function prepareBrokerSocketDir(sockPath) {
   if (process.platform === "win32") return;
-  const dir = path81.dirname(sockPath);
+  const dir = path82.dirname(sockPath);
   await fsp2.mkdir(dir, { recursive: true, mode: 448 });
   try {
     await fsp2.chmod(dir, 448);
@@ -72805,14 +72812,14 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as path82 from "node:path";
+import * as path83 from "node:path";
 function runArtifactCleanup(cwd) {
   try {
-    cleanupOldArtifacts(path82.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path83.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    cleanupOldArtifacts(path82.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
+    cleanupOldArtifacts(path83.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir), {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
@@ -73318,7 +73325,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path83.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    const crewRunsDir = path84.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
     if (fs105.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -73329,7 +73336,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path83.join(userCrewRoot(), "state", "runs");
+    const userRunsDir = path84.join(userCrewRoot(), "state", "runs");
     if (fs105.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
