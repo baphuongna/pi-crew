@@ -238,6 +238,14 @@ test("registered Agent tool can run a background subagent and join its result", 
 		assert.equal(fake.sentMessages.length, 0, "no legacy sendMessage notify either");
 	} finally {
 		fake?.api.events.emit("session_shutdown", {});
+		// Drain the event loop so any in-flight background agent I/O
+		// (mkdir, file writes) completes before rmSyncRetry deletes the
+		// temp dir. On Windows the FS latency can be 100s of ms, so a
+		// single setImmediate is not enough — use a 200ms timeout as a
+		// reliable safety bound. Without this, the async activity
+		// triggers an unhandledRejection (ENOENT on the deleted dir)
+		// AFTER the test ends, failing the whole file.
+		await new Promise((resolve) => setTimeout(resolve, 200));
 		if (previousExecute === undefined) delete process.env.PI_TEAMS_EXECUTE_WORKERS;
 		else process.env.PI_TEAMS_EXECUTE_WORKERS = previousExecute;
 		if (previousMock === undefined) delete process.env.PI_TEAMS_MOCK_CHILD_PI;
