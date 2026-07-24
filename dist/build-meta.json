@@ -8824,7 +8824,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 60417,
+      "bytes": 60523,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6002579
+      "bytes": 6002780
     },
     "dist/index.mjs": {
       "imports": [
@@ -15944,7 +15944,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 45603
+          "bytesInOutput": 45571
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16322,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2750711
+      "bytes": 2750679
     }
   }
 }

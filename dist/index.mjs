@@ -51081,9 +51081,7 @@ async function runTeamTask(input) {
         if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
           timeoutHandle = setTimeout(() => {
             if (!timeoutController.signal.aborted) {
-              timeoutController.abort(
-                new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`)
-              );
+              timeoutController.abort(new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`));
             }
           }, taskTimeoutMs);
           timeoutHandle.unref?.();
