@@ -25,7 +25,12 @@ test("fast-fix team uses explorer role with tool restrictions", async () => {
 		const explorerConfig = getToolConfig("explorer");
 		assert.ok(explorerConfig.tools !== undefined, "explorer should have explicit tools");
 		assert.ok(explorerConfig.tools!.includes("read"), "explorer should have read");
-		assert.ok(explorerConfig.excludeTools!.includes("bash"), "explorer should exclude bash");
+		// W7: bash is now in explorer's tools allowlist (for research-5
+		// decisions stream's `git log --grep`). State-mutation safety is
+		// still enforced via edit/write exclusion + READ_ONLY_ROLES layer.
+		assert.ok(explorerConfig.tools!.includes("bash"), "explorer should include bash (for git log)");
+		assert.ok(explorerConfig.excludeTools!.includes("edit"), "explorer should exclude edit");
+		assert.ok(explorerConfig.excludeTools!.includes("write"), "explorer should exclude write");
 		assert.ok(hasToolRestrictions("explorer"), "explorer should have tool restrictions");
 
 		// Run fast-fix (uses explorer)
