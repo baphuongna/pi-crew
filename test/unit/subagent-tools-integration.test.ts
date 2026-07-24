@@ -422,6 +422,11 @@ test("session_before_switch suppresses pending background subagent wakeup", asyn
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
 		else process.env.PI_TEAMS_ROLE = previousTeamsRole;
+		// Drain in-flight background agent I/O before dir deletion (Windows
+		// FS latency). The background subagent spawned above can still be
+		// writing to .crew/state after session_shutdown signals; without
+		// this drain its mkdir races deletion -> ENOENT unhandledRejection.
+		await new Promise((resolve) => setTimeout(resolve, 200));
 		await removeDirWithRetry(cwd);
 	}
 });
