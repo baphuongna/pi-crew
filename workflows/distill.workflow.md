@@ -41,6 +41,9 @@ output: research/02-conversations.md
 
 Stream 2 — **conversations/discourse**: person → podcasts/AMAs/interviews (stance-change moments, refusals); software → code-review comments/PR threads/incident retros. Write to `references/research/02-conversations.md`.
 
+
+
+**W5 fix — WRITE ACCESS CLARIFICATION**: You CAN and SHOULD write your findings to `<output-dir>/references/research/0N-<stream>.md` (the run artifacts dir, NOT the target project). The READ-ONLY restriction applies to the TARGET codebase (don't edit the project being learned from). If the output dir doesn't exist, `mkdir -p` it first. Do NOT emit your full output as TEXT in your result message — write to the file directly. The previous run's Stream 2 + Stream 4 deferred file writes and emitted TEXT, forcing a downstream worker to re-save — avoid that.
 ## research-3
 role: explorer
 parallelGroup: research
@@ -49,6 +52,9 @@ output: research/03-expression-dna.md
 
 Stream 3 — **expression/DNA**: person → prose expression-DNA (sentence length, analogy density, certainty spectrum, 口癖); software → CODE Expression-DNA (run `code_dna.py` if software flavor; naming/function-length/comment/error-handling/type-strictness). Write to `references/research/03-expression-dna.md`.
 
+
+
+**W5 fix — WRITE ACCESS CLARIFICATION**: You CAN and SHOULD write your findings to `<output-dir>/references/research/0N-<stream>.md` (the run artifacts dir, NOT the target project). The READ-ONLY restriction applies to the TARGET codebase (don't edit the project being learned from). If the output dir doesn't exist, `mkdir -p` it first. Do NOT emit your full output as TEXT in your result message — write to the file directly. The previous run's Stream 2 + Stream 4 deferred file writes and emitted TEXT, forcing a downstream worker to re-save — avoid that.
 ## research-4
 role: explorer
 parallelGroup: research
@@ -57,6 +63,9 @@ output: research/04-external-views.md
 
 Stream 4 — **critics/failures**: person → biography/criticism/peer-contrast; software → postmortems/bug reports/dep CVEs/arch-review. Write to `references/research/04-external-views.md`.
 
+
+
+**W5 fix — WRITE ACCESS CLARIFICATION**: You CAN and SHOULD write your findings to `<output-dir>/references/research/0N-<stream>.md` (the run artifacts dir, NOT the target project). The READ-ONLY restriction applies to the TARGET codebase (don't edit the project being learned from). If the output dir doesn't exist, `mkdir -p` it first. Do NOT emit your full output as TEXT in your result message — write to the file directly. The previous run's Stream 2 + Stream 4 deferred file writes and emitted TEXT, forcing a downstream worker to re-save — avoid that.
 ## research-5
 role: explorer
 parallelGroup: research
@@ -65,6 +74,9 @@ output: research/05-decisions.md
 
 Stream 5 — **decisions** (where mental models live): person → major life/career decisions + say-vs-do gaps; software → ADRs/tradeoff records/"why X over Y" in commits+PRs (mine with `git log --grep`). Write to `references/research/05-decisions.md`.
 
+
+
+**W5 fix — WRITE ACCESS CLARIFICATION**: You CAN and SHOULD write your findings to `<output-dir>/references/research/0N-<stream>.md` (the run artifacts dir, NOT the target project). The READ-ONLY restriction applies to the TARGET codebase (don't edit the project being learned from). If the output dir doesn't exist, `mkdir -p` it first. Do NOT emit your full output as TEXT in your result message — write to the file directly. The previous run's Stream 2 + Stream 4 deferred file writes and emitted TEXT, forcing a downstream worker to re-save — avoid that.
 ## research-6
 role: explorer
 parallelGroup: research
@@ -73,6 +85,9 @@ output: research/06-timeline.md
 
 Stream 6 — **timeline**: person → chronology + last 12 months (anti-staleness); software → `git log` IS the timeline (architecture evolution, what's actively changing). Write to `references/research/06-timeline.md`. For software flavor, ALSO sweep the extra streams (tests-as-invariants, CI/lint, dep manifests, release-pipeline, risk-posture, concurrency, platform-hardening) — fold each into the matching research file or add `07-extra.md`.
 
+
+
+**W5 fix — WRITE ACCESS CLARIFICATION**: You CAN and SHOULD write your findings to `<output-dir>/references/research/0N-<stream>.md` (the run artifacts dir, NOT the target project). The READ-ONLY restriction applies to the TARGET codebase (don't edit the project being learned from). If the output dir doesn't exist, `mkdir -p` it first. Do NOT emit your full output as TEXT in your result message — write to the file directly. The previous run's Stream 2 + Stream 4 deferred file writes and emitted TEXT, forcing a downstream worker to re-save — avoid that.
 ## merge
 role: analyst
 dependsOn: research-1, research-2, research-3, research-4, research-5, research-6

@@ -389,8 +389,8 @@ function sleepSync(ms) {
 }
 function sleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(new Error("aborted"));
-  return new Promise((resolve22, reject) => {
-    const timer = setTimeout(resolve22, ms);
+  return new Promise((resolve23, reject) => {
+    const timer = setTimeout(resolve23, ms);
     signal?.addEventListener(
       "abort",
       () => {
@@ -435,9 +435,9 @@ function getWorker() {
   return worker;
 }
 function dispatch(kind, payload) {
-  return new Promise((resolve22, reject) => {
+  return new Promise((resolve23, reject) => {
     const id = nextRequestId++;
-    pending.set(id, { resolve: resolve22, reject });
+    pending.set(id, { resolve: resolve23, reject });
     try {
       getWorker().postMessage({ kind, id, ...payload });
     } catch (error) {
@@ -699,7 +699,7 @@ function isSymlinkSafeDirCached(filePath) {
   return verdict;
 }
 function sleep2(ms) {
-  return new Promise((resolve22) => setTimeout(resolve22, ms));
+  return new Promise((resolve23) => setTimeout(resolve23, ms));
 }
 function isRetryableRenameError(error) {
   return Boolean(
@@ -1370,7 +1370,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
   }
 }
 function sleep3(ms) {
-  return new Promise((resolve22) => setTimeout(resolve22, ms));
+  return new Promise((resolve23) => setTimeout(resolve23, ms));
 }
 async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
   let attempt = 0;
@@ -4617,7 +4617,7 @@ var init_cancellation_token = __esm({
       wait(ms) {
         this.throwIfCancelled();
         if (ms <= 0) return Promise.resolve();
-        return new Promise((resolve22, reject) => {
+        return new Promise((resolve23, reject) => {
           let timeout;
           const cleanup = () => {
             if (timeout) clearTimeout(timeout);
@@ -4629,7 +4629,7 @@ var init_cancellation_token = __esm({
           };
           timeout = setTimeout(() => {
             cleanup();
-            resolve22();
+            resolve23();
           }, ms);
           this.signal.addEventListener("abort", onAbort, { once: true });
         });
@@ -5908,7 +5908,7 @@ function redactInlineSecrets(value) {
     if (keyLen > 0 && j < value.length && (value[j] === "=" || value[j] === ":")) {
       const key = value.substring(i, j);
       if (isSecretKey(key)) {
-        const sep10 = value[j];
+        const sep11 = value[j];
         let k = j + 1;
         let valLen = 0;
         while (k < value.length && valLen < 500 && value[k] !== " " && value[k] !== "," && value[k] !== ";" && value[k] !== '"' && value[k] !== "\r" && value[k] !== "\n") {
@@ -5917,7 +5917,7 @@ function redactInlineSecrets(value) {
         }
         if (valLen > 0) {
           result4.push(key);
-          result4.push(sep10);
+          result4.push(sep11);
           result4.push("***");
           i = k;
           redacted = true;
@@ -7506,7 +7506,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
-    return await new Promise((resolve22) => {
+    return await new Promise((resolve23) => {
       const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
       const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
@@ -7778,7 +7778,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve22({
+            resolve23({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -7820,7 +7820,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve22({
+            resolve23({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -10037,9 +10037,9 @@ function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
     }
     return Promise.resolve(appendEvent(eventsPath, event));
   }
-  return new Promise((resolve22, reject) => {
+  return new Promise((resolve23, reject) => {
     const queue = bufferedQueues.get(eventsPath) ?? [];
-    queue.push({ event, resolve: resolve22, reject });
+    queue.push({ event, resolve: resolve23, reject });
     bufferedQueues.set(eventsPath, queue);
     if (!bufferedTimers.has(eventsPath)) {
       const timer = setTimeout(() => {
@@ -14403,9 +14403,9 @@ async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env = process.env
   try {
     return await Promise.race([
       probe(),
-      new Promise((resolve22) => {
+      new Promise((resolve23) => {
         timer = setTimeout(
-          () => resolve22({
+          () => resolve23({
             available: false,
             reason: `Timed out probing optional Pi SDK live-session runtime after ${timeoutMs}ms.`
           }),
@@ -18566,10 +18566,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key, sep: sep10, value } = collItem;
+        const { start, key, sep: sep11, value } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key ?? sep10?.[0],
+          next: key ?? sep11?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -18583,7 +18583,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep10) {
+          if (!keyProps.anchor && !keyProps.tag && !sep11) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map.comment)
@@ -18607,7 +18607,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep10 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep11 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -18623,7 +18623,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep10, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep11, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -18714,7 +18714,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep10 = "";
+        let sep11 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -18728,13 +18728,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep10 + cb;
-              sep10 = "";
+                comment += sep11 + cb;
+              sep11 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep10 += source;
+                sep11 += source;
               hasSpace = true;
               break;
             default:
@@ -18777,18 +18777,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key, sep: sep10, value } = collItem;
+        const { start, key, sep: sep11, value } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep10?.[0],
+          next: key ?? sep11?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep10 && !value) {
+          if (!props.anchor && !props.tag && !sep11 && !value) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -18842,8 +18842,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep10 && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep10, null, props, onError);
+        if (!isMap && !sep11 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep11, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -18855,7 +18855,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep10 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep11 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -18866,8 +18866,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep10)
-                for (const st of sep10) {
+              if (sep11)
+                for (const st of sep11) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -18884,7 +18884,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep10, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep11, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -19064,7 +19064,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value = "";
-      let sep10 = "";
+      let sep11 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value += lines[i][0].slice(trimIndent) + "\n";
@@ -19081,24 +19081,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep10 + indent.slice(trimIndent) + content;
-          sep10 = "\n";
+          value += sep11 + indent.slice(trimIndent) + content;
+          sep11 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep10 === " ")
-            sep10 = "\n";
-          else if (!prevMoreIndented && sep10 === "\n")
-            sep10 = "\n\n";
-          value += sep10 + indent.slice(trimIndent) + content;
-          sep10 = "\n";
+          if (sep11 === " ")
+            sep11 = "\n";
+          else if (!prevMoreIndented && sep11 === "\n")
+            sep11 = "\n\n";
+          value += sep11 + indent.slice(trimIndent) + content;
+          sep11 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep10 === "\n")
+          if (sep11 === "\n")
             value += "\n";
           else
-            sep10 = "\n";
+            sep11 = "\n";
         } else {
-          value += sep10 + content;
-          sep10 = " ";
+          value += sep11 + content;
+          sep11 = " ";
           prevMoreIndented = false;
         }
       }
@@ -19280,25 +19280,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep10 = " ";
+      let sep11 = " ";
       let pos = first.lastIndex;
       line4.lastIndex = pos;
       while (match = line4.exec(source)) {
         if (match[1] === "") {
-          if (sep10 === "\n")
-            res += sep10;
+          if (sep11 === "\n")
+            res += sep11;
           else
-            sep10 = "\n";
+            sep11 = "\n";
         } else {
-          res += sep10 + match[1];
-          sep10 = " ";
+          res += sep11 + match[1];
+          sep11 = " ";
         }
         pos = line4.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep10 + (match?.[1] ?? "");
+      return res + sep11 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -20108,14 +20108,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key, sep: sep10, value }) {
+    function stringifyItem({ start, key, sep: sep11, value }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep10)
-        for (const st of sep10)
+      if (sep11)
+        for (const st of sep11)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -21282,18 +21282,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep10;
+          let sep11;
           if (scalar.end) {
-            sep10 = scalar.end;
-            sep10.push(this.sourceToken);
+            sep11 = scalar.end;
+            sep11.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep10 = [this.sourceToken];
+            sep11 = [this.sourceToken];
           const map = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start, key: scalar, sep: sep10 }]
+            items: [{ start, key: scalar, sep: sep11 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -21446,15 +21446,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep10 = it.sep;
-                  sep10.push(this.sourceToken);
+                  const sep11 = it.sep;
+                  sep11.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key, sep: sep10 }]
+                    items: [{ start: start2, key, sep: sep11 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -21648,13 +21648,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep10 = fc.end.splice(1, fc.end.length);
-            sep10.push(this.sourceToken);
+            const sep11 = fc.end.splice(1, fc.end.length);
+            sep11.push(this.sourceToken);
             const map = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep10 }]
+              items: [{ start, key: fc, sep: sep11 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map;
@@ -22961,7 +22961,7 @@ async function respondAsBackground(targetAgentId, fromId, message, opts) {
   return awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, opts?.signal);
 }
 function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
-  return new Promise((resolve22) => {
+  return new Promise((resolve23) => {
     const deadline = Date.now() + timeoutMs;
     let settled = false;
     let timer;
@@ -22975,7 +22975,7 @@ function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
       const set2 = pendingRepliesByTarget.get(targetAgentId);
       set2?.delete(corrId);
       if (set2 && set2.size === 0) pendingRepliesByTarget.delete(targetAgentId);
-      resolve22(result4);
+      resolve23(result4);
     };
     timer = setTimeout(() => finish({ ok: false, corrId, timedOut: true }), timeoutMs);
     if (signal) {
@@ -27143,7 +27143,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve22.call(this, root, ref);
+      let _sch = resolve23.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -27170,7 +27170,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve22(root, ref) {
+    function resolve23(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -27801,7 +27801,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve22(baseURI, relativeURI, options) {
+    function resolve23(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -28059,7 +28059,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve22,
+      resolve: resolve23,
       resolveComponent,
       equal,
       serialize,
@@ -31546,7 +31546,7 @@ ${input.prompt}` : input.prompt;
             );
           } catch {
           }
-          await new Promise((resolve22) => setTimeout(resolve22, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
+          await new Promise((resolve23) => setTimeout(resolve23, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
           if (customToolYieldResolved && customToolYieldResult) {
             yieldResult = customToolYieldResult;
           } else if (collectedJsonEvents) {
@@ -31590,7 +31590,7 @@ ${input.prompt}` : input.prompt;
           }
         }
         const pollInterval = DEFAULT_LIVE_SESSION.yieldPollIntervalMs;
-        await new Promise((resolve22) => setTimeout(resolve22, pollInterval));
+        await new Promise((resolve23) => setTimeout(resolve23, pollInterval));
         if (customToolYieldResolved && customToolYieldResult) {
           yieldResult = customToolYieldResult;
           break;
@@ -33010,13 +33010,13 @@ var init_checkpoint = __esm({
 import * as fs44 from "node:fs";
 import * as path36 from "node:path";
 function registerRunPromise(runId) {
-  let resolve22;
+  let resolve23;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve22 = res;
+    resolve23 = res;
     reject = rej;
   });
-  const entry = { promise, resolve: resolve22, reject };
+  const entry = { promise, resolve: resolve23, reject };
   activeRunPromises.set(runId, entry);
   return entry;
 }
@@ -46394,8 +46394,8 @@ var init_deduplicate_stage = __esm({
           const cur = lines[i];
           if (cur !== out[out.length - 1]) out.push(cur);
         }
-        const sep10 = text.includes("\r\n") ? "\r\n" : "\n";
-        return out.join(sep10);
+        const sep11 = text.includes("\r\n") ? "\r\n" : "\n";
+        return out.join(sep11);
       }
     };
     DEDUPLICATE_STAGE = new DeduplicateStage();
@@ -47923,8 +47923,8 @@ async function runCoalescedTaskGroup(input) {
     try {
       await Promise.race([
         pendingHeartbeat,
-        new Promise((resolve22) => {
-          drainTimeout = setTimeout(resolve22, 5e3);
+        new Promise((resolve23) => {
+          drainTimeout = setTimeout(resolve23, 5e3);
         })
       ]);
     } finally {
@@ -48554,7 +48554,7 @@ import * as fs76 from "node:fs";
 import * as path64 from "node:path";
 async function detectRipgrep() {
   if (cachedRgCheck !== void 0) return cachedRgCheck;
-  return await new Promise((resolve22) => {
+  return await new Promise((resolve23) => {
     let settled = false;
     try {
       const child = spawn4("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -48566,7 +48566,7 @@ async function detectRipgrep() {
         if (settled) return;
         settled = true;
         cachedRgCheck = { available: false };
-        resolve22(cachedRgCheck);
+        resolve23(cachedRgCheck);
       });
       child.on("close", (code) => {
         if (settled) return;
@@ -48576,13 +48576,13 @@ async function detectRipgrep() {
         } else {
           cachedRgCheck = { available: false };
         }
-        resolve22(cachedRgCheck);
+        resolve23(cachedRgCheck);
       });
     } catch {
       if (settled) return;
       settled = true;
       cachedRgCheck = { available: false };
-      resolve22(cachedRgCheck);
+      resolve23(cachedRgCheck);
     }
   });
 }
@@ -48599,7 +48599,7 @@ function reasonFor(file, keywords) {
   return `keyword match: ${hits.join(", ")}`;
 }
 function runRipgrep(args, cwd) {
-  return new Promise((resolve22, reject) => {
+  return new Promise((resolve23, reject) => {
     let settled = false;
     let stdout = "";
     let stderr = "";
@@ -48620,7 +48620,7 @@ function runRipgrep(args, cwd) {
         if (settled) return;
         settled = true;
         if (code === 0 || code === 1) {
-          resolve22(stdout);
+          resolve23(stdout);
         } else {
           reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
         }
@@ -50304,7 +50304,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
   const start = Date.now();
   let output = "";
   let exitCode = null;
-  return new Promise((resolve22) => {
+  return new Promise((resolve23) => {
     const shell = spawn5("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
@@ -50318,7 +50318,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     });
     const timer = setTimeout(() => {
       shell.kill("SIGKILL");
-      resolve22({
+      resolve23({
         exitCode: -1,
         output: output + "\n[TIMEOUT: Command exceeded limit]",
         durationMs: Date.now() - start
@@ -50329,7 +50329,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     shell.on("close", (code) => {
       clearTimer();
       exitCode = code;
-      resolve22({
+      resolve23({
         exitCode,
         output: output.slice(-1e5),
         // Cap at 100KB
@@ -50338,7 +50338,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     });
     shell.on("error", (err2) => {
       clearTimer();
-      resolve22({
+      resolve23({
         exitCode: -1,
         output: `Execution error: ${err2.message}`,
         durationMs: Date.now() - start
@@ -51068,15 +51068,13 @@ async function runTeamTask(input) {
         upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
         const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
         const timeoutController = new AbortController();
+        let externalAbortListener;
         if (input.signal) {
           if (input.signal.aborted) {
             timeoutController.abort(input.signal.reason);
           } else {
-            input.signal.addEventListener(
-              "abort",
-              () => timeoutController.abort(input.signal.reason),
-              { once: true }
-            );
+            externalAbortListener = () => timeoutController.abort(input.signal.reason);
+            input.signal.addEventListener("abort", externalAbortListener, { once: true });
           }
         }
         let timeoutHandle;
@@ -51090,116 +51088,123 @@ async function runTeamTask(input) {
           }, taskTimeoutMs);
           timeoutHandle.unref?.();
         }
-        const childResult = await runChildPi({
-          cwd: task.cwd,
-          task: prompt,
-          agent: input.agent,
-          model,
-          signal: timeoutController.signal,
-          transcriptPath,
-          maxDepth: input.limits?.maxTaskDepth,
-          skillPaths,
-          maxTurns: input.runtimeConfig?.maxTurns,
-          graceTurns: input.runtimeConfig?.graceTurns,
-          inheritContext: input.runtimeConfig?.inheritContext,
-          parentContext: input.parentContext,
-          excludeContextBash: input.runtimeConfig?.excludeContextBash,
-          sessionId: manifest.sessionId,
-          role: task.role,
-          runId: manifest.runId,
-          agentId: task.id,
-          artifactsRoot: manifest.artifactsRoot,
-          steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
-          onSpawn: (pid) => {
-            try {
-              ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
-              if (task.pendingSteers?.length) {
-                const steeringDir = `${manifest.artifactsRoot}/steering`;
-                void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
-                task.pendingSteers = [];
-                tasks = persistSingleTaskUpdate(manifest, tasks, task);
+        let childResult;
+        try {
+          childResult = await runChildPi({
+            cwd: task.cwd,
+            task: prompt,
+            agent: input.agent,
+            model,
+            signal: timeoutController.signal,
+            transcriptPath,
+            maxDepth: input.limits?.maxTaskDepth,
+            skillPaths,
+            maxTurns: input.runtimeConfig?.maxTurns,
+            graceTurns: input.runtimeConfig?.graceTurns,
+            inheritContext: input.runtimeConfig?.inheritContext,
+            parentContext: input.parentContext,
+            excludeContextBash: input.runtimeConfig?.excludeContextBash,
+            sessionId: manifest.sessionId,
+            role: task.role,
+            runId: manifest.runId,
+            agentId: task.id,
+            artifactsRoot: manifest.artifactsRoot,
+            steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
+            onSpawn: (pid) => {
+              try {
+                ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+                if (task.pendingSteers?.length) {
+                  const steeringDir = `${manifest.artifactsRoot}/steering`;
+                  void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
+                  task.pendingSteers = [];
+                  tasks = persistSingleTaskUpdate(manifest, tasks, task);
+                }
+              } catch (err2) {
+                logInternalError("task-runner.on-spawn", err2, `pid=${pid}, taskId=${task.id}`);
               }
-            } catch (err2) {
-              logInternalError("task-runner.on-spawn", err2, `pid=${pid}, taskId=${task.id}`);
-            }
-          },
-          onLifecycleEvent: (event) => {
-            void appendEventAsync(manifest.eventsPath, {
-              type: `worker.${event.type}`,
-              runId: manifest.runId,
-              taskId: task.id,
-              message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
-              data: { ...event }
-            }).catch(
-              (error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`)
-            );
-          },
-          onStdoutLine: (line4) => {
-            appendCrewAgentOutput(manifest, task.id, line4);
-            persistHeartbeat();
-            const contact = parseSupervisorContactFromLine(line4);
-            if (contact) {
-              recordSupervisorContact(manifest, {
+            },
+            onLifecycleEvent: (event) => {
+              void appendEventAsync(manifest.eventsPath, {
+                type: `worker.${event.type}`,
                 runId: manifest.runId,
-                ...contact
-              });
-            }
-          },
-          onJsonEvent: (event) => {
-            try {
-              appendCrewAgentEvent(manifest, task.id, event);
-              if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
-                collectedJsonEvents.push(event);
-              if (collectedJsonEvents && collectedJsonEvents.length > 1e3) {
-                collectedJsonEvents.splice(0, collectedJsonEvents.length - 1e3);
+                taskId: task.id,
+                message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
+                data: { ...event }
+              }).catch(
+                (error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`)
+              );
+            },
+            onStdoutLine: (line4) => {
+              appendCrewAgentOutput(manifest, task.id, line4);
+              persistHeartbeat();
+              const contact = parseSupervisorContactFromLine(line4);
+              if (contact) {
+                recordSupervisorContact(manifest, {
+                  runId: manifest.runId,
+                  ...contact
+                });
               }
-              if (event && typeof event === "object" && event.type === "message_end") {
-                const msg = event.message;
-                if (msg?.role === "assistant") {
-                  const usage = msg.usage;
-                  if (usage) {
-                    task.lifetimeUsage = {
-                      input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
-                      output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
-                      cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
-                    };
+            },
+            onJsonEvent: (event) => {
+              try {
+                appendCrewAgentEvent(manifest, task.id, event);
+                if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
+                  collectedJsonEvents.push(event);
+                if (collectedJsonEvents && collectedJsonEvents.length > 1e3) {
+                  collectedJsonEvents.splice(0, collectedJsonEvents.length - 1e3);
+                }
+                if (event && typeof event === "object" && event.type === "message_end") {
+                  const msg = event.message;
+                  if (msg?.role === "assistant") {
+                    const usage = msg.usage;
+                    if (usage) {
+                      task.lifetimeUsage = {
+                        input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
+                        output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
+                        cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
+                      };
+                    }
                   }
                 }
+                persistHeartbeat();
+                if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
+                  const bgLogPath = `${manifest.stateRoot}/background.log`;
+                  const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
+                  void appendBackgroundLogAsync(bgLogPath, eventLine);
+                }
+                const nextProgress = applyAgentProgressEvent(
+                  task.agentProgress ?? emptyCrewAgentProgress(),
+                  event,
+                  task.startedAt
+                );
+                task = { ...task, agentProgress: nextProgress };
+                tasks = updateTask(tasks, task);
+                const progressNow = Date.now();
+                if (progressNow - lastTaskProgressPersistedAt >= 500) {
+                  tasks = persistSingleTaskUpdate(manifest, tasks, task);
+                  lastTaskProgressPersistedAt = progressNow;
+                }
+                const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
+                if (bridgeEvent) streamBridge?.handler(bridgeEvent);
+                if (input.onJsonEvent) {
+                  input.onJsonEvent(task.id, manifest.runId, event);
+                }
+                if (!finalCheckpointWritten && isFinalChildEvent(event)) {
+                  finalCheckpointWritten = true;
+                  ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
+                }
+                persistChildProgress(event);
+              } catch (err2) {
+                logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
               }
-              persistHeartbeat();
-              if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
-                const bgLogPath = `${manifest.stateRoot}/background.log`;
-                const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
-                void appendBackgroundLogAsync(bgLogPath, eventLine);
-              }
-              const nextProgress = applyAgentProgressEvent(
-                task.agentProgress ?? emptyCrewAgentProgress(),
-                event,
-                task.startedAt
-              );
-              task = { ...task, agentProgress: nextProgress };
-              tasks = updateTask(tasks, task);
-              const progressNow = Date.now();
-              if (progressNow - lastTaskProgressPersistedAt >= 500) {
-                tasks = persistSingleTaskUpdate(manifest, tasks, task);
-                lastTaskProgressPersistedAt = progressNow;
-              }
-              const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
-              if (bridgeEvent) streamBridge?.handler(bridgeEvent);
-              if (input.onJsonEvent) {
-                input.onJsonEvent(task.id, manifest.runId, event);
-              }
-              if (!finalCheckpointWritten && isFinalChildEvent(event)) {
-                finalCheckpointWritten = true;
-                ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
-              }
-              persistChildProgress(event);
-            } catch (err2) {
-              logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
             }
+          });
+        } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          if (externalAbortListener && input.signal) {
+            input.signal.removeEventListener("abort", externalAbortListener);
           }
-        });
-        if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
         const evidenceStatus = childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
         terminalEvidence = [
           ...terminalEvidence,
@@ -54519,19 +54524,19 @@ function parseRoot(start) {
 function safeJoin(...parts) {
   const filtered = parts.filter(Boolean);
   if (filtered.length === 0) return "";
-  const sep10 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
+  const sep11 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
   const firstPart = filtered[0];
   let leading = "";
-  if (sep10 === "\\") {
+  if (sep11 === "\\") {
     if (firstPart.startsWith("\\\\")) leading = "\\\\";
     else if (firstPart.startsWith("\\")) leading = "\\";
   } else if (firstPart.startsWith("/")) {
     leading = "/";
   }
-  const firstPartStripped = sep10 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
+  const firstPartStripped = sep11 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
   const rest = filtered.slice(1);
-  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep10);
-  const collapsed = joined.replace(new RegExp(`${sep10 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep10);
+  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep11);
+  const collapsed = joined.replace(new RegExp(`${sep11 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep11);
   return leading + collapsed;
 }
 function safeDirname(p) {
@@ -56055,14 +56060,14 @@ var init_semaphore = __esm({
         if (this.#queue.length >= _Semaphore.MAX_QUEUE) {
           throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`);
         }
-        const { promise, resolve: resolve22 } = (() => {
+        const { promise, resolve: resolve23 } = (() => {
           let res;
           const p = new Promise((r) => {
             res = r;
           });
           return { promise: p, resolve: res };
         })();
-        this.#queue.push(resolve22);
+        this.#queue.push(resolve23);
         return promise;
       }
       release() {
@@ -58766,7 +58771,7 @@ function installCrewGlobalRegistry(deps) {
         if (!loaded) return true;
         return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
       };
-      while (!check()) await new Promise((resolve22) => setTimeout(resolve22, 500));
+      while (!check()) await new Promise((resolve23) => setTimeout(resolve23, 500));
     },
     hasRunning: (runId) => {
       if (!manifestCache2) return false;
@@ -61118,7 +61123,7 @@ var init_run_dashboard = __esm({
           const borderFill = (count2) => new DynamicCrewBorder(this.theme).render(count2)[0];
           const border2 = (left, right) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
           const row = (text) => `\u2502 ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}\u2502`;
-          const sep10 = () => border2("\u251C", "\u2524");
+          const sep11 = () => border2("\u251C", "\u2524");
           const lines = [];
           if (this.showHelp) {
             lines.push(...new HelpOverlay(this.theme).render(width));
@@ -61128,7 +61133,7 @@ var init_run_dashboard = __esm({
               row(
                 `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-6 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
               ),
-              sep10()
+              sep11()
             );
             if (this.runs.length === 0) {
               lines.push(row(fg("dim", "No runs yet.")));
@@ -61176,7 +61181,7 @@ var init_run_dashboard = __esm({
                 const agents = snap?.agents ?? agentsFor2(selectedRun, this.options.snapshotCache);
                 const statusStr = isLikelyOrphanedActiveRun(r, agents) ? "stale" : r.status;
                 const selectedTasks = snap?.tasks ?? readRunTasks2(r, this.options.snapshotCache);
-                lines.push(sep10());
+                lines.push(sep11());
                 lines.push(row(`${fg("accent", "\u25B8")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
                 const isTerminal = statusStr === "failed" || statusStr === "cancelled" || statusStr === "stopped";
                 const reason = isTerminal ? summarizeTerminalReason(r, selectedTasks, snap?.cancellationReason) : void 0;
@@ -64492,7 +64497,7 @@ var init_subagent_manager = __esm({
             await record.promise.catch((error) => {
               logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
             });
-          else await new Promise((resolve22) => setTimeout(resolve22, 100));
+          else await new Promise((resolve23) => setTimeout(resolve23, 100));
         }
       }
       setMaxConcurrent(value) {
@@ -64604,7 +64609,7 @@ var init_subagent_manager = __esm({
           }
           const loaded = loadRunManifestById(cwd, record.runId);
           if (!loaded) {
-            await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
+            await new Promise((resolve23) => setTimeout(resolve23, this.pollIntervalMs));
             continue;
           }
           if (loaded.manifest.status === "completed") {
@@ -64637,7 +64642,7 @@ var init_subagent_manager = __esm({
             savePersistedSubagentRecord(cwd, record);
             return;
           }
-          await new Promise((resolve22) => setTimeout(resolve22, this.pollIntervalMs));
+          await new Promise((resolve23) => setTimeout(resolve23, this.pollIntervalMs));
         }
       }
       scheduleBlockedTerminalPoll(cwd, record) {
@@ -66858,10 +66863,10 @@ function createMetricFileSink(opts) {
       const target = ensureFd(date);
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      return new Promise((resolve22) => {
+      return new Promise((resolve23) => {
         fs103.write(target, line4, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
-          resolve22();
+          resolve23();
         });
       });
     } catch (error) {
@@ -66983,8 +66988,9 @@ var init_heartbeat_watcher = __esm({
               level = "stale";
             }
             if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
-              const resultPath = path81.join(loaded.manifest.artifactsRoot, "results", `${task.id}.txt`);
-              if (fs104.existsSync(resultPath)) {
+              const resultsDir = path81.resolve(loaded.manifest.artifactsRoot, "results");
+              const candidate = path81.resolve(resultsDir, `${task.id}.txt`);
+              if (candidate.startsWith(resultsDir + path81.sep) && fs104.existsSync(candidate)) {
                 level = "stale";
               }
             }
@@ -71581,7 +71587,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
     throw e;
   }
   if (st.isSymbolicLink()) return "refused";
-  const live = await new Promise((resolve22) => {
+  const live = await new Promise((resolve23) => {
     let settled = false;
     const sock = net.createConnection(sockPath);
     const finish = (v) => {
@@ -71591,7 +71597,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
         sock.destroy();
       } catch {
       }
-      resolve22(v);
+      resolve23(v);
     };
     sock.once("connect", () => finish(true));
     sock.once("error", () => finish(false));
@@ -71708,14 +71714,14 @@ var CrewBroker = class {
         );
       });
     });
-    await new Promise((resolve22, reject) => {
+    await new Promise((resolve23, reject) => {
       const onError = (err2) => {
         server.removeListener("listening", onListening);
         reject(err2);
       };
       const onListening = () => {
         server.removeListener("error", onError);
-        resolve22();
+        resolve23();
       };
       server.once("error", onError);
       server.once("listening", onListening);
@@ -71787,11 +71793,11 @@ var CrewBroker = class {
     }
     this.connections.clear();
     if (this.server) {
-      await new Promise((resolve22) => {
+      await new Promise((resolve23) => {
         const srv = this.server;
-        if (!srv) return resolve22();
-        srv.close(() => resolve22());
-        setTimeout(() => resolve22(), 250).unref();
+        if (!srv) return resolve23();
+        srv.close(() => resolve23());
+        setTimeout(() => resolve23(), 250).unref();
       });
       this.server = null;
     }
@@ -72367,45 +72373,45 @@ var CrewBroker = class {
     const isTerminal = (s) => s === "completed" || s === "failed" || s === "cancelled";
     const start = Date.now();
     const interval = 200;
-    const pollUntilDone = () => new Promise((resolve22) => {
+    const pollUntilDone = () => new Promise((resolve23) => {
       const tick = () => {
         if (conn.closed) {
           this.sendError(conn, id, "close", "connection closed during wait");
-          resolve22();
+          resolve23();
           return;
         }
         const connRunId = conn.runId;
         if (!connRunId) {
           this.sendError(conn, id, "auth", "not authed (post-narrow)");
-          resolve22();
+          resolve23();
           return;
         }
         if (Date.now() - start >= timeoutMs) {
           this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
-          resolve22();
+          resolve23();
           return;
         }
         try {
           const loaded = loadRunManifestById(cwd, connRunId);
           if (!loaded) {
             this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-            resolve22();
+            resolve23();
             return;
           }
           const task = loaded.tasks.find((t2) => t2.id === targetTaskId);
           if (!task) {
             this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
-            resolve22();
+            resolve23();
             return;
           }
           if (task.status === targetStatus || isTerminal(targetStatus) && isTerminal(task.status)) {
             this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
-            resolve22();
+            resolve23();
             return;
           }
         } catch (err2) {
           this.sendError(conn, id, "wait-failed", err2.message);
-          resolve22();
+          resolve23();
           return;
         }
         setTimeout(tick, interval);
@@ -74072,7 +74078,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
               savePersistedSubagentRecord(ctx.cwd, current);
               break;
             }
-            await new Promise((resolve22) => setTimeout(resolve22, 1e3));
+            await new Promise((resolve23) => setTimeout(resolve23, 1e3));
             current = refreshPersistedSubagentRecord(ctx, current);
             if (!current.runId) break;
           }

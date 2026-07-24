@@ -151,9 +151,17 @@ export class HeartbeatWatcher {
 				// If the result file exists, the task completed — downgrade to
 				// "stale" so the watcher doesn't fire a misleading "dead" notification
 				// for a task that already produced its output.
+				// W8-fix-v2 — path-traversal defense-in-depth. task.id is
+				// generated internally (e.g. "ts1", "ts2") but we still
+				// resolve the candidate path and verify it's strictly
+				// contained within <artifactsRoot>/results/. If task.id
+				// contained "../" or absolute path segments, the containment
+				// check fails and we skip the W8 check (fail-closed: don't
+				// accidentally treat a malicious task ID as "completed").
 				if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
-					const resultPath = path.join(loaded.manifest.artifactsRoot, "results", `${task.id}.txt`);
-					if (fs.existsSync(resultPath)) {
+					const resultsDir = path.resolve(loaded.manifest.artifactsRoot, "results");
+					const candidate = path.resolve(resultsDir, `${task.id}.txt`);
+					if (candidate.startsWith(resultsDir + path.sep) && fs.existsSync(candidate)) {
 						level = "stale";
 					}
 				}

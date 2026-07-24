@@ -8824,7 +8824,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 59426,
+      "bytes": 60417,
       "imports": [
         {
           "path": "node:fs",
@@ -12157,7 +12157,7 @@
       "format": "esm"
     },
     "src/runtime/heartbeat-watcher.ts": {
-      "bytes": 9553,
+      "bytes": 10090,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,7 +13111,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6000704
+      "bytes": 6002579
     },
     "dist/index.mjs": {
       "imports": [
@@ -15944,7 +15944,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 45137
+          "bytesInOutput": 45603
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16166,7 +16166,7 @@
           "bytesInOutput": 2716
         },
         "src/runtime/heartbeat-watcher.ts": {
-          "bytesInOutput": 6408
+          "bytesInOutput": 6519
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7830
@@ -16322,7 +16322,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2750134
+      "bytes": 2750711
     }
   }
 }

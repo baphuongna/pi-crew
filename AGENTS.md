@@ -43,11 +43,11 @@ For every task:
 
 ## Agent Rule Changes
 
-When making behavioral changes to `AGENTS.md`, skills, prompts, or other agent instructions:
+When modifying `AGENTS.md`, skills, prompts, or other agent-facing instructions:
 
-- Record the failure fact, change hypothesis, target behavior, and rollback condition **before editing**.
-- Prefer small bounded edits; do not add permanent rules from a single anecdote.
-- Prefer tests, lint, schema, CI, hooks, or benchmark cases over natural-language rules when practical.
+- Document what failed, what behavior you expect the change to produce, and under what conditions you would revert the change — **before editing**.
+- Keep edits small and well-scoped. A single anecdote is not sufficient justification for a permanent rule.
+- Encode the rule as a test, lint check, schema validation, CI gate, hook, or benchmark case whenever feasible — natural-language rules are a fallback, not the first choice.
 
 ## Risk Tiers
 

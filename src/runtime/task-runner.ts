@@ -494,15 +494,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				// 14+ times).
 				const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
 				const timeoutController = new AbortController();
+				// W2 fix (memory leak) — store the listener reference so we can
+				// removeEventListener() it in the finally block below. { once: true }
+				// alone is NOT enough: when the timeout fires first, the listener
+				// never fires → { once: true } never auto-removes → listener stays
+				// attached to input.signal for the rest of the run (run-level
+				// signal = long-lived → leak accumulates per task run).
+				let externalAbortListener: (() => void) | undefined;
 				if (input.signal) {
 					if (input.signal.aborted) {
 						timeoutController.abort(input.signal.reason);
 					} else {
-						input.signal.addEventListener(
-							"abort",
-							() => timeoutController.abort(input.signal!.reason),
-							{ once: true },
-						);
+						externalAbortListener = () => timeoutController.abort(input.signal!.reason);
+						input.signal.addEventListener("abort", externalAbortListener, { once: true });
 					}
 				}
 				let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -516,7 +520,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					}, taskTimeoutMs);
 					timeoutHandle.unref?.();
 				}
-				const childResult = await runChildPi({
+				let childResult;
+				try {
+					childResult = await runChildPi({
 					cwd: task.cwd,
 					task: prompt,
 					agent: input.agent,
@@ -641,7 +647,17 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 						}
 					},
 				});
-				if (timeoutHandle) clearTimeout(timeoutHandle);
+				} finally {
+					if (timeoutHandle) clearTimeout(timeoutHandle);
+					// W2 fix — release the listener so it doesn't leak. {once:true}
+					// only auto-removes when the listener FIRES; if the timeout
+					// fires first, the listener never fires and stays attached
+					// to input.signal (run-level signal = long-lived → leak per
+					// task). Remove explicitly here.
+					if (externalAbortListener && input.signal) {
+						input.signal.removeEventListener("abort", externalAbortListener);
+					}
+				}
 				const evidenceStatus = childResult.exitStatus?.cancelled
 					? "cancelled"
 					: childResult.error || (childResult.exitCode && childResult.exitCode !== 0)
