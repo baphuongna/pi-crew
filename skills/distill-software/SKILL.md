@@ -220,6 +220,16 @@ Apply V1-V4 to every extracted model. **Software-specific V1 strengthening**: is
 
 **V5 — Factual accuracy (mandatory for codebase distillations; learned from oh-my-pi dogfood)**: every quoted **constant / function-name / file-path / regex / threshold / rule** in the distilled skill must be **grep-verified against the actual source** before shipping; cite `file:line` as evidence. Common traps this catches: (a) over-absolute claims ("no `as`" when `as const` exists — precise to "no *unsafe* `as`"); (b) mis-attributed constants; (c) hallucinated function names; (d) mis-remembered thresholds. Run the verification as a grep batch against the codebase; any claim without matching evidence gets **precise-ed, qualified, or removed**. This is the codebase-distillation analog of persona Phase 4 — it is what makes the skill *trustworthy*, not just plausible. **V5 helper**: for citation-integrity checks on the report (when the output is a written distillation with `[n]`-style citations), the `verify_citations.py` script in `skills/research/scripts/` checks that every citation resolves against the source pool, flags dangling references, and enforces concentration limits (≤25% from any single source). Use it as a gate before publishing the distillation report.
 
+### Phase 2.7 — PLAN APPROVAL GATE (human-in-the-loop — MANDATORY for interactive use)
+
+Sau effectiveness-gate verdicts (TO-APPLY / REJECT / DEFER), **STOP** — không vào Phase 3 cho đến khi user approves. Present a table, one row per pattern: `| Pattern | Verdict (TO-APPLY/REJECT/DEFER) | Evidence | Concrete delta (what changes in target) |`
+
+- **REJECT rigor** (anti-lazy): REJECT phải cite concrete evidence — grep (feature absent), problem-doesn't-exist proof, hoặc delta-test (no improvement). "Too small" / "not needed yet" / "doesn't have X" WITHOUT evidence = SKIPPING, not filtering. **Default bias: APPLY unless rigorously proven irrelevant.**
+- **DEFER capture**: DEFER phải state trigger condition + log vào `references/future-apply.md` — NOT silently dropped.
+- **End the turn. WAIT for user approval/modification.** Chỉ sau explicit approval → Phase 3.
+- **Autonomous fallback** (no interactive user — e.g. pi-crew workflow): skip wait, nhưng STILL write the full plan table to `references/apply-plan.md` AND add a "LOW-YIELD DEFENSE" section if applied/selected < 30% (justify minimalism with target evidence). Phase 5.5 scrutinize sẽ challenge.
+- Interactive: sau approval, record "APPROVED" (+ one-line note) at top of `references/apply-plan.md` — proves the pause was respected.
+
 ## Phase 3 — Build (software SKILL.md template)
 
 frontmatter (pi convention + software staleness anchors):
@@ -298,6 +308,19 @@ grep -nE '"(strict|exactOptionalPropertyTypes|noUncheckedIndexedAccess)"' tsconf
 Write `FIDELITY.md` in the skill dir: **total + per-dimension scores** (rubric above) + **per-question test records** (Q1-Q5: question, answer summary, real-codebase-truth comparison, score+rationale) + **test date + answerer/scorer models** + **run observability** (wall-clock time, token count, cost tier — compare across runs; optional aid: `skills/research/scripts/emit_run_summary.py` emits wall-clock+token+cost from an event log). Enables independent re-scoring — published scores are upper bounds (M-F4).
 
 **Session handoff (#9)**: when a codebase sweep spans sessions (large repo, context budget), write a structured handoff (`references/handoff.md`) — goal, coverage-manifest state, what's blocked, next-action — so a fresh session resumes without re-reading the manifest.
+
+### Phase 5.5 — ADVERSARIAL SCRUTINIZE PASS (anti-lazy — MANDATORY)
+
+Spawn a FRESH-CONTEXT scrutinize (adversarial, like the fidelity fresh-context check): use Agent/subagent tool → a separate agent reads ONLY `references/apply-plan.md` + effectiveness-gate output + `APPLY-LOG.md` — it has NOT seen synthesis/apply reasoning. If no subagent tool → self-scrutinize assuming laziness until proven otherwise.
+
+Hunts reasoning-QUALITY failures (NOT artifact presence):
+1. **Unevidenced rejections** — REJECTED pattern lacking grep/test/problem-doesn't-exist citation.
+2. **Undocumented deferrals** — DEFER not in `references/future-apply.md` with a trigger condition.
+3. **Low-yield without defense** — applied/selected < 30% AND no LOW-YIELD DEFENSE section.
+4. **Trivial applies** — TO-APPLY item applied with no measurable delta / before→after.
+5. **Silent phase skips** — any phase 0→5 with no artifact.
+
+Output `SCRUTINIZE-REPORT.md` at skill-dir root: one row per finding (`| item | lazy-mode | severity HIGH/MED/LOW | required-fix |`). **Distillation NOT done** until every HIGH-severity finding resolved OR explicitly accepted (interactive) / documented (autonomous).
 
 ### Ship-gate — all-green checklist (F4, awesome-persona)
 Refuse to ship if ANY fails; iterate Phase 2→4 until green:

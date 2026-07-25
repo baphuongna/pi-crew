@@ -17,7 +17,8 @@
 // Usage:
 //   node validate-run.mjs <run-dir>                          →  distillation run completeness
 //   node validate-run.mjs <skill-dir> --build                →  engine-skill build completeness
-//                                                              (--build: skips APPLY-LOG, alias-tolerant evidence)
+//                                                              (--build: skips APPLY-LOG, alias-tolerant evidence,
+//                                                               AND Phase 2.7/5.5 checks — engine builds have no target-apply)
 //
 // Exit codes: 0 = ALL-GREEN (run complete — may ship); 1 = NOT READY (produce missing artifacts, re-run).
 
@@ -128,8 +129,12 @@ if ((isSoftware || isPersona) && !isTopic && !isBuild) {
 }
 
 // --- FIDELITY.md ---
-const fidText = readText(join(runDir, 'FIDELITY.md'));
-check('FIDELITY.md exists at run-dir root', !!fidText, !fidText ? 'missing' : '');
+// --build mode: accept references/fidelity.md as an alias (workflow produces it there)
+const fidText = isBuild
+	? (readText(join(runDir, 'FIDELITY.md')) || readText(join(runDir, 'references', 'fidelity.md')))
+	: readText(join(runDir, 'FIDELITY.md'));
+const fidLabel = isBuild ? 'FIDELITY.md exists (root or references/fidelity.md)' : 'FIDELITY.md exists at run-dir root';
+check(fidLabel, !!fidText, !fidText ? 'missing' : '');
 if (fidText) {
 	const totalMatch = fidText.match(/(?:总分|total)[：:\s*]*\*{0,2}([0-9]+)\s*\*?\s*(?:\/|／|\sout\sof\s)\s*\*?\s*100/i);
 	check('FIDELITY.md: /100 total score present', !!totalMatch, totalMatch ? `=${totalMatch[1]}/100` : 'no /100 score found');
@@ -242,6 +247,26 @@ if (isBuild) {
 
 	const effExists = existsSync(join(researchDir, 'EFFECTIVENESS-VERIFICATION.md'));
 	check('references/research/EFFECTIVENESS-VERIFICATION.md exists', effExists, !effExists ? 'missing' + flatHint('EFFECTIVENESS-VERIFICATION.md') : '');
+}
+
+// --- Phase 2.7 + 5.5 anti-lazy gate checks (DEFAULT mode only — --build skips: engine builds have no target-apply) ---
+// Flavor split: DEFAULT mode requires apply-plan + scrutinize (Phase 2.7/5.5 artifacts).
+// --build mode skips these (same logic as the APPLY-LOG skip above).
+if (!isBuild) {
+	// Phase 2.7 output: references/apply-plan.md
+	const applyPlanPath = join(runDir, 'references', 'apply-plan.md');
+	const applyPlanText = readText(applyPlanPath);
+	check('references/apply-plan.md exists (Phase 2.7 plan-approval gate output)', !!applyPlanText,
+		!applyPlanText ? 'missing — Phase 2.7 requires a plan table output' : '');
+	if (applyPlanText) {
+		const hasApproval = /APPROVED|LOW-YIELD DEFENSE/i.test(applyPlanText);
+		check('apply-plan: approval or defense present (APPROVED | LOW-YIELD DEFENSE)', hasApproval,
+			!hasApproval ? 'Phase 2.7 plan-approval gate not respected — present the plan and get approval (interactive) or write a LOW-YIELD DEFENSE (autonomous).' : '');
+	}
+
+	// Phase 5.5 output: SCRUTINIZE-REPORT.md at run-dir root
+	check('SCRUTINIZE-REPORT.md exists at run-dir root (Phase 5.5 adversarial scrutinize)', existsSync(join(runDir, 'SCRUTINIZE-REPORT.md')),
+		!existsSync(join(runDir, 'SCRUTINIZE-REPORT.md')) ? 'Phase 5.5 adversarial scrutinize not run — laziness unaudited.' : '');
 }
 
 // --- Report ---
