@@ -6893,8 +6893,8 @@ function extractErrorMessage(event) {
   const obj = asRecord3(event);
   if (!obj) return void 0;
   const message = asRecord3(obj.message) ?? obj;
-  const errorMessage = message.errorMessage;
-  return typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : void 0;
+  const errorMessage2 = message.errorMessage;
+  return typeof errorMessage2 === "string" && errorMessage2.trim() ? errorMessage2.trim() : void 0;
 }
 function extractPatch(event, patches) {
   const obj = asRecord3(event);
@@ -54181,6 +54181,16 @@ var init_team_runner = __esm({
   }
 });
 
+// src/utils/guards.ts
+function errorMessage(err2) {
+  return err2 instanceof Error ? err2.message : String(err2);
+}
+var init_guards = __esm({
+  "src/utils/guards.ts"() {
+    "use strict";
+  }
+});
+
 // src/state/run-metrics.ts
 function collectRunMetrics(cwd, runId) {
   assertSafePathId("runId", runId);
@@ -54822,6 +54832,7 @@ var init_chain_runner = __esm({
   "src/runtime/chain-runner.ts"() {
     "use strict";
     init_chain_parser();
+    init_guards();
     ChainRunner = class _ChainRunner {
       /** Maximum number of chain history entries to prevent memory leaks */
       static MAX_CHAIN_HISTORY_SIZE = 100;
@@ -54942,13 +54953,13 @@ var init_chain_runner = __esm({
               });
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errMsg = errorMessage(error);
             stepResults.push({
               step: i + 1,
               name: step.name,
               outcome: "failure",
               duration: Date.now() - stepStart,
-              error: errorMessage
+              error: errMsg
             });
             if (!spec.continueOnError && !step.continueOnError) {
               break;
@@ -57357,7 +57368,7 @@ Use workspaceMode: 'single' or run from a git repository.`,
       try {
         await assertCleanLeaderAsync(gitRoot);
       } catch (err2) {
-        const msg = err2 instanceof Error ? err2.message : String(err2);
+        const msg = errorMessage(err2);
         return result(
           `${msg}
 Commit or stash changes before using worktree mode, or use workspaceMode: 'single'.`,
@@ -57528,7 +57539,7 @@ Commit or stash changes before using worktree mode, or use workspaceMode: 'singl
           tokenBudget: params.tokenBudget ?? workflow.maxTokenBudget
         });
       } catch (runnerError) {
-        const failureReason = runnerError instanceof Error ? runnerError.message : String(runnerError);
+        const failureReason = errorMessage(runnerError);
         const failedManifest = {
           ...dwfManifest,
           status: "failed",
@@ -57716,13 +57727,13 @@ ${dwfResult.manifest.summary ?? ""}`,
         workspaceId: ctx.sessionId ?? ctx.cwd
       });
     } catch (waitError) {
-      const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
+      const waitErrMsg = errorMessage(waitError);
       return result(
         [
           `pi-crew run timed out or failed: ${updatedManifest.runId}`,
           `Team: ${team.name}`,
           `Workflow: ${workflow.name}`,
-          `Error: ${errorMessage}`,
+          `Error: ${waitErrMsg}`,
           "",
           `Check status with: team status runId=${updatedManifest.runId}`,
           `State: ${updatedManifest.stateRoot}`,
@@ -57826,13 +57837,13 @@ ${dwfResult.manifest.summary ?? ""}`,
         workspaceId: ctx.sessionId ?? ctx.cwd
       });
     } catch (waitError) {
-      const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
+      const waitErrMsg = errorMessage(waitError);
       return result(
         [
           `pi-crew run timed out or failed: ${updatedManifest.runId}`,
           `Team: ${team.name}`,
           `Workflow: ${workflow.name}`,
-          `Error: ${errorMessage}`,
+          `Error: ${waitErrMsg}`,
           "",
           `Check status with: team status runId=${updatedManifest.runId}`,
           `State: ${updatedManifest.stateRoot}`
@@ -57902,6 +57913,7 @@ var init_run = __esm({
     init_discover_teams();
     init_discover_workflows();
     init_worktree_manager();
+    init_guards();
     init_internal_error();
     init_safe_paths();
     init_runtime_resolver();

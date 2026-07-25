@@ -15,6 +15,7 @@ import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktre
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
+import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveContainedPath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
@@ -432,7 +433,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			try {
 				await assertCleanLeaderAsync(gitRoot);
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				return result(
 					`${msg}\nCommit or stash changes before using worktree mode, or use workspaceMode: 'single'.`,
 					{ action: "run", status: "error" },
@@ -655,7 +656,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				// Round-11 runtime fix: persist manifest with status=failed when runner throws
 				// (e.g., script timeout, script syntax error, async failure). Previously the
 				// manifest stayed at 'queued' indefinitely, leaving an orphan state file.
-				const failureReason = runnerError instanceof Error ? runnerError.message : String(runnerError);
+				const failureReason = errorMessage(runnerError);
 				const failedManifest = {
 					...dwfManifest,
 					status: "failed" as const,
@@ -856,13 +857,13 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				workspaceId: ctx.sessionId ?? ctx.cwd,
 			});
 		} catch (waitError: unknown) {
-			const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
+			const waitErrMsg = errorMessage(waitError);
 			return result(
 				[
 					`pi-crew run timed out or failed: ${updatedManifest.runId}`,
 					`Team: ${team.name}`,
 					`Workflow: ${workflow.name}`,
-					`Error: ${errorMessage}`,
+					`Error: ${waitErrMsg}`,
 					"",
 					`Check status with: team status runId=${updatedManifest.runId}`,
 					`State: ${updatedManifest.stateRoot}`,
@@ -970,13 +971,13 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				workspaceId: ctx.sessionId ?? ctx.cwd,
 			});
 		} catch (waitError: unknown) {
-			const errorMessage = waitError instanceof Error ? waitError.message : String(waitError);
+			const waitErrMsg = errorMessage(waitError);
 			return result(
 				[
 					`pi-crew run timed out or failed: ${updatedManifest.runId}`,
 					`Team: ${team.name}`,
 					`Workflow: ${workflow.name}`,
-					`Error: ${errorMessage}`,
+					`Error: ${waitErrMsg}`,
 					"",
 					`Check status with: team status runId=${updatedManifest.runId}`,
 					`State: ${updatedManifest.stateRoot}`,

@@ -9373,6 +9373,11 @@
       ],
       "format": "esm"
     },
+    "src/utils/guards.ts": {
+      "bytes": 4343,
+      "imports": [],
+      "format": "esm"
+    },
     "src/state/run-metrics.ts": {
       "bytes": 5832,
       "imports": [
@@ -9513,12 +9518,17 @@
       "format": "esm"
     },
     "src/runtime/chain-runner.ts": {
-      "bytes": 19139,
+      "bytes": 19143,
       "imports": [
         {
           "path": "src/runtime/chain-parser.ts",
           "kind": "import-statement",
           "original": "./chain-parser.ts"
+        },
+        {
+          "path": "src/utils/guards.ts",
+          "kind": "import-statement",
+          "original": "../utils/guards.ts"
         },
         {
           "path": "src/state/event-log.ts",
@@ -9833,7 +9843,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 42582,
+      "bytes": 42464,
       "imports": [
         {
           "path": "src/agents/discover-agents.ts",
@@ -9884,6 +9894,11 @@
           "path": "src/worktree/worktree-manager.ts",
           "kind": "import-statement",
           "original": "../../worktree/worktree-manager.ts"
+        },
+        {
+          "path": "src/utils/guards.ts",
+          "kind": "import-statement",
+          "original": "../../utils/guards.ts"
         },
         {
           "path": "src/utils/internal-error.ts",
@@ -13111,7 +13126,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6005377
+      "bytes": 6010444
     },
     "dist/index.mjs": {
       "imports": [
@@ -14876,7 +14891,7 @@
           "bytesInOutput": 3634
         },
         "src/runtime/pi-json-output.ts": {
-          "bytesInOutput": 4323
+          "bytesInOutput": 4327
         },
         "src/runtime/child-pi-streams.ts": {
           "bytesInOutput": 9234
@@ -15964,6 +15979,9 @@
         "src/runtime/team-runner.ts": {
           "bytesInOutput": 62017
         },
+        "src/utils/guards.ts": {
+          "bytesInOutput": 174
+        },
         "src/state/run-metrics.ts": {
           "bytesInOutput": 1522
         },
@@ -15980,7 +15998,7 @@
           "bytesInOutput": 4930
         },
         "src/runtime/chain-runner.ts": {
-          "bytesInOutput": 15716
+          "bytesInOutput": 15688
         },
         "src/runtime/handoff-manager.ts": {
           "bytesInOutput": 12576
@@ -16019,7 +16037,7 @@
           "bytesInOutput": 6553
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 31463
+          "bytesInOutput": 31308
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 37886
@@ -16322,7 +16340,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2751368
+      "bytes": 2751387
     }
   }
 }

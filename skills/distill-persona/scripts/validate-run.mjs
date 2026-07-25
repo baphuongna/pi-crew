@@ -33,6 +33,12 @@ if (!runDir || !existsSync(runDir) || !statSync(runDir).isDirectory()) {
 }
 
 const isBuild = process.argv.includes('--build');
+// Mode auto-detection (default mode; --build stays Capture and skips these):
+//   APPLY mode   = APPLY-LOG.md present at run-dir root → SKILL.md optional (deliverable = target transformed)
+//   CAPTURE mode = no APPLY-LOG.md                    → SKILL.md + FIDELITY required (current behavior)
+const applyLogExists = existsSync(join(runDir, 'APPLY-LOG.md'));
+const isApplyMode = !isBuild && applyLogExists;
+const isCaptureMode = !isBuild && !applyLogExists;
 
 const failures = [];
 const passes = [];
@@ -57,11 +63,17 @@ function countListItems(haystack, headingRe, windowChars = 2000) {
 // hint: does a file exist at the flat research/ path? (artifact-scattering signal)
 const flatHint = (name) => existsSync(join(runDir, 'research', name)) ? ' (found at research/ — artifact scattering; canonical path is references/research/)' : '';
 
-// --- SKILL.md (the distillation OUTPUT — must be at run-dir root, NOT scattered) ---
+// --- SKILL.md ---
+// Apply mode: optional (deliverable = target transformed + APPLY-LOG, NOT a skill file).
+// Capture/build mode: required at run-dir root (NOT scattered elsewhere).
 const skillPath = join(runDir, 'SKILL.md');
 const skillText = readText(skillPath);
-check('SKILL.md exists at run-dir root (NOT scattered elsewhere)', !!skillText,
-	!skillText ? 'missing — did you install it to ~/.pi/agent/skills/ early? Keep it in run-dir until ALL-GREEN' : '');
+if (isApplyMode && !skillText) {
+	passes.push('  ℹ no SKILL.md — correct for Apply mode (deliverable = target transformed + APPLY-LOG)');
+} else {
+	check('SKILL.md exists at run-dir root (NOT scattered elsewhere)', !!skillText,
+		!skillText ? 'missing — did you install it to ~/.pi/agent/skills/ early? Keep it in run-dir until ALL-GREEN' : '');
+}
 
 let isSoftware = false;
 let isPersona = false;
@@ -108,10 +120,11 @@ if (!isSoftware && !isPersona && !isTopic) {
 	}
 }
 
-// --- APPLY-LOG.md (Phase 4 APPLY evidence — software + persona flavors only) ---
-// Topic/research flavor is skipped: its 'apply' is a validated research report (checked
-// by the structure validator elsewhere), not a transformation of a target project.
-if ((isSoftware || isPersona) && !isTopic && !isBuild) {
+// --- APPLY-LOG.md (Phase 3 APPLY evidence — Apply mode only) ---
+// Apply mode (APPLY-LOG.md present): the deliverable is the target transformed — these
+// checks are REQUIRED. Capture mode (--build or no APPLY-LOG): skipped (no target-apply).
+// Gated on isApplyMode (not flavor) so it fires even when SKILL.md is absent in Apply mode.
+if (isApplyMode) {
 	const applyLogPath = join(runDir, 'APPLY-LOG.md');
 	const applyText = readText(applyLogPath);
 	check('APPLY-LOG.md exists at run-dir root', !!applyText,
@@ -249,10 +262,10 @@ if (isBuild) {
 	check('references/research/EFFECTIVENESS-VERIFICATION.md exists', effExists, !effExists ? 'missing' + flatHint('EFFECTIVENESS-VERIFICATION.md') : '');
 }
 
-// --- Phase 2.7 + 5.5 anti-lazy gate checks (DEFAULT mode only — --build skips: engine builds have no target-apply) ---
-// Flavor split: DEFAULT mode requires apply-plan + scrutinize (Phase 2.7/5.5 artifacts).
-// --build mode skips these (same logic as the APPLY-LOG skip above).
-if (!isBuild) {
+// --- Phase 2.7 + 5.5 anti-lazy gate checks (APPLY mode only) ---
+// apply-plan + scrutinize are APPLY-mode artifacts (they assume a target to apply to).
+// CAPTURE mode (skill-build: --build, or no APPLY-LOG = persona/workflow) has no target-apply → skip.
+if (isApplyMode) {
 	// Phase 2.7 output: references/apply-plan.md
 	const applyPlanPath = join(runDir, 'references', 'apply-plan.md');
 	const applyPlanText = readText(applyPlanPath);
@@ -275,6 +288,10 @@ console.log(`path: ${runDir}\n`);
 passes.forEach((l) => console.log(l));
 failures.forEach((l) => console.log(l));
 const flavorTag = isSoftware ? ' [software]' : isPersona ? (isTopic ? ' [topic]' : ' [persona]') : '';
-const modeTag = isBuild ? ' [build mode — APPLY-LOG + strict-run checks skipped]' : '';
+const modeTag = isBuild
+	? ' [build mode — APPLY-LOG + strict-run checks skipped]'
+	: isApplyMode
+		? ' [apply mode — SKILL.md optional]'
+		: ' [capture mode]';
 console.log(`\n${passes.length} pass, ${failures.length} fail — ${failures.length === 0 ? '✅ ALL-GREEN (may ship)' : '🔴 NOT READY (produce the missing artifacts, then re-run)'}${flavorTag}${modeTag}\n`);
 process.exit(failures.length === 0 ? 0 : 1);

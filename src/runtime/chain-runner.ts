@@ -13,6 +13,7 @@
 import type { ChainStep as DSLChainStep } from "./chain-parser.ts";
 import { parseChainDSL } from "./chain-parser.ts";
 import type { HandoffManager, HandoffSummary, TaskPacket, TaskResult } from "./handoff-manager.ts";
+import { errorMessage } from "../utils/guards.ts";
 
 /**
  * Single step in a chain.
@@ -250,14 +251,14 @@ export class ChainRunner {
 					});
 				}
 			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : String(error);
+				const errMsg = errorMessage(error);
 
 				stepResults.push({
 					step: i + 1,
 					name: step.name,
 					outcome: "failure",
 					duration: Date.now() - stepStart,
-					error: errorMessage,
+					error: errMsg,
 				});
 
 				// Stop chain on failure unless configured to continue

@@ -1,3 +1,4 @@
+import { errorMessage } from "../utils/guards.ts";
 import { errors } from "../errors.ts";
 import { appendEventAsync, flushEventLogBuffer } from "../state/event-log.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
@@ -166,26 +167,26 @@ export class PipelineRunner {
 					});
 				} catch (error) {
 					const duration = Date.now() - stageStartTime;
-					const errorMessage = error instanceof Error ? error.message : String(error);
+					const errMsg = errorMessage(error);
 
 					if (effectiveStopOnError) {
 						stages.push({
 							name: stage.name,
 							status: "failed",
 							results: [],
-							error: errorMessage,
+							error: errMsg,
 							duration,
 						});
 
 						await appendEventAsync(eventsPath, {
 							type: "pipeline:stage_failed",
 							runId,
-							message: `Stage '${stage.name}' failed: ${errorMessage}`,
+							message: `Stage '${stage.name}' failed: ${errMsg}`,
 							data: {
 								stageIndex: i,
 								stageName: stage.name,
 								duration,
-								error: errorMessage,
+								error: errMsg,
 							},
 						});
 
@@ -193,7 +194,7 @@ export class PipelineRunner {
 							type: "pipeline:failed",
 							runId,
 							message: `Pipeline '${workflow.name}' failed at stage '${stage.name}'`,
-							data: { failedStage: stage.name, error: errorMessage },
+							data: { failedStage: stage.name, error: errMsg },
 						});
 
 						return {
@@ -207,7 +208,7 @@ export class PipelineRunner {
 							name: stage.name,
 							status: "failed",
 							results: [],
-							error: errorMessage,
+							error: errMsg,
 							duration,
 						});
 
@@ -219,7 +220,7 @@ export class PipelineRunner {
 								stageIndex: i,
 								stageName: stage.name,
 								duration,
-								error: errorMessage,
+								error: errMsg,
 							},
 						});
 					}

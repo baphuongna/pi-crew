@@ -1,6 +1,6 @@
 ---
 name: distill-software
-description: Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — into a runnable pi skill. REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
+description: Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — and APPLY it to a TARGET project (never outputs a reusable skill file). REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
 origin: local
 triggers:
   - "distill a codebase"
@@ -13,13 +13,16 @@ triggers:
 
 # distill-software
 
-> Sibling of `distill-persona`, specialized for **software**. Inherits the base methodology (6 phases, Phase 2.6 extraction verification, F2' framework-answerable-edge fidelity, exhaustive-sweep mode, self-correction meta-loop) and specializes: software-native sources (git/PR/ADR/CI/tests/code), **code-Expression-DNA** (measurable, not vibes), **pi-langsrv-native research** (symbol/call-graph, not just web), **staleness anchors**, and operational scripts wired into the protocol.
+> Sibling of `distill-persona`, specialized for **software**. Inherits the base methodology (V1-V5 extraction verification, F2' framework-answerable-edge fidelity, exhaustive-sweep mode, self-correction meta-loop) and specializes: software-native sources (git/PR/ADR/CI/tests/code), **code-Expression-DNA** (measurable, not vibes), **pi-langsrv-native research** (symbol/call-graph, not just web), **staleness anchors**, and operational scripts wired into the protocol.
 >
 > Companion deep-dive: `~/source/my_pi/source/SOFTWARE-DISTILLATION-DEEP-DIVE.md`.
 
+> ⛔ **distill-software transforms a TARGET project. It NEVER builds a SKILL.md — building a reusable skill is the distill WORKFLOW's separate job (Capture mode), not this skill's. The deliverable is the target improved + APPLY-LOG.md. If you find yourself writing a SKILL.md, STOP — you have misunderstood the task; go back to applying patterns to the target.**
+
 ## Relationship to distill-persona
-- **Reuse, don't duplicate**: the 6-phase flow, Phase 2.6 verification gate (V1-V4), F2' edge-honesty, exhaustive-sweep + coverage-manifest + diminishing-returns gate, and self-correction meta-loop are all inherited from `distill-persona`. This skill only specifies what's DIFFERENT for software.
-- If a step here is silent, follow `distill-persona`.
+- **Reuse, don't duplicate**: the extraction/verification flow, V1-V5 verification gate, F2' edge-honesty, exhaustive-sweep + coverage-manifest + diminishing-returns gate, and self-correction meta-loop are all inherited from `distill-persona`. This skill only specifies what's DIFFERENT for software.
+- ⚠️ **Unlike distill-persona, this skill does NOT build a SKILL.md.** distill-persona's Build phase is its own Capture path; distill-software OVERRIDES it — the deliverable is the target transformed + APPLY-LOG.md, never a standalone skill file.
+- If a step here is silent, follow `distill-persona` for extraction/verification methodology only.
 
 ## Core principles (software-specific, on top of distill-persona's)
 1. **Distill engineering JUDGMENT** — tradeoffs under constraints (reliability, scale, complexity), debugging heuristics, code-review instincts. NOT just style mimicry.
@@ -35,72 +38,36 @@ triggers:
 - **Self-define the completion milestone at run start** (state it explicitly). For a codebase-conventions distillation, "done" = ALL of:
   1. **Coverage 100%** — every content-bearing file/dir examined; coverage manifest complete (no part skipped). **AND the 3-empty-rounds gate fired** (≥3 consecutive rounds added zero new contribution, recorded in the process checklist round log). Verify by enumerating the file tree vs swept parts BEFORE declaring done.
   2. **Triple-verification passed** on every extracted model (cross-domain + generative + exclusive).
-  3. **Phase 2.6 V1-V4 passed** — no persona-content/quirk-as-principle garbage.
-  4. **Installable skill built** (Phase 3) — a loadable `<target>-conventions` SKILL.md, not just a findings doc.
+  3. **Phase 2 V1-V5 passed** — no persona-content/quirk-as-principle garbage.
+  4. **≥3 patterns APPLIED + verified IMPROVED** in the target (Phase 3 APPLY + Phase 4 VERIFY) — files edited, tests pass, before→after evidence. NOT a standalone findings doc, and NOT a SKILL.md.
   5. **Phase 4 fidelity passed** — framework-answerable edge test (skill answers consistently with the codebase on a novel scenario).
   6. **No HIGH distill-software gaps** blocking this distillation (meta-loop closed).
 - **Run to completion; do not stop early or ask "iterate or proceed?"** Iterate internally until ALL criteria met, THEN report done with the completion checklist. "Hoàn thiện" is the bar, not a round count.
 
-## ⚠️ CONCEPTUAL NOTE — SELF-UPGRADE DIRECTIVE (read before every run)
+## Canonical APPLY flow (ONE numbering — do not renumber)
+
+distill-software = source → essence → **APPLY to TARGET**. The flow:
+
+| Phase | Gate | Output |
+|-------|------|--------|
+| **0** | ROUTE | source + TARGET project identified; flavor; staleness anchors |
+| **0.5** | ANALYZE TARGET | target's domain/scale/context + fit pre-assessment |
+| **1** | EXTRACT | exhaustive excavation (every file/code/test/CI/ADR/commit read); coverage-manifest + 3-empty-rounds |
+| **2** | TRIPLE-VERIFY (V1-V5) | cross-domain + generative + exclusive + factual grep-verify |
+| **2.5** | 3-CHIỀU FILTER | RELEVANCE / PRESENCE / QUALITY vs target → SELECTED |
+| **2.6** | EFFECTIVENESS VERIFICATION | each SELECTED proves a target-delta → TO-APPLY |
+| **2.7** | PLAN APPROVAL GATE | pause for user approval of the TO-APPLY list |
+| **3** | APPLY | edit target files (consent + path-containment) → APPLY-LOG.md |
+| **4** | VERIFY TARGET IMPROVED | fidelity + Darwin ratchet (rollback if not improved) |
+| **5** | ADVERSARIAL SCRUTINIZE | fresh-context audit → SCRUTINIZE-REPORT.md |
 
 **Định nghĩa ĐÚNG chưng cất phần mềm**: chắt lọc tinh túy của **TOÀN BỘ source project** → **apply VÀO target project** (target CẢI THIỆN). Skill chỉ là 1 tool trong apply toolkit — KHÔNG phải output chính.
 
-**Skill trong source cũng chỉ là 1 PHẦN cần sweep** — xử lý bằng cùng 3-chiều filter như mọi phần khác (conventions, architecture, lint, decisions...). Nếu skill đó hữu dụng cho target → lấy; không → bỏ. Không ưu tiên, không đặc biệt.
-
-**ĐÀO TRIỆT ĐỂ — KHÔNG QUA LOA** (software flavor): sweep **MỌI file/code/test/CI/ADR/commit** của codebase, không skip phần nào, không dùng recall "framework X thường làm thế" thay vì đọc code thật. Mỗi file → đọc thật (`rg`/`git`/LSP) → trích → V5 grep-verify → so target → apply. Qua loa = thất bại. Recap từ trí nhớ = thất bại (phần mềm analog: claim convention mà không có `file:line` = hallucination).
-
-**Vấn đề hiện tại**: phases bên dưới (Phase 0-5) dừng ở "tạo SKILL.md" — đây là MỚI CAPTURE, thiếu APPLY. Khi chạy skill này:
-- Nếu output chỉ là 1 file SKILL.md đứng riêng → **CHƯA HOÀN THÀNH chưng cất**.
-- Phải thêm target project + 3-chiều filter + apply.
-
-**Khi sử dụng, TỰ NÂNG CẤP**: nếu phát hiện output là standalone skill (không apply vào target), **dừng và bổ sung**:
-
-```
-Phase 0:   Route — source + TARGET project (input: distill <source> INTO <target>)
-Phase 0.5: ANALYZE TARGET — KHÔNG CHỈ "có gì" mà "XỬ LÝ NHƯ THẾ NÀO" cho mỗi practice + domain/scale/context
-Phase 1-2: EXTRACT + TRIPLE-VERIFY source (giữ nguyên — exhaustive)
-Phase 2.5: 3-CHIỀU FILTER:
-           1. RELEVANCE — relevant cho target's domain/scale/context?
-              ❌ KHÔNG → SKIP (bất kể target có hay không)
-           2. PRESENCE — target có tương tự?
-              ❌ KHÔNG → NECESSITY: target CẦN không?
-                 ❌ KHÔNG CẦN → SKIP (complexity vô ích)
-                 ✅ CẦN       → ADOPT (thêm mới)
-              ✅ CÓ → QUALITY COMPARISON:
-                 Source TỐT HƠN → IMPROVE (thay bằng cách source)
-                 Source BẰNG/TỆ → SKIP
-                 COMPLEMENTARY  → MERGE
-           3. Mỗi SELECTED → note adaptation cần thiết cho target context
-Phase 2.6: EFFECTIVENESS VERIFICATION (PRE-APPLY GATE — MANDATORY) — SELECTED ≠ TO-APPLY.
-           Mỗi SELECTED phải CHỨNG MINH hiệu quả CHO TARGET NÀY trước khi apply. "Assume effective" = không được.
-           a. CONCRETE DELTA — chính xác cái gì đổi trong target? (1 dòng: "AGENTS.md +rule X" / "lint +rule Y" / "skill +model Z")
-           b. EFFECTIVENESS PROOF (≥1 trong):
-              · GENERATIVE — nó đổi một quyết định/answer/hành vi THẬT của target? (kể case cụ thể)
-              · PROBLEM-EXISTS — target CÓ vấn đề mà cái này giải quyết? (bằng chứng grep/inspect: file:line / test fail / convention thiếu)
-              · DELTA-TEST — apply cô lập → đo tốt hơn trên 1 case target
-           c. CONFLICT CHECK — xung đột practice/convention hiện có của target? → resolve hoặc downgrade
-           d. VERDICT: ✅ EFFECTIVENESS-VERIFIED → TO-APPLY  |  ❌ REJECTED → log lý do (APPLY-LOG / process checklist)
-           Chỉ TO-APPLY mới vào Phase 3. Đây là analog apply-side của Phase 2.6 V1-V4 (V3 verify MODEL effective lúc extract; gate này verify APPLY effective lúc integrate — cùng rigor, khác stage).
-Phase 3:   PLAN APPLICATION — mỗi TO-APPLY → HOW to apply:
-           ├── AGENTS.md update (convention → living rule)
-           ├── lint rule add (convention → machine-enforced)
-           ├── pattern adopt (code structure)
-           ├── CONTRIBUTING update
-           └── (optional) skill trong target (1 tool, không phải output chính)
-Phase 4:   APPLY — edit target files (target CẢI THIỆN) — **🔴 GATE: consent + path-containment (HIGH-2)**
-           Trước khi edit bất kỳ target file:
-           (a) Resolve target → canonical path; kiểm tra nằm trong approved root — REJECT symlink escape / out-of-target writes.
-           (b) Xuất exact file list + diff plan cho user.
-           (c) Yêu cầu **explicit user confirmation** trước lần ghi đầu tiên (no destructive action without `--confirm`).
-           (d) Không tự: delete/prune, `git reset`/checkout/clean/force-push, install dependency, chạy script từ source repo, commit/publish, gửi network data.
-           (e) Mỗi destructive action cần confirmation riêng.
-           (f) Atomic writes (temp sibling + rename) — không ghi dở.
-Phase 5:   VERIFY target improved (không phải "có skill không" mà "target tốt hơn chưa") — re-check từng TO-APPLY item thực sự cải thiện; nếu không → rollback bằng **inverse patch hoặc restore file cụ thể** (không broad `git reset`/clean) — Darwin ratchet.
-```
+**Skill trong source cũng chỉ là 1 PHẦN cần sweep** — xử lý bằng cùng 3-chiều filter như mọi phần khác (conventions, architecture, lint, decisions...). Nếu hữu dụng cho target → lấy; không → bỏ. Không ưu tiên, không đặc biệt.
 
 **Output đúng**: target project **transformed** (files edited, rules added, conventions adopted/improved). **KHÔNG PHẢI** standalone skill file.
 
-**Thành công đo bằng**: target project có xử lý tốt hơn trước không — KHÔNG PHẢI "có SKILL.md không".
+**Thành công đo bằng**: target project xử lý tốt hơn trước không — KHÔNG PHẢI "có SKILL.md không".
 
 ---
 
@@ -122,9 +89,8 @@ A skipped gate = a failed run. The verifier role runs it independently.
 **Canonical run layout** (produce ALL artifacts inside the run-dir — solves artifact-scattering):
 ```
 <run-dir>/                          # e.g. .crew/runs/<name>-DISTILL/ or source/<name>-DISTILL/
-  SKILL.md                          # the distillation OUTPUT (intermediate — the deliverable is the APPLIED target)
-  APPLY-LOG.md                      # Phase 4 — what was edited in the TARGET (proves APPLY happened)
-  FIDELITY.md
+  APPLY-LOG.md                      # Phase 3 APPLY — what was edited in the TARGET (THE deliverable proof)
+  FIDELITY.md                       # Phase 4 VERIFY
   DISTILLATION-PROCESS-CHECKLIST.md
   EXCAVATION-CHECKLIST.md
   references/
@@ -133,27 +99,37 @@ A skipped gate = a failed run. The verifier role runs it independently.
       V5-VERIFICATION.md
       EFFECTIVENESS-VERIFICATION.md
       shards/*.md
-    handoff.md                      # only if multi-session
+    apply-plan.md                   # Phase 2.7 plan-approval gate output
+  SCRUTINIZE-REPORT.md              # Phase 5 adversarial scrutinize
+  SKILL.md                          # [OPTIONAL — only if user explicitly asks for a reusable skill; Apply mode does NOT produce one]
+  handoff.md                        # only if multi-session
 ```
-The skill is INSTALLED to `~/.pi/agent/skills/` ONLY AFTER validate-run prints ALL-GREEN.
+**"Done" = target transformed** (files edited, ≥3 applied+verified) — NOT "a SKILL.md exists". Apply mode produces NO SKILL.md. (A reusable skill is only built if the user explicitly asks — that is the distill WORKFLOW's Capture path, not this skill.)
 
-**Phase 3→4 hard stop**: after writing SKILL.md, run `validate-run.mjs <run-dir>` IMMEDIATELY — it WILL fail until `APPLY-LOG.md` (Phase 4 — what you edited in the target) + `FIDELITY.md` exist. SKILL.md alone = incomplete. Do not declare done.
+**Post-APPLY hard stop**: after Phase 3 APPLY, run `validate-run.mjs <run-dir>` IMMEDIATELY — it WILL fail until `APPLY-LOG.md` (what you edited in the target) + `FIDELITY.md` exist. A run with no APPLY-LOG = NOT complete (even if a SKILL.md exists). Do not declare done.
 
 ---
 
-## Phase 0 — Entry routing + staleness anchors
+## Phase 0 — ROUTE (source + TARGET project) + staleness anchors
 
 Ask (defaults provided; never block value):
 1. **Flavor**: engineer | codebase | domain? (default: codebase)
-2. **Target**: which engineer / which repo@commit / which domain?
-3. **`language` + `distilled_against`** — REQUIRED staleness anchors: e.g. `language: typescript`, `distilled_against: pi@<sha>` or `react@17.0.2`. A skill without these will silently lie across versions.
+2. **Source**: which engineer / which repo@commit / which domain? AND **Apply TARGET project** — which project gets patterns APPLIED to it (improved)? Both required: source (distill FROM) + target (distill INTO). No target = not a distill-software run → Phase 0.5 analyzes the target.
+3. **`language` + `distilled_against`** — REQUIRED staleness anchors: e.g. `language: typescript`, `distilled_against: pi@<sha>` or `react@17.0.2`. A distillation without these will silently lie across versions.
 4. **Cost tier** (quote before Phase 1): quick (3 streams) / standard (6+extra) / deep (full archive). Codebase sweep scales with repo size.
 5. **Ethics** (engineer flavor, living non-public colleague): consent gate — require subject-provided material + consent flag (inherited M-F3).
 6. **Decomposition for large targets** (Core Principle #6 — decide HERE): if the repo is large (>200 files OR >5 subsystems/packages), decompose into sub-targets and distill each, then merge. Never ôm đồm (take it all at once). Decompose by **package/subsystem** (each gets its own coverage-manifest + 3-empty-rounds gate); then sweep the **cross-cutting** conventions (the ones spanning packages). Record the decomposition tree in `DISTILLATION-PROCESS-CHECKLIST.md`. Recursive if a sub-package is still large.
 
-## Phase 1 — Research (exhaustive-sweep mode, software sources)
+## Phase 0.5 — ANALYZE TARGET
 
-> **Phase numbering note**: this skill uses Phases 0, 1, 2, 2.6, 3, 4 — the 1.5/2.5/2.7 sub-phases of `distill-persona` are persona-specific (research-coverage checkpoint, model-confirm checkpoint, overlap-differentiation). Software flavor: Phase 1 IS the coverage manifest + 3-empty-rounds gate; Phase 2 IS the triple-verification + V1-V5; the generated skill does not need overlap-differentiation (no registry-scale conflict). Do not renumber — the asymmetry is intentional.
+KHÔNG CHỈ "target CÓ GÌ" mà "XỬ LÝ NHƯ THẾ NÀO" cho mỗi practice + domain/scale/context.
+- Map the target's domain, scale, stack, existing conventions, lint/CI posture, and pain points.
+- For each candidate practice later extracted in Phase 1-2: pre-assess fit. (Phase 2.5/2.6 formalize this.)
+- Output feeds the Phase 2.5 3-CHIỀU filter — RELEVANCE is judged against THIS target's reality, not the source's.
+
+## Phase 1 — EXTRACT (exhaustive-sweep excavation, software sources)
+
+> **Phase numbering note**: this skill uses the canonical APPLY flow — Phases 0, 0.5, 1, 2, 2.5, 2.6, 2.7, 3, 4, 5 (see table above). Phase 1 IS the coverage manifest + 3-empty-rounds gate; Phase 2 IS the triple-verification + V1-V5; Phases 2.5-2.7 are the target-fit filter + effectiveness gate + plan approval; Phase 3 IS APPLY (edit target); Phase 4 IS VERIFY (fidelity); Phase 5 IS scrutinize. Do not renumber.
 
 **Mode**: exhaustive structural sweep (inherited) — enumerate every content-bearing part (every text file / major section) → coverage manifest → round loop until 100% or diminishing-returns gate fires. For a large repo, sweep by directory; for one engineer, sweep their artifacts.
 
@@ -163,7 +139,7 @@ Ask (defaults provided; never block value):
 - If a part of the repo can't be read (private submodule, deleted file), mark it in the manifest as `[UNREADABLE — reason]` rather than silently inferring its conventions.
 - **Process checklist + 3-empty-rounds gate** (inherited from `distill-persona`): maintain `<skill-dir>/DISTILLATION-PROCESS-CHECKLIST.md` tracking every phase 0→ship-gate (no phase skipped) + a deep-dive round log. The coverage-manifest's round-loop FEEDS that log. **A sweep/synthesis phase is NOT done until ≥3 consecutive rounds add ZERO new contribution** (the bar is nothing-new, not less-new) — record every round's yield + the gate-firing. <3 consecutive empty rounds = keep sweeping. This is the codebase analog of "deep-dive nhiều vòng" — don't declare the repo distilled after 1-2 passes.
 
-**🔴 Secret/PII redaction (MEDIUM-4)** — exhaustive sweeps read files/pages the agent does not control (`.env`, config, deploy scripts, scraped transcripts). Before persisting ANY read source content into a research shard, the generated skill, fidelity notes, or any artifact, mask secret VALUES via `skills/research/scripts/safe_io.py` `redact_secrets()` (API keys, bearer tokens, AWS keys, private-key blocks, `.env`-style `NAME=secret` → `NAME=***REDACTED***`), keeping the finding TYPE + location. Never echo a raw secret/token/`.env` value into logs or fidelity; treat a discovered credential as a *finding* ("credential leaked — type + path"), not data to copy. **SSRF-safe fetch (MEDIUM-3)**: most software streams read local repos (no fetch); if a stream fetches a live web source (eng blog, package registry), gate the URL with `safe_io.py` `is_safe_url()` first — reject private/loopback/link-local/metadata IPs (`127.0.0.1`, `169.254.169.254`, `10/8`…) and non-http(s) schemes.
+**🔴 Secret/PII redaction (MEDIUM-4)** — exhaustive sweeps read files/pages the agent does not control (`.env`, config, deploy scripts, scraped transcripts). Before persisting ANY read source content into a research shard, the extracted analysis, fidelity notes, or any artifact, mask secret VALUES via `skills/research/scripts/safe_io.py` `redact_secrets()` (API keys, bearer tokens, AWS keys, private-key blocks, `.env`-style `NAME=secret` → `NAME=***REDACTED***`), keeping the finding TYPE + location. Never echo a raw secret/token/`.env` value into logs or fidelity; treat a discovered credential as a *finding* ("credential leaked — type + path"), not data to copy. **SSRF-safe fetch (MEDIUM-3)**: most software streams read local repos (no fetch); if a stream fetches a live web source (eng blog, package registry), gate the URL with `safe_io.py` `is_safe_url()` first — reject private/loopback/link-local/metadata IPs (`127.0.0.1`, `169.254.169.254`, `10/8`…) and non-http(s) schemes.
 
 **The 6 streams adapted for software** (each writes `references/research/0N-*.md`):
 
@@ -210,45 +186,59 @@ git log --since='6 months ago' --format='' --name-only | grep -v '^$' | sort | u
 rg 'assert|expect|require|must\b' -ttest
 ```
 
-## Phase 2 — Triple-verification for engineering patterns (inherited + software instance)
+## Phase 2 — TRIPLE-VERIFY for engineering patterns (V1-V5)
 A claim becomes a model only if: **cross-domain/module recurrence** (≥2 unrelated files/modules) + **generative** (predicts the approach on a NEW problem) + **exclusive** (THIS engineer's/repo's, not generic).
 - **The exclusivity test is the anti-bloat weapon**: "use version control / write tests / small functions" fails exclusivity → discard or demote to a one-line house-rule. The point of distillation is the DISTINCTIVE part.
 - Worked example: a "build-to-understand" model (nanoGPT 750 / micrograd 100 lines) → recurs in teaching+OSS+blog (cross-domain ✓), predicts "implement from scratch not read paper" (generative ✓), distinctive (exclusive ✓) → MODEL.
 
-## Phase 2.6 — Extraction verification (inherited V1-V4) + software-specific V1 + V5 factual-accuracy
+### V5 — factual-accuracy verification (inherited V1-V4 + software-specific)
 Apply V1-V4 to every extracted model. **Software-specific V1 strengthening**: is it an engineering *method/principle*, or just *this codebase's historical quirk*? Flag quirk-vs-principle (⚠️) in the model — a repo's "prefix privates with `_p`" is a quirk, not a principle. Never present a quirk as universal engineering.
 
 **V5 — Factual accuracy (mandatory for codebase distillations; learned from oh-my-pi dogfood)**: every quoted **constant / function-name / file-path / regex / threshold / rule** in the distilled skill must be **grep-verified against the actual source** before shipping; cite `file:line` as evidence. Common traps this catches: (a) over-absolute claims ("no `as`" when `as const` exists — precise to "no *unsafe* `as`"); (b) mis-attributed constants; (c) hallucinated function names; (d) mis-remembered thresholds. Run the verification as a grep batch against the codebase; any claim without matching evidence gets **precise-ed, qualified, or removed**. This is the codebase-distillation analog of persona Phase 4 — it is what makes the skill *trustworthy*, not just plausible. **V5 helper**: for citation-integrity checks on the report (when the output is a written distillation with `[n]`-style citations), the `verify_citations.py` script in `skills/research/scripts/` checks that every citation resolves against the source pool, flags dangling references, and enforces concentration limits (≤25% from any single source). Use it as a gate before publishing the distillation report.
 
-### Phase 2.7 — PLAN APPROVAL GATE (human-in-the-loop — MANDATORY for interactive use)
+## Phase 2.5 — 3-CHIỀU FILTER (RELEVANCE / PRESENCE / QUALITY vs TARGET)
 
-Sau effectiveness-gate verdicts (TO-APPLY / REJECT / DEFER), **STOP** — không vào Phase 3 cho đến khi user approves. Present a table, one row per pattern: `| Pattern | Verdict (TO-APPLY/REJECT/DEFER) | Evidence | Concrete delta (what changes in target) |`
+Mỗi verified model đi qua 3-chiều filter against the TARGET (KHÔNG phải against source alone):
+1. **RELEVANCE** — relevant cho target's domain/scale/context?
+   ❌ KHÔNG → SKIP (bất kể target có hay không).
+2. **PRESENCE** — target có tương tự?
+   ❌ KHÔNG → NECESSITY: target CẦN không?
+      ❌ KHÔNG CẦN → SKIP (complexity vô ích).
+      ✅ CẦN       → ADOPT (thêm mới).
+   ✅ CÓ → QUALITY COMPARISON:
+      Source TỐT HƠN   → IMPROVE (thay bằng cách source).
+      Source BẰNG/TỆ → SKIP.
+      COMPLEMENTARY  → MERGE.
+3. Mỗi SELECTED → note adaptation cần thiết cho target context.
+
+Output: SELECTED list (candidates for APPLY) — NOT yet applied. Phase 2.6 proves each SELECTED is effective before it becomes TO-APPLY.
+
+## Phase 2.6 — EFFECTIVENESS VERIFICATION (PRE-APPLY GATE — MANDATORY)
+
+SELECTED ≠ TO-APPLY. Mỗi SELECTED phải CHỨNG MINH hiệu quả CHO TARGET NÀY trước khi apply. "Assume effective" = không được.
+a. **CONCRETE DELTA** — chính xác cái gì đổi trong target? (1 dòng: "AGENTS.md +rule X" / "lint +rule Y" / "pattern +model Z").
+b. **EFFECTIVENESS PROOF** (≥1 trong):
+   - GENERATIVE — nó đổi một quyết định/answer/hành vi THẬT của target? (kể case cụ thể).
+   - PROBLEM-EXISTS — target CÓ vấn đề mà cái này giải quyết? (bằng chứng grep/inspect: file:line / test fail / convention thiếu).
+   - DELTA-TEST — apply cô lập → đo tốt hơn trên 1 case target.
+c. **CONFLICT CHECK** — xung đột practice/convention hiện có của target? → resolve hoặc downgrade.
+d. **VERDICT**: ✅ EFFECTIVENESS-VERIFIED → TO-APPLY  |  ❌ REJECTED → log lý do (APPLY-LOG / process checklist).
+
+Chỉ TO-APPLY mới vào Phase 2.7. Đây là analog apply-side của Phase 2 V1-V4 (V3 verify MODEL effective lúc extract; gate này verify APPLY effective lúc integrate — cùng rigor, khác stage). Persist verdicts in `references/research/EFFECTIVENESS-VERIFICATION.md`.
+
+## Phase 2.7 — PLAN APPROVAL GATE (human-in-the-loop — MANDATORY for interactive use)
+
+Sau effectiveness-gate verdicts (TO-APPLY / REJECT / DEFER), **STOP** — không vào Phase 3 APPLY cho đến khi user approves. Present a table, one row per pattern: `| Pattern | Verdict (TO-APPLY/REJECT/DEFER) | Evidence | Concrete delta (what changes in target) |`
 
 - **REJECT rigor** (anti-lazy): REJECT phải cite concrete evidence — grep (feature absent), problem-doesn't-exist proof, hoặc delta-test (no improvement). "Too small" / "not needed yet" / "doesn't have X" WITHOUT evidence = SKIPPING, not filtering. **Default bias: APPLY unless rigorously proven irrelevant.**
 - **DEFER capture**: DEFER phải state trigger condition + log vào `references/future-apply.md` — NOT silently dropped.
 - **End the turn. WAIT for user approval/modification.** Chỉ sau explicit approval → Phase 3.
-- **Autonomous fallback** (no interactive user — e.g. pi-crew workflow): skip wait, nhưng STILL write the full plan table to `references/apply-plan.md` AND add a "LOW-YIELD DEFENSE" section if applied/selected < 30% (justify minimalism with target evidence). Phase 5.5 scrutinize sẽ challenge.
+- **Autonomous fallback** (no interactive user — e.g. pi-crew workflow): skip wait, nhưng STILL write the full plan table to `references/apply-plan.md` AND add a "LOW-YIELD DEFENSE" section if applied/selected < 30% (justify minimalism with target evidence). Phase 5 scrutinize sẽ challenge.
 - Interactive: sau approval, record "APPROVED" (+ one-line note) at top of `references/apply-plan.md` — proves the pause was respected.
 
-## Phase 3 — Build (software SKILL.md template)
+## Agentic Protocol (extraction methodology — used in Phase 1/2 EXTRACT, NOT a skill-output template)
 
-frontmatter (pi convention + software staleness anchors):
-```yaml
----
-name: <engineer-or-codebase>-perspective
-description: "<one-line>"
-triggers: [ ... ]
-target: engineer | codebase | domain
-language: <ts/python/go/...>
-toolchain: <eslint|oxlint|biome|deno|rustfmt|none>   # detected in Phase 1 CI/lint stream
-distilled_against: <repo@sha | corpus | version>
-distilled: YYYY-MM-DD
----
-```
-
-Required sections (adapt nuwa's template): epigraph → role-play rules (engineer flavor) / codebase-map (codebase flavor) → **回答工作流 / Agentic Protocol** (see below) → core engineering mental models (3-7, each evidence+application+**limitation**) → decision heuristics (5-10) → **代码表达DNA** (12-axis grid) → timeline → values & anti-patterns (3-col **反例黑名单**: anti-pattern→why-wrong→corrective; + preserved tensions) → **失败模式与 Fallback 树** (runtime resilience, 6-8 rows: `| trigger | first-fix | last-resort |` — pi-langsrv unavailable→grep; toolchain detection fails→ask user; stale `distilled_against`→flag+verify) → **场景→模型路由表** (optional, ≥5-model skills: `| scene | priority model | priority heuristic | conflict rule |`, keeps output focused) → intellectual lineage (engineer flavor) → **honest boundaries (≥3 + staleness: language/version + date)** → sources → **Tooling & Scripts** (operational).
-
-**The Agentic Protocol** (MANDATORY — research-before-answer, pi-langsrv-native). Step 2 research dimensions are **derived from the extracted mental models** (nuwa's key innovation):
+distill-software uses a research-before-extract protocol. Step 2 research dimensions are **derived from the extracted mental models** (nuwa's key innovation). This governs HOW you read the source codebase — it is NOT a skill-output template (distill-software NEVER builds a SKILL.md):
 ```markdown
 ## 回答工作流 (Agentic Protocol)
 Core: <target> doesn't assert from intuition — looks at code/data/benchmarks first.
@@ -286,10 +276,23 @@ grep -nE '"(strict|exactOptionalPropertyTypes|noUncheckedIndexedAccess)"' tsconf
 
 ## Operational scripts (F13 — wired INTO the protocol, not orphaned)
 - **`scripts/code_dna.py`** — measures the code-Expression-DNA axes on a target file/dir → markdown report. **The Agentic Protocol Step 2 must invoke it**: "if target code collected → run `code_dna.py` → read report → apply mental models to interpret". (Never park scripts in a tools table the agent won't find — the mrbeast/orphaned-showpiece lesson.)
-- `scripts/fidelity_eval.py` (shared with distill-persona) — Phase 4 validation with the framework-answerable novel edge.
+- `scripts/fidelity_eval.py` (shared with distill-persona) — Phase 4 VERIFY validation with the framework-answerable novel edge.
 - **Generalize (F17)**: if the codebase's methodology is operationalizable into a runnable script (test-coverage analyzer, dep-trust scorer, commit-convention linter), ship it — wired INTO Step 2, never orphaned.
 
-## Phase 4 — Fidelity (inherited F2' + software edge)
+## Phase 3 — APPLY (edit TARGET files — 🔴 GATE: consent + path-containment, HIGH-2)
+
+Mỗi TO-APPLY item → HOW to apply, then APPLY. Plan channels: AGENTS.md update (convention → living rule) · lint rule add (convention → machine-enforced) · pattern adopt (code structure) · CONTRIBUTING update · (optional) skill-in-target (1 tool, không phải output chính).
+
+- **🔴 Trước khi edit bất kỳ target file**:
+  (a) Resolve target → canonical path; kiểm tra nằm trong approved root — REJECT symlink escape / out-of-target writes.
+  (b) Xuất exact file list + diff plan cho user.
+  (c) Yêu cầu **explicit user confirmation** trước lần ghi đầu tiên (no destructive action without `--confirm`).
+  (d) Không tự: delete/prune, `git reset`/checkout/clean/force-push, install dependency, chạy script từ source repo, commit/publish, gửi network data.
+  (e) Mỗi destructive action cần confirmation riêng.
+  (f) Atomic writes (temp sibling + rename) — không ghi dở.
+- **APPLY-LOG.md**: every edit recorded (file:line + before→after + verification). ≥3 items required before "done". This is THE deliverable proof — NOT a SKILL.md.
+
+## Phase 4 — VERIFY TARGET IMPROVED (Fidelity + Darwin ratchet, inherited F2' + software edge)
 
 **Dual-agent test** (inherited): independent fresh-context answerer (reads ONLY skill-dir files, no internet) + blind scorer (fresh context, compares against the real codebase). Separation required — LLM self-eval accuracy is only 46.4% (SkillLens, arXiv 2605.23899).
 
@@ -309,7 +312,7 @@ Write `FIDELITY.md` in the skill dir: **total + per-dimension scores** (rubric a
 
 **Session handoff (#9)**: when a codebase sweep spans sessions (large repo, context budget), write a structured handoff (`references/handoff.md`) — goal, coverage-manifest state, what's blocked, next-action — so a fresh session resumes without re-reading the manifest.
 
-### Phase 5.5 — ADVERSARIAL SCRUTINIZE PASS (anti-lazy — MANDATORY)
+## Phase 5 — ADVERSARIAL SCRUTINIZE PASS (anti-lazy — MANDATORY)
 
 Spawn a FRESH-CONTEXT scrutinize (adversarial, like the fidelity fresh-context check): use Agent/subagent tool → a separate agent reads ONLY `references/apply-plan.md` + effectiveness-gate output + `APPLY-LOG.md` — it has NOT seen synthesis/apply reasoning. If no subagent tool → self-scrutinize assuming laziness until proven otherwise.
 
@@ -325,10 +328,12 @@ Output `SCRUTINIZE-REPORT.md` at skill-dir root: one row per finding (`| item | 
 ### Ship-gate — all-green checklist (F4, awesome-persona)
 Refuse to ship if ANY fails; iterate Phase 2→4 until green:
 > **This checklist is ENFORCED by `validate-run.mjs`** — run it; ALL-GREEN required before claiming done.
+- [ ] **≥3 patterns APPLIED + verified IMPROVED** in target (Phase 3 APPLY + Phase 4 VERIFY) — "done" = target transformed, NOT "a SKILL.md exists"
+- [ ] **APPLY-LOG.md** documents ≥3 concrete edits with file:line + verification evidence
 - [ ] Fidelity total ≥70 (acceptable) / ≥85 (ship); edge-honesty ≥14
 - [ ] **Structural assertions** (F10): frontmatter complete, code-DNA section present, toolchain matrix present, staleness anchor (`language`+`distilled_against`+`distilled`) valid, no placeholder text (`<…>`/`TODO`/`TBD`)
 - [ ] **Mandatory fields** (F1): name, description, triggers, `distilled_against` (commit+date), staleness anchor, toolchain detected
-- [ ] **Security gate** (F5, software-specific): generated skill does not promote/reference insecure patterns as *principles* (e.g. `eval`, unsanitized `child_process`, disabled strict flags). If an insecure pattern IS a genuine codebase quirk → flag ⚠️ as quirk, never as convention/principle.
+- [ ] **Security gate** (F5, software-specific): the distillation does not promote/reference insecure patterns as *principles* (e.g. `eval`, unsanitized `child_process`, disabled strict flags). If an insecure pattern IS a genuine codebase quirk → flag ⚠️ as quirk, never as convention/principle.
 - [ ] **Source-liveness** (F9/F3): `distilled_against` repo + commit still accessible; every cited file path still exists in repo (V5 covers in-repo grep); external URLs return HTTP 200 (HEAD→GET fallback). Log dead links in honest-boundaries.
 - [ ] **Ungrep-verified convention ratio ≤30%** (the codebase analog of persona's memory-ratio): conventions tagged `[UNVERIFIED — recall]` must be the minority, or the skill is a hallucination, not a distillation. (V5 enforces per-claim; this is the aggregate gate.)
 - [ ] **Coverage manifest complete** (inherited exhaustive-sweep): every content-bearing part UNCOVERED→COVERED or `[UNREADABLE — reason]`; no dangling UNCOVERED rows at ship time (the codebase analog of persona's no-dangling-checklist rule).
@@ -351,4 +356,4 @@ Refuse to ship if ANY fails; iterate Phase 2→4 until green:
 | 9 | Single-source monoculture (domain skill) | One-source bias; no cross-verification | topic skills cite ≥3 independent sources |
 
 ## Self-containment
-This engine embeds its methodology inline (inherited from distill-persona). Generated skills are self-contained (copy dir → runs); `language`+`distilled_against` make staleness auditable.
+This engine embeds its methodology inline (inherited from distill-persona). The methodology is self-contained (copy dir → runs); `language`+`distilled_against` make the extraction's staleness auditable.
