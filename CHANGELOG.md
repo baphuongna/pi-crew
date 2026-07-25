@@ -3,6 +3,215 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.50] — UI animation audit + distillation toolkit v2 (2026-07-25)
+
+Eliminates a class of timer-leak / flicker bugs surfaced by the UI animation
+audit (3 parallel reviewer agents, 15 findings), ships the second iteration of
+the distillation toolkit (skill-skipping fixes + anti-lazy levers + dogfood
+feedback), and hardens the crew-vibes footer against a stale-context crash
+that blocked Tier 5 live-TUI verification.
+
+### UI animation audit — 11 of 15 findings applied (619a0cd)
+
+From `reports/ui-animation-audit-2026-07-24.md` (9240 bytes, 3 reviewers,
+cross-validated). 12 of 16 enumerated timers rated SAFE, 4 RISKY, 0 LEAKED.
+Applied 11 low-risk fixes; deferred C3 (shared RenderScheduler refactor),
+R1 (render-loop idle-stop), C4 (widget TTL cache — reverted, needs
+invalidate-on-write model), C6 (mascot obscured check), C9 (dead loaders)
+as separate follow-ups needing design + regression tests.
+
+**HIGH severity**:
+- **`src/ui/terminal-status.ts` (T1)**: idle re-assert was a recursive
+  `setTimeout` that kept the process alive forever on SIGTERM (zombie
+  title loop). Added `.unref()` on both idleTimer and flashTimer, and
+  wired a `dispose()` callback into `crew-cleanup.ts` SIGTERM/SIGHUP
+  handler via `register.ts` opts so the timers stop on shutdown.
+- **`src/extension/registration/commands.ts` + `src/ui/mascot.ts` (C1)**:
+  mascot armin framerate 33ms → 100ms (30fps → 10fps) to stop Windows
+  TUI flicker. Compensated by 3× per-tick advancement across all 7 armin
+  effects (typewriter 6→18 chars, scanline 1→3 rows, rain 1→3, fade
+  18→54, crt 1→3, glitch 1→3, dissolve 22→66) so effects finish in the
+  same wall-clock time.
+
+**MEDIUM severity**:
+- **`src/extension/registration/viewers.ts` (C2)**: `LiveConversationOverlay`
+  wrapper now exposes `dispose()` — was leaking the 200ms `pollTimer` on
+  programmatic dismiss.
+- **`src/ui/live-run-sidebar.ts` (C5)**: `autoCloseTimeout` now
+  `clearTimeout`-before-set + `.unref()` — was stacking timers (multiple
+  `done()` calls) on signature churn.
+- **`src/extension/registration/lifecycle-handlers.ts` (C7)**: crew widget
+  pauses while `RunDashboard` overlay is open (`uiState.dashboardOpen` gate
+  in `renderTick`); widget stopped rendering under the dashboard overlay.
+  Also: `uiState?` made optional + guarded with `if (deps.uiState)` in
+  `commands.ts` to avoid regressing the existing nullable-deps pattern.
+- **`src/ui/widget/widget-types.ts` (C8)**: removed dead
+  `CrewWidgetState.interval` field (vestigial polling handle never
+  assigned, only cleared) across widget-types/index/lifecycle-handlers.
+
+**LOW severity**:
+- **`src/ui/render-coalescer.ts` (R3)**: `flush()` now resets `#dropped`
+  counter and reports via `#onDrop` callback so observability catches
+  dropped frames instead of silent dropping.
+- **`src/ui/run-snapshot-cache.ts` (R2)**: `scheduleRefresh` timer
+  `.unref()`'d — was holding the loop alive on idle.
+- **`package.json`**: removed `assets/runner-spritesheet.png` from npm
+  `files` field (114KB JPEG source, only used at build-time by
+  `build-crew-vibes-font.py`; runtime uses ANSI art + PUA font glyphs).
+  Kept in git for reproducibility.
+
+### Crew-vibes stale-context crash fix (40d0380)
+
+- **`src/extension/crew-vibes/index.ts`**: `refreshFooter` body wrapped
+  wholly in `safeUiCall`. Root cause: `fetchProviderAndRefresh` is async
+  — after its `await` the session may have shut down (the
+  `session_shutdown` handler cleared the timers, but an in-flight
+  `fetchProviderAndRefresh` still resumed), making ctx stale.
+  `refreshFooter` then accessed the `hasUI` GETTER, which calls the
+  runner's `assertActive()` and THROWS on a stale ctx — uncaught, this
+  crashed pi (exit 7) on every non-interactive / shutdown-race startup.
+  A stale ctx now logs a warn and degrades gracefully instead of
+  crashing — matching the file's stated philosophy: *"Crew-vibes must
+  NEVER break the user's session. A broken spinner is not worth a
+  crashed pi."* Found while running `real-test-pi-crew` Tier 5 (live
+  TUI probe), where pi crashed immediately on spawn, blocking the live
+  verification tier.
+
+### Windows test flake fix (99f8452)
+
+- **`test/unit/subagent-tools-integration.test.ts`**: `session_before_switch`
+  test — added a 200ms drain between `session_shutdown` emit and
+  `removeDirWithRetry` call. The background agent's in-flight I/O
+  (`mkdir` under `.crew/state/runs`) raced the dir deletion → ENOENT
+  `unhandledRejection` AFTER the test ended, failing the whole file on
+  `windows-latest`. Same class of bug as commit `58e2491` (Rule 3 test),
+  different test case.
+
+### Distillation toolkit v2 (52f089b → ba8b15c, 5 commits)
+
+Second iteration of the distillation skillset shipped in v0.9.49.
+Hardens the agent discipline around skill-reading + APPLY evidence,
+adds human-in-the-loop + adversarial scrutinize gates, and dogfoods
+the improved tool on pi-crew itself (mechanical error-message helper
+migration).
+
+- **`feat(skills): bundle distillation toolkit`** (`52f089b`) — bundles
+  `distill-persona` (person 6-stream + topic exhaustive-sweep; V1-V5,
+  F2' dual-agent scoring, 10 mental models, Core Principle #6
+  decompose, #7 untrusted-source boundary, Phase 2.6 pre-apply
+  effectiveness gate), `distill-software` (codebase flavor: Code-DNA
+  12-axis, toolchain matrix, edge-honesty rubric, tiered effort),
+  `research` (field/topic flavor: iterative depth + cost-transparency
+  + state-on-disk hooks + rigor: citation verify, source eval,
+  tension discovery). Each ships `validate-skill-structure.mjs`
+  (output gate) + `validate-run.mjs` (process gate) so agents cannot
+  skip the ship-gate. Safe I/O helpers: SSRF guard (`is_safe_url`) +
+  secret redaction (8 regex rules).
+- **`feat(skills): fix skill-skipping`** (`1640ba5`) — root cause from
+  `pi source core/skills.js`: only the 1-line frontmatter `description`
+  enters the agent's system prompt; the skill BODY is never
+  auto-injected, so agents skip-read + skip-phases with impunity
+  (verified: agents wrote SKILL.md but skipped APPLY; gate never
+  checked APPLY evidence). Three layered fixes: (1) embed *"REQUIRED:
+  read SKILL.md FULLY + run validate-run, ALL-GREEN"* in the
+  description of all 3 distill skills — the only text always in
+  context; (2) trim `distill-persona` to <50KB (one read returns the
+  whole skill; relocate 11 methodology blocks to `references/`) + add
+  Phase 3→4 hard-stop; (3) `validate-run.mjs` APPLY-evidence checks
+  (APPLY-LOG.md — distillation = source → essence → APPLY to target;
+  standalone SKILL.md = NOT complete) + `--build` mode (alias-tolerant,
+  skips APPLY-LOG) for engine-skill builds. Both gates wired into the
+  distill workflow ship-gate step so builds cannot declare done
+  incomplete.
+- **`feat(skills): anti-lazy levers`** (`df9d45e`) — agents kept finding
+  new skip-paths despite artifact-presence gates (latest: distilled 7
+  patterns, applied 1, lazily dismissed 6 with "too small / not needed
+  yet" — no evidence). Machine gates check artifact PRESENCE not
+  reasoning QUALITY, so add two structural levers: (a) **Phase 2.7 PLAN
+  APPROVAL GATE** (human-in-the-loop): after the effectiveness-gate,
+  present an apply/reject/defer+evidence table and STOP — wait for user
+  approval before applying. REJECT requires grep/test evidence (not
+  "too small"); DEFER logged to a future-apply roadmap. Autonomous
+  fallback writes a LOW-YIELD DEFENSE if applied <30%. (b) **Phase 5.5
+  ADVERSARIAL SCRUTINIZE PASS**: fresh-context audit hunting
+  reasoning-quality failures (unevidenced rejections, undocumented
+  deferrals, low-yield-without-defense, trivial applies, silent
+  skips). Outputs `SCRUTINIZE-REPORT.md`; HIGH findings must resolve
+  before done. `validate-run.mjs` (default mode): 3 new checks —
+  `apply-plan.md` exists, approval/defense marker present,
+  `SCRUTINIZE-REPORT.md` exists. `--build` mode skips them (engine
+  builds have no target-apply). Decisive proof: a synthetic lazy-case
+  (1/7 applied, no approval, no scrutinize) now fails validate-run on
+  all three; adding APPROVED + SCRUTINIZE-REPORT flips them to pass.
+- **`feat(distill): remove skill-building from distill-software`**
+  (`30f1c93`) — `distill-software` is now purely a target-transformation
+  tool (APPLY mode) — it NEVER builds a SKILL.md. That was the root
+  cause blocking distillations: agents hit "Phase 3 Build SKILL.md"
+  and derailed into Capture mode (building a skill instead of
+  transforming the target). `validate-run.mjs` is now mode-aware: APPLY
+  mode (APPLY-LOG present) makes SKILL.md optional and requires
+  apply-plan + scrutinize; CAPTURE mode (persona/workflow skill-builds)
+  keeps SKILL.md required, skips apply-plan/scrutinize. **First real
+  APPLY** using the fixed skill (the test): migrated 6 inline
+  `err instanceof Error ? err.message : String(err)` patterns to the
+  `errorMessage()` helper across `run.ts` / `chain-runner.ts` /
+  `pipeline-runner.ts`, resolving 3 shadowing conflicts (local vars
+  named `errorMessage`) via renames to `waitErrMsg` / `errMsg` + 9
+  downstream edits. Verified: full test suite 190/191 pass (0 fail),
+  tsc clean, independent fresh-context scrutinize confirms
+  behavior-preserving (no HIGH/MED).
+- **`fix(distill-software): dogfood feedback R1-R3`** (`ba8b15c`) —
+  three feedback rounds from oh-my-pi→mya verify reports + operator
+  critique. R1: V5 citation rigor — line numbers from `grep -n` output
+  only, never estimated (was 42-58% wrong); prefer grep-reproducible
+  snippet. PRESENCE counting via `grep -c` exact pattern, never
+  semantic scan (overcounted 13→1). Large-file decompose — Core
+  Principle #6 + Phase 1 truncation guard. R2: DEFER scrutiny +
+  scrutinize hunt #6 for high-value deferrals. Abstraction-surface
+  coverage (extraction-completeness guard). R3 (operator critique —
+  over-fit + compromised + balanced): de-hardcode the inventory (method
+  DERIVED FROM LANGUAGE — no prescribed TS grep, no named example).
+  Core Principle #8 reworded to the BALANCED stance: SIZE is never a
+  filter axis (large = decompose + apply every batch, never defer),
+  BUT this is NOT "apply everything" — verify (V1-V5) + compare
+  (3-axis) + effectiveness (2.6) still freely REJECT/SKIP/MERGE on
+  merit. The single forbidden filter axis is size; all merit axes
+  still apply. Validated by dogfood test on pi-crew;
+  `validate-skill-structure` 13/0 ALL-GREEN.
+
+### Lint hygiene (06132e6)
+
+- **`src/runtime/chain-runner.ts` + `src/runtime/pipeline-runner.ts`**:
+  Biome `--write` fixed 2 FIXABLE `organizeImports` errors introduced
+  by `30f1c93` (errorMessage migration left imports out of order).
+  `test:critical` 97/97 still pass; lint + format + typecheck all clean.
+  Bundle rebuilt so the fix is live for this release.
+
+### Verification
+
+- `npm run test:critical` → 97/97 pass (~12-18s run-to-run).
+- `npm run typecheck` → exit 0 (`strip-types import ok`).
+- `npm run lint` → clean (0 errors after the 06132e6 fix).
+- `npx biome format .` → clean (no fixes applied).
+- `npm run build:bundle` → success, dist/index.mjs 2686.9 KB, md5
+  `a1481171595fbbe13e9ba0fdc2f97eb8` (rebased after the lint fix).
+- **real-test-pi-crew** all 8 tiers (this session):
+  - Tier 1 — `test:critical` 97/97 ✅
+  - Tier 2 — 3-path kill-switch proof (default / `=0` / `=1`) all
+    97/97 ✅
+  - Tier 3 — typecheck + bundle + staleness OK ✅
+  - Tier 4 — install via `packages: ["../../source/my_pi/pi-crew"]`
+    in `~/.pi/agent/settings.json` ✅
+  - Tier 5 — tmux session spawn OK; `capture-pane` empty (env issue,
+    not regression — same as prior sessions)
+  - Tier 6 — pty probe definitive: pi renders full TUI (`pi v0.82.0`,
+    help line, input box, separators), no crash ✅
+  - Tier 7 — smoke team `team_20260725083754_36b77e2431b4cb3c`
+    (fast-fix) 3/3 tasks, ~5.5 min, verifier 12.2s, no hang ✅
+  - Tier 8 — md5 sync: requires `/quit` + reopen after each bundle
+    rebuild (user did so — see session confirmation)
+
+
 ## [0.9.49] — Distill workflow + runtime reliability + CI hardening (2026-07-24)
 
 Ships the `distill.workflow.md` to the npm package (was project-level only),
