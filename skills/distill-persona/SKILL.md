@@ -1,6 +1,6 @@
 ---
 name: distill-persona
-description: "Distill a person's (or field's) thinking into a runnable pi skill — research, extract, validate, generate."
+description: Distill a person's (or field's) thinking into a runnable pi skill — research, extract, validate, generate. REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
 origin: local
 triggers:
   - "distill a persona"
@@ -23,23 +23,7 @@ triggers:
 
 ---
 
-## ⚠️ CONCEPTUAL NOTE — SELF-UPGRADE DIRECTIVE (read before every run)
-
-**Chưng cất = chắt lọc tinh túy source → apply VÀO target** (target cải thiện). Skill chỉ là 1 tool apply, không phải output.
-
-**Skill trong source cũng chỉ là 1 PHẦN cần sweep** — xử lý bằng cùng 3-chiều filter như mọi phần khác (conventions, architecture, lint, decisions...). Nếu skill đó hữu dụng cho target → lấy; không → bỏ. Không ưu tiên, không đặc biệt.
-
-**ĐÀO TRIỆT ĐỂ — KHÔNG QUA LOA**: khi chưng cất 1 đối tượng, PHẢI đọc/re-read đầy đủ TOÀN BỘ nội dung của đối tượng đó. Không dựa vào trí nhớ. Không recap. Mỗi file, mỗi section, mỗi practice phải được:
-1. **Đọc thật** (read/re-read file gốc, không memory-grep)
-2. **Trích từng finding** (systematic, từng section)
-3. **So sánh với target** (3-chiều filter: relevant? → có? → cần/tốt hơn?)
-4. **Ghi lại** kết quả filter (ADOPT/IMPROVE/MERGE/SKIP + lý do)
-
-Qua loa = thất bại. Memory-recap = thất bại. Chưng cất thật = đọc từng dòng → trích → so → apply.
-
-**Khi sử dụng**: nếu output chỉ là standalone skill (không apply vào target) → **chưa hoàn thành**. Tự nâng cấp: thêm target parameter + 3-chiều filter (relevance → presence+need → quality compare) + **pre-apply effectiveness verification** (SELECTED phải chứng minh hiệu quả CHO TARGET NÀY — generative/problem-exists/delta-test — trước khi apply; "assume effective" = không được) + apply phase. See `distill-software` for the full directive + the EFFECTIVENESS VERIFICATION gate spec.
-
-**Pre-apply gate (tóm tắt, áp dụng cả khi persona distill INTO target)**: giữa "đã quyết định ADOPT/IMPROVE/MERGE" và "apply" phải có 1 verify bước — (1) concrete delta (cái gì đổi?), (2) effectiveness proof (≥1: đổi quyết định thật / target có vấn đề này / delta-test tốt hơn), (3) conflict check, (4) verdict ✅TO-APPLY / ❌REJECTED+log. Chỉ TO-APPLY mới edit target. Đây là analog apply-side của Phase 2.6 V3 (V3 verify model effective lúc extract; gate này verify apply effective lúc integrate). **APPLY consent + path-containment gate (HIGH-2)**: trước khi edit bất kỳ target file nào: (a) resolve target về canonical path, kiểm tra nằm trong approved root — reject symlink escape / out-of-target writes; (b) xuất exact file list + diff plan cho user; (c) yêu cầu **explicit user confirmation** trước lần ghi đầu tiên (no destructive action without `--confirm`); (d) rollback = inverse patch hoặc restore file cụ thể, không broad `git reset`/clean/force-push; (e) không tự delete/prune, install dependency, chạy script từ source repo, commit/publish, hay gửi network data.
+> Detail: self-upgrade directive + apply-side consent gate — see `references/self-upgrade-directive.md`
 
 ---
 
@@ -55,25 +39,7 @@ Qua loa = thất bại. Memory-recap = thất bại. Chưng cất thật = đọ
 
 ---
 
-## Field models (from distilling the 3 source projects)
-
-> Self-distillation artifact: this skill was applied to its own sources (nuwa engine + 2 awesome-list indexes). Full triple-verification synthesis in `references/distillation-field-synthesis.md`. Five field models surfaced that the engine-only view missed — they shape Phase 0 below.
-
-**M-F1 — Dissemination flywheel.** A mature distillation practice is 3 layers: **engine (distill) → index (awesome-list) → auto-curation (issue→PR→merge)**. Both awesome-lists ship auto-curation pipelines wrapping nuwa. *Implication*: distilling a skill is step 1; getting it discovered + quality-gated + distributed is steps 2-3. Overkill at personal scale; earns its cost at registry scale.
-
-**M-F2 — Target taxonomy.** Targets form a spectrum with different source-availability, ethics, and method. *Gestalt (pass 1):* self → close-living → commemorative → public-figure → field. **Empirically corrected (R1 sweep of ~187 real entries):** the spectrum is **bimodal, not balanced** — public-figures ≈84% of practice. Corrections: (a) a **meta-distillation-engine tier sits ABOVE the spectrum** (nuwa/immortal/ditto/forge/anti-distill — tools that distill, not personas); (b) public-figure needs **sub-domains + a `living-content-creator` sub-tier** (UP主/内娱/峰哥 — recency-gated, platform-bound) distinct from historical figures; (c) **commemorative splits** into death (consent-of-estate) vs breakup (**ex/crush = the consent-gray-zone** → must trigger M-F3 gate; crush.skill simulates a living non-consenting person's chat); (d) self splits functional vs archaeological; (e) **adversarial** (anti-distill, vengeful-ghost) is a real counter-movement, not satire. See `references/research/r1-c-human-readme.md`. *Implication*: route by tier; the consent gate is mandatory for close-living + breakup-commemorative + living-creator-of-others.
-
-**M-F3 — Ethics spectrum: commemorative ↔ consent-violating ↔ deliberately-degraded.** Same technique, opposite moral weight — from a *memorial act* (preserving a lost person's thinking) to a *consent violation* (cloning a living non-consenting individual). Anti-distill satire is a *legitimate* pressure-test stance, not a defect. **R2 refine:** anti-distill is not just satire — it's a practical **IP-protection mechanism** ("sanitize your forced Skill file — looks complete, core knowledge stays yours"). This is a *third pole*: deliberately-degraded output. For forced/employer-mandated distillation, controlled degradation is the *ethical* choice; the engine should support a "redaction mode" where the subject marks models as public vs withheld. *Implication*: every distillation declares its ethics tier; the slip-line is "methodology lens" (ok) vs "persona impersonation" (flag).
-
-**M-F4 — The field systematically over-claims its own fidelity.** (pass-2 meta-model, validated at n=3) Every published distillation score is an *upper bound*: nuwa publishes 94-97/100; the indexes propagate them; independent re-scoring lands 67-76 (edge-honesty 20→7/13/7). The inflation is *question-design* (easy/known-adjacent edges, no framework-answerable novel edge) + author-side confirmation bias — NOT scorer contamination (F2 refuted). *Implication*: treat ANY published distillation score as an optimistic ceiling; re-score independently with a framework-answerable novel edge before trusting. A skill that "scores 97" but can't flag inference on a novel in-domain question is not ship-ready. See `references/distillation-field-synthesis-pass2.md`.
-
-**🔴 Structural-gate warning (R1 sweep of quality_check.py):** nuwa's automated `quality_check.py` validates only 6 STRUCTURAL criteria (model-count, limitations keyword, expression-DNA markers, honest-boundary section, tensions, primary-source ratio). It does NOT check the behavioral edge-honesty that F2' showed matters. **A skill can pass quality_check.py 6/6 and still fail the F2' edge-honesty gate.** Never trust a structural-only auto-pass; require the behavioral framework-answerable-edge test (`scripts/fidelity_eval.py`).
-
-**M-F7 — Structural invariants ARE the quality gate at index scale.** (R1 sweep of the 5 test files) At registry scale (200+ entries, bilingual), "quality" shifts from content-review to structure-enforcement — the invariants only CI can check ARE the gate: bilingual URL-parity per category, deterministic repo-slug sort (the only language-agnostic key), cross-section dedup, terminal-punctuation normalization, governance-keyword embedding in docs, and `doesNotMatch` regression guards for known-failed approaches. These are impossible to verify by hand at scale. *Implication*: when building a distillation registry, encode invariants as CI checks (not doc rules), use language-agnostic identity keys, make submissions atomic across languages. Necessary-not-sufficient (a coherent index can still hold bad distillations — complements M4/M-F4, doesn't replace them). See `references/research/r1-d-tests.md`.
-
-**R2 refine (two invariant classes):** at registry scale there are TWO distinct invariant classes: (a) **STATIC structural** — deterministic sort, dedup, terminal-punctuation parity, bilingual URL-parity (from nuwa tests); (b) **DYNAMIC quality** — star-based re-ranking, link-liveness checks, auto-issue on dead links (from awesome-human-distillation CI). Both CI-gated but serve different purposes: structural = consistency, dynamic = freshness/ranking. A registry needs *both*. (Original M-F7 described only class (a); awesome-human-distillation's `sort_by_stars.py` + `check_links.py` demonstrate class (b).)
-
----
+> Detail: field models M-F1→M-F7 (distillation-field meta-models) — see `references/field-models.md`
 
 ## 🔴 COMPLETION GATE (machine-checked) — run BEFORE claiming done
 
@@ -84,7 +50,8 @@ A skipped gate = a failed run. The verifier role runs it independently.
 **Canonical run layout** (produce ALL artifacts inside the run-dir — solves artifact-scattering):
 ```
 <run-dir>/                          # e.g. .crew/runs/<name>-DISTILL/ or source/<name>-DISTILL/
-  SKILL.md                          # the distillation OUTPUT
+  SKILL.md                          # the distillation OUTPUT (intermediate — the deliverable is the APPLIED target)
+  APPLY-LOG.md                      # Phase 4 — what was edited in the TARGET (proves APPLY happened)
   FIDELITY.md
   DISTILLATION-PROCESS-CHECKLIST.md
   EXCAVATION-CHECKLIST.md
@@ -97,6 +64,8 @@ A skipped gate = a failed run. The verifier role runs it independently.
     handoff.md                      # only if multi-session
 ```
 The skill is INSTALLED to `~/.pi/agent/skills/` ONLY AFTER validate-run prints ALL-GREEN.
+
+**Phase 3→4 hard stop**: after writing SKILL.md, run `validate-run.mjs <run-dir>` IMMEDIATELY — it WILL fail until `APPLY-LOG.md` (Phase 4 — what you edited in the target) + `FIDELITY.md` exist. SKILL.md alone = incomplete. Do not declare done.
 
 ---
 
@@ -125,30 +94,7 @@ Ask (max 2 rounds; give defaults so questions never block value):
    | **standard (default)** | 6 streams | most cases | medium (use a lighter model to cut cost) |
    | deep | 6 streams + full primary-source archive | publishing a flagship skill | highest |
 
-### Phase 0B — Diagnostic path (when user has a vague need, not a target)
-
-User doesn't know who/what to distill, only has a need or problem. Route:
-1. **1-2 clarifying questions** to locate the need dimension. Match against:
-   | Need dimension | Typical expression | Thinking-framework direction |
-   |---|---|---|
-   | Decision & judgment | "how to decide better" | Multi-model thinking, inversion, probabilistic |
-   | Expression & writing | "can't explain clearly" | Feynman simplification, storytelling, analogy |
-   | Business & startup | "can't find PMF" | First principles, leverage, product restraint |
-   | Teaching & communication | "students don't get it" | Known-to-unknown, metaphor, minimum viable knowledge |
-   | Critical thinking | "always getting fooled" | Falsification, evolutionary lens, cognitive-bias ID |
-   | Content creation | "no views on videos" | Attention engineering, test-iterate, audience psych |
-   | Life strategy | "career lost, anxious" | Long-termism, leverage selection, compounding |
-   | Risk & uncertainty | "how to handle black swans" | Antifragility, convexity, tail-risk management |
-   | Design & product | "UX is bad, can't simplify" | Minimalism, user mental models, constraint-as-creativity |
-   | Humor & expressiveness | "too serious, not interesting" | Absurd contrast, expectation violation, self-deprecating authority |
-2. **Recommend 2-3 candidates** from DUAL SOURCES:
-   - **Source A**: scan `<skill-dirs>/*-perspective/` for EXISTING skills matching the need → mark ⚡ (plug-and-play, zero cost).
-   - **Source B**: propose NEW distillation targets matching the need → mark 🆕.
-   - Each candidate: `### Candidate: [name] ⚡/🆕` + **core lens** (1 sentence) + **why it fits your need** + **limitation** (what it CAN'T help with).
-   - Principles: ≤3 candidates (choice paralysis is worse than no choice); existing skills first; candidates must differ from each other; always state limitations.
-3. User selects → proceed to Phase 0A → Phase 0.5.
-
-> Principle: max 2 rounds of questions. If the user's need is already clear, recommend directly.
+> Detail: diagnostic path (vague-need routing) — see `references/diagnostic-path.md`
 
 ### Special cases
 
@@ -426,17 +372,7 @@ Apply to EVERY extracted model/heuristic before it enters Phase 3:
 
 ---
 
-## Phase 2.7 — Cross-skill differentiation (anti-overlap)
-
-Before building, scan `<skill-dirs>/*-perspective/` for existing skills. If the new subject overlaps an existing one (e.g. Musk + Thiel + Naval all share first-principles thinking):
-
-- **Model overlap >40%** → flag: either MERGE into the existing skill's "related lenses" section, or EXPLICITLY differentiate (what does THIS lens add the other doesn't?).
-- **>60% overlap with only the name changed** → this is **thin repackaging** (anti-pattern #11). Stop; differentiate or pick a different target.
-- Record the differentiation decision in `references/differentiation-check.md`.
-
-This prevents shipping near-duplicate skills that dilute the registry.
-
----
+> Detail: cross-skill differentiation (anti-overlap) — see `references/cross-skill-differentiation.md`
 
 ## Phase 3 — Build the skill (from the embedded template)
 
@@ -480,14 +416,7 @@ target: person | topic | software
 | M13 | 附录: 调研来源 | 一手 (>50% required) + 二手 + 关键引用 (attributed) + research cutoff date (F19) |
 | — | timeline | full chronology + last-12-months dynamics (anti-staleness) |
 
-### Optional body sections (○)
-
-| Section | When to add | Must contain |
-|---------|------------|-------------|
-| ⚠️ 反机械化约束 | Always recommended | Don't reveal internal model names; vary narrative arcs; cap repeated markers (max 2× "我发现"/response); make tool-calling invisible (F9) |
-| 激活确认 (Dual-mode) | "Analyze how X thinks" vs "be X" | Path A roleplay (first-person) vs Path B analyst (third-person, probability dist, confidence ratings, key unknowns) (F10) |
-| 场景→模型路由表 | ≥4 mental models | `\| problem type \| priority model \| priority heuristic \| conflict rule \|` — prevents "use all models every time" (F12) |
-| 可运行工具脚本 | Software/topic flavor | `\| script \| function \| usage \|` — wired INTO Agentic Protocol Step 2 (F13/F17), never orphaned |
+> Detail: optional body sections (反机械化约束, dual-mode, routing table, tool scripts) — see `references/optional-body-sections.md`
 
 ### The Agentic Protocol (MANDATORY in every generated skill) — with the F2' fix
 
@@ -514,11 +443,7 @@ Core: <person> doesn't assert from intuition — looks at data/code/benchmarks f
 > > *If you can DERIVE an answer from <person>'s principles but they have NOT publicly addressed THIS specific question, you MUST (a) give the framework-derived answer AND (b) explicitly flag it: "this is my framework-based inference, not a position I've publicly taken." Refusing to state a number is NOT enough — the STANCE itself must be flagged. Never present extrapolation as established doctrine.*
 > The failure is presenting framework-derived judgment as the person's position, not fabricating facts (all tested skills avoided fake facts/quotes).
 
-### Description discipline (F4/F5/F15)
-- `description` = ONE positioning sentence. `triggers` = 2–4 explicit phrases + the person's name. **No long-tail keyword stuffing** (it inflates false-triggers and, in crowded skill sets, collides).
-- Before writing triggers, scan installed skills for collision; disambiguate if a trigger overlaps an existing skill.
-- **Structure**: say WHAT it IS before WHAT it DOES — "A thinking-advisor skill that…" not "Helps you think like…" (F15).
-- **Terminal punctuation**: normalize `description` + identity-card sentence for terminal punctuation (。/！/？ for zh, ./?/! for en). Run as a post-processing step after writing SKILL.md (F3).
+> Detail: description discipline (F4/F5/F15) — see `references/description-discipline.md`
 
 ### Submission schema + validate-skill-structure (F1/F10)
 
@@ -535,21 +460,11 @@ Run `scripts/validate-skill-structure.mjs` (or equivalent) after Phase 3 — har
 
 ## Phase 4 — Fidelity validation (with the mandatory novel-edge test)
 
-Run **independent** sub-agents (fresh context — `context: 'fresh'`; the answerer ≠ scorer; no self-eval — SkillLens: self-eval only 46.4% accurate). **Degraded mode (single-agent build)**: if the runtime can't spawn independent sub-agents, score CONSERVATIVELY, flag EVERY dimension as "single-agent self-score = upper bound", and mark edge-honesty as unverified-on-paper (the F2' inference-flag rule is written down; whether it actually fires under blind testing is exactly what a single agent can't self-prove). Prioritize independent re-scoring of the edge-honesty dimension later. A single-agent FIDELITY.md is a provisional score, not a ship verdict.
+Run **independent** sub-agents (fresh context — `context: 'fresh'`; the answerer ≠ scorer; no self-eval — SkillLens: self-eval only 46.4% accurate). **Degraded mode (single-agent build)**: if the runtime can't spawn independent sub-agents, score CONSERVATIVELY, flag EVERY dimension as "single-agent self-score = upper bound". A single-agent FIDELITY.md is a provisional score, not a ship verdict.
 
-Test design (the scorer MAY read the skill file — F2 refuted: skill-file access does not inflate scores):
-- **3 known-stance questions** — topics the person publicly addressed repeatedly. Direction + specific detail must match.
-- **🔴 1 NOVEL in-domain edge question — and it MUST be framework-answerable, not fact-demanding.** (Validated at n=3: a fact-demanding edge — e.g. "what specific number" — can be dodged by refusal vocabulary and give a false pass. The drift-catching test is a question DERIVABLE from the person's principles that they never publicly addressed — e.g. "given his inversion+incentives models, which of these two deal structures is worse-aligned?".) The skill must flag the stance as inference, NOT present a confident derived judgment as established doctrine. **A skill that passes known-stance + style but fails this is NOT ship-ready.** (See `f2-experiment/validation-conclusion.md` for the test-design rationale.)
-- **1 style sample** — blind-read recognizable within ~3 sentences.
-- ⚠️ **Test questions must NOT overlap** with example dialogues already in the skill file — if the answerer pattern-matches a stored example rather than reasoning from models, the score is inflated (false pass). Cross-check each test question against the skill's examples before running.
+**5-dim rubric (100)**: stance-consistency 30 · style-recognizability 20 · edge-honesty 20 · source-transparency 15 · structural-completeness 15. **Ship ≥85 (A) / acceptable ≥70 (B)** with flagged weak spots. Iterate Phase 2→4 max 2×; else deliver best + flagged limits. Persist as `FIDELITY.md`.
 
-5-dim rubric (100): stance-consistency 30 · style-recognizability 20 · edge-honesty 20 · source-transparency 15 · structural-completeness 15. Ship ≥85 (A) / acceptable ≥70 (B) with flagged weak spots. Iterate Phase 2→4 max 2×; else deliver best + flagged limits.
-
-**Persist fidelity result as `FIDELITY.md`** in the skill dir (mandatory): total + per-dimension scores + per-question test records (Q1–Q5: answer summary + real-stance comparison + score + rationale) + test date + answerer/scorer models + **run observability** (wall-clock time, token count, cost tier — lets the user compare across runs; optional aid: `skills/research/scripts/emit_run_summary.py` emits wall-clock+token+cost from an event log). Enables independent re-scoring (M-F4: published scores are upper bounds; without a persisted baseline, "re-score independently" has nothing to compare against).
-
-**Source-liveness check** (before ship): verify all cited URLs return HTTP 200 (HEAD → GET fallback for servers that 405 on HEAD). Log any dead links in honest-boundaries: "N sources were live at distillation time; M have since become unavailable." Ship-ready requires 0 broken source links OR flagged dead links with an alternative source named.
-
-**Optional — adversarial robustness test** ("Skill Fidelity Bench" pattern): (1) tamper the generated skill (remove a boundary, inject a fabricated model); (2) re-run fidelity eval; (3) measure delta. A robust skill should show *measurable degradation* when tampered — proving original components were load-bearing. A skill that scores the same with and without a boundary means that boundary was cosmetic.
+> Detail: test design (known-stance + novel-edge + style), FIDELITY.md schema, source-liveness check, adversarial robustness test — see `references/fidelity-rubric.md`
 
 ---
 
@@ -595,44 +510,19 @@ If ANY gate fails → iterate Phase 2→4; do NOT ship a skill with a red gate.
 | 10 | **Present in-field-but-unaddressed extrapolation as established stance** (F2') | flag it as inference; use uncertainty vocabulary |
 | 11 | **Thin repackaging** — skill 80% identical to existing with only name changed | check existing skills for overlap (Phase 2.7); if >60%, merge or differentiate |
 
-## Update mode
-"update <person>'s skill": read existing, find `distilled:` date; run only streams 2 + 5 + 6 (recent); merge (strengthen / flag contradiction / add new model); update date + latest-dynamics. Never rewrite wholesale.
-
-**No-op detection**: after merge, if no model was added/strengthened/contradicted → report "no new contribution since last distillation; existing skill is current." Do NOT re-ship an unchanged skill — it wastes cost and pollutes the registry with false "updated" timestamps. Also check for a pre-existing update in progress before starting (idempotency).
-
-**Deletion tracking (#12)**: updates must also log what was *removed* (`### Removed` section in the skill's changelog/BUILD-NOTES), not just added. A skill that only ever grows drifts — stale heuristics never get pruned. Enumerate each retired model/heuristic/source with a 1-line reason; if nothing was removed, state "no removals" explicitly (auditable).
+> Detail: update mode (no-op detection + deletion tracking) — see `references/update-mode.md`
 
 ## Taste principles (quick reference for judgment calls)
 
-| Principle | One-liner |
-|---|---|
-| **Long-form > quotes** | A 3000-word essay reveals more thinking structure than 50 tweets |
-| **Controversy > consensus** | The most controversial opinions reveal the most uniqueness |
-| **Change > static** | Where they CHANGED stance is more informative than where they held firm |
+> Detail: long-form > quotes, controversy > consensus, change > static — see `references/taste-principles.md`
 
 ## Topic-skill phase variant (when flavor = topic/field)
 
-| Phase | Person skill | Topic variant |
-|---|---|---|
-| 0A | confirm person + focus | confirm topic boundary + target audience |
-| 0.5 | `[person]-perspective/` | `[topic]-framework/`, same dir structure |
-| 1 | 6 agents around ONE person | search 3-5 core people/schools, assign agents per person (1-2 each) |
-| 2.1 | extract ONE person's mental models | extract **field consensus** (all schools agree) + **school divergences** (A says X, B says Y) |
-| 2.3 | simulate ONE person's expression | neutral but professional (no role-play) |
-| 2.4 | one person's inner contradictions | **fundamental disagreements between schools** |
-| 3 | use skill-template.md | adjust: remove role-play + identity card → add "framework overview" + "school comparison" |
-| 4 | compare against this person's known stances | compare against field's canonical classic cases |
+> Detail: phase-by-phase person→topic variant table — see `references/topic-variant.md`
 
 ## Phase 6 — Registry routing + multi-persona debate (optional, post-distillation)
 
-When multiple persona skills exist in the registry, two meta-patterns emerge:
-
-- **Curator routing** ("curator.skill" pattern): a meta-skill that matches user intent → best-fit persona skill from the pool. Analyzes the question, recommends/activates the most relevant skill. Complements Phase 0B diagnostic (which is pre-distillation); this is post-distillation routing.
-- **Multi-persona debate** ("zhuzi-skill" pattern): select 2–4 relevant persona skills; each independently analyzes via its Agentic Protocol; structured round-based exchange; neutral synthesis. Produces higher-quality analysis than any single lens ("how would Musk AND Munger AND Taleb approach this?").
-
-These are registry-scale capabilities — only relevant when ≥3 persona skills exist. Building blocks (Agentic Protocol, mental models, expression DNA) are already produced by this skill.
-
----
+> Detail: curator routing + multi-persona debate patterns — see `references/registry-routing.md`
 
 ## Self-containment note (F9)
 This engine embeds its methodology inline so it doesn't depend on external reference files at runtime. The generated skills are likewise self-contained (copy dir → runs).

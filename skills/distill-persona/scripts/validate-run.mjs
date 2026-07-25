@@ -7,15 +7,21 @@
 //   validate-skill-structure.mjs <skill-dir>   →  output skill structure
 //   validate-run.mjs <run-dir>                 →  run completeness (this script)
 //
+// ALSO checks Phase 4 APPLY evidence (software + persona flavors): APPLY-LOG.md must
+// exist at run-dir root, documenting what was edited in the TARGET (SKILL.md is the
+// intermediate essence, not the deliverable — distillation = source → essence → APPLY).
+//
 // Run BEFORE claiming done. If you feel tempted to skip a phase to save effort,
 // THAT is exactly when you must run the gate. A skipped gate = a failed run.
 //
 // Usage:
-//   node validate-run.mjs <run-dir>
+//   node validate-run.mjs <run-dir>                          →  distillation run completeness
+//   node validate-run.mjs <skill-dir> --build                →  engine-skill build completeness
+//                                                              (--build: skips APPLY-LOG, alias-tolerant evidence)
 //
 // Exit codes: 0 = ALL-GREEN (run complete — may ship); 1 = NOT READY (produce missing artifacts, re-run).
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 
 const runDir = process.argv.find((a) => !a.startsWith('-') && a !== process.argv[0] && a !== process.argv[1]);
@@ -24,6 +30,8 @@ if (!runDir || !existsSync(runDir) || !statSync(runDir).isDirectory()) {
 	console.error('  <run-dir> = directory holding the distillation artifacts (SKILL.md, FIDELITY.md, …)');
 	process.exit(2);
 }
+
+const isBuild = process.argv.includes('--build');
 
 const failures = [];
 const passes = [];
@@ -56,6 +64,7 @@ check('SKILL.md exists at run-dir root (NOT scattered elsewhere)', !!skillText,
 
 let isSoftware = false;
 let isPersona = false;
+let isTopic = false; // research/topic flavor — its 'apply' is a validated report; no APPLY-LOG required
 
 if (skillText) {
 	const fm = skillText.match(/^---\n([\s\S]*?)\n---/);
@@ -70,6 +79,7 @@ if (skillText) {
 	// flavor auto-detect
 	isSoftware = /target:\s*(software|codebase|engineer)/i.test(fmText) || /code-?dna|代码表达DNA|code expression/i.test(skillText);
 	isPersona = !isSoftware && (/target:\s*(person|topic)/i.test(fmText) || /mental.?model/i.test(skillText));
+	isTopic = /target:\s*topic/i.test(fmText); // exclude topic/research flavor from APPLY checks
 
 	if (isSoftware) {
 		check('[software] Code-DNA section present', /代码表达DNA|Code Expression-DNA|code.?dna/i.test(skillText), 'missing 代码表达DNA/code-DNA section');
@@ -81,6 +91,39 @@ if (skillText) {
 		check('[persona] mental-models section present', /mental.?model|心智模型|核心心智模型/i.test(skillText), 'no mental-models section');
 		const boundary = countListItems(skillText, /诚实边界|honest boundar(?:y|ies)/i);
 		check('[persona] honest-boundaries ≥3 items', boundary.count >= 3, boundary.found ? `found ${boundary.count} items` : 'section missing');
+	}
+}
+
+// --- Fallback flavor detection (when SKILL.md is absent/scattered) ---
+// Needed because isSoftware/isPersona are only set inside if(skillText); a run that
+// skipped APPLY often also has no SKILL.md at the run-dir root (it was installed early
+// or never written there). Detect software flavor from research/CODE-DNA.md so the
+// APPLY-evidence checks still fire for the all-too-common 'wrote SKILL, skipped APPLY' case.
+if (!isSoftware && !isPersona && !isTopic) {
+	if (existsSync(join(runDir, 'references', 'research', 'CODE-DNA.md')) ||
+	    existsSync(join(runDir, 'research', 'CODE-DNA.md')) ||
+	    /code-?dna/i.test(basename(runDir))) {
+		isSoftware = true;
+	}
+}
+
+// --- APPLY-LOG.md (Phase 4 APPLY evidence — software + persona flavors only) ---
+// Topic/research flavor is skipped: its 'apply' is a validated research report (checked
+// by the structure validator elsewhere), not a transformation of a target project.
+if ((isSoftware || isPersona) && !isTopic && !isBuild) {
+	const applyLogPath = join(runDir, 'APPLY-LOG.md');
+	const applyText = readText(applyLogPath);
+	check('APPLY-LOG.md exists at run-dir root', !!applyText,
+		!applyText ? 'Phase 4 APPLY missing — SKILL.md is intermediate, not the deliverable. Distillation = source → essence → APPLY to target. A standalone SKILL.md = NOT complete.' : '');
+	if (applyText) {
+		// count list items + table rows across the whole file (mirrors countListItems)
+		const applyItems = (applyText.match(/^\s*(?:\d+[.)]|[-*])\s+\S/gm) || []).length
+			+ (applyText.match(/^\s*\|(?![\s:|-]+\|?\s*$).+\|/gm) || []).length;
+		check('APPLY-LOG: ≥3 applied items', applyItems >= 3, `found ${applyItems} item(s) — need ≥3 concrete edits in the target`);
+		const pathRefs = /\/[\w.-]+\.\w{1,4}|src\/|AGENTS\.md|scripts\/|package\.json|tsconfig/i.test(applyText);
+		check('APPLY-LOG: references target file paths', pathRefs, 'no file-path-like tokens found — add paths proving real edits (not just claims)');
+		const verified = /test|typecheck|build|bundle|lint|pass|green|✅|97\/97|all-green/i.test(applyText);
+		check('APPLY-LOG: verification evidence (test/typecheck/bundle/lint pass)', verified, 'no verification keyword found — add test/build/lint pass evidence');
 	}
 }
 
@@ -128,24 +171,85 @@ if (excText) {
 // --- references/research/ artifacts (canonical path — solves scattering) ---
 const researchDir = join(runDir, 'references', 'research');
 
-const covText = readText(join(researchDir, 'COVERAGE-MANIFEST.md'));
-check('references/research/COVERAGE-MANIFEST.md exists', !!covText, !covText ? 'missing' + flatHint('COVERAGE-MANIFEST.md') : '');
-if (covText) {
-	const uncovered = (covText.match(/\|\s*UNCOVERED[^|]*\|/gi) || []).length;
-	check('coverage: no dangling UNCOVERED rows', uncovered === 0, uncovered ? `${uncovered} part(s) not covered` : '');
+if (isBuild) {
+	// --- BUILD MODE: alias-tolerant evidence checks ---
+	// Engine skills use different file names than distillation runs.
+	// Accept canonical names OR common aliases OR name/content regex matches.
+	const refsDir = join(runDir, 'references');
+
+	// Helper: find a file under references/ or references/research/ by name regex or content regex
+	function findRef(nameRe, contentRe) {
+		const dirs = [refsDir, researchDir].filter((d) => existsSync(d) && statSync(d).isDirectory());
+		for (const d of dirs) {
+			for (const f of readdirSync(d)) {
+				const fp = join(d, f);
+				if (!existsSync(fp) || !statSync(fp).isFile()) continue;
+				if (nameRe && nameRe.test(f)) return fp;
+				if (contentRe) {
+					const txt = readText(fp);
+					if (txt && contentRe.test(txt)) return fp;
+				}
+			}
+		}
+		return null;
+	}
+
+	// 1. Coverage evidence
+	const covPath =
+		existsSync(join(researchDir, 'COVERAGE-MANIFEST.md')) ? join(researchDir, 'COVERAGE-MANIFEST.md')
+		: existsSync(join(refsDir, 'source-inventory.md')) ? join(refsDir, 'source-inventory.md')
+		: existsSync(join(refsDir, 'coverage-manifest.md')) ? join(refsDir, 'coverage-manifest.md')
+		: findRef(null, /UNCOVERED.*COVERED|covered.*parts/i);
+	const covTextB = covPath ? readText(covPath) : null;
+	check('coverage evidence present (COVERAGE-MANIFEST | source-inventory | coverage-manifest | content-match)',
+		!!covTextB, !covTextB ? 'missing — no coverage evidence found under references/' : `found: ${covPath}`);
+	if (covTextB) {
+		const uncovered = (covTextB.match(/\|\s*UNCOVERED[^|]*\|/gi) || []).length;
+		check('coverage: no dangling UNCOVERED rows', uncovered === 0, uncovered ? `${uncovered} part(s) not covered` : '');
+	}
+
+	// 2. V5/citation-verify evidence
+	const v5Path =
+		existsSync(join(researchDir, 'V5-VERIFICATION.md')) ? join(researchDir, 'V5-VERIFICATION.md')
+		: existsSync(join(refsDir, 'verified-models.md')) ? join(refsDir, 'verified-models.md')
+		: findRef(/v5|verified|citation/i, null);
+	check('V5/citation-verify evidence present (V5-VERIFICATION | verified-models | name-match)',
+		!!v5Path, !v5Path ? 'missing — no V5/citation evidence found under references/' : `found: ${v5Path}`);
+
+	// 3. Effectiveness-gate evidence
+	const effPath =
+		existsSync(join(researchDir, 'EFFECTIVENESS-VERIFICATION.md')) ? join(researchDir, 'EFFECTIVENESS-VERIFICATION.md')
+		: existsSync(join(refsDir, 'effectiveness-gate.md')) ? join(refsDir, 'effectiveness-gate.md')
+		: existsSync(join(refsDir, 'three-filter.md')) ? join(refsDir, 'three-filter.md')
+		: findRef(/effectiveness|three-filter|gate/i, null);
+	// FIDELITY.md validates the built skill reproduces the target — for an engine-skill BUILD that IS effectiveness
+	// evidence. The pre-apply effectiveness-gate.md is a forward-looking workflow artifact, not retroactively required
+	// for hand-built engine skills (research/persona/software predate Phase 2.6).
+	const effViaFidelity = !effPath && !!fidText;
+	check('effectiveness-gate evidence present (EFFECTIVENESS-VERIFICATION | effectiveness-gate | three-filter | FIDELITY.md)',
+		!!effPath || effViaFidelity, (!effPath && !effViaFidelity) ? 'missing — no effectiveness evidence found under references/ or FIDELITY.md' : `found: ${effPath || 'FIDELITY.md'}`);
+} else {
+	// --- DEFAULT MODE: strict canonical paths (UNCHANGED — byte-for-byte equivalent) ---
+	const covText = readText(join(researchDir, 'COVERAGE-MANIFEST.md'));
+	check('references/research/COVERAGE-MANIFEST.md exists', !!covText, !covText ? 'missing' + flatHint('COVERAGE-MANIFEST.md') : '');
+	if (covText) {
+		const uncovered = (covText.match(/\|\s*UNCOVERED[^|]*\|/gi) || []).length;
+		check('coverage: no dangling UNCOVERED rows', uncovered === 0, uncovered ? `${uncovered} part(s) not covered` : '');
+	}
+
+	const v5Exists = existsSync(join(researchDir, 'V5-VERIFICATION.md'));
+	check('references/research/V5-VERIFICATION.md exists', v5Exists, !v5Exists ? 'missing' + flatHint('V5-VERIFICATION.md') : '');
+
+	const effExists = existsSync(join(researchDir, 'EFFECTIVENESS-VERIFICATION.md'));
+	check('references/research/EFFECTIVENESS-VERIFICATION.md exists', effExists, !effExists ? 'missing' + flatHint('EFFECTIVENESS-VERIFICATION.md') : '');
 }
-
-const v5Exists = existsSync(join(researchDir, 'V5-VERIFICATION.md'));
-check('references/research/V5-VERIFICATION.md exists', v5Exists, !v5Exists ? 'missing' + flatHint('V5-VERIFICATION.md') : '');
-
-const effExists = existsSync(join(researchDir, 'EFFECTIVENESS-VERIFICATION.md'));
-check('references/research/EFFECTIVENESS-VERIFICATION.md exists', effExists, !effExists ? 'missing' + flatHint('EFFECTIVENESS-VERIFICATION.md') : '');
 
 // --- Report ---
 console.log(`\nvalidate-run: ${basename(runDir)}`);
 console.log(`path: ${runDir}\n`);
 passes.forEach((l) => console.log(l));
 failures.forEach((l) => console.log(l));
-const flavorTag = isSoftware ? ' [software]' : isPersona ? ' [persona]' : '';
-console.log(`\n${passes.length} pass, ${failures.length} fail — ${failures.length === 0 ? '✅ ALL-GREEN (may ship)' : '🔴 NOT READY (produce the missing artifacts, then re-run)'}${flavorTag}\n`);
+const flavorTag = isSoftware ? ' [software]' : isPersona ? (isTopic ? ' [topic]' : ' [persona]') : '';
+const modeTag = isBuild ? ' [build mode — APPLY-LOG + strict-run checks skipped]' : '';
+console.log(`\n${passes.length} pass, ${failures.length} fail — ${failures.length === 0 ? '✅ ALL-GREEN (may ship)' : '🔴 NOT READY (produce the missing artifacts, then re-run)'}${flavorTag}${modeTag}\n`);
 process.exit(failures.length === 0 ? 0 : 1);

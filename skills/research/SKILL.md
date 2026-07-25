@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Deep-research skill combining iterative depth, structured+validated output, rigor mechanisms, anti-thrash, and pi-native hooks for general deep research."
+description: Deep-research skill combining iterative depth, structured+validated output, rigor mechanisms, anti-thrash, and pi-native hooks for general deep research. REQUIRED — read the full skill file first (iterative-depth protocol with rigor scripts); run verify_citations and source_evaluator on your output before claiming done.
 origin: local
 language: en
 distilled_against: 4-source-field-snapshot

@@ -1,6 +1,6 @@
 ---
 name: distill-software
-description: "Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — into a runnable pi skill."
+description: Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — into a runnable pi skill. REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
 origin: local
 triggers:
   - "distill a codebase"
@@ -122,7 +122,8 @@ A skipped gate = a failed run. The verifier role runs it independently.
 **Canonical run layout** (produce ALL artifacts inside the run-dir — solves artifact-scattering):
 ```
 <run-dir>/                          # e.g. .crew/runs/<name>-DISTILL/ or source/<name>-DISTILL/
-  SKILL.md                          # the distillation OUTPUT
+  SKILL.md                          # the distillation OUTPUT (intermediate — the deliverable is the APPLIED target)
+  APPLY-LOG.md                      # Phase 4 — what was edited in the TARGET (proves APPLY happened)
   FIDELITY.md
   DISTILLATION-PROCESS-CHECKLIST.md
   EXCAVATION-CHECKLIST.md
@@ -135,6 +136,8 @@ A skipped gate = a failed run. The verifier role runs it independently.
     handoff.md                      # only if multi-session
 ```
 The skill is INSTALLED to `~/.pi/agent/skills/` ONLY AFTER validate-run prints ALL-GREEN.
+
+**Phase 3→4 hard stop**: after writing SKILL.md, run `validate-run.mjs <run-dir>` IMMEDIATELY — it WILL fail until `APPLY-LOG.md` (Phase 4 — what you edited in the target) + `FIDELITY.md` exist. SKILL.md alone = incomplete. Do not declare done.
 
 ---
 
