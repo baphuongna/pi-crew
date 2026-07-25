@@ -9521,14 +9521,14 @@
       "bytes": 19143,
       "imports": [
         {
-          "path": "src/runtime/chain-parser.ts",
-          "kind": "import-statement",
-          "original": "./chain-parser.ts"
-        },
-        {
           "path": "src/utils/guards.ts",
           "kind": "import-statement",
           "original": "../utils/guards.ts"
+        },
+        {
+          "path": "src/runtime/chain-parser.ts",
+          "kind": "import-statement",
+          "original": "./chain-parser.ts"
         },
         {
           "path": "src/state/event-log.ts",

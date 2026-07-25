@@ -54831,8 +54831,8 @@ var ChainRunner;
 var init_chain_runner = __esm({
   "src/runtime/chain-runner.ts"() {
     "use strict";
-    init_chain_parser();
     init_guards();
+    init_chain_parser();
     ChainRunner = class _ChainRunner {
       /** Maximum number of chain history entries to prevent memory leaks */
       static MAX_CHAIN_HISTORY_SIZE = 100;

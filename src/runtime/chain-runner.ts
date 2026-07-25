@@ -10,10 +10,10 @@
  * @see docs/pi-boomerang-integration-plan.md
  */
 
+import { errorMessage } from "../utils/guards.ts";
 import type { ChainStep as DSLChainStep } from "./chain-parser.ts";
 import { parseChainDSL } from "./chain-parser.ts";
 import type { HandoffManager, HandoffSummary, TaskPacket, TaskResult } from "./handoff-manager.ts";
-import { errorMessage } from "../utils/guards.ts";
 
 /**
  * Single step in a chain.
