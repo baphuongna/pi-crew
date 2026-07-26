@@ -21,6 +21,13 @@ export interface RenderSchedulerOptions {
 	 * trigger a single cache invalidate instead of N. Set to 0 to disable.
 	 */
 	invalidateCoalesceMs?: number;
+	/**
+	 * R1: maximum number of consecutive catch-up renders the fallback loop
+	 * emits while idle (no real external event) before it stops re-arming.
+	 * Prevents a hung run from rendering forever. A real event resets the
+	 * count and re-arms the loop. Defaults to 8.
+	 */
+	maxIdleFallbackRenders?: number;
 }
 
 const DEFAULT_EVENTS = [
@@ -33,6 +40,9 @@ const DEFAULT_EVENTS = [
 	"crew.mailbox.updated",
 	"crew.mailbox.message",
 ];
+
+/** R4: max exponent for flush re-entrancy backoff (delay = debounceMs * 2^exp). */
+const CAP_BACKOFF_MAX_EXP = 5;
 
 /**
  * Coordinates UI renders with debounce + fallback polling.
@@ -50,6 +60,7 @@ export class RenderScheduler {
 	private readonly fallbackProvider: () => number;
 	private readonly fallbackMs: number;
 	private readonly invalidateCoalesceMs: number;
+	private readonly maxIdleFallbackRenders: number;
 	private debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	private fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 	private invalidateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -59,6 +70,10 @@ export class RenderScheduler {
 	private lastEventAt = 0;
 	private rendering = false;
 	private pendingRender = false;
+	/** R1: consecutive idle fallback renders since the last real event. */
+	private idleFallbackRenders = 0;
+	/** R4: consecutive re-entrancy cap-hits — drives exponential backoff. */
+	private consecutiveCapHits = 0;
 	private readonly unsubs: Array<() => void> = [];
 
 	constructor(events: RenderSchedulerEventBus | undefined, render: () => void, options: RenderSchedulerOptions = {}) {
@@ -69,6 +84,7 @@ export class RenderScheduler {
 		this.fallbackProvider = typeof fallback === "function" ? fallback : () => fallback;
 		this.fallbackMs = typeof fallback === "number" ? fallback : 750;
 		this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
+		this.maxIdleFallbackRenders = options.maxIdleFallbackRenders ?? 8;
 		for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
 		this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
 		this.fallbackTimer.unref();
@@ -100,13 +116,25 @@ export class RenderScheduler {
 		if (this.disposed) return;
 		const fallbackMs = this.currentFallbackMs();
 		if (Date.now() - this.lastEventAt < fallbackMs) {
-			if (this.disposed) return;
+			// A real external event arrived recently — not idle. Keep polling.
+			this.idleFallbackRenders = 0;
 			this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
 			this.fallbackTimer.unref();
 			return;
 		}
-		this.schedule();
-		if (this.disposed) return;
+		// R1: truly idle (no real event for `fallbackMs`). `lastEventAt` is only
+		// advanced by real external events (schedule()), so this idle check stays
+		// honest — unlike the old code which called schedule() here and thereby
+		// reset lastEventAt, self-perpetuating a ~fallbackMs render loop forever.
+		if (this.idleFallbackRenders >= this.maxIdleFallbackRenders) {
+			// Sustained idleness — stop re-arming so a hung run does not render
+			// forever. A subsequent real event (schedule()) re-arms the loop.
+			this.fallbackTimer = undefined;
+			return;
+		}
+		// Emit one catch-up render WITHOUT advancing lastEventAt (no real event).
+		this.armDebouncedRender();
+		this.idleFallbackRenders += 1;
 		this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
 		this.fallbackTimer.unref();
 	}
@@ -114,12 +142,30 @@ export class RenderScheduler {
 	schedule(payload?: unknown): void {
 		if (this.disposed) return;
 		this.lastEventAt = Date.now();
+		this.idleFallbackRenders = 0;
+		this.consecutiveCapHits = 0;
 		this.invalidate(payload);
+		this.armDebouncedRender();
+		// R1: if the fallback loop stopped itself after a sustained idle period,
+		// a real event means activity resumed — re-arm the safety-net loop.
+		if (!this.fallbackTimer) {
+			this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+			this.fallbackTimer.unref();
+		}
+	}
+
+	/**
+	 * Arm (or re-arm) the debounce timer that triggers a single flush. Shared by
+	 * real-event schedules, the fallback path, and the re-entrancy cap drain.
+	 * `delay` lets the cap apply exponential backoff (R4) without touching
+	 * `lastEventAt` or `onInvalidate` (those belong to real external events).
+	 */
+	private armDebouncedRender(delay: number = this.debounceMs): void {
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 		this.debounceTimer = setTimeout(() => {
 			this.debounceTimer = undefined;
 			this.flush();
-		}, this.debounceMs);
+		}, delay);
 		this.debounceTimer.unref();
 	}
 
@@ -196,9 +242,17 @@ export class RenderScheduler {
 			logInternalError("render-scheduler.render", error);
 		} finally {
 			this.rendering = false;
-			// If we hit the iteration cap, schedule one more render to drain.
+			// R4: if we hit the re-entrancy cap with more work pending, drain it —
+			// but with exponential backoff on consecutive cap-hits so a pathological
+			// render() cannot sustain a tight debounceMs render loop. We re-arm via
+			// armDebouncedRender (not schedule()) so lastEventAt / onInvalidate are
+			// not perturbed by a pure re-entrancy drain.
 			if (iterations >= 5 && this.pendingRender && !this.disposed) {
-				this.schedule();
+				this.consecutiveCapHits += 1;
+				const exp = Math.min(this.consecutiveCapHits - 1, CAP_BACKOFF_MAX_EXP);
+				this.armDebouncedRender(this.debounceMs * 2 ** exp);
+			} else {
+				this.consecutiveCapHits = 0;
 			}
 		}
 	}

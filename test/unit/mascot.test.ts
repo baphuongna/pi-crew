@@ -129,3 +129,31 @@ test("AnimatedMascot armin glitch effect produces frames within bounds", () => {
 	assert.ok(lines.length >= 12, "armin render should be tall enough for XBM rows");
 	mascot.dispose();
 });
+
+test("AnimatedMascot does not requestRender when invisible (C6)", async () => {
+	let renderCalls = 0;
+	const mascot = new AnimatedMascot(undefined, () => {}, {
+		frameIntervalMs: 20,
+		autoCloseMs: 0,
+		requestRender: () => {
+			renderCalls += 1;
+		},
+		style: "cat",
+		effect: "none",
+	});
+	// Wait a bit so at least one tick fires while visible (default).
+	await wait(50);
+	const visibleCalls = renderCalls;
+	assert.ok(visibleCalls > 0, "requestRender should fire while visible");
+	// Hide the mascot and wait for more ticks.
+	mascot.setVisible(false);
+	renderCalls = 0;
+	await wait(60);
+	assert.equal(renderCalls, 0, "requestRender should NOT fire while invisible");
+	// Restore visibility and confirm it resumes.
+	mascot.setVisible(true);
+	renderCalls = 0;
+	await wait(50);
+	assert.ok(renderCalls > 0, "requestRender should resume after setVisible(true)");
+	mascot.dispose();
+});

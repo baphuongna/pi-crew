@@ -64,6 +64,15 @@ const LEGACY_WIDGET_KEY = "pi-crew";
 const WIDGET_KEY = "pi-crew-active";
 const STATUS_KEY = "pi-crew";
 
+/**
+ * C4 — short-TTL safety net for the buildSignature() result cache. Combined
+ * with invalidate-on-write (onInvalidate clears the cache on every real
+ * event), this prevents redundant O(runs×agents) signature recomputation
+ * during a burst of host-driven renders within one state snapshot while
+ * ensuring the signature is always recomputed after genuine data changes.
+ */
+const SIGNATURE_CACHE_TTL_MS = 100;
+
 // ── Terminal resize handling (T-2) ────────────────────────────────────
 // On a terminal resize the widget's cached render width goes stale until the
 // next invalidate; a mid-run resize could briefly paint a frame at the old
@@ -104,6 +113,9 @@ class CrewWidgetComponent implements WidgetComponent {
 	private readonly model: CrewWidgetModel;
 	private theme: CrewTheme;
 	private cacheSignature = "";
+	/** C4 — invalidate-on-write cache for the buildSignature() result. */
+	private cachedBuildSignature = "";
+	private cachedBuildSignatureAt = 0;
 	private cachedWidth = 0;
 	private cachedLines: string[] = [];
 	private cachedBaseLines: string[] = [];
@@ -137,6 +149,17 @@ class CrewWidgetComponent implements WidgetComponent {
 				debounceMs: 75,
 				fallbackMs: 750,
 				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+				onInvalidate: () => {
+					// C4 invalidate-on-write: drop the cached buildSignature()
+					// result immediately when a real event arrives (run:state /
+					// worker:lifecycle / ui:invalidate). The prior blind-TTL
+					// attempt (reverted in 619a0cd) held a stale signature
+					// within the window and skipped re-render on genuine state
+					// changes. Clearing here + in invalidate() guarantees the
+					// next render tick always recomputes from fresh data.
+					this.cachedBuildSignature = "";
+					this.cachedBuildSignatureAt = 0;
+				},
 			},
 		);
 	}
@@ -190,6 +213,8 @@ class CrewWidgetComponent implements WidgetComponent {
 		this.cacheSignature = "";
 		this.cachedBaseLines = [];
 		this.cachedLines = [];
+		this.cachedBuildSignature = "";
+		this.cachedBuildSignatureAt = 0;
 	}
 
 	/** Poke the host TUI to repaint immediately (defensive: no-op if unavailable). */
@@ -205,7 +230,22 @@ class CrewWidgetComponent implements WidgetComponent {
 
 	render(width: number): string[] {
 		const runs = activeWidgetRuns(this.model.cwd, this.model.manifestCache, this.model.snapshotCache, this.model.preloadManifests);
-		const signature = `${this.buildSignature(runs)}:${this.model.notificationCount ?? 0}`;
+		// C4: invalidate-on-write signature cache. buildSignature() is
+		// O(runs×agents) string work called on every ~160ms host-driven render
+		// tick. Within one state snapshot (no event arrived → cache not cleared
+		// by onInvalidate) the result is identical, so we reuse the cached value
+		// to skip redundant recomputation. A short TTL acts as a safety net for
+		// the unlikely case where a real event is missed.
+		const now = Date.now();
+		let sigBase: string;
+		if (this.cachedBuildSignature !== "" && now - this.cachedBuildSignatureAt < SIGNATURE_CACHE_TTL_MS) {
+			sigBase = this.cachedBuildSignature;
+		} else {
+			sigBase = this.buildSignature(runs);
+			this.cachedBuildSignature = sigBase;
+			this.cachedBuildSignatureAt = now;
+		}
+		const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
 		const runningGlyph = spinnerFrame("widget-header");
 
 		if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {

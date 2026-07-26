@@ -156,3 +156,77 @@ test("RenderScheduler handles fallbackMs thrower without crashing", async () => 
 	scheduler.dispose();
 	assert.ok(renders >= 0);
 });
+
+test("R1: fallback loop stops rendering after a bounded idle period", async () => {
+	let renders = 0;
+	const scheduler = new RenderScheduler(
+		undefined,
+		() => {
+			renders += 1;
+		},
+		{ debounceMs: 5, fallbackMs: 20, maxIdleFallbackRenders: 2 },
+	);
+	// Allow the fallback to emit its bounded quota of catch-up renders, then
+	// stop re-arming because no real external event ever arrives.
+	await sleep(200);
+	const stopped = renders;
+	assert.ok(stopped >= 1, `expected at least one fallback render, got ${stopped}`);
+	assert.ok(stopped <= 2, `expected at most maxIdleFallbackRenders(2) renders, got ${stopped}`);
+	// After stopping, the scheduler must NOT render again while idle.
+	await sleep(150);
+	scheduler.dispose();
+	assert.equal(renders, stopped, `scheduler kept rendering while idle: ${renders} > ${stopped}`);
+});
+
+test("R1: a real event re-arms the fallback loop after it stopped on idle", async () => {
+	let renders = 0;
+	const events = new FakeEvents();
+	const scheduler = new RenderScheduler(
+		events,
+		() => {
+			renders += 1;
+		},
+		{
+			debounceMs: 5,
+			fallbackMs: 20,
+			maxIdleFallbackRenders: 1,
+			events: ["crew.run.completed"],
+		},
+	);
+	// Let the fallback render once then stop (maxIdleFallbackRenders = 1).
+	await sleep(150);
+	const afterStop = renders;
+	assert.ok(afterStop >= 1, `expected one fallback render, got ${afterStop}`);
+	await sleep(120);
+	assert.equal(renders, afterStop, "fallback should have stopped while idle");
+	// A real event must re-arm the fallback loop so catch-up renders resume.
+	events.emit("crew.run.completed", { runId: "r1" });
+	await sleep(150);
+	scheduler.dispose();
+	assert.ok(renders > afterStop, `real event did not re-arm the fallback loop: ${renders}`);
+});
+
+test("R4: flush re-entrancy cap backs off instead of sustaining a tight render loop", async () => {
+	let renders = 0;
+	const scheduler = new RenderScheduler(
+		undefined,
+		() => {
+			renders += 1;
+			// Pathological render(): always requests another render re-entrantly,
+			// forcing the flush() iteration cap on every drain.
+			scheduler.flush();
+		},
+		{ debounceMs: 10, fallbackMs: 1_000_000 },
+	);
+	scheduler.schedule();
+	await sleep(80);
+	const early = renders;
+	assert.ok(early >= 5, `expected the re-entrancy cap to trigger, got early=${early}`);
+	// In a later window the exponential backoff must have throttled the loop.
+	// Without backoff the cap re-arms every debounceMs (10ms) → hundreds of
+	// renders in 300ms. With backoff only a handful of drains survive.
+	await sleep(300);
+	scheduler.dispose();
+	const lateDelta = renders - early;
+	assert.ok(lateDelta <= 25, `expected backoff to throttle re-entrancy, got ${lateDelta} renders in 300ms (early=${early})`);
+});

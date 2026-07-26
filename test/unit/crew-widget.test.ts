@@ -220,7 +220,7 @@ test("crew widget keeps persistent component until placement changes and refresh
 		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
 			tui: unknown,
 			theme: unknown,
-		) => { render(width: number): string[] };
+		) => { render(width: number): string[]; invalidate(): void };
 		const component = factory(undefined, {
 			fg: (_color: string, value: string) => value,
 			bold: (value: string) => value,
@@ -245,6 +245,11 @@ test("crew widget keeps persistent component until placement changes and refresh
 				},
 			},
 		]);
+		// C4: in production, the agent-data change fires a run:state /
+		// worker:lifecycle event that clears the buildSignature cache via
+		// onInvalidate. This unit test has no event bus wired, so simulate the
+		// event-driven invalidation explicitly.
+		component.invalidate();
 		assert.match(component.render(100).join("\n"), /running command/);
 		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" });
 		assert.equal(setWidgetCalls.filter((call) => call.key === "pi-crew-active" && call.content).length, 2);
@@ -373,5 +378,105 @@ test("crew widget hides active async runs whose background process is stale", ()
 		fs.rmSync(home, { recursive: true, force: true });
 		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
 		else process.env.PI_TEAMS_HOME = previousHome;
+	}
+});
+
+test("C4: widget signature cache invalidates on write so genuine state changes trigger re-render", () => {
+	clearLiveAgentsForTest();
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-widget-c4-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		const team = {
+			name: "fast-fix",
+			description: "",
+			roles: [{ name: "executor", agent: "executor" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "fast-fix",
+			description: "",
+			steps: [{ id: "fix", role: "executor" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const created = createRunManifest({ cwd, team, workflow, goal: "c4 cache test" });
+		saveRunManifest({ ...created.manifest, status: "running" });
+		saveCrewAgents(created.manifest, [
+			{
+				id: `${created.manifest.runId}:01`,
+				runId: created.manifest.runId,
+				taskId: "01",
+				agent: "executor",
+				role: "executor",
+				runtime: "child-process",
+				status: "running",
+				startedAt: created.manifest.createdAt,
+				progress: {
+					recentTools: [],
+					recentOutput: ["first"],
+					toolCount: 1,
+					currentTool: "read",
+					tokens: 10,
+				},
+			},
+		]);
+		const setWidgetCalls: Array<{ key: string; content: unknown }> = [];
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: {
+				setStatus: () => {},
+				setWidget: (key: string, content: unknown) => setWidgetCalls.push({ key, content }),
+				requestRender: () => {},
+			},
+		} as never;
+		const state: CrewWidgetState = { frame: 0 };
+		updateCrewWidget(ctx, state, { widgetPlacement: "aboveEditor" });
+		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
+			tui: unknown,
+			theme: unknown,
+		) => { render(width: number): string[]; invalidate(): void };
+		const component = factory(undefined, {
+			fg: (_color: string, value: string) => value,
+			bold: (value: string) => value,
+		});
+
+		// First render — builds and caches the signature.
+		const firstRender = component.render(100).join("\n");
+		assert.match(firstRender, /read/, "first render should show 'read' tool");
+
+		// Change agent data on disk (simulates a genuine state change).
+		saveCrewAgents(created.manifest, [
+			{
+				id: `${created.manifest.runId}:01`,
+				runId: created.manifest.runId,
+				taskId: "01",
+				agent: "executor",
+				role: "executor",
+				runtime: "child-process",
+				status: "running",
+				startedAt: created.manifest.createdAt,
+				progress: {
+					recentTools: [],
+					recentOutput: ["second"],
+					toolCount: 2,
+					currentTool: "bash",
+					tokens: 20,
+				},
+			},
+		]);
+
+		// C4 invalidate-on-write: in production, the run:state /
+		// worker:lifecycle event fires onInvalidate which clears the cached
+		// buildSignature. This unit test has no event bus, so simulate it.
+		component.invalidate();
+
+		// After invalidation, the next render must pick up the new data.
+		const secondRender = component.render(100).join("\n");
+		assert.match(secondRender, /running command/, "after invalidation, re-render should show 'bash' → 'running command'");
+		assert.ok(firstRender !== secondRender, "re-render after invalidation should differ from first render");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
