@@ -37,3 +37,4 @@ fallow-audit-report/
 # Python bytecode cache (from pty_probe.py)
 __pycache__/
 *.pyc
+.claude/
