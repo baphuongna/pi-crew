@@ -9,6 +9,9 @@ triggers:
   - "how does this codebase do things"
   - "distill software expertise"
   - "distill [repo] conventions"
+  - "distill [source] to [target]"
+  - "port [source] features to [target]"
+  - "bring [source] capabilities to [target]"
 ---
 
 # distill-software
@@ -120,6 +123,11 @@ Ask (defaults provided; never block value):
 4. **Cost tier** (quote before Phase 1): quick (3 streams) / standard (6+extra) / deep (full archive). Codebase sweep scales with repo size.
 5. **Ethics** (engineer flavor, living non-public colleague): consent gate — require subject-provided material + consent flag (inherited M-F3).
 6. **Decomposition for large targets** (Core Principle #6 — decide HERE): if the repo is large (>200 files OR >5 subsystems/packages), decompose into sub-targets and distill each, then merge. Never ôm đồm (take it all at once). Decompose by **package/subsystem** (each gets its own coverage-manifest + 3-empty-rounds gate); then sweep the **cross-cutting** conventions (the ones spanning packages). Record the decomposition tree in `DISTILLATION-PROCESS-CHECKLIST.md`. Recursive if a sub-package is still large.
+7. **🔴 Transfer vs Audit mode** (learned from real runs: audit-only distillation produced 0 visible features for the target). Default = **Transfer** (user says "distill X to Y" → they want Y to GAIN capabilities from X). Two modes:
+   - **Transfer mode** ⭐ (default for "distill X to/about/into Y"): enumerate source **CAPABILITIES** (features, not files) → compare against target **CAPABILITY DEPTH** (not surface) → apply the gaps. Deliverable = visible/behavioral new features in target. "The user can SEE or EXPERIENCE the difference."
+   - **Audit mode**: enumerate source conventions → compare against target surface → apply pattern refactors/lint rules. Deliverable = cleaner code, invisible refactors.
+   - **Detection**: "distill X to/about/into Y" / "port X features" / "bring X to Y" → **Transfer**. "audit X conventions" / "how does X do Y" / "what can Y learn from X's conventions" → **Audit**. **When in doubt → Transfer** (audit is a subset — transfer includes convention adoption as a side effect).
+   - **Decomposition follows mode**: Transfer mode decomposes by **CAPABILITY BUCKET** (terminal/PTY, plugin system, markdown rendering, routing) NOT by directory (`components/`, `lib/`). Audit mode decomposes by package/subsystem (existing Principle #6).
 
 ## Phase 0.5 — ANALYZE TARGET
 
@@ -208,7 +216,8 @@ Mỗi verified model đi qua 3-chiều filter against the TARGET (KHÔNG phải 
    ❌ KHÔNG → NECESSITY: target CẦN không?
       ❌ KHÔNG CẦN → SKIP (complexity vô ích).
       ✅ CẦN       → ADOPT (thêm mới).
-   ✅ CÓ → QUALITY COMPARISON:
+   ✅ CÓ → **🔴 CAPABILITY DEPTH check**: "target has a similar SURFACE" ≠ "target has the same CAPABILITY". Surface match (target has an extension-point system) can mask a capability gap (target lacks route-level extensibility — the distinctive feature). Before SKIP on PRESENCE=yes, verify the target has the FULL capability at the FEATURE level, not just a similarly-named file/module. If target has a SUBSET → the missing subset is an ADOPT candidate (transfer the gap), NOT a SKIP.
+   Then QUALITY COMPARISON:
       Source TỐT HƠN   → IMPROVE (thay bằng cách source).
       Source BẰNG/TỆ → SKIP.
       COMPLEMENTARY  → MERGE.
@@ -294,6 +303,12 @@ Mỗi TO-APPLY item → HOW to apply, then APPLY. Plan channels: AGENTS.md updat
   (e) Mỗi destructive action cần confirmation riêng.
   (f) Atomic writes (temp sibling + rename) — không ghi dở.
 - **APPLY-LOG.md**: every edit recorded (file:line + before→after + verification). ≥3 items required before "done". This is THE deliverable proof — NOT a SKILL.md.
+- **🔴 Post-APPLY integration checks (learned from real runs: artifact-level gates were ALL-GREEN while code had 12 runtime bugs; multiple review rounds were needed to find them):**
+  (g) **WIRED** — is the applied code actually CALLED by existing code? `grep -rn '<exported-symbol>' target-src/` — if 0 hits outside the defining file, it's DEAD CODE. Wire it into a consumer or remove it. (Observed: a routing-merge function was exported but never called by the app shell; a component prop was added but no consumer passed it.)
+  (h) **VISIBLE DELTA** — can the user SEE or EXPERIENCE the difference? If the apply is a pure refactor (same behavior, different code structure), it is NOT a capability transfer — flag it. Transfer mode (Phase 0 #7) REQUIRES visible deltas; invisible refactors are Audit-mode artifacts.
+  (i) **RUNTIME** — does the feature WORK in the real system? Don't just run unit tests — run the BUILD (`tsc --noEmit`, `vite build`, `cargo build`) AND, if the feature spans runtime boundaries (server + client, gateway + web), test END-TO-END (start the server, hit the endpoint, verify the response). Unit tests passing ≠ feature working. (Observed: a component passed unit tests but crashed in a real browser — missing vendor API flags and browser-only globals that the test environment mocked away.)
+  (j) **API VERIFIED** — before USING any target API (component prop, function signature, config option), READ ITS SOURCE to confirm the API matches your usage. Do NOT assume props exist. (Observed: code used a component prop that doesn't exist in its interface; the TypeScript object-literal excess-property check was silently bypassed.) This is the APPLY-phase analog of Phase 1's "excavate, don't recall".
+  (k) **RESOURCE LIFECYCLE** — if the applied code spawns processes, opens connections, registers listeners, or creates timers: verify CLEANUP on ALL exit paths (close, dispose, kill, unsubscribe). A missing disconnect handler that kills child processes = orphan leak. (Observed: a server endpoint spawned shell commands but never killed them when the client disconnected — process leak.)
 
 ## Phase 4 — VERIFY TARGET IMPROVED (Fidelity + Darwin ratchet, inherited F2' + software edge)
 
@@ -343,6 +358,9 @@ Refuse to ship if ANY fails; iterate Phase 2→4 until green:
 - [ ] **Coverage manifest complete** (inherited exhaustive-sweep): every content-bearing part UNCOVERED→COVERED or `[UNREADABLE — reason]`; no dangling UNCOVERED rows at ship time (the codebase analog of persona's no-dangling-checklist rule).
 - [ ] **DISTILLATION-PROCESS-CHECKLIST.md present + every phase ✅** (no ⬜/⏳ dangling) — proves no phase skipped
 - [ ] **3-empty-rounds gate fired** for every sweep/synthesis phase (≥3 consecutive zero-new rounds recorded in the round log) — proves deep-dive wasn't cut short at 1-2 passes
+- [ ] **🔴 Runtime verification**: full regression `npx vitest run` (or project test runner) passes with 0 failures — NOT just the new test file, the FULL suite. `npx tsc --noEmit` (or project typechecker) introduces 0 NEW errors. `vite build` / `cargo build` / `npm run build` succeeds.
+- [ ] **🔴 Applied code is WIRED** — every new export/function/component is imported + called by ≥1 existing file (grep proof in APPLY-LOG). Dead code (exported but never imported) = failed apply.
+- [ ] **🔴 VISIBLE DELTA** (Transfer mode only) — the user can see or experience the difference. Invisible refactors require Audit-mode justification.
 
 > **Tiered effort (#8)**: for a trivial distillation (single small file, <5 conventions) you may skip the costliest sub-step (the independent dual-agent fidelity re-score → self-score with the single-agent caveat) — but never skip the structural, V5-grep, coverage, or ungrep-ratio gates.
 
@@ -358,6 +376,11 @@ Refuse to ship if ANY fails; iterate Phase 2→4 until green:
 | 7 | Recency erasure (engineer reversed a stance) | Skill presents current-only view; hides evolution | preserve as temporal contradiction; "近期观点" prevails, old mentioned |
 | 8 | Orphaned operational scripts | Scripts exist but agent never invokes them → dead code | wire INTO Agentic Protocol Step 2 (F13) |
 | 9 | Single-source monoculture (domain skill) | One-source bias; no cross-verification | topic skills cite ≥3 independent sources |
+| 10 | **Audit-only when user wanted Transfer** — "distill X to Y" produces invisible refactors (routing table, lint config) not visible features | User sees nothing new; 0 visible delta = failed transfer | Phase 0 #7 Transfer-vs-Audit routing (default Transfer); VISIBLE DELTA check in Phase 3 + ship-gate |
+| 11 | **Surface-match SKIP masks capability gap** — target has an extension-point module → SKIP, but target lacks route-level extensibility (the distinctive capability) | Misses the highest-value transfers; filter is correct on paper, wrong in DEPTH | Phase 2.5 CAPABILITY DEPTH check: PRESENCE=yes → verify FULL capability at FEATURE level, not just surface |
+| 12 | **Applied code is dead (never wired)** — a routing function is exported but never called; a component prop is added but no consumer passes it | APPLY-LOG says "applied" but target behavior unchanged; user sees nothing | Phase 3 (g) WIRED check (grep for usage); ship-gate WIRED assertion |
+| 13 | **Unit tests pass but feature doesn't work** — tests mock the environment (jsdom lacks canvas/matchMedia/ResizeObserver) but the real browser needs them; a server endpoint has 0 integration test | Green CI, broken runtime; multiple review rounds needed to find bugs | Phase 3 (i) RUNTIME check (build + end-to-end); ship-gate runtime verification |
+| 14 | **Missing resource cleanup** — spawned child processes, open WebSockets, registered listeners never cleaned up on disconnect/unmount | Orphaned processes accumulate; memory/connection leaks in production | Phase 3 (k) RESOURCE LIFECYCLE check (verify cleanup on ALL exit paths) |
 
 ## Self-containment
 This engine embeds its methodology inline (inherited from distill-persona). The methodology is self-contained (copy dir → runs); `language`+`distilled_against` make the extraction's staleness auditable.
