@@ -7150,7 +7150,7 @@
       "format": "esm"
     },
     "src/ui/render-scheduler.ts": {
-      "bytes": 7545,
+      "bytes": 10286,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -7381,7 +7381,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 13630,
+      "bytes": 15548,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -10970,7 +10970,7 @@
       "format": "esm"
     },
     "src/ui/mascot.ts": {
-      "bytes": 14829,
+      "bytes": 15362,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -12777,7 +12777,7 @@
       "format": "esm"
     },
     "src/extension/registration/subagent-manager-setup.ts": {
-      "bytes": 12885,
+      "bytes": 14848,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -13126,7 +13126,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6010444
+      "bytes": 6019279
     },
     "dist/index.mjs": {
       "imports": [
@@ -15722,7 +15722,7 @@
           "bytesInOutput": 21485
         },
         "src/ui/render-scheduler.ts": {
-          "bytesInOutput": 6482
+          "bytesInOutput": 7918
         },
         "src/runtime/stale-reconciler.ts": {
           "bytesInOutput": 15684
@@ -15743,7 +15743,7 @@
           "bytesInOutput": 6263
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 9552
+          "bytesInOutput": 10337
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
@@ -16106,7 +16106,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 30943
+          "bytesInOutput": 30946
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -16124,7 +16124,7 @@
           "bytesInOutput": 1913
         },
         "src/ui/mascot.ts": {
-          "bytesInOutput": 15930
+          "bytesInOutput": 16274
         },
         "src/ui/settings-overlay.ts": {
           "bytesInOutput": 30796
@@ -16319,7 +16319,7 @@
           "bytesInOutput": 5262
         },
         "src/extension/registration/subagent-manager-setup.ts": {
-          "bytesInOutput": 7568
+          "bytesInOutput": 7980
         },
         "src/extension/registration/subagent-tools.ts": {
           "bytesInOutput": 15572
@@ -16340,7 +16340,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2751387
+      "bytes": 2754367
     }
   }
 }

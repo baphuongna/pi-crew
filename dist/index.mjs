@@ -42584,7 +42584,7 @@ var init_tool_renderers = __esm({
 });
 
 // src/ui/render-scheduler.ts
-var DEFAULT_EVENTS, RenderScheduler;
+var DEFAULT_EVENTS, CAP_BACKOFF_MAX_EXP, RenderScheduler;
 var init_render_scheduler = __esm({
   "src/ui/render-scheduler.ts"() {
     "use strict";
@@ -42599,6 +42599,7 @@ var init_render_scheduler = __esm({
       "crew.mailbox.updated",
       "crew.mailbox.message"
     ];
+    CAP_BACKOFF_MAX_EXP = 5;
     RenderScheduler = class {
       render;
       onInvalidate;
@@ -42606,6 +42607,7 @@ var init_render_scheduler = __esm({
       fallbackProvider;
       fallbackMs;
       invalidateCoalesceMs;
+      maxIdleFallbackRenders;
       debounceTimer;
       fallbackTimer;
       invalidateTimer;
@@ -42615,6 +42617,10 @@ var init_render_scheduler = __esm({
       lastEventAt = 0;
       rendering = false;
       pendingRender = false;
+      /** R1: consecutive idle fallback renders since the last real event. */
+      idleFallbackRenders = 0;
+      /** R4: consecutive re-entrancy cap-hits — drives exponential backoff. */
+      consecutiveCapHits = 0;
       unsubs = [];
       constructor(events, render, options = {}) {
         this.render = render;
@@ -42624,6 +42630,7 @@ var init_render_scheduler = __esm({
         this.fallbackProvider = typeof fallback2 === "function" ? fallback2 : () => fallback2;
         this.fallbackMs = typeof fallback2 === "number" ? fallback2 : 750;
         this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
+        this.maxIdleFallbackRenders = options.maxIdleFallbackRenders ?? 8;
         for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
         this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
         this.fallbackTimer.unref();
@@ -42652,25 +42659,44 @@ var init_render_scheduler = __esm({
         if (this.disposed) return;
         const fallbackMs = this.currentFallbackMs();
         if (Date.now() - this.lastEventAt < fallbackMs) {
-          if (this.disposed) return;
+          this.idleFallbackRenders = 0;
           this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
           this.fallbackTimer.unref();
           return;
         }
-        this.schedule();
-        if (this.disposed) return;
+        if (this.idleFallbackRenders >= this.maxIdleFallbackRenders) {
+          this.fallbackTimer = void 0;
+          return;
+        }
+        this.armDebouncedRender();
+        this.idleFallbackRenders += 1;
         this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
         this.fallbackTimer.unref();
       }
       schedule(payload) {
         if (this.disposed) return;
         this.lastEventAt = Date.now();
+        this.idleFallbackRenders = 0;
+        this.consecutiveCapHits = 0;
         this.invalidate(payload);
+        this.armDebouncedRender();
+        if (!this.fallbackTimer) {
+          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+          this.fallbackTimer.unref();
+        }
+      }
+      /**
+       * Arm (or re-arm) the debounce timer that triggers a single flush. Shared by
+       * real-event schedules, the fallback path, and the re-entrancy cap drain.
+       * `delay` lets the cap apply exponential backoff (R4) without touching
+       * `lastEventAt` or `onInvalidate` (those belong to real external events).
+       */
+      armDebouncedRender(delay = this.debounceMs) {
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => {
           this.debounceTimer = void 0;
           this.flush();
-        }, this.debounceMs);
+        }, delay);
         this.debounceTimer.unref();
       }
       /**
@@ -42737,7 +42763,11 @@ var init_render_scheduler = __esm({
         } finally {
           this.rendering = false;
           if (iterations >= 5 && this.pendingRender && !this.disposed) {
-            this.schedule();
+            this.consecutiveCapHits += 1;
+            const exp = Math.min(this.consecutiveCapHits - 1, CAP_BACKOFF_MAX_EXP);
+            this.armDebouncedRender(this.debounceMs * 2 ** exp);
+          } else {
+            this.consecutiveCapHits = 0;
           }
         }
       }
@@ -44047,7 +44077,7 @@ function stopCrewWidget(ctx, state, config) {
     requestRender(ctx);
   }
 }
-var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, STATUS_KEY, resizeListenerInstalled, activeResizeTarget, CrewWidgetComponent;
+var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTarget, CrewWidgetComponent;
 var init_widget = __esm({
   "src/ui/widget/index.ts"() {
     "use strict";
@@ -44068,11 +44098,15 @@ var init_widget = __esm({
     LEGACY_WIDGET_KEY = "pi-crew";
     WIDGET_KEY = "pi-crew-active";
     STATUS_KEY = "pi-crew";
+    SIGNATURE_CACHE_TTL_MS = 100;
     resizeListenerInstalled = false;
     CrewWidgetComponent = class {
       model;
       theme;
       cacheSignature = "";
+      /** C4 — invalidate-on-write cache for the buildSignature() result. */
+      cachedBuildSignature = "";
+      cachedBuildSignatureAt = 0;
       cachedWidth = 0;
       cachedLines = [];
       cachedBaseLines = [];
@@ -44094,7 +44128,11 @@ var init_widget = __esm({
           {
             debounceMs: 75,
             fallbackMs: 750,
-            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
+            events: ["run:state", "worker:lifecycle", "ui:invalidate"],
+            onInvalidate: () => {
+              this.cachedBuildSignature = "";
+              this.cachedBuildSignatureAt = 0;
+            }
           }
         );
       }
@@ -44130,6 +44168,8 @@ var init_widget = __esm({
         this.cacheSignature = "";
         this.cachedBaseLines = [];
         this.cachedLines = [];
+        this.cachedBuildSignature = "";
+        this.cachedBuildSignatureAt = 0;
       }
       /** Poke the host TUI to repaint immediately (defensive: no-op if unavailable). */
       requestRepaint() {
@@ -44142,7 +44182,16 @@ var init_widget = __esm({
       }
       render(width) {
         const runs = activeWidgetRuns(this.model.cwd, this.model.manifestCache, this.model.snapshotCache, this.model.preloadManifests);
-        const signature = `${this.buildSignature(runs)}:${this.model.notificationCount ?? 0}`;
+        const now = Date.now();
+        let sigBase;
+        if (this.cachedBuildSignature !== "" && now - this.cachedBuildSignatureAt < SIGNATURE_CACHE_TTL_MS) {
+          sigBase = this.cachedBuildSignature;
+        } else {
+          sigBase = this.buildSignature(runs);
+          this.cachedBuildSignature = sigBase;
+          this.cachedBuildSignatureAt = now;
+        }
+        const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
         const runningGlyph = spinnerFrame("widget-header");
         if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
@@ -60928,7 +60977,7 @@ function groupedRuns(runs, snapshotCache) {
 function selectedRunFromGrouped(runs, selected, snapshotCache) {
   return groupedRuns(runs, snapshotCache).filter((row) => row.run)[selected]?.run;
 }
-var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS, STALE_SNAPSHOT_MS, RunDashboard;
+var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
   "src/ui/run-dashboard.ts"() {
     "use strict";
@@ -60959,7 +61008,7 @@ var init_run_dashboard = __esm({
     lastActivePane = "agents";
     TASK_READ_TTL_MS2 = 1e3;
     RUN_LIST_MAX = 8;
-    SIGNATURE_CACHE_TTL_MS = 100;
+    SIGNATURE_CACHE_TTL_MS2 = 100;
     STALE_SNAPSHOT_MS = 15e3;
     RunDashboard = class _RunDashboard {
       // TEMP DIAGNOSTIC (remove after verifying keybind fix on Pi 0.81.1)
@@ -61098,7 +61147,7 @@ var init_run_dashboard = __esm({
       }
       buildSignature() {
         const now = Date.now();
-        if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS) {
+        if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS2) {
           return this.cachedSignature;
         }
         let hasRunning = false;
@@ -62075,6 +62124,7 @@ var init_mascot = __esm({
       currentArminGrid;
       effectState = {};
       effectDone = false;
+      visible = true;
       frame = 0;
       effectPhase = 0;
       gridVersion = 0;
@@ -62170,7 +62220,7 @@ var init_mascot = __esm({
           this.gridVersion++;
         }
         this.invalidate();
-        this.requestRender?.();
+        if (this.visible) this.requestRender?.();
       }
       tickArminEffect() {
         switch (this.effect) {
@@ -62376,6 +62426,14 @@ var init_mascot = __esm({
         if (data === "q" || data === "\x1B" || data === "") {
           this.close();
         }
+      }
+      /**
+       * Set whether the mascot is currently visible (not obscured by another
+       * overlay).  When invisible, tick() skips requestRender so the animation
+       * does not trigger needless repaints while hidden.
+       */
+      setVisible(visible) {
+        this.visible = visible;
       }
       dispose() {
         this.doneGuard.called = true;
@@ -73670,9 +73728,12 @@ var MAX_CONCURRENT_SUBAGENTS = 4;
 var SUBAGENT_DEFAULT_TIMEOUT_MS = 1e3;
 var NOTIFY_DEFER_MS = 1500;
 var NOTIFY_COALESCE_MS = 800;
+var NOTIFY_COALESCE_BURST_MS = 3e3;
+var NOTIFY_COALESCE_BURST_GAP_MS = 5e3;
 function createCompletionCoalescer(pi, ctx) {
   let pending2 = [];
   let timer = null;
+  let lastFlushAt = 0;
   const isLive = (c) => {
     const f = ctx.subagentManager.getRecord(c.agentId);
     const p = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, c.agentId) : void 0;
@@ -73682,6 +73743,7 @@ function createCompletionCoalescer(pi, ctx) {
   };
   const flush = () => {
     timer = null;
+    lastFlushAt = Date.now();
     if (ctx.cleanedUp) {
       pending2 = [];
       return;
@@ -73695,9 +73757,15 @@ function createCompletionCoalescer(pi, ctx) {
   };
   return {
     enqueue(completion) {
+      const isFirstInBatch = pending2.length === 0;
       pending2.push(completion);
       if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, NOTIFY_COALESCE_MS);
+      let windowMs = NOTIFY_COALESCE_MS;
+      if (isFirstInBatch && lastFlushAt > 0) {
+        const sinceFlush = Date.now() - lastFlushAt;
+        if (sinceFlush < NOTIFY_COALESCE_BURST_GAP_MS) windowMs = NOTIFY_COALESCE_BURST_MS;
+      }
+      timer = setTimeout(flush, windowMs);
     }
   };
 }
