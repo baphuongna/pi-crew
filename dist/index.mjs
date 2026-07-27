@@ -888,11 +888,13 @@ function atomicWriteFile(filePath, content, options) {
     const openedStat = fs2.fstatSync(fd);
     if (!openedStat.isFile()) {
       fs2.closeSync(fd);
+      fd = void 0;
       throw new Error(`Refusing to write: opened path is not a regular file: ${tempPath}`);
     }
     fs2.writeSync(fd, content, void 0, "utf-8");
     if (durability === "full") fs2.fsyncSync(fd);
     fs2.closeSync(fd);
+    fd = void 0;
     try {
       if (!isSymlinkSafeDirCached(filePath)) {
         throw new Error(`Refusing to rename: target became a symlink or inside untrusted directory: ${filePath}`);
@@ -923,6 +925,10 @@ function atomicWriteFile(filePath, content, options) {
   } finally {
     if (fd !== void 0) {
       try {
+        fs2.closeSync(fd);
+      } catch {
+      }
+      try {
         fs2.rmSync(tempPath, { force: true });
       } catch {
       }
@@ -939,9 +945,10 @@ async function atomicWriteFileAsync(filePath, content, options) {
     throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
   await fs2.promises.mkdir(path2.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${crypto.randomUUID()}.tmp`;
+  let fd;
   try {
     const O_NOFOLLOW = typeof fs2.constants.O_NOFOLLOW === "number" ? fs2.constants.O_NOFOLLOW : 0;
-    const fd = await fs2.promises.open(tempPath, fs2.constants.O_WRONLY | fs2.constants.O_CREAT | fs2.constants.O_EXCL | O_NOFOLLOW, 384);
+    fd = await fs2.promises.open(tempPath, fs2.constants.O_WRONLY | fs2.constants.O_CREAT | fs2.constants.O_EXCL | O_NOFOLLOW, 384);
     const openedStat = await fd.stat();
     if (!openedStat.isFile()) {
       await fd.close();
@@ -954,7 +961,21 @@ async function atomicWriteFileAsync(filePath, content, options) {
       throw new Error(`Refusing to rename: target became a symlink or inside untrusted directory: ${filePath}`);
     }
     await renameWithLinkAsync(tempPath, filePath);
+    if (durability === "full" && process.platform !== "win32") {
+      try {
+        const dirFd = await fs2.promises.open(path2.dirname(filePath), "r");
+        await dirFd.sync();
+        await dirFd.close();
+      } catch {
+      }
+    }
   } catch (error) {
+    if (fd) {
+      try {
+        await fd.close();
+      } catch {
+      }
+    }
     try {
       await fs2.promises.rm(tempPath, { force: true });
     } catch (cleanupError) {
@@ -10348,6 +10369,15 @@ var init_contracts = __esm({
   }
 });
 
+// src/state/types.ts
+var CURRENT_SCHEMA_VERSION;
+var init_types = __esm({
+  "src/state/types.ts"() {
+    "use strict";
+    CURRENT_SCHEMA_VERSION = 1;
+  }
+});
+
 // src/state/state-store.ts
 var state_store_exports = {};
 __export(state_store_exports, {
@@ -10513,7 +10543,7 @@ function createRunManifest(params) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd) : [];
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     runId: paths.runId,
     sessionId: toPiSessionId(paths.runId),
     team: params.team.name,
@@ -10817,6 +10847,9 @@ function loadRunManifestById(cwd, runId) {
       `[state-store] loadRunManifestById: retry loop detected instability for run ${runId} after ${attempts} attempt(s) \u2014 best-effort only, use withRunLock() for strict consistency`
     );
   }
+  if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+    console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+  }
   if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return void 0;
   setManifestCache(stateRoot, {
     manifest,
@@ -10883,6 +10916,9 @@ async function loadRunManifestByIdAsync(cwd, runId) {
       `[state-store] loadRunManifestByIdAsync: retry loop detected instability for run ${runId} after ${attempts} attempt(s) \u2014 best-effort only, use withRunLock() for strict consistency`
     );
   }
+  if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+    console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+  }
   if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return void 0;
   setManifestCache(stateRoot, {
     manifest,
@@ -10910,6 +10946,7 @@ var init_state_store = __esm({
     init_contracts();
     init_event_log();
     init_locks();
+    init_types();
     manifestCacheGeneration = /* @__PURE__ */ new Map();
     MANIFEST_CACHE_TTL_MS = 60 * 1e3;
     LOAD_MANIFEST_RETRY_LIMIT = 5;
@@ -31138,9 +31175,11 @@ function usageFromStats(stats) {
   return [input, output, cacheRead, cacheWrite, cost, turns].some((value) => value !== void 0) ? { input, output, cacheRead, cacheWrite, cost, turns } : void 0;
 }
 async function promptWithTimeout(session, text, timeoutMs, label) {
+  const ac = new AbortController();
   const promptPromise = session.prompt?.(text, {
     source: "api",
-    expandPromptTemplates: false
+    expandPromptTemplates: false,
+    signal: ac.signal
   });
   if (!promptPromise) return false;
   let timer;
@@ -31148,7 +31187,10 @@ async function promptWithTimeout(session, text, timeoutMs, label) {
     await Promise.race([
       promptPromise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(() => {
+          ac.abort();
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
         timer.unref?.();
       })
     ]);
@@ -50556,7 +50598,9 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     const shell = spawn5("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
-      env: buildVerificationEnv()
+      env: buildVerificationEnv(),
+      detached: true
+      // CORE-10: own process group so group-wide SIGKILL reaches children
     });
     shell.stdout?.on("data", (data) => {
       output += data.toString();
@@ -50565,7 +50609,11 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
       output += data.toString();
     });
     const timer = setTimeout(() => {
-      shell.kill("SIGKILL");
+      try {
+        if (shell.pid) process.kill(-shell.pid, "SIGKILL");
+      } catch {
+        shell.kill("SIGKILL");
+      }
       resolve23({
         exitCode: -1,
         output: output + "\n[TIMEOUT: Command exceeded limit]",
@@ -61178,12 +61226,14 @@ var init_run_dashboard = __esm({
       schedulerHandle;
       constructor(runs, done, theme = {}, options = {}) {
         this._instanceId = ++_RunDashboard._instanceCounter;
-        try {
-          process.stderr.write(
-            `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}
+        if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+          try {
+            process.stderr.write(
+              `[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}
 `
-          );
-        } catch {
+            );
+          } catch {
+          }
         }
         const filteredRuns = options.workspaceId ? runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === options.workspaceId) : runs;
         this.runs = filteredRuns;
@@ -61629,6 +61679,7 @@ var init_mailbox_detail_overlay = __esm({
     init_state_store();
     init_visual();
     init_theme_adapter();
+    init_key_utils();
     MailboxDetailOverlay = class {
       runId;
       cwd;
@@ -61722,11 +61773,11 @@ var init_mailbox_detail_overlay = __esm({
           this.selected = Math.min(this.selected, Math.max(0, this.current().length - 1));
           return;
         }
-        if (data === "k" || data === "\x1B[A") {
+        if (data === "k" || keyOf(data) === "up") {
           this.selected = Math.max(0, this.selected - 1);
           return;
         }
-        if (data === "j" || data === "\x1B[B") {
+        if (data === "j" || keyOf(data) === "down") {
           this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
           return;
         }
@@ -61999,6 +62050,7 @@ var init_agent_picker_overlay = __esm({
     init_state_store();
     init_visual();
     init_theme_adapter();
+    init_key_utils();
     AgentPickerOverlay = class {
       agents;
       done;
@@ -62029,11 +62081,11 @@ var init_agent_picker_overlay = __esm({
           this.done(void 0);
           return;
         }
-        if (data === "k" || data === "\x1B[A") {
+        if (data === "k" || keyOf(data) === "up") {
           this.selected = Math.max(0, this.selected - 1);
           return;
         }
-        if (data === "j" || data === "\x1B[B") {
+        if (data === "j" || keyOf(data) === "down") {
           this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
           return;
         }

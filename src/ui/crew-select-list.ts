@@ -1,4 +1,5 @@
 import { pad, truncate } from "../utils/visual.ts";
+import { keyOf } from "./key-utils.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 
 export interface CrewSelectItem<T = string> {
@@ -55,11 +56,11 @@ export class CrewSelectList<T = string> {
 			this.options.onCancel();
 			return;
 		}
-		if (data === "j" || data === "\u001b[B") {
+		if (data === "j" || keyOf(data) === "down") {
 			this.setSelectedIndex(this.selectedIndex + 1);
 			return;
 		}
-		if (data === "k" || data === "\u001b[A") {
+		if (data === "k" || keyOf(data) === "up") {
 			this.setSelectedIndex(this.selectedIndex - 1);
 			return;
 		}

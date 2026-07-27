@@ -114,6 +114,15 @@ builtin (package) < user (~/.pi/agent/) < project (.crew/ or .pi/teams/)
 
 Custom agents/teams/workflows are YAML files with routing metadata (triggers, useWhen, avoidWhen, cost, category).
 
+### Config Precedence
+
+Config (`pi-crew.json`) merge order DIFFERS from resource discovery:
+
+`builtin (package defaults) < project (.pi/pi-crew.json) < user (~/.pi/pi-crew.json)`
+
+User config always wins. Sensitive fields in project config are sanitized
+via `sanitizeProjectConfig()`. See `src/config/config.ts:1170-1181`.
+
 ## Common Commands
 
 ```bash

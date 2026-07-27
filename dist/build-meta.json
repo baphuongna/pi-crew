@@ -80,7 +80,7 @@
       "format": "esm"
     },
     "src/state/atomic-write.ts": {
-      "bytes": 42108,
+      "bytes": 43555,
       "imports": [
         {
           "path": "node:crypto",
@@ -1342,8 +1342,13 @@
       "imports": [],
       "format": "esm"
     },
+    "src/state/types.ts": {
+      "bytes": 14748,
+      "imports": [],
+      "format": "esm"
+    },
     "src/state/state-store.ts": {
-      "bytes": 40830,
+      "bytes": 41616,
       "imports": [
         {
           "path": "node:fs",
@@ -1419,6 +1424,11 @@
           "path": "src/state/locks.ts",
           "kind": "import-statement",
           "original": "./locks.ts"
+        },
+        {
+          "path": "src/state/types.ts",
+          "kind": "import-statement",
+          "original": "./types.ts"
         }
       ],
       "format": "esm"
@@ -5246,7 +5256,7 @@
       "format": "esm"
     },
     "src/runtime/live-session-runtime.ts": {
-      "bytes": 44568,
+      "bytes": 44847,
       "imports": [
         {
           "path": "node:fs",
@@ -5977,7 +5987,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 13979,
+      "bytes": 14034,
       "imports": [
         {
           "path": "@sinclair/typebox",
@@ -8764,7 +8774,7 @@
       "format": "esm"
     },
     "src/runtime/verification-gates.ts": {
-      "bytes": 19629,
+      "bytes": 20015,
       "imports": [
         {
           "path": "node:child_process",
@@ -10755,7 +10765,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 39738,
+      "bytes": 39799,
       "imports": [
         {
           "path": "node:fs",
@@ -10902,7 +10912,7 @@
       "format": "esm"
     },
     "src/ui/overlays/mailbox-detail-overlay.ts": {
-      "bytes": 5290,
+      "bytes": 5335,
       "imports": [
         {
           "path": "src/state/mailbox.ts",
@@ -10923,6 +10933,11 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "../theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
@@ -10970,7 +10985,7 @@
       "format": "esm"
     },
     "src/ui/overlays/agent-picker-overlay.ts": {
-      "bytes": 2117,
+      "bytes": 2162,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -10991,6 +11006,11 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "../theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
@@ -13147,7 +13167,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6041392
+      "bytes": 6061958
     },
     "dist/index.mjs": {
       "imports": [
@@ -14800,7 +14820,7 @@
           "bytesInOutput": 5264
         },
         "src/state/atomic-write.ts": {
-          "bytesInOutput": 19540
+          "bytesInOutput": 19966
         },
         "src/config/defaults.ts": {
           "bytesInOutput": 4815
@@ -14967,8 +14987,11 @@
         "src/state/contracts.ts": {
           "bytesInOutput": 1977
         },
+        "src/state/types.ts": {
+          "bytesInOutput": 138
+        },
         "src/state/state-store.ts": {
-          "bytesInOutput": 20501
+          "bytesInOutput": 21028
         },
         "src/runtime/heartbeat-gradient.ts": {
           "bytesInOutput": 951
@@ -15559,7 +15582,7 @@
           "bytesInOutput": 4725
         },
         "src/runtime/live-session-runtime.ts": {
-          "bytesInOutput": 31201
+          "bytesInOutput": 31305
         },
         "src/subagents/live/session-runtime.ts": {
           "bytesInOutput": 140
@@ -15985,7 +16008,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/verification-gates.ts": {
-          "bytesInOutput": 9461
+          "bytesInOutput": 9656
         },
         "src/runtime/worker-startup.ts": {
           "bytesInOutput": 2344
@@ -16135,13 +16158,13 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 30630
+          "bytesInOutput": 30710
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
         },
         "src/ui/overlays/mailbox-detail-overlay.ts": {
-          "bytesInOutput": 5239
+          "bytesInOutput": 5269
         },
         "src/ui/overlays/mailbox-compose-preview.ts": {
           "bytesInOutput": 2326
@@ -16150,7 +16173,7 @@
           "bytesInOutput": 5449
         },
         "src/ui/overlays/agent-picker-overlay.ts": {
-          "bytesInOutput": 1913
+          "bytesInOutput": 1943
         },
         "src/ui/mascot.ts": {
           "bytesInOutput": 16274
@@ -16369,7 +16392,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2763788
+      "bytes": 2765341
     }
   }
 }

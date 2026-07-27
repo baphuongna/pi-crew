@@ -433,11 +433,13 @@ export class RunDashboard implements DashboardComponent {
 	) {
 		// TEMP DIAGNOSTIC: log every constructor + handleInput + focus change
 		this._instanceId = ++RunDashboard._instanceCounter;
-		try {
-			process.stderr.write(
-				`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}\n`,
-			);
-		} catch {}
+		if (process.env.PI_CREW_BROKER_DIAG_UI === "1") {
+			try {
+				process.stderr.write(
+					`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}\n`,
+				);
+			} catch {}
+		}
 		// END TEMP DIAGNOSTIC
 		// Filter runs by workspaceId for session isolation
 		// If workspaceId is provided, only show runs owned by that session or runs with no owner (legacy)

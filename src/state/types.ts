@@ -176,8 +176,15 @@ export interface CrewAttentionEventData {
 	observedTools?: string[];
 }
 
+/**
+ * S-01: schemaVersion sentinel for the run manifest. Increment on breaking
+ * state changes; add migration logic in state-store load paths. Loaded
+ * manifests whose schemaVersion differs emit a console.warn (no throw).
+ */
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
 export interface TeamRunManifest {
-	schemaVersion: 1;
+	schemaVersion: typeof CURRENT_SCHEMA_VERSION;
 	runId: string;
 	/** pi session ID aligned with run ID for cross-referencing (e.g., "crew-team20260528") */
 	sessionId?: string;

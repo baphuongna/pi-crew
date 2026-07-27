@@ -469,9 +469,13 @@ function usageFromStats(stats: unknown): UsageState | undefined {
 }
 
 async function promptWithTimeout(session: LiveSessionLike, text: string, timeoutMs: number, label: string): Promise<boolean> {
+	// CORE-11: pass an AbortSignal into session.prompt so the underlying prompt is
+	// genuinely cancelled on timeout instead of being abandoned by Promise.race.
+	const ac = new AbortController();
 	const promptPromise = session.prompt?.(text, {
 		source: "api",
 		expandPromptTemplates: false,
+		signal: ac.signal,
 	});
 	if (!promptPromise) return false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -479,7 +483,10 @@ async function promptWithTimeout(session: LiveSessionLike, text: string, timeout
 		await Promise.race([
 			promptPromise,
 			new Promise<void>((_, reject) => {
-				timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+				timer = setTimeout(() => {
+					ac.abort(); // cancel the underlying prompt
+					reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+				}, timeoutMs);
 				timer.unref?.();
 			}),
 		]);

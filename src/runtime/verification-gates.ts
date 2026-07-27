@@ -255,6 +255,7 @@ async function executeCommand(
 			cwd,
 			timeout: timeoutMs,
 			env: buildVerificationEnv(),
+			detached: true, // CORE-10: own process group so group-wide SIGKILL reaches children
 		});
 
 		shell.stdout?.on("data", (data) => {
@@ -270,7 +271,14 @@ async function executeCommand(
 		// keep the Node.js event loop alive for the full timeoutMs after all work
 		// is done (previously it fired shell.kill() on an already-dead process).
 		const timer = setTimeout(() => {
-			shell.kill("SIGKILL");
+			// CORE-10: kill the entire process group (negative PID) so child processes
+			// spawned by the shell are also terminated. Fall back to shell.kill() if the
+			// group kill fails (e.g. process already reaped).
+			try {
+				if (shell.pid) process.kill(-shell.pid, "SIGKILL");
+			} catch {
+				shell.kill("SIGKILL");
+			}
 			resolve({
 				exitCode: -1,
 				output: output + "\n[TIMEOUT: Command exceeded limit]",

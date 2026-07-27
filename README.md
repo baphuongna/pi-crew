@@ -658,7 +658,7 @@ Your system prompt here.
 | `PI_CREW_BROKER=0` | **Disable the inter-pi broker entirely** (always wins over config). Use to opt out of cross-session messaging. |
 | `PI_CREW_BROKER=1` | Explicitly enable the broker (redundant under the v0.9.47 default-on; useful for overriding a config `broker.enabled: false`). |
 | `PI_CREW_BROKER_DIAG_UI=1` | Make the run-dashboard `handleInput` emit a `[PI-CREW-DIAG]` line to stderr per keystroke — for TUI keybinding probes. |
-| `PI_CREW_USE_BUNDLE=1` | Load via bundled `dist/index.mjs` (~5% faster cold-start). Default: strip-types. Requires `npm run build:bundle` to have produced `dist/`. Falls back to strip-types with a one-time warning if the bundle is missing. See `scripts/bench-cold-start.mjs`. |
+| `PI_CREW_USE_BUNDLE=1` | Force-load via bundled `dist/index.mjs` (~19% faster cold-start than strip-types). Default: bundle (since v0.9.17). Set `PI_CREW_USE_BUNDLE=0` to force strip-types fallback. Requires `npm run build:bundle` to have produced `dist/`. |
 | `PI_CREW_EXECUTE_WORKERS=0` | Disable child workers (scaffold mode) |
 | `PI_TEAMS_EXECUTE_WORKERS=0` | Legacy disable flag |
 | `PI_TEAMS_MOCK_CHILD_PI=success` | Mock child worker for testing |

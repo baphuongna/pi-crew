@@ -602,6 +602,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 		const openedStat = fs.fstatSync(fd);
 		if (!openedStat.isFile()) {
 			fs.closeSync(fd);
+			fd = undefined; // A-02: mark closed so finally won't double-close
 			throw new Error(`Refusing to write: opened path is not a regular file: ${tempPath}`);
 		}
 		fs.writeSync(fd, content, undefined, "utf-8");
@@ -617,6 +618,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 		// F4: skip when durability is "best-effort" — see WriteDurability docs.
 		if (durability === "full") fs.fsyncSync(fd);
 		fs.closeSync(fd);
+		fd = undefined; // A-02: mark closed so finally won't double-close
 		try {
 			// Issue 1 fix: re-check symlink safety immediately before rename.
 			// Between the initial isSymlinkSafePath check (line 147) and here,
@@ -680,6 +682,15 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 		// Issue 4 fix: always clean up temp file, regardless of success or error path.
 		// This ensures no orphaned temp files remain when errors occur at any point.
 		if (fd !== undefined) {
+			// A-02: close fd if still open before cleanup. If an error occurred
+			// between openSync and the normal closeSync (e.g. fstat/write/fsync
+			// threw), the fd would leak. In the success path fd is already closed,
+			// so this is best-effort and wrapped in try/catch.
+			try {
+				fs.closeSync(fd);
+			} catch {
+				/* fd may already be closed */
+			}
 			try {
 				fs.rmSync(tempPath, { force: true });
 			} catch {
@@ -704,9 +715,10 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 		throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
 	await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 	const tempPath = `${filePath}.${crypto.randomUUID()}.tmp`;
+	let fd: fs.promises.FileHandle | undefined;
 	try {
 		const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
-		const fd = await fs.promises.open(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, 0o600);
+		fd = await fs.promises.open(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, 0o600);
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = await fd.stat();
 		if (!openedStat.isFile()) {
@@ -734,7 +746,31 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 		// could write between the failed rename and the read) and inconsistent
 		// with the sync path which just throws.
 		await renameWithLinkAsync(tempPath, filePath);
+		// A-01: mirror sync path dir fsync for durability parity. Without this,
+		// the directory entry update from rename may not be flushed to disk on
+		// some Linux filesystems, so a crash between rename and journal flush
+		// could leave a stale directory entry. The sync path already does this;
+		// this brings the async path to durability parity.
+		if (durability === "full" && process.platform !== "win32") {
+			try {
+				const dirFd = await fs.promises.open(path.dirname(filePath), "r");
+				await dirFd.sync();
+				await dirFd.close();
+			} catch {
+				/* best-effort — not all filesystems support directory fsync */
+			}
+		}
 	} catch (error) {
+		// A-02: close fd if still open before cleanup. If an error occurred
+		// between open and the normal close (e.g. stat/writeFile/sync threw),
+		// the FileHandle would leak.
+		if (fd) {
+			try {
+				await fd.close();
+			} catch {
+				/* fd may already be closed */
+			}
+		}
 		try {
 			await fs.promises.rm(tempPath, { force: true });
 		} catch (cleanupError) {

@@ -15,6 +15,7 @@ import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushP
 import { canTransitionRunStatus } from "./contracts.ts";
 import { appendEvent } from "./event-log.ts";
 import { withRunLock, withRunLockSync } from "./locks.ts";
+import { CURRENT_SCHEMA_VERSION } from "./types.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
 
 /**
@@ -266,7 +267,7 @@ export function createRunManifest(params: {
 	const now = new Date().toISOString();
 	const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd) : [];
 	const manifest: TeamRunManifest = {
-		schemaVersion: 1,
+		schemaVersion: CURRENT_SCHEMA_VERSION,
 		runId: paths.runId,
 		sessionId: toPiSessionId(paths.runId),
 		team: params.team.name,
@@ -831,6 +832,11 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	// — the final stable state is what gets used. Because the retry loop
 	// handles the crash case, we do NOT fail based on this comparison alone.
 	// It does not indicate corruption on its own.
+	// S-01: warn (do not throw) on schemaVersion mismatch — future version
+	// bumps will add migration logic here.
+	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+		console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {
 		manifest,
@@ -945,6 +951,11 @@ export async function loadRunManifestByIdAsync(
 	// handles the crash case, we do NOT fail based on this comparison alone.
 	// It does not indicate corruption on its own.
 
+	// S-01: warn (do not throw) on schemaVersion mismatch — future version
+	// bumps will add migration logic here.
+	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+		console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {
 		manifest,

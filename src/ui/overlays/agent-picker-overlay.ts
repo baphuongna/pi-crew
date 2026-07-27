@@ -3,6 +3,7 @@ import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
+import { keyOf } from "../key-utils.ts";
 
 export interface AgentPickerSelection {
 	agentId: string;
@@ -49,11 +50,11 @@ export class AgentPickerOverlay {
 			this.done(undefined);
 			return;
 		}
-		if (data === "k" || data === "\u001b[A") {
+		if (data === "k" || keyOf(data) === "up") {
 			this.selected = Math.max(0, this.selected - 1);
 			return;
 		}
-		if (data === "j" || data === "\u001b[B") {
+		if (data === "j" || keyOf(data) === "down") {
 			this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
 			return;
 		}

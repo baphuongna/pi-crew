@@ -140,14 +140,15 @@ function startInterruptGuard(
 				console.log(`[background-runner] interrupt: killed ${killed} child processes`);
 				// Also abort the run signal so executeTeamRun exits quickly via its signal check.
 				abortController.abort();
-				// FIX Issue #1: Call stopParentGuard() here since process.exit(130) bypasses
-				// the finally block in main() which would otherwise call runCleanup.
+				// Call stopParentGuard() explicitly in addition to the finally block in
+				// main() — defense-in-depth ensures the guard is torn down promptly.
 				stopParentGuard();
-				// NOTE: process.exit() schedules exit handlers synchronously. The finally
-				// block in main() (stopParentGuard, cleanup, etc.) executes BEFORE the
-				// process actually terminates. This ordering is intentional — cleanup must
-				// run before exit handlers to ensure consistent state.
-				process.exit(130);
+				// CORE-7 fix: Do NOT call process.exit() — it skips the finally block in
+				// main() (which runs unregisterWorker + stopParentGuard), leaving a stale
+				// orphan registry entry. Setting exitCode lets the event loop drain and
+				// main()'s finally block run cleanup before the process exits naturally
+				// with code 130.
+				process.exitCode = 130;
 			} else if (last) {
 				console.warn(`[background-runner] Ignoring unknown foreground control request: ${last.type}`);
 			}
