@@ -42793,6 +42793,69 @@ var init_render_scheduler = __esm({
   }
 });
 
+// src/ui/shared-overlay-scheduler.ts
+function ensureShared() {
+  if (shared) return shared;
+  const renderers = /* @__PURE__ */ new Set();
+  const invalidators = /* @__PURE__ */ new Set();
+  const scheduler = new RenderScheduler(
+    runEventBusAsRenderScheduler([...CHANNELS]),
+    () => {
+      for (const render of renderers) {
+        try {
+          render();
+        } catch (error) {
+          logInternalError("shared-overlay-scheduler.render", error);
+        }
+      }
+    },
+    {
+      debounceMs: 75,
+      fallbackMs: 750,
+      events: [...CHANNELS],
+      onInvalidate: (payload) => {
+        for (const invalidate of invalidators) {
+          try {
+            invalidate(payload);
+          } catch (error) {
+            logInternalError("shared-overlay-scheduler.invalidate", error);
+          }
+        }
+      }
+    }
+  );
+  shared = { scheduler, renderers, invalidators };
+  return shared;
+}
+function registerOverlayScheduler(render, onInvalidate) {
+  const state = ensureShared();
+  state.renderers.add(render);
+  if (onInvalidate) state.invalidators.add(onInvalidate);
+  return {
+    schedule: () => {
+      state.scheduler.schedule();
+    },
+    dispose: () => {
+      state.renderers.delete(render);
+      if (onInvalidate) state.invalidators.delete(onInvalidate);
+      if (state.renderers.size === 0) {
+        state.scheduler.dispose();
+        if (shared === state) shared = void 0;
+      }
+    }
+  };
+}
+var CHANNELS, shared;
+var init_shared_overlay_scheduler = __esm({
+  "src/ui/shared-overlay-scheduler.ts"() {
+    "use strict";
+    init_internal_error();
+    init_render_scheduler();
+    init_run_event_bus();
+    CHANNELS = ["run:state", "worker:lifecycle", "ui:invalidate"];
+  }
+});
+
 // src/runtime/stale-reconciler.ts
 import * as fs67 from "node:fs";
 import * as os14 from "node:os";
@@ -44084,8 +44147,7 @@ var init_widget = __esm({
     init_defaults();
     init_visual();
     init_pi_ui_compat();
-    init_render_scheduler();
-    init_run_event_bus();
+    init_shared_overlay_scheduler();
     init_spinner();
     init_theme_adapter();
     init_widget_model();
@@ -44113,7 +44175,7 @@ var init_widget = __esm({
       cachedTheme;
       tui;
       unsubscribeTheme;
-      renderScheduler;
+      schedulerHandle;
       constructor(model, themeLike, tui) {
         this.model = model;
         this.theme = asCrewTheme(themeLike);
@@ -44122,17 +44184,11 @@ var init_widget = __esm({
         activeResizeTarget = this;
         installResizeListener();
         this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
-        this.renderScheduler = new RenderScheduler(
-          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+        this.schedulerHandle = registerOverlayScheduler(
           () => this.invalidate(),
-          {
-            debounceMs: 75,
-            fallbackMs: 750,
-            events: ["run:state", "worker:lifecycle", "ui:invalidate"],
-            onInvalidate: () => {
-              this.cachedBuildSignature = "";
-              this.cachedBuildSignatureAt = 0;
-            }
+          () => {
+            this.cachedBuildSignature = "";
+            this.cachedBuildSignatureAt = 0;
           }
         );
       }
@@ -44177,7 +44233,7 @@ var init_widget = __esm({
       }
       dispose() {
         this.unsubscribeTheme();
-        this.renderScheduler.dispose();
+        this.schedulerHandle.dispose();
         if (activeResizeTarget === this) activeResizeTarget = void 0;
       }
       render(width) {
@@ -60999,8 +61055,7 @@ var init_run_dashboard = __esm({
     init_dynamic_border();
     init_keybinding_map();
     init_help_overlay();
-    init_render_scheduler();
-    init_run_event_bus();
+    init_shared_overlay_scheduler();
     init_spinner();
     init_status_colors();
     init_theme_adapter();
@@ -61032,7 +61087,7 @@ var init_run_dashboard = __esm({
       cachedSignatureAt = 0;
       cachedSignature = "";
       unsubscribeTheme;
-      renderScheduler;
+      schedulerHandle;
       constructor(runs, done, theme = {}, options = {}) {
         this._instanceId = ++_RunDashboard._instanceCounter;
         try {
@@ -61050,19 +61105,10 @@ var init_run_dashboard = __esm({
         const renderTick = () => {
           this.invalidateAndRender();
         };
-        this.renderScheduler = new RenderScheduler(
-          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
-          renderTick,
-          {
-            debounceMs: 75,
-            fallbackMs: 750,
-            events: ["run:state", "worker:lifecycle", "ui:invalidate"],
-            onInvalidate: () => {
-              this.cachedSignature = "";
-              this.cachedSignatureAt = 0;
-            }
-          }
-        );
+        this.schedulerHandle = registerOverlayScheduler(renderTick, () => {
+          this.cachedSignature = "";
+          this.cachedSignatureAt = 0;
+        });
         this.unsubscribeTheme = subscribeThemeChange(theme, () => this.scheduleRender());
       }
       /**
@@ -61076,8 +61122,8 @@ var init_run_dashboard = __esm({
        * (defensive — currently always created in the constructor).
        */
       scheduleRender() {
-        if (this.renderScheduler) {
-          this.renderScheduler.schedule();
+        if (this.schedulerHandle) {
+          this.schedulerHandle.schedule();
           return;
         }
         this.invalidateAndRender();
@@ -61174,7 +61220,7 @@ var init_run_dashboard = __esm({
       }
       dispose() {
         this.unsubscribeTheme();
-        this.renderScheduler?.dispose();
+        this.schedulerHandle?.dispose();
       }
       selectedRunId() {
         return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache)?.runId;
@@ -64953,8 +64999,7 @@ var init_live_run_sidebar = __esm({
     init_usage();
     init_file_coalescer();
     init_visual();
-    init_render_scheduler();
-    init_run_event_bus();
+    init_shared_overlay_scheduler();
     init_spinner();
     init_status_colors();
     init_theme_adapter();
@@ -64967,7 +65012,7 @@ var init_live_run_sidebar = __esm({
       theme;
       config;
       unsubscribeTheme;
-      renderScheduler;
+      schedulerHandle;
       snapshotCache;
       cachedLines = [];
       cachedWidth = 0;
@@ -64982,15 +65027,7 @@ var init_live_run_sidebar = __esm({
         this.config = input.config ?? {};
         this.snapshotCache = input.snapshotCache;
         this.unsubscribeTheme = subscribeThemeChange(input.theme, () => this.invalidate());
-        this.renderScheduler = new RenderScheduler(
-          runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
-          () => this.invalidate(),
-          {
-            debounceMs: 75,
-            fallbackMs: 750,
-            events: ["run:state", "worker:lifecycle", "ui:invalidate"]
-          }
-        );
+        this.schedulerHandle = registerOverlayScheduler(() => this.invalidate());
       }
       buildSignature(manifestStatus, tasks, agents, waitingCount, snapshot) {
         const animation = agents.some((agent) => agent.status === "running") ? `:spin=${spinnerBucket()}` : "";
@@ -65028,7 +65065,7 @@ var init_live_run_sidebar = __esm({
           this.autoCloseTimeout = void 0;
         }
         this.unsubscribeTheme();
-        this.renderScheduler.dispose();
+        this.schedulerHandle.dispose();
       }
       render(width) {
         const w = Math.max(36, width);

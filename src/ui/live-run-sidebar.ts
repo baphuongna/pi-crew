@@ -8,8 +8,8 @@ import type { TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { pad, truncate } from "../utils/visual.ts";
-import { RenderScheduler } from "./render-scheduler.ts";
-import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
+import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
+import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "./status-colors.ts";
@@ -53,7 +53,7 @@ export class LiveRunSidebar {
 	private readonly theme: CrewTheme;
 	private readonly config: CrewUiConfig;
 	private readonly unsubscribeTheme: () => void;
-	private readonly renderScheduler: RenderScheduler;
+	private readonly schedulerHandle: OverlaySchedulerHandle;
 	private readonly snapshotCache?: RunSnapshotCache;
 	private cachedLines: string[] = [];
 	private cachedWidth = 0;
@@ -82,15 +82,7 @@ export class LiveRunSidebar {
 		// subscribing independently a single event triggered up to 9 callbacks
 		// and ~150 invalidates/sec under load. The scheduler collapses bursts
 		// into one debounced invalidate.
-		this.renderScheduler = new RenderScheduler(
-			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
-			() => this.invalidate(),
-			{
-				debounceMs: 75,
-				fallbackMs: 750,
-				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
-			},
-		);
+		this.schedulerHandle = registerOverlayScheduler(() => this.invalidate());
 	}
 
 	private buildSignature(
@@ -150,7 +142,7 @@ export class LiveRunSidebar {
 			this.autoCloseTimeout = undefined;
 		}
 		this.unsubscribeTheme();
-		this.renderScheduler.dispose();
+		this.schedulerHandle.dispose();
 	}
 
 	render(width: number): string[] {

@@ -20,8 +20,8 @@ import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
 import { dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
-import { RenderScheduler } from "./render-scheduler.ts";
-import { runEventBusAsRenderScheduler } from "./run-event-bus.ts";
+import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
+import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { applyStatusColor, colorizeStatusGlyphs, iconForStatus, type RunStatus } from "./status-colors.ts";
@@ -423,7 +423,7 @@ export class RunDashboard implements DashboardComponent {
 	private cachedSignatureAt = 0;
 	private cachedSignature = "";
 	private readonly unsubscribeTheme: () => void;
-	private readonly renderScheduler: RenderScheduler | undefined;
+	private readonly schedulerHandle: OverlaySchedulerHandle | undefined;
 
 	constructor(
 		runs: TeamRunManifest[],
@@ -466,21 +466,12 @@ export class RunDashboard implements DashboardComponent {
 		const renderTick = (): void => {
 			this.invalidateAndRender();
 		};
-		this.renderScheduler = new RenderScheduler(
-			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
-			renderTick,
-			{
-				debounceMs: 75,
-				fallbackMs: 750,
-				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
-				onInvalidate: () => {
-					// Drop any cached signature — data underneath may have
-					// changed so the next buildSignature() needs to recompute.
-					this.cachedSignature = "";
-					this.cachedSignatureAt = 0;
-				},
-			},
-		);
+		this.schedulerHandle = registerOverlayScheduler(renderTick, () => {
+			// Drop any cached signature — data underneath may have
+			// changed so the next buildSignature() needs to recompute.
+			this.cachedSignature = "";
+			this.cachedSignatureAt = 0;
+		});
 		// FIND-07: route theme changes through the scheduler so they coalesce
 		// with run:state / worker:lifecycle / ui:invalidate bursts instead of
 		// each firing their own immediate invalidate+requestRender.
@@ -498,8 +489,8 @@ export class RunDashboard implements DashboardComponent {
 	 * (defensive — currently always created in the constructor).
 	 */
 	private scheduleRender(): void {
-		if (this.renderScheduler) {
-			this.renderScheduler.schedule();
+		if (this.schedulerHandle) {
+			this.schedulerHandle.schedule();
 			return;
 		}
 		this.invalidateAndRender();
@@ -619,7 +610,7 @@ export class RunDashboard implements DashboardComponent {
 
 	dispose(): void {
 		this.unsubscribeTheme();
-		this.renderScheduler?.dispose();
+		this.schedulerHandle?.dispose();
 	}
 
 	private selectedRunId(): string | undefined {

@@ -12,8 +12,8 @@ import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { truncate } from "../../utils/visual.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
-import { RenderScheduler } from "../render-scheduler.ts";
-import { runEventBusAsRenderScheduler } from "../run-event-bus.ts";
+import type { OverlaySchedulerHandle } from "../shared-overlay-scheduler.ts";
+import { registerOverlayScheduler } from "../shared-overlay-scheduler.ts";
 import type { RunSnapshotCache } from "../snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
@@ -122,7 +122,7 @@ class CrewWidgetComponent implements WidgetComponent {
 	private cachedTheme: CrewTheme;
 	private readonly tui: unknown;
 	private readonly unsubscribeTheme: () => void;
-	private readonly renderScheduler: RenderScheduler;
+	private readonly schedulerHandle: OverlaySchedulerHandle;
 
 	constructor(model: CrewWidgetModel, themeLike: unknown, tui?: unknown) {
 		this.model = model;
@@ -142,24 +142,18 @@ class CrewWidgetComponent implements WidgetComponent {
 		// subscribing independently a single event triggered up to 9 callbacks
 		// and ~150 invalidates/sec under load. The scheduler collapses bursts
 		// into one debounced invalidate.
-		this.renderScheduler = new RenderScheduler(
-			runEventBusAsRenderScheduler(["run:state", "worker:lifecycle", "ui:invalidate"]),
+		this.schedulerHandle = registerOverlayScheduler(
 			() => this.invalidate(),
-			{
-				debounceMs: 75,
-				fallbackMs: 750,
-				events: ["run:state", "worker:lifecycle", "ui:invalidate"],
-				onInvalidate: () => {
-					// C4 invalidate-on-write: drop the cached buildSignature()
-					// result immediately when a real event arrives (run:state /
-					// worker:lifecycle / ui:invalidate). The prior blind-TTL
-					// attempt (reverted in 619a0cd) held a stale signature
-					// within the window and skipped re-render on genuine state
-					// changes. Clearing here + in invalidate() guarantees the
-					// next render tick always recomputes from fresh data.
-					this.cachedBuildSignature = "";
-					this.cachedBuildSignatureAt = 0;
-				},
+			() => {
+				// C4 invalidate-on-write: drop the cached buildSignature()
+				// result immediately when a real event arrives (run:state /
+				// worker:lifecycle / ui:invalidate). The prior blind-TTL
+				// attempt (reverted in 619a0cd) held a stale signature
+				// within the window and skipped re-render on genuine state
+				// changes. Clearing here + in invalidate() guarantees the
+				// next render tick always recomputes from fresh data.
+				this.cachedBuildSignature = "";
+				this.cachedBuildSignatureAt = 0;
 			},
 		);
 	}
@@ -224,7 +218,7 @@ class CrewWidgetComponent implements WidgetComponent {
 
 	dispose(): void {
 		this.unsubscribeTheme();
-		this.renderScheduler.dispose();
+		this.schedulerHandle.dispose();
 		if (activeResizeTarget === this) activeResizeTarget = undefined;
 	}
 

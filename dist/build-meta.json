@@ -7160,6 +7160,27 @@
       ],
       "format": "esm"
     },
+    "src/ui/shared-overlay-scheduler.ts": {
+      "bytes": 3382,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/ui/render-scheduler.ts",
+          "kind": "import-statement",
+          "original": "./render-scheduler.ts"
+        },
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "./run-event-bus.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/stale-reconciler.ts": {
       "bytes": 28257,
       "imports": [
@@ -7381,7 +7402,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 15548,
+      "bytes": 15361,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -7399,14 +7420,9 @@
           "original": "../pi-ui-compat.ts"
         },
         {
-          "path": "src/ui/render-scheduler.ts",
+          "path": "src/ui/shared-overlay-scheduler.ts",
           "kind": "import-statement",
-          "original": "../render-scheduler.ts"
-        },
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "../run-event-bus.ts"
+          "original": "../shared-overlay-scheduler.ts"
         },
         {
           "path": "src/ui/spinner.ts",
@@ -10724,7 +10740,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 39936,
+      "bytes": 39738,
       "imports": [
         {
           "path": "node:fs",
@@ -10822,14 +10838,9 @@
           "original": "./overlays/help-overlay.ts"
         },
         {
-          "path": "src/ui/render-scheduler.ts",
+          "path": "src/ui/shared-overlay-scheduler.ts",
           "kind": "import-statement",
-          "original": "./render-scheduler.ts"
-        },
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "./run-event-bus.ts"
+          "original": "./shared-overlay-scheduler.ts"
         },
         {
           "path": "src/ui/spinner.ts",
@@ -11672,7 +11683,7 @@
       "format": "esm"
     },
     "src/ui/live-run-sidebar.ts": {
-      "bytes": 11862,
+      "bytes": 11692,
       "imports": [
         {
           "path": "node:fs",
@@ -11715,14 +11726,9 @@
           "original": "../utils/visual.ts"
         },
         {
-          "path": "src/ui/render-scheduler.ts",
+          "path": "src/ui/shared-overlay-scheduler.ts",
           "kind": "import-statement",
-          "original": "./render-scheduler.ts"
-        },
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "./run-event-bus.ts"
+          "original": "./shared-overlay-scheduler.ts"
         },
         {
           "path": "src/ui/spinner.ts",
@@ -13126,7 +13132,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6019279
+      "bytes": 6022843
     },
     "dist/index.mjs": {
       "imports": [
@@ -15724,6 +15730,9 @@
         "src/ui/render-scheduler.ts": {
           "bytesInOutput": 7918
         },
+        "src/ui/shared-overlay-scheduler.ts": {
+          "bytesInOutput": 1681
+        },
         "src/runtime/stale-reconciler.ts": {
           "bytesInOutput": 15684
         },
@@ -15743,7 +15752,7 @@
           "bytesInOutput": 6263
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 10337
+          "bytesInOutput": 10057
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
@@ -16106,7 +16115,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 30946
+          "bytesInOutput": 30630
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -16142,7 +16151,7 @@
           "bytesInOutput": 4563
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9918
+          "bytesInOutput": 9640
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4277
@@ -16340,7 +16349,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2754367
+      "bytes": 2755213
     }
   }
 }
