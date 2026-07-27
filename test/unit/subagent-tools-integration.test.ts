@@ -100,6 +100,16 @@ function fakeCtx(cwd: string) {
 }
 
 async function removeDirWithRetry(dir: string): Promise<void> {
+	// Drain in-flight background-agent I/O before deletion. Every caller of
+	// this helper is a test that may have spawned run_in_background:true
+	// subagents whose async mkdir/state-write can still be in flight after
+	// session_shutdown signals; without this drain the mkdir races deletion
+	// → ENOENT unhandledRejection that fails the whole file (Windows CI is
+	// especially sensitive due to higher FS/process-scheduling latency).
+	// 250ms comfortably covers the observed race window (v0.9.50 was green at
+	// 200ms; bump slightly for safety). Callers that already drain explicitly
+	// pay a harmless extra wait.
+	await new Promise((resolve) => setTimeout(resolve, 250));
 	for (let attempt = 0; attempt < 30; attempt += 1) {
 		try {
 			rmSyncRetry(dir, { recursive: true, force: true });

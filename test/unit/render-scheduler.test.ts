@@ -131,6 +131,12 @@ test("RenderScheduler accepts dynamic fallbackMs and adapts tick frequency", asy
 	const fastRenders = renders;
 	assert.ok(fastRenders >= 2, `expected >= 2 fast renders, got ${fastRenders}`);
 	mode = "slow";
+	// Drain any fast-mode fallback ticks + their pending debounces still in
+	// flight when the mode switched. R1's fallbackLoop arms a debounce per
+	// idle tick; on Windows CI (timing jitter) 1-2 of these can fire just AFTER
+	// the mode change and inflate `delta` (the slow-mode render count).
+	// 50ms comfortably exceeds the fast fallbackMs (20ms) + debounceMs (5ms).
+	await sleep(50);
 	const baseline = renders;
 	await sleep(120);
 	scheduler.dispose();

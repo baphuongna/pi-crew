@@ -40,36 +40,11 @@ const NOTIFY_DEFER_MS = 1500;
  * into ONE wake-up, so N near-simultaneous completions produce 1 notice instead
  * of N drips. Before emit, each is re-checked: already-consumed agents are
  * dropped (Rule 2), and if all are consumed the notify is suppressed entirely.
- * 800ms balances burst-coalescing against delaying a single completion.
+ * 800ms balances burst-coalescing against delaying a single completion. (The
+ * prior tests passed with a 1500ms defer, so 800ms is well within their wait
+ * windows.)
  */
 const NOTIFY_COALESCE_MS = 800;
-
-/**
- * Extended coalesce window used when a completion arrives shortly after a
- * previous flush (within {@link NOTIFY_COALESCE_BURST_GAP_MS}).
- *
- * On fast systems (Linux/macOS CI) near-simultaneous completions arrive well
- * within the 800ms debounce, so the normal window coalesces them. On Windows,
- * higher process-scheduling jitter and FS latency can spread N completions
- * across several seconds — wider than the 800ms debounce. Each completion's
- * window expires before the next arrives, so they never coalesce and the leader
- * gets N individual drips.
- *
- * The adaptive approach: when a completion arrives shortly after a previous
- * flush, we know we are in an ongoing burst. Use the extended window so the
- * remaining completions have time to arrive and coalesce. The first completion
- * in a fresh burst still uses the short window (prompt delivery for single
- * completions). Subsequent arrivals within an accumulating batch always use the
- * short window (flush promptly once the burst ends).
- */
-const NOTIFY_COALESCE_BURST_MS = 3000;
-
-/**
- * Gap after a flush within which a new completion is considered part of an
- * ongoing burst (triggering the extended window). Chosen to cover the observed
- * Windows completion spread of 3-5s.
- */
-const NOTIFY_COALESCE_BURST_GAP_MS = 5000;
 
 /** A pending non-batch completion awaiting coalesced emit. */
 interface PendingCompletion {
@@ -89,7 +64,6 @@ interface CompletionCoalescer {
 function createCompletionCoalescer(pi: ExtensionAPI, ctx: RegistrationContext): CompletionCoalescer {
 	let pending: PendingCompletion[] = [];
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	let lastFlushAt = 0;
 
 	/** True if the completion is still deliverable (not consumed, current session). */
 	const isLive = (c: PendingCompletion): boolean => {
@@ -102,7 +76,6 @@ function createCompletionCoalescer(pi: ExtensionAPI, ctx: RegistrationContext): 
 
 	const flush = (): void => {
 		timer = null;
-		lastFlushAt = Date.now();
 		if (ctx.cleanedUp) {
 			pending = [];
 			return;
@@ -118,22 +91,9 @@ function createCompletionCoalescer(pi: ExtensionAPI, ctx: RegistrationContext): 
 
 	return {
 		enqueue(completion) {
-			const isFirstInBatch = pending.length === 0;
 			pending.push(completion);
 			if (timer) clearTimeout(timer);
-			// Adaptive window: if a completion arrives shortly after a previous
-			// flush, we are likely in a slow burst where completions are spread
-			// across several seconds (e.g. Windows FS latency). Use the extended
-			// window so the remaining completions coalesce instead of each
-			// arriving after the previous window expired. Single completions and
-			// fast Linux bursts still use the short 800ms window for prompt
-			// delivery.
-			let windowMs = NOTIFY_COALESCE_MS;
-			if (isFirstInBatch && lastFlushAt > 0) {
-				const sinceFlush = Date.now() - lastFlushAt;
-				if (sinceFlush < NOTIFY_COALESCE_BURST_GAP_MS) windowMs = NOTIFY_COALESCE_BURST_MS;
-			}
-			timer = setTimeout(flush, windowMs);
+			timer = setTimeout(flush, NOTIFY_COALESCE_MS);
 		},
 	};
 }

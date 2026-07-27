@@ -73765,12 +73765,9 @@ var MAX_CONCURRENT_SUBAGENTS = 4;
 var SUBAGENT_DEFAULT_TIMEOUT_MS = 1e3;
 var NOTIFY_DEFER_MS = 1500;
 var NOTIFY_COALESCE_MS = 800;
-var NOTIFY_COALESCE_BURST_MS = 3e3;
-var NOTIFY_COALESCE_BURST_GAP_MS = 5e3;
 function createCompletionCoalescer(pi, ctx) {
   let pending2 = [];
   let timer = null;
-  let lastFlushAt = 0;
   const isLive = (c) => {
     const f = ctx.subagentManager.getRecord(c.agentId);
     const p = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, c.agentId) : void 0;
@@ -73780,7 +73777,6 @@ function createCompletionCoalescer(pi, ctx) {
   };
   const flush = () => {
     timer = null;
-    lastFlushAt = Date.now();
     if (ctx.cleanedUp) {
       pending2 = [];
       return;
@@ -73794,15 +73790,9 @@ function createCompletionCoalescer(pi, ctx) {
   };
   return {
     enqueue(completion) {
-      const isFirstInBatch = pending2.length === 0;
       pending2.push(completion);
       if (timer) clearTimeout(timer);
-      let windowMs = NOTIFY_COALESCE_MS;
-      if (isFirstInBatch && lastFlushAt > 0) {
-        const sinceFlush = Date.now() - lastFlushAt;
-        if (sinceFlush < NOTIFY_COALESCE_BURST_GAP_MS) windowMs = NOTIFY_COALESCE_BURST_MS;
-      }
-      timer = setTimeout(flush, windowMs);
+      timer = setTimeout(flush, NOTIFY_COALESCE_MS);
     }
   };
 }

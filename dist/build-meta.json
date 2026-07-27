@@ -12783,7 +12783,7 @@
       "format": "esm"
     },
     "src/extension/registration/subagent-manager-setup.ts": {
-      "bytes": 14848,
+      "bytes": 12885,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -13132,7 +13132,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6022843
+      "bytes": 6020579
     },
     "dist/index.mjs": {
       "imports": [
@@ -16328,7 +16328,7 @@
           "bytesInOutput": 5262
         },
         "src/extension/registration/subagent-manager-setup.ts": {
-          "bytesInOutput": 7980
+          "bytesInOutput": 7568
         },
         "src/extension/registration/subagent-tools.ts": {
           "bytesInOutput": 15572
@@ -16349,7 +16349,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2755213
+      "bytes": 2754801
     }
   }
 }
