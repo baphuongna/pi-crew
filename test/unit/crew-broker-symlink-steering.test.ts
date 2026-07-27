@@ -69,7 +69,7 @@ test("steer.push does not follow a symlinked steering directory outside artifact
 			cwd,
 		});
 		await broker.start();
-		const token = broker.issueRunToken(runId);
+		const token = broker.issueOrchestratorToken(runId);
 		client = await connectClient({ runId, taskId: senderTaskId, token, socketPath: broker.socketPath });
 		const steerBody = "must-not-escape-artifacts-root";
 		const result = await client.request("steer.push", { taskId: targetTaskId, body: steerBody });

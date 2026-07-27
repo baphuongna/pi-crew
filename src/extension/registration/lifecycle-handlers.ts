@@ -792,7 +792,7 @@ function setupRenderLoop(
 export interface CrewBrokerLifecycleController {
 	/** Issue credentials for a child run. Returns undefined when the broker
 	 *  is disabled, this process is a subagent, or no session_id is known. */
-	issueForChild(runId: string): Promise<BrokerSpawnCredentials | undefined>;
+	issueForChild(runId: string, taskId?: string): Promise<BrokerSpawnCredentials | undefined>;
 	/** Stop the broker (idempotent). Called on session_shutdown. */
 	stop(): Promise<void>;
 	/** Test/lifecycle seam: remember the most recent session_id for token issuance. */
@@ -871,7 +871,7 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		return starting!;
 	}
 
-	const issueForChild = async (runId: string): Promise<BrokerSpawnCredentials | undefined> => {
+	const issueForChild = async (runId: string, taskId?: string): Promise<BrokerSpawnCredentials | undefined> => {
 		if (!runId || typeof runId !== "string") return undefined;
 		if (!isRootSession(process.env)) return undefined;
 		if (!effectiveEnabled()) return undefined;
@@ -879,7 +879,7 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		if (!sessionId) return undefined;
 		try {
 			const b = await getOrStartBroker(sessionId);
-			const token = b.issueRunToken(runId);
+			const token = b.issueRunToken(runId, taskId);
 			return { socketPath: b.socketPath, token };
 		} catch {
 			return undefined;

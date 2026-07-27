@@ -20,9 +20,11 @@ export interface BrokerSpawnCredentials {
 	token: string;
 }
 
-/** Issuer signature: given a runId, return credentials or undefined when the
- *  broker is disabled / this process is not the root session. */
-export type BrokerIssuer = (runId: string) => Promise<BrokerSpawnCredentials | undefined>;
+/** Issuer signature: given a runId (+optional taskId for per-task tokens),
+ *  return credentials or undefined when the broker is disabled / this process
+ *  is not the root session. taskId is optional for backward compat — callers
+ *  that still pass only runId receive the legacy per-run token. */
+export type BrokerIssuer = (runId: string, taskId?: string) => Promise<BrokerSpawnCredentials | undefined>;
 
 let activeIssuer: BrokerIssuer | undefined;
 

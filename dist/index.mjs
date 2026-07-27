@@ -7526,7 +7526,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
   const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
   if (!brokerSpawn && brokerIssuer && input.runId) {
     try {
-      brokerSpawn = await brokerIssuer(input.runId);
+      brokerSpawn = await brokerIssuer(input.runId, input.agentId);
     } catch {
       brokerSpawn = void 0;
     }
@@ -44380,6 +44380,7 @@ var init_tool_progress_formatter = __esm({
 // src/extension/registration/team-tool.ts
 import { statSync as statSync35 } from "node:fs";
 import { Text as Text4 } from "@earendil-works/pi-tui";
+import { Value as Value3 } from "@sinclair/typebox/value";
 async function handleTeamTool(params, ctx) {
   if (!_cachedHandleTeamTool) {
     const mod = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
@@ -44431,6 +44432,9 @@ function registerTeamTool(pi, deps) {
       signal?.addEventListener("abort", abort, { once: true });
       const stopProgress = startTeamToolProgressBinder(onUpdate);
       try {
+        if (!Value3.Check(TeamToolParams, params)) {
+          return toolResult("Invalid team tool parameters", { action: "list", status: "error" }, true);
+        }
         const resolved = params;
         const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);
         if (!cwdOverride.ok) return toolResult(cwdOverride.error, { action: resolved.action ?? "list", status: "error" }, true);
@@ -47509,6 +47513,96 @@ var init_retry_executor = __esm({
   }
 });
 
+// src/runtime/semaphore.ts
+var Semaphore;
+var init_semaphore = __esm({
+  "src/runtime/semaphore.ts"() {
+    "use strict";
+    Semaphore = class _Semaphore {
+      #max;
+      #current = 0;
+      #queue = [];
+      // FIX (Round 15): Cap the waiter queue to prevent unbounded memory growth
+      // if the semaphore is held for a long period and many tasks accumulate.
+      static MAX_QUEUE = 1e4;
+      constructor(max) {
+        this.#max = Math.max(1, max);
+      }
+      async acquire() {
+        if (this.#current < this.#max) {
+          this.#current++;
+          return;
+        }
+        if (this.#queue.length >= _Semaphore.MAX_QUEUE) {
+          throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`);
+        }
+        const { promise, resolve: resolve23 } = (() => {
+          let res;
+          const p = new Promise((r) => {
+            res = r;
+          });
+          return { promise: p, resolve: res };
+        })();
+        this.#queue.push(resolve23);
+        return promise;
+      }
+      release() {
+        const next = this.#queue.shift();
+        if (next) {
+          next();
+        } else if (this.#current > 0) {
+          this.#current--;
+        }
+      }
+      /** Current number of acquired slots. */
+      get current() {
+        return this.#current;
+      }
+      /** Number of waiters in the queue. */
+      get waiting() {
+        return this.#queue.length;
+      }
+    };
+  }
+});
+
+// src/runtime/global-worker-cap.ts
+import * as os15 from "node:os";
+function resolveCapacity() {
+  const env = process.env.PI_CREW_MAX_WORKERS;
+  if (env !== void 0 && env !== "") {
+    const parsed = Number.parseInt(env, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  const cpus2 = os15.cpus().length;
+  return Math.max(2, cpus2 - 2);
+}
+async function acquireWorkerSlot() {
+  await semaphore.acquire();
+}
+function releaseWorkerSlot() {
+  semaphore.release();
+}
+async function withWorkerSlot(fn) {
+  await acquireWorkerSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseWorkerSlot();
+  }
+}
+var capacity, semaphore;
+var init_global_worker_cap = __esm({
+  "src/runtime/global-worker-cap.ts"() {
+    "use strict";
+    init_semaphore();
+    capacity = resolveCapacity();
+    semaphore = new Semaphore(capacity);
+  }
+});
+
 // src/runtime/task-id.ts
 import { createHash as createHash9 } from "node:crypto";
 function hashToBase36(content, length) {
@@ -48019,7 +48113,7 @@ async function runCoalescedTaskGroup(input) {
     try {
       const result4 = await executeWithRetry(
         async () => {
-          return await runChildPi({
+          return await withWorkerSlot(() => runChildPi({
             cwd: firstTask.cwd,
             task: combinedPrompt,
             agent,
@@ -48027,7 +48121,7 @@ async function runCoalescedTaskGroup(input) {
             excludeContextBash: true,
             maxTurns: 5,
             onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e)
-          });
+          }));
         },
         DEFAULT_RETRY_POLICY,
         { signal }
@@ -48158,6 +48252,7 @@ var init_run_coalesced_task_group = __esm({
     init_event_log();
     init_state_store();
     init_child_pi();
+    init_global_worker_cap();
     init_retry_executor();
     init_role_permission();
     init_task_packet();
@@ -48585,7 +48680,7 @@ var init_knowledge_injection = __esm({
 
 // src/runtime/agent-memory.ts
 import * as fs75 from "node:fs";
-import * as os15 from "node:os";
+import * as os16 from "node:os";
 import * as path63 from "node:path";
 function isUnsafeMemoryName(name) {
   return !name || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
@@ -48607,7 +48702,7 @@ function safeReadMemoryFile(filePath) {
 }
 function resolveMemoryDir(agentName, scope, cwd) {
   if (isUnsafeMemoryName(agentName)) throw new Error(`Unsafe agent name for memory directory: ${agentName}`);
-  if (scope === "user") return path63.join(os15.homedir(), ".pi", "agent-memory", agentName);
+  if (scope === "user") return path63.join(os16.homedir(), ".pi", "agent-memory", agentName);
   if (scope === "project") return path63.join(cwd, ".pi", "agent-memory", agentName);
   return path63.join(cwd, ".pi", "agent-memory-local", agentName);
 }
@@ -51250,7 +51345,7 @@ async function runTeamTask(input) {
         }
         let childResult;
         try {
-          childResult = await runChildPi({
+          childResult = await withWorkerSlot(() => runChildPi({
             cwd: task.cwd,
             task: prompt,
             agent: input.agent,
@@ -51358,7 +51453,7 @@ async function runTeamTask(input) {
                 logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
               }
             }
-          });
+          }));
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           if (externalAbortListener && input.signal) {
@@ -51962,6 +52057,7 @@ var init_task_runner = __esm({
     init_crew_agent_records();
     init_crew_hooks();
     init_event_stream_bridge();
+    init_global_worker_cap();
     init_green_contract();
     init_model_fallback();
     init_model_scope();
@@ -53930,7 +54026,8 @@ async function executeTeamRunCore(input, manifest, workflow) {
           const freshManifest = fresh?.manifest ?? manifest;
           const freshTasks = fresh?.tasks ?? tasks;
           const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
-          if (freshTask.status !== "queued" && freshTask.status !== "running") return { manifest: freshManifest, tasks: freshTasks };
+          if (freshTask.status !== "queued" && freshTask.status !== "running")
+            return { manifest: freshManifest, tasks: freshTasks };
           return withCorrelation(
             childCorrelation(freshManifest.runId, task.id),
             () => runTeamTask({
@@ -53979,7 +54076,9 @@ async function executeTeamRunCore(input, manifest, workflow) {
         const disk = loadRunManifestById(manifest.cwd, manifest.runId);
         const diskManifest = disk?.manifest ?? manifest;
         const diskArtifacts = diskManifest.artifacts;
-        const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
+        const reconciledArtifacts = mergeArtifacts(
+          [...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat()
+        );
         const resultManifest = updateRunStatus(
           { ...diskManifest, artifacts: reconciledArtifacts },
           "running",
@@ -54172,7 +54271,11 @@ async function executeTeamRunCore(input, manifest, workflow) {
       });
       manifest = {
         ...manifest,
-        artifacts: mergeArtifacts([...manifest.artifacts, batchArtifact, ...groupDelivery?.artifact ? [groupDelivery.artifact] : []])
+        artifacts: mergeArtifacts([
+          ...manifest.artifacts,
+          batchArtifact,
+          ...groupDelivery?.artifact ? [groupDelivery.artifact] : []
+        ])
       };
       manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
       await saveRunManifestAsync(manifest);
@@ -54230,7 +54333,11 @@ async function executeTeamRunCore(input, manifest, workflow) {
     } else if (effectiveness.severity === "failed") {
       manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
     } else if (effectiveness.severity === "blocked") {
-      manifest = updateRunStatus(manifest, "blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
+      manifest = updateRunStatus(
+        manifest,
+        "blocked",
+        effectivenessDecision?.message ?? "Run effectiveness guard blocked completion."
+      );
     } else if (blockingDecision) {
       manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
     } else if (tasks.some((task) => task.status === "queued")) {
@@ -56224,96 +56331,6 @@ var init_dwf_state_store = __esm({
   }
 });
 
-// src/runtime/semaphore.ts
-var Semaphore;
-var init_semaphore = __esm({
-  "src/runtime/semaphore.ts"() {
-    "use strict";
-    Semaphore = class _Semaphore {
-      #max;
-      #current = 0;
-      #queue = [];
-      // FIX (Round 15): Cap the waiter queue to prevent unbounded memory growth
-      // if the semaphore is held for a long period and many tasks accumulate.
-      static MAX_QUEUE = 1e4;
-      constructor(max) {
-        this.#max = Math.max(1, max);
-      }
-      async acquire() {
-        if (this.#current < this.#max) {
-          this.#current++;
-          return;
-        }
-        if (this.#queue.length >= _Semaphore.MAX_QUEUE) {
-          throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`);
-        }
-        const { promise, resolve: resolve23 } = (() => {
-          let res;
-          const p = new Promise((r) => {
-            res = r;
-          });
-          return { promise: p, resolve: res };
-        })();
-        this.#queue.push(resolve23);
-        return promise;
-      }
-      release() {
-        const next = this.#queue.shift();
-        if (next) {
-          next();
-        } else if (this.#current > 0) {
-          this.#current--;
-        }
-      }
-      /** Current number of acquired slots. */
-      get current() {
-        return this.#current;
-      }
-      /** Number of waiters in the queue. */
-      get waiting() {
-        return this.#queue.length;
-      }
-    };
-  }
-});
-
-// src/runtime/global-worker-cap.ts
-import * as os16 from "node:os";
-function resolveCapacity() {
-  const env = process.env.PI_CREW_MAX_WORKERS;
-  if (env !== void 0 && env !== "") {
-    const parsed = Number.parseInt(env, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  const cpus2 = os16.cpus().length;
-  return Math.max(2, cpus2 - 2);
-}
-async function acquireWorkerSlot() {
-  await semaphore.acquire();
-}
-function releaseWorkerSlot() {
-  semaphore.release();
-}
-async function withWorkerSlot(fn) {
-  await acquireWorkerSlot();
-  try {
-    return await fn();
-  } finally {
-    releaseWorkerSlot();
-  }
-}
-var capacity, semaphore;
-var init_global_worker_cap = __esm({
-  "src/runtime/global-worker-cap.ts"() {
-    "use strict";
-    init_semaphore();
-    capacity = resolveCapacity();
-    semaphore = new Semaphore(capacity);
-  }
-});
-
 // src/runtime/parallel-utils.ts
 async function mapConcurrent(items, limit, fn) {
   if (items.length === 1) return [await fn(items[0], 0)];
@@ -56337,7 +56354,7 @@ var init_parallel_utils = __esm({
 });
 
 // src/runtime/result-extractor.ts
-import { Value as Value3 } from "@sinclair/typebox/value";
+import { Value as Value4 } from "@sinclair/typebox/value";
 function extractStructuredResult(raw, schema) {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -56365,7 +56382,7 @@ function finalize(candidate, raw, schema) {
   if (!schema) {
     return { structured: true, data: candidate, rawText: raw };
   }
-  const ok = Value3.Check(schema, candidate);
+  const ok = Value4.Check(schema, candidate);
   if (ok) {
     return { structured: true, data: candidate, rawText: raw };
   }
@@ -71617,34 +71634,68 @@ import { randomUUID as randomUUID8, timingSafeEqual as timingSafeEqual3 } from "
 function newBrokerToken() {
   return randomUUID8();
 }
-var BrokerTokenRegistry = class {
+var BrokerTokenRegistry = class _BrokerTokenRegistry {
   map = /* @__PURE__ */ new Map();
-  /** Issue a token for `runId`. Idempotent per run: if a token already
-   *  exists for this runId, the existing token is returned unchanged so that
-   *  concurrent sibling tasks sharing a runId all authenticate with the same
-   *  per-run token (the spec's per-run token model). Pass an explicit
-   *  `token` only in tests that need a deterministic value. */
-  issue(runId, token) {
+  /** Compute the registry key. Compound when taskId is present, bare
+   *  runId otherwise (backward-compat with the original per-run model). */
+  key(runId, taskId) {
+    return taskId ? `${runId}:${taskId}` : runId;
+  }
+  /** Registry key reserved for the run's orchestrator token. Distinct from any
+   *  task key — taskIds are safe-path ids and cannot collide with this sentinel. */
+  orchestratorKey(runId) {
+    return `${runId}:__orchestrator__`;
+  }
+  /** Issue (or reuse) the orchestrator token for `runId`. Cryptographically
+   *  distinct from every per-task token — a worker cannot forge orchestrator
+   *  role without it (F-06: closes the self-declared-role privilege escalation). */
+  issueOrchestratorToken(runId, token) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("BrokerTokenRegistry.issueOrchestratorToken: runId must be a non-empty string");
+    }
+    const k = this.orchestratorKey(runId);
+    if (token === void 0) {
+      const existing = this.map.get(k);
+      if (existing !== void 0) return existing;
+      const fresh = newBrokerToken();
+      this.map.set(k, fresh);
+      return fresh;
+    }
+    this.map.set(k, token);
+    return token;
+  }
+  /** Issue a token for `runId` (+optional `taskId`). Idempotent per key:
+   *  if a token already exists for the computed key, the existing token is
+   *  returned unchanged so that concurrent sibling tasks sharing a key all
+   *  authenticate with the same token. Pass an explicit `token` only in
+   *  tests that need a deterministic value. */
+  issue(runId, taskId, token) {
     if (typeof runId !== "string" || runId.length === 0) {
       throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
     }
+    const k = this.key(runId, taskId);
     if (token === void 0) {
-      const existing = this.map.get(runId);
+      const existing = this.map.get(k);
       if (existing !== void 0) return existing;
       const fresh = newBrokerToken();
-      this.map.set(runId, fresh);
+      this.map.set(k, fresh);
       return fresh;
     }
-    this.map.set(runId, token);
+    this.map.set(k, token);
     return token;
   }
-  /** Look up the token for `runId`. Returns undefined if absent. */
-  get(runId) {
-    return this.map.get(runId);
+  /** Look up the token for `runId` (+optional `taskId`).
+   *  Tries the compound key first; if absent and taskId was provided,
+   *  falls back to the bare `runId` key (backward-compat fallback). */
+  get(runId, taskId) {
+    const compound = this.map.get(this.key(runId, taskId));
+    if (compound !== void 0) return compound;
+    if (taskId) return this.map.get(runId);
+    return void 0;
   }
-  /** Constant-time equality check. Returns false on length mismatch. */
-  matches(runId, candidate) {
-    const expected = this.map.get(runId);
+  /** Constant-time equality between an expected token and a candidate.
+   *  Extracted so matches() and tokenRole() share the same compare. */
+  static equalConstTime(expected, candidate) {
     if (expected === void 0) return false;
     if (typeof candidate !== "string" || candidate.length === 0) return false;
     const a = Buffer.from(expected, "utf8");
@@ -71652,9 +71703,34 @@ var BrokerTokenRegistry = class {
     if (a.length !== b.length) return false;
     return timingSafeEqual3(a, b);
   }
-  /** Remove the token for `runId`. */
-  revoke(runId) {
-    this.map.delete(runId);
+  /** Backward-compat boolean auth check — delegates to tokenRole(). Prefer
+   *  tokenRole() at auth sites that distinguish orchestrator vs worker
+   *  (F-06: role MUST come from token type, never a self-declared field). */
+  matches(runId, taskId, candidate) {
+    return this.tokenRole(runId, taskId, candidate) !== null;
+  }
+  /** Resolve the connection role from the token TYPE. Returns "orchestrator"
+   *  if the candidate matches the run's orchestrator token, "worker" if it
+   *  matches a per-task/per-run token, or null if neither. Orchestrator key
+   *  is checked FIRST so an orchestrator token can never be confused with a
+   *  task token (the two are cryptographically distinct by construction). */
+  tokenRole(runId, taskId, candidate) {
+    if (_BrokerTokenRegistry.equalConstTime(this.map.get(this.orchestratorKey(runId)), candidate)) {
+      return "orchestrator";
+    }
+    let expected = this.map.get(this.key(runId, taskId));
+    if (expected === void 0 && taskId) {
+      expected = this.map.get(runId);
+    }
+    return _BrokerTokenRegistry.equalConstTime(expected, candidate) ? "worker" : null;
+  }
+  /** Remove the token for `runId` (+optional `taskId`).
+   *  Deletes the computed key. When taskId is provided, also removes the
+   *  bare `runId` fallback entry for a clean teardown. */
+  revoke(runId, taskId) {
+    this.map.delete(this.key(runId, taskId));
+    if (taskId) this.map.delete(runId);
+    if (!taskId) this.map.delete(this.orchestratorKey(runId));
   }
   /** Wipe every token. Called from CrewBroker.stop(). */
   clear() {
@@ -71867,14 +71943,25 @@ var CrewBroker = class {
   get tokenCount() {
     return this.tokens.size;
   }
-  /** Issue a fresh token for `runId`. The token is stored in the heap-only
-   *  registry and is the only way a child can complete `hello`. Never log
-   *  the return value; never write it to disk. */
-  issueRunToken(runId) {
+  /** Issue a fresh token for `runId` (+optional `taskId` for per-task
+   *  isolation). The token is stored in the heap-only registry and is the
+   *  only way a child can complete `hello`. Never log the return value;
+   *  never write it to disk. taskId is optional — when absent, the legacy
+   *  per-run token model applies. */
+  issueRunToken(runId, taskId) {
     if (typeof runId !== "string" || runId.length === 0) {
       throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
     }
-    return this.tokens.issue(runId);
+    return this.tokens.issue(runId, taskId);
+  }
+  /** Issue the orchestrator token for `runId` (F-06). Cryptographically
+   *  distinct from every per-task token — the ONLY token that grants
+   *  role:'orchestrator' (required for steer.push / msg.send). */
+  issueOrchestratorToken(runId) {
+    if (typeof runId !== "string" || runId.length === 0) {
+      throw new Error("CrewBroker.issueOrchestratorToken: runId must be a non-empty string");
+    }
+    return this.tokens.issueOrchestratorToken(runId);
   }
   /** Start the broker. Idempotent (subsequent calls return the same promise).
    *  When `enabled=false`, this is a no-op and no socket is created. */
@@ -72041,6 +72128,7 @@ var CrewBroker = class {
       authed: false,
       runId: void 0,
       taskId: void 0,
+      role: void 0,
       outbound: [],
       needsResync: false,
       closed: false,
@@ -72206,7 +72294,8 @@ var CrewBroker = class {
       this.sendErrorAndClose(conn, id, "auth", "hello rejected");
       return;
     }
-    if (!this.tokens.matches(runId, token)) {
+    const role = this.tokens.tokenRole(runId, taskId, token);
+    if (role === null) {
       this.sendErrorAndClose(conn, id, "auth", "hello rejected");
       return;
     }
@@ -72221,6 +72310,7 @@ var CrewBroker = class {
     conn.authed = true;
     conn.runId = runId;
     conn.taskId = taskId;
+    conn.role = role;
     let connsForRun = this.connectionsByRun.get(runId);
     if (!connsForRun) {
       connsForRun = /* @__PURE__ */ new Set();
@@ -72324,6 +72414,10 @@ var CrewBroker = class {
   // ------------------------------------------------------------------------
   /** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
   async handleMsgSend(conn, id, params) {
+    if (conn.role !== "orchestrator") {
+      this.sendError(conn, id, "forbidden", "msg.send requires orchestrator role");
+      return;
+    }
     if (!conn.runId) {
       this.sendError(conn, id, "auth", "not authed");
       return;
@@ -72636,6 +72730,10 @@ var CrewBroker = class {
    * mailbox write (1) has already succeeded.
    */
   async handleSteerPush(conn, id, params) {
+    if (conn.role !== "orchestrator") {
+      this.sendError(conn, id, "forbidden", "steer.push requires orchestrator role");
+      return;
+    }
     if (!conn.runId) {
       this.sendError(conn, id, "auth", "not authed");
       return;
@@ -73643,7 +73741,7 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     }
     return starting;
   }
-  const issueForChild = async (runId) => {
+  const issueForChild = async (runId, taskId) => {
     if (!runId || typeof runId !== "string") return void 0;
     if (!isRootSession(process.env)) return void 0;
     if (!effectiveEnabled()) return void 0;
@@ -73651,7 +73749,7 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     if (!sessionId) return void 0;
     try {
       const b = await getOrStartBroker(sessionId);
-      const token = b.issueRunToken(runId);
+      const token = b.issueRunToken(runId, taskId);
       return { socketPath: b.socketPath, token };
     } catch {
       return void 0;

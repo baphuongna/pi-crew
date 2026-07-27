@@ -751,7 +751,7 @@
       "format": "esm"
     },
     "src/runtime/broker-issuer.ts": {
-      "bytes": 1530,
+      "bytes": 1706,
       "imports": [],
       "format": "esm"
     },
@@ -984,7 +984,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi.ts": {
-      "bytes": 46378,
+      "bytes": 46410,
       "imports": [
         {
           "path": "node:child_process",
@@ -7228,7 +7228,7 @@
       "format": "esm"
     },
     "src/runtime/crash-recovery.ts": {
-      "bytes": 24391,
+      "bytes": 24392,
       "imports": [
         {
           "path": "node:fs",
@@ -7473,7 +7473,7 @@
       "format": "esm"
     },
     "src/extension/registration/team-tool.ts": {
-      "bytes": 9692,
+      "bytes": 9975,
       "imports": [
         {
           "path": "node:fs",
@@ -7482,6 +7482,11 @@
         },
         {
           "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@sinclair/typebox/value",
           "kind": "import-statement",
           "external": true
         },
@@ -8285,6 +8290,27 @@
       ],
       "format": "esm"
     },
+    "src/runtime/semaphore.ts": {
+      "bytes": 4140,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/global-worker-cap.ts": {
+      "bytes": 3543,
+      "imports": [
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/semaphore.ts",
+          "kind": "import-statement",
+          "original": "./semaphore.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/task-id.ts": {
       "bytes": 5793,
       "imports": [
@@ -8339,7 +8365,7 @@
       "format": "esm"
     },
     "src/runtime/run-coalesced-task-group.ts": {
-      "bytes": 11679,
+      "bytes": 11758,
       "imports": [
         {
           "path": "src/state/artifact-store.ts",
@@ -8360,6 +8386,11 @@
           "path": "src/runtime/child-pi.ts",
           "kind": "import-statement",
           "original": "./child-pi.ts"
+        },
+        {
+          "path": "src/runtime/global-worker-cap.ts",
+          "kind": "import-statement",
+          "original": "./global-worker-cap.ts"
         },
         {
           "path": "src/runtime/retry-executor.ts",
@@ -8840,7 +8871,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 61549,
+      "bytes": 61628,
       "imports": [
         {
           "path": "node:fs",
@@ -8951,6 +8982,11 @@
           "path": "src/runtime/event-stream-bridge.ts",
           "kind": "import-statement",
           "original": "./event-stream-bridge.ts"
+        },
+        {
+          "path": "src/runtime/global-worker-cap.ts",
+          "kind": "import-statement",
+          "original": "./global-worker-cap.ts"
         },
         {
           "path": "src/runtime/green-contract.ts",
@@ -9154,7 +9190,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 90520,
+      "bytes": 90614,
       "imports": [
         {
           "path": "node:fs",
@@ -9670,27 +9706,6 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/semaphore.ts": {
-      "bytes": 4140,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/global-worker-cap.ts": {
-      "bytes": 3543,
-      "imports": [
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/runtime/semaphore.ts",
-          "kind": "import-statement",
-          "original": "./semaphore.ts"
         }
       ],
       "format": "esm"
@@ -12316,7 +12331,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker-tokens.ts": {
-      "bytes": 2967,
+      "bytes": 6771,
       "imports": [
         {
           "path": "node:crypto",
@@ -12369,7 +12384,7 @@
       "format": "esm"
     },
     "src/runtime/crew-broker.ts": {
-      "bytes": 46354,
+      "bytes": 47625,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -12536,7 +12551,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 36374,
+      "bytes": 36416,
       "imports": [
         {
           "path": "node:fs",
@@ -13132,7 +13147,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6033236
+      "bytes": 6041392
     },
     "dist/index.mjs": {
       "imports": [
@@ -14142,6 +14157,11 @@
           "external": true
         },
         {
+          "path": "@sinclair/typebox/value",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:crypto",
           "kind": "import-statement",
           "external": true
@@ -14208,6 +14228,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
           "kind": "import-statement",
           "external": true
         },
@@ -14403,11 +14428,6 @@
         },
         {
           "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
           "kind": "import-statement",
           "external": true
         },
@@ -14909,7 +14929,7 @@
           "bytesInOutput": 1801
         },
         "src/runtime/child-pi.ts": {
-          "bytesInOutput": 29439
+          "bytesInOutput": 29454
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 3027
@@ -15758,7 +15778,7 @@
           "bytesInOutput": 2682
         },
         "src/extension/registration/team-tool.ts": {
-          "bytesInOutput": 7830
+          "bytesInOutput": 8056
         },
         "src/extension/team-tool/parallel-dispatch.ts": {
           "bytesInOutput": 5111
@@ -15880,6 +15900,12 @@
         "src/runtime/retry-executor.ts": {
           "bytesInOutput": 2426
         },
+        "src/runtime/semaphore.ts": {
+          "bytesInOutput": 1460
+        },
+        "src/runtime/global-worker-cap.ts": {
+          "bytesInOutput": 834
+        },
         "src/runtime/task-id.ts": {
           "bytesInOutput": 1368
         },
@@ -15896,7 +15922,7 @@
           "bytesInOutput": 7286
         },
         "src/runtime/run-coalesced-task-group.ts": {
-          "bytesInOutput": 7581
+          "bytesInOutput": 7633
         },
         "src/runtime/runtime-policy.ts": {
           "bytesInOutput": 575
@@ -15968,7 +15994,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 46120
+          "bytesInOutput": 46172
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -15986,7 +16012,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 64236
+          "bytesInOutput": 64340
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -16026,12 +16052,6 @@
         },
         "src/runtime/dwf-state-store.ts": {
           "bytesInOutput": 1927
-        },
-        "src/runtime/semaphore.ts": {
-          "bytesInOutput": 1460
-        },
-        "src/runtime/global-worker-cap.ts": {
-          "bytesInOutput": 834
         },
         "src/runtime/parallel-utils.ts": {
           "bytesInOutput": 655
@@ -16289,13 +16309,13 @@
           "bytesInOutput": 2451
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 24058
+          "bytesInOutput": 24074
         },
         "src/runtime/crew-broker.ts": {
-          "bytesInOutput": 35322
+          "bytesInOutput": 36306
         },
         "src/runtime/crew-broker-tokens.ts": {
-          "bytesInOutput": 1900
+          "bytesInOutput": 4886
         },
         "src/utils/ndjson.ts": {
           "bytesInOutput": 2208
@@ -16349,7 +16369,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2759353
+      "bytes": 2763788
     }
   }
 }

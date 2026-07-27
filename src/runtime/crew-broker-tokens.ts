@@ -21,44 +21,89 @@ export function newBrokerToken(): BrokerToken {
 }
 
 /**
- * A small registry mapping runId → token. Operations are O(1) Map.
+ * A small registry mapping a key → token. Operations are O(1) Map.
  * Constant-time compare (`timingSafeEqual`) prevents side-channel
  * comparison leakage of the secret. The compare normalizes both sides
  * to the same byte length — differing-length inputs return false
  * immediately without entering the timing-safe path (length itself is
  * not a secret, only the bytes are).
+ *
+ * The key model is dual: when a `taskId` is provided the key is the
+ * compound `${runId}:${taskId}` (per-task isolation, F-06). When taskId
+ * is absent the key falls back to bare `runId` (legacy per-run token
+ * model). Lookups (`get`, `matches`) try the compound key first and
+ * fall back to bare `runId` so that a per-run token issued before the
+ * taskId was threaded through still authenticates correctly.
  */
 export class BrokerTokenRegistry {
 	private readonly map = new Map<string, BrokerToken>();
 
-	/** Issue a token for `runId`. Idempotent per run: if a token already
-	 *  exists for this runId, the existing token is returned unchanged so that
-	 *  concurrent sibling tasks sharing a runId all authenticate with the same
-	 *  per-run token (the spec's per-run token model). Pass an explicit
-	 *  `token` only in tests that need a deterministic value. */
-	issue(runId: string, token?: BrokerToken): BrokerToken {
+	/** Compute the registry key. Compound when taskId is present, bare
+	 *  runId otherwise (backward-compat with the original per-run model). */
+	private key(runId: string, taskId?: string): string {
+		return taskId ? `${runId}:${taskId}` : runId;
+	}
+
+	/** Registry key reserved for the run's orchestrator token. Distinct from any
+	 *  task key — taskIds are safe-path ids and cannot collide with this sentinel. */
+	private orchestratorKey(runId: string): string {
+		return `${runId}:__orchestrator__`;
+	}
+
+	/** Issue (or reuse) the orchestrator token for `runId`. Cryptographically
+	 *  distinct from every per-task token — a worker cannot forge orchestrator
+	 *  role without it (F-06: closes the self-declared-role privilege escalation). */
+	issueOrchestratorToken(runId: string, token?: BrokerToken): BrokerToken {
 		if (typeof runId !== "string" || runId.length === 0) {
-			throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+			throw new Error("BrokerTokenRegistry.issueOrchestratorToken: runId must be a non-empty string");
 		}
+		const k = this.orchestratorKey(runId);
 		if (token === undefined) {
-			const existing = this.map.get(runId);
+			const existing = this.map.get(k);
 			if (existing !== undefined) return existing;
 			const fresh = newBrokerToken();
-			this.map.set(runId, fresh);
+			this.map.set(k, fresh);
 			return fresh;
 		}
-		this.map.set(runId, token);
+		this.map.set(k, token);
 		return token;
 	}
 
-	/** Look up the token for `runId`. Returns undefined if absent. */
-	get(runId: string): BrokerToken | undefined {
-		return this.map.get(runId);
+	/** Issue a token for `runId` (+optional `taskId`). Idempotent per key:
+	 *  if a token already exists for the computed key, the existing token is
+	 *  returned unchanged so that concurrent sibling tasks sharing a key all
+	 *  authenticate with the same token. Pass an explicit `token` only in
+	 *  tests that need a deterministic value. */
+	issue(runId: string, taskId?: string, token?: BrokerToken): BrokerToken {
+		if (typeof runId !== "string" || runId.length === 0) {
+			throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
+		}
+		const k = this.key(runId, taskId);
+		if (token === undefined) {
+			const existing = this.map.get(k);
+			if (existing !== undefined) return existing;
+			const fresh = newBrokerToken();
+			this.map.set(k, fresh);
+			return fresh;
+		}
+		this.map.set(k, token);
+		return token;
 	}
 
-	/** Constant-time equality check. Returns false on length mismatch. */
-	matches(runId: string, candidate: unknown): boolean {
-		const expected = this.map.get(runId);
+	/** Look up the token for `runId` (+optional `taskId`).
+	 *  Tries the compound key first; if absent and taskId was provided,
+	 *  falls back to the bare `runId` key (backward-compat fallback). */
+	get(runId: string, taskId?: string): BrokerToken | undefined {
+		const compound = this.map.get(this.key(runId, taskId));
+		if (compound !== undefined) return compound;
+		// Backward-compat: per-run token issued without taskId.
+		if (taskId) return this.map.get(runId);
+		return undefined;
+	}
+
+	/** Constant-time equality between an expected token and a candidate.
+	 *  Extracted so matches() and tokenRole() share the same compare. */
+	private static equalConstTime(expected: BrokerToken | undefined, candidate: unknown): boolean {
 		if (expected === undefined) return false;
 		if (typeof candidate !== "string" || candidate.length === 0) return false;
 		const a = Buffer.from(expected, "utf8");
@@ -67,9 +112,39 @@ export class BrokerTokenRegistry {
 		return timingSafeEqual(a, b);
 	}
 
-	/** Remove the token for `runId`. */
-	revoke(runId: string): void {
-		this.map.delete(runId);
+	/** Backward-compat boolean auth check — delegates to tokenRole(). Prefer
+	 *  tokenRole() at auth sites that distinguish orchestrator vs worker
+	 *  (F-06: role MUST come from token type, never a self-declared field). */
+	matches(runId: string, taskId: string | undefined, candidate: unknown): boolean {
+		return this.tokenRole(runId, taskId, candidate) !== null;
+	}
+
+	/** Resolve the connection role from the token TYPE. Returns "orchestrator"
+	 *  if the candidate matches the run's orchestrator token, "worker" if it
+	 *  matches a per-task/per-run token, or null if neither. Orchestrator key
+	 *  is checked FIRST so an orchestrator token can never be confused with a
+	 *  task token (the two are cryptographically distinct by construction). */
+	tokenRole(runId: string, taskId: string | undefined, candidate: unknown): "orchestrator" | "worker" | null {
+		if (BrokerTokenRegistry.equalConstTime(this.map.get(this.orchestratorKey(runId)), candidate)) {
+			return "orchestrator";
+		}
+		let expected = this.map.get(this.key(runId, taskId));
+		// Backward-compat: per-run token issued without taskId.
+		if (expected === undefined && taskId) {
+			expected = this.map.get(runId);
+		}
+		return BrokerTokenRegistry.equalConstTime(expected, candidate) ? "worker" : null;
+	}
+
+	/** Remove the token for `runId` (+optional `taskId`).
+	 *  Deletes the computed key. When taskId is provided, also removes the
+	 *  bare `runId` fallback entry for a clean teardown. */
+	revoke(runId: string, taskId?: string): void {
+		this.map.delete(this.key(runId, taskId));
+		// Backward-compat: also remove any bare-runId fallback entry.
+		if (taskId) this.map.delete(runId);
+		// Full-run revoke: also drop the orchestrator token.
+		if (!taskId) this.map.delete(this.orchestratorKey(runId));
 	}
 
 	/** Wipe every token. Called from CrewBroker.stop(). */

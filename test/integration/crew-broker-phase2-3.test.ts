@@ -61,7 +61,7 @@ async function makePhase23Fixture(): Promise<Phase23Fixture> {
 		cwd,
 	});
 	await broker.start();
-	const token = broker.issueRunToken(runId);
+	const token = broker.issueOrchestratorToken(runId);
 	const cleanup = async () => {
 		try {
 			await broker.stop();

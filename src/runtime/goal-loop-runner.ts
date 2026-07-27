@@ -28,7 +28,6 @@ import type { GoalLoopState, GoalLoopStatus, GoalVerdict, TeamRunManifest, TeamT
 import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
-import { withWorkerSlot } from "./global-worker-cap.ts";
 import { bundleEvidence, evaluateGoal } from "./goal-evaluator.ts";
 import { GoalStore } from "./goal-state-store.ts";
 import { resolveCrewRuntime } from "./runtime-resolver.ts";
@@ -657,22 +656,20 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				const turnConfig = loadConfig(goal.cwd);
 				const turnExecutedConfig = effectiveRunConfig(turnConfig.config, {});
 				const turnRuntime = await resolveCrewRuntime(turnExecutedConfig);
-				turnResult = await withWorkerSlot(() =>
-					executeTeamRun({
-						manifest: created.manifest,
-						tasks: created.tasks,
-						team,
-						workflow,
-						agents,
-						executeWorkers: true,
-						limits: turnExecutedConfig.limits,
-						runtime: turnRuntime,
-						runtimeConfig: turnExecutedConfig.runtime,
-						reliability: turnExecutedConfig.reliability,
-						workspaceId: goal.ownerSessionId ?? goal.cwd,
-						signal,
-					}),
-				);
+				turnResult = await executeTeamRun({
+					manifest: created.manifest,
+					tasks: created.tasks,
+					team,
+					workflow,
+					agents,
+					executeWorkers: true,
+					limits: turnExecutedConfig.limits,
+					runtime: turnRuntime,
+					runtimeConfig: turnExecutedConfig.runtime,
+					reliability: turnExecutedConfig.reliability,
+					workspaceId: goal.ownerSessionId ?? goal.cwd,
+					signal,
+				});
 			} finally {
 				unregisterActiveRun(created.manifest.runId);
 			}

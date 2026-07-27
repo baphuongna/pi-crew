@@ -82,6 +82,8 @@ interface ServerConnection {
 	runId?: string;
 	/** Task id bound by hello. */
 	taskId?: string;
+	/** Role bound by hello: orchestrator can steer/msg-send; workers default. */
+	role?: 'orchestrator' | 'worker';
 	/** Outbound queue of encoded frames awaiting drain. */
 	outbound: Buffer[];
 	/** Set when the queue has hit the cap and a frame was dropped. */
@@ -151,14 +153,26 @@ export class CrewBroker {
 		return this.tokens.size;
 	}
 
-	/** Issue a fresh token for `runId`. The token is stored in the heap-only
-	 *  registry and is the only way a child can complete `hello`. Never log
-	 *  the return value; never write it to disk. */
-	issueRunToken(runId: string): string {
+	/** Issue a fresh token for `runId` (+optional `taskId` for per-task
+	 *  isolation). The token is stored in the heap-only registry and is the
+	 *  only way a child can complete `hello`. Never log the return value;
+	 *  never write it to disk. taskId is optional — when absent, the legacy
+	 *  per-run token model applies. */
+	issueRunToken(runId: string, taskId?: string): string {
 		if (typeof runId !== "string" || runId.length === 0) {
 			throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
 		}
-		return this.tokens.issue(runId);
+		return this.tokens.issue(runId, taskId);
+	}
+
+	/** Issue the orchestrator token for `runId` (F-06). Cryptographically
+	 *  distinct from every per-task token — the ONLY token that grants
+	 *  role:'orchestrator' (required for steer.push / msg.send). */
+	issueOrchestratorToken(runId: string): string {
+		if (typeof runId !== "string" || runId.length === 0) {
+			throw new Error("CrewBroker.issueOrchestratorToken: runId must be a non-empty string");
+		}
+		return this.tokens.issueOrchestratorToken(runId);
 	}
 
 	/** Start the broker. Idempotent (subsequent calls return the same promise).
@@ -378,6 +392,7 @@ export class CrewBroker {
 			authed: false,
 			runId: undefined,
 			taskId: undefined,
+			role: undefined,
 			outbound: [],
 			needsResync: false,
 			closed: false,
@@ -576,9 +591,12 @@ export class CrewBroker {
 			return;
 		}
 
-		// Token must match. We use constant-time compare and never include
-		// the token (or any substring) in the error path.
-		if (!this.tokens.matches(runId, token)) {
+		// Token must match. Role is derived from the TOKEN TYPE (orchestrator
+		// vs worker), never from a self-declared hello field (F-06: otherwise a
+		// worker could forge role:'orchestrator' and call steer.push/msg.send).
+		// Constant-time compare; never include the token in the error path.
+		const role = this.tokens.tokenRole(runId, taskId, token);
+		if (role === null) {
 			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
 			return;
 		}
@@ -597,6 +615,7 @@ export class CrewBroker {
 		conn.authed = true;
 		conn.runId = runId;
 		conn.taskId = taskId;
+		conn.role = role;
 		// Phase 1.3: index by runId for live mailbox fanout.
 		let connsForRun = this.connectionsByRun.get(runId);
 		if (!connsForRun) {
@@ -716,6 +735,10 @@ export class CrewBroker {
 
 	/** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
 	private async handleMsgSend(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (conn.role !== 'orchestrator') {
+			this.sendError(conn, id, 'forbidden', 'msg.send requires orchestrator role');
+			return;
+		}
 		if (!conn.runId) {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
@@ -1059,6 +1082,10 @@ export class CrewBroker {
 	 * mailbox write (1) has already succeeded.
 	 */
 	private async handleSteerPush(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (conn.role !== 'orchestrator') {
+			this.sendError(conn, id, 'forbidden', 'steer.push requires orchestrator role');
+			return;
+		}
 		if (!conn.runId) {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
@@ -1204,6 +1231,7 @@ function isHelloParams(value: unknown): value is {
 	runId: string;
 	taskId: string;
 	token: string;
+	role?: string;
 } {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const v = value as Record<string, unknown>;

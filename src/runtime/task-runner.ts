@@ -37,6 +37,7 @@ import {
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { bridgeEventFromJsonEvent, registerStreamBridge } from "./event-stream-bridge.ts";
+import { withWorkerSlot } from "./global-worker-cap.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import {
 	buildConfiguredModelRouting,
@@ -536,7 +537,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				}
 				let childResult;
 				try {
-					childResult = await runChildPi({
+					childResult = await withWorkerSlot(() => runChildPi({
 						cwd: task.cwd,
 						task: prompt,
 						agent: input.agent,
@@ -660,7 +661,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 								logInternalError("task-runner.on-json-event", err as Error, `taskId=${task.id}`);
 							}
 						},
-					});
+					}));
 				} finally {
 					if (timeoutHandle) clearTimeout(timeoutHandle);
 					// W2 fix — release the listener so it doesn't leak. {once:true}

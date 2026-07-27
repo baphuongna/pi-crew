@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { Value } from "@sinclair/typebox/value";
 import { loadConfig } from "../../config/config.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
@@ -89,7 +90,7 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			"pi-crew notes the topology (informational only) but proceeds either way — you decide based on your context (audit trail, team coordination, etc.).",
 			"If unsure, call { action: 'recommend', goal } first.",
 		].join("\n"),
-		parameters: TeamToolParams as never,
+		parameters: TeamToolParams,
 		async execute(_id, params, signal, onUpdate, ctx) {
 			const controller = new AbortController();
 			const toolKey = Symbol();
@@ -98,6 +99,10 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			signal?.addEventListener("abort", abort, { once: true });
 			const stopProgress = startTeamToolProgressBinder(onUpdate as OnUpdate | undefined);
 			try {
+				// Defense-in-depth: validate params at runtime even though Pi framework already does
+				if (!Value.Check(TeamToolParams, params)) {
+					return toolResult('Invalid team tool parameters', { action: 'list', status: 'error' }, true);
+				}
 				const resolved = params as TeamToolParamsValue;
 				const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);
 				if (!cwdOverride.ok) return toolResult(cwdOverride.error, { action: resolved.action ?? "list", status: "error" }, true);

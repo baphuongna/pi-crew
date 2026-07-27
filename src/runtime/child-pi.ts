@@ -163,7 +163,7 @@ export interface ChildPiRunInput {
 	 * The production wiring passes a closure that delegates to the
 	 * session's `CrewBrokerLifecycleController.issueForChild`.
 	 */
-	brokerIssuer?: (runId: string) => Promise<{ socketPath: string; token: string } | undefined>;
+	brokerIssuer?: (runId: string, taskId?: string) => Promise<{ socketPath: string; token: string } | undefined>;
 }
 
 export interface ChildPiRunResult {
@@ -398,7 +398,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
 	if (!brokerSpawn && brokerIssuer && input.runId) {
 		try {
-			brokerSpawn = await brokerIssuer(input.runId);
+			brokerSpawn = await brokerIssuer(input.runId, input.agentId);
 		} catch {
 			brokerSpawn = undefined;
 		}

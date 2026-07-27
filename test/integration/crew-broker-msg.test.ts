@@ -69,7 +69,7 @@ async function makeMsgFixture(): Promise<MsgFixture> {
 		cwd,
 	});
 	await broker.start();
-	const token = broker.issueRunToken(runId);
+	const token = broker.issueOrchestratorToken(runId);
 
 	const cleanup = async () => {
 		try {

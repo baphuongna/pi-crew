@@ -5,6 +5,7 @@ import { saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { runChildPi } from "./child-pi.ts";
+import { withWorkerSlot } from "./global-worker-cap.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry } from "./retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
 import type { CrewRuntimeMode } from "./runtime-resolver.ts";
@@ -138,7 +139,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		try {
 			const result = await executeWithRetry(
 				async () => {
-					return await runChildPi({
+					return await withWorkerSlot(() => runChildPi({
 						cwd: firstTask.cwd,
 						task: combinedPrompt,
 						agent,
@@ -146,7 +147,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 						excludeContextBash: true,
 						maxTurns: 5,
 						onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
-					});
+					}));
 				},
 				DEFAULT_RETRY_POLICY,
 				{ signal },
