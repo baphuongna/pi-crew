@@ -59,6 +59,7 @@ export const TEAM_EVENT_TYPES = [
 	"hook.pre_step_started",
 	"hook.pre_step_completed",
 	"hook.pre_step_failed",
+	"hook.pre_step_skipped",
 	"hook.pre_step_optional_failed",
 	"task.blocked",
 	"task.green",
@@ -110,6 +111,7 @@ export const TEAM_EVENT_TYPES = [
 	"dwf.phase_completed",
 	"dwf.completed",
 	"dwf.failed",
+	"dwf.trust_denied", // F-01: project .dwf.ts denied without PI_CREW_TRUST_PROJECT_DWF
 	"dwf.log",
 ] as const;
 export type TeamEventType = (typeof TEAM_EVENT_TYPES)[number];

@@ -28,7 +28,7 @@ function eventsPath(dir: string): string {
 	return path.join(dir, "events.jsonl");
 }
 function lockDirFor(events: string): string {
-	return `${events}.lock`;
+	return `${events}.mkdirlock`;
 }
 
 describe("Round 26 BUG 3: orphan lock dir without pidFile is reclaimed by mtime", () => {

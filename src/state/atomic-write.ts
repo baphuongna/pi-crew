@@ -310,11 +310,21 @@ function isRetryableLinkError(error: unknown): boolean {
 }
 
 /**
- * Issue 1 fix: rename via link+unlink instead of rename.
- * Unlike rename, link() does NOT follow symlinks at the destination path.
- * It atomically creates a hard link to the source. We then unlink the source.
- * This prevents TOCTOU attacks where an attacker plants a symlink at the
- * destination between the check and the rename operation.
+ * Symlink-safe atomic rename helper.
+ *
+ * POSIX (non-Windows): uses `rename(2)`, which is atomic — a concurrent
+ * reader sees either the old content or the new content, never an ENOENT
+ * window (D-01 fix; the previous unlink+link sequence left a gap where the
+ * file existed in NEITHER location, crashing concurrent readers). `rename(2)`
+ * also does NOT follow symlinks at the destination: if the destination is a
+ * symlink, the symlink ITSELF is atomically replaced (not its target),
+ * preserving the Issue-1 symlink-safety guarantee that link+unlink provided.
+ * On the rare POSIX system that throws EEXIST/EPERM on rename-over-existing,
+ * we fall back to unlink-then-rename.
+ *
+ * Windows: uses MoveFileEx (Node's renameSync) with MOVEFILE_REPLACE_EXISTING,
+ * falling back to unlink-then-rename for edge cases (read-only dest / type
+ * mismatch / short-long-name alias).
  *
  * ST-8: this is the canonical symlink-safe rename helper used by both
  * `atomicWriteFile` (sync) and `atomicWriteFileAsync` (async) paths. The
@@ -354,16 +364,30 @@ export function renameWithLinkSync(tempPath: string, filePath: string, retries =
 					}
 				}
 			} else {
+				// D-01: POSIX rename(2) is atomic — a concurrent reader sees
+				// either the old or new content, never an ENOENT window. The old
+				// unlink+link sequence left a gap where the file existed in neither
+				// location. rename(2) also does NOT follow symlinks at the
+				// destination: if filePath is a symlink, the symlink itself is
+				// atomically replaced, preserving the Issue-1 symlink-safety
+				// guarantee that link+unlink provided.
 				try {
-					fs.unlinkSync(filePath);
-				} catch {
-					/* destination may not exist */
+					fs.renameSync(tempPath, filePath);
+					return;
+				} catch (renameError) {
+					// Edge case: some POSIX systems throw EEXIST or EPERM when
+					// renaming over an existing destination. Fall back to the
+					// unlink-then-rename path.
+					const code = (renameError as NodeJS.ErrnoException).code;
+					if (code !== "EEXIST" && code !== "EPERM") throw renameError;
+					try {
+						fs.unlinkSync(filePath);
+					} catch {
+						/* destination may not exist */
+					}
+					fs.renameSync(tempPath, filePath);
+					return;
 				}
-				// Create hard link — does NOT follow symlinks at filePath
-				fs.linkSync(tempPath, filePath);
-				// Successfully linked — now unlink the temp file
-				fs.unlinkSync(tempPath);
-				return;
 			}
 		} catch (error) {
 			lastError = error;
@@ -414,16 +438,23 @@ export async function renameWithLinkAsync(tempPath: string, filePath: string, re
 					}
 				}
 			} else {
+				// D-01: POSIX rename(2) is atomic — see renameWithLinkSync for the
+				// full rationale (no ENOENT window; does not follow symlinks at
+				// the destination). Async twin of the sync path.
 				try {
-					await fs.promises.unlink(filePath);
-				} catch {
-					/* destination may not exist */
+					await fs.promises.rename(tempPath, filePath);
+					return;
+				} catch (renameError) {
+					const code = (renameError as NodeJS.ErrnoException).code;
+					if (code !== "EEXIST" && code !== "EPERM") throw renameError;
+					try {
+						await fs.promises.unlink(filePath);
+					} catch {
+						/* destination may not exist */
+					}
+					await fs.promises.rename(tempPath, filePath);
+					return;
 				}
-				// Create hard link — does NOT follow symlinks at filePath
-				await fs.promises.link(tempPath, filePath);
-				// Successfully linked — now unlink the temp file
-				await fs.promises.unlink(tempPath);
-				return;
 			}
 		} catch (error) {
 			lastError = error;

@@ -3,8 +3,17 @@
  * Uses linear-time scan instead of complex regex to prevent catastrophic backtracking.
  */
 
-// Pattern for PEM private keys (possessive quantifier prevents backtracking)
-export const PEM_PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+PRIVATE KEY-----/g;
+// Pattern for PEM private keys.
+// F-05 fix: the inner quantifier is bounded to {0,8192}? so a flood of BEGIN
+// markers with no matching END cannot trigger the catastrophic O(n^2) scaling
+// of the old unbounded [\s\S]+? (252KB→205ms, 1024KB→3360ms, 2048KB→13749ms).
+// 8192 (8KB) is the tightest bound that still covers EVERY real PEM private
+// key — an 8192-bit RSA key (the largest practical size) has a ~6.6KB body.
+// NOTE: a 65536 bound was considered but is empirically ~4× SLOWER than the
+// original (V8 regex per-step overhead on large bounded lazy quantifiers), so
+// 8192 is used. A length short-circuit in redactSecretString() additionally
+// skips the regex entirely on inputs > 2MB.
+export const PEM_PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]+PRIVATE KEY-----/g;
 
 // --- P1f (RFC §P1f / §6 STRIDE) — additional anchored, ReDoS-SAFE secret patterns. ---
 // All patterns below are LINEAR-TIME: each uses a single bounded quantifier on a
@@ -216,8 +225,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function redactSecretString(value: string): string {
 	let result = value;
 
-	// Replace PEM private keys
-	result = result.replace(PEM_PRIVATE_KEY_PATTERN, "***");
+	// Replace PEM private keys. Skip the regex entirely on very large inputs —
+	// no real PEM key exceeds ~7KB, and inputs > 2MB are too large to be a real
+	// key. Combined with the bounded {0,8192}? quantifier this keeps the replace
+	// from blowing up quadratically on adversarial BEGIN-marker flooding (F-05):
+	// unbounded 2MB=13.7s; bounded 2MB≈2.3s; >2MB skipped entirely.
+	if (result.length <= 2_000_000) {
+		// F-05 hardening: cap total BEGIN markers. No legitimate input contains
+		// many PEM keys, and each marker can cost up to 8192 regex steps — without
+		// this cap, ~64K adversarial markers in a <2MB input still block the event
+		// loop for ~2.5s. Capping at 100 (far above any real multi-key document)
+		// bounds worst-case to ~50ms while preserving redaction for normal inputs.
+		const beginMarkerCount = result.split("-----BEGIN").length - 1;
+		if (beginMarkerCount <= 100) {
+			result = result.replace(PEM_PRIVATE_KEY_PATTERN, "***");
+		}
+	}
 
 	// Replace Authorization headers (non-Bearer format)
 	result = redactAuthHeader(result);

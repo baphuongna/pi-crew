@@ -4,6 +4,11 @@ export interface WorkflowStep {
 	id: string;
 	role: string;
 	task: string;
+	/** Security (F-02): provenance of the workflow file that declared this step.
+	 *  Populated during discovery by discover-workflows.ts. Used by task-runner.ts
+	 *  to gate preStepScript execution — project-sourced workflows may NOT run
+	 *  pre-step scripts (RCE prevention). Undefined for manually-constructed steps. */
+	source?: ResourceSource;
 	dependsOn?: string[];
 	parallelGroup?: string;
 	output?: string | false;

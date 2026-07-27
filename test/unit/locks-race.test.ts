@@ -349,7 +349,7 @@ test("withFileLockSync writes kind=file in the lock file (Round 21 forward compa
 
 	const captured: { kind?: string } = { kind: undefined };
 	withFileLockSync(protectedPath, () => {
-		const lockFile = `${protectedPath}.lock`;
+		const lockFile = `${protectedPath}.flock`;
 		const parsed = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
 			kind?: string;
 		};

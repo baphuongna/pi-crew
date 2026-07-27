@@ -146,7 +146,25 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 			const sectionStart = match.index! + match[0].length + (body[match.index! + match[0].length] === "\n" ? 1 : 0);
 			const sectionEnd = i + 1 < parseMatches.length ? parseMatches[i + 1]!.index! : body.length;
 			const step = parseStepSection(id, body.slice(sectionStart, sectionEnd));
-			if (step) steps.push(step);
+			if (step) {
+				// F-02 SECURITY: stamp provenance on each step so task-runner.ts can
+				// gate preStepScript execution for project-sourced workflows.
+				step.source = source;
+				// F-02 SECURITY: strip preStepScript from project-sourced workflows at
+				// the discover layer. Defense-in-depth: task-runner.ts also guards at
+				// runtime, but stripping here prevents the script value from even reaching
+				// downstream consumers (coalesce-tasks, policy-engine, etc.).
+				if (source === "project" && step.preStepScript) {
+					console.warn(
+						`[discover-workflows] Stripping preStepScript from project workflow '${name}' step '${step.id}': '${step.preStepScript}' (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`,
+					);
+					step.preStepScript = undefined;
+					step.preStepArgs = undefined;
+					step.preStepTimeout = undefined;
+					step.preStepOptional = undefined;
+				}
+				steps.push(step);
+			}
 		}
 		return {
 			name,

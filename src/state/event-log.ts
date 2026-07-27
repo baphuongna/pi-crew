@@ -89,7 +89,7 @@ let overflowCounter = 0;
 export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options?: { timeoutMs?: number; staleMs?: number }): T {
 	// Ensure parent directory exists before attempting lock
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
-	const lockDir = `${eventsPath}.lock`;
+	const lockDir = `${eventsPath}.mkdirlock`;
 	const pidFile = path.join(lockDir, "pid");
 	const start = Date.now();
 	// SECURITY (HIGH #2 fix): Reduced from 120s to 5s to prevent blocking the
@@ -121,7 +121,7 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 				// Previously this logged and broke out of the loop, executing the
 				// operation without lock protection. Now we throw so callers can retry.
 				// E1 (Round 15): structured CrewError (E010) with help hint so users know
-				// to check for orphaned .lock dirs / stale processes.
+				// to check for orphaned .mkdirlock dirs / stale processes.
 				throw errors.eventLogLockTimeout(eventsPath, timeout);
 			}
 			// Round 26 (BUG 3): mtime-based stale check INDEPENDENT of pidFile.

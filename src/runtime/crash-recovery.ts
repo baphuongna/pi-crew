@@ -340,18 +340,27 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 	const entries = readActiveRunRegistry();
 
 	for (const entry of entries) {
-		// 1. Manifest file gone → definitely stale
+		// 1. Manifest file gone → stale, but PRESERVE stateRoot for manual recovery.
+		//    R-01: A single missing-manifest signal is insufficient to warrant
+		//    deleting all run state (events.jsonl, task data, artifacts). Require
+		//    corroboration — only remove stateRoot if it is ALREADY gone.
 		if (!fs.existsSync(entry.manifestPath)) {
+			if (!fs.existsSync(entry.stateRoot)) {
+				tryRemoveRunDirectories(entry);
+			}
 			unregisterActiveRun(entry.runId);
-			tryRemoveRunDirectories(entry);
 			purged.push(entry.runId);
 			continue;
 		}
 
-		// 2. CWD gone → temp dir cleaned up
+		// 2. CWD gone → temp dir cleaned up, but PRESERVE stateRoot for recovery.
+		//    R-01: Same dual-signal guard as step 1 — a single missing-CWD signal
+		//    must not delete all run state. Only clean up if stateRoot is already gone.
 		if (!fs.existsSync(entry.cwd)) {
+			if (!fs.existsSync(entry.stateRoot)) {
+				tryRemoveRunDirectories(entry);
+			}
 			unregisterActiveRun(entry.runId);
-			tryRemoveRunDirectories(entry);
 			purged.push(entry.runId);
 			continue;
 		}
@@ -368,8 +377,16 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 		try {
 			manifest = JSON.parse(fs.readFileSync(entry.manifestPath, "utf-8"));
 		} catch {
+			// R-01: Quarantine the corrupt manifest instead of deleting all run state.
+			// A single corrupted byte must NOT cause total data loss — events.jsonl,
+			// task data, and artifacts are preserved for manual recovery.
+			try {
+				// Include pid for uniqueness across concurrent quarantines in the same ms.
+				fs.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);
+			} catch {
+				// Rename may fail if the path doesn't exist or permissions deny it — best effort.
+			}
 			unregisterActiveRun(entry.runId);
-			tryRemoveRunDirectories(entry);
 			purged.push(entry.runId);
 			continue;
 		}

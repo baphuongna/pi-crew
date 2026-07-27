@@ -30,19 +30,19 @@ test("discoverWorkflows parses preStepOptional=true from a workflow file", () =>
 				"",
 				"## run",
 				"role: executor",
-				"preStepScript: check.sh",
 				"preStepOptional: true",
 				"",
 				"Do the task: {goal}",
 				"",
 			].join("\n"),
 		);
+		// NOTE: no preStepScript — F-02 strips preStep fields for project workflows
+		// when preStepScript is present. This test isolates preStepOptional parsing.
 		const wf = allWorkflows(discoverWorkflows(cwd)).find((w) => w.name === "prestep-opt");
 		assert.ok(wf, "workflow should be discovered");
 		const step = wf!.steps.find((s) => s.id === "run");
 		assert.ok(step, "step 'run' present");
 		assert.equal(step!.preStepOptional, true, "preStepOptional='true' → true");
-		assert.equal(step!.preStepScript, "check.sh");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -61,7 +61,6 @@ test("discoverWorkflows parses preStepOptional=1 as true", () => {
 				"",
 				"## run",
 				"role: executor",
-				"preStepScript: check.sh",
 				"preStepOptional: 1",
 				"",
 				"Do the task: {goal}",

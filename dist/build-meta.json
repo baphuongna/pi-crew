@@ -80,7 +80,7 @@
       "format": "esm"
     },
     "src/state/atomic-write.ts": {
-      "bytes": 40583,
+      "bytes": 42108,
       "imports": [
         {
           "path": "node:crypto",
@@ -126,7 +126,7 @@
       "format": "esm"
     },
     "src/state/locks.ts": {
-      "bytes": 24376,
+      "bytes": 24379,
       "imports": [
         {
           "path": "node:async_hooks",
@@ -466,7 +466,7 @@
       "format": "esm"
     },
     "src/workflows/discover-workflows.ts": {
-      "bytes": 11026,
+      "bytes": 11943,
       "imports": [
         {
           "path": "node:fs",
@@ -746,7 +746,7 @@
       "format": "esm"
     },
     "src/utils/redaction.ts": {
-      "bytes": 13499,
+      "bytes": 15022,
       "imports": [],
       "format": "esm"
     },
@@ -1193,7 +1193,7 @@
       "format": "esm"
     },
     "src/errors.ts": {
-      "bytes": 9484,
+      "bytes": 9495,
       "imports": [],
       "format": "esm"
     },
@@ -1246,7 +1246,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 54432,
+      "bytes": 54442,
       "imports": [
         {
           "path": "node:crypto",
@@ -1338,7 +1338,7 @@
       "format": "esm"
     },
     "src/state/contracts.ts": {
-      "bytes": 4454,
+      "bytes": 4567,
       "imports": [],
       "format": "esm"
     },
@@ -7228,7 +7228,7 @@
       "format": "esm"
     },
     "src/runtime/crash-recovery.ts": {
-      "bytes": 23349,
+      "bytes": 24391,
       "imports": [
         {
           "path": "node:fs",
@@ -8840,7 +8840,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 60523,
+      "bytes": 61549,
       "imports": [
         {
           "path": "node:fs",
@@ -9154,7 +9154,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 88139,
+      "bytes": 90520,
       "imports": [
         {
           "path": "node:fs",
@@ -9793,7 +9793,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-runner.ts": {
-      "bytes": 14093,
+      "bytes": 14876,
       "imports": [
         {
           "path": "node:fs",
@@ -13132,7 +13132,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6020579
+      "bytes": 6033236
     },
     "dist/index.mjs": {
       "imports": [
@@ -14780,13 +14780,13 @@
           "bytesInOutput": 5264
         },
         "src/state/atomic-write.ts": {
-          "bytesInOutput": 19114
+          "bytesInOutput": 19540
         },
         "src/config/defaults.ts": {
           "bytesInOutput": 4815
         },
         "src/state/locks.ts": {
-          "bytesInOutput": 9166
+          "bytesInOutput": 9167
         },
         "src/utils/paths.ts": {
           "bytesInOutput": 5250
@@ -14828,7 +14828,7 @@
           "bytesInOutput": 5720
         },
         "src/workflows/discover-workflows.ts": {
-          "bytesInOutput": 8605
+          "bytesInOutput": 9125
         },
         "src/extension/autonomous-policy.ts": {
           "bytesInOutput": 8917
@@ -14858,7 +14858,7 @@
           "bytesInOutput": 15106
         },
         "src/utils/redaction.ts": {
-          "bytesInOutput": 7293
+          "bytesInOutput": 7449
         },
         "src/runtime/broker-issuer.ts": {
           "bytesInOutput": 242
@@ -14924,7 +14924,7 @@
           "bytesInOutput": 16165
         },
         "src/errors.ts": {
-          "bytesInOutput": 8093
+          "bytesInOutput": 8104
         },
         "src/ui/run-event-bus.ts": {
           "bytesInOutput": 10871
@@ -14936,7 +14936,7 @@
           "bytesInOutput": 4480
         },
         "src/state/event-log.ts": {
-          "bytesInOutput": 28864
+          "bytesInOutput": 28869
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -15737,7 +15737,7 @@
           "bytesInOutput": 15684
         },
         "src/runtime/crash-recovery.ts": {
-          "bytesInOutput": 15792
+          "bytesInOutput": 16016
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2413
@@ -15968,7 +15968,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 45571
+          "bytesInOutput": 46120
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -15986,7 +15986,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 62017
+          "bytesInOutput": 64236
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -16043,7 +16043,7 @@
           "bytesInOutput": 22078
         },
         "src/runtime/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 6553
+          "bytesInOutput": 6994
         },
         "src/extension/team-tool/run.ts": {
           "bytesInOutput": 31308
@@ -16349,7 +16349,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2754801
+      "bytes": 2759353
     }
   }
 }

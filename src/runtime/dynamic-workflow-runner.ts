@@ -147,6 +147,21 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	const eventsPath = manifest.eventsPath;
 	const scriptPath = resolveScriptPath(workflow, manifest.cwd);
 
+	// F-01: Trust gate — project-sourced .dwf.ts scripts have FULL Node access (process,
+	// require, fs, child_process). Cloning a hostile repo and running its workflow = arbitrary
+	// code execution. Default-deny project workflows unless the user explicitly opts in via
+	// PI_CREW_TRUST_PROJECT_DWF=1. Builtin and user workflows proceed without restriction.
+	if (workflow.source === "project" && process.env.PI_CREW_TRUST_PROJECT_DWF !== "1") {
+		appendEvent(eventsPath, {
+			type: "dwf.trust_denied",
+			runId: manifest.runId,
+			data: { workflow: workflow.name, source: workflow.source, script: scriptPath },
+		});
+		throw new Error(
+			`Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`,
+		);
+	}
+
 	appendEvent(eventsPath, {
 		type: "dwf.started",
 		runId: manifest.runId,

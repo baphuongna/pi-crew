@@ -30,7 +30,7 @@ describe("Round 26 BUG 1: acquireLockWithRetry uses a single-snapshot read", () 
 		const target = path.join(dir, "target.json");
 		try {
 			// Plant a stale lock: write a lock file with an old createdAt + a dead pid.
-			const lockFile = `${target}.lock`;
+			const lockFile = `${target}.flock`;
 			const oldPid = 999999; // almost certainly dead
 			const payload = JSON.stringify({
 				token: "old-dead",
@@ -55,7 +55,7 @@ describe("Round 26 BUG 1: acquireLockWithRetry uses a single-snapshot read", () 
 			// Plant a FRESH lock held by a LIVE pid (us). The single-snapshot read
 			// must see fresh+alive → canSteal=false → it must WAIT, not immediately
 			// steal. It only proceeds once the lock naturally ages past staleMs.
-			const lockFile = `${target}.lock`;
+			const lockFile = `${target}.flock`;
 			const start = Date.now();
 			const payload = JSON.stringify({
 				token: "fresh-live",

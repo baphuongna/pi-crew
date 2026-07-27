@@ -40,14 +40,14 @@ describe("withFileLockSync", () => {
 		assert.equal(result, 42);
 	});
 
-	it("creates a .lock sidecar file during execution and cleans up after", () => {
+	it("creates a .flock sidecar file during execution and cleans up after", () => {
 		const filePath = path.join(tmpDir, "protected.txt");
 		let lockExistedDuringCallback = false;
 		withFileLockSync(filePath, () => {
-			lockExistedDuringCallback = fs.existsSync(filePath + ".lock");
+			lockExistedDuringCallback = fs.existsSync(filePath + ".flock");
 		});
 		assert.equal(lockExistedDuringCallback, true);
-		assert.equal(fs.existsSync(filePath + ".lock"), false);
+		assert.equal(fs.existsSync(filePath + ".flock"), false);
 	});
 
 	it("allows concurrent operations on different files", () => {
@@ -66,7 +66,7 @@ describe("withFileLockSync", () => {
 				throw new Error("boom");
 			}),
 		);
-		assert.equal(fs.existsSync(filePath + ".lock"), false);
+		assert.equal(fs.existsSync(filePath + ".flock"), false);
 	});
 
 	it("accepts staleMs option", () => {

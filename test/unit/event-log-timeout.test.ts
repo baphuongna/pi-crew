@@ -9,7 +9,7 @@ describe("event-log lock timeout is capped", () => {
 	it("should throw quickly when lock is contended (injectable timeout)", () => {
 		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "evlog-timeout-"));
 		const eventsPath = path.join(tmpDir, "events.jsonl");
-		const lockDir = `${eventsPath}.lock`;
+		const lockDir = `${eventsPath}.mkdirlock`;
 
 		// Simulate an existing lock held by another (dead) process
 		fs.mkdirSync(lockDir);

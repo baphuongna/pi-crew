@@ -375,11 +375,11 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
  * Uses the same O_EXCL atomic create strategy as run locks.
  */
 export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunLockOptions = {}): T {
-	// FIX: Use a separate .lock sidecar so the lock file doesn't collide with
+	// FIX: Use a separate .flock sidecar so the lock file doesn't collide with
 	// the file being protected. Previously withFileLockSync used the file path
 	// itself as the lock, which meant any operation on the same file (read,
 	// append, or even the lock acquisition itself) would race with the lock.
-	const lockFile = `${filePath}.lock`;
+	const lockFile = `${filePath}.flock`;
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
 	// FIX (Round 29): re-entrance guard — mirrors withRunLockSync below.
 	// When the same call stack already holds the file lock (e.g.
@@ -400,7 +400,7 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	// It was racy — between statSync(target) and acquire, a concurrent process
 	// could acquire the lock to CREATE the target, and we'd delete its active
 	// lock. It was also actively wrong for callers that pass a path already
-	// ending in `.lock` (config.ts: the checked "target" never exists, so the
+	// ending in `.flock` (config.ts: the checked "target" never exists, so the
 	// cleanup ALWAYS fired, deleting a fresh concurrent holder's lock). Genuine
 	// orphan locks (crashed holder) are reclaimed by acquireLockWithRetry's
 	// staleMs-based steal logic after at most `staleMs`.

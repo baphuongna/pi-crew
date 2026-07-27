@@ -52,7 +52,17 @@ const result = spawnSync(
 	["--import", "tsx/esm", "--test", ...finalArgs],
 	{
 		stdio: "inherit",
-		env: { ...process.env, NODE_ENV: "test", PI_CREW_SKIP_HOME_CHECK: "1" },
+		env: {
+			...process.env,
+			NODE_ENV: "test",
+			PI_CREW_SKIP_HOME_CHECK: "1",
+			// F-01: trust project-sourced .dwf.ts fixtures under test. The test
+			// runner is a trusted context (our own fixtures, never hostile), so
+			// opt into the project-dwf trust gate globally. Individual unit
+			// tests (dynamic-workflow-runner-trust.test.ts) override this env
+			// locally to exercise the deny path.
+			PI_CREW_TRUST_PROJECT_DWF: "1",
+		},
 		// 2026-07-01: bumped from 600s → 900s after atomic-write.ts added
 		// fs.fsyncSync for the mailbox-replay flake fix. fsync adds ~5-10ms
 		// per atomic-write, which compounded across 5800 tests pushed

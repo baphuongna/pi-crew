@@ -58,7 +58,7 @@ const DEFAULT_HELP: Record<ErrorCode, string | undefined> = {
 	[ErrorCode.PreStepFailed]:
 		"The pre-step hook script exited non-zero. Inspect its stderr, or mark it optional in the workflow step (preStepOptional).",
 	[ErrorCode.EventLogLockTimeout]:
-		"Another process holds the event-log lock. Check for orphaned `.lock` files or stale pi-crew processes, then retry.",
+		"Another process holds the event-log lock. Check for orphaned `.mkdirlock` directories or stale pi-crew processes, then retry.",
 	[ErrorCode.DepthLimitExceeded]:
 		"A pipeline/chain exceeded the recursion depth limit, which usually indicates a circular stage dependency. Review step `dependsOn` chains.",
 	[ErrorCode.RunStale]:

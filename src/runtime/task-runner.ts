@@ -250,7 +250,23 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 
 		// Deterministic pre-step: run script, inject stdout into worker prompt
 		let preStepOutput: string | undefined;
-		if (input.step.preStepScript) {
+		if (input.step.preStepScript && input.step.source !== "builtin" && input.step.source !== "user") {
+			// F-02 SECURITY FIX (allowlist): only builtin/user-sourced workflows may
+			// execute pre-step scripts. Project-sourced AND programmatic
+			// (source=undefined) steps are denied — a hostile repo clone could embed
+			// arbitrary code via preStepScript + execFileSync, and steps constructed
+			// without explicit trusted provenance should not auto-trust file
+			// execution. Deny by default; discover-workflows strips project scripts
+			// upstream so legitimate builtin/user scripts still run.
+			appendEventFireAndForget(manifest.eventsPath, {
+				type: "hook.pre_step_skipped",
+				runId: manifest.runId,
+				taskId: task.id,
+				message: `preStepScript '${input.step.preStepScript}' skipped: only builtin/user-sourced workflows may execute pre-step scripts for security (F-02).`,
+				data: { script: input.step.preStepScript, source: input.step.source ?? "unknown" },
+			});
+			preStepOutput = undefined;
+		} else if (input.step.preStepScript) {
 			const scriptTimeout = input.step.preStepTimeout ?? 30_000;
 			const scriptArgs = input.step.preStepArgs ?? [];
 			appendEventFireAndForget(manifest.eventsPath, {
