@@ -8,6 +8,8 @@
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import { PiTeamsConfigSchema } from "../../src/schema/config-schema.ts";
 
@@ -56,5 +58,16 @@ describe("config-schema sync (CFG-2)", () => {
 		const extra = schemaProps.filter((k) => !PI_TEAMS_CONFIG_KEYS.includes(k));
 
 		assert.deepEqual(extra, [], `PiTeamsConfigSchema has extra keys not in PI_TEAMS_CONFIG_KEYS: ${extra.join(", ")}`);
+	});
+
+	it("schema.json top-level keys match TypeBox PiTeamsConfigSchema keys", () => {
+		const schemaJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "schema.json"), "utf-8"));
+		const jsonProps = Object.keys(schemaJson.properties ?? {});
+		const typeboxProps = Object.keys(PiTeamsConfigSchema.properties ?? {});
+		const missingInJson = typeboxProps.filter((p) => !jsonProps.includes(p));
+		const extraInJson = jsonProps.filter((p) => !typeboxProps.includes(p));
+
+		assert.deepEqual(missingInJson, [], `TypeBox keys missing from schema.json: ${missingInJson.join(", ")}`);
+		assert.deepEqual(extraInJson, [], `schema.json keys not in TypeBox: ${extraInJson.join(", ")}`);
 	});
 });

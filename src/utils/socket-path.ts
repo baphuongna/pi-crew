@@ -34,10 +34,43 @@ export function hashSessionId(sessionId: string, length: number = DEFAULT_PATH_H
 	return hex.substring(0, length);
 }
 
+/** Resolve the current POSIX user id. Uses `process.getuid` (POSIX-only);
+ *  falls back to `os.userInfo().uid`, then 0. Never throws. */
+function getCurrentUid(): number {
+	try {
+		const uid = process.getuid?.();
+		if (typeof uid === "number") return uid;
+	} catch {
+		/* ignore */
+	}
+	try {
+		const info = os.userInfo();
+		if (typeof info.uid === "number") return info.uid;
+	} catch {
+		/* ignore */
+	}
+	return 0;
+}
+
+/** Resolve a per-user subdirectory under the runtime base for broker sockets.
+ *
+ *  `${base}/pi-crew-<uid>/` isolates each user's sockets so that
+ *  `prepareBrokerSocketDir` can chmod 0700 a user-owned dir instead of the
+ *  shared base (`/tmp` or `XDG_RUNTIME_DIR`). Chmod-ing the shared base under
+ *  root strips the sticky bit and breaks the system. On Windows, named pipes
+ *  have no enclosing dir, so an empty string is returned. */
+export function getPerUserSocketDir(platform: NodeJS.Platform = process.platform): string {
+	if (platform === "win32") return "";
+	const base = process.env.XDG_RUNTIME_DIR || os.tmpdir();
+	const uid = getCurrentUid();
+	return path.join(base, `pi-crew-${uid}`);
+}
+
 /** Resolve the broker endpoint for the given session.
  *
- *  - POSIX: `${XDG_RUNTIME_DIR || os.tmpdir()}/pi-crew-<hash8>.sock` (dir
- *    0700 enforced by `prepareBrokerSocketDir`; socket 0600 by the server).
+ *  - POSIX: `${XDG_RUNTIME_DIR || os.tmpdir()}/pi-crew-<uid>/pi-crew-<hash8>.sock`
+ *    (per-user dir 0700 enforced by `prepareBrokerSocketDir`; socket 0600 by
+ *    the server).
  *  - Windows: `\\\\.\\pipe\\pi-crew-broker-<hash8>`.
  *  - Throws if the encoded POSIX path exceeds sun_path (108 bytes) — the
  *    caller cannot fix this without changing the hash length, so fail fast. */
@@ -46,8 +79,8 @@ export function getBrokerSocketPath(sessionId: string, platform: NodeJS.Platform
 	if (platform === "win32") {
 		return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
 	}
-	const base = process.env.XDG_RUNTIME_DIR || os.tmpdir();
-	const sock = path.join(base, `pi-crew-${hash}.sock`);
+	const perUserDir = getPerUserSocketDir(platform);
+	const sock = path.join(perUserDir, `pi-crew-${hash}.sock`);
 	const encoded = Buffer.byteLength(sock, "utf8");
 	if (encoded > POSIX_SUN_PATH_BUDGET) {
 		throw new Error(
@@ -60,7 +93,11 @@ export function getBrokerSocketPath(sessionId: string, platform: NodeJS.Platform
 /** Create the parent directory of a broker socket with mode 0700 (POSIX).
  *  Idempotent: if the directory already exists with the correct mode, leaves
  *  it alone. Refuses to operate on a symlink. Windows is a no-op (named pipes
- *  do not have an enclosing dir). */
+ *  do not have an enclosing dir).
+ *
+ *  The parent is a per-user subdir (see `getPerUserSocketDir`), NOT the shared
+ *  runtime base, so chmod 0700 targets a user-owned dir rather than stripping
+ *  the sticky bit from `/tmp`. */
 export async function prepareBrokerSocketDir(sockPath: string): Promise<void> {
 	if (process.platform === "win32") return;
 	const dir = path.dirname(sockPath);

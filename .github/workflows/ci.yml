@@ -61,6 +61,21 @@ jobs:
         run: npm test
       - name: Pack dry run
         run: npm pack --dry-run
+      - name: Install + load smoke test
+        # Catches the "all tests pass but published tarball is broken" failure
+        # mode (e.g. v0.9.13 incident where shipped files were missing/corrupt).
+        # Packs the real tarball, installs it into a clean dir, and dynamic-imports
+        # the ESM entry (dist/index.mjs) that Pi actually loads. Skipped on Windows
+        # because the step relies on bash + /tmp paths.
+        if: runner.os != 'Windows'
+        run: |
+          npm pack
+          tarball=$(ls pi-crew-*.tgz | head -1)
+          mkdir -p /tmp/smoke-install
+          cd /tmp/smoke-install
+          npm init -y
+          npm install "$GITHUB_WORKSPACE/$tarball"
+          node -e "import('pi-crew/dist/index.mjs').then(m => console.log('Loaded:', typeof m.default === 'function' || typeof m)).catch(e => { console.error(e); process.exit(1); })"
 
   # Informational, non-blocking codebase intelligence (deterministic, Rust-native).
   # Surfaced dead code, circular deps, duplication, complexity hotspots, and

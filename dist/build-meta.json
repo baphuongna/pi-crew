@@ -12373,7 +12373,7 @@
       "format": "esm"
     },
     "src/utils/socket-path.ts": {
-      "bytes": 4876,
+      "bytes": 6225,
       "imports": [
         {
           "path": "node:crypto",
@@ -13167,7 +13167,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6061958
+      "bytes": 6063762
     },
     "dist/index.mjs": {
       "imports": [
@@ -16344,7 +16344,7 @@
           "bytesInOutput": 2208
         },
         "src/utils/socket-path.ts": {
-          "bytesInOutput": 2509
+          "bytesInOutput": 3010
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -16392,7 +16392,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2765341
+      "bytes": 2765842
     }
   }
 }

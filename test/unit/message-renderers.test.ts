@@ -14,7 +14,7 @@ const theme = {
 	bold: (text: string) => `**${text}**`,
 } as unknown as Theme;
 
-const options = { expanded: false };
+const options = { expanded: false, outputPad: 0 };
 
 describe("renderRunStarted", () => {
 	it("renders a launch line with team/workflow/goal", () => {

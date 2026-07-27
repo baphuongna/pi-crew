@@ -22,6 +22,12 @@
       "type": "boolean",
       "description": "Require a clean leader git repository before provisioning worktrees."
     },
+    "ignoreMethod": {
+      "type": "string",
+      "enum": ["gitignore", "exclude"],
+      "default": "gitignore",
+      "description": "Method for ignoring pi-crew generated directories from VCS: 'gitignore' appends to .gitignore, 'exclude' writes to .git/info/exclude."
+    },
     "autonomous": {
       "type": "object",
       "additionalProperties": false,
@@ -92,6 +98,30 @@
         "setupHook": { "type": "string", "minLength": 1 },
         "setupHookTimeoutMs": { "type": "integer", "minimum": 1 },
         "linkNodeModules": { "type": "boolean" }
+      }
+    },
+    "goalWrap": {
+      "type": "object",
+      "description": "Per-workflow goal-wrap configuration. Maps workflow name to goal-wrap settings (worker -> judge -> feedback -> redo until achieved / maxTurns / budget). Only applies to builtin workflows with a clear done condition.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "maxTurns": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "evaluatorModel": { "type": "string", "minLength": 1 },
+          "verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "commands": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "mode": { "type": "string", "enum": ["text-only"] }
+            },
+            "required": ["commands"]
+          },
+          "budgetTotal": { "type": "integer", "minimum": 1000 },
+          "budgetUnlimited": { "type": "boolean" }
+        }
       }
     },
     "agents": {
@@ -216,6 +246,17 @@
         "endpoint": { "type": "string", "minLength": 1 },
         "headers": { "type": "object", "additionalProperties": { "type": "string" } },
         "intervalMs": { "type": "integer", "minimum": 5000, "default": 60000 }
+      }
+    },
+    "broker": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Phase 0 inter-pi broker config for cross-process communication.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "pathHashLen": { "type": "integer", "minimum": 4, "maximum": 32 },
+        "maxFrameBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576 },
+        "outboundQueueCap": { "type": "integer", "minimum": 32, "maximum": 4096 }
       }
     }
   }

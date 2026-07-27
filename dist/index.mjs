@@ -71880,13 +71880,32 @@ function hashSessionId(sessionId, length = DEFAULT_PATH_HASH_LEN) {
   const hex = createHash11("sha256").update(sessionId, "utf8").digest("hex");
   return hex.substring(0, length);
 }
+function getCurrentUid() {
+  try {
+    const uid = process.getuid?.();
+    if (typeof uid === "number") return uid;
+  } catch {
+  }
+  try {
+    const info2 = os17.userInfo();
+    if (typeof info2.uid === "number") return info2.uid;
+  } catch {
+  }
+  return 0;
+}
+function getPerUserSocketDir(platform2 = process.platform) {
+  if (platform2 === "win32") return "";
+  const base = process.env.XDG_RUNTIME_DIR || os17.tmpdir();
+  const uid = getCurrentUid();
+  return path82.join(base, `pi-crew-${uid}`);
+}
 function getBrokerSocketPath(sessionId, platform2 = process.platform) {
   const hash = hashSessionId(sessionId);
   if (platform2 === "win32") {
     return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
   }
-  const base = process.env.XDG_RUNTIME_DIR || os17.tmpdir();
-  const sock = path82.join(base, `pi-crew-${hash}.sock`);
+  const perUserDir = getPerUserSocketDir(platform2);
+  const sock = path82.join(perUserDir, `pi-crew-${hash}.sock`);
   const encoded = Buffer.byteLength(sock, "utf8");
   if (encoded > POSIX_SUN_PATH_BUDGET) {
     throw new Error(

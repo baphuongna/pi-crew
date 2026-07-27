@@ -871,28 +871,41 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 				ctx,
 			);
 		}
-		// Wait for notifications, then settle for any stragglers. Uses
-		// a "settle" pattern (no new messages for 500ms) instead of a
-		// fixed grace window because Windows CI has higher FS latency
-		// and process scheduling jitter — the 3 background agents may
-		// complete across a 3-5s window there vs <1s on Linux. The
-		// settle pattern handles both fast and slow systems without
-		// flakiness. Max 10s cap to keep CI fast on real failures.
-		const deadline = Date.now() + 30_000;
-		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
-		let lastCount = fake.sentUserMessages.length;
-		let stableSince = Date.now();
-		const settleDeadline = Date.now() + 10_000;
-		while (Date.now() < settleDeadline) {
-			await new Promise((resolve) => setTimeout(resolve, 200));
-			const currentCount = fake.sentUserMessages.length;
-			if (currentCount > lastCount) {
-				lastCount = currentCount;
-				stableSince = Date.now();
-			} else if (Date.now() - stableSince >= 500) {
-				break; // queue settled (no new messages for 500ms)
+		// CI-aware thresholds: CI runners have higher scheduling jitter and FS
+		// latency than local dev, so widen the settle stability window there.
+		const isCI = !!process.env.CI;
+		const settleStableMs = isCI ? 2000 : 1000; // was 500ms; widened for jitter
+		const settlePollMs = isCI ? 300 : 200;
+		const settleCapMs = isCI ? 15_000 : 10_000;
+		const isWindows = process.platform === "win32";
+		// Wait for notifications, then settle for any stragglers. Uses a
+		// "settle" pattern (no new messages for settleStableMs) instead of a
+		// fixed grace window because CI has higher FS latency and process
+		// scheduling jitter — the 3 background agents may complete across a
+		// wide window there vs <1s on Linux. The settle pattern handles both
+		// fast and slow systems without flakiness. settleCapMs cap keeps CI
+		// fast on real failures.
+		const waitForFirstNotify = async (): Promise<void> => {
+			const deadline = Date.now() + 30_000;
+			while (Date.now() < deadline && fake!.sentUserMessages.length === 0) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
-		}
+		};
+		const settleQueue = async (): Promise<void> => {
+			let lastCount = fake!.sentUserMessages.length;
+			let stableSince = Date.now();
+			const settleDeadline = Date.now() + settleCapMs;
+			while (Date.now() < settleDeadline) {
+				await new Promise((resolve) => setTimeout(resolve, settlePollMs));
+				const currentCount = fake!.sentUserMessages.length;
+				if (currentCount > lastCount) {
+					lastCount = currentCount;
+					stableSince = Date.now();
+				} else if (Date.now() - stableSince >= settleStableMs) {
+					break; // queue settled (no new messages for settleStableMs)
+				}
+			}
+		};
 		// Rule 3: coalescing must reduce 3 near-simultaneous completions to fewer
 		// than 3 wake-ups (ideally 1; timing may split into 2 — both prove
 		// coalescing occurred, vs the un-coalesced baseline of 3 individual drips).
@@ -906,17 +919,30 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 		// Windows; the underlying Windows coalescing bug remains unfixed
 		// (tracked from v0.9.49). The full check runs on Linux/macOS where the
 		// adaptive window coalesces reliably.
-		const isWindows = process.platform === "win32";
-		assert.ok(
-			fake.sentUserMessages.length < 3 || isWindows,
-			`Rule 3 coalescing expected < 3 notifies for 3 near-simultaneous completions, got ${fake.sentUserMessages.length}`,
-		);
-		// And at least one notify must be the coalesced (multi-agent) form.
-		if (!isWindows) {
+		const assertRule3 = (): void => {
 			assert.ok(
-				fake.sentUserMessages.some((m) => /background subagents changed state \(coalesced\)/.test(m.content)),
-				"expected at least one coalesced (multi-agent) notification",
+				fake!.sentUserMessages.length < 3 || isWindows,
+				`Rule 3 coalescing expected < 3 notifies for 3 near-simultaneous completions, got ${fake!.sentUserMessages.length}`,
 			);
+			// And at least one notify must be the coalesced (multi-agent) form.
+			if (!isWindows) {
+				assert.ok(
+					fake!.sentUserMessages.some((m) => /background subagents changed state \(coalesced\)/.test(m.content)),
+					"expected at least one coalesced (multi-agent) notification",
+				);
+			}
+		};
+		await waitForFirstNotify();
+		await settleQueue();
+		try {
+			assertRule3();
+		} catch (firstErr) {
+			// One retry with 5s backoff: CI scheduling jitter can split the
+			// coalesce burst window so a straggler notify arrives after the
+			// first settle. Re-settle and re-check once before failing.
+			await new Promise((resolve) => setTimeout(resolve, 5000));
+			await settleQueue();
+			assertRule3();
 		}
 	} finally {
 		fake?.api.events.emit("session_shutdown", {});

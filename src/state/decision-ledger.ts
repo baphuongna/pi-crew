@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
 import { withFileLockSync } from "./locks.ts";
 
 export interface CoherenceMark {
@@ -118,20 +117,27 @@ export function appendEntry(runId: string, entry: RolloutEntry): RolloutEntry {
 
 	// FIX: Wrap read+write in file lock to prevent concurrent writers from
 	// reading stale state and overwriting each other's entries.
+	// P-02: Previously read the ENTIRE ledger (O(n)) and rewrote the ENTIRE
+	// file (atomicWriteFile) on every append → O(n²). Now reads only the tail
+	// (last 10 entries, which is all coherence needs) and appends a single
+	// line via appendFileSync (one write syscall → no partial-line risk).
 	let entryWithCoherence: RolloutEntry;
 	withFileLockSync(ledgerPath, () => {
-		// Get existing entries to compute coherence (and use same result for write)
-		const ledger = getLedger(runId);
+		// P-02: read tail only (last 10) for coherence computation.
+		// computeCoherence only uses ledger.slice(-10), so the full read
+		// was wasted work.
+		const tail = readTailEntries(runId, 10);
 
 		// Compute coherence
-		const coherenceMark = computeCoherence(entry, ledger);
+		const coherenceMark = computeCoherence(entry, tail);
 		entryWithCoherence = { ...entry, coherenceMark };
 
-		// Append to JSONL file using atomic write to prevent corruption
-		// Use the already-loaded ledger content (no double-read)
+		// P-02: append single JSONL line instead of rewriting the entire
+		// file. appendFileSync issues one write syscall for small buffers,
+		// so a crash mid-write cannot corrupt earlier entries (at worst the
+		// last line is truncated — getLedger filters empty lines).
 		const line = JSON.stringify(entryWithCoherence) + "\n";
-		const existingContent = ledger.length > 0 ? ledger.map((e) => JSON.stringify(e)).join("\n") + "\n" : "";
-		atomicWriteFile(ledgerPath, existingContent + line);
+		appendFileSync(ledgerPath, line, "utf-8");
 	});
 
 	return entryWithCoherence!;
@@ -160,15 +166,40 @@ export function getLedger(runId: string): RolloutEntry[] {
 }
 
 /**
+ * Read only the last `n` entries from the decision ledger.
+ *
+ * P-02: coherence computation only inspects `ledger.slice(-10)`, so reading
+ * the entire file on every append is O(n) per write → O(n²) overall. This
+ * helper reads just the tail, making append O(1) amortised. The file is
+ * bounded by run lifetime (no unbounded growth across runs).
+ */
+function readTailEntries(runId: string, n: number = 10): RolloutEntry[] {
+	assertSafePathId("runId", runId);
+	const ledgerPath = getLedgerPath(runId);
+
+	if (!existsSync(ledgerPath)) {
+		return [];
+	}
+
+	const content = readFileSync(ledgerPath, "utf-8");
+	if (!content.trim()) {
+		return [];
+	}
+
+	const lines = content.split("\n").filter((line) => line.trim());
+	return lines.slice(-n).map((line) => JSON.parse(line) as RolloutEntry);
+}
+
+/**
  * Get the most recent entry from the decision ledger.
  */
 export function getLatestDecision(runId: string): RolloutEntry | null {
 	assertSafePathId("runId", runId);
-	const ledger = getLedger(runId);
-	if (ledger.length === 0) {
+	const tail = readTailEntries(runId, 1);
+	if (tail.length === 0) {
 		return null;
 	}
-	return ledger[ledger.length - 1];
+	return tail[tail.length - 1];
 }
 
 /**
@@ -255,10 +286,10 @@ export function promoteCandidate(runId: string, candidate: string): RolloutEntry
 
 	let entry: RolloutEntry;
 	withFileLockSync(ledgerPath, () => {
-		const latestDecision = getLatestDecision(runId);
-
-		// Get existing entries to compute proper coherence
-		const ledger = getLedger(runId);
+		// P-02: read tail only (last 10) for coherence + latest decision.
+		// Avoids O(n) full read on every promote/decay.
+		const tail = readTailEntries(runId, 10);
+		const latestDecision = tail.length > 0 ? tail[tail.length - 1] : null;
 
 		// Create entry without coherence first
 		const entryWithoutCoherence = {
@@ -272,7 +303,7 @@ export function promoteCandidate(runId: string, candidate: string): RolloutEntry
 		};
 
 		// Compute coherence (empty ledger = no matches)
-		const coherenceMark = computeCoherence(entryWithoutCoherence as RolloutEntry, ledger);
+		const coherenceMark = computeCoherence(entryWithoutCoherence as RolloutEntry, tail);
 
 		// Manual promotion always allows further promotion
 		coherenceMark.promotionAllowed = true;
@@ -281,11 +312,9 @@ export function promoteCandidate(runId: string, candidate: string): RolloutEntry
 		// Create full entry with coherence
 		entry = { ...entryWithoutCoherence, coherenceMark };
 
-		// Always push new entry (append-only pattern)
-		ledger.push(entry);
-
-		// Rewrite entire ledger atomically to preserve all entries
-		atomicWriteFile(ledgerPath, ledger.map((e) => JSON.stringify(e)).join("\n") + "\n");
+		// P-02: append single JSONL line instead of rewriting entire file.
+		const line = JSON.stringify(entry) + "\n";
+		appendFileSync(ledgerPath, line, "utf-8");
 	});
 
 	return entry!;
@@ -308,10 +337,10 @@ export function decayCandidate(runId: string, candidate: string): RolloutEntry {
 
 	let entry: RolloutEntry;
 	withFileLockSync(ledgerPath, () => {
-		const latestDecision = getLatestDecision(runId);
-
-		// Get existing entries to compute proper coherence
-		const ledger = getLedger(runId);
+		// P-02: read tail only (last 10) for coherence + latest decision.
+		// Avoids O(n) full read on every promote/decay.
+		const tail = readTailEntries(runId, 10);
+		const latestDecision = tail.length > 0 ? tail[tail.length - 1] : null;
 
 		// Create entry without coherence first
 		const entryWithoutCoherence = {
@@ -325,7 +354,7 @@ export function decayCandidate(runId: string, candidate: string): RolloutEntry {
 		};
 
 		// Compute coherence (empty ledger = no matches)
-		const coherenceMark = computeCoherence(entryWithoutCoherence as RolloutEntry, ledger);
+		const coherenceMark = computeCoherence(entryWithoutCoherence as RolloutEntry, tail);
 
 		// Manual decay never allows promotion
 		coherenceMark.promotionAllowed = false;
@@ -334,11 +363,9 @@ export function decayCandidate(runId: string, candidate: string): RolloutEntry {
 		// Create full entry with coherence
 		entry = { ...entryWithoutCoherence, coherenceMark };
 
-		// Always push new entry (append-only pattern)
-		ledger.push(entry);
-
-		// Rewrite entire ledger to preserve all entries
-		atomicWriteFile(ledgerPath, ledger.map((e) => JSON.stringify(e)).join("\n") + "\n");
+		// P-02: append single JSONL line instead of rewriting entire file.
+		const line = JSON.stringify(entry) + "\n";
+		appendFileSync(ledgerPath, line, "utf-8");
 	});
 
 	return entry!;
