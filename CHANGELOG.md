@@ -3,6 +3,121 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.51] — Complete the UI animation audit + Windows coalescing fix (2026-07-26)
+
+Closes out the remaining deferred findings from `reports/ui-animation-audit-2026-07-24.md`
+(R1, R4, C4, C3, C9; C6 analyzed-then-closed-with-reasoning) and fixes the
+underlying Windows event-log coalescing bug that a v0.9.49 test had been
+papering over with a `process.platform === "win32"` skip. All 15 audit
+findings are now resolved (11 applied in v0.9.50 + these + C6 closed).
+
+### Remaining audit findings applied
+
+- **R1 — `render-scheduler.ts` fallbackLoop idle-stop** (`c46dc0e`): the
+  self-perpetuating `fallbackLoop` (`schedule()`→`lastEventAt`) never let the
+  UI idle, re-rendering ~every `fallbackMs` forever on a hung run. Now calls
+  a new `armDebouncedRender()` that does NOT touch `lastEventAt`; an
+  `idleFallbackRenders` counter caps consecutive idle catch-up renders
+  (default 8) then stops. `lastEventAt` is advanced only by real external
+  events, which reset the count + re-arm a stopped loop. **+3 tests** — one
+  asserts the scheduler STOPS rendering when idle, closing audit Root Gap #2
+  ("no test asserts the scheduler ever stops rendering when idle").
+- **R4 — `render-scheduler.ts` flush re-entrancy backoff** (`c46dc0e`): the
+  cap-hit path (`iterations >= 5`) now calls
+  `armDebouncedRender(debounceMs * 2^exp)` with exponential backoff
+  (`CAP_BACKOFF_MAX_EXP=5`) instead of re-arming `schedule()`.
+  `consecutiveCapHits` resets on a clean flush. Stops the latent sustained
+  ~75ms render loop. +1 test.
+- **C4 — `widget/index.ts` signature cache (invalidate-on-write)**
+  (`c46dc0e`): the prior blind-TTL cache (reverted in v0.9.50) caused stale
+  reads that skipped genuine re-renders. Now `cachedBuildSignature` is
+  invalidated in the widget's `RenderScheduler` `onInvalidate` callback (fires
+  on `run:state`/`worker:lifecycle`/`ui:invalidate`), plus in `invalidate()`
+  and on dispose. A 100ms TTL remains as a safety net only.
+  `notificationCount` is appended post-cache so notification changes still
+  re-render. +1 test asserting a genuine state change triggers re-render.
+- **C9 — dead loaders removal** (`c46dc0e`): `CrewBorderedLoader` +
+  `CountdownTimer` were dead production code (referenced only in
+  `test/unit/loaders.test.ts`, never instantiated in `src/` or re-exported
+  from the public index). Removed both classes (`loaders.ts` → 6-line
+  documenting comment) + deleted the test file. **Preserved** the 2
+  `DynamicCrewBorder` tests (a LIVE class used by `mascot.ts`,
+  `settings-overlay.ts`, `run-dashboard.ts`) → moved to new
+  `test/unit/dynamic-border.test.ts`.
+- **C3 — shared `RenderScheduler` fan-out dedup** (`3a50094`): the 3 overlays
+  (widget + sidebar + dashboard) each instantiated an identical
+  `RenderScheduler` (same run-event-bus channels, debounce 75ms, fallback
+  750ms) → 9 subscriptions + 9 live timers + 3× per-event `schedule()` CPU
+  during active runs. Now ONE shared scheduler (module singleton in
+  `src/ui/shared-overlay-scheduler.ts`) fans out `render` + `onInvalidate` to
+  registered overlays, with per-callback try/catch isolation + ref-counted
+  disposal. Dedups 9→3 subscriptions, 9→3 timers, 3→1 `schedule()`/event,
+  and coalesces 3 independent debounce flushes → 1 batch per event burst.
+  +5 tests (fan-out render/invalidate, dispose ref-count, error isolation ×2).
+- **C6 — mascot visibility gate: CLOSED, not wired** (`c46dc0e` gate +
+  `01ee10f` decision): the `setVisible()` gate was implemented + tested, but
+  after reading pi source (`earendil-works/pi@cee5ff75`) the wiring was
+  deliberately NOT done. `ctx.ui.custom()` does expose
+  `onHandle→OverlayHandle.isFocused()` (a usable "not obscured" proxy), so
+  wiring is feasible — BUT pi composites ALL non-hidden overlays
+  (`tui.ts:1044` `visibleEntries` → `component.render()` at `:1054`), so the
+  host STILL calls `mascot.render()` when obscured: C6 does not save the
+  render() work it appears to target, only cheap + coalesced + redundant
+  `requestRender()` pokes. Net benefit near zero. The correct fix is a
+  pi-core compositing optimization (skip `render()` for occluded overlays) —
+  upstream, not pi-crew. See `docs/decisions/2026-07-26-c6-mascot-visibility-not-wired.md`.
+
+### Windows event-log coalescing — attempted, REVERTED (remains unfixed)
+
+An adaptive burst coalesce window (`NOTIFY_COALESCE_BURST_MS = 3000ms`) was
+attempted to fix the Windows coalescing bug (the v0.9.49 `Rule 3` test had a
+`process.platform === "win32"` skip hiding it). **Reverted** — verified on
+Windows CI (run `30235357951`) that the 3000ms burst window is STILL shorter
+than Windows's 3-5s completion spread, so coalescing still did not occur; AND
+the 3000ms coalesce timer (not cancelled on `session_shutdown`) fired after
+test temp-dir deletion → `ENOENT mkdir` unhandledRejection that failed the
+whole `subagent-tools-integration` file on Windows. Restored the v0.9.50
+behavior (800ms constant coalesce). The `win32` test skip is **retained** —
+the underlying Windows coalescing bug remains unfixed (tracked from v0.9.49;
+widening further would delay ALL notifications by 5s+ on every platform).
+subagent-tools-integration 14/14 on Linux/macOS; both Rule 3 assertions
+skipped on Windows.
+
+### distill-software: Transfer vs Audit mode (`418b9f2`, bonus)
+
+From real distillation runs (audit-only distillation produced 0 visible
+features for the target; artifact-level gates were ALL-GREEN while code had
+runtime bugs needing multiple review rounds):
+- **Phase 0 #7**: Transfer (default for "distill X to Y") vs Audit mode.
+  Transfer enumerates source CAPABILITIES (features not files) and applies
+  the gaps; deliverable = visible/behavioral new features. Audit enumerates
+  conventions; deliverable = invisible refactors. Decomposition follows mode.
+- **Phase 1**: CAPABILITY DEPTH check before SKIP on PRESENCE=yes — surface
+  match can mask a capability gap.
+- **Phase 3 APPLY-LOG**: 5 post-APPLY integration checks — WIRED, VISIBLE
+  DELTA, RUNTIME, API VERIFIED, RESOURCE LIFECYCLE.
+
+### Repo hygiene
+
+- **`.claude/worktrees/*` orphan gitlinks removed** (`0e6cba5`): 7 gitlinks
+  (mode 160000, no `.gitmodules`) were stranded in the index from a prior
+  `.claude`-based tooling experiment, producing non-blocking `git exit code
+  128` warnings. Removed from index + added `.claude/` to `.gitignore`
+  (`a0b2b1e`).
+
+### Verification
+
+- `npm run test:critical` → 97/97 pass; render-scheduler 9/9, crew-widget
+  6/6, mascot 7/7, dynamic-border 2/2, shared-overlay-scheduler 5/5,
+  subagent-tools-integration 14/14.
+- `npm run typecheck` → exit 0; `npm run lint` → clean;
+  `npx biome format .` → clean.
+- `npm run build:bundle` → 2690.6 KB, md5 `29e7a4d04ab8ad0542a3af3ef3d42426`.
+- **real-test-pi-crew** all 8 tiers green (Tier 6 pty definitive — pi renders
+  full TUI, no crash; Tier 7 smoke team `team_20260727032433` fast-fix 3/3,
+  no hang).
+
+
 ## [0.9.50] — UI animation audit + distillation toolkit v2 (2026-07-25)
 
 Eliminates a class of timer-leak / flicker bugs surfaced by the UI animation
