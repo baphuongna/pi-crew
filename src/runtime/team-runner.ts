@@ -22,7 +22,7 @@ import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
 import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./coalesce-tasks.ts";
-import { resolveBatchConcurrency } from "./concurrency.ts";
+import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./concurrency.ts";
 import { readCrewAgents, saveCrewAgents } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
@@ -42,7 +42,13 @@ import { resolveTaskRuntimeKind } from "./runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
 import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./task-graph.ts";
-import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot, type TaskGraphIndex } from "./task-graph-scheduler.ts";
+import {
+	buildTaskGraphIndex,
+	refreshTaskGraphQueues,
+	type TaskGraphIndex,
+	type TaskGraphSchedulerSnapshot,
+	taskGraphSnapshot,
+} from "./task-graph-scheduler.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
 import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
@@ -53,8 +59,8 @@ import {
 	type PhaseGuardContext,
 	type PhaseState,
 	transitionPhase,
-	type WorkflowStateMachine,
 	validatePhasePreconditions,
+	type WorkflowStateMachine,
 } from "./workflow-state.ts";
 
 // Built-in plugin registry for framework awareness.
@@ -987,7 +993,15 @@ interface SchedulerContext {
 type SchedulerDecision =
 	| { kind: "continue" }
 	| { kind: "return"; result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } }
-	| { kind: "skip-dispatch" };
+	| { kind: "skip-dispatch" }
+	| {
+			kind: "dispatch";
+			batch: TeamTaskState[];
+			concurrency: BatchConcurrencyDecision;
+			snapshot: TaskGraphSchedulerSnapshot;
+			approvalPending: boolean;
+			coalesceEnabled: boolean;
+	  };
 
 /**
  * CORE-4 extraction 1: handle a pre-aborted signal at the top of the
@@ -1041,6 +1055,246 @@ async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDeci
 		data: { reason: cancelReason.code, cancelledTaskIds },
 	});
 	return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
+
+/**
+ * CORE-4 extraction 2: handle a failed task detected at the top of the
+ * scheduler loop.
+ *
+ * If a task has status "failed", honor `limits.maxRetriesPerTask` to decide
+ * whether to re-queue it for a bounded whole-task rerun or abort the run.
+ *
+ * - `maxRetriesPerTask > 0` and the task is eligible → re-queue the task
+ *   (mutate `ctx.tasks`), emit `recovery.rerun_task`, return `{ kind: "continue" }`
+ *   so the caller re-processes the re-queued task.
+ * - Otherwise → mark all queued tasks blocked, persist, mark the run failed,
+ *   and return `{ kind: "return", result }` so the caller short-circuits.
+ *
+ * Returns `null` when no failed task exists (no decision — continue).
+ *
+ * @param ctx  The scheduler context; `ctx.tasks` and `ctx.manifest` are
+ *             mutated in-place to reflect the rerun or abort.
+ */
+async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
+	const failed = ctx.tasks.find((task) => task.status === "failed");
+	if (!failed) return null;
+
+	// #4 (assessment): honor limits.maxRetriesPerTask — re-queue an eligible
+	// failed task for a bounded whole-task rerun instead of immediately
+	// aborting the run. Before #4, the recovery ledger recorded `rerun_task`
+	// entries with state:"planned" but never executed them (decorative).
+	// Default-off: maxRetriesPerTask=0 → original abort behavior preserved.
+	const rerun = shouldRerunFailedTask(failed, ctx.input.limits);
+	if (rerun.rerun) {
+		ctx.tasks = ctx.tasks.map((item) =>
+			item.id === failed.id
+				? {
+						...item,
+						status: "queued" as const,
+						policy: {
+							...(item.policy ?? {}),
+							retryCount: rerun.newRetryCount,
+						},
+						error: undefined,
+						finishedAt: undefined,
+					}
+				: item,
+		);
+		await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+		await appendEventAsync(ctx.manifest.eventsPath, {
+			type: "recovery.rerun_task",
+			runId: ctx.manifest.runId,
+			taskId: failed.id,
+			message: `Re-queuing failed task for whole-task rerun: ${rerun.reason}`,
+			data: {
+				attempt: rerun.newRetryCount,
+				maxRetries: ctx.input.limits?.maxRetriesPerTask ?? 0,
+				scenario: "task_failed",
+			},
+		});
+		return { kind: "continue" }; // loop re-processes the re-queued task
+	}
+	ctx.tasks = markBlocked(ctx.tasks, `Blocked by failed task '${failed.id}'.`);
+	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+	saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+	ctx.manifest = updateRunStatus(ctx.manifest, "failed", `Failed at task '${failed.id}'.`);
+	return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
+
+/**
+ * CORE-4 extraction 3: select the dispatch batch for the current loop
+ * iteration.
+ *
+ * Computes the task-graph snapshot, DAG-ready tasks, workflow phase
+ * preconditions, batch concurrency, write-path-overlap serialization,
+ * coalesced-group logging, and streaming-dispatch slot allocation to
+ * determine which tasks are ready to dispatch this cycle.
+ *
+ * Returns:
+ * - `{ kind: "return", result }` when the run must block or abort
+ *   (plan-approval pending with mutating tasks, or no ready task at all).
+ * - `{ kind: "dispatch", batch, ... }` when a batch is selected (may be
+ *   empty when tasks are still in-flight — the caller proceeds to the
+ *   wait phase with an empty dispatch set).
+ *
+ * The caller syncs `ctx.wfMachine` back after the call because this
+ * function may advance the workflow phase state machine.
+ *
+ * @param ctx  The scheduler context; `ctx.wfMachine`, `ctx.tasks`, and
+ *             `ctx.manifest` may be mutated in-place.
+ */
+async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDecision> {
+	const snapshot = taskGraphSnapshot(ctx.tasks, ctx.queueIndex);
+
+	// DAG-based execution plan: when tasks have explicit dependsOn, use the
+	// topological wave planner to determine ready tasks. Fall back to the
+	// existing task-graph-scheduler when no explicit deps exist (backward compat).
+	const completedIds = new Set(ctx.tasks.filter((t) => t.status === "completed" || t.status === "needs_attention").map((t) => t.id));
+	const dagReady = dagReadyTaskIds(ctx.tasks, completedIds);
+	const readyBeforeFilter = dagReady ?? snapshot.ready;
+
+	// Workflow phase precondition check (non-blocking: log warnings only).
+	if (ctx.wfMachine.currentPhaseIndex < ctx.wfMachine.phases.length) {
+		const completedArtifacts = ctx.manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
+		const previousPhaseStatus =
+			ctx.wfMachine.currentPhaseIndex > 0
+				? (ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex - 1]?.status ?? "pending")
+				: "completed";
+		const wfContext: PhaseGuardContext = {
+			completedArtifacts,
+			previousPhaseStatus,
+			taskResults: ctx.tasks
+				.filter((t) => t.status === "completed" || t.status === "needs_attention")
+				.map((t) => ({
+					taskId: t.id,
+					status: t.status,
+					outputPath: t.resultArtifact?.path,
+				})),
+		};
+		const preconditions = validatePhasePreconditions(ctx.wfMachine, wfContext);
+		if (!preconditions.ready) {
+			await appendEventAsync(ctx.manifest.eventsPath, {
+				type: "workflow.preconditions",
+				runId: ctx.manifest.runId,
+				message: `Workflow phase '${ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.name}' is missing inputs: ${preconditions.blocking.join(", ")}`,
+				data: {
+					phaseIndex: ctx.wfMachine.currentPhaseIndex,
+					phaseName: ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.name,
+					blocking: preconditions.blocking,
+				},
+			});
+		} else {
+			// Advance the machine past completed phases.
+			while (
+				ctx.wfMachine.currentPhaseIndex < ctx.wfMachine.phases.length &&
+				ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.status === "completed"
+			) {
+				ctx.wfMachine = {
+					...ctx.wfMachine,
+					currentPhaseIndex: ctx.wfMachine.currentPhaseIndex + 1,
+				};
+			}
+		}
+	}
+
+	const readyRoles = readyBeforeFilter
+		.map((taskId) => ctx.tasks.find((task) => task.id === taskId)?.role)
+		.filter((role): role is string => Boolean(role));
+	const concurrency = resolveBatchConcurrency({
+		workflowName: ctx.workflow.name,
+		workflowMaxConcurrency: ctx.workflow.maxConcurrency,
+		teamMaxConcurrency: ctx.input.team.maxConcurrency,
+		limitMaxConcurrentWorkers: ctx.input.limits?.maxConcurrentWorkers,
+		allowUnboundedConcurrency: ctx.input.limits?.allowUnboundedConcurrency,
+		readyCount: readyBeforeFilter.length,
+		workspaceMode: ctx.manifest.workspaceMode,
+		readyRoles,
+	});
+
+	// Round 25 (M5): serialize on write-path overlap when opted in.
+	// Opt-in via limits.serializeOnPathOverlap; default off (= no behavior change).
+	// filterReadyByWriteOverlap returns the same array when enabled=false, so
+	// production runs pay nothing for the unused code path. When the flag is on,
+	// `serializedReady` MAY be a strict subset of `readyBeforeFilter` (conflicting tasks
+	// deferred to next cycle).
+	const serializedReady = filterReadyByWriteOverlap(
+		readyBeforeFilter,
+		ctx.tasks,
+		ctx.workflow,
+		concurrency.maxConcurrent,
+		ctx.input.limits?.serializeOnPathOverlap === true,
+	);
+
+	// Round 25 (M6): coalesce micro-tasks when opted in.
+	// Default off; when on, groups same-(role,cwd) tasks into coalesced groups
+	// (with write-path safety). In v0.9.17 first ship, we ONLY log the
+	// coalesced group count to the event stream (informational). Actual
+	// dispatching of one-multi-task worker instead of N workers is deferred
+	// to a follow-up — it's a non-trivial prompt-construction change that
+	// deserves its own PR. For now, every coalesced group => one info event.
+	const coalesceEnabled = ctx.workflow.coalesceMicroTasks === true;
+	if (coalesceEnabled) {
+		const coalescedGroups = planCoalescedGroups(serializedReady, ctx.tasks, ctx.workflow, true);
+		for (const group of coalescedGroups) {
+			if (group.tasks.length < 2) continue; // singletons are not interesting
+			await appendEventAsync(ctx.manifest.eventsPath, {
+				type: "task.coalesced",
+				runId: ctx.manifest.runId,
+				message: `Coalesced ${group.tasks.length} micro-tasks (role=${group.role}, cwd=${group.cwd})`,
+				data: {
+					groupId: group.id,
+					role: group.role,
+					cwd: group.cwd,
+					taskIds: group.tasks.map((task) => task.id),
+				},
+			});
+		}
+	}
+	if (concurrency.reason.includes(";unbounded:")) {
+		await appendEventAsync(ctx.manifest.eventsPath, {
+			type: "limits.unbounded",
+			runId: ctx.manifest.runId,
+			message: "Unbounded worker concurrency was explicitly enabled for this run.",
+			data: {
+				concurrencyReason: concurrency.reason,
+				maxConcurrent: concurrency.maxConcurrent,
+			},
+		});
+	}
+	// ── OPT-01 streaming dispatch: exclude tasks already in-flight, limit
+	// new dispatches to available concurrency slots. ──
+	const inFlightTaskIds = new Set<string>();
+	for (const pendingUnit of ctx.pendingUnits.values()) {
+		for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
+	}
+	const slotsAvailable = Math.max(0, concurrency.maxConcurrent - ctx.pendingUnits.size);
+	const approvalPending = isPlanApprovalPending(ctx.manifest);
+	const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
+	const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
+	const candidateBatch = readyIds
+		.map((id) => ctx.tasks.find((task) => task.id === id))
+		.filter((task): task is TeamTaskState => Boolean(task));
+	const readyBatch = approvalPending ? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable) : candidateBatch;
+	if (readyBatch.length === 0) {
+		if (ctx.pendingUnits.size > 0) {
+			// Tasks are in-flight — skip dispatch and proceed to wait phase.
+			// (No return; code falls through to the dispatch section which is
+			// a no-op with an empty readyBatch, then reaches the wait phase.)
+		} else if (approvalPending && candidateBatch.some(isMutatingTask)) {
+			await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+			saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+			ctx.manifest = updateRunStatus(ctx.manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
+			return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+		} else {
+			ctx.tasks = markBlocked(ctx.tasks, "No ready queued task; dependency graph may be invalid.");
+			await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+			saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+			ctx.manifest = updateRunStatus(ctx.manifest, "blocked", "No ready queued task.");
+			return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+		}
+	}
+
+	return { kind: "dispatch", batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled };
 }
 
 async function executeTeamRunCore(
@@ -1161,201 +1415,31 @@ async function executeTeamRunCore(
 			const signalDecision = await cancelRunFromSignal(ctx);
 			if (signalDecision?.kind === "return") return signalDecision.result;
 
-			const failed = tasks.find((task) => task.status === "failed");
-			if (failed) {
-				// #4 (assessment): honor limits.maxRetriesPerTask — re-queue an eligible
-				// failed task for a bounded whole-task rerun instead of immediately
-				// aborting the run. Before #4, the recovery ledger recorded `rerun_task`
-				// entries with state:"planned" but never executed them (decorative).
-				// Default-off: maxRetriesPerTask=0 → original abort behavior preserved.
-				const rerun = shouldRerunFailedTask(failed, input.limits);
-				if (rerun.rerun) {
-					tasks = tasks.map((item) =>
-						item.id === failed.id
-							? {
-									...item,
-									status: "queued" as const,
-									policy: {
-										...(item.policy ?? {}),
-										retryCount: rerun.newRetryCount,
-									},
-									error: undefined,
-									finishedAt: undefined,
-								}
-							: item,
-					);
-					await saveRunTasksAsync(manifest, tasks);
-					await appendEventAsync(manifest.eventsPath, {
-						type: "recovery.rerun_task",
-						runId: manifest.runId,
-						taskId: failed.id,
-						message: `Re-queuing failed task for whole-task rerun: ${rerun.reason}`,
-						data: {
-							attempt: rerun.newRetryCount,
-							maxRetries: input.limits?.maxRetriesPerTask ?? 0,
-							scenario: "task_failed",
-						},
-					});
-					continue; // loop re-processes the re-queued task
-				}
-				tasks = markBlocked(tasks, `Blocked by failed task '${failed.id}'.`);
-				await saveRunTasksAsync(manifest, tasks);
-				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-				manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
-				return { manifest, tasks };
-			}
+			// CORE-4 extraction 2: failed-task handling. Sync mutable locals into
+			// ctx before the call; handleFailedTask mutates ctx in-place and
+			// returns a SchedulerDecision.
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			const failedDecision = await handleFailedTask(ctx);
+			tasks = ctx.tasks;
+			manifest = ctx.manifest;
+			if (failedDecision?.kind === "return") return failedDecision.result;
+			if (failedDecision?.kind === "continue") continue;
 
-			const snapshot = taskGraphSnapshot(tasks, queueIndex);
-
-			// DAG-based execution plan: when tasks have explicit dependsOn, use the
-			// topological wave planner to determine ready tasks. Fall back to the
-			// existing task-graph-scheduler when no explicit deps exist (backward compat).
-			const completedIds = new Set(tasks.filter((t) => t.status === "completed" || t.status === "needs_attention").map((t) => t.id));
-			const dagReady = dagReadyTaskIds(tasks, completedIds);
-			const readyBeforeFilter = dagReady ?? snapshot.ready;
-
-			// Workflow phase precondition check (non-blocking: log warnings only).
-			if (wfMachine.currentPhaseIndex < wfMachine.phases.length) {
-				const completedArtifacts = manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
-				const previousPhaseStatus =
-					wfMachine.currentPhaseIndex > 0
-						? (wfMachine.phases[wfMachine.currentPhaseIndex - 1]?.status ?? "pending")
-						: "completed";
-				const wfContext: PhaseGuardContext = {
-					completedArtifacts,
-					previousPhaseStatus,
-					taskResults: tasks
-						.filter((t) => t.status === "completed" || t.status === "needs_attention")
-						.map((t) => ({
-							taskId: t.id,
-							status: t.status,
-							outputPath: t.resultArtifact?.path,
-						})),
-				};
-				const preconditions = validatePhasePreconditions(wfMachine, wfContext);
-				if (!preconditions.ready) {
-					await appendEventAsync(manifest.eventsPath, {
-						type: "workflow.preconditions",
-						runId: manifest.runId,
-						message: `Workflow phase '${wfMachine.phases[wfMachine.currentPhaseIndex]?.name}' is missing inputs: ${preconditions.blocking.join(", ")}`,
-						data: {
-							phaseIndex: wfMachine.currentPhaseIndex,
-							phaseName: wfMachine.phases[wfMachine.currentPhaseIndex]?.name,
-							blocking: preconditions.blocking,
-						},
-					});
-				} else {
-					// Advance the machine past completed phases.
-					while (
-						wfMachine.currentPhaseIndex < wfMachine.phases.length &&
-						wfMachine.phases[wfMachine.currentPhaseIndex]?.status === "completed"
-					) {
-						wfMachine = {
-							...wfMachine,
-							currentPhaseIndex: wfMachine.currentPhaseIndex + 1,
-						};
-					}
-				}
-			}
-
-			const readyRoles = readyBeforeFilter
-				.map((taskId) => tasks.find((task) => task.id === taskId)?.role)
-				.filter((role): role is string => Boolean(role));
-			const concurrency = resolveBatchConcurrency({
-				workflowName: workflow.name,
-				workflowMaxConcurrency: workflow.maxConcurrency,
-				teamMaxConcurrency: input.team.maxConcurrency,
-				limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers,
-				allowUnboundedConcurrency: input.limits?.allowUnboundedConcurrency,
-				readyCount: readyBeforeFilter.length,
-				workspaceMode: manifest.workspaceMode,
-				readyRoles,
-			});
-
-			// Round 25 (M5): serialize on write-path overlap when opted in.
-			// Opt-in via limits.serializeOnPathOverlap; default off (= no behavior change).
-			// filterReadyByWriteOverlap returns the same array when enabled=false, so
-			// production runs pay nothing for the unused code path. When the flag is on,
-			// `serializedReady` MAY be a strict subset of `readyBeforeFilter` (conflicting tasks
-			// deferred to next cycle).
-			const serializedReady = filterReadyByWriteOverlap(
-				readyBeforeFilter,
-				tasks,
-				workflow,
-				concurrency.maxConcurrent,
-				input.limits?.serializeOnPathOverlap === true,
-			);
-
-			// Round 25 (M6): coalesce micro-tasks when opted in.
-			// Default off; when on, groups same-(role,cwd) tasks into coalesced groups
-			// (with write-path safety). In v0.9.17 first ship, we ONLY log the
-			// coalesced group count to the event stream (informational). Actual
-			// dispatching of one-multi-task worker instead of N workers is deferred
-			// to a follow-up — it's a non-trivial prompt-construction change that
-			// deserves its own PR. For now, every coalesced group => one info event.
-			const coalesceEnabled = workflow.coalesceMicroTasks === true;
-			if (coalesceEnabled) {
-				const coalescedGroups = planCoalescedGroups(serializedReady, tasks, workflow, true);
-				for (const group of coalescedGroups) {
-					if (group.tasks.length < 2) continue; // singletons are not interesting
-					await appendEventAsync(manifest.eventsPath, {
-						type: "task.coalesced",
-						runId: manifest.runId,
-						message: `Coalesced ${group.tasks.length} micro-tasks (role=${group.role}, cwd=${group.cwd})`,
-						data: {
-							groupId: group.id,
-							role: group.role,
-							cwd: group.cwd,
-							taskIds: group.tasks.map((task) => task.id),
-						},
-					});
-				}
-			}
-			if (concurrency.reason.includes(";unbounded:")) {
-				await appendEventAsync(manifest.eventsPath, {
-					type: "limits.unbounded",
-					runId: manifest.runId,
-					message: "Unbounded worker concurrency was explicitly enabled for this run.",
-					data: {
-						concurrencyReason: concurrency.reason,
-						maxConcurrent: concurrency.maxConcurrent,
-					},
-				});
-			}
-			// ── OPT-01 streaming dispatch: exclude tasks already in-flight, limit
-			// new dispatches to available concurrency slots. ──
-			const inFlightTaskIds = new Set<string>();
-			for (const pendingUnit of pendingUnits.values()) {
-				for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
-			}
-			const slotsAvailable = Math.max(0, concurrency.maxConcurrent - pendingUnits.size);
-			const approvalPending = isPlanApprovalPending(manifest);
-			const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
-			const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
-			const candidateBatch = readyIds
-				.map((id) => tasks.find((task) => task.id === id))
-				.filter((task): task is TeamTaskState => Boolean(task));
-			const readyBatch = approvalPending
-				? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable)
-				: candidateBatch;
-			if (readyBatch.length === 0) {
-				if (pendingUnits.size > 0) {
-					// Tasks are in-flight — skip dispatch and proceed to wait phase.
-					// (No return; code falls through to the dispatch section which is
-					// a no-op with an empty readyBatch, then reaches the wait phase.)
-				} else if (approvalPending && candidateBatch.some(isMutatingTask)) {
-					await saveRunTasksAsync(manifest, tasks);
-					saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-					manifest = updateRunStatus(manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
-					return { manifest, tasks };
-				} else {
-					tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
-					await saveRunTasksAsync(manifest, tasks);
-					saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-					manifest = updateRunStatus(manifest, "blocked", "No ready queued task.");
-					return { manifest, tasks };
-				}
-			}
+			// CORE-4 extraction 3: batch selection. Sync mutable locals into ctx;
+			// selectDispatchBatch computes the ready batch and returns a dispatch
+			// decision (or return if the run must block/abort). The caller syncs
+			// ctx.wfMachine back because the function may advance phases.
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			ctx.wfMachine = wfMachine;
+			const dispatchDecision = await selectDispatchBatch(ctx);
+			tasks = ctx.tasks;
+			manifest = ctx.manifest;
+			wfMachine = ctx.wfMachine;
+			if (dispatchDecision.kind === "return") return dispatchDecision.result;
+			if (dispatchDecision.kind !== "dispatch") continue;
+			const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = dispatchDecision;
 
 			// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
 			void appendEventBuffered(manifest.eventsPath, {

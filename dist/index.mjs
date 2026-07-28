@@ -53708,6 +53708,155 @@ async function cancelRunFromSignal(ctx) {
   });
   return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
 }
+async function handleFailedTask(ctx) {
+  const failed = ctx.tasks.find((task) => task.status === "failed");
+  if (!failed) return null;
+  const rerun = shouldRerunFailedTask(failed, ctx.input.limits);
+  if (rerun.rerun) {
+    ctx.tasks = ctx.tasks.map(
+      (item) => item.id === failed.id ? {
+        ...item,
+        status: "queued",
+        policy: {
+          ...item.policy ?? {},
+          retryCount: rerun.newRetryCount
+        },
+        error: void 0,
+        finishedAt: void 0
+      } : item
+    );
+    await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+    await appendEventAsync(ctx.manifest.eventsPath, {
+      type: "recovery.rerun_task",
+      runId: ctx.manifest.runId,
+      taskId: failed.id,
+      message: `Re-queuing failed task for whole-task rerun: ${rerun.reason}`,
+      data: {
+        attempt: rerun.newRetryCount,
+        maxRetries: ctx.input.limits?.maxRetriesPerTask ?? 0,
+        scenario: "task_failed"
+      }
+    });
+    return { kind: "continue" };
+  }
+  ctx.tasks = markBlocked(ctx.tasks, `Blocked by failed task '${failed.id}'.`);
+  await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+  saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+  ctx.manifest = updateRunStatus(ctx.manifest, "failed", `Failed at task '${failed.id}'.`);
+  return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
+async function selectDispatchBatch(ctx) {
+  const snapshot = taskGraphSnapshot(ctx.tasks, ctx.queueIndex);
+  const completedIds = new Set(ctx.tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => t2.id));
+  const dagReady = dagReadyTaskIds(ctx.tasks, completedIds);
+  const readyBeforeFilter = dagReady ?? snapshot.ready;
+  if (ctx.wfMachine.currentPhaseIndex < ctx.wfMachine.phases.length) {
+    const completedArtifacts = ctx.manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
+    const previousPhaseStatus = ctx.wfMachine.currentPhaseIndex > 0 ? ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex - 1]?.status ?? "pending" : "completed";
+    const wfContext = {
+      completedArtifacts,
+      previousPhaseStatus,
+      taskResults: ctx.tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => ({
+        taskId: t2.id,
+        status: t2.status,
+        outputPath: t2.resultArtifact?.path
+      }))
+    };
+    const preconditions = validatePhasePreconditions(ctx.wfMachine, wfContext);
+    if (!preconditions.ready) {
+      await appendEventAsync(ctx.manifest.eventsPath, {
+        type: "workflow.preconditions",
+        runId: ctx.manifest.runId,
+        message: `Workflow phase '${ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.name}' is missing inputs: ${preconditions.blocking.join(", ")}`,
+        data: {
+          phaseIndex: ctx.wfMachine.currentPhaseIndex,
+          phaseName: ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.name,
+          blocking: preconditions.blocking
+        }
+      });
+    } else {
+      while (ctx.wfMachine.currentPhaseIndex < ctx.wfMachine.phases.length && ctx.wfMachine.phases[ctx.wfMachine.currentPhaseIndex]?.status === "completed") {
+        ctx.wfMachine = {
+          ...ctx.wfMachine,
+          currentPhaseIndex: ctx.wfMachine.currentPhaseIndex + 1
+        };
+      }
+    }
+  }
+  const readyRoles = readyBeforeFilter.map((taskId) => ctx.tasks.find((task) => task.id === taskId)?.role).filter((role) => Boolean(role));
+  const concurrency = resolveBatchConcurrency({
+    workflowName: ctx.workflow.name,
+    workflowMaxConcurrency: ctx.workflow.maxConcurrency,
+    teamMaxConcurrency: ctx.input.team.maxConcurrency,
+    limitMaxConcurrentWorkers: ctx.input.limits?.maxConcurrentWorkers,
+    allowUnboundedConcurrency: ctx.input.limits?.allowUnboundedConcurrency,
+    readyCount: readyBeforeFilter.length,
+    workspaceMode: ctx.manifest.workspaceMode,
+    readyRoles
+  });
+  const serializedReady = filterReadyByWriteOverlap(
+    readyBeforeFilter,
+    ctx.tasks,
+    ctx.workflow,
+    concurrency.maxConcurrent,
+    ctx.input.limits?.serializeOnPathOverlap === true
+  );
+  const coalesceEnabled = ctx.workflow.coalesceMicroTasks === true;
+  if (coalesceEnabled) {
+    const coalescedGroups = planCoalescedGroups(serializedReady, ctx.tasks, ctx.workflow, true);
+    for (const group of coalescedGroups) {
+      if (group.tasks.length < 2) continue;
+      await appendEventAsync(ctx.manifest.eventsPath, {
+        type: "task.coalesced",
+        runId: ctx.manifest.runId,
+        message: `Coalesced ${group.tasks.length} micro-tasks (role=${group.role}, cwd=${group.cwd})`,
+        data: {
+          groupId: group.id,
+          role: group.role,
+          cwd: group.cwd,
+          taskIds: group.tasks.map((task) => task.id)
+        }
+      });
+    }
+  }
+  if (concurrency.reason.includes(";unbounded:")) {
+    await appendEventAsync(ctx.manifest.eventsPath, {
+      type: "limits.unbounded",
+      runId: ctx.manifest.runId,
+      message: "Unbounded worker concurrency was explicitly enabled for this run.",
+      data: {
+        concurrencyReason: concurrency.reason,
+        maxConcurrent: concurrency.maxConcurrent
+      }
+    });
+  }
+  const inFlightTaskIds = /* @__PURE__ */ new Set();
+  for (const pendingUnit of ctx.pendingUnits.values()) {
+    for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
+  }
+  const slotsAvailable = Math.max(0, concurrency.maxConcurrent - ctx.pendingUnits.size);
+  const approvalPending = isPlanApprovalPending2(ctx.manifest);
+  const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
+  const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
+  const candidateBatch = readyIds.map((id) => ctx.tasks.find((task) => task.id === id)).filter((task) => Boolean(task));
+  const readyBatch = approvalPending ? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable) : candidateBatch;
+  if (readyBatch.length === 0) {
+    if (ctx.pendingUnits.size > 0) {
+    } else if (approvalPending && candidateBatch.some(isMutatingTask)) {
+      await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+      saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+      ctx.manifest = updateRunStatus(ctx.manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
+      return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+    } else {
+      ctx.tasks = markBlocked(ctx.tasks, "No ready queued task; dependency graph may be invalid.");
+      await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+      saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+      ctx.manifest = updateRunStatus(ctx.manifest, "blocked", "No ready queued task.");
+      return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+    }
+  }
+  return { kind: "dispatch", batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled };
+}
 async function executeTeamRunCore(input, manifest, workflow) {
   const beforeRunReport = await executeHook("before_run_start", {
     runId: manifest.runId,
@@ -53797,151 +53946,23 @@ async function executeTeamRunCore(input, manifest, workflow) {
       ctx.manifest = manifest;
       const signalDecision = await cancelRunFromSignal(ctx);
       if (signalDecision?.kind === "return") return signalDecision.result;
-      const failed2 = tasks.find((task) => task.status === "failed");
-      if (failed2) {
-        const rerun = shouldRerunFailedTask(failed2, input.limits);
-        if (rerun.rerun) {
-          tasks = tasks.map(
-            (item) => item.id === failed2.id ? {
-              ...item,
-              status: "queued",
-              policy: {
-                ...item.policy ?? {},
-                retryCount: rerun.newRetryCount
-              },
-              error: void 0,
-              finishedAt: void 0
-            } : item
-          );
-          await saveRunTasksAsync(manifest, tasks);
-          await appendEventAsync(manifest.eventsPath, {
-            type: "recovery.rerun_task",
-            runId: manifest.runId,
-            taskId: failed2.id,
-            message: `Re-queuing failed task for whole-task rerun: ${rerun.reason}`,
-            data: {
-              attempt: rerun.newRetryCount,
-              maxRetries: input.limits?.maxRetriesPerTask ?? 0,
-              scenario: "task_failed"
-            }
-          });
-          continue;
-        }
-        tasks = markBlocked(tasks, `Blocked by failed task '${failed2.id}'.`);
-        await saveRunTasksAsync(manifest, tasks);
-        saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-        manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed2.id}'.`);
-        return { manifest, tasks };
-      }
-      const snapshot = taskGraphSnapshot(tasks, queueIndex);
-      const completedIds = new Set(tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => t2.id));
-      const dagReady = dagReadyTaskIds(tasks, completedIds);
-      const readyBeforeFilter = dagReady ?? snapshot.ready;
-      if (wfMachine.currentPhaseIndex < wfMachine.phases.length) {
-        const completedArtifacts = manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
-        const previousPhaseStatus = wfMachine.currentPhaseIndex > 0 ? wfMachine.phases[wfMachine.currentPhaseIndex - 1]?.status ?? "pending" : "completed";
-        const wfContext = {
-          completedArtifacts,
-          previousPhaseStatus,
-          taskResults: tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => ({
-            taskId: t2.id,
-            status: t2.status,
-            outputPath: t2.resultArtifact?.path
-          }))
-        };
-        const preconditions = validatePhasePreconditions(wfMachine, wfContext);
-        if (!preconditions.ready) {
-          await appendEventAsync(manifest.eventsPath, {
-            type: "workflow.preconditions",
-            runId: manifest.runId,
-            message: `Workflow phase '${wfMachine.phases[wfMachine.currentPhaseIndex]?.name}' is missing inputs: ${preconditions.blocking.join(", ")}`,
-            data: {
-              phaseIndex: wfMachine.currentPhaseIndex,
-              phaseName: wfMachine.phases[wfMachine.currentPhaseIndex]?.name,
-              blocking: preconditions.blocking
-            }
-          });
-        } else {
-          while (wfMachine.currentPhaseIndex < wfMachine.phases.length && wfMachine.phases[wfMachine.currentPhaseIndex]?.status === "completed") {
-            wfMachine = {
-              ...wfMachine,
-              currentPhaseIndex: wfMachine.currentPhaseIndex + 1
-            };
-          }
-        }
-      }
-      const readyRoles = readyBeforeFilter.map((taskId) => tasks.find((task) => task.id === taskId)?.role).filter((role) => Boolean(role));
-      const concurrency = resolveBatchConcurrency({
-        workflowName: workflow.name,
-        workflowMaxConcurrency: workflow.maxConcurrency,
-        teamMaxConcurrency: input.team.maxConcurrency,
-        limitMaxConcurrentWorkers: input.limits?.maxConcurrentWorkers,
-        allowUnboundedConcurrency: input.limits?.allowUnboundedConcurrency,
-        readyCount: readyBeforeFilter.length,
-        workspaceMode: manifest.workspaceMode,
-        readyRoles
-      });
-      const serializedReady = filterReadyByWriteOverlap(
-        readyBeforeFilter,
-        tasks,
-        workflow,
-        concurrency.maxConcurrent,
-        input.limits?.serializeOnPathOverlap === true
-      );
-      const coalesceEnabled = workflow.coalesceMicroTasks === true;
-      if (coalesceEnabled) {
-        const coalescedGroups2 = planCoalescedGroups(serializedReady, tasks, workflow, true);
-        for (const group of coalescedGroups2) {
-          if (group.tasks.length < 2) continue;
-          await appendEventAsync(manifest.eventsPath, {
-            type: "task.coalesced",
-            runId: manifest.runId,
-            message: `Coalesced ${group.tasks.length} micro-tasks (role=${group.role}, cwd=${group.cwd})`,
-            data: {
-              groupId: group.id,
-              role: group.role,
-              cwd: group.cwd,
-              taskIds: group.tasks.map((task) => task.id)
-            }
-          });
-        }
-      }
-      if (concurrency.reason.includes(";unbounded:")) {
-        await appendEventAsync(manifest.eventsPath, {
-          type: "limits.unbounded",
-          runId: manifest.runId,
-          message: "Unbounded worker concurrency was explicitly enabled for this run.",
-          data: {
-            concurrencyReason: concurrency.reason,
-            maxConcurrent: concurrency.maxConcurrent
-          }
-        });
-      }
-      const inFlightTaskIds = /* @__PURE__ */ new Set();
-      for (const pendingUnit of pendingUnits.values()) {
-        for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
-      }
-      const slotsAvailable = Math.max(0, concurrency.maxConcurrent - pendingUnits.size);
-      const approvalPending = isPlanApprovalPending2(manifest);
-      const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
-      const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
-      const candidateBatch = readyIds.map((id) => tasks.find((task) => task.id === id)).filter((task) => Boolean(task));
-      const readyBatch = approvalPending ? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable) : candidateBatch;
-      if (readyBatch.length === 0) {
-        if (pendingUnits.size > 0) {
-        } else if (approvalPending && candidateBatch.some(isMutatingTask)) {
-          await saveRunTasksAsync(manifest, tasks);
-          saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-          manifest = updateRunStatus(manifest, "blocked", "Plan approval required before mutating implementation tasks run.");
-          return { manifest, tasks };
-        } else {
-          tasks = markBlocked(tasks, "No ready queued task; dependency graph may be invalid.");
-          await saveRunTasksAsync(manifest, tasks);
-          saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-          manifest = updateRunStatus(manifest, "blocked", "No ready queued task.");
-          return { manifest, tasks };
-        }
-      }
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      const failedDecision = await handleFailedTask(ctx);
+      tasks = ctx.tasks;
+      manifest = ctx.manifest;
+      if (failedDecision?.kind === "return") return failedDecision.result;
+      if (failedDecision?.kind === "continue") continue;
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      ctx.wfMachine = wfMachine;
+      const dispatchDecision = await selectDispatchBatch(ctx);
+      tasks = ctx.tasks;
+      manifest = ctx.manifest;
+      wfMachine = ctx.wfMachine;
+      if (dispatchDecision.kind === "return") return dispatchDecision.result;
+      if (dispatchDecision.kind !== "dispatch") continue;
+      const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = dispatchDecision;
       void appendEventBuffered(manifest.eventsPath, {
         type: "task.progress",
         runId: manifest.runId,
@@ -54101,13 +54122,13 @@ async function executeTeamRunCore(input, manifest, workflow) {
                   task: taskWithAttempt
                 })
               );
-              const failed3 = failedTaskFrom(result4, task.id);
+              const failed2 = failedTaskFrom(result4, task.id);
               const endedAt = (/* @__PURE__ */ new Date()).toISOString();
               const finishedAttempt = {
                 attemptId: info2.attemptId,
                 startedAt,
                 endedAt,
-                ...failed3?.error ? { error: failed3.error } : {}
+                ...failed2?.error ? { error: failed2.error } : {}
               };
               attemptsSoFar.push(finishedAttempt);
               const withAttempt = result4.tasks.map(
@@ -54117,9 +54138,9 @@ async function executeTeamRunCore(input, manifest, workflow) {
                 manifest: result4.manifest,
                 tasks: withAttempt
               };
-              if (failed3) {
+              if (failed2) {
                 lastFailed = enriched;
-                throw new CrewError(ErrorCode.TaskNotFound, failed3.error ?? `Task ${task.id} failed.`).withContext(
+                throw new CrewError(ErrorCode.TaskNotFound, failed2.error ?? `Task ${task.id} failed.`).withContext(
                   `retry evaluation (run=${manifest.runId})`
                 );
               }
