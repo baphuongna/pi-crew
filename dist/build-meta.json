@@ -8586,6 +8586,65 @@
       ],
       "format": "esm"
     },
+    "src/runtime/event-stream-bridge.ts": {
+      "bytes": 3027,
+      "imports": [
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "../ui/run-event-bus.ts"
+        },
+        {
+          "path": "src/runtime/subprocess-tool-registry.ts",
+          "kind": "import-statement",
+          "original": "./subprocess-tool-registry.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/progress-event-coalescer.ts": {
+      "bytes": 1914,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/session-usage.ts": {
+      "bytes": 3019,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/supervisor-contact.ts": {
+      "bytes": 2368,
+      "imports": [
+        {
+          "path": "src/state/event-log.ts",
+          "kind": "import-statement",
+          "original": "../state/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/scaffold-executor.ts": {
+      "bytes": 975,
+      "imports": [
+        {
+          "path": "src/state/artifact-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/artifact-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/worktree/worktree-manager.ts": {
       "bytes": 45722,
       "imports": [
@@ -8652,88 +8711,8 @@
       ],
       "format": "esm"
     },
-    "src/runtime/event-stream-bridge.ts": {
-      "bytes": 3027,
-      "imports": [
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "../ui/run-event-bus.ts"
-        },
-        {
-          "path": "src/runtime/subprocess-tool-registry.ts",
-          "kind": "import-statement",
-          "original": "./subprocess-tool-registry.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/output-validator.ts": {
-      "bytes": 6344,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/progress-event-coalescer.ts": {
-      "bytes": 1914,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/session-usage.ts": {
-      "bytes": 3019,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/supervisor-contact.ts": {
-      "bytes": 2368,
-      "imports": [
-        {
-          "path": "src/state/event-log.ts",
-          "kind": "import-statement",
-          "original": "../state/event-log.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/task-runner/capabilities.ts": {
-      "bytes": 2067,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/task-runner/progress.ts": {
-      "bytes": 5616,
-      "imports": [
-        {
-          "path": "src/runtime/crew-agent-records.ts",
-          "kind": "import-statement",
-          "original": "../crew-agent-records.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/task-runner/prompt-pipeline.ts": {
-      "bytes": 2801,
-      "imports": [
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/task-runner/result-utils.ts": {
-      "bytes": 755,
+    "src/runtime/worker-startup.ts": {
+      "bytes": 3274,
       "imports": [],
       "format": "esm"
     },
@@ -8773,15 +8752,115 @@
       ],
       "format": "esm"
     },
-    "src/runtime/task-runner/tail-read.ts": {
-      "bytes": 1594,
+    "src/runtime/task-runner/pre-execution.ts": {
+      "bytes": 14969,
       "imports": [
         {
-          "path": "node:fs",
+          "path": "src/errors.ts",
           "kind": "import-statement",
+          "original": "../../errors.ts"
+        },
+        {
+          "path": "src/state/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../state/event-log.ts"
+        },
+        {
+          "path": "src/state/artifact-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/artifact-store.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/worktree/worktree-manager.ts",
+          "kind": "import-statement",
+          "original": "../../worktree/worktree-manager.ts"
+        },
+        {
+          "path": "src/runtime/agent-control.ts",
+          "kind": "import-statement",
+          "original": "../agent-control.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../crew-agent-records.ts"
+        },
+        {
+          "path": "src/runtime/cancellation.ts",
+          "kind": "import-statement",
+          "original": "../cancellation.ts"
+        },
+        {
+          "path": "src/runtime/event-stream-bridge.ts",
+          "kind": "import-statement",
+          "original": "../event-stream-bridge.ts"
+        },
+        {
+          "path": "src/runtime/worker-heartbeat.ts",
+          "kind": "import-statement",
+          "original": "../worker-heartbeat.ts"
+        },
+        {
+          "path": "src/state/task-claims.ts",
+          "kind": "import-statement",
+          "original": "../../state/task-claims.ts"
+        },
+        {
+          "path": "src/runtime/role-permission.ts",
+          "kind": "import-statement",
+          "original": "../role-permission.ts"
+        },
+        {
+          "path": "src/runtime/skill-instructions.ts",
+          "kind": "import-statement",
+          "original": "../skill-instructions.ts"
+        },
+        {
+          "path": "src/runtime/worker-startup.ts",
+          "kind": "import-statement",
+          "original": "../worker-startup.ts"
+        },
+        {
+          "path": "src/runtime/yield-handler.ts",
+          "kind": "import-statement",
+          "original": "../yield-handler.ts"
+        },
+        {
+          "path": "src/runtime/task-packet.ts",
+          "kind": "import-statement",
+          "original": "../task-packet.ts"
+        },
+        {
+          "path": "src/runtime/task-output-context.ts",
+          "kind": "import-statement",
+          "original": "../task-output-context.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/state-helpers.ts",
+          "kind": "import-statement",
+          "original": "./state-helpers.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/prompt-builder.ts",
+          "kind": "import-statement",
+          "original": "./prompt-builder.ts"
+        },
+        {
+          "path": "node:child_process",
+          "kind": "dynamic-import",
           "external": true
         }
       ],
+      "format": "esm"
+    },
+    "src/runtime/output-validator.ts": {
+      "bytes": 6344,
+      "imports": [],
       "format": "esm"
     },
     "src/runtime/verification-gates.ts": {
@@ -8825,9 +8904,163 @@
       ],
       "format": "esm"
     },
-    "src/runtime/worker-startup.ts": {
-      "bytes": 3274,
+    "src/runtime/task-runner/capabilities.ts": {
+      "bytes": 2067,
       "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/prompt-pipeline.ts": {
+      "bytes": 2801,
+      "imports": [
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/post-execution.ts": {
+      "bytes": 19745,
+      "imports": [
+        {
+          "path": "src/hooks/registry.ts",
+          "kind": "import-statement",
+          "original": "../../hooks/registry.ts"
+        },
+        {
+          "path": "src/state/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../state/event-log.ts"
+        },
+        {
+          "path": "src/state/artifact-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/artifact-store.ts"
+        },
+        {
+          "path": "src/state/locks.ts",
+          "kind": "import-statement",
+          "original": "../../state/locks.ts"
+        },
+        {
+          "path": "src/state/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/state-store.ts"
+        },
+        {
+          "path": "src/worktree/worktree-manager.ts",
+          "kind": "import-statement",
+          "original": "../../worktree/worktree-manager.ts"
+        },
+        {
+          "path": "src/runtime/attention-events.ts",
+          "kind": "import-statement",
+          "original": "../attention-events.ts"
+        },
+        {
+          "path": "src/runtime/command-trace.ts",
+          "kind": "import-statement",
+          "original": "../command-trace.ts"
+        },
+        {
+          "path": "src/runtime/completion-guard.ts",
+          "kind": "import-statement",
+          "original": "../completion-guard.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../crew-agent-records.ts"
+        },
+        {
+          "path": "src/runtime/crew-hooks.ts",
+          "kind": "import-statement",
+          "original": "../crew-hooks.ts"
+        },
+        {
+          "path": "src/runtime/model-fallback.ts",
+          "kind": "import-statement",
+          "original": "../model-fallback.ts"
+        },
+        {
+          "path": "src/runtime/output-validator.ts",
+          "kind": "import-statement",
+          "original": "../output-validator.ts"
+        },
+        {
+          "path": "src/runtime/pi-json-output.ts",
+          "kind": "import-statement",
+          "original": "../pi-json-output.ts"
+        },
+        {
+          "path": "src/runtime/green-contract.ts",
+          "kind": "import-statement",
+          "original": "../green-contract.ts"
+        },
+        {
+          "path": "src/runtime/verification-gates.ts",
+          "kind": "import-statement",
+          "original": "../verification-gates.ts"
+        },
+        {
+          "path": "src/runtime/worker-heartbeat.ts",
+          "kind": "import-statement",
+          "original": "../worker-heartbeat.ts"
+        },
+        {
+          "path": "src/runtime/task-output-context.ts",
+          "kind": "import-statement",
+          "original": "../task-output-context.ts"
+        },
+        {
+          "path": "src/runtime/yield-handler.ts",
+          "kind": "import-statement",
+          "original": "../yield-handler.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/capabilities.ts",
+          "kind": "import-statement",
+          "original": "./capabilities.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/prompt-pipeline.ts",
+          "kind": "import-statement",
+          "original": "./prompt-pipeline.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/state-helpers.ts",
+          "kind": "import-statement",
+          "original": "./state-helpers.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/progress.ts": {
+      "bytes": 5616,
+      "imports": [
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../crew-agent-records.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/result-utils.ts": {
+      "bytes": 755,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/tail-read.ts": {
+      "bytes": 1594,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
       "format": "esm"
     },
     "src/runtime/task-runner/live-executor.ts": {
@@ -8892,7 +9125,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 63765,
+      "bytes": 38946,
       "imports": [
         {
           "path": "node:fs",
@@ -8915,11 +9148,6 @@
           "original": "../errors.ts"
         },
         {
-          "path": "src/hooks/registry.ts",
-          "kind": "import-statement",
-          "original": "../hooks/registry.ts"
-        },
-        {
           "path": "src/state/artifact-store.ts",
           "kind": "import-statement",
           "original": "../state/artifact-store.ts"
@@ -8928,21 +9156,6 @@
           "path": "src/state/event-log.ts",
           "kind": "import-statement",
           "original": "../state/event-log.ts"
-        },
-        {
-          "path": "src/state/locks.ts",
-          "kind": "import-statement",
-          "original": "../state/locks.ts"
-        },
-        {
-          "path": "src/state/state-store.ts",
-          "kind": "import-statement",
-          "original": "../state/state-store.ts"
-        },
-        {
-          "path": "src/state/task-claims.ts",
-          "kind": "import-statement",
-          "original": "../state/task-claims.ts"
         },
         {
           "path": "src/utils/internal-error.ts",
@@ -8955,21 +9168,6 @@
           "original": "../utils/safe-paths.ts"
         },
         {
-          "path": "src/worktree/worktree-manager.ts",
-          "kind": "import-statement",
-          "original": "../worktree/worktree-manager.ts"
-        },
-        {
-          "path": "src/runtime/agent-control.ts",
-          "kind": "import-statement",
-          "original": "./agent-control.ts"
-        },
-        {
-          "path": "src/runtime/attention-events.ts",
-          "kind": "import-statement",
-          "original": "./attention-events.ts"
-        },
-        {
           "path": "src/runtime/cancellation.ts",
           "kind": "import-statement",
           "original": "./cancellation.ts"
@@ -8978,16 +9176,6 @@
           "path": "src/runtime/child-pi.ts",
           "kind": "import-statement",
           "original": "./child-pi.ts"
-        },
-        {
-          "path": "src/runtime/command-trace.ts",
-          "kind": "import-statement",
-          "original": "./command-trace.ts"
-        },
-        {
-          "path": "src/runtime/completion-guard.ts",
-          "kind": "import-statement",
-          "original": "./completion-guard.ts"
         },
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -9015,11 +9203,6 @@
           "original": "./retry-executor.ts"
         },
         {
-          "path": "src/runtime/green-contract.ts",
-          "kind": "import-statement",
-          "original": "./green-contract.ts"
-        },
-        {
           "path": "src/runtime/model-fallback.ts",
           "kind": "import-statement",
           "original": "./model-fallback.ts"
@@ -9028,11 +9211,6 @@
           "path": "src/runtime/model-scope.ts",
           "kind": "import-statement",
           "original": "./model-scope.ts"
-        },
-        {
-          "path": "src/runtime/output-validator.ts",
-          "kind": "import-statement",
-          "original": "./output-validator.ts"
         },
         {
           "path": "src/runtime/pi-json-output.ts",
@@ -9045,11 +9223,6 @@
           "original": "./progress-event-coalescer.ts"
         },
         {
-          "path": "src/runtime/role-permission.ts",
-          "kind": "import-statement",
-          "original": "./role-permission.ts"
-        },
-        {
           "path": "src/runtime/runtime-warmup.ts",
           "kind": "import-statement",
           "original": "./runtime-warmup.ts"
@@ -9060,44 +9233,29 @@
           "original": "./session-usage.ts"
         },
         {
-          "path": "src/runtime/skill-instructions.ts",
-          "kind": "import-statement",
-          "original": "./skill-instructions.ts"
-        },
-        {
           "path": "src/runtime/supervisor-contact.ts",
           "kind": "import-statement",
           "original": "./supervisor-contact.ts"
         },
         {
-          "path": "src/runtime/task-output-context.ts",
+          "path": "src/runtime/task-runner/scaffold-executor.ts",
           "kind": "import-statement",
-          "original": "./task-output-context.ts"
+          "original": "./task-runner/scaffold-executor.ts"
         },
         {
-          "path": "src/runtime/task-packet.ts",
+          "path": "src/runtime/task-runner/pre-execution.ts",
           "kind": "import-statement",
-          "original": "./task-packet.ts"
+          "original": "./task-runner/pre-execution.ts"
         },
         {
-          "path": "src/runtime/task-runner/capabilities.ts",
+          "path": "src/runtime/task-runner/post-execution.ts",
           "kind": "import-statement",
-          "original": "./task-runner/capabilities.ts"
+          "original": "./task-runner/post-execution.ts"
         },
         {
           "path": "src/runtime/task-runner/progress.ts",
           "kind": "import-statement",
           "original": "./task-runner/progress.ts"
-        },
-        {
-          "path": "src/runtime/task-runner/prompt-builder.ts",
-          "kind": "import-statement",
-          "original": "./task-runner/prompt-builder.ts"
-        },
-        {
-          "path": "src/runtime/task-runner/prompt-pipeline.ts",
-          "kind": "import-statement",
-          "original": "./task-runner/prompt-pipeline.ts"
         },
         {
           "path": "src/runtime/task-runner/result-utils.ts",
@@ -9115,11 +9273,6 @@
           "original": "./task-runner/tail-read.ts"
         },
         {
-          "path": "src/runtime/verification-gates.ts",
-          "kind": "import-statement",
-          "original": "./verification-gates.ts"
-        },
-        {
           "path": "src/runtime/worker-heartbeat.ts",
           "kind": "import-statement",
           "original": "./worker-heartbeat.ts"
@@ -9133,11 +9286,6 @@
           "path": "src/runtime/yield-handler.ts",
           "kind": "import-statement",
           "original": "./yield-handler.ts"
-        },
-        {
-          "path": "node:child_process",
-          "kind": "dynamic-import",
-          "external": true
         },
         {
           "path": "src/runtime/task-runner/live-executor.ts",
@@ -13194,7 +13342,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6106619
+      "bytes": 6119577
     },
     "dist/index.mjs": {
       "imports": [
@@ -14344,6 +14492,11 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:child_process",
           "kind": "import-statement",
           "external": true
@@ -14374,53 +14527,48 @@
           "external": true
         },
         {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:child_process",
           "kind": "dynamic-import",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
           "external": true
         },
         {
@@ -16001,14 +16149,8 @@
         "src/runtime/task-runner/prompt-builder.ts": {
           "bytesInOutput": 8085
         },
-        "src/worktree/worktree-manager.ts": {
-          "bytesInOutput": 24656
-        },
         "src/runtime/event-stream-bridge.ts": {
           "bytesInOutput": 2321
-        },
-        "src/runtime/output-validator.ts": {
-          "bytesInOutput": 1826
         },
         "src/runtime/progress-event-coalescer.ts": {
           "bytesInOutput": 1438
@@ -16019,35 +16161,50 @@
         "src/runtime/supervisor-contact.ts": {
           "bytesInOutput": 1482
         },
-        "src/runtime/task-runner/capabilities.ts": {
-          "bytesInOutput": 1169
+        "src/runtime/task-runner/scaffold-executor.ts": {
+          "bytesInOutput": 576
         },
-        "src/runtime/task-runner/progress.ts": {
-          "bytesInOutput": 5008
+        "src/worktree/worktree-manager.ts": {
+          "bytesInOutput": 24656
         },
-        "src/runtime/task-runner/prompt-pipeline.ts": {
-          "bytesInOutput": 1966
-        },
-        "src/runtime/task-runner/result-utils.ts": {
-          "bytesInOutput": 767
+        "src/runtime/worker-startup.ts": {
+          "bytesInOutput": 2344
         },
         "src/runtime/task-runner/state-helpers.ts": {
           "bytesInOutput": 2898
         },
-        "src/runtime/task-runner/tail-read.ts": {
-          "bytesInOutput": 810
+        "src/runtime/task-runner/pre-execution.ts": {
+          "bytesInOutput": 9202
+        },
+        "src/runtime/output-validator.ts": {
+          "bytesInOutput": 1826
         },
         "src/runtime/verification-gates.ts": {
           "bytesInOutput": 9656
         },
-        "src/runtime/worker-startup.ts": {
-          "bytesInOutput": 2344
+        "src/runtime/task-runner/capabilities.ts": {
+          "bytesInOutput": 1169
+        },
+        "src/runtime/task-runner/prompt-pipeline.ts": {
+          "bytesInOutput": 1966
+        },
+        "src/runtime/task-runner/post-execution.ts": {
+          "bytesInOutput": 13930
+        },
+        "src/runtime/task-runner/progress.ts": {
+          "bytesInOutput": 5008
+        },
+        "src/runtime/task-runner/result-utils.ts": {
+          "bytesInOutput": 767
+        },
+        "src/runtime/task-runner/tail-read.ts": {
+          "bytesInOutput": 810
         },
         "src/runtime/task-runner/live-executor.ts": {
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 46767
+          "bytesInOutput": 26270
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16425,7 +16582,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2772663
+      "bytes": 2776014
     }
   }
 }

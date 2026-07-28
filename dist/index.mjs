@@ -49328,10 +49328,252 @@ var init_prompt_builder = __esm({
   }
 });
 
+// src/runtime/event-stream-bridge.ts
+function registerStreamBridge(runId) {
+  const existing = activeBridges.get(runId);
+  if (existing) {
+    return {
+      handler: existing,
+      dispose: () => unregisterStreamBridge(runId)
+    };
+  }
+  const handler = (event) => {
+    runEventBus.emit({
+      type: "worker_status",
+      runId: event.runId,
+      taskId: event.taskId,
+      data: event
+    });
+  };
+  activeBridges.set(runId, handler);
+  return { handler, dispose: () => unregisterStreamBridge(runId) };
+}
+function unregisterStreamBridge(runId) {
+  activeBridges.delete(runId);
+}
+function bridgeEventFromJsonEvent(runId, taskId, event) {
+  if (!event || typeof event !== "object") return null;
+  const record = event;
+  const type = typeof record.type === "string" ? record.type : "";
+  const result4 = {
+    runId,
+    taskId,
+    eventType: type,
+    timestamp: Date.now()
+  };
+  if (typeof record.toolName === "string") result4.toolName = record.toolName;
+  if (record.args && typeof record.args === "object") {
+    try {
+      const json = JSON.stringify(record.args);
+      result4.toolArgs = json.length > 200 ? json.slice(0, 197) + "..." : json;
+    } catch {
+    }
+  }
+  if (typeof record.intent === "string") result4.intent = record.intent;
+  const usage = record.usage ?? record.message?.usage;
+  if (usage && typeof usage === "object") {
+    const u = usage;
+    const input = typeof u.input === "number" ? u.input : 0;
+    const output = typeof u.output === "number" ? u.output : 0;
+    if (input || output) result4.tokens = input + output;
+  }
+  if (result4.toolName && subprocessToolRegistry.hasHandler(result4.toolName)) {
+    const handler = subprocessToolRegistry.getHandler(result4.toolName);
+    if (handler?.extractData) {
+      const extracted = handler.extractData({
+        toolName: result4.toolName,
+        toolCallId: record.toolCallId ?? "",
+        args: record.args,
+        result: record.result,
+        isError: record.isError
+      });
+      if (extracted !== void 0) {
+        result4.extractedToolData = { [result4.toolName]: extracted };
+      }
+    }
+  }
+  return result4;
+}
+var activeBridges;
+var init_event_stream_bridge = __esm({
+  "src/runtime/event-stream-bridge.ts"() {
+    "use strict";
+    init_run_event_bus();
+    init_subprocess_tool_registry();
+    activeBridges = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/runtime/progress-event-coalescer.ts
+function numericIncrease(previous, next) {
+  return next !== void 0 && previous !== void 0 ? next - previous : next !== void 0 ? next : 0;
+}
+function shouldAppendProgressEventUpdate(input) {
+  if (input.force) return { shouldAppend: true, reason: "force" };
+  if (!input.previous) return { shouldAppend: true, reason: "first" };
+  if (input.previous.activityState !== input.next.activityState) return { shouldAppend: true, reason: "activity_changed" };
+  if (input.previous.currentTool !== input.next.currentTool) return { shouldAppend: true, reason: "tool_changed" };
+  if (numericIncrease(input.previous.toolCount, input.next.toolCount) > 0) return { shouldAppend: true, reason: "tool_count_increased" };
+  if (numericIncrease(input.previous.turns, input.next.turns) > 0) return { shouldAppend: true, reason: "turns_increased" };
+  const tokenIncrease = numericIncrease(input.previous.tokens, input.next.tokens);
+  if (tokenIncrease >= (input.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD)) return { shouldAppend: true, reason: "tokens_increased" };
+  if (input.lastAppendMs === void 0 || input.nowMs - input.lastAppendMs >= input.minIntervalMs)
+    return { shouldAppend: true, reason: "interval" };
+  return { shouldAppend: false, reason: "coalesced" };
+}
+var DEFAULT_TOKEN_THRESHOLD;
+var init_progress_event_coalescer = __esm({
+  "src/runtime/progress-event-coalescer.ts"() {
+    "use strict";
+    DEFAULT_TOKEN_THRESHOLD = 256;
+  }
+});
+
+// src/runtime/session-usage.ts
+import * as fs77 from "node:fs";
+function asRecord9(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function numberField3(obj, keys) {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return void 0;
+}
+function usageFromValue(value) {
+  const obj = asRecord9(value);
+  if (!obj) return void 0;
+  const direct = {
+    input: numberField3(obj, ["input", "inputTokens", "input_tokens"]),
+    output: numberField3(obj, ["output", "outputTokens", "output_tokens"]),
+    cacheRead: numberField3(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
+    cacheWrite: numberField3(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
+    cost: numberField3(obj, ["cost", "costUsd", "cost_usd"]),
+    turns: numberField3(obj, ["turns", "turnCount", "turn_count"])
+  };
+  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
+  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+    const nested = usageFromValue(obj[key]);
+    if (nested) return nested;
+  }
+  const message = asRecord9(obj.message);
+  return message ? usageFromValue(message.usage) : void 0;
+}
+function addUsage2(total, usage) {
+  return {
+    input: (total.input ?? 0) + (usage.input ?? 0),
+    output: (total.output ?? 0) + (usage.output ?? 0),
+    cacheRead: (total.cacheRead ?? 0) + (usage.cacheRead ?? 0),
+    cacheWrite: (total.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
+    cost: (total.cost ?? 0) + (usage.cost ?? 0),
+    turns: (total.turns ?? 0) + (usage.turns ?? 0)
+  };
+}
+function compactUsage(total, foundKeys) {
+  if (foundKeys.size === 0) return void 0;
+  const compact = {};
+  for (const key of foundKeys) compact[key] = total[key];
+  return compact;
+}
+function parseSessionUsageFromJsonlText(text) {
+  let total = {};
+  const foundKeys = /* @__PURE__ */ new Set();
+  for (const line4 of text.split(/\r?\n/)) {
+    const trimmed = line4.trim();
+    if (!trimmed) continue;
+    try {
+      const usage = usageFromValue(JSON.parse(trimmed));
+      if (!usage) continue;
+      for (const key of Object.keys(usage)) foundKeys.add(key);
+      total = addUsage2(total, usage);
+    } catch {
+    }
+  }
+  return compactUsage(total, foundKeys);
+}
+function parseSessionUsage(filePath) {
+  try {
+    if (!fs77.existsSync(filePath)) return void 0;
+    return parseSessionUsageFromJsonlText(fs77.readFileSync(filePath, "utf-8"));
+  } catch {
+    return void 0;
+  }
+}
+var init_session_usage = __esm({
+  "src/runtime/session-usage.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/supervisor-contact.ts
+function recordSupervisorContact(manifest, payload) {
+  const fullPayload = {
+    ...payload,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  try {
+    appendEvent(manifest.eventsPath, {
+      type: "supervisor.contact",
+      runId: manifest.runId,
+      taskId: payload.taskId,
+      data: fullPayload
+    });
+  } catch (error) {
+    logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
+  }
+}
+function parseSupervisorContactFromLine(line4) {
+  if (!line4.trim()) return void 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(line4);
+  } catch {
+    return void 0;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+  const record = parsed;
+  if (record.type !== "supervisor_contact" && record.type !== "crew_supervisor_contact") return void 0;
+  return {
+    taskId: typeof record.taskId === "string" ? record.taskId : "",
+    reason: typeof record.reason === "string" && ["decision_needed", "clarification", "approval", "error_escalation", "custom"].includes(record.reason) ? record.reason : "custom",
+    message: typeof record.message === "string" ? record.message : String(record.message ?? ""),
+    data: record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : void 0
+  };
+}
+var init_supervisor_contact = __esm({
+  "src/runtime/supervisor-contact.ts"() {
+    "use strict";
+    init_event_log();
+    init_internal_error();
+  }
+});
+
+// src/runtime/task-runner/scaffold-executor.ts
+function runScaffoldTask(manifest, task) {
+  return writeArtifact(manifest.artifactsRoot, {
+    kind: "result",
+    relativePath: `results/${task.id}.md`,
+    content: [
+      `# ${task.id}`,
+      "",
+      "Worker execution is disabled in this scaffold-safe run.",
+      "The prompt artifact contains the exact task that will be sent to a child Pi worker when execution is enabled."
+    ].join("\n"),
+    producer: task.id
+  });
+}
+var init_scaffold_executor = __esm({
+  "src/runtime/task-runner/scaffold-executor.ts"() {
+    "use strict";
+    init_artifact_store();
+  }
+});
+
 // src/worktree/worktree-manager.ts
 import { execFile, execFileSync as execFileSync6, spawnSync as spawnSync3 } from "node:child_process";
 import { randomBytes as randomBytes3 } from "node:crypto";
-import * as fs77 from "node:fs";
+import * as fs78 from "node:fs";
 import * as path65 from "node:path";
 import { promisify } from "node:util";
 function git3(cwd, args) {
@@ -49438,14 +49680,14 @@ function linkNodeModulesIfPresent(repoRoot, worktreePath) {
   const target = path65.join(worktreePath, "node_modules");
   let sourceStat;
   try {
-    sourceStat = fs77.statSync(source);
+    sourceStat = fs78.statSync(source);
   } catch {
     return false;
   }
   if (!sourceStat.isDirectory()) return false;
-  if (fs77.existsSync(target)) return false;
+  if (fs78.existsSync(target)) return false;
   try {
-    fs77.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
+    fs78.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
     return true;
   } catch (error) {
     const isWindows = process.platform === "win32";
@@ -49475,8 +49717,8 @@ function isAllowedSetupHook(hookPath) {
 }
 function isHookPathContainedInRepoRoot(repoRoot, hookPath) {
   try {
-    const realRepoRoot = fs77.realpathSync(repoRoot);
-    const realHookPath = fs77.realpathSync(path65.dirname(hookPath));
+    const realRepoRoot = fs78.realpathSync(repoRoot);
+    const realHookPath = fs78.realpathSync(path65.dirname(hookPath));
     return realHookPath.startsWith(realRepoRoot + path65.sep) || realHookPath === realRepoRoot;
   } catch {
     return false;
@@ -49507,7 +49749,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
     return [];
   }
   try {
-    const hookStat = fs77.lstatSync(hookPath);
+    const hookStat = fs78.lstatSync(hookPath);
     if (!hookStat.isFile()) {
       logInternalError("worktree.setupHook.missing", new Error("hook not found or is directory: " + hookPath), `cwd=${manifest.cwd}`);
       return [];
@@ -49528,7 +49770,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
   }
   let realHookPath;
   try {
-    realHookPath = fs77.realpathSync(hookPath);
+    realHookPath = fs78.realpathSync(hookPath);
   } catch {
     logInternalError("worktree.setupHook.realpath", new Error("hook realpath resolution failed: " + hookPath), `cwd=${manifest.cwd}`);
     return [];
@@ -49644,7 +49886,7 @@ function normalizeSeedPaths(seedPaths, repoRoot) {
       throw new Error(`seedPaths entries must stay inside repoRoot: ${entry}`);
     }
     try {
-      const stat2 = fs77.lstatSync(absolutePath);
+      const stat2 = fs78.lstatSync(absolutePath);
       if (stat2.isSymbolicLink()) {
         throw new Error(`seedPaths entries cannot be symlinks: ${entry}`);
       }
@@ -49668,7 +49910,7 @@ function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
     const destinationPath = path65.join(worktreePath, seedPath);
     let sourceStat;
     try {
-      sourceStat = fs77.lstatSync(sourcePath);
+      sourceStat = fs78.lstatSync(sourcePath);
     } catch {
       logInternalError("worktree.seedPaths.missing", new Error(`Seed path does not exist: ${seedPath}`));
       continue;
@@ -49681,9 +49923,9 @@ function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
       logInternalError("worktree.seedPaths.invalid", new Error(`Seed path is neither file nor directory: ${seedPath}`));
       continue;
     }
-    fs77.mkdirSync(path65.dirname(destinationPath), { recursive: true });
-    fs77.rmSync(destinationPath, { force: true, recursive: true });
-    fs77.cpSync(sourcePath, destinationPath, {
+    fs78.mkdirSync(path65.dirname(destinationPath), { recursive: true });
+    fs78.rmSync(destinationPath, { force: true, recursive: true });
+    fs78.cpSync(sourcePath, destinationPath, {
       dereference: true,
       force: true,
       preserveTimestamps: true,
@@ -49714,8 +49956,8 @@ function snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus) {
       if (!rel) continue;
       try {
         const abs = path65.join(worktreePath, rel);
-        if (!fs77.existsSync(abs) || fs77.statSync(abs).isDirectory()) continue;
-        const content = fs77.readFileSync(abs, "utf-8");
+        if (!fs78.existsSync(abs) || fs78.statSync(abs).isDirectory()) continue;
+        const content = fs78.readFileSync(abs, "utf-8");
         parts.push(`## Untracked file: ${rel}`, "```", content, "```", "");
       } catch {
       }
@@ -49742,7 +49984,7 @@ async function cleanupCreatedWorktreeAsync(repoRoot, worktreePath, branch) {
     await gitAsync(repoRoot, ["worktree", "remove", "--force", worktreePath]);
   } catch {
     try {
-      if (fs77.existsSync(worktreePath)) fs77.rmSync(worktreePath, { recursive: true, force: true });
+      if (fs78.existsSync(worktreePath)) fs78.rmSync(worktreePath, { recursive: true, force: true });
     } catch {
     }
   }
@@ -49758,14 +50000,14 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
   if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
   const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
   const worktreeRoot = path65.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-  fs77.mkdirSync(worktreeRoot, { recursive: true });
+  fs78.mkdirSync(worktreeRoot, { recursive: true });
   let resolvedWorktreeRoot = worktreeRoot;
   try {
-    const r = fs77.realpathSync.native(worktreeRoot);
+    const r = fs78.realpathSync.native(worktreeRoot);
     resolvedWorktreeRoot = r.startsWith("\\\\?\\") ? r.slice(4) : r;
   } catch {
     try {
-      resolvedWorktreeRoot = fs77.realpathSync(worktreeRoot);
+      resolvedWorktreeRoot = fs78.realpathSync(worktreeRoot);
     } catch {
     }
   }
@@ -49777,7 +50019,7 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     const worktreeList = await gitAsync(repoRoot, ["worktree", "list", "--porcelain"]);
     const normalizedWtPath = process.platform === "win32" ? (() => {
       try {
-        const r = fs77.realpathSync.native(worktreePath);
+        const r = fs78.realpathSync.native(worktreePath);
         return r.startsWith("\\\\?\\") ? r.slice(4) : r;
       } catch {
         return worktreePath;
@@ -49854,9 +50096,9 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     }
     worktreeCreated = true;
   } catch (error) {
-    if (fs77.existsSync(worktreePath)) {
+    if (fs78.existsSync(worktreePath)) {
       try {
-        fs77.rmSync(worktreePath, { recursive: true, force: true });
+        fs78.rmSync(worktreePath, { recursive: true, force: true });
       } catch {
       }
     }
@@ -49923,7 +50165,7 @@ async function prepareAgentWorktreeAsync(manifest, agentId) {
     if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
     const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
     const worktreeRoot = path65.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-    fs77.mkdirSync(worktreeRoot, { recursive: true });
+    fs78.mkdirSync(worktreeRoot, { recursive: true });
     const sanitizedAgentId = sanitizeBranchPart2(agentId);
     const worktreePath = path65.join(worktreeRoot, sanitizedAgentId);
     const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}`;
@@ -49954,7 +50196,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
     repoRoot = await findGitRootAsync(manifest.cwd);
   } catch {
     try {
-      fs77.rmSync(worktreePath, { recursive: true, force: true });
+      fs78.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -49965,7 +50207,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
   } catch (error) {
     logInternalError("worktree.agent-cleanup.remove", error, `worktreePath=${worktreePath}`);
     try {
-      fs77.rmSync(worktreePath, { recursive: true, force: true });
+      fs78.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -50000,532 +50242,43 @@ var init_worktree_manager = __esm({
   }
 });
 
-// src/runtime/event-stream-bridge.ts
-function registerStreamBridge(runId) {
-  const existing = activeBridges.get(runId);
-  if (existing) {
-    return {
-      handler: existing,
-      dispose: () => unregisterStreamBridge(runId)
-    };
-  }
-  const handler = (event) => {
-    runEventBus.emit({
-      type: "worker_status",
-      runId: event.runId,
-      taskId: event.taskId,
-      data: event
-    });
+// src/runtime/worker-startup.ts
+function detectTrustPrompt(text) {
+  const lowered = text.toLowerCase();
+  return lowered.includes("do you trust") || lowered.includes("trust this") || lowered.includes("untrusted") || lowered.includes("workspace trust") || lowered.includes("allow this folder");
+}
+function classifyStartupFailure(evidence) {
+  if (evidence.stderrPreview && /429|rate.?limit/i.test(evidence.stderrPreview)) return "rate_limited";
+  if (evidence.stderrPreview && /5\d{2}|server.?error|internal.?error|provider.?error/i.test(evidence.stderrPreview))
+    return "provider_error";
+  if (!evidence.transportHealthy) return "transport_dead";
+  if (evidence.trustPromptDetected || evidence.lastLifecycleState === "trust_required") return "trust_required";
+  if (evidence.promptSentAt && !evidence.promptAccepted && evidence.childProcessAlive) return "prompt_acceptance_timeout";
+  if (evidence.promptSentAt && !evidence.promptAccepted && !evidence.childProcessAlive) return "worker_crashed";
+  if (evidence.stderrPreview?.toLowerCase().includes("command not found") || evidence.stderrPreview?.toLowerCase().includes("not recognized"))
+    return "prompt_misdelivery";
+  if (!evidence.childProcessAlive && evidence.lastLifecycleState !== "finished") return "worker_crashed";
+  return "unknown";
+}
+function createStartupEvidence(input) {
+  const stderrPreview = (input.error || input.stderr || "").slice(0, 500) || void 0;
+  const trustPromptDetected = detectTrustPrompt(stderrPreview ?? "");
+  const childProcessAlive = input.exitCode === void 0 || input.exitCode === null ? !input.finishedAt : false;
+  const base = {
+    lastLifecycleState: input.error || input.exitCode !== void 0 && input.exitCode !== null && input.exitCode !== 0 ? "failed" : input.finishedAt ? "finished" : "running",
+    command: input.command,
+    promptSentAt: input.promptSentAt?.toISOString(),
+    promptAccepted: input.promptAccepted ?? !input.error,
+    trustPromptDetected,
+    transportHealthy: !input.error || !/enoent|spawn|transport/i.test(input.error),
+    childProcessAlive,
+    elapsedMs: Math.max(0, (input.finishedAt ?? /* @__PURE__ */ new Date()).getTime() - input.startedAt.getTime()),
+    stderrPreview
   };
-  activeBridges.set(runId, handler);
-  return { handler, dispose: () => unregisterStreamBridge(runId) };
+  return { ...base, classification: classifyStartupFailure(base) };
 }
-function unregisterStreamBridge(runId) {
-  activeBridges.delete(runId);
-}
-function bridgeEventFromJsonEvent(runId, taskId, event) {
-  if (!event || typeof event !== "object") return null;
-  const record = event;
-  const type = typeof record.type === "string" ? record.type : "";
-  const result4 = {
-    runId,
-    taskId,
-    eventType: type,
-    timestamp: Date.now()
-  };
-  if (typeof record.toolName === "string") result4.toolName = record.toolName;
-  if (record.args && typeof record.args === "object") {
-    try {
-      const json = JSON.stringify(record.args);
-      result4.toolArgs = json.length > 200 ? json.slice(0, 197) + "..." : json;
-    } catch {
-    }
-  }
-  if (typeof record.intent === "string") result4.intent = record.intent;
-  const usage = record.usage ?? record.message?.usage;
-  if (usage && typeof usage === "object") {
-    const u = usage;
-    const input = typeof u.input === "number" ? u.input : 0;
-    const output = typeof u.output === "number" ? u.output : 0;
-    if (input || output) result4.tokens = input + output;
-  }
-  if (result4.toolName && subprocessToolRegistry.hasHandler(result4.toolName)) {
-    const handler = subprocessToolRegistry.getHandler(result4.toolName);
-    if (handler?.extractData) {
-      const extracted = handler.extractData({
-        toolName: result4.toolName,
-        toolCallId: record.toolCallId ?? "",
-        args: record.args,
-        result: record.result,
-        isError: record.isError
-      });
-      if (extracted !== void 0) {
-        result4.extractedToolData = { [result4.toolName]: extracted };
-      }
-    }
-  }
-  return result4;
-}
-var activeBridges;
-var init_event_stream_bridge = __esm({
-  "src/runtime/event-stream-bridge.ts"() {
-    "use strict";
-    init_run_event_bus();
-    init_subprocess_tool_registry();
-    activeBridges = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/runtime/output-validator.ts
-function validateWorkerOutput(role, output) {
-  const issues = [];
-  if (!output?.trim()) {
-    return {
-      valid: false,
-      formatMatch: false,
-      structurePreserved: false,
-      issues: ["Empty output"]
-    };
-  }
-  const patternFactory = ROLE_PATTERN_DEFS[role];
-  const pattern = patternFactory ? patternFactory() : void 0;
-  const formatMatch = !pattern || pattern.test(output);
-  if (!formatMatch) {
-    issues.push(`Output does not match expected ${role} contract format`);
-  }
-  let structurePreserved = true;
-  const trimmedOutput = output.trim();
-  const opens = (trimmedOutput.match(/```/g) ?? []).length;
-  if (opens % 2 !== 0) {
-    structurePreserved = false;
-    issues.push("Unclosed code block \u2014 output may be truncated");
-  }
-  const urls = trimmedOutput.match(makeUrlRe()) ?? [];
-  for (const url of urls) {
-    if (url.endsWith(".") || url.endsWith(",")) {
-      structurePreserved = false;
-      issues.push(`URL with trailing punctuation: ${url.slice(-20)}`);
-    }
-  }
-  return {
-    valid: formatMatch && structurePreserved,
-    formatMatch,
-    structurePreserved,
-    issues
-  };
-}
-var ROLE_PATTERN_DEFS, makeUrlRe;
-var init_output_validator = __esm({
-  "src/runtime/output-validator.ts"() {
-    "use strict";
-    ROLE_PATTERN_DEFS = {
-      explorer: () => /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
-      executor: () => /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
-      reviewer: () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
-      "security-reviewer": () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
-      verifier: () => /^(PASS:|FAIL:)/m
-    };
-    makeUrlRe = () => /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
-  }
-});
-
-// src/runtime/progress-event-coalescer.ts
-function numericIncrease(previous, next) {
-  return next !== void 0 && previous !== void 0 ? next - previous : next !== void 0 ? next : 0;
-}
-function shouldAppendProgressEventUpdate(input) {
-  if (input.force) return { shouldAppend: true, reason: "force" };
-  if (!input.previous) return { shouldAppend: true, reason: "first" };
-  if (input.previous.activityState !== input.next.activityState) return { shouldAppend: true, reason: "activity_changed" };
-  if (input.previous.currentTool !== input.next.currentTool) return { shouldAppend: true, reason: "tool_changed" };
-  if (numericIncrease(input.previous.toolCount, input.next.toolCount) > 0) return { shouldAppend: true, reason: "tool_count_increased" };
-  if (numericIncrease(input.previous.turns, input.next.turns) > 0) return { shouldAppend: true, reason: "turns_increased" };
-  const tokenIncrease = numericIncrease(input.previous.tokens, input.next.tokens);
-  if (tokenIncrease >= (input.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD)) return { shouldAppend: true, reason: "tokens_increased" };
-  if (input.lastAppendMs === void 0 || input.nowMs - input.lastAppendMs >= input.minIntervalMs)
-    return { shouldAppend: true, reason: "interval" };
-  return { shouldAppend: false, reason: "coalesced" };
-}
-var DEFAULT_TOKEN_THRESHOLD;
-var init_progress_event_coalescer = __esm({
-  "src/runtime/progress-event-coalescer.ts"() {
-    "use strict";
-    DEFAULT_TOKEN_THRESHOLD = 256;
-  }
-});
-
-// src/runtime/session-usage.ts
-import * as fs78 from "node:fs";
-function asRecord9(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function numberField3(obj, keys) {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return void 0;
-}
-function usageFromValue(value) {
-  const obj = asRecord9(value);
-  if (!obj) return void 0;
-  const direct = {
-    input: numberField3(obj, ["input", "inputTokens", "input_tokens"]),
-    output: numberField3(obj, ["output", "outputTokens", "output_tokens"]),
-    cacheRead: numberField3(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
-    cacheWrite: numberField3(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
-    cost: numberField3(obj, ["cost", "costUsd", "cost_usd"]),
-    turns: numberField3(obj, ["turns", "turnCount", "turn_count"])
-  };
-  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
-  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
-    const nested = usageFromValue(obj[key]);
-    if (nested) return nested;
-  }
-  const message = asRecord9(obj.message);
-  return message ? usageFromValue(message.usage) : void 0;
-}
-function addUsage2(total, usage) {
-  return {
-    input: (total.input ?? 0) + (usage.input ?? 0),
-    output: (total.output ?? 0) + (usage.output ?? 0),
-    cacheRead: (total.cacheRead ?? 0) + (usage.cacheRead ?? 0),
-    cacheWrite: (total.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
-    cost: (total.cost ?? 0) + (usage.cost ?? 0),
-    turns: (total.turns ?? 0) + (usage.turns ?? 0)
-  };
-}
-function compactUsage(total, foundKeys) {
-  if (foundKeys.size === 0) return void 0;
-  const compact = {};
-  for (const key of foundKeys) compact[key] = total[key];
-  return compact;
-}
-function parseSessionUsageFromJsonlText(text) {
-  let total = {};
-  const foundKeys = /* @__PURE__ */ new Set();
-  for (const line4 of text.split(/\r?\n/)) {
-    const trimmed = line4.trim();
-    if (!trimmed) continue;
-    try {
-      const usage = usageFromValue(JSON.parse(trimmed));
-      if (!usage) continue;
-      for (const key of Object.keys(usage)) foundKeys.add(key);
-      total = addUsage2(total, usage);
-    } catch {
-    }
-  }
-  return compactUsage(total, foundKeys);
-}
-function parseSessionUsage(filePath) {
-  try {
-    if (!fs78.existsSync(filePath)) return void 0;
-    return parseSessionUsageFromJsonlText(fs78.readFileSync(filePath, "utf-8"));
-  } catch {
-    return void 0;
-  }
-}
-var init_session_usage = __esm({
-  "src/runtime/session-usage.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/supervisor-contact.ts
-function recordSupervisorContact(manifest, payload) {
-  const fullPayload = {
-    ...payload,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  try {
-    appendEvent(manifest.eventsPath, {
-      type: "supervisor.contact",
-      runId: manifest.runId,
-      taskId: payload.taskId,
-      data: fullPayload
-    });
-  } catch (error) {
-    logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
-  }
-}
-function parseSupervisorContactFromLine(line4) {
-  if (!line4.trim()) return void 0;
-  let parsed;
-  try {
-    parsed = JSON.parse(line4);
-  } catch {
-    return void 0;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
-  const record = parsed;
-  if (record.type !== "supervisor_contact" && record.type !== "crew_supervisor_contact") return void 0;
-  return {
-    taskId: typeof record.taskId === "string" ? record.taskId : "",
-    reason: typeof record.reason === "string" && ["decision_needed", "clarification", "approval", "error_escalation", "custom"].includes(record.reason) ? record.reason : "custom",
-    message: typeof record.message === "string" ? record.message : String(record.message ?? ""),
-    data: record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : void 0
-  };
-}
-var init_supervisor_contact = __esm({
-  "src/runtime/supervisor-contact.ts"() {
-    "use strict";
-    init_event_log();
-    init_internal_error();
-  }
-});
-
-// src/runtime/task-runner/capabilities.ts
-function uniqueSorted(values) {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-function buildWorkerCapabilityInventory(input) {
-  return {
-    schemaVersion: 1,
-    taskId: input.taskId,
-    role: input.role,
-    agent: input.agent.name,
-    runtime: input.runtime,
-    permissionMode: input.permissionMode,
-    tools: uniqueSorted(input.agent.tools),
-    extensions: uniqueSorted(input.agent.extensions),
-    skills: {
-      names: uniqueSorted(input.skillNames),
-      paths: uniqueSorted(input.skillPaths),
-      disabled: input.skillsDisabled
-    },
-    model: {
-      requested: input.modelOverride,
-      agentDefault: input.agent.model,
-      fallbacks: uniqueSorted(input.agent.fallbackModels),
-      teamRole: input.teamRoleModel,
-      step: input.stepModel
-    },
-    inheritance: {
-      projectContext: input.agent.inheritProjectContext === true,
-      skills: input.agent.inheritSkills === true,
-      systemPromptMode: input.agent.systemPromptMode ?? "replace"
-    }
-  };
-}
-var init_capabilities = __esm({
-  "src/runtime/task-runner/capabilities.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/task-runner/progress.ts
-function asRecord10(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function safeNum(v) {
-  return Number.isFinite(v) ? v : 0;
-}
-function textFromContent3(content) {
-  if (typeof content === "string") return [content];
-  if (!Array.isArray(content)) return [];
-  const text = [];
-  for (const part of content) {
-    const obj = asRecord10(part);
-    if (!obj) continue;
-    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
-    else if (typeof obj.content === "string") text.push(obj.content);
-  }
-  return text;
-}
-function eventText2(event) {
-  const obj = asRecord10(event);
-  if (!obj) return [];
-  const text = [];
-  if (typeof obj.text === "string") text.push(obj.text);
-  if (typeof obj.output === "string") text.push(obj.output);
-  text.push(...textFromContent3(obj.content));
-  const message = asRecord10(obj.message);
-  if (message) text.push(...textFromContent3(message.content));
-  return text.filter((entry) => entry.trim());
-}
-function numberField4(obj, keys) {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return void 0;
-}
-function eventUsage(event) {
-  const obj = asRecord10(event);
-  if (!obj) return void 0;
-  const direct = {
-    input: numberField4(obj, ["input", "inputTokens", "input_tokens"]),
-    output: numberField4(obj, ["output", "outputTokens", "output_tokens"]),
-    turns: numberField4(obj, ["turns", "turnCount", "turn_count"])
-  };
-  if (Object.values(direct).some((value) => value !== void 0)) return direct;
-  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
-    const nested = eventUsage(obj[key]);
-    if (nested) return nested;
-  }
-  const message = asRecord10(obj.message);
-  return message ? eventUsage(message.usage) : void 0;
-}
-function previewArgs(args) {
-  if (!args) return void 0;
-  try {
-    const text = typeof args === "string" ? args : JSON.stringify(args);
-    return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
-  } catch {
-    return void 0;
-  }
-}
-function applyUsageToProgress(progress, usage) {
-  if (!usage) return progress;
-  const base = progress ?? emptyCrewAgentProgress();
-  const tokens = safeNum(usage.input) + safeNum(usage.output) + safeNum(usage.cacheRead) + safeNum(usage.cacheWrite);
-  return { ...base, tokens, turns: usage.turns ?? base.turns };
-}
-function shouldFlushProgressEvent(event) {
-  const type = asRecord10(event)?.type;
-  return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_start" || type === "message_end" || type === "tool_result_end";
-}
-function progressEventSummary(task, event) {
-  const type = asRecord10(event)?.type;
-  return {
-    eventType: typeof type === "string" ? type : "event",
-    currentTool: task.agentProgress?.currentTool,
-    toolCount: task.agentProgress?.toolCount,
-    tokens: task.agentProgress?.tokens,
-    turns: task.agentProgress?.turns,
-    activityState: task.agentProgress?.activityState,
-    lastActivityAt: task.agentProgress?.lastActivityAt
-  };
-}
-function applyAgentProgressEvent(progress, event, startedAt) {
-  const obj = asRecord10(event);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const next = {
-    ...progress,
-    recentTools: [...progress.recentTools],
-    recentOutput: [...progress.recentOutput],
-    lastActivityAt: now,
-    activityState: "active"
-  };
-  if (startedAt) {
-    const startMs = new Date(startedAt).getTime();
-    next.durationMs = Number.isFinite(startMs) ? Date.now() - startMs : void 0;
-  }
-  if (obj?.type === "tool_execution_start") {
-    next.toolCount += 1;
-    next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
-    next.currentToolArgs = previewArgs(obj.args);
-    next.currentToolStartedAt = now;
-  }
-  if (obj?.type === "tool_execution_end") {
-    if (next.currentTool)
-      next.recentTools.push({
-        tool: next.currentTool,
-        args: next.currentToolArgs,
-        endedAt: now
-      });
-    next.currentTool = void 0;
-    next.currentToolArgs = void 0;
-    next.currentToolStartedAt = void 0;
-  }
-  if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool)
-    next.failedTool = next.currentTool;
-  const usage = eventUsage(event);
-  if (usage) {
-    next.tokens = safeNum(usage.input) + safeNum(usage.output);
-    next.turns = usage.turns ?? next.turns;
-  }
-  const text = eventText2(event);
-  if (text.length > 0)
-    next.recentOutput.push(
-      ...text.flatMap((entry) => entry.split(/\r?\n/)).filter(Boolean).slice(-10)
-    );
-  if (next.recentTools.length > 25) next.recentTools.splice(0, next.recentTools.length - 25);
-  if (next.recentOutput.length > 50) next.recentOutput.splice(0, next.recentOutput.length - 50);
-  return next;
-}
-var init_progress = __esm({
-  "src/runtime/task-runner/progress.ts"() {
-    "use strict";
-    init_crew_agent_records();
-  }
-});
-
-// src/runtime/task-runner/prompt-pipeline.ts
-import * as path66 from "node:path";
-function artifactReference(artifactsRoot, artifact) {
-  if (!artifact) return void 0;
-  const root = path66.resolve(artifactsRoot);
-  const target = path66.resolve(artifact.path);
-  const relative9 = path66.relative(root, target);
-  if (!relative9 || relative9.startsWith("..") || path66.isAbsolute(relative9)) return void 0;
-  return relative9.replaceAll("\\", "/");
-}
-function buildWorkerPromptPipeline(input) {
-  return {
-    schemaVersion: 1,
-    taskId: input.taskId,
-    stages: [
-      {
-        name: "task-packet-built",
-        references: [`metadata/${input.taskId}.task-packet.json`]
-      },
-      {
-        name: "dependency-context-collected",
-        references: [artifactReference(input.artifactsRoot, input.inputsArtifact) ?? `metadata/${input.taskId}.inputs.json`]
-      },
-      {
-        name: "skills-rendered-or-disabled",
-        references: input.skillArtifact ? [artifactReference(input.artifactsRoot, input.skillArtifact) ?? `metadata/${input.taskId}.skills.md`] : [],
-        details: {
-          disabled: input.skillsDisabled,
-          skillInstructionCount: input.skillInstructionCount
-        }
-      },
-      {
-        name: "capability-inventory-recorded",
-        references: [
-          artifactReference(input.artifactsRoot, input.capabilityArtifact) ?? `metadata/${input.taskId}.capabilities.json`
-        ]
-      },
-      {
-        name: "coordination-bridge-attached",
-        references: [
-          artifactReference(input.artifactsRoot, input.coordinationArtifact) ?? `metadata/${input.taskId}.coordination-bridge.md`
-        ]
-      },
-      { name: "prompt-rendered", references: [] },
-      {
-        name: "prompt-artifact-written",
-        references: [artifactReference(input.artifactsRoot, input.promptArtifact) ?? `prompts/${input.taskId}.md`]
-      }
-    ]
-  };
-}
-var init_prompt_pipeline = __esm({
-  "src/runtime/task-runner/prompt-pipeline.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/task-runner/result-utils.ts
-function cleanResultText(text) {
-  const trimmed = text?.trim();
-  if (!trimmed) return void 0;
-  const doneIndex = trimmed.lastIndexOf("\nDONE\n");
-  if (doneIndex >= 0) return trimmed.slice(doneIndex + 1).trim();
-  if (trimmed === "DONE" || trimmed.startsWith("DONE\n")) return trimmed;
-  const fencedPromptIndex = trimmed.lastIndexOf("</file>");
-  if (fencedPromptIndex >= 0 && fencedPromptIndex < trimmed.length - 7) return trimmed.slice(fencedPromptIndex + 7).trim() || trimmed;
-  return trimmed;
-}
-function isFinalChildEvent(event) {
-  return Boolean(
-    event && typeof event === "object" && !Array.isArray(event) && event.type === "message_end"
-  );
-}
-var init_result_utils = __esm({
-  "src/runtime/task-runner/result-utils.ts"() {
+var init_worker_startup = __esm({
+  "src/runtime/worker-startup.ts"() {
     "use strict";
   }
 });
@@ -50624,34 +50377,310 @@ var init_state_helpers = __esm({
   }
 });
 
-// src/runtime/task-runner/tail-read.ts
-import * as fs80 from "node:fs";
-function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
-  if (!fs80.existsSync(filePath)) return fallbackContent;
-  const stat2 = fs80.statSync(filePath);
-  if (stat2.size === 0) return fallbackContent;
-  if (stat2.size <= maxBytes) return fs80.readFileSync(filePath, "utf-8");
-  const fd = fs80.openSync(filePath, "r");
-  try {
-    const buf = Buffer.alloc(maxBytes);
-    const bytesRead = fs80.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
-    const raw = buf.slice(0, bytesRead).toString("utf-8");
-    const firstNewline = raw.indexOf("\n");
-    return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
-  } finally {
-    fs80.closeSync(fd);
+// src/runtime/task-runner/pre-execution.ts
+async function prepareTaskExecutionContext(input, manifest, streamBridge) {
+  const workspace = await prepareTaskWorkspaceAsync(manifest, input.task, input.step.seedPaths);
+  const worktree = workspace.worktreePath && workspace.branch ? {
+    path: workspace.worktreePath,
+    branch: workspace.branch,
+    reused: workspace.reused ?? false
+  } : input.task.worktree;
+  const taskPacket = buildTaskPacket({
+    manifest,
+    step: input.step,
+    taskId: input.task.id,
+    cwd: workspace.cwd,
+    worktreePath: worktree?.path
+  });
+  const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step);
+  const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
+  let task = {
+    ...input.task,
+    cwd: workspace.cwd,
+    worktree,
+    taskPacket,
+    status: "running",
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    claim: createTaskClaim(`task-runner:${input.task.id}`),
+    heartbeat: createWorkerHeartbeat(input.task.id),
+    agentProgress: input.task.agentProgress ?? emptyCrewAgentProgress(),
+    // Lifetime usage accumulator — survives compaction unlike session.stats
+    lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
+    ...dependencyContextText ? { dependencyContextText } : {},
+    // Reserve control channel before spawn so cancel/steer can target this task immediately
+    controlReservation: reserveControlChannel(input.task.id, manifest.runId)
+  };
+  let tasks = updateTask(input.tasks, task);
+  const runtimeKind = input.taskRuntimeOverride ?? input.runtimeKind ?? (input.executeWorkers ? "child-process" : "scaffold");
+  const collectYieldEvents = runtimeKind !== "child-process" && (input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled);
+  if (input.signal?.aborted) {
+    const cancelReason = cancellationReasonFromSignal(input.signal);
+    const cancelledTask = {
+      ...task,
+      status: "cancelled",
+      error: `${cancelReason.code}: ${cancelReason.message}`,
+      finishedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    return {
+      kind: "cancelled",
+      result: {
+        manifest: input.manifest,
+        tasks: updateTask(tasks, cancelledTask)
+      }
+    };
   }
+  tasks = persistSingleTaskUpdate(manifest, tasks, task, "started");
+  if (runtimeKind === "child-process") ({ task, tasks } = checkpointTask(manifest, tasks, task, "started"));
+  upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
+  await appendEventAsync(manifest.eventsPath, {
+    type: "task.started",
+    runId: manifest.runId,
+    taskId: task.id,
+    data: {
+      role: task.role,
+      agent: task.agent,
+      runtime: runtimeKind,
+      cwd: task.cwd,
+      worktreePath: workspace.worktreePath,
+      worktreeBranch: workspace.branch,
+      worktreeReused: workspace.reused
+    }
+  });
+  streamBridge?.handler({
+    runId: manifest.runId,
+    taskId: task.id,
+    eventType: "task.started",
+    timestamp: Date.now()
+  });
+  const permissionMode = permissionForRole(task.role);
+  const renderedSkills = input.skillBlock === void 0 ? renderSkillInstructions({
+    cwd: task.cwd,
+    role: task.role,
+    agent: input.agent,
+    teamRole: { skills: input.teamRoleSkills },
+    step: input.step,
+    override: input.skillOverride,
+    runId: manifest.runId
+  }) : void 0;
+  const skillBlock = input.skillBlock ?? renderedSkills?.block;
+  const skillNames = input.skillNames ?? renderedSkills?.names;
+  const skillPaths = input.skillPaths ?? renderedSkills?.paths;
+  let preStepOutput;
+  if (input.step.preStepScript && input.step.source !== "builtin" && input.step.source !== "user") {
+    appendEventFireAndForget(manifest.eventsPath, {
+      type: "hook.pre_step_skipped",
+      runId: manifest.runId,
+      taskId: task.id,
+      message: `preStepScript '${input.step.preStepScript}' skipped: only builtin/user-sourced workflows may execute pre-step scripts for security (F-02).`,
+      data: { script: input.step.preStepScript, source: input.step.source ?? "unknown" }
+    });
+    preStepOutput = void 0;
+  } else if (input.step.preStepScript) {
+    const scriptTimeout = input.step.preStepTimeout ?? 3e4;
+    const scriptArgs = input.step.preStepArgs ?? [];
+    appendEventFireAndForget(manifest.eventsPath, {
+      type: "hook.pre_step_started",
+      runId: manifest.runId,
+      taskId: task.id,
+      data: { script: input.step.preStepScript, argCount: scriptArgs.length, timeoutMs: scriptTimeout }
+    });
+    resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
+    try {
+      const { execFileSync: execFileSync7 } = await import("node:child_process");
+      preStepOutput = execFileSync7(input.step.preStepScript, scriptArgs, {
+        timeout: scriptTimeout,
+        encoding: "utf-8",
+        cwd: manifest.cwd,
+        maxBuffer: 1024 * 1024
+        // 1MB cap
+      });
+      appendEventFireAndForget(manifest.eventsPath, {
+        type: "hook.pre_step_completed",
+        runId: manifest.runId,
+        taskId: task.id,
+        data: { script: input.step.preStepScript, outputBytes: Buffer.byteLength(preStepOutput, "utf8") }
+      });
+    } catch (err2) {
+      const msg = err2 instanceof Error ? err2.message : String(err2);
+      const exitCode = err2.status;
+      appendEventFireAndForget(manifest.eventsPath, {
+        type: "hook.pre_step_failed",
+        runId: manifest.runId,
+        taskId: task.id,
+        message: `pre-step hook failed (exit ${exitCode ?? "?"})`,
+        data: { script: input.step.preStepScript, exitCode: exitCode ?? null, optional: input.step.preStepOptional === true }
+      });
+      if (input.step.preStepOptional) {
+        const warnMsg = `[preStepOptional] pre-step hook '${input.step.preStepScript}' failed (exit ${exitCode ?? "?"}) but preStepOptional=true; continuing without its output.`;
+        try {
+          appendEventFireAndForget(manifest.eventsPath, {
+            type: "hook.pre_step_optional_failed",
+            runId: manifest.runId,
+            taskId: task.id,
+            message: warnMsg,
+            data: {
+              script: input.step.preStepScript,
+              exitCode: exitCode ?? null
+            }
+          });
+        } catch {
+        }
+        preStepOutput = void 0;
+      } else {
+        throw errors.preStepFailed(input.step.preStepScript, exitCode, msg);
+      }
+    }
+  }
+  const promptResult = await renderTaskPrompt(manifest, input.step, task, input.agent, skillBlock);
+  let prompt = promptResult.full;
+  if (preStepOutput) {
+    prompt += "\n\n---\n## Pre-Step Script Output\n\nThe following data was produced by a pre-step script. Use it as context for your task:\n\n<output>\n" + preStepOutput + "\n</output>\n";
+  }
+  const promptArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "prompt",
+    relativePath: `prompts/${task.id}.md`,
+    content: `${prompt}
+`,
+    producer: task.id
+  });
+  const collectedJsonEvents = collectYieldEvents ? [] : void 0;
+  const startupEvidence = createStartupEvidence({
+    command: runtimeKind === "child-process" ? "pi" : runtimeKind === "live-session" ? "live-session" : "safe-scaffold",
+    startedAt: new Date(task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()),
+    finishedAt: /* @__PURE__ */ new Date(),
+    promptSentAt: new Date(task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()),
+    promptAccepted: true,
+    exitCode: 0
+  });
+  const inputsArtifact = writeTaskInputsArtifact(manifest, task, dependencyContext);
+  const skillArtifact = skillBlock ? writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.skills.md`,
+    content: [
+      `Selected skills: ${skillNames?.join(", ") ?? "(none)"}`,
+      `Skill paths passed to child Pi: ${(skillPaths ?? []).length}`,
+      "",
+      skillBlock,
+      ""
+    ].join("\n"),
+    producer: task.id
+  }) : void 0;
+  const coordinationArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.coordination-bridge.md`,
+    content: `${coordinationBridgeInstructions(task)}
+`,
+    producer: task.id
+  });
+  return {
+    kind: "ready",
+    ctx: {
+      input,
+      manifest,
+      task,
+      tasks,
+      runtimeKind,
+      workspace,
+      worktree,
+      taskPacket,
+      dependencyContextText,
+      permissionMode,
+      skillBlock,
+      skillNames,
+      skillPaths,
+      prompt,
+      promptArtifact,
+      inputsArtifact,
+      skillArtifact,
+      coordinationArtifact,
+      collectYieldEvents,
+      collectedJsonEvents,
+      startupEvidence
+    }
+  };
 }
-var init_tail_read = __esm({
-  "src/runtime/task-runner/tail-read.ts"() {
+var init_pre_execution = __esm({
+  "src/runtime/task-runner/pre-execution.ts"() {
     "use strict";
+    init_errors();
+    init_event_log();
+    init_artifact_store();
+    init_safe_paths();
+    init_worktree_manager();
+    init_agent_control();
+    init_crew_agent_records();
+    init_cancellation();
+    init_event_stream_bridge();
+    init_worker_heartbeat();
+    init_task_claims();
+    init_role_permission();
+    init_skill_instructions();
+    init_worker_startup();
+    init_yield_handler();
+    init_task_packet();
+    init_task_output_context();
+    init_state_helpers();
+    init_prompt_builder();
+  }
+});
+
+// src/runtime/output-validator.ts
+function validateWorkerOutput(role, output) {
+  const issues = [];
+  if (!output?.trim()) {
+    return {
+      valid: false,
+      formatMatch: false,
+      structurePreserved: false,
+      issues: ["Empty output"]
+    };
+  }
+  const patternFactory = ROLE_PATTERN_DEFS[role];
+  const pattern = patternFactory ? patternFactory() : void 0;
+  const formatMatch = !pattern || pattern.test(output);
+  if (!formatMatch) {
+    issues.push(`Output does not match expected ${role} contract format`);
+  }
+  let structurePreserved = true;
+  const trimmedOutput = output.trim();
+  const opens = (trimmedOutput.match(/```/g) ?? []).length;
+  if (opens % 2 !== 0) {
+    structurePreserved = false;
+    issues.push("Unclosed code block \u2014 output may be truncated");
+  }
+  const urls = trimmedOutput.match(makeUrlRe()) ?? [];
+  for (const url of urls) {
+    if (url.endsWith(".") || url.endsWith(",")) {
+      structurePreserved = false;
+      issues.push(`URL with trailing punctuation: ${url.slice(-20)}`);
+    }
+  }
+  return {
+    valid: formatMatch && structurePreserved,
+    formatMatch,
+    structurePreserved,
+    issues
+  };
+}
+var ROLE_PATTERN_DEFS, makeUrlRe;
+var init_output_validator = __esm({
+  "src/runtime/output-validator.ts"() {
+    "use strict";
+    ROLE_PATTERN_DEFS = {
+      explorer: () => /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
+      executor: () => /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
+      reviewer: () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
+      "security-reviewer": () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
+      verifier: () => /^(PASS:|FAIL:)/m
+    };
+    makeUrlRe = () => /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
   }
 });
 
 // src/runtime/verification-gates.ts
 import { spawn as spawn5 } from "node:child_process";
-import * as fs81 from "node:fs";
-import * as path67 from "node:path";
+import * as fs80 from "node:fs";
+import * as path66 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
   if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
     return false;
@@ -50807,9 +50836,9 @@ async function executeVerificationCommands(contract, cwd, runId, taskId, artifac
     critical: true
     // All verification commands are critical by default
   }));
-  const gatesDir = path67.join(artifactsRoot, "verification-gates");
-  if (!fs81.existsSync(gatesDir)) {
-    fs81.mkdirSync(gatesDir, { recursive: true });
+  const gatesDir = path66.join(artifactsRoot, "verification-gates");
+  if (!fs80.existsSync(gatesDir)) {
+    fs80.mkdirSync(gatesDir, { recursive: true });
   }
   const execCwd = worktreeCwd ?? cwd;
   const bundle = await runPhaseGates(gates, execCwd, signal, (phaseResult) => {
@@ -50933,43 +50962,626 @@ var init_verification_gates = __esm({
   }
 });
 
-// src/runtime/worker-startup.ts
-function detectTrustPrompt(text) {
-  const lowered = text.toLowerCase();
-  return lowered.includes("do you trust") || lowered.includes("trust this") || lowered.includes("untrusted") || lowered.includes("workspace trust") || lowered.includes("allow this folder");
+// src/runtime/task-runner/capabilities.ts
+function uniqueSorted(values) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
-function classifyStartupFailure(evidence) {
-  if (evidence.stderrPreview && /429|rate.?limit/i.test(evidence.stderrPreview)) return "rate_limited";
-  if (evidence.stderrPreview && /5\d{2}|server.?error|internal.?error|provider.?error/i.test(evidence.stderrPreview))
-    return "provider_error";
-  if (!evidence.transportHealthy) return "transport_dead";
-  if (evidence.trustPromptDetected || evidence.lastLifecycleState === "trust_required") return "trust_required";
-  if (evidence.promptSentAt && !evidence.promptAccepted && evidence.childProcessAlive) return "prompt_acceptance_timeout";
-  if (evidence.promptSentAt && !evidence.promptAccepted && !evidence.childProcessAlive) return "worker_crashed";
-  if (evidence.stderrPreview?.toLowerCase().includes("command not found") || evidence.stderrPreview?.toLowerCase().includes("not recognized"))
-    return "prompt_misdelivery";
-  if (!evidence.childProcessAlive && evidence.lastLifecycleState !== "finished") return "worker_crashed";
-  return "unknown";
-}
-function createStartupEvidence(input) {
-  const stderrPreview = (input.error || input.stderr || "").slice(0, 500) || void 0;
-  const trustPromptDetected = detectTrustPrompt(stderrPreview ?? "");
-  const childProcessAlive = input.exitCode === void 0 || input.exitCode === null ? !input.finishedAt : false;
-  const base = {
-    lastLifecycleState: input.error || input.exitCode !== void 0 && input.exitCode !== null && input.exitCode !== 0 ? "failed" : input.finishedAt ? "finished" : "running",
-    command: input.command,
-    promptSentAt: input.promptSentAt?.toISOString(),
-    promptAccepted: input.promptAccepted ?? !input.error,
-    trustPromptDetected,
-    transportHealthy: !input.error || !/enoent|spawn|transport/i.test(input.error),
-    childProcessAlive,
-    elapsedMs: Math.max(0, (input.finishedAt ?? /* @__PURE__ */ new Date()).getTime() - input.startedAt.getTime()),
-    stderrPreview
+function buildWorkerCapabilityInventory(input) {
+  return {
+    schemaVersion: 1,
+    taskId: input.taskId,
+    role: input.role,
+    agent: input.agent.name,
+    runtime: input.runtime,
+    permissionMode: input.permissionMode,
+    tools: uniqueSorted(input.agent.tools),
+    extensions: uniqueSorted(input.agent.extensions),
+    skills: {
+      names: uniqueSorted(input.skillNames),
+      paths: uniqueSorted(input.skillPaths),
+      disabled: input.skillsDisabled
+    },
+    model: {
+      requested: input.modelOverride,
+      agentDefault: input.agent.model,
+      fallbacks: uniqueSorted(input.agent.fallbackModels),
+      teamRole: input.teamRoleModel,
+      step: input.stepModel
+    },
+    inheritance: {
+      projectContext: input.agent.inheritProjectContext === true,
+      skills: input.agent.inheritSkills === true,
+      systemPromptMode: input.agent.systemPromptMode ?? "replace"
+    }
   };
-  return { ...base, classification: classifyStartupFailure(base) };
 }
-var init_worker_startup = __esm({
-  "src/runtime/worker-startup.ts"() {
+var init_capabilities = __esm({
+  "src/runtime/task-runner/capabilities.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/task-runner/prompt-pipeline.ts
+import * as path67 from "node:path";
+function artifactReference(artifactsRoot, artifact) {
+  if (!artifact) return void 0;
+  const root = path67.resolve(artifactsRoot);
+  const target = path67.resolve(artifact.path);
+  const relative9 = path67.relative(root, target);
+  if (!relative9 || relative9.startsWith("..") || path67.isAbsolute(relative9)) return void 0;
+  return relative9.replaceAll("\\", "/");
+}
+function buildWorkerPromptPipeline(input) {
+  return {
+    schemaVersion: 1,
+    taskId: input.taskId,
+    stages: [
+      {
+        name: "task-packet-built",
+        references: [`metadata/${input.taskId}.task-packet.json`]
+      },
+      {
+        name: "dependency-context-collected",
+        references: [artifactReference(input.artifactsRoot, input.inputsArtifact) ?? `metadata/${input.taskId}.inputs.json`]
+      },
+      {
+        name: "skills-rendered-or-disabled",
+        references: input.skillArtifact ? [artifactReference(input.artifactsRoot, input.skillArtifact) ?? `metadata/${input.taskId}.skills.md`] : [],
+        details: {
+          disabled: input.skillsDisabled,
+          skillInstructionCount: input.skillInstructionCount
+        }
+      },
+      {
+        name: "capability-inventory-recorded",
+        references: [
+          artifactReference(input.artifactsRoot, input.capabilityArtifact) ?? `metadata/${input.taskId}.capabilities.json`
+        ]
+      },
+      {
+        name: "coordination-bridge-attached",
+        references: [
+          artifactReference(input.artifactsRoot, input.coordinationArtifact) ?? `metadata/${input.taskId}.coordination-bridge.md`
+        ]
+      },
+      { name: "prompt-rendered", references: [] },
+      {
+        name: "prompt-artifact-written",
+        references: [artifactReference(input.artifactsRoot, input.promptArtifact) ?? `prompts/${input.taskId}.md`]
+      }
+    ]
+  };
+}
+var init_prompt_pipeline = __esm({
+  "src/runtime/task-runner/prompt-pipeline.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/task-runner/post-execution.ts
+async function finalizeTaskResult(ctx, execResult) {
+  const input = ctx.input;
+  let manifest = ctx.manifest;
+  let task = ctx.task;
+  let tasks = ctx.tasks;
+  const runtimeKind = ctx.runtimeKind;
+  const workspace = ctx.workspace;
+  const taskPacket = ctx.taskPacket;
+  const collectYieldEvents = ctx.collectYieldEvents;
+  const collectedJsonEvents = ctx.collectedJsonEvents;
+  const permissionMode = ctx.permissionMode;
+  const skillNames = ctx.skillNames;
+  const skillPaths = ctx.skillPaths;
+  const promptArtifact = ctx.promptArtifact;
+  const inputsArtifact = ctx.inputsArtifact;
+  const skillArtifact = ctx.skillArtifact;
+  const coordinationArtifact = ctx.coordinationArtifact;
+  let resultArtifact = execResult.resultArtifact;
+  const logArtifact = execResult.logArtifact;
+  const transcriptArtifact = execResult.transcriptArtifact;
+  let exitCode = execResult.exitCode;
+  let error = execResult.error;
+  let modelAttempts = execResult.modelAttempts;
+  const parsedOutput = execResult.parsedOutput;
+  const finalStdout = execResult.finalStdout;
+  const transcriptPath = execResult.transcriptPath;
+  const terminalEvidence = execResult.terminalEvidence;
+  const startupEvidence = execResult.startupEvidence;
+  let _yieldResult;
+  let noYield = false;
+  const yieldEnabled = collectYieldEvents;
+  if (yieldEnabled && collectedJsonEvents && collectedJsonEvents.length > 0) {
+    if (hasYieldInOutput(collectedJsonEvents)) {
+      const yieldEvent = collectedJsonEvents.find((e) => isYieldEvent(e));
+      if (yieldEvent) {
+        _yieldResult = extractYieldResult(yieldEvent);
+      }
+    } else if (!error) {
+      noYield = true;
+      await appendEventAsync(manifest.eventsPath, {
+        type: "task.needs_attention",
+        runId: manifest.runId,
+        taskId: task.id,
+        message: "Worker completed without calling submit_result tool.",
+        data: {
+          activityState: "needs_attention",
+          reason: "no_yield",
+          // Bug #21 fix: include result path so downstream tasks can read the output
+          resultPath: resultArtifact?.path
+        }
+      });
+    }
+  }
+  const diffArtifact = workspace.worktreePath ? writeArtifact(manifest.artifactsRoot, {
+    kind: "diff",
+    relativePath: `diffs/${task.id}.diff`,
+    content: await captureWorktreeDiffAsync(workspace.worktreePath),
+    producer: task.id
+  }) : void 0;
+  const diffStatArtifact = workspace.worktreePath ? writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.diff-stat.json`,
+    content: `${JSON.stringify({ ...await captureWorktreeDiffStatAsync(workspace.worktreePath), syntheticPaths: workspace.syntheticPaths ?? [], nodeModulesLinked: workspace.nodeModulesLinked ?? false }, null, 2)}
+`,
+    producer: task.id
+  }) : void 0;
+  const patchArtifact = parsedOutput?.patches?.length ? writeArtifact(manifest.artifactsRoot, {
+    kind: "patch",
+    relativePath: `patches/${task.id}.patch`,
+    content: parsedOutput.patches.join("\n---\n"),
+    producer: task.id
+  }) : void 0;
+  const mutationGuardMode = input.runtimeConfig?.completionMutationGuard ?? "warn";
+  const mutationGuard = !error && mutationGuardMode !== "off" ? evaluateCompletionMutationGuard({
+    role: task.role,
+    taskText: `${task.title}
+${input.step.task}`,
+    transcriptPath: runtimeKind === "child-process" ? transcriptPath : transcriptArtifact?.path,
+    stdout: finalStdout
+  }) : void 0;
+  if (mutationGuard?.reason === "no_mutation_observed") {
+    appendTaskAttentionEvent({
+      manifest,
+      taskId: task.id,
+      message: "Implementation-style task completed without an observed mutation tool call.",
+      data: {
+        activityState: "needs_attention",
+        reason: "completion_guard",
+        taskId: task.id,
+        agentName: task.agent,
+        observedTools: mutationGuard.observedTools,
+        suggestedAction: mutationGuardMode === "fail" ? "Review the worker output and rerun with a concrete implementation task." : "Review the worker output; set runtime.completionMutationGuard='fail' to enforce this."
+      }
+    });
+    task = {
+      ...task,
+      agentProgress: {
+        ...task.agentProgress ?? emptyCrewAgentProgress(),
+        activityState: "needs_attention"
+      }
+    };
+    if (mutationGuardMode === "fail") {
+      error = "Completion mutation guard failed: implementation-style task completed without an observed mutation tool call.";
+      exitCode = exitCode === 0 ? 1 : exitCode;
+      if (modelAttempts?.length) {
+        modelAttempts = modelAttempts.map(
+          (attempt, index) => index === modelAttempts.length - 1 ? { ...attempt, success: false, exitCode, error } : attempt
+        );
+      }
+    }
+    tasks = updateTask(tasks, task);
+  }
+  let outputValidation;
+  if (!error) {
+    const outputText = parsedOutput?.finalText ?? finalStdout;
+    if (outputText) {
+      outputValidation = validateWorkerOutput(task.role, outputText);
+      if (!outputValidation.valid) {
+        await appendEventAsync(manifest.eventsPath, {
+          type: "task.output_validation",
+          runId: manifest.runId,
+          taskId: task.id,
+          data: {
+            valid: false,
+            formatMatch: outputValidation.formatMatch,
+            structurePreserved: outputValidation.structurePreserved,
+            issues: outputValidation.issues
+          }
+        });
+        task = {
+          ...task,
+          agentProgress: {
+            ...task.agentProgress ?? emptyCrewAgentProgress(),
+            activityState: "needs_attention"
+          }
+        };
+        tasks = updateTask(tasks, task);
+      }
+    }
+  }
+  const baseEvidence = createVerificationEvidence(
+    taskPacket.verification,
+    !error,
+    error ? `Task failed: ${error}` : runtimeKind === "scaffold" ? "Safe scaffold mode; verification commands were not executed." : `${runtimeKind} worker finished without reporting a verification failure.`
+  );
+  let verificationEvidence = baseEvidence;
+  if (runtimeKind !== "scaffold" && taskPacket.verification?.commands?.length) {
+    try {
+      const commandResults = await executeVerificationCommands(
+        taskPacket.verification,
+        task.cwd,
+        manifest.runId,
+        task.id,
+        manifest.artifactsRoot,
+        input.signal
+      );
+      const observedGreenLevel = computeGreenLevelFromResults(commandResults, taskPacket.verification.requiredGreenLevel);
+      const requiredLevel = taskPacket.verification.requiredGreenLevel;
+      const satisfied = observedGreenLevel === "none" ? false : observedGreenLevel === "targeted" ? requiredLevel === "targeted" : observedGreenLevel === "package" ? ["targeted", "package"].includes(requiredLevel) : observedGreenLevel === "workspace" ? ["targeted", "package", "workspace"].includes(requiredLevel) : observedGreenLevel === "merge_ready";
+      const allPassed = commandResults.every((r) => r.status === "passed");
+      const failedCount = commandResults.filter((r) => r.status === "failed").length;
+      verificationEvidence = {
+        requiredGreenLevel: taskPacket.verification.requiredGreenLevel,
+        observedGreenLevel,
+        satisfied: satisfied && allPassed,
+        commands: commandResults,
+        notes: allPassed ? `${commandResults.length} verification commands passed` : `${failedCount}/${commandResults.length} verification commands failed`
+      };
+    } catch (execError) {
+      verificationEvidence = {
+        ...baseEvidence,
+        notes: `Verification execution failed: ${execError instanceof Error ? execError.message : String(execError)}`
+      };
+    }
+  }
+  task = {
+    ...task,
+    status: error ? "failed" : noYield ? "needs_attention" : "completed",
+    finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    exitCode,
+    modelAttempts,
+    usage: parsedOutput?.usage,
+    jsonEvents: parsedOutput?.jsonEvents,
+    agentProgress: error && task.agentProgress?.currentTool ? {
+      ...task.agentProgress,
+      failedTool: task.agentProgress.currentTool
+    } : task.agentProgress,
+    error,
+    verification: verificationEvidence,
+    resultArtifact,
+    claim: void 0,
+    heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
+    workerExitStatus: terminalEvidence.at(-1)?.exitStatus,
+    terminalEvidence: terminalEvidence.length ? [...task.terminalEvidence ?? [], ...terminalEvidence] : task.terminalEvidence,
+    ...logArtifact ? { logArtifact } : {},
+    ...transcriptArtifact ? { transcriptArtifact } : {}
+  };
+  tasks = updateTask(tasks, task);
+  const hookType = task.status === "completed" ? "task_completed" : task.status === "failed" ? "task_failed" : "task_started";
+  const commandTrace = extractCommandTrace(task.agentProgress?.recentTools);
+  crewHooks.emit({
+    type: hookType,
+    timestamp: task.finishedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    runId: manifest.runId,
+    taskId: task.id,
+    data: {
+      status: task.status,
+      role: task.role,
+      error: task.error,
+      exitCode: task.exitCode,
+      usage: task.usage,
+      commandTrace
+    }
+  });
+  const packetArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.task-packet.json`,
+    content: `${JSON.stringify(task.taskPacket, null, 2)}
+`,
+    producer: task.id
+  });
+  const verificationArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.verification.json`,
+    content: `${JSON.stringify(task.verification, null, 2)}
+`,
+    producer: task.id
+  });
+  const sharedOutputArtifact = writeTaskSharedOutput(manifest, input.step, task);
+  const startupArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.startup-evidence.json`,
+    content: `${JSON.stringify(startupEvidence, null, 2)}
+`,
+    producer: task.id
+  });
+  const permissionArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.permission.json`,
+    content: `${JSON.stringify({ role: task.role, permissionMode }, null, 2)}
+`,
+    producer: task.id
+  });
+  const capabilityArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.capabilities.json`,
+    content: `${JSON.stringify(buildWorkerCapabilityInventory({ taskId: task.id, role: task.role, agent: input.agent, runtime: runtimeKind, permissionMode, skillNames, skillPaths, skillsDisabled: input.skillOverride === false || input.teamRoleSkills === false, modelOverride: input.modelOverride, teamRoleModel: input.teamRoleModel, stepModel: input.step.model }), null, 2)}
+`,
+    producer: task.id
+  });
+  const promptPipelineArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.prompt-pipeline.json`,
+    content: `${JSON.stringify(buildWorkerPromptPipeline({ artifactsRoot: manifest.artifactsRoot, taskId: task.id, promptArtifact, inputsArtifact, skillArtifact, capabilityArtifact, coordinationArtifact, skillInstructionCount: skillNames?.length ?? 0, skillsDisabled: input.skillOverride === false || input.teamRoleSkills === false }), null, 2)}
+`,
+    producer: task.id
+  });
+  const outputValidationArtifact = outputValidation ? writeArtifact(manifest.artifactsRoot, {
+    kind: "metadata",
+    relativePath: `metadata/${task.id}.output-validation.json`,
+    content: `${JSON.stringify(outputValidation, null, 2)}
+`,
+    producer: task.id
+  }) : void 0;
+  manifest = {
+    ...manifest,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    artifacts: [
+      ...manifest.artifacts,
+      promptArtifact,
+      resultArtifact,
+      inputsArtifact,
+      coordinationArtifact,
+      ...skillArtifact ? [skillArtifact] : [],
+      packetArtifact,
+      verificationArtifact,
+      startupArtifact,
+      permissionArtifact,
+      capabilityArtifact,
+      promptPipelineArtifact,
+      ...outputValidationArtifact ? [outputValidationArtifact] : [],
+      ...sharedOutputArtifact ? [sharedOutputArtifact] : [],
+      ...logArtifact ? [logArtifact] : [],
+      ...transcriptArtifact ? [transcriptArtifact] : [],
+      ...diffArtifact ? [diffArtifact] : [],
+      ...diffStatArtifact ? [diffStatArtifact] : [],
+      ...patchArtifact ? [patchArtifact] : []
+    ]
+  };
+  tasks = await withRunLock(manifest, async () => {
+    await saveRunManifestAsync(manifest);
+    return persistSingleTaskUpdate(manifest, tasks, task, void 0, true);
+  });
+  upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
+  const hookReport = await executeHook("task_result", {
+    runId: manifest.runId,
+    taskId: task.id,
+    cwd: manifest.cwd
+  });
+  appendHookEvent(manifest, hookReport);
+  await appendEventAsync(manifest.eventsPath, {
+    type: error ? "task.failed" : noYield ? "task.needs_attention" : "task.completed",
+    runId: manifest.runId,
+    taskId: task.id,
+    message: error
+  });
+  const afterTaskReport = await executeHook("after_task_complete", {
+    runId: manifest.runId,
+    taskId: task.id,
+    cwd: manifest.cwd,
+    status: error ? "failed" : noYield ? "needs_attention" : "completed"
+  });
+  appendHookEvent(manifest, afterTaskReport);
+  return { manifest, tasks };
+}
+var init_post_execution = __esm({
+  "src/runtime/task-runner/post-execution.ts"() {
+    "use strict";
+    init_registry();
+    init_event_log();
+    init_artifact_store();
+    init_locks();
+    init_state_store();
+    init_worktree_manager();
+    init_attention_events();
+    init_command_trace();
+    init_completion_guard();
+    init_crew_agent_records();
+    init_crew_hooks();
+    init_model_fallback();
+    init_output_validator();
+    init_pi_json_output();
+    init_green_contract();
+    init_verification_gates();
+    init_worker_heartbeat();
+    init_task_output_context();
+    init_yield_handler();
+    init_capabilities();
+    init_prompt_pipeline();
+    init_state_helpers();
+  }
+});
+
+// src/runtime/task-runner/progress.ts
+function asRecord10(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function safeNum(v) {
+  return Number.isFinite(v) ? v : 0;
+}
+function textFromContent3(content) {
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+  const text = [];
+  for (const part of content) {
+    const obj = asRecord10(part);
+    if (!obj) continue;
+    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
+    else if (typeof obj.content === "string") text.push(obj.content);
+  }
+  return text;
+}
+function eventText2(event) {
+  const obj = asRecord10(event);
+  if (!obj) return [];
+  const text = [];
+  if (typeof obj.text === "string") text.push(obj.text);
+  if (typeof obj.output === "string") text.push(obj.output);
+  text.push(...textFromContent3(obj.content));
+  const message = asRecord10(obj.message);
+  if (message) text.push(...textFromContent3(message.content));
+  return text.filter((entry) => entry.trim());
+}
+function numberField4(obj, keys) {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return void 0;
+}
+function eventUsage(event) {
+  const obj = asRecord10(event);
+  if (!obj) return void 0;
+  const direct = {
+    input: numberField4(obj, ["input", "inputTokens", "input_tokens"]),
+    output: numberField4(obj, ["output", "outputTokens", "output_tokens"]),
+    turns: numberField4(obj, ["turns", "turnCount", "turn_count"])
+  };
+  if (Object.values(direct).some((value) => value !== void 0)) return direct;
+  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+    const nested = eventUsage(obj[key]);
+    if (nested) return nested;
+  }
+  const message = asRecord10(obj.message);
+  return message ? eventUsage(message.usage) : void 0;
+}
+function previewArgs(args) {
+  if (!args) return void 0;
+  try {
+    const text = typeof args === "string" ? args : JSON.stringify(args);
+    return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
+  } catch {
+    return void 0;
+  }
+}
+function applyUsageToProgress(progress, usage) {
+  if (!usage) return progress;
+  const base = progress ?? emptyCrewAgentProgress();
+  const tokens = safeNum(usage.input) + safeNum(usage.output) + safeNum(usage.cacheRead) + safeNum(usage.cacheWrite);
+  return { ...base, tokens, turns: usage.turns ?? base.turns };
+}
+function shouldFlushProgressEvent(event) {
+  const type = asRecord10(event)?.type;
+  return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_start" || type === "message_end" || type === "tool_result_end";
+}
+function progressEventSummary(task, event) {
+  const type = asRecord10(event)?.type;
+  return {
+    eventType: typeof type === "string" ? type : "event",
+    currentTool: task.agentProgress?.currentTool,
+    toolCount: task.agentProgress?.toolCount,
+    tokens: task.agentProgress?.tokens,
+    turns: task.agentProgress?.turns,
+    activityState: task.agentProgress?.activityState,
+    lastActivityAt: task.agentProgress?.lastActivityAt
+  };
+}
+function applyAgentProgressEvent(progress, event, startedAt) {
+  const obj = asRecord10(event);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const next = {
+    ...progress,
+    recentTools: [...progress.recentTools],
+    recentOutput: [...progress.recentOutput],
+    lastActivityAt: now,
+    activityState: "active"
+  };
+  if (startedAt) {
+    const startMs = new Date(startedAt).getTime();
+    next.durationMs = Number.isFinite(startMs) ? Date.now() - startMs : void 0;
+  }
+  if (obj?.type === "tool_execution_start") {
+    next.toolCount += 1;
+    next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
+    next.currentToolArgs = previewArgs(obj.args);
+    next.currentToolStartedAt = now;
+  }
+  if (obj?.type === "tool_execution_end") {
+    if (next.currentTool)
+      next.recentTools.push({
+        tool: next.currentTool,
+        args: next.currentToolArgs,
+        endedAt: now
+      });
+    next.currentTool = void 0;
+    next.currentToolArgs = void 0;
+    next.currentToolStartedAt = void 0;
+  }
+  if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool)
+    next.failedTool = next.currentTool;
+  const usage = eventUsage(event);
+  if (usage) {
+    next.tokens = safeNum(usage.input) + safeNum(usage.output);
+    next.turns = usage.turns ?? next.turns;
+  }
+  const text = eventText2(event);
+  if (text.length > 0)
+    next.recentOutput.push(
+      ...text.flatMap((entry) => entry.split(/\r?\n/)).filter(Boolean).slice(-10)
+    );
+  if (next.recentTools.length > 25) next.recentTools.splice(0, next.recentTools.length - 25);
+  if (next.recentOutput.length > 50) next.recentOutput.splice(0, next.recentOutput.length - 50);
+  return next;
+}
+var init_progress = __esm({
+  "src/runtime/task-runner/progress.ts"() {
+    "use strict";
+    init_crew_agent_records();
+  }
+});
+
+// src/runtime/task-runner/result-utils.ts
+function cleanResultText(text) {
+  const trimmed = text?.trim();
+  if (!trimmed) return void 0;
+  const doneIndex = trimmed.lastIndexOf("\nDONE\n");
+  if (doneIndex >= 0) return trimmed.slice(doneIndex + 1).trim();
+  if (trimmed === "DONE" || trimmed.startsWith("DONE\n")) return trimmed;
+  const fencedPromptIndex = trimmed.lastIndexOf("</file>");
+  if (fencedPromptIndex >= 0 && fencedPromptIndex < trimmed.length - 7) return trimmed.slice(fencedPromptIndex + 7).trim() || trimmed;
+  return trimmed;
+}
+function isFinalChildEvent(event) {
+  return Boolean(
+    event && typeof event === "object" && !Array.isArray(event) && event.type === "message_end"
+  );
+}
+var init_result_utils = __esm({
+  "src/runtime/task-runner/result-utils.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/task-runner/tail-read.ts
+import * as fs81 from "node:fs";
+function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
+  if (!fs81.existsSync(filePath)) return fallbackContent;
+  const stat2 = fs81.statSync(filePath);
+  if (stat2.size === 0) return fallbackContent;
+  if (stat2.size <= maxBytes) return fs81.readFileSync(filePath, "utf-8");
+  const fd = fs81.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const bytesRead = fs81.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
+    const raw = buf.slice(0, bytesRead).toString("utf-8");
+    const firstNewline = raw.indexOf("\n");
+    return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
+  } finally {
+    fs81.closeSync(fd);
+  }
+}
+var init_tail_read = __esm({
+  "src/runtime/task-runner/tail-read.ts"() {
     "use strict";
   }
 });
@@ -51185,167 +51797,25 @@ async function runTeamTask(input) {
   let streamBridge;
   try {
     streamBridge = registerStreamBridge(manifest.runId);
-    const workspace = await prepareTaskWorkspaceAsync(manifest, input.task, input.step.seedPaths);
-    const worktree = workspace.worktreePath && workspace.branch ? {
-      path: workspace.worktreePath,
-      branch: workspace.branch,
-      reused: workspace.reused ?? false
-    } : input.task.worktree;
-    const taskPacket = buildTaskPacket({
-      manifest,
-      step: input.step,
-      taskId: input.task.id,
-      cwd: workspace.cwd,
-      worktreePath: worktree?.path
-    });
-    const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step);
-    const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
-    let task = {
-      ...input.task,
-      cwd: workspace.cwd,
-      worktree,
-      taskPacket,
-      status: "running",
-      startedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      claim: createTaskClaim(`task-runner:${input.task.id}`),
-      heartbeat: createWorkerHeartbeat(input.task.id),
-      agentProgress: input.task.agentProgress ?? emptyCrewAgentProgress(),
-      // Lifetime usage accumulator — survives compaction unlike session.stats
-      lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
-      ...dependencyContextText ? { dependencyContextText } : {},
-      // Reserve control channel before spawn so cancel/steer can target this task immediately
-      controlReservation: reserveControlChannel(input.task.id, manifest.runId)
-    };
-    let tasks = updateTask(input.tasks, task);
-    const runtimeKind = input.taskRuntimeOverride ?? input.runtimeKind ?? (input.executeWorkers ? "child-process" : "scaffold");
-    const collectYieldEvents = runtimeKind !== "child-process" && (input.runtimeConfig?.yield?.enabled ?? DEFAULT_YIELD_CONFIG.enabled);
-    if (input.signal?.aborted) {
-      const cancelReason = cancellationReasonFromSignal(input.signal);
-      const cancelledTask = {
-        ...task,
-        status: "cancelled",
-        error: `${cancelReason.code}: ${cancelReason.message}`,
-        finishedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      return {
-        manifest: input.manifest,
-        tasks: updateTask(tasks, cancelledTask)
-      };
-    }
-    tasks = persistSingleTaskUpdate(manifest, tasks, task, "started");
-    if (runtimeKind === "child-process") ({ task, tasks } = checkpointTask(manifest, tasks, task, "started"));
-    upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
-    await appendEventAsync(manifest.eventsPath, {
-      type: "task.started",
-      runId: manifest.runId,
-      taskId: task.id,
-      data: {
-        role: task.role,
-        agent: task.agent,
-        runtime: runtimeKind,
-        cwd: task.cwd,
-        worktreePath: workspace.worktreePath,
-        worktreeBranch: workspace.branch,
-        worktreeReused: workspace.reused
-      }
-    });
-    streamBridge?.handler({
-      runId: manifest.runId,
-      taskId: task.id,
-      eventType: "task.started",
-      timestamp: Date.now()
-    });
-    const permissionMode = permissionForRole(task.role);
-    const renderedSkills = input.skillBlock === void 0 ? renderSkillInstructions({
-      cwd: task.cwd,
-      role: task.role,
-      agent: input.agent,
-      teamRole: { skills: input.teamRoleSkills },
-      step: input.step,
-      override: input.skillOverride,
-      runId: manifest.runId
-    }) : void 0;
-    const skillBlock = input.skillBlock ?? renderedSkills?.block;
-    const skillNames = input.skillNames ?? renderedSkills?.names;
-    const skillPaths = input.skillPaths ?? renderedSkills?.paths;
-    let preStepOutput;
-    if (input.step.preStepScript && input.step.source !== "builtin" && input.step.source !== "user") {
-      appendEventFireAndForget(manifest.eventsPath, {
-        type: "hook.pre_step_skipped",
-        runId: manifest.runId,
-        taskId: task.id,
-        message: `preStepScript '${input.step.preStepScript}' skipped: only builtin/user-sourced workflows may execute pre-step scripts for security (F-02).`,
-        data: { script: input.step.preStepScript, source: input.step.source ?? "unknown" }
-      });
-      preStepOutput = void 0;
-    } else if (input.step.preStepScript) {
-      const scriptTimeout = input.step.preStepTimeout ?? 3e4;
-      const scriptArgs = input.step.preStepArgs ?? [];
-      appendEventFireAndForget(manifest.eventsPath, {
-        type: "hook.pre_step_started",
-        runId: manifest.runId,
-        taskId: task.id,
-        data: { script: input.step.preStepScript, argCount: scriptArgs.length, timeoutMs: scriptTimeout }
-      });
-      resolveRealContainedPath(manifest.cwd, input.step.preStepScript);
-      try {
-        const { execFileSync: execFileSync7 } = await import("node:child_process");
-        preStepOutput = execFileSync7(input.step.preStepScript, scriptArgs, {
-          timeout: scriptTimeout,
-          encoding: "utf-8",
-          cwd: manifest.cwd,
-          maxBuffer: 1024 * 1024
-          // 1MB cap
-        });
-        appendEventFireAndForget(manifest.eventsPath, {
-          type: "hook.pre_step_completed",
-          runId: manifest.runId,
-          taskId: task.id,
-          data: { script: input.step.preStepScript, outputBytes: Buffer.byteLength(preStepOutput, "utf8") }
-        });
-      } catch (err2) {
-        const msg = err2 instanceof Error ? err2.message : String(err2);
-        const exitCode2 = err2.status;
-        appendEventFireAndForget(manifest.eventsPath, {
-          type: "hook.pre_step_failed",
-          runId: manifest.runId,
-          taskId: task.id,
-          message: `pre-step hook failed (exit ${exitCode2 ?? "?"})`,
-          data: { script: input.step.preStepScript, exitCode: exitCode2 ?? null, optional: input.step.preStepOptional === true }
-        });
-        if (input.step.preStepOptional) {
-          const warnMsg = `[preStepOptional] pre-step hook '${input.step.preStepScript}' failed (exit ${exitCode2 ?? "?"}) but preStepOptional=true; continuing without its output.`;
-          try {
-            appendEventFireAndForget(manifest.eventsPath, {
-              type: "hook.pre_step_optional_failed",
-              runId: manifest.runId,
-              taskId: task.id,
-              message: warnMsg,
-              data: {
-                script: input.step.preStepScript,
-                exitCode: exitCode2 ?? null
-              }
-            });
-          } catch {
-          }
-          preStepOutput = void 0;
-        } else {
-          throw errors.preStepFailed(input.step.preStepScript, exitCode2, msg);
-        }
-      }
-    }
-    const promptResult = await renderTaskPrompt(manifest, input.step, task, input.agent, skillBlock);
-    let prompt = promptResult.full;
-    if (preStepOutput) {
-      prompt += "\n\n---\n## Pre-Step Script Output\n\nThe following data was produced by a pre-step script. Use it as context for your task:\n\n<output>\n" + preStepOutput + "\n</output>\n";
-    }
-    const promptArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "prompt",
-      relativePath: `prompts/${task.id}.md`,
-      content: `${prompt}
-`,
-      producer: task.id
-    });
+    const prepared = await prepareTaskExecutionContext(input, manifest, streamBridge);
+    if (prepared.kind === "cancelled") return prepared.result;
+    const ctx = prepared.ctx;
+    let task = ctx.task;
+    let tasks = ctx.tasks;
+    const runtimeKind = ctx.runtimeKind;
+    const workspace = ctx.workspace;
+    const taskPacket = ctx.taskPacket;
+    const collectYieldEvents = ctx.collectYieldEvents;
+    const collectedJsonEvents = ctx.collectedJsonEvents;
+    const permissionMode = ctx.permissionMode;
+    const skillBlock = ctx.skillBlock;
+    const skillNames = ctx.skillNames;
+    const skillPaths = ctx.skillPaths;
+    const prompt = ctx.prompt;
+    const promptArtifact = ctx.promptArtifact;
+    const inputsArtifact = ctx.inputsArtifact;
+    const skillArtifact = ctx.skillArtifact;
+    const coordinationArtifact = ctx.coordinationArtifact;
     let resultArtifact;
     let logArtifact;
     let transcriptArtifact;
@@ -51358,35 +51828,7 @@ async function runTeamTask(input) {
     let finalStdout = "";
     let transcriptPath;
     let terminalEvidence = [];
-    const collectedJsonEvents = collectYieldEvents ? [] : void 0;
-    let startupEvidence = createStartupEvidence({
-      command: runtimeKind === "child-process" ? "pi" : runtimeKind === "live-session" ? "live-session" : "safe-scaffold",
-      startedAt: new Date(task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()),
-      finishedAt: /* @__PURE__ */ new Date(),
-      promptSentAt: new Date(task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()),
-      promptAccepted: true,
-      exitCode: 0
-    });
-    const inputsArtifact = writeTaskInputsArtifact(manifest, task, dependencyContext);
-    const skillArtifact = skillBlock ? writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.skills.md`,
-      content: [
-        `Selected skills: ${skillNames?.join(", ") ?? "(none)"}`,
-        `Skill paths passed to child Pi: ${(skillPaths ?? []).length}`,
-        "",
-        skillBlock,
-        ""
-      ].join("\n"),
-      producer: task.id
-    }) : void 0;
-    const coordinationArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.coordination-bridge.md`,
-      content: `${coordinationBridgeInstructions(task)}
-`,
-      producer: task.id
-    });
+    let startupEvidence = ctx.startupEvidence;
     if (runtimeKind === "child-process") {
       const modelRoutingPlan = buildConfiguredModelRouting({
         overrideModel: input.modelOverride,
@@ -51862,304 +52304,24 @@ async function runTeamTask(input) {
       logArtifact = live.logArtifact;
       transcriptArtifact = live.transcriptArtifact;
     } else {
-      resultArtifact = writeArtifact(manifest.artifactsRoot, {
-        kind: "result",
-        relativePath: `results/${task.id}.md`,
-        content: [
-          `# ${task.id}`,
-          "",
-          "Worker execution is disabled in this scaffold-safe run.",
-          "The prompt artifact contains the exact task that will be sent to a child Pi worker when execution is enabled."
-        ].join("\n"),
-        producer: task.id
-      });
+      resultArtifact = runScaffoldTask(manifest, task);
     }
-    let _yieldResult;
-    let noYield = false;
-    const yieldEnabled = collectYieldEvents;
-    if (yieldEnabled && collectedJsonEvents && collectedJsonEvents.length > 0) {
-      if (hasYieldInOutput(collectedJsonEvents)) {
-        const yieldEvent = collectedJsonEvents.find((e) => isYieldEvent(e));
-        if (yieldEvent) {
-          _yieldResult = extractYieldResult(yieldEvent);
-        }
-      } else if (!error) {
-        noYield = true;
-        await appendEventAsync(manifest.eventsPath, {
-          type: "task.needs_attention",
-          runId: manifest.runId,
-          taskId: task.id,
-          message: "Worker completed without calling submit_result tool.",
-          data: {
-            activityState: "needs_attention",
-            reason: "no_yield",
-            // Bug #21 fix: include result path so downstream tasks can read the output
-            resultPath: resultArtifact?.path
-          }
-        });
-      }
-    }
-    const diffArtifact = workspace.worktreePath ? writeArtifact(manifest.artifactsRoot, {
-      kind: "diff",
-      relativePath: `diffs/${task.id}.diff`,
-      content: await captureWorktreeDiffAsync(workspace.worktreePath),
-      producer: task.id
-    }) : void 0;
-    const diffStatArtifact = workspace.worktreePath ? writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.diff-stat.json`,
-      content: `${JSON.stringify({ ...await captureWorktreeDiffStatAsync(workspace.worktreePath), syntheticPaths: workspace.syntheticPaths ?? [], nodeModulesLinked: workspace.nodeModulesLinked ?? false }, null, 2)}
-`,
-      producer: task.id
-    }) : void 0;
-    const patchArtifact = parsedOutput?.patches?.length ? writeArtifact(manifest.artifactsRoot, {
-      kind: "patch",
-      relativePath: `patches/${task.id}.patch`,
-      content: parsedOutput.patches.join("\n---\n"),
-      producer: task.id
-    }) : void 0;
-    const mutationGuardMode = input.runtimeConfig?.completionMutationGuard ?? "warn";
-    const mutationGuard = !error && mutationGuardMode !== "off" ? evaluateCompletionMutationGuard({
-      role: task.role,
-      taskText: `${task.title}
-${input.step.task}`,
-      transcriptPath: runtimeKind === "child-process" ? transcriptPath : transcriptArtifact?.path,
-      stdout: finalStdout
-    }) : void 0;
-    if (mutationGuard?.reason === "no_mutation_observed") {
-      appendTaskAttentionEvent({
-        manifest,
-        taskId: task.id,
-        message: "Implementation-style task completed without an observed mutation tool call.",
-        data: {
-          activityState: "needs_attention",
-          reason: "completion_guard",
-          taskId: task.id,
-          agentName: task.agent,
-          observedTools: mutationGuard.observedTools,
-          suggestedAction: mutationGuardMode === "fail" ? "Review the worker output and rerun with a concrete implementation task." : "Review the worker output; set runtime.completionMutationGuard='fail' to enforce this."
-        }
-      });
-      task = {
-        ...task,
-        agentProgress: {
-          ...task.agentProgress ?? emptyCrewAgentProgress(),
-          activityState: "needs_attention"
-        }
-      };
-      if (mutationGuardMode === "fail") {
-        error = "Completion mutation guard failed: implementation-style task completed without an observed mutation tool call.";
-        exitCode = exitCode === 0 ? 1 : exitCode;
-        if (modelAttempts?.length) {
-          modelAttempts = modelAttempts.map(
-            (attempt, index) => index === modelAttempts.length - 1 ? { ...attempt, success: false, exitCode, error } : attempt
-          );
-        }
-      }
-      tasks = updateTask(tasks, task);
-    }
-    let outputValidation;
-    if (!error) {
-      const outputText = parsedOutput?.finalText ?? finalStdout;
-      if (outputText) {
-        outputValidation = validateWorkerOutput(task.role, outputText);
-        if (!outputValidation.valid) {
-          await appendEventAsync(manifest.eventsPath, {
-            type: "task.output_validation",
-            runId: manifest.runId,
-            taskId: task.id,
-            data: {
-              valid: false,
-              formatMatch: outputValidation.formatMatch,
-              structurePreserved: outputValidation.structurePreserved,
-              issues: outputValidation.issues
-            }
-          });
-          task = {
-            ...task,
-            agentProgress: {
-              ...task.agentProgress ?? emptyCrewAgentProgress(),
-              activityState: "needs_attention"
-            }
-          };
-          tasks = updateTask(tasks, task);
-        }
-      }
-    }
-    const baseEvidence = createVerificationEvidence(
-      taskPacket.verification,
-      !error,
-      error ? `Task failed: ${error}` : runtimeKind === "scaffold" ? "Safe scaffold mode; verification commands were not executed." : `${runtimeKind} worker finished without reporting a verification failure.`
-    );
-    let verificationEvidence = baseEvidence;
-    if (runtimeKind !== "scaffold" && taskPacket.verification?.commands?.length) {
-      try {
-        const commandResults = await executeVerificationCommands(
-          taskPacket.verification,
-          task.cwd,
-          manifest.runId,
-          task.id,
-          manifest.artifactsRoot,
-          input.signal
-        );
-        const observedGreenLevel = computeGreenLevelFromResults(commandResults, taskPacket.verification.requiredGreenLevel);
-        const requiredLevel = taskPacket.verification.requiredGreenLevel;
-        const satisfied = observedGreenLevel === "none" ? false : observedGreenLevel === "targeted" ? requiredLevel === "targeted" : observedGreenLevel === "package" ? ["targeted", "package"].includes(requiredLevel) : observedGreenLevel === "workspace" ? ["targeted", "package", "workspace"].includes(requiredLevel) : observedGreenLevel === "merge_ready";
-        const allPassed = commandResults.every((r) => r.status === "passed");
-        const failedCount = commandResults.filter((r) => r.status === "failed").length;
-        verificationEvidence = {
-          requiredGreenLevel: taskPacket.verification.requiredGreenLevel,
-          observedGreenLevel,
-          satisfied: satisfied && allPassed,
-          commands: commandResults,
-          notes: allPassed ? `${commandResults.length} verification commands passed` : `${failedCount}/${commandResults.length} verification commands failed`
-        };
-      } catch (execError) {
-        verificationEvidence = {
-          ...baseEvidence,
-          notes: `Verification execution failed: ${execError instanceof Error ? execError.message : String(execError)}`
-        };
-      }
-    }
-    task = {
-      ...task,
-      status: error ? "failed" : noYield ? "needs_attention" : "completed",
-      finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      exitCode,
-      modelAttempts,
-      usage: parsedOutput?.usage,
-      jsonEvents: parsedOutput?.jsonEvents,
-      agentProgress: error && task.agentProgress?.currentTool ? {
-        ...task.agentProgress,
-        failedTool: task.agentProgress.currentTool
-      } : task.agentProgress,
-      error,
-      verification: verificationEvidence,
+    ctx.task = task;
+    ctx.tasks = tasks;
+    const execResult = {
       resultArtifact,
-      claim: void 0,
-      heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
-      workerExitStatus: terminalEvidence.at(-1)?.exitStatus,
-      terminalEvidence: terminalEvidence.length ? [...task.terminalEvidence ?? [], ...terminalEvidence] : task.terminalEvidence,
-      ...logArtifact ? { logArtifact } : {},
-      ...transcriptArtifact ? { transcriptArtifact } : {}
+      logArtifact,
+      transcriptArtifact,
+      exitCode,
+      error,
+      modelAttempts,
+      parsedOutput,
+      finalStdout,
+      transcriptPath,
+      terminalEvidence,
+      startupEvidence
     };
-    tasks = updateTask(tasks, task);
-    const hookType = task.status === "completed" ? "task_completed" : task.status === "failed" ? "task_failed" : "task_started";
-    const commandTrace = extractCommandTrace(task.agentProgress?.recentTools);
-    crewHooks.emit({
-      type: hookType,
-      timestamp: task.finishedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
-      runId: manifest.runId,
-      taskId: task.id,
-      data: {
-        status: task.status,
-        role: task.role,
-        error: task.error,
-        exitCode: task.exitCode,
-        usage: task.usage,
-        commandTrace
-      }
-    });
-    const packetArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.task-packet.json`,
-      content: `${JSON.stringify(task.taskPacket, null, 2)}
-`,
-      producer: task.id
-    });
-    const verificationArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.verification.json`,
-      content: `${JSON.stringify(task.verification, null, 2)}
-`,
-      producer: task.id
-    });
-    const sharedOutputArtifact = writeTaskSharedOutput(manifest, input.step, task);
-    const startupArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.startup-evidence.json`,
-      content: `${JSON.stringify(startupEvidence, null, 2)}
-`,
-      producer: task.id
-    });
-    const permissionArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.permission.json`,
-      content: `${JSON.stringify({ role: task.role, permissionMode }, null, 2)}
-`,
-      producer: task.id
-    });
-    const capabilityArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.capabilities.json`,
-      content: `${JSON.stringify(buildWorkerCapabilityInventory({ taskId: task.id, role: task.role, agent: input.agent, runtime: runtimeKind, permissionMode, skillNames, skillPaths, skillsDisabled: input.skillOverride === false || input.teamRoleSkills === false, modelOverride: input.modelOverride, teamRoleModel: input.teamRoleModel, stepModel: input.step.model }), null, 2)}
-`,
-      producer: task.id
-    });
-    const promptPipelineArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.prompt-pipeline.json`,
-      content: `${JSON.stringify(buildWorkerPromptPipeline({ artifactsRoot: manifest.artifactsRoot, taskId: task.id, promptArtifact, inputsArtifact, skillArtifact, capabilityArtifact, coordinationArtifact, skillInstructionCount: skillNames?.length ?? 0, skillsDisabled: input.skillOverride === false || input.teamRoleSkills === false }), null, 2)}
-`,
-      producer: task.id
-    });
-    const outputValidationArtifact = outputValidation ? writeArtifact(manifest.artifactsRoot, {
-      kind: "metadata",
-      relativePath: `metadata/${task.id}.output-validation.json`,
-      content: `${JSON.stringify(outputValidation, null, 2)}
-`,
-      producer: task.id
-    }) : void 0;
-    manifest = {
-      ...manifest,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      artifacts: [
-        ...manifest.artifacts,
-        promptArtifact,
-        resultArtifact,
-        inputsArtifact,
-        coordinationArtifact,
-        ...skillArtifact ? [skillArtifact] : [],
-        packetArtifact,
-        verificationArtifact,
-        startupArtifact,
-        permissionArtifact,
-        capabilityArtifact,
-        promptPipelineArtifact,
-        ...outputValidationArtifact ? [outputValidationArtifact] : [],
-        ...sharedOutputArtifact ? [sharedOutputArtifact] : [],
-        ...logArtifact ? [logArtifact] : [],
-        ...transcriptArtifact ? [transcriptArtifact] : [],
-        ...diffArtifact ? [diffArtifact] : [],
-        ...diffStatArtifact ? [diffStatArtifact] : [],
-        ...patchArtifact ? [patchArtifact] : []
-      ]
-    };
-    tasks = await withRunLock(manifest, async () => {
-      await saveRunManifestAsync(manifest);
-      return persistSingleTaskUpdate(manifest, tasks, task, void 0, true);
-    });
-    upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
-    const hookReport = await executeHook("task_result", {
-      runId: manifest.runId,
-      taskId: task.id,
-      cwd: manifest.cwd
-    });
-    appendHookEvent(manifest, hookReport);
-    await appendEventAsync(manifest.eventsPath, {
-      type: error ? "task.failed" : noYield ? "task.needs_attention" : "task.completed",
-      runId: manifest.runId,
-      taskId: task.id,
-      message: error
-    });
-    const afterTaskReport = await executeHook("after_task_complete", {
-      runId: manifest.runId,
-      taskId: task.id,
-      cwd: manifest.cwd,
-      status: error ? "failed" : noYield ? "needs_attention" : "completed"
-    });
-    appendHookEvent(manifest, afterTaskReport);
-    return { manifest, tasks };
+    return await finalizeTaskResult(ctx, execResult);
   } finally {
     streamBridge?.dispose();
   }
@@ -52204,47 +52366,31 @@ var init_task_runner = __esm({
     "use strict";
     init_config();
     init_errors();
-    init_registry();
     init_artifact_store();
     init_event_log();
-    init_locks();
-    init_state_store();
-    init_task_claims();
     init_internal_error();
     init_safe_paths();
-    init_worktree_manager();
-    init_agent_control();
-    init_attention_events();
     init_cancellation();
     init_child_pi();
-    init_command_trace();
-    init_completion_guard();
     init_crew_agent_records();
     init_crew_hooks();
     init_event_stream_bridge();
     init_run_worker();
     init_retry_executor();
-    init_green_contract();
     init_model_fallback();
     init_model_scope();
-    init_output_validator();
     init_pi_json_output();
     init_progress_event_coalescer();
-    init_role_permission();
     init_runtime_warmup();
     init_session_usage();
-    init_skill_instructions();
     init_supervisor_contact();
-    init_task_output_context();
-    init_task_packet();
-    init_capabilities();
+    init_scaffold_executor();
+    init_pre_execution();
+    init_post_execution();
     init_progress();
-    init_prompt_builder();
-    init_prompt_pipeline();
     init_result_utils();
     init_state_helpers();
     init_tail_read();
-    init_verification_gates();
     init_worker_heartbeat();
     init_worker_startup();
     init_yield_handler();

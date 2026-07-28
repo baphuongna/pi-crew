@@ -175,9 +175,9 @@ describe("F-02 source propagation via discoverWorkflows", () => {
 
 // ─── (c) Structural verification: guard precedes execFileSync ──────────────
 
-describe("F-02 structural placement in task-runner.ts", () => {
+describe("F-02 structural placement in pre-execution.ts (CORE-5 extraction 2)", () => {
 	test("project-source guard exists BEFORE execFileSync call", () => {
-		const src = readFileSync("src/runtime/task-runner.ts", "utf8");
+		const src = readFileSync("src/runtime/task-runner/pre-execution.ts", "utf8");
 
 		// F-02 allowlist guard condition must exist (deny unless builtin/user)
 		const guardIndex = src.indexOf('input.step.source !== "builtin" && input.step.source !== "user"');
@@ -196,7 +196,7 @@ describe("F-02 structural placement in task-runner.ts", () => {
 	});
 
 	test("skip event 'hook.pre_step_skipped' is emitted inside the guard block", () => {
-		const src = readFileSync("src/runtime/task-runner.ts", "utf8");
+		const src = readFileSync("src/runtime/task-runner/pre-execution.ts", "utf8");
 		const guardIndex = src.indexOf('input.step.source !== "builtin" && input.step.source !== "user"');
 		const skipEventIndex = src.indexOf('"hook.pre_step_skipped"');
 		assert.ok(skipEventIndex >= 0, "hook.pre_step_skipped event type must be emitted in task-runner.ts");

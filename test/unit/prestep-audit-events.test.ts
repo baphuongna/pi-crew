@@ -12,7 +12,7 @@ test("pre-step audit events are registered without exposing script output", () =
 });
 
 test("preStepOptional cannot bypass path-containment validation", () => {
-	const text = readFileSync("src/runtime/task-runner.ts", "utf8");
+	const text = readFileSync("src/runtime/task-runner/pre-execution.ts", "utf8");
 	const validation = text.indexOf("resolveRealContainedPath(manifest.cwd, input.step.preStepScript);");
 	const optionalCatch = text.indexOf("if (input.step.preStepOptional)", validation);
 	assert.ok(validation >= 0);
