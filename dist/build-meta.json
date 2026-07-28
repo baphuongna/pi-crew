@@ -8321,6 +8321,22 @@
       ],
       "format": "esm"
     },
+    "src/runtime/run-worker.ts": {
+      "bytes": 3378,
+      "imports": [
+        {
+          "path": "src/runtime/child-pi.ts",
+          "kind": "import-statement",
+          "original": "./child-pi.ts"
+        },
+        {
+          "path": "src/runtime/global-worker-cap.ts",
+          "kind": "import-statement",
+          "original": "./global-worker-cap.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/task-id.ts": {
       "bytes": 5793,
       "imports": [
@@ -8375,7 +8391,7 @@
       "format": "esm"
     },
     "src/runtime/run-coalesced-task-group.ts": {
-      "bytes": 11758,
+      "bytes": 11679,
       "imports": [
         {
           "path": "src/state/artifact-store.ts",
@@ -8393,14 +8409,9 @@
           "original": "../state/state-store.ts"
         },
         {
-          "path": "src/runtime/child-pi.ts",
+          "path": "src/runtime/run-worker.ts",
           "kind": "import-statement",
-          "original": "./child-pi.ts"
-        },
-        {
-          "path": "src/runtime/global-worker-cap.ts",
-          "kind": "import-statement",
-          "original": "./global-worker-cap.ts"
+          "original": "./run-worker.ts"
         },
         {
           "path": "src/runtime/retry-executor.ts",
@@ -8881,7 +8892,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 61614,
+      "bytes": 61567,
       "imports": [
         {
           "path": "node:fs",
@@ -8994,9 +9005,9 @@
           "original": "./event-stream-bridge.ts"
         },
         {
-          "path": "src/runtime/global-worker-cap.ts",
+          "path": "src/runtime/run-worker.ts",
           "kind": "import-statement",
-          "original": "./global-worker-cap.ts"
+          "original": "./run-worker.ts"
         },
         {
           "path": "src/runtime/green-contract.ts",
@@ -9737,7 +9748,7 @@
       "format": "esm"
     },
     "src/runtime/dynamic-workflow-context.ts": {
-      "bytes": 44124,
+      "bytes": 44022,
       "imports": [
         {
           "path": "node:crypto",
@@ -9775,14 +9786,9 @@
           "original": "../worktree/worktree-manager.ts"
         },
         {
-          "path": "src/runtime/child-pi.ts",
+          "path": "src/runtime/run-worker.ts",
           "kind": "import-statement",
-          "original": "./child-pi.ts"
-        },
-        {
-          "path": "src/runtime/global-worker-cap.ts",
-          "kind": "import-statement",
-          "original": "./global-worker-cap.ts"
+          "original": "./run-worker.ts"
         },
         {
           "path": "src/runtime/parallel-utils.ts",
@@ -13167,7 +13173,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6064739
+      "bytes": 6068186
     },
     "dist/index.mjs": {
       "imports": [
@@ -15929,6 +15935,9 @@
         "src/runtime/global-worker-cap.ts": {
           "bytesInOutput": 834
         },
+        "src/runtime/run-worker.ts": {
+          "bytesInOutput": 337
+        },
         "src/runtime/task-id.ts": {
           "bytesInOutput": 1368
         },
@@ -15945,7 +15954,7 @@
           "bytesInOutput": 7286
         },
         "src/runtime/run-coalesced-task-group.ts": {
-          "bytesInOutput": 7633
+          "bytesInOutput": 7582
         },
         "src/runtime/runtime-policy.ts": {
           "bytesInOutput": 575
@@ -16017,7 +16026,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 46180
+          "bytesInOutput": 46150
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16083,7 +16092,7 @@
           "bytesInOutput": 4272
         },
         "src/runtime/dynamic-workflow-context.ts": {
-          "bytesInOutput": 22078
+          "bytesInOutput": 21981
         },
         "src/runtime/dynamic-workflow-runner.ts": {
           "bytesInOutput": 6994
@@ -16392,7 +16401,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2765870
+      "bytes": 2766059
     }
   }
 }

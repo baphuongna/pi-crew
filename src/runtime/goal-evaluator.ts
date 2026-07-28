@@ -28,7 +28,7 @@ import type { AgentConfig } from "../agents/agent-config.ts";
 import type { GoalVerdict } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
-import { runChildPi } from "./child-pi.ts";
+import { runWorker } from "./run-worker.ts";
 import { collectToolCallsFromEvent } from "./completion-guard.ts";
 import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { extractStructuredResult } from "./result-extractor.ts";
@@ -196,7 +196,7 @@ export async function evaluateGoal(
 	const evaluatedAt = new Date().toISOString();
 
 	try {
-		const result = await runChildPi({
+		const result = await runWorker({
 			cwd: input.cwd,
 			task,
 			agent,
@@ -211,6 +211,10 @@ export async function evaluateGoal(
 			role: "goal-judge",
 			runId: `goal-judge-turn-${input.turn}`,
 			agentId: "goal-judge",
+			// Judge is exempt from the global worker-cap per RFC MAJ#3 (see
+			// global-worker-cap.ts). cap:false bypasses withWorkerSlot to avoid
+			// deadlock under contention.
+			cap: false,
 		});
 
 		if (result.exitCode !== 0 || result.error) {

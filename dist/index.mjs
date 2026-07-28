@@ -47645,6 +47645,22 @@ var init_global_worker_cap = __esm({
   }
 });
 
+// src/runtime/run-worker.ts
+async function runWorker(input) {
+  const { cap = true, ...childPiInput } = input;
+  if (cap) {
+    return withWorkerSlot(() => runChildPi(childPiInput));
+  }
+  return runChildPi(childPiInput);
+}
+var init_run_worker = __esm({
+  "src/runtime/run-worker.ts"() {
+    "use strict";
+    init_child_pi();
+    init_global_worker_cap();
+  }
+});
+
 // src/runtime/task-id.ts
 import { createHash as createHash9 } from "node:crypto";
 function hashToBase36(content, length) {
@@ -48155,7 +48171,7 @@ async function runCoalescedTaskGroup(input) {
     try {
       const result4 = await executeWithRetry(
         async () => {
-          return await withWorkerSlot(() => runChildPi({
+          return await runWorker({
             cwd: firstTask.cwd,
             task: combinedPrompt,
             agent,
@@ -48163,7 +48179,7 @@ async function runCoalescedTaskGroup(input) {
             excludeContextBash: true,
             maxTurns: 5,
             onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e)
-          }));
+          });
         },
         DEFAULT_RETRY_POLICY,
         { signal }
@@ -48293,8 +48309,7 @@ var init_run_coalesced_task_group = __esm({
     init_artifact_store();
     init_event_log();
     init_state_store();
-    init_child_pi();
-    init_global_worker_cap();
+    init_run_worker();
     init_retry_executor();
     init_role_permission();
     init_task_packet();
@@ -51393,7 +51408,7 @@ async function runTeamTask(input) {
         }
         let childResult;
         try {
-          childResult = await withWorkerSlot(() => runChildPi({
+          childResult = await runWorker({
             cwd: task.cwd,
             task: prompt,
             agent: input.agent,
@@ -51501,7 +51516,7 @@ async function runTeamTask(input) {
                 logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
               }
             }
-          }));
+          });
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           if (externalAbortListener && input.signal) {
@@ -52105,7 +52120,7 @@ var init_task_runner = __esm({
     init_crew_agent_records();
     init_crew_hooks();
     init_event_stream_bridge();
-    init_global_worker_cap();
+    init_run_worker();
     init_green_contract();
     init_model_fallback();
     init_model_scope();
@@ -56686,22 +56701,20 @@ function makeWorkflowCtx(manifest, opts) {
             ctx.log("worktree: creation unavailable \u2014 falling back to normal cwd");
           }
         }
-        const childResult = await withWorkerSlot(
-          () => runChildPi({
-            cwd: agentCwd,
-            task,
-            agent: effectiveAgent,
-            model: call.model ?? opts.modelOverride ?? agentConfig.model,
-            skillPaths: void 0,
-            // skills resolved via agent config + team-role plumbing
-            maxTurns: call.maxTurns,
-            graceTurns: call.graceTurns,
-            signal: opts.signal,
-            artifactsRoot: manifest.artifactsRoot,
-            runId: manifest.runId,
-            role: call.role ?? call.agent
-          })
-        );
+        const childResult = await runWorker({
+          cwd: agentCwd,
+          task,
+          agent: effectiveAgent,
+          model: call.model ?? opts.modelOverride ?? agentConfig.model,
+          skillPaths: void 0,
+          // skills resolved via agent config + team-role plumbing
+          maxTurns: call.maxTurns,
+          graceTurns: call.graceTurns,
+          signal: opts.signal,
+          artifactsRoot: manifest.artifactsRoot,
+          runId: manifest.runId,
+          role: call.role ?? call.agent
+        });
         if (childResult.exitCode !== 0 || childResult.error) {
           wfState.spent -= ESTIMATE;
           reserved = false;
@@ -57161,8 +57174,7 @@ var init_dynamic_workflow_context = __esm({
     init_mailbox();
     init_internal_error();
     init_worktree_manager();
-    init_child_pi();
-    init_global_worker_cap();
+    init_run_worker();
     init_parallel_utils();
     init_pi_json_output();
     init_plan_templates();

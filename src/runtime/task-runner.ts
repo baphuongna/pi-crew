@@ -24,7 +24,7 @@ import { captureWorktreeDiffAsync, captureWorktreeDiffStatAsync, prepareTaskWork
 import { reserveControlChannel } from "./agent-control.ts";
 import { appendTaskAttentionEvent } from "./attention-events.ts";
 import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "./cancellation.ts";
-import { type ChildPiLifecycleEvent, runChildPi } from "./child-pi.ts";
+import { type ChildPiLifecycleEvent } from "./child-pi.ts";
 import { extractCommandTrace } from "./command-trace.ts";
 import { evaluateCompletionMutationGuard } from "./completion-guard.ts";
 import {
@@ -37,7 +37,7 @@ import {
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { bridgeEventFromJsonEvent, registerStreamBridge } from "./event-stream-bridge.ts";
-import { withWorkerSlot } from "./global-worker-cap.ts";
+import { runWorker } from "./run-worker.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import {
 	buildConfiguredModelRouting,
@@ -537,7 +537,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				}
 				let childResult;
 				try {
-					childResult = await withWorkerSlot(() => runChildPi({
+					childResult = await runWorker({
 						cwd: task.cwd,
 						task: prompt,
 						agent: input.agent,
@@ -661,7 +661,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 								logInternalError("task-runner.on-json-event", err as Error, `taskId=${task.id}`);
 							}
 						},
-					}));
+					});
 				} finally {
 					if (timeoutHandle) clearTimeout(timeoutHandle);
 					// W2 fix — release the listener so it doesn't leak. {once:true}
