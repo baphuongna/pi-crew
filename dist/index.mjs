@@ -9350,11 +9350,6 @@ function needsRotation(eventsPath, config) {
     return false;
   }
 }
-function compactEventLog(eventsPath, config) {
-  const prepared = prepareCompaction(eventsPath, config);
-  if (!prepared) return void 0;
-  return withEventLogLockSync(eventsPath, () => applyCompactionUnlocked(eventsPath, prepared));
-}
 function prepareCompaction(eventsPath, config) {
   if (!fs24.existsSync(eventsPath)) return void 0;
   const cfg = resolveConfig(config);
@@ -9439,10 +9434,6 @@ function bumpGenerationUnlocked(eventsPath) {
     logInternalError("event-log.bump-generation", error, `eventsPath=${eventsPath}`);
   }
   return next;
-}
-function rotateEventLog(eventsPath) {
-  if (!fs24.existsSync(eventsPath)) return false;
-  return withEventLogLockSync(eventsPath, () => rotateEventLogUnlocked(eventsPath));
 }
 function rotateEventLogUnlocked(eventsPath) {
   if (!fs24.existsSync(eventsPath)) return false;
@@ -9683,6 +9674,17 @@ function advanceSequenceCounter(eventsPath, seq) {
   const last = seqCounters.get(eventsPath);
   if (last === void 0 || seq > last) seqCounters.set(eventsPath, seq);
 }
+function reserveSequenceUnderLock(eventsPath) {
+  let stored = readStoredSequence(eventsPath);
+  if (stored === void 0) {
+    stored = scanSequence(eventsPath);
+  }
+  const inProcess = seqCounters.get(eventsPath) ?? 0;
+  const last = Math.max(stored, inProcess);
+  const next = last + 1;
+  seqCounters.set(eventsPath, next);
+  return next;
+}
 function computeEventFingerprint(event) {
   return createHash2("sha256").update(
     JSON.stringify({
@@ -9714,15 +9716,72 @@ async function drainAsyncQueues() {
   if (promises11.length === 0) return;
   await Promise.allSettled(promises11);
 }
-async function withEventLogLockAsync(eventsPath, fn) {
+async function withEventLogLockAsync(eventsPath, fn, options) {
   const queueKey = eventsPath;
-  const prev = asyncLocks.get(queueKey) ?? Promise.resolve();
+  const prev = (asyncLocks.get(queueKey) ?? Promise.resolve()).then(
+    () => void 0,
+    () => void 0
+  );
   const next = prev.then(async () => {
-    await fn();
+    await fs25.promises.mkdir(path20.dirname(eventsPath), { recursive: true });
+    const lockDir = `${eventsPath}.alock`;
+    const pidFile = path20.join(lockDir, "pid");
+    const timeout = options?.timeoutMs ?? 5e3;
+    const staleMs = options?.staleMs ?? 1e4;
+    const start = Date.now();
+    let acquired = false;
+    while (true) {
+      try {
+        await fs25.promises.mkdir(lockDir);
+        try {
+          atomicWriteFile(pidFile, String(process.pid));
+        } catch {
+        }
+        acquired = true;
+        break;
+      } catch {
+        if (Date.now() - start > timeout) {
+          throw errors.eventLogLockTimeout(eventsPath, timeout);
+        }
+        try {
+          const dirStat = await fs25.promises.stat(lockDir);
+          if (Date.now() - dirStat.mtimeMs > staleMs) {
+            await fs25.promises.rm(lockDir, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+        }
+        try {
+          const raw = await fs25.promises.readFile(pidFile, "utf-8").catch(() => "");
+          const ownerPid = Number.parseInt(raw.trim(), 10);
+          if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
+            try {
+              process.kill(ownerPid, 0);
+            } catch {
+            }
+          }
+        } catch {
+        }
+        await sleep(50);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      if (acquired) {
+        try {
+          const currentPid = await fs25.promises.readFile(pidFile, "utf-8").catch(() => "");
+          if (currentPid.trim() === String(process.pid)) {
+            await fs25.promises.rm(lockDir, { recursive: true, force: true });
+          }
+        } catch {
+        }
+      }
+    }
   });
   asyncLocks.set(queueKey, next);
   try {
-    await next;
+    return await next;
   } finally {
     if (asyncLocks.get(queueKey) === next) {
       asyncLocks.delete(queueKey);
@@ -9731,20 +9790,19 @@ async function withEventLogLockAsync(eventsPath, fn) {
 }
 function resetEventLogMode() {
   asyncQueues.clear();
+  asyncLocks.clear();
   seqCounters.clear();
 }
 async function appendEventAsync(eventsPath, event) {
   const queueKey = eventsPath;
-  const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
-  const next = prev.then(async () => {
-    await fs25.promises.mkdir(path20.dirname(eventsPath), { recursive: true });
+  const doAppendUnderLock = async () => {
     const baseMetadata = event.metadata;
     let seq;
     if (baseMetadata?.seq !== void 0) {
       seq = baseMetadata.seq;
       advanceSequenceCounter(eventsPath, seq);
     } else {
-      seq = reserveSequence(eventsPath);
+      seq = reserveSequenceUnderLock(eventsPath);
     }
     let metadata = {
       seq,
@@ -9784,7 +9842,8 @@ async function appendEventAsync(eventsPath, event) {
       if (stat2.size > MAX_EVENTS_BYTES) {
         overflowHandled = true;
         try {
-          compactEventLog(eventsPath);
+          const prepared = prepareCompaction(eventsPath);
+          if (prepared) applyCompactionUnlocked(eventsPath, prepared);
         } catch (error) {
           logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
         }
@@ -9795,7 +9854,7 @@ async function appendEventAsync(eventsPath, event) {
         }
         if (afterCompactStat) {
           if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-            rotateEventLog(eventsPath);
+            rotateEventLogUnlocked(eventsPath);
           }
         }
       }
@@ -9852,7 +9911,8 @@ async function appendEventAsync(eventsPath, event) {
     if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
       compactedAfterAppend = true;
       try {
-        compactEventLog(eventsPath);
+        const prepared = prepareCompaction(eventsPath);
+        if (prepared) applyCompactionUnlocked(eventsPath, prepared);
       } catch (error) {
         logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
       }
@@ -9888,6 +9948,11 @@ async function appendEventAsync(eventsPath, event) {
       logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
     }
     return fullEvent;
+  };
+  const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
+  const next = prev.then(async () => {
+    await fs25.promises.mkdir(path20.dirname(eventsPath), { recursive: true });
+    return withEventLogLockAsync(eventsPath, doAppendUnderLock);
   });
   const tail = next.then(
     () => {
@@ -10110,10 +10175,8 @@ function appendEventInsideLock(eventsPath, event) {
 }
 function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
   if (TERMINAL_EVENT_TYPES.has(event.type)) {
-    if (bufferedQueues.has(eventsPath)) {
-      flushOneEventLogBuffer(eventsPath);
-    }
-    return Promise.resolve(appendEvent(eventsPath, event));
+    const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
+    return flushPromise.then(() => appendEvent(eventsPath, event));
   }
   return new Promise((resolve23, reject) => {
     const queue = bufferedQueues.get(eventsPath) ?? [];

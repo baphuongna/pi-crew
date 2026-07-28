@@ -7,7 +7,7 @@ import { emitFromTeamEvent } from "../ui/run-event-bus.ts";
 import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../utils/incremental-reader.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
-import { sleepSync } from "../utils/sleep.ts";
+import { sleep, sleepSync } from "../utils/sleep.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import {
 	applyCompactionUnlocked,
@@ -357,6 +357,23 @@ function advanceSequenceCounter(eventsPath: string, seq: number): void {
 	if (last === undefined || seq > last) seqCounters.set(eventsPath, seq);
 }
 
+/** C-01: Reserve sequence INSIDE the cross-process lock. Reads the authoritative
+ *  sidecar (.seq file) for the last seq persisted by ANY process, ensuring
+ *  cross-process uniqueness. Falls back to scanSequence if no sidecar exists.
+ *  The in-process seqCounters is kept monotonic via Math.max for defensive
+ *  consistency with any in-process sequencing that hasn't been persisted yet. */
+function reserveSequenceUnderLock(eventsPath: string): number {
+	let stored = readStoredSequence(eventsPath);
+	if (stored === undefined) {
+		stored = scanSequence(eventsPath);
+	}
+	const inProcess = seqCounters.get(eventsPath) ?? 0;
+	const last = Math.max(stored, inProcess);
+	const next = last + 1;
+	seqCounters.set(eventsPath, next);
+	return next;
+}
+
 export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" | "taskId" | "data">): string {
 	return createHash("sha256")
 		.update(
@@ -429,19 +446,123 @@ async function drainAsyncQueues(): Promise<void> {
 	await Promise.allSettled(promises);
 }
 
-/** Async lock using promise-chain pattern to avoid blocking the Node.js event loop.
- *  Unlike withEventLogLockSync, this uses async I/O and does not use sleepSync,
- *  allowing AbortSignal handlers and SIGTERM handlers to proceed while waiting.
- */
-async function withEventLogLockAsync(eventsPath: string, fn: () => Promise<void>): Promise<void> {
+/** C-01: Async cross-process file lock for an eventsPath. Uses `fs.promises.mkdir`
+ *  (atomic O_EXCL on POSIX) for cross-process mutual exclusion, and `await sleep(50)`
+ *  for retry backoff — NOT sleepSync (which blocks the event loop and was the
+ *  v0.9.26 deadlock root cause).
+ *
+ *  Two-tier design: the `asyncLocks` promise chain provides in-process
+ *  serialization of the lock-acquire/release cycle. The mkdir lock provides
+ *  cross-process serialization. Callers wrapped in `asyncQueues`
+ *  (appendEventAsync) or directly (flushOneEventLogBuffer) use this for the
+ *  cross-process tier.
+ *
+ *  Deadlock safety (v0.9.26 lesson): ALL retry backoff uses `await sleep(50)`
+ *  (async timer — yields the event loop). NEVER sleepSync. The mkdir lock is
+ *  SEPARATE LOCK DIR (`.alock`): the async path uses `${eventsPath}.alock` while
+ *  the sync path (`withEventLogLockSync`) uses `${eventsPath}.mkdirlock`. This is
+ *  REQUIRED because `withEventLogLockSync`'s retry loop uses `sleepSync(50)` which
+ *  blocks the event loop continuously — if both paths shared the same lock dir,
+ *  the sync retry loop would starve the async path (which needs event-loop
+ *  iterations to complete), causing a 5s timeout deadlock. Within-process seq
+ *  uniqueness is maintained by the shared `seqCounters` Map + `O_APPEND` writes.
+ *  Cross-process async-vs-async is fully protected. Sync-vs-async cross-process
+ *  on the same eventsPath is mitigated by `O_APPEND` atomic writes + the
+ *  shared sidecar (extremely unlikely scenario — workers write to their own
+ *  run-scoped events.jsonl, not the parent's).
+ *
+ *  NOT re-entrant: callers inside this lock must use unlocked compaction
+ *  variants (prepareCompaction + applyCompactionUnlocked, rotateEventLogUnlocked)
+ *  to avoid self-deadlock. */
+async function withEventLogLockAsync<T>(
+	eventsPath: string,
+	fn: () => Promise<T>,
+	options?: { timeoutMs?: number; staleMs?: number },
+): Promise<T> {
 	const queueKey = eventsPath;
-	const prev = asyncLocks.get(queueKey) ?? Promise.resolve();
-	const next = prev.then(async (): Promise<void> => {
-		await fn();
+	// .then(() => undefined, () => undefined) prevents rejection-poisoning: if
+	// the previous call's chain rejected (e.g., lock timeout), the next caller
+	// starts fresh instead of propagating the rejection indefinitely.
+	const prev = (asyncLocks.get(queueKey) ?? Promise.resolve()).then(
+		() => undefined,
+		() => undefined,
+	);
+	const next = prev.then(async (): Promise<T> => {
+		// Ensure parent directory exists before attempting lock
+		await fs.promises.mkdir(path.dirname(eventsPath), { recursive: true });
+
+		const lockDir = `${eventsPath}.alock`;
+		const pidFile = path.join(lockDir, "pid");
+		const timeout = options?.timeoutMs ?? 5000;
+		const staleMs = options?.staleMs ?? 10000;
+		const start = Date.now();
+		let acquired = false;
+
+		// Cross-process lock acquisition loop (async, no sleepSync)
+		while (true) {
+			try {
+				await fs.promises.mkdir(lockDir);
+				try {
+					atomicWriteFile(pidFile, String(process.pid));
+				} catch {
+					/* best-effort */
+				}
+				acquired = true;
+				break;
+			} catch {
+				if (Date.now() - start > timeout) {
+					throw errors.eventLogLockTimeout(eventsPath, timeout);
+				}
+				// Stale detection: mtime-based (handles crash between mkdir and pidFile).
+				try {
+					const dirStat = await fs.promises.stat(lockDir);
+					if (Date.now() - dirStat.mtimeMs > staleMs) {
+						await fs.promises.rm(lockDir, { recursive: true, force: true });
+						continue;
+					}
+				} catch {
+					/* dir vanished — let loop retry */
+				}
+				// PID check (secondary fast-path for dead-but-fresh holders)
+				try {
+					const raw = await fs.promises.readFile(pidFile, "utf-8").catch(() => "");
+					const ownerPid = Number.parseInt(raw.trim(), 10);
+					if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
+						try {
+							process.kill(ownerPid, 0);
+						} catch {
+							/* dead — but mtime not stale yet, keep waiting */
+						}
+					}
+				} catch {
+					/* no pid file — mtime check above handles it */
+				}
+				// ASYNC sleep — yields the event loop (NOT sleepSync)
+				await sleep(50);
+			}
+		}
+
+		try {
+			return await fn();
+		} finally {
+			if (acquired) {
+				// PID-guarded release: verify pidFile still records OUR pid before
+				// removing. If our fn exceeded staleMs, another process could have
+				// stolen our lock — don't delete the stealer's dir.
+				try {
+					const currentPid = await fs.promises.readFile(pidFile, "utf-8").catch(() => "");
+					if (currentPid.trim() === String(process.pid)) {
+						await fs.promises.rm(lockDir, { recursive: true, force: true });
+					}
+				} catch {
+					/* lock stolen or already gone — do not touch */
+				}
+			}
+		}
 	});
 	asyncLocks.set(queueKey, next);
 	try {
-		await next;
+		return await next;
 	} finally {
 		// Compare-and-delete: only remove our entry if it still points at our
 		// promise. With 3+ overlapping callers, an earlier caller's finally would
@@ -456,6 +577,7 @@ async function withEventLogLockAsync(eventsPath: string, fn: () => Promise<void>
 /** Reset event log mode (for testing only). */
 export function resetEventLogMode(): void {
 	asyncQueues.clear();
+	asyncLocks.clear();
 	// B7: clear in-process sequence counters alongside async state so tests
 	// don't leak seq state between runs.
 	seqCounters.clear();
@@ -485,11 +607,12 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 	// that want coalesced writes (e.g., appendEventFireAndForget), but
 	// appendEventAsync itself does NOT buffer.
 	const queueKey = eventsPath;
-	const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
-	const next = prev.then(async (): Promise<TeamEvent> => {
-		// Ensure directory exists
-		await fs.promises.mkdir(path.dirname(eventsPath), { recursive: true });
-
+	// C-01: Body extracted to local function for two-tier lock wrapping.
+	// Two-tier: asyncQueues (in-process serialize) → withEventLogLockAsync
+	// (cross-process serialize via mkdir O_EXCL). Seq allocation + append run
+	// INSIDE the cross-process lock. Compaction uses UNLOCKED variants
+	// (mkdir lock is NOT re-entrant).
+	const doAppendUnderLock = async (): Promise<TeamEvent> => {
 		// Build metadata (same logic as appendEventInsideLock)
 		// FIX: Sequence is computed INSIDE the promise chain. We NO LONGER persist
 		// the sequence number before the append — that caused sequence reuse if
@@ -504,7 +627,7 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			seq = baseMetadata.seq;
 			advanceSequenceCounter(eventsPath, seq);
 		} else {
-			seq = reserveSequence(eventsPath);
+			seq = reserveSequenceUnderLock(eventsPath);
 			// NOTE: We do NOT call persistSequence here. It will be called AFTER
 			// successful appendFile below to ensure sidecar is only updated when
 			// the event is actually written.
@@ -552,7 +675,8 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			if (stat.size > MAX_EVENTS_BYTES) {
 				overflowHandled = true;
 				try {
-					compactEventLog(eventsPath);
+					const prepared = prepareCompaction(eventsPath);
+					if (prepared) applyCompactionUnlocked(eventsPath, prepared);
 				} catch (error) {
 					logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
 				}
@@ -564,7 +688,7 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				}
 				if (afterCompactStat) {
 					if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-						rotateEventLog(eventsPath);
+						rotateEventLogUnlocked(eventsPath);
 					}
 				}
 			}
@@ -645,7 +769,8 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
 			compactedAfterAppend = true;
 			try {
-				compactEventLog(eventsPath);
+				const prepared = prepareCompaction(eventsPath);
+				if (prepared) applyCompactionUnlocked(eventsPath, prepared);
 			} catch (error) {
 				logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
 			}
@@ -690,6 +815,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
 		}
 		return fullEvent;
+	};
+	// C-01: Two-tier lock — asyncQueues (in-process serialize) →
+	// withEventLogLockAsync (cross-process serialize via mkdir O_EXCL).
+	const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
+	const next = prev.then(async (): Promise<TeamEvent> => {
+		await fs.promises.mkdir(path.dirname(eventsPath), { recursive: true });
+		return withEventLogLockAsync(eventsPath, doAppendUnderLock);
 	});
 	const tail = next.then(
 		() => {
@@ -1018,11 +1150,16 @@ export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, 
 		// to ensure durability of events that precede the terminal event in the
 		// same flush cycle. Without this, a kill -9 after terminal event write
 		// but before buffer flush would lose the buffered events.
-		if (bufferedQueues.has(eventsPath)) {
-			flushOneEventLogBuffer(eventsPath);
-		}
-		// For terminal events, write synchronously to ensure durability
-		return Promise.resolve(appendEvent(eventsPath, event));
+		// C-01: Await the flush before writing the terminal event. Previously the
+		// flush was fire-and-forget, which worked when withEventLogLockAsync was a
+		// pure promise-chain (completed as a microtask before the caller resumed).
+		// Now that withEventLogLockAsync acquires a cross-process mkdir lock (.alock),
+		// the flush needs multiple event-loop iterations. Without awaiting, the
+		// terminal event would be written before the buffered events.
+		const flushPromise = bufferedQueues.has(eventsPath)
+			? flushOneEventLogBuffer(eventsPath).catch(() => undefined)
+			: Promise.resolve();
+		return flushPromise.then(() => appendEvent(eventsPath, event));
 	}
 	return new Promise<TeamEvent>((resolve, reject) => {
 		const queue = bufferedQueues.get(eventsPath) ?? [];

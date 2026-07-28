@@ -1246,7 +1246,7 @@
       "format": "esm"
     },
     "src/state/event-log.ts": {
-      "bytes": 55798,
+      "bytes": 61905,
       "imports": [
         {
           "path": "node:crypto",
@@ -13194,7 +13194,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6081431
+      "bytes": 6089492
     },
     "dist/index.mjs": {
       "imports": [
@@ -15000,10 +15000,10 @@
           "bytesInOutput": 3934
         },
         "src/state/event-log-rotation.ts": {
-          "bytesInOutput": 5150
+          "bytesInOutput": 4740
         },
         "src/state/event-log.ts": {
-          "bytesInOutput": 29054
+          "bytesInOutput": 31540
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -16425,7 +16425,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2769202
+      "bytes": 2771278
     }
   }
 }
