@@ -597,12 +597,11 @@ test("[char-core5-11] abort-lifecycle (R3 source-contract): timeout handle + ext
 	// contract that the finally cleanup exists, so the child-executor.ts
 	// extraction must carry it forward.
 	//
-	// POST-CORE-5 NOTE: this branch moves into task-runner/child-executor.ts.
-	// When it does, update the `readFileSync` path below to the new location —
-	// the cleanup-in-finally CONTRACT must still hold there. (This is a Phase-0
-	// source-contract pin on the CURRENT task-runner.ts location, not an
-	// execution test; it is expected to be relocated, not deleted.)
-	const src = readFileSync("src/runtime/task-runner.ts", "utf-8");
+	// POST-CORE-5 NOTE: this branch moved into task-runner/child-executor.ts.
+	// The readFileSync path below now points at the new location — the
+	// cleanup-in-finally CONTRACT must still hold there. (This is a Phase-0
+	// source-contract pin; the test is expected to track the file, not be deleted.)
+	const src = readFileSync("src/runtime/task-runner/child-executor.ts", "utf-8");
 
 	// 1. The timeout controller is created and armed only when taskTimeoutMs > 0.
 	assert.match(src, /taskTimeoutMs\s*=\s*input\.runtimeConfig\?\.taskTimeoutMs/, "taskTimeoutMs is read from runtimeConfig");

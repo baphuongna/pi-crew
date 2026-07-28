@@ -61,6 +61,12 @@ export interface TaskExecutionContext {
 	runtimeKind: CrewRuntimeKind;
 	workspace: PreparedTaskWorkspace;
 	worktree: TeamTaskState["worktree"];
+	/**
+	 * UI event-bus handle (created by registerStreamBridge in runTeamTask).
+	 * The child-process branch bridges worker JSON events to it for
+	 * near-instant UI updates. May be undefined.
+	 */
+	streamBridge: StreamBridgeHandle | undefined;
 	taskPacket: TaskPacket;
 	dependencyContextText: string | undefined;
 	permissionMode: RolePermissionMode;
@@ -358,6 +364,7 @@ export async function prepareTaskExecutionContext(
 			coordinationArtifact,
 			collectYieldEvents,
 			collectedJsonEvents,
+			streamBridge,
 			startupEvidence,
 		},
 	};

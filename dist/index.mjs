@@ -49404,151 +49404,6 @@ var init_event_stream_bridge = __esm({
   }
 });
 
-// src/runtime/progress-event-coalescer.ts
-function numericIncrease(previous, next) {
-  return next !== void 0 && previous !== void 0 ? next - previous : next !== void 0 ? next : 0;
-}
-function shouldAppendProgressEventUpdate(input) {
-  if (input.force) return { shouldAppend: true, reason: "force" };
-  if (!input.previous) return { shouldAppend: true, reason: "first" };
-  if (input.previous.activityState !== input.next.activityState) return { shouldAppend: true, reason: "activity_changed" };
-  if (input.previous.currentTool !== input.next.currentTool) return { shouldAppend: true, reason: "tool_changed" };
-  if (numericIncrease(input.previous.toolCount, input.next.toolCount) > 0) return { shouldAppend: true, reason: "tool_count_increased" };
-  if (numericIncrease(input.previous.turns, input.next.turns) > 0) return { shouldAppend: true, reason: "turns_increased" };
-  const tokenIncrease = numericIncrease(input.previous.tokens, input.next.tokens);
-  if (tokenIncrease >= (input.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD)) return { shouldAppend: true, reason: "tokens_increased" };
-  if (input.lastAppendMs === void 0 || input.nowMs - input.lastAppendMs >= input.minIntervalMs)
-    return { shouldAppend: true, reason: "interval" };
-  return { shouldAppend: false, reason: "coalesced" };
-}
-var DEFAULT_TOKEN_THRESHOLD;
-var init_progress_event_coalescer = __esm({
-  "src/runtime/progress-event-coalescer.ts"() {
-    "use strict";
-    DEFAULT_TOKEN_THRESHOLD = 256;
-  }
-});
-
-// src/runtime/session-usage.ts
-import * as fs77 from "node:fs";
-function asRecord9(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function numberField3(obj, keys) {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return void 0;
-}
-function usageFromValue(value) {
-  const obj = asRecord9(value);
-  if (!obj) return void 0;
-  const direct = {
-    input: numberField3(obj, ["input", "inputTokens", "input_tokens"]),
-    output: numberField3(obj, ["output", "outputTokens", "output_tokens"]),
-    cacheRead: numberField3(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
-    cacheWrite: numberField3(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
-    cost: numberField3(obj, ["cost", "costUsd", "cost_usd"]),
-    turns: numberField3(obj, ["turns", "turnCount", "turn_count"])
-  };
-  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
-  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
-    const nested = usageFromValue(obj[key]);
-    if (nested) return nested;
-  }
-  const message = asRecord9(obj.message);
-  return message ? usageFromValue(message.usage) : void 0;
-}
-function addUsage2(total, usage) {
-  return {
-    input: (total.input ?? 0) + (usage.input ?? 0),
-    output: (total.output ?? 0) + (usage.output ?? 0),
-    cacheRead: (total.cacheRead ?? 0) + (usage.cacheRead ?? 0),
-    cacheWrite: (total.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
-    cost: (total.cost ?? 0) + (usage.cost ?? 0),
-    turns: (total.turns ?? 0) + (usage.turns ?? 0)
-  };
-}
-function compactUsage(total, foundKeys) {
-  if (foundKeys.size === 0) return void 0;
-  const compact = {};
-  for (const key of foundKeys) compact[key] = total[key];
-  return compact;
-}
-function parseSessionUsageFromJsonlText(text) {
-  let total = {};
-  const foundKeys = /* @__PURE__ */ new Set();
-  for (const line4 of text.split(/\r?\n/)) {
-    const trimmed = line4.trim();
-    if (!trimmed) continue;
-    try {
-      const usage = usageFromValue(JSON.parse(trimmed));
-      if (!usage) continue;
-      for (const key of Object.keys(usage)) foundKeys.add(key);
-      total = addUsage2(total, usage);
-    } catch {
-    }
-  }
-  return compactUsage(total, foundKeys);
-}
-function parseSessionUsage(filePath) {
-  try {
-    if (!fs77.existsSync(filePath)) return void 0;
-    return parseSessionUsageFromJsonlText(fs77.readFileSync(filePath, "utf-8"));
-  } catch {
-    return void 0;
-  }
-}
-var init_session_usage = __esm({
-  "src/runtime/session-usage.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/supervisor-contact.ts
-function recordSupervisorContact(manifest, payload) {
-  const fullPayload = {
-    ...payload,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  try {
-    appendEvent(manifest.eventsPath, {
-      type: "supervisor.contact",
-      runId: manifest.runId,
-      taskId: payload.taskId,
-      data: fullPayload
-    });
-  } catch (error) {
-    logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
-  }
-}
-function parseSupervisorContactFromLine(line4) {
-  if (!line4.trim()) return void 0;
-  let parsed;
-  try {
-    parsed = JSON.parse(line4);
-  } catch {
-    return void 0;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
-  const record = parsed;
-  if (record.type !== "supervisor_contact" && record.type !== "crew_supervisor_contact") return void 0;
-  return {
-    taskId: typeof record.taskId === "string" ? record.taskId : "",
-    reason: typeof record.reason === "string" && ["decision_needed", "clarification", "approval", "error_escalation", "custom"].includes(record.reason) ? record.reason : "custom",
-    message: typeof record.message === "string" ? record.message : String(record.message ?? ""),
-    data: record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : void 0
-  };
-}
-var init_supervisor_contact = __esm({
-  "src/runtime/supervisor-contact.ts"() {
-    "use strict";
-    init_event_log();
-    init_internal_error();
-  }
-});
-
 // src/runtime/task-runner/scaffold-executor.ts
 function runScaffoldTask(manifest, task) {
   return writeArtifact(manifest.artifactsRoot, {
@@ -49573,7 +49428,7 @@ var init_scaffold_executor = __esm({
 // src/worktree/worktree-manager.ts
 import { execFile, execFileSync as execFileSync6, spawnSync as spawnSync3 } from "node:child_process";
 import { randomBytes as randomBytes3 } from "node:crypto";
-import * as fs78 from "node:fs";
+import * as fs77 from "node:fs";
 import * as path65 from "node:path";
 import { promisify } from "node:util";
 function git3(cwd, args) {
@@ -49680,14 +49535,14 @@ function linkNodeModulesIfPresent(repoRoot, worktreePath) {
   const target = path65.join(worktreePath, "node_modules");
   let sourceStat;
   try {
-    sourceStat = fs78.statSync(source);
+    sourceStat = fs77.statSync(source);
   } catch {
     return false;
   }
   if (!sourceStat.isDirectory()) return false;
-  if (fs78.existsSync(target)) return false;
+  if (fs77.existsSync(target)) return false;
   try {
-    fs78.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
+    fs77.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
     return true;
   } catch (error) {
     const isWindows = process.platform === "win32";
@@ -49717,8 +49572,8 @@ function isAllowedSetupHook(hookPath) {
 }
 function isHookPathContainedInRepoRoot(repoRoot, hookPath) {
   try {
-    const realRepoRoot = fs78.realpathSync(repoRoot);
-    const realHookPath = fs78.realpathSync(path65.dirname(hookPath));
+    const realRepoRoot = fs77.realpathSync(repoRoot);
+    const realHookPath = fs77.realpathSync(path65.dirname(hookPath));
     return realHookPath.startsWith(realRepoRoot + path65.sep) || realHookPath === realRepoRoot;
   } catch {
     return false;
@@ -49749,7 +49604,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
     return [];
   }
   try {
-    const hookStat = fs78.lstatSync(hookPath);
+    const hookStat = fs77.lstatSync(hookPath);
     if (!hookStat.isFile()) {
       logInternalError("worktree.setupHook.missing", new Error("hook not found or is directory: " + hookPath), `cwd=${manifest.cwd}`);
       return [];
@@ -49770,7 +49625,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
   }
   let realHookPath;
   try {
-    realHookPath = fs78.realpathSync(hookPath);
+    realHookPath = fs77.realpathSync(hookPath);
   } catch {
     logInternalError("worktree.setupHook.realpath", new Error("hook realpath resolution failed: " + hookPath), `cwd=${manifest.cwd}`);
     return [];
@@ -49886,7 +49741,7 @@ function normalizeSeedPaths(seedPaths, repoRoot) {
       throw new Error(`seedPaths entries must stay inside repoRoot: ${entry}`);
     }
     try {
-      const stat2 = fs78.lstatSync(absolutePath);
+      const stat2 = fs77.lstatSync(absolutePath);
       if (stat2.isSymbolicLink()) {
         throw new Error(`seedPaths entries cannot be symlinks: ${entry}`);
       }
@@ -49910,7 +49765,7 @@ function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
     const destinationPath = path65.join(worktreePath, seedPath);
     let sourceStat;
     try {
-      sourceStat = fs78.lstatSync(sourcePath);
+      sourceStat = fs77.lstatSync(sourcePath);
     } catch {
       logInternalError("worktree.seedPaths.missing", new Error(`Seed path does not exist: ${seedPath}`));
       continue;
@@ -49923,9 +49778,9 @@ function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
       logInternalError("worktree.seedPaths.invalid", new Error(`Seed path is neither file nor directory: ${seedPath}`));
       continue;
     }
-    fs78.mkdirSync(path65.dirname(destinationPath), { recursive: true });
-    fs78.rmSync(destinationPath, { force: true, recursive: true });
-    fs78.cpSync(sourcePath, destinationPath, {
+    fs77.mkdirSync(path65.dirname(destinationPath), { recursive: true });
+    fs77.rmSync(destinationPath, { force: true, recursive: true });
+    fs77.cpSync(sourcePath, destinationPath, {
       dereference: true,
       force: true,
       preserveTimestamps: true,
@@ -49956,8 +49811,8 @@ function snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus) {
       if (!rel) continue;
       try {
         const abs = path65.join(worktreePath, rel);
-        if (!fs78.existsSync(abs) || fs78.statSync(abs).isDirectory()) continue;
-        const content = fs78.readFileSync(abs, "utf-8");
+        if (!fs77.existsSync(abs) || fs77.statSync(abs).isDirectory()) continue;
+        const content = fs77.readFileSync(abs, "utf-8");
         parts.push(`## Untracked file: ${rel}`, "```", content, "```", "");
       } catch {
       }
@@ -49984,7 +49839,7 @@ async function cleanupCreatedWorktreeAsync(repoRoot, worktreePath, branch) {
     await gitAsync(repoRoot, ["worktree", "remove", "--force", worktreePath]);
   } catch {
     try {
-      if (fs78.existsSync(worktreePath)) fs78.rmSync(worktreePath, { recursive: true, force: true });
+      if (fs77.existsSync(worktreePath)) fs77.rmSync(worktreePath, { recursive: true, force: true });
     } catch {
     }
   }
@@ -50000,14 +49855,14 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
   if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
   const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
   const worktreeRoot = path65.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-  fs78.mkdirSync(worktreeRoot, { recursive: true });
+  fs77.mkdirSync(worktreeRoot, { recursive: true });
   let resolvedWorktreeRoot = worktreeRoot;
   try {
-    const r = fs78.realpathSync.native(worktreeRoot);
+    const r = fs77.realpathSync.native(worktreeRoot);
     resolvedWorktreeRoot = r.startsWith("\\\\?\\") ? r.slice(4) : r;
   } catch {
     try {
-      resolvedWorktreeRoot = fs78.realpathSync(worktreeRoot);
+      resolvedWorktreeRoot = fs77.realpathSync(worktreeRoot);
     } catch {
     }
   }
@@ -50019,7 +49874,7 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     const worktreeList = await gitAsync(repoRoot, ["worktree", "list", "--porcelain"]);
     const normalizedWtPath = process.platform === "win32" ? (() => {
       try {
-        const r = fs78.realpathSync.native(worktreePath);
+        const r = fs77.realpathSync.native(worktreePath);
         return r.startsWith("\\\\?\\") ? r.slice(4) : r;
       } catch {
         return worktreePath;
@@ -50096,9 +49951,9 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     }
     worktreeCreated = true;
   } catch (error) {
-    if (fs78.existsSync(worktreePath)) {
+    if (fs77.existsSync(worktreePath)) {
       try {
-        fs78.rmSync(worktreePath, { recursive: true, force: true });
+        fs77.rmSync(worktreePath, { recursive: true, force: true });
       } catch {
       }
     }
@@ -50165,7 +50020,7 @@ async function prepareAgentWorktreeAsync(manifest, agentId) {
     if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
     const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
     const worktreeRoot = path65.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-    fs78.mkdirSync(worktreeRoot, { recursive: true });
+    fs77.mkdirSync(worktreeRoot, { recursive: true });
     const sanitizedAgentId = sanitizeBranchPart2(agentId);
     const worktreePath = path65.join(worktreeRoot, sanitizedAgentId);
     const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}`;
@@ -50196,7 +50051,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
     repoRoot = await findGitRootAsync(manifest.cwd);
   } catch {
     try {
-      fs78.rmSync(worktreePath, { recursive: true, force: true });
+      fs77.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -50207,7 +50062,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
   } catch (error) {
     logInternalError("worktree.agent-cleanup.remove", error, `worktreePath=${worktreePath}`);
     try {
-      fs78.rmSync(worktreePath, { recursive: true, force: true });
+      fs77.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -50284,7 +50139,7 @@ var init_worker_startup = __esm({
 });
 
 // src/runtime/task-runner/state-helpers.ts
-import * as fs79 from "node:fs";
+import * as fs78 from "node:fs";
 function updateTask(tasks, updated) {
   return tasks.map((task) => task.id === updated.id ? updated : task);
 }
@@ -50292,7 +50147,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
   const MAX_CAS_ATTEMPTS = 100;
   let baseMtime = 0;
   try {
-    baseMtime = fs79.statSync(manifest.tasksPath).mtimeMs;
+    baseMtime = fs78.statSync(manifest.tasksPath).mtimeMs;
   } catch {
     baseMtime = 0;
   }
@@ -50317,7 +50172,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
         merged = updateTask(latest, taskWithCheckpoint);
         let currentMtime;
         try {
-          currentMtime = fs79.statSync(manifest.tasksPath).mtimeMs;
+          currentMtime = fs78.statSync(manifest.tasksPath).mtimeMs;
         } catch {
           return fallbackTasks;
         }
@@ -50595,6 +50450,7 @@ async function prepareTaskExecutionContext(input, manifest, streamBridge) {
       coordinationArtifact,
       collectYieldEvents,
       collectedJsonEvents,
+      streamBridge,
       startupEvidence
     }
   };
@@ -50621,6 +50477,901 @@ var init_pre_execution = __esm({
     init_task_output_context();
     init_state_helpers();
     init_prompt_builder();
+  }
+});
+
+// src/runtime/progress-event-coalescer.ts
+function numericIncrease(previous, next) {
+  return next !== void 0 && previous !== void 0 ? next - previous : next !== void 0 ? next : 0;
+}
+function shouldAppendProgressEventUpdate(input) {
+  if (input.force) return { shouldAppend: true, reason: "force" };
+  if (!input.previous) return { shouldAppend: true, reason: "first" };
+  if (input.previous.activityState !== input.next.activityState) return { shouldAppend: true, reason: "activity_changed" };
+  if (input.previous.currentTool !== input.next.currentTool) return { shouldAppend: true, reason: "tool_changed" };
+  if (numericIncrease(input.previous.toolCount, input.next.toolCount) > 0) return { shouldAppend: true, reason: "tool_count_increased" };
+  if (numericIncrease(input.previous.turns, input.next.turns) > 0) return { shouldAppend: true, reason: "turns_increased" };
+  const tokenIncrease = numericIncrease(input.previous.tokens, input.next.tokens);
+  if (tokenIncrease >= (input.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD)) return { shouldAppend: true, reason: "tokens_increased" };
+  if (input.lastAppendMs === void 0 || input.nowMs - input.lastAppendMs >= input.minIntervalMs)
+    return { shouldAppend: true, reason: "interval" };
+  return { shouldAppend: false, reason: "coalesced" };
+}
+var DEFAULT_TOKEN_THRESHOLD;
+var init_progress_event_coalescer = __esm({
+  "src/runtime/progress-event-coalescer.ts"() {
+    "use strict";
+    DEFAULT_TOKEN_THRESHOLD = 256;
+  }
+});
+
+// src/runtime/session-usage.ts
+import * as fs79 from "node:fs";
+function asRecord9(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function numberField3(obj, keys) {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return void 0;
+}
+function usageFromValue(value) {
+  const obj = asRecord9(value);
+  if (!obj) return void 0;
+  const direct = {
+    input: numberField3(obj, ["input", "inputTokens", "input_tokens"]),
+    output: numberField3(obj, ["output", "outputTokens", "output_tokens"]),
+    cacheRead: numberField3(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
+    cacheWrite: numberField3(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
+    cost: numberField3(obj, ["cost", "costUsd", "cost_usd"]),
+    turns: numberField3(obj, ["turns", "turnCount", "turn_count"])
+  };
+  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
+  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+    const nested = usageFromValue(obj[key]);
+    if (nested) return nested;
+  }
+  const message = asRecord9(obj.message);
+  return message ? usageFromValue(message.usage) : void 0;
+}
+function addUsage2(total, usage) {
+  return {
+    input: (total.input ?? 0) + (usage.input ?? 0),
+    output: (total.output ?? 0) + (usage.output ?? 0),
+    cacheRead: (total.cacheRead ?? 0) + (usage.cacheRead ?? 0),
+    cacheWrite: (total.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
+    cost: (total.cost ?? 0) + (usage.cost ?? 0),
+    turns: (total.turns ?? 0) + (usage.turns ?? 0)
+  };
+}
+function compactUsage(total, foundKeys) {
+  if (foundKeys.size === 0) return void 0;
+  const compact = {};
+  for (const key of foundKeys) compact[key] = total[key];
+  return compact;
+}
+function parseSessionUsageFromJsonlText(text) {
+  let total = {};
+  const foundKeys = /* @__PURE__ */ new Set();
+  for (const line4 of text.split(/\r?\n/)) {
+    const trimmed = line4.trim();
+    if (!trimmed) continue;
+    try {
+      const usage = usageFromValue(JSON.parse(trimmed));
+      if (!usage) continue;
+      for (const key of Object.keys(usage)) foundKeys.add(key);
+      total = addUsage2(total, usage);
+    } catch {
+    }
+  }
+  return compactUsage(total, foundKeys);
+}
+function parseSessionUsage(filePath) {
+  try {
+    if (!fs79.existsSync(filePath)) return void 0;
+    return parseSessionUsageFromJsonlText(fs79.readFileSync(filePath, "utf-8"));
+  } catch {
+    return void 0;
+  }
+}
+var init_session_usage = __esm({
+  "src/runtime/session-usage.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/supervisor-contact.ts
+function recordSupervisorContact(manifest, payload) {
+  const fullPayload = {
+    ...payload,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  try {
+    appendEvent(manifest.eventsPath, {
+      type: "supervisor.contact",
+      runId: manifest.runId,
+      taskId: payload.taskId,
+      data: fullPayload
+    });
+  } catch (error) {
+    logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
+  }
+}
+function parseSupervisorContactFromLine(line4) {
+  if (!line4.trim()) return void 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(line4);
+  } catch {
+    return void 0;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+  const record = parsed;
+  if (record.type !== "supervisor_contact" && record.type !== "crew_supervisor_contact") return void 0;
+  return {
+    taskId: typeof record.taskId === "string" ? record.taskId : "",
+    reason: typeof record.reason === "string" && ["decision_needed", "clarification", "approval", "error_escalation", "custom"].includes(record.reason) ? record.reason : "custom",
+    message: typeof record.message === "string" ? record.message : String(record.message ?? ""),
+    data: record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : void 0
+  };
+}
+var init_supervisor_contact = __esm({
+  "src/runtime/supervisor-contact.ts"() {
+    "use strict";
+    init_event_log();
+    init_internal_error();
+  }
+});
+
+// src/runtime/task-runner/progress.ts
+function asRecord10(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function safeNum(v) {
+  return Number.isFinite(v) ? v : 0;
+}
+function textFromContent3(content) {
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+  const text = [];
+  for (const part of content) {
+    const obj = asRecord10(part);
+    if (!obj) continue;
+    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
+    else if (typeof obj.content === "string") text.push(obj.content);
+  }
+  return text;
+}
+function eventText2(event) {
+  const obj = asRecord10(event);
+  if (!obj) return [];
+  const text = [];
+  if (typeof obj.text === "string") text.push(obj.text);
+  if (typeof obj.output === "string") text.push(obj.output);
+  text.push(...textFromContent3(obj.content));
+  const message = asRecord10(obj.message);
+  if (message) text.push(...textFromContent3(message.content));
+  return text.filter((entry) => entry.trim());
+}
+function numberField4(obj, keys) {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return void 0;
+}
+function eventUsage(event) {
+  const obj = asRecord10(event);
+  if (!obj) return void 0;
+  const direct = {
+    input: numberField4(obj, ["input", "inputTokens", "input_tokens"]),
+    output: numberField4(obj, ["output", "outputTokens", "output_tokens"]),
+    turns: numberField4(obj, ["turns", "turnCount", "turn_count"])
+  };
+  if (Object.values(direct).some((value) => value !== void 0)) return direct;
+  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
+    const nested = eventUsage(obj[key]);
+    if (nested) return nested;
+  }
+  const message = asRecord10(obj.message);
+  return message ? eventUsage(message.usage) : void 0;
+}
+function previewArgs(args) {
+  if (!args) return void 0;
+  try {
+    const text = typeof args === "string" ? args : JSON.stringify(args);
+    return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
+  } catch {
+    return void 0;
+  }
+}
+function applyUsageToProgress(progress, usage) {
+  if (!usage) return progress;
+  const base = progress ?? emptyCrewAgentProgress();
+  const tokens = safeNum(usage.input) + safeNum(usage.output) + safeNum(usage.cacheRead) + safeNum(usage.cacheWrite);
+  return { ...base, tokens, turns: usage.turns ?? base.turns };
+}
+function shouldFlushProgressEvent(event) {
+  const type = asRecord10(event)?.type;
+  return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_start" || type === "message_end" || type === "tool_result_end";
+}
+function progressEventSummary(task, event) {
+  const type = asRecord10(event)?.type;
+  return {
+    eventType: typeof type === "string" ? type : "event",
+    currentTool: task.agentProgress?.currentTool,
+    toolCount: task.agentProgress?.toolCount,
+    tokens: task.agentProgress?.tokens,
+    turns: task.agentProgress?.turns,
+    activityState: task.agentProgress?.activityState,
+    lastActivityAt: task.agentProgress?.lastActivityAt
+  };
+}
+function applyAgentProgressEvent(progress, event, startedAt) {
+  const obj = asRecord10(event);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const next = {
+    ...progress,
+    recentTools: [...progress.recentTools],
+    recentOutput: [...progress.recentOutput],
+    lastActivityAt: now,
+    activityState: "active"
+  };
+  if (startedAt) {
+    const startMs = new Date(startedAt).getTime();
+    next.durationMs = Number.isFinite(startMs) ? Date.now() - startMs : void 0;
+  }
+  if (obj?.type === "tool_execution_start") {
+    next.toolCount += 1;
+    next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
+    next.currentToolArgs = previewArgs(obj.args);
+    next.currentToolStartedAt = now;
+  }
+  if (obj?.type === "tool_execution_end") {
+    if (next.currentTool)
+      next.recentTools.push({
+        tool: next.currentTool,
+        args: next.currentToolArgs,
+        endedAt: now
+      });
+    next.currentTool = void 0;
+    next.currentToolArgs = void 0;
+    next.currentToolStartedAt = void 0;
+  }
+  if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool)
+    next.failedTool = next.currentTool;
+  const usage = eventUsage(event);
+  if (usage) {
+    next.tokens = safeNum(usage.input) + safeNum(usage.output);
+    next.turns = usage.turns ?? next.turns;
+  }
+  const text = eventText2(event);
+  if (text.length > 0)
+    next.recentOutput.push(
+      ...text.flatMap((entry) => entry.split(/\r?\n/)).filter(Boolean).slice(-10)
+    );
+  if (next.recentTools.length > 25) next.recentTools.splice(0, next.recentTools.length - 25);
+  if (next.recentOutput.length > 50) next.recentOutput.splice(0, next.recentOutput.length - 50);
+  return next;
+}
+var init_progress = __esm({
+  "src/runtime/task-runner/progress.ts"() {
+    "use strict";
+    init_crew_agent_records();
+  }
+});
+
+// src/runtime/task-runner/result-utils.ts
+function cleanResultText(text) {
+  const trimmed = text?.trim();
+  if (!trimmed) return void 0;
+  const doneIndex = trimmed.lastIndexOf("\nDONE\n");
+  if (doneIndex >= 0) return trimmed.slice(doneIndex + 1).trim();
+  if (trimmed === "DONE" || trimmed.startsWith("DONE\n")) return trimmed;
+  const fencedPromptIndex = trimmed.lastIndexOf("</file>");
+  if (fencedPromptIndex >= 0 && fencedPromptIndex < trimmed.length - 7) return trimmed.slice(fencedPromptIndex + 7).trim() || trimmed;
+  return trimmed;
+}
+function isFinalChildEvent(event) {
+  return Boolean(
+    event && typeof event === "object" && !Array.isArray(event) && event.type === "message_end"
+  );
+}
+var init_result_utils = __esm({
+  "src/runtime/task-runner/result-utils.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/task-runner/tail-read.ts
+import * as fs80 from "node:fs";
+function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
+  if (!fs80.existsSync(filePath)) return fallbackContent;
+  const stat2 = fs80.statSync(filePath);
+  if (stat2.size === 0) return fallbackContent;
+  if (stat2.size <= maxBytes) return fs80.readFileSync(filePath, "utf-8");
+  const fd = fs80.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const bytesRead = fs80.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
+    const raw = buf.slice(0, bytesRead).toString("utf-8");
+    const firstNewline = raw.indexOf("\n");
+    return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
+  } finally {
+    fs80.closeSync(fd);
+  }
+}
+var init_tail_read = __esm({
+  "src/runtime/task-runner/tail-read.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/task-runner/child-executor.ts
+import * as fs81 from "node:fs";
+import * as path66 from "node:path";
+async function appendSteeringAsync(steeringDir, taskId, steers) {
+  try {
+    await fs81.promises.mkdir(steeringDir, { recursive: true });
+    const steeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
+    const lines = steers.map(
+      (msg) => JSON.stringify({
+        type: "steer",
+        message: msg,
+        ts: (/* @__PURE__ */ new Date()).toISOString()
+      }) + "\n"
+    ).join("");
+    await fs81.promises.appendFile(steeringPath, lines, "utf-8");
+  } catch (error) {
+    logInternalError("task-runner.steering-write-failed", error, `taskId=${taskId}`);
+  }
+}
+async function appendBackgroundLogAsync(bgLogPath, eventLine) {
+  try {
+    await fs81.promises.appendFile(bgLogPath, `${eventLine}
+`, "utf-8");
+  } catch (error) {
+    logInternalError("task-runner.background-log-write-failed", error, `path=${bgLogPath}`);
+  }
+}
+async function resolveTaskScopeModelsPatterns(cwd) {
+  let scopeModels = false;
+  try {
+    scopeModels = loadConfig(cwd).config.reliability?.scopeModels === true;
+  } catch {
+    return [];
+  }
+  if (!scopeModels) return [];
+  return readEnabledModelsPatterns(cwd);
+}
+function detectRetryableModelFailureFromOutput(parsed) {
+  const messages = parsed.errorMessages;
+  if (messages && messages.length > 0) {
+    const retryable = messages.find((m) => isRetryableModelFailure(m));
+    if (retryable) {
+      const hasRealOutput = (parsed.finalText?.trim().length ?? 0) > 0 || parsed.textEvents.some((t2) => t2.trim().length > 0) || (parsed.patches?.length ?? 0) > 0;
+      if (hasRealOutput) return void 0;
+      return `Model returned only retryable errors and no output: ${retryable}`;
+    }
+  }
+  const raw = parsed;
+  const eventSource = Array.isArray(raw.messageEndEvents) ? raw.messageEndEvents : Array.isArray(raw.transcript) ? raw.transcript : void 0;
+  if (!eventSource || eventSource.length === 0) return void 0;
+  for (const candidate of eventSource) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const event = candidate;
+    if (event.stopReason !== "error") continue;
+    if (typeof event.errorMessage !== "string" || event.errorMessage.length === 0) continue;
+    if (!isRetryableModelFailure(event.errorMessage)) continue;
+    const hasRealOutput = (parsed.finalText?.trim().length ?? 0) > 0 || parsed.textEvents.some((t2) => t2.trim().length > 0) || (parsed.patches?.length ?? 0) > 0;
+    if (hasRealOutput) return void 0;
+    return `Model returned only retryable errors and no output: ${event.errorMessage}`;
+  }
+  return void 0;
+}
+async function runChildProcessTask(ctx) {
+  const input = ctx.input;
+  const manifest = ctx.manifest;
+  let task = ctx.task;
+  let tasks = ctx.tasks;
+  const prompt = ctx.prompt;
+  const skillPaths = ctx.skillPaths;
+  const collectedJsonEvents = ctx.collectedJsonEvents;
+  const streamBridge = ctx.streamBridge;
+  let resultArtifact;
+  let logArtifact;
+  let transcriptArtifact;
+  let exitCode = 0;
+  let error;
+  let modelAttempts;
+  let parsedOutput;
+  let rawFinalText;
+  let intermediateFindings;
+  let finalStdout = "";
+  let transcriptPath;
+  let terminalEvidence = [];
+  let startupEvidence = ctx.startupEvidence;
+  const modelRoutingPlan = buildConfiguredModelRouting({
+    overrideModel: input.modelOverride,
+    stepModel: input.step.model,
+    teamRoleModel: input.teamRoleModel,
+    agentModel: input.agent.model,
+    fallbackModels: input.agent.fallbackModels,
+    parentModel: input.parentModel,
+    modelRegistry: input.modelRegistry,
+    cwd: task.cwd,
+    scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd)
+  });
+  const candidates = modelRoutingPlan.candidates;
+  const attemptModels = candidates.length > 0 ? candidates : [void 0];
+  if (input.spawnBudget && input.spawnBudget.max === 0) {
+    input.spawnBudget.max = attemptModels.length * (DEFAULT_RETRY_POLICY.maxAttempts + 1);
+  }
+  const logs = [];
+  let finalStderr = "";
+  modelAttempts = [];
+  let finalCheckpointWritten = false;
+  let lastAgentRecordPersistedAt = 0;
+  let lastHeartbeatPersistedAt = 0;
+  let lastRunProgressPersistedAt = 0;
+  let lastTaskProgressPersistedAt = 0;
+  let lastRunProgressSummary;
+  const persistHeartbeat = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastHeartbeatPersistedAt < 1e3) return;
+    try {
+      tasks = persistSingleTaskUpdate(manifest, tasks, task);
+    } catch (err2) {
+      if (err2.code === "ENOENT") return;
+      throw err2;
+    }
+    task = {
+      ...task,
+      heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id))
+    };
+    lastHeartbeatPersistedAt = now;
+  };
+  const persistChildProgress = (event, force = false) => {
+    const now = Date.now();
+    if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
+      upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+      lastAgentRecordPersistedAt = now;
+    }
+    const summary = progressEventSummary(task, event);
+    const decision2 = shouldAppendProgressEventUpdate({
+      previous: lastRunProgressSummary,
+      next: summary,
+      nowMs: now,
+      lastAppendMs: lastRunProgressPersistedAt || void 0,
+      minIntervalMs: 1e3,
+      force
+    });
+    if (decision2.shouldAppend) {
+      void appendEventBuffered(manifest.eventsPath, {
+        type: "task.progress",
+        runId: manifest.runId,
+        taskId: task.id,
+        data: { ...summary, coalesceReason: decision2.reason }
+      });
+      lastRunProgressSummary = summary;
+      lastRunProgressPersistedAt = now;
+    }
+  };
+  for (let i = 0; i < attemptModels.length; i++) {
+    transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
+    await fs81.promises.mkdir(path66.join(manifest.artifactsRoot, "transcripts"), {
+      recursive: true
+    });
+    const model = attemptModels[i];
+    if (input.spawnBudget) {
+      input.spawnBudget.count += 1;
+      if (input.spawnBudget.count > input.spawnBudget.max) {
+        logs.push(
+          `[WARN] CORE-3 spawn budget exhausted (max=${input.spawnBudget.max}) \u2014 stopping model fallback after ${modelAttempts.length} attempt(s). Last error: ${error ?? "<none>"}`,
+          ""
+        );
+        break;
+      }
+    }
+    const attemptStartedAt = /* @__PURE__ */ new Date();
+    const pendingAttempt = {
+      model: model ?? "default",
+      success: false
+    };
+    task = {
+      ...task,
+      modelAttempts: [...modelAttempts, pendingAttempt]
+    };
+    tasks = updateTask(tasks, task);
+    crewHooks.emit({
+      type: "task_started",
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      runId: manifest.runId,
+      taskId: task.id,
+      data: { role: task.role, model: model ?? "default" }
+    });
+    upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+    const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
+    const timeoutController = new AbortController();
+    let externalAbortListener;
+    if (input.signal) {
+      if (input.signal.aborted) {
+        timeoutController.abort(input.signal.reason);
+      } else {
+        externalAbortListener = () => timeoutController.abort(input.signal.reason);
+        input.signal.addEventListener("abort", externalAbortListener, { once: true });
+      }
+    }
+    let timeoutHandle;
+    if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
+      timeoutHandle = setTimeout(() => {
+        if (!timeoutController.signal.aborted) {
+          timeoutController.abort(new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`));
+        }
+      }, taskTimeoutMs);
+      timeoutHandle.unref?.();
+    }
+    let childResult;
+    try {
+      childResult = await runWorker({
+        cwd: task.cwd,
+        task: prompt,
+        agent: input.agent,
+        model,
+        signal: timeoutController.signal,
+        transcriptPath,
+        maxDepth: input.limits?.maxTaskDepth,
+        skillPaths,
+        maxTurns: input.runtimeConfig?.maxTurns,
+        graceTurns: input.runtimeConfig?.graceTurns,
+        inheritContext: input.runtimeConfig?.inheritContext,
+        parentContext: input.parentContext,
+        excludeContextBash: input.runtimeConfig?.excludeContextBash,
+        sessionId: manifest.sessionId,
+        role: task.role,
+        runId: manifest.runId,
+        agentId: task.id,
+        artifactsRoot: manifest.artifactsRoot,
+        steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
+        onSpawn: (pid) => {
+          try {
+            ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+            if (task.pendingSteers?.length) {
+              const steeringDir = `${manifest.artifactsRoot}/steering`;
+              void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
+              task.pendingSteers = [];
+              tasks = persistSingleTaskUpdate(manifest, tasks, task);
+            }
+          } catch (err2) {
+            logInternalError("task-runner.on-spawn", err2, `pid=${pid}, taskId=${task.id}`);
+          }
+        },
+        onLifecycleEvent: (event) => {
+          void appendEventAsync(manifest.eventsPath, {
+            type: `worker.${event.type}`,
+            runId: manifest.runId,
+            taskId: task.id,
+            message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
+            data: { ...event }
+          }).catch(
+            (error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`)
+          );
+        },
+        onStdoutLine: (line4) => {
+          appendCrewAgentOutput(manifest, task.id, line4);
+          persistHeartbeat();
+          const contact = parseSupervisorContactFromLine(line4);
+          if (contact) {
+            recordSupervisorContact(manifest, {
+              runId: manifest.runId,
+              ...contact
+            });
+          }
+        },
+        onJsonEvent: (event) => {
+          try {
+            appendCrewAgentEvent(manifest, task.id, event);
+            if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
+              collectedJsonEvents.push(event);
+            if (collectedJsonEvents && collectedJsonEvents.length > 1e3) {
+              collectedJsonEvents.splice(0, collectedJsonEvents.length - 1e3);
+            }
+            if (event && typeof event === "object" && event.type === "message_end") {
+              const msg = event.message;
+              if (msg?.role === "assistant") {
+                const usage = msg.usage;
+                if (usage) {
+                  task.lifetimeUsage = {
+                    input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
+                    output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
+                    cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
+                  };
+                }
+              }
+            }
+            persistHeartbeat();
+            if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
+              const bgLogPath = `${manifest.stateRoot}/background.log`;
+              const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
+              void appendBackgroundLogAsync(bgLogPath, eventLine);
+            }
+            const nextProgress = applyAgentProgressEvent(
+              task.agentProgress ?? emptyCrewAgentProgress(),
+              event,
+              task.startedAt
+            );
+            task = { ...task, agentProgress: nextProgress };
+            tasks = updateTask(tasks, task);
+            const progressNow = Date.now();
+            if (progressNow - lastTaskProgressPersistedAt >= 500) {
+              tasks = persistSingleTaskUpdate(manifest, tasks, task);
+              lastTaskProgressPersistedAt = progressNow;
+            }
+            const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
+            if (bridgeEvent) streamBridge?.handler(bridgeEvent);
+            if (input.onJsonEvent) {
+              input.onJsonEvent(task.id, manifest.runId, event);
+            }
+            if (!finalCheckpointWritten && isFinalChildEvent(event)) {
+              finalCheckpointWritten = true;
+              ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
+            }
+            persistChildProgress(event);
+          } catch (err2) {
+            logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
+          }
+        }
+      });
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (externalAbortListener && input.signal) {
+        input.signal.removeEventListener("abort", externalAbortListener);
+      }
+    }
+    const evidenceStatus = childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
+    terminalEvidence = [
+      ...terminalEvidence,
+      {
+        operation: "worker",
+        status: evidenceStatus,
+        startedAt: attemptStartedAt.toISOString(),
+        finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        ...input.signal?.aborted ? {
+          reason: cancellationReasonFromSignal(input.signal)
+        } : {},
+        ...childResult.exitStatus ? { exitStatus: childResult.exitStatus } : {}
+      }
+    ];
+    if (evidenceStatus === "cancelled") {
+      const cancelReason = input.signal?.aborted ? cancellationReasonFromSignal(input.signal) : {
+        code: "caller_cancelled",
+        message: "Worker cancelled."
+      };
+      terminalEvidence.push(buildSyntheticTerminalEvidence("tool", cancelReason, attemptStartedAt.toISOString()));
+      await appendEventAsync(manifest.eventsPath, {
+        type: "worker.cancelled",
+        runId: manifest.runId,
+        taskId: task.id,
+        message: cancelReason.message,
+        data: { terminalEvidence: terminalEvidence.at(-1) }
+      });
+    }
+    startupEvidence = createStartupEvidence({
+      command: "pi",
+      startedAt: attemptStartedAt,
+      finishedAt: /* @__PURE__ */ new Date(),
+      promptSentAt: attemptStartedAt,
+      promptAccepted: childResult.exitCode === 0 && !childResult.error,
+      stderr: childResult.stderr,
+      error: childResult.error,
+      exitCode: childResult.exitCode
+    });
+    exitCode = childResult.exitCode;
+    finalStdout = childResult.stdout;
+    finalStderr = childResult.stderr;
+    const MAX_TRANSCRIPT_PARSE_BYTES = 5 * 1024 * 1024;
+    const transcriptText2 = tailReadWithLineSnap(transcriptPath, MAX_TRANSCRIPT_PARSE_BYTES, childResult.stdout);
+    parsedOutput = parsePiJsonOutput(transcriptText2);
+    rawFinalText = childResult.rawFinalText;
+    intermediateFindings = childResult.intermediateFindings;
+    error = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : void 0);
+    if (childResult.exitStatus?.timedOut) {
+      error = errors.childTimeout({
+        taskId: task.id,
+        stderr: childResult.stderr
+      }).message;
+    }
+    if (!error && parsedOutput) {
+      const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
+      if (rateLimitErr) error = rateLimitErr;
+    }
+    persistHeartbeat(true);
+    persistChildProgress({ type: "attempt_finished" }, true);
+    const attempt = {
+      model: model ?? "default",
+      success: !error,
+      exitCode,
+      error
+    };
+    modelAttempts.push(attempt);
+    task = { ...task, modelAttempts: [...modelAttempts] };
+    tasks = updateTask(tasks, task);
+    logs.push(
+      `MODEL ATTEMPT ${i + 1}: ${attempt.model}`,
+      `success=${attempt.success}`,
+      `exitCode=${attempt.exitCode ?? "null"}`,
+      attempt.error ? `error=${attempt.error}` : "",
+      ""
+    );
+    if (!error) break;
+    let nextModel = attemptModels[i + 1];
+    if (!nextModel && isRetryableModelFailure(error)) {
+      const reResolved = buildConfiguredModelRouting({
+        overrideModel: void 0,
+        stepModel: void 0,
+        teamRoleModel: void 0,
+        agentModel: void 0,
+        fallbackModels: void 0,
+        parentModel: attempt.model,
+        modelRegistry: input.modelRegistry,
+        cwd: task.cwd,
+        scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd)
+      });
+      const alt = reResolved.candidates.find((c) => c !== attempt.model);
+      if (alt) nextModel = alt;
+    }
+    if (!nextModel || !isRetryableModelFailure(error)) break;
+    logs.push(formatModelAttemptNote(attempt, nextModel), "");
+  }
+  if (error && modelAttempts.length > 1) {
+    error = errors.modelExhausted(
+      modelAttempts.map((a) => a.model),
+      error
+    ).message;
+  }
+  const successfulAttemptIndex = modelAttempts.findIndex((attempt) => attempt.success);
+  const usedAttempt = successfulAttemptIndex === -1 ? Math.max(0, modelAttempts.length - 1) : successfulAttemptIndex;
+  for (let attemptIdx = 0; attemptIdx < modelAttempts.length; attemptIdx++) {
+    if (attemptIdx === usedAttempt) continue;
+    const tPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${attemptIdx}.jsonl`;
+    if (!fs81.existsSync(tPath)) continue;
+    const MAX_ATTEMPT_TRANSCRIPT = 5 * 1024 * 1024;
+    const tContent = tailReadWithLineSnap(tPath, MAX_ATTEMPT_TRANSCRIPT, "");
+    if (tContent) {
+      writeArtifact(manifest.artifactsRoot, {
+        kind: "log",
+        relativePath: `transcripts/${task.id}.attempt-${attemptIdx}.jsonl`,
+        content: tContent,
+        producer: task.id
+      });
+    }
+  }
+  resultArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "result",
+    relativePath: `results/${task.id}.txt`,
+    content: (
+      // Prefer the RAW (uncapped) final assistant text captured before the
+      // transcript's 16K compaction — this is the authoritative worker output.
+      // Fall back to transcript-derived finalText, then stdout/stderr, so a
+      // missing raw capture (mock/error path) never yields empty/garbage.
+      cleanResultText(rawFinalText) ?? cleanResultText(parsedOutput?.finalText) ?? cleanResultText(finalStdout) ?? cleanResultText(finalStderr) ?? // #7 hardening: if all real output paths are empty (worker exhausted
+      // budget on tool calls, no assistant text), use intermediate findings.
+      // intermediateFindings captures the last N tool-result display lines.
+      cleanResultText(intermediateFindings) ?? "(no output)"
+    ),
+    producer: task.id
+  });
+  logArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "log",
+    relativePath: `logs/${task.id}.log`,
+    content: [
+      ...logs,
+      `finalExitCode=${exitCode ?? "null"}`,
+      `jsonEvents=${parsedOutput?.jsonEvents ?? 0}`,
+      parsedOutput?.usage ? `usage=${JSON.stringify(parsedOutput.usage)}` : "",
+      "",
+      "STDOUT:",
+      finalStdout,
+      "",
+      "STDERR:",
+      finalStderr
+    ].join("\n"),
+    producer: task.id
+  });
+  const resolvedModel = modelAttempts[usedAttempt]?.model ?? candidates[0] ?? "default";
+  const fallbackReason = usedAttempt > 0 ? modelAttempts[usedAttempt - 1]?.error : void 0;
+  task = {
+    ...task,
+    modelRouting: {
+      requested: modelRoutingPlan.requested,
+      resolved: resolvedModel,
+      fallbackChain: candidates,
+      reason: fallbackReason ?? modelRoutingPlan.reason,
+      usedAttempt
+    }
+  };
+  tasks = updateTask(tasks, task);
+  const attemptFallback = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${usedAttempt}.jsonl`;
+  const sessionUsage = parseSessionUsage(transcriptPath ?? attemptFallback);
+  const effectiveUsage = parsedOutput?.usage ?? sessionUsage;
+  if (effectiveUsage) {
+    parsedOutput = {
+      ...parsedOutput ?? { jsonEvents: 0, textEvents: [] },
+      usage: effectiveUsage
+    };
+    task = {
+      ...task,
+      usage: effectiveUsage,
+      agentProgress: applyUsageToProgress(task.agentProgress, effectiveUsage)
+    };
+    tasks = updateTask(tasks, task);
+    upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
+  }
+  const MAX_TRANSCRIPT_ARTIFACT_BYTES = 5 * 1024 * 1024;
+  const attemptTranscriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${usedAttempt}.jsonl`;
+  const transcriptContent = tailReadWithLineSnap(attemptTranscriptPath, MAX_TRANSCRIPT_ARTIFACT_BYTES, "");
+  if (transcriptContent) {
+    transcriptArtifact = writeArtifact(manifest.artifactsRoot, {
+      kind: "log",
+      relativePath: `transcripts/${task.id}.attempt-${usedAttempt}.jsonl`,
+      content: transcriptContent,
+      producer: task.id
+    });
+  }
+  task = {
+    ...task,
+    resultArtifact,
+    ...logArtifact ? { logArtifact } : {},
+    ...transcriptArtifact ? { transcriptArtifact } : {}
+  };
+  tasks = updateTask(tasks, task);
+  ({ task, tasks } = checkpointTask(manifest, tasks, task, "artifact-written"));
+  ctx.task = task;
+  ctx.tasks = tasks;
+  return {
+    resultArtifact,
+    logArtifact,
+    transcriptArtifact,
+    exitCode,
+    error,
+    modelAttempts,
+    parsedOutput,
+    finalStdout,
+    transcriptPath,
+    terminalEvidence,
+    startupEvidence
+  };
+}
+var init_child_executor = __esm({
+  "src/runtime/task-runner/child-executor.ts"() {
+    "use strict";
+    init_errors();
+    init_artifact_store();
+    init_event_log();
+    init_config();
+    init_internal_error();
+    init_safe_paths();
+    init_child_pi();
+    init_crew_agent_records();
+    init_cancellation();
+    init_crew_hooks();
+    init_event_stream_bridge();
+    init_run_worker();
+    init_retry_executor();
+    init_model_fallback();
+    init_model_scope();
+    init_pi_json_output();
+    init_progress_event_coalescer();
+    init_session_usage();
+    init_supervisor_contact();
+    init_worker_heartbeat();
+    init_worker_startup();
+    init_progress();
+    init_result_utils();
+    init_state_helpers();
+    init_tail_read();
   }
 });
 
@@ -50679,8 +51430,8 @@ var init_output_validator = __esm({
 
 // src/runtime/verification-gates.ts
 import { spawn as spawn5 } from "node:child_process";
-import * as fs80 from "node:fs";
-import * as path66 from "node:path";
+import * as fs82 from "node:fs";
+import * as path67 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
   if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
     return false;
@@ -50836,9 +51587,9 @@ async function executeVerificationCommands(contract, cwd, runId, taskId, artifac
     critical: true
     // All verification commands are critical by default
   }));
-  const gatesDir = path66.join(artifactsRoot, "verification-gates");
-  if (!fs80.existsSync(gatesDir)) {
-    fs80.mkdirSync(gatesDir, { recursive: true });
+  const gatesDir = path67.join(artifactsRoot, "verification-gates");
+  if (!fs82.existsSync(gatesDir)) {
+    fs82.mkdirSync(gatesDir, { recursive: true });
   }
   const execCwd = worktreeCwd ?? cwd;
   const bundle = await runPhaseGates(gates, execCwd, signal, (phaseResult) => {
@@ -51002,13 +51753,13 @@ var init_capabilities = __esm({
 });
 
 // src/runtime/task-runner/prompt-pipeline.ts
-import * as path67 from "node:path";
+import * as path68 from "node:path";
 function artifactReference(artifactsRoot, artifact) {
   if (!artifact) return void 0;
-  const root = path67.resolve(artifactsRoot);
-  const target = path67.resolve(artifact.path);
-  const relative9 = path67.relative(root, target);
-  if (!relative9 || relative9.startsWith("..") || path67.isAbsolute(relative9)) return void 0;
+  const root = path68.resolve(artifactsRoot);
+  const target = path68.resolve(artifact.path);
+  const relative9 = path68.relative(root, target);
+  if (!relative9 || relative9.startsWith("..") || path68.isAbsolute(relative9)) return void 0;
   return relative9.replaceAll("\\", "/");
 }
 function buildWorkerPromptPipeline(input) {
@@ -51402,196 +52153,12 @@ var init_post_execution = __esm({
   }
 });
 
-// src/runtime/task-runner/progress.ts
-function asRecord10(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function safeNum(v) {
-  return Number.isFinite(v) ? v : 0;
-}
-function textFromContent3(content) {
-  if (typeof content === "string") return [content];
-  if (!Array.isArray(content)) return [];
-  const text = [];
-  for (const part of content) {
-    const obj = asRecord10(part);
-    if (!obj) continue;
-    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
-    else if (typeof obj.content === "string") text.push(obj.content);
-  }
-  return text;
-}
-function eventText2(event) {
-  const obj = asRecord10(event);
-  if (!obj) return [];
-  const text = [];
-  if (typeof obj.text === "string") text.push(obj.text);
-  if (typeof obj.output === "string") text.push(obj.output);
-  text.push(...textFromContent3(obj.content));
-  const message = asRecord10(obj.message);
-  if (message) text.push(...textFromContent3(message.content));
-  return text.filter((entry) => entry.trim());
-}
-function numberField4(obj, keys) {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return void 0;
-}
-function eventUsage(event) {
-  const obj = asRecord10(event);
-  if (!obj) return void 0;
-  const direct = {
-    input: numberField4(obj, ["input", "inputTokens", "input_tokens"]),
-    output: numberField4(obj, ["output", "outputTokens", "output_tokens"]),
-    turns: numberField4(obj, ["turns", "turnCount", "turn_count"])
-  };
-  if (Object.values(direct).some((value) => value !== void 0)) return direct;
-  for (const key of ["usage", "tokenUsage", "tokens", "stats"]) {
-    const nested = eventUsage(obj[key]);
-    if (nested) return nested;
-  }
-  const message = asRecord10(obj.message);
-  return message ? eventUsage(message.usage) : void 0;
-}
-function previewArgs(args) {
-  if (!args) return void 0;
-  try {
-    const text = typeof args === "string" ? args : JSON.stringify(args);
-    return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
-  } catch {
-    return void 0;
-  }
-}
-function applyUsageToProgress(progress, usage) {
-  if (!usage) return progress;
-  const base = progress ?? emptyCrewAgentProgress();
-  const tokens = safeNum(usage.input) + safeNum(usage.output) + safeNum(usage.cacheRead) + safeNum(usage.cacheWrite);
-  return { ...base, tokens, turns: usage.turns ?? base.turns };
-}
-function shouldFlushProgressEvent(event) {
-  const type = asRecord10(event)?.type;
-  return type === "tool_execution_start" || type === "tool_execution_end" || type === "message_start" || type === "message_end" || type === "tool_result_end";
-}
-function progressEventSummary(task, event) {
-  const type = asRecord10(event)?.type;
-  return {
-    eventType: typeof type === "string" ? type : "event",
-    currentTool: task.agentProgress?.currentTool,
-    toolCount: task.agentProgress?.toolCount,
-    tokens: task.agentProgress?.tokens,
-    turns: task.agentProgress?.turns,
-    activityState: task.agentProgress?.activityState,
-    lastActivityAt: task.agentProgress?.lastActivityAt
-  };
-}
-function applyAgentProgressEvent(progress, event, startedAt) {
-  const obj = asRecord10(event);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const next = {
-    ...progress,
-    recentTools: [...progress.recentTools],
-    recentOutput: [...progress.recentOutput],
-    lastActivityAt: now,
-    activityState: "active"
-  };
-  if (startedAt) {
-    const startMs = new Date(startedAt).getTime();
-    next.durationMs = Number.isFinite(startMs) ? Date.now() - startMs : void 0;
-  }
-  if (obj?.type === "tool_execution_start") {
-    next.toolCount += 1;
-    next.currentTool = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : "tool";
-    next.currentToolArgs = previewArgs(obj.args);
-    next.currentToolStartedAt = now;
-  }
-  if (obj?.type === "tool_execution_end") {
-    if (next.currentTool)
-      next.recentTools.push({
-        tool: next.currentTool,
-        args: next.currentToolArgs,
-        endedAt: now
-      });
-    next.currentTool = void 0;
-    next.currentToolArgs = void 0;
-    next.currentToolStartedAt = void 0;
-  }
-  if ((obj?.type === "tool_execution_error" || obj?.type === "tool_execution_failed") && next.currentTool)
-    next.failedTool = next.currentTool;
-  const usage = eventUsage(event);
-  if (usage) {
-    next.tokens = safeNum(usage.input) + safeNum(usage.output);
-    next.turns = usage.turns ?? next.turns;
-  }
-  const text = eventText2(event);
-  if (text.length > 0)
-    next.recentOutput.push(
-      ...text.flatMap((entry) => entry.split(/\r?\n/)).filter(Boolean).slice(-10)
-    );
-  if (next.recentTools.length > 25) next.recentTools.splice(0, next.recentTools.length - 25);
-  if (next.recentOutput.length > 50) next.recentOutput.splice(0, next.recentOutput.length - 50);
-  return next;
-}
-var init_progress = __esm({
-  "src/runtime/task-runner/progress.ts"() {
-    "use strict";
-    init_crew_agent_records();
-  }
-});
-
-// src/runtime/task-runner/result-utils.ts
-function cleanResultText(text) {
-  const trimmed = text?.trim();
-  if (!trimmed) return void 0;
-  const doneIndex = trimmed.lastIndexOf("\nDONE\n");
-  if (doneIndex >= 0) return trimmed.slice(doneIndex + 1).trim();
-  if (trimmed === "DONE" || trimmed.startsWith("DONE\n")) return trimmed;
-  const fencedPromptIndex = trimmed.lastIndexOf("</file>");
-  if (fencedPromptIndex >= 0 && fencedPromptIndex < trimmed.length - 7) return trimmed.slice(fencedPromptIndex + 7).trim() || trimmed;
-  return trimmed;
-}
-function isFinalChildEvent(event) {
-  return Boolean(
-    event && typeof event === "object" && !Array.isArray(event) && event.type === "message_end"
-  );
-}
-var init_result_utils = __esm({
-  "src/runtime/task-runner/result-utils.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/task-runner/tail-read.ts
-import * as fs81 from "node:fs";
-function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
-  if (!fs81.existsSync(filePath)) return fallbackContent;
-  const stat2 = fs81.statSync(filePath);
-  if (stat2.size === 0) return fallbackContent;
-  if (stat2.size <= maxBytes) return fs81.readFileSync(filePath, "utf-8");
-  const fd = fs81.openSync(filePath, "r");
-  try {
-    const buf = Buffer.alloc(maxBytes);
-    const bytesRead = fs81.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
-    const raw = buf.slice(0, bytesRead).toString("utf-8");
-    const firstNewline = raw.indexOf("\n");
-    return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
-  } finally {
-    fs81.closeSync(fd);
-  }
-}
-var init_tail_read = __esm({
-  "src/runtime/task-runner/tail-read.ts"() {
-    "use strict";
-  }
-});
-
 // src/runtime/task-runner/live-executor.ts
 var live_executor_exports = {};
 __export(live_executor_exports, {
   runLiveTask: () => runLiveTask
 });
-import * as fs82 from "node:fs";
+import * as fs83 from "node:fs";
 function updateTask2(tasks, updated) {
   return tasks.map((task) => task.id === updated.id ? updated : task);
 }
@@ -51730,10 +52297,10 @@ async function runLiveTask(input) {
     ].join("\n"),
     producer: task.id
   });
-  const transcriptArtifact = fs82.existsSync(transcriptPath) ? writeArtifact(manifest.artifactsRoot, {
+  const transcriptArtifact = fs83.existsSync(transcriptPath) ? writeArtifact(manifest.artifactsRoot, {
     kind: "log",
     relativePath: `transcripts/${task.id}.jsonl`,
-    content: fs82.readFileSync(transcriptPath, "utf-8"),
+    content: fs83.readFileSync(transcriptPath, "utf-8"),
     producer: task.id
   }) : void 0;
   return {
@@ -51765,32 +52332,6 @@ var init_live_executor = __esm({
 });
 
 // src/runtime/task-runner.ts
-import * as fs83 from "node:fs";
-import * as path68 from "node:path";
-async function appendSteeringAsync(steeringDir, taskId, steers) {
-  try {
-    await fs83.promises.mkdir(steeringDir, { recursive: true });
-    const steeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
-    const lines = steers.map(
-      (msg) => JSON.stringify({
-        type: "steer",
-        message: msg,
-        ts: (/* @__PURE__ */ new Date()).toISOString()
-      }) + "\n"
-    ).join("");
-    await fs83.promises.appendFile(steeringPath, lines, "utf-8");
-  } catch (error) {
-    logInternalError("task-runner.steering-write-failed", error, `taskId=${taskId}`);
-  }
-}
-async function appendBackgroundLogAsync(bgLogPath, eventLine) {
-  try {
-    await fs83.promises.appendFile(bgLogPath, `${eventLine}
-`, "utf-8");
-  } catch (error) {
-    logInternalError("task-runner.background-log-write-failed", error, `path=${bgLogPath}`);
-  }
-}
 async function runTeamTask(input) {
   await awaitRuntimeWarmup();
   let manifest = input.manifest;
@@ -51823,448 +52364,25 @@ async function runTeamTask(input) {
     let error;
     let modelAttempts;
     let parsedOutput;
-    let rawFinalText;
-    let intermediateFindings;
     let finalStdout = "";
     let transcriptPath;
     let terminalEvidence = [];
     let startupEvidence = ctx.startupEvidence;
     if (runtimeKind === "child-process") {
-      const modelRoutingPlan = buildConfiguredModelRouting({
-        overrideModel: input.modelOverride,
-        stepModel: input.step.model,
-        teamRoleModel: input.teamRoleModel,
-        agentModel: input.agent.model,
-        fallbackModels: input.agent.fallbackModels,
-        parentModel: input.parentModel,
-        modelRegistry: input.modelRegistry,
-        cwd: task.cwd,
-        scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd)
-      });
-      const candidates = modelRoutingPlan.candidates;
-      const attemptModels = candidates.length > 0 ? candidates : [void 0];
-      if (input.spawnBudget && input.spawnBudget.max === 0) {
-        input.spawnBudget.max = attemptModels.length * (DEFAULT_RETRY_POLICY.maxAttempts + 1);
-      }
-      const logs = [];
-      let finalStderr = "";
-      modelAttempts = [];
-      let finalCheckpointWritten = false;
-      let lastAgentRecordPersistedAt = 0;
-      let lastHeartbeatPersistedAt = 0;
-      let lastRunProgressPersistedAt = 0;
-      let lastTaskProgressPersistedAt = 0;
-      let lastRunProgressSummary;
-      const persistHeartbeat = (force = false) => {
-        const now = Date.now();
-        if (!force && now - lastHeartbeatPersistedAt < 1e3) return;
-        try {
-          tasks = persistSingleTaskUpdate(manifest, tasks, task);
-        } catch (err2) {
-          if (err2.code === "ENOENT") return;
-          throw err2;
-        }
-        task = {
-          ...task,
-          heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id))
-        };
-        lastHeartbeatPersistedAt = now;
-      };
-      const persistChildProgress = (event, force = false) => {
-        const now = Date.now();
-        if (force || shouldFlushProgressEvent(event) || now - lastAgentRecordPersistedAt >= 500) {
-          upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
-          lastAgentRecordPersistedAt = now;
-        }
-        const summary = progressEventSummary(task, event);
-        const decision2 = shouldAppendProgressEventUpdate({
-          previous: lastRunProgressSummary,
-          next: summary,
-          nowMs: now,
-          lastAppendMs: lastRunProgressPersistedAt || void 0,
-          minIntervalMs: 1e3,
-          force
-        });
-        if (decision2.shouldAppend) {
-          void appendEventBuffered(manifest.eventsPath, {
-            type: "task.progress",
-            runId: manifest.runId,
-            taskId: task.id,
-            data: { ...summary, coalesceReason: decision2.reason }
-          });
-          lastRunProgressSummary = summary;
-          lastRunProgressPersistedAt = now;
-        }
-      };
-      for (let i = 0; i < attemptModels.length; i++) {
-        transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
-        await fs83.promises.mkdir(path68.join(manifest.artifactsRoot, "transcripts"), {
-          recursive: true
-        });
-        const model = attemptModels[i];
-        if (input.spawnBudget) {
-          input.spawnBudget.count += 1;
-          if (input.spawnBudget.count > input.spawnBudget.max) {
-            logs.push(
-              `[WARN] CORE-3 spawn budget exhausted (max=${input.spawnBudget.max}) \u2014 stopping model fallback after ${modelAttempts.length} attempt(s). Last error: ${error ?? "<none>"}`,
-              ""
-            );
-            break;
-          }
-        }
-        const attemptStartedAt = /* @__PURE__ */ new Date();
-        const pendingAttempt = {
-          model: model ?? "default",
-          success: false
-        };
-        task = {
-          ...task,
-          modelAttempts: [...modelAttempts, pendingAttempt]
-        };
-        tasks = updateTask(tasks, task);
-        crewHooks.emit({
-          type: "task_started",
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          runId: manifest.runId,
-          taskId: task.id,
-          data: { role: task.role, model: model ?? "default" }
-        });
-        upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
-        const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
-        const timeoutController = new AbortController();
-        let externalAbortListener;
-        if (input.signal) {
-          if (input.signal.aborted) {
-            timeoutController.abort(input.signal.reason);
-          } else {
-            externalAbortListener = () => timeoutController.abort(input.signal.reason);
-            input.signal.addEventListener("abort", externalAbortListener, { once: true });
-          }
-        }
-        let timeoutHandle;
-        if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
-          timeoutHandle = setTimeout(() => {
-            if (!timeoutController.signal.aborted) {
-              timeoutController.abort(new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`));
-            }
-          }, taskTimeoutMs);
-          timeoutHandle.unref?.();
-        }
-        let childResult;
-        try {
-          childResult = await runWorker({
-            cwd: task.cwd,
-            task: prompt,
-            agent: input.agent,
-            model,
-            signal: timeoutController.signal,
-            transcriptPath,
-            maxDepth: input.limits?.maxTaskDepth,
-            skillPaths,
-            maxTurns: input.runtimeConfig?.maxTurns,
-            graceTurns: input.runtimeConfig?.graceTurns,
-            inheritContext: input.runtimeConfig?.inheritContext,
-            parentContext: input.parentContext,
-            excludeContextBash: input.runtimeConfig?.excludeContextBash,
-            sessionId: manifest.sessionId,
-            role: task.role,
-            runId: manifest.runId,
-            agentId: task.id,
-            artifactsRoot: manifest.artifactsRoot,
-            steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
-            onSpawn: (pid) => {
-              try {
-                ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
-                if (task.pendingSteers?.length) {
-                  const steeringDir = `${manifest.artifactsRoot}/steering`;
-                  void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
-                  task.pendingSteers = [];
-                  tasks = persistSingleTaskUpdate(manifest, tasks, task);
-                }
-              } catch (err2) {
-                logInternalError("task-runner.on-spawn", err2, `pid=${pid}, taskId=${task.id}`);
-              }
-            },
-            onLifecycleEvent: (event) => {
-              void appendEventAsync(manifest.eventsPath, {
-                type: `worker.${event.type}`,
-                runId: manifest.runId,
-                taskId: task.id,
-                message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
-                data: { ...event }
-              }).catch(
-                (error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`)
-              );
-            },
-            onStdoutLine: (line4) => {
-              appendCrewAgentOutput(manifest, task.id, line4);
-              persistHeartbeat();
-              const contact = parseSupervisorContactFromLine(line4);
-              if (contact) {
-                recordSupervisorContact(manifest, {
-                  runId: manifest.runId,
-                  ...contact
-                });
-              }
-            },
-            onJsonEvent: (event) => {
-              try {
-                appendCrewAgentEvent(manifest, task.id, event);
-                if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
-                  collectedJsonEvents.push(event);
-                if (collectedJsonEvents && collectedJsonEvents.length > 1e3) {
-                  collectedJsonEvents.splice(0, collectedJsonEvents.length - 1e3);
-                }
-                if (event && typeof event === "object" && event.type === "message_end") {
-                  const msg = event.message;
-                  if (msg?.role === "assistant") {
-                    const usage = msg.usage;
-                    if (usage) {
-                      task.lifetimeUsage = {
-                        input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
-                        output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
-                        cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
-                      };
-                    }
-                  }
-                }
-                persistHeartbeat();
-                if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
-                  const bgLogPath = `${manifest.stateRoot}/background.log`;
-                  const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
-                  void appendBackgroundLogAsync(bgLogPath, eventLine);
-                }
-                const nextProgress = applyAgentProgressEvent(
-                  task.agentProgress ?? emptyCrewAgentProgress(),
-                  event,
-                  task.startedAt
-                );
-                task = { ...task, agentProgress: nextProgress };
-                tasks = updateTask(tasks, task);
-                const progressNow = Date.now();
-                if (progressNow - lastTaskProgressPersistedAt >= 500) {
-                  tasks = persistSingleTaskUpdate(manifest, tasks, task);
-                  lastTaskProgressPersistedAt = progressNow;
-                }
-                const bridgeEvent = bridgeEventFromJsonEvent(manifest.runId, task.id, event);
-                if (bridgeEvent) streamBridge?.handler(bridgeEvent);
-                if (input.onJsonEvent) {
-                  input.onJsonEvent(task.id, manifest.runId, event);
-                }
-                if (!finalCheckpointWritten && isFinalChildEvent(event)) {
-                  finalCheckpointWritten = true;
-                  ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-stdout-final"));
-                }
-                persistChildProgress(event);
-              } catch (err2) {
-                logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
-              }
-            }
-          });
-        } finally {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          if (externalAbortListener && input.signal) {
-            input.signal.removeEventListener("abort", externalAbortListener);
-          }
-        }
-        const evidenceStatus = childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
-        terminalEvidence = [
-          ...terminalEvidence,
-          {
-            operation: "worker",
-            status: evidenceStatus,
-            startedAt: attemptStartedAt.toISOString(),
-            finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            ...input.signal?.aborted ? {
-              reason: cancellationReasonFromSignal(input.signal)
-            } : {},
-            ...childResult.exitStatus ? { exitStatus: childResult.exitStatus } : {}
-          }
-        ];
-        if (evidenceStatus === "cancelled") {
-          const cancelReason = input.signal?.aborted ? cancellationReasonFromSignal(input.signal) : {
-            code: "caller_cancelled",
-            message: "Worker cancelled."
-          };
-          terminalEvidence.push(buildSyntheticTerminalEvidence("tool", cancelReason, attemptStartedAt.toISOString()));
-          await appendEventAsync(manifest.eventsPath, {
-            type: "worker.cancelled",
-            runId: manifest.runId,
-            taskId: task.id,
-            message: cancelReason.message,
-            data: { terminalEvidence: terminalEvidence.at(-1) }
-          });
-        }
-        startupEvidence = createStartupEvidence({
-          command: "pi",
-          startedAt: attemptStartedAt,
-          finishedAt: /* @__PURE__ */ new Date(),
-          promptSentAt: attemptStartedAt,
-          promptAccepted: childResult.exitCode === 0 && !childResult.error,
-          stderr: childResult.stderr,
-          error: childResult.error,
-          exitCode: childResult.exitCode
-        });
-        exitCode = childResult.exitCode;
-        finalStdout = childResult.stdout;
-        finalStderr = childResult.stderr;
-        const MAX_TRANSCRIPT_PARSE_BYTES = 5 * 1024 * 1024;
-        const transcriptText2 = tailReadWithLineSnap(transcriptPath, MAX_TRANSCRIPT_PARSE_BYTES, childResult.stdout);
-        parsedOutput = parsePiJsonOutput(transcriptText2);
-        rawFinalText = childResult.rawFinalText;
-        intermediateFindings = childResult.intermediateFindings;
-        error = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : void 0);
-        if (childResult.exitStatus?.timedOut) {
-          error = errors.childTimeout({
-            taskId: task.id,
-            stderr: childResult.stderr
-          }).message;
-        }
-        if (!error && parsedOutput) {
-          const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
-          if (rateLimitErr) error = rateLimitErr;
-        }
-        persistHeartbeat(true);
-        persistChildProgress({ type: "attempt_finished" }, true);
-        const attempt = {
-          model: model ?? "default",
-          success: !error,
-          exitCode,
-          error
-        };
-        modelAttempts.push(attempt);
-        task = { ...task, modelAttempts: [...modelAttempts] };
-        tasks = updateTask(tasks, task);
-        logs.push(
-          `MODEL ATTEMPT ${i + 1}: ${attempt.model}`,
-          `success=${attempt.success}`,
-          `exitCode=${attempt.exitCode ?? "null"}`,
-          attempt.error ? `error=${attempt.error}` : "",
-          ""
-        );
-        if (!error) break;
-        let nextModel = attemptModels[i + 1];
-        if (!nextModel && isRetryableModelFailure(error)) {
-          const reResolved = buildConfiguredModelRouting({
-            overrideModel: void 0,
-            stepModel: void 0,
-            teamRoleModel: void 0,
-            agentModel: void 0,
-            fallbackModels: void 0,
-            parentModel: attempt.model,
-            modelRegistry: input.modelRegistry,
-            cwd: task.cwd,
-            scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd)
-          });
-          const alt = reResolved.candidates.find((c) => c !== attempt.model);
-          if (alt) nextModel = alt;
-        }
-        if (!nextModel || !isRetryableModelFailure(error)) break;
-        logs.push(formatModelAttemptNote(attempt, nextModel), "");
-      }
-      if (error && modelAttempts.length > 1) {
-        error = errors.modelExhausted(
-          modelAttempts.map((a) => a.model),
-          error
-        ).message;
-      }
-      const successfulAttemptIndex = modelAttempts.findIndex((attempt) => attempt.success);
-      const usedAttempt = successfulAttemptIndex === -1 ? Math.max(0, modelAttempts.length - 1) : successfulAttemptIndex;
-      for (let attemptIdx = 0; attemptIdx < modelAttempts.length; attemptIdx++) {
-        if (attemptIdx === usedAttempt) continue;
-        const tPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${attemptIdx}.jsonl`;
-        if (!fs83.existsSync(tPath)) continue;
-        const MAX_ATTEMPT_TRANSCRIPT = 5 * 1024 * 1024;
-        const tContent = tailReadWithLineSnap(tPath, MAX_ATTEMPT_TRANSCRIPT, "");
-        if (tContent) {
-          writeArtifact(manifest.artifactsRoot, {
-            kind: "log",
-            relativePath: `transcripts/${task.id}.attempt-${attemptIdx}.jsonl`,
-            content: tContent,
-            producer: task.id
-          });
-        }
-      }
-      resultArtifact = writeArtifact(manifest.artifactsRoot, {
-        kind: "result",
-        relativePath: `results/${task.id}.txt`,
-        content: (
-          // Prefer the RAW (uncapped) final assistant text captured before the
-          // transcript's 16K compaction — this is the authoritative worker output.
-          // Fall back to transcript-derived finalText, then stdout/stderr, so a
-          // missing raw capture (mock/error path) never yields empty/garbage.
-          cleanResultText(rawFinalText) ?? cleanResultText(parsedOutput?.finalText) ?? cleanResultText(finalStdout) ?? cleanResultText(finalStderr) ?? // #7 hardening: if all real output paths are empty (worker exhausted
-          // budget on tool calls, no assistant text), use intermediate findings.
-          // intermediateFindings captures the last N tool-result display lines.
-          cleanResultText(intermediateFindings) ?? "(no output)"
-        ),
-        producer: task.id
-      });
-      logArtifact = writeArtifact(manifest.artifactsRoot, {
-        kind: "log",
-        relativePath: `logs/${task.id}.log`,
-        content: [
-          ...logs,
-          `finalExitCode=${exitCode ?? "null"}`,
-          `jsonEvents=${parsedOutput?.jsonEvents ?? 0}`,
-          parsedOutput?.usage ? `usage=${JSON.stringify(parsedOutput.usage)}` : "",
-          "",
-          "STDOUT:",
-          finalStdout,
-          "",
-          "STDERR:",
-          finalStderr
-        ].join("\n"),
-        producer: task.id
-      });
-      const resolvedModel = modelAttempts[usedAttempt]?.model ?? candidates[0] ?? "default";
-      const fallbackReason = usedAttempt > 0 ? modelAttempts[usedAttempt - 1]?.error : void 0;
-      task = {
-        ...task,
-        modelRouting: {
-          requested: modelRoutingPlan.requested,
-          resolved: resolvedModel,
-          fallbackChain: candidates,
-          reason: fallbackReason ?? modelRoutingPlan.reason,
-          usedAttempt
-        }
-      };
-      tasks = updateTask(tasks, task);
-      const attemptFallback = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${usedAttempt}.jsonl`;
-      const sessionUsage = parseSessionUsage(transcriptPath ?? attemptFallback);
-      const effectiveUsage = parsedOutput?.usage ?? sessionUsage;
-      if (effectiveUsage) {
-        parsedOutput = {
-          ...parsedOutput ?? { jsonEvents: 0, textEvents: [] },
-          usage: effectiveUsage
-        };
-        task = {
-          ...task,
-          usage: effectiveUsage,
-          agentProgress: applyUsageToProgress(task.agentProgress, effectiveUsage)
-        };
-        tasks = updateTask(tasks, task);
-        upsertCrewAgent(manifest, recordFromTask(manifest, task, "child-process"));
-      }
-      const MAX_TRANSCRIPT_ARTIFACT_BYTES = 5 * 1024 * 1024;
-      const attemptTranscriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${usedAttempt}.jsonl`;
-      const transcriptContent = tailReadWithLineSnap(attemptTranscriptPath, MAX_TRANSCRIPT_ARTIFACT_BYTES, "");
-      if (transcriptContent) {
-        transcriptArtifact = writeArtifact(manifest.artifactsRoot, {
-          kind: "log",
-          relativePath: `transcripts/${task.id}.attempt-${usedAttempt}.jsonl`,
-          content: transcriptContent,
-          producer: task.id
-        });
-      }
-      task = {
-        ...task,
-        resultArtifact,
-        ...logArtifact ? { logArtifact } : {},
-        ...transcriptArtifact ? { transcriptArtifact } : {}
-      };
-      tasks = updateTask(tasks, task);
-      ({ task, tasks } = checkpointTask(manifest, tasks, task, "artifact-written"));
+      const child = await runChildProcessTask(ctx);
+      task = ctx.task;
+      tasks = ctx.tasks;
+      resultArtifact = child.resultArtifact;
+      logArtifact = child.logArtifact;
+      transcriptArtifact = child.transcriptArtifact;
+      exitCode = child.exitCode;
+      error = child.error;
+      modelAttempts = child.modelAttempts;
+      parsedOutput = child.parsedOutput;
+      finalStdout = child.finalStdout;
+      transcriptPath = child.transcriptPath;
+      terminalEvidence = child.terminalEvidence;
+      startupEvidence = child.startupEvidence;
     } else if (runtimeKind === "live-session") {
       const { runLiveTask: runLiveTask2 } = await Promise.resolve().then(() => (init_live_executor(), live_executor_exports));
       const live = await runLiveTask2({
@@ -52326,74 +52444,19 @@ async function runTeamTask(input) {
     streamBridge?.dispose();
   }
 }
-async function resolveTaskScopeModelsPatterns(cwd) {
-  let scopeModels = false;
-  try {
-    scopeModels = loadConfig(cwd).config.reliability?.scopeModels === true;
-  } catch {
-    return [];
-  }
-  if (!scopeModels) return [];
-  return readEnabledModelsPatterns(cwd);
-}
-function detectRetryableModelFailureFromOutput(parsed) {
-  const messages = parsed.errorMessages;
-  if (messages && messages.length > 0) {
-    const retryable = messages.find((m) => isRetryableModelFailure(m));
-    if (retryable) {
-      const hasRealOutput = (parsed.finalText?.trim().length ?? 0) > 0 || parsed.textEvents.some((t2) => t2.trim().length > 0) || (parsed.patches?.length ?? 0) > 0;
-      if (hasRealOutput) return void 0;
-      return `Model returned only retryable errors and no output: ${retryable}`;
-    }
-  }
-  const raw = parsed;
-  const eventSource = Array.isArray(raw.messageEndEvents) ? raw.messageEndEvents : Array.isArray(raw.transcript) ? raw.transcript : void 0;
-  if (!eventSource || eventSource.length === 0) return void 0;
-  for (const candidate of eventSource) {
-    if (!candidate || typeof candidate !== "object") continue;
-    const event = candidate;
-    if (event.stopReason !== "error") continue;
-    if (typeof event.errorMessage !== "string" || event.errorMessage.length === 0) continue;
-    if (!isRetryableModelFailure(event.errorMessage)) continue;
-    const hasRealOutput = (parsed.finalText?.trim().length ?? 0) > 0 || parsed.textEvents.some((t2) => t2.trim().length > 0) || (parsed.patches?.length ?? 0) > 0;
-    if (hasRealOutput) return void 0;
-    return `Model returned only retryable errors and no output: ${event.errorMessage}`;
-  }
-  return void 0;
-}
 var init_task_runner = __esm({
   "src/runtime/task-runner.ts"() {
     "use strict";
-    init_config();
-    init_errors();
     init_artifact_store();
-    init_event_log();
-    init_internal_error();
-    init_safe_paths();
-    init_cancellation();
-    init_child_pi();
-    init_crew_agent_records();
-    init_crew_hooks();
     init_event_stream_bridge();
-    init_run_worker();
-    init_retry_executor();
-    init_model_fallback();
-    init_model_scope();
-    init_pi_json_output();
-    init_progress_event_coalescer();
     init_runtime_warmup();
-    init_session_usage();
-    init_supervisor_contact();
     init_scaffold_executor();
     init_pre_execution();
+    init_child_executor();
     init_post_execution();
-    init_progress();
     init_result_utils();
-    init_state_helpers();
-    init_tail_read();
-    init_worker_heartbeat();
-    init_worker_startup();
     init_yield_handler();
+    init_child_executor();
     registerYieldTool();
   }
 });
