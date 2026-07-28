@@ -64,9 +64,13 @@ jobs:
       - name: Install + load smoke test
         # Catches the "all tests pass but published tarball is broken" failure
         # mode (e.g. v0.9.13 incident where shipped files were missing/corrupt).
-        # Packs the real tarball, installs it into a clean dir, and dynamic-imports
-        # the ESM entry (dist/index.mjs) that Pi actually loads. Skipped on Windows
-        # because the step relies on bash + /tmp paths.
+        # Packs the real tarball, installs it into a clean dir, and verifies the
+        # bundle ships + is syntactically valid JS. We use `node --check` (not
+        # import) because pi-crew is a Pi EXTENSION — its bundle imports
+        # @earendil-works/* peerDeps that aren't present in a clean install, and
+        # package.json "exports" doesn't expose ./dist/index.mjs as a subpath.
+        # The real load test (with peers) is test:bundle, run above. Skipped on
+        # Windows because the step relies on bash + /tmp paths.
         if: runner.os != 'Windows'
         run: |
           npm pack
@@ -75,7 +79,9 @@ jobs:
           cd /tmp/smoke-install
           npm init -y
           npm install "$GITHUB_WORKSPACE/$tarball"
-          node -e "import('pi-crew/dist/index.mjs').then(m => console.log('Loaded:', typeof m.default === 'function' || typeof m)).catch(e => { console.error(e); process.exit(1); })"
+          test -f node_modules/pi-crew/dist/index.mjs || { echo "FAIL: dist/index.mjs missing from tarball"; exit 1; }
+          node --check node_modules/pi-crew/dist/index.mjs
+          echo "OK: tarball ships a syntactically-valid bundle"
 
   # Informational, non-blocking codebase intelligence (deterministic, Rust-native).
   # Surfaced dead code, circular deps, duplication, complexity hotspots, and
