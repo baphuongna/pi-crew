@@ -53669,6 +53669,45 @@ async function executeTeamRun(input) {
     clearStablePrefixCache();
   }
 }
+async function cancelRunFromSignal(ctx) {
+  if (!ctx.input.signal?.aborted) return null;
+  const cancelReason = cancellationReasonFromSignal(ctx.input.signal);
+  const message = `${cancelReason.message} (${cancelReason.code})`;
+  const cancelledTaskIds = [];
+  ctx.tasks = ctx.tasks.map((task) => {
+    if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
+    cancelledTaskIds.push(task.id);
+    const base = {
+      ...task,
+      status: "cancelled",
+      finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      error: message
+    };
+    if (task.status === "running") {
+      return {
+        ...base,
+        terminalEvidence: [
+          ...task.terminalEvidence ?? [],
+          buildSyntheticTerminalEvidence("worker", cancelReason, task.startedAt)
+        ]
+      };
+    }
+    return base;
+  });
+  await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+  for (const taskId of cancelledTaskIds)
+    await appendEventAsync(ctx.manifest.eventsPath, {
+      type: "task.cancelled",
+      runId: ctx.manifest.runId,
+      taskId,
+      message,
+      data: { reason: cancelReason.code }
+    });
+  ctx.manifest = updateRunStatus(ctx.manifest, "cancelled", message, {
+    data: { reason: cancelReason.code, cancelledTaskIds }
+  });
+  return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
 async function executeTeamRunCore(input, manifest, workflow) {
   const beforeRunReport = await executeHook("before_run_start", {
     runId: manifest.runId,
@@ -53739,46 +53778,25 @@ async function executeTeamRunCore(input, manifest, workflow) {
     if (input.signal.aborted) runController.abort();
     else input.signal.addEventListener("abort", () => runController.abort(), { once: true });
   }
+  const ctx = {
+    input,
+    workflow,
+    manifest,
+    tasks,
+    queueIndex,
+    wfMachine,
+    pendingUnits,
+    runController,
+    runtimeKind,
+    adaptivePlanInjected,
+    adaptivePlanMissing
+  };
   try {
     while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
-      if (input.signal?.aborted) {
-        const cancelReason = cancellationReasonFromSignal(input.signal);
-        const message = `${cancelReason.message} (${cancelReason.code})`;
-        const cancelledTaskIds = [];
-        tasks = tasks.map((task) => {
-          if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
-          cancelledTaskIds.push(task.id);
-          const base = {
-            ...task,
-            status: "cancelled",
-            finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            error: message
-          };
-          if (task.status === "running") {
-            return {
-              ...base,
-              terminalEvidence: [
-                ...task.terminalEvidence ?? [],
-                buildSyntheticTerminalEvidence("worker", cancelReason, task.startedAt)
-              ]
-            };
-          }
-          return base;
-        });
-        await saveRunTasksAsync(manifest, tasks);
-        for (const taskId of cancelledTaskIds)
-          await appendEventAsync(manifest.eventsPath, {
-            type: "task.cancelled",
-            runId: manifest.runId,
-            taskId,
-            message,
-            data: { reason: cancelReason.code }
-          });
-        manifest = updateRunStatus(manifest, "cancelled", message, {
-          data: { reason: cancelReason.code, cancelledTaskIds }
-        });
-        return { manifest, tasks };
-      }
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      const signalDecision = await cancelRunFromSignal(ctx);
+      if (signalDecision?.kind === "return") return signalDecision.result;
       const failed2 = tasks.find((task) => task.status === "failed");
       if (failed2) {
         const rerun = shouldRerunFailedTask(failed2, input.limits);

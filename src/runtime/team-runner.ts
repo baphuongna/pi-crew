@@ -42,7 +42,7 @@ import { resolveTaskRuntimeKind } from "./runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
 import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./task-graph.ts";
-import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
+import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot, type TaskGraphIndex } from "./task-graph-scheduler.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
 import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
@@ -53,6 +53,7 @@ import {
 	type PhaseGuardContext,
 	type PhaseState,
 	transitionPhase,
+	type WorkflowStateMachine,
 	validatePhasePreconditions,
 } from "./workflow-state.ts";
 
@@ -948,6 +949,100 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	}
 }
 
+// ── CORE-4: SchedulerContext state bag ─────────────────────────────
+// A mutable bag of the closure locals used across executeTeamRunCore.
+// Extracted scheduler functions receive this context and mutate it
+// in-place. This enables incremental extraction of the ~1075-line god
+// function into scheduler/ functions without changing control flow.
+
+/**
+ * Mutable state shared across the team-run scheduler loop.
+ *
+ * Fields mirror the closure locals of `executeTeamRunCore`. Extracted
+ * scheduler functions mutate these fields in-place; the caller keeps the
+ * local variables in sync by assigning back from `ctx` after each call.
+ */
+interface SchedulerContext {
+	input: ExecuteTeamRunInput;
+	workflow: WorkflowConfig;
+	manifest: TeamRunManifest;
+	tasks: TeamTaskState[];
+	queueIndex: TaskGraphIndex;
+	wfMachine: WorkflowStateMachine;
+	pendingUnits: Map<string, { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }>;
+	runController: AbortController;
+	runtimeKind: CrewRuntimeKind;
+	adaptivePlanInjected: boolean;
+	adaptivePlanMissing: boolean;
+}
+
+/**
+ * Discriminated union representing a scheduler sub-function's decision.
+ *
+ * - `continue`: proceed to the next phase of the loop body.
+ * - `return`: short-circuit the loop and return the given result.
+ * - `skip-dispatch`: skip the dispatch phase this iteration (reserved for
+ *   future extractions).
+ */
+type SchedulerDecision =
+	| { kind: "continue" }
+	| { kind: "return"; result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } }
+	| { kind: "skip-dispatch" };
+
+/**
+ * CORE-4 extraction 1: handle a pre-aborted signal at the top of the
+ * scheduler loop.
+ *
+ * If the run's input signal is aborted, cancel all non-terminal tasks,
+ * persist the cancellation, emit run.cancelled + per-task task.cancelled
+ * events, and return a `return` decision so the caller short-circuits.
+ *
+ * Returns `null` when the signal is NOT aborted (no decision — continue).
+ *
+ * @param ctx  The scheduler context; `ctx.tasks` and `ctx.manifest` are
+ *             mutated in-place to reflect the cancelled state.
+ */
+async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
+	if (!ctx.input.signal?.aborted) return null;
+
+	const cancelReason = cancellationReasonFromSignal(ctx.input.signal);
+	const message = `${cancelReason.message} (${cancelReason.code})`;
+	const cancelledTaskIds: string[] = [];
+	ctx.tasks = ctx.tasks.map((task) => {
+		if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
+		cancelledTaskIds.push(task.id);
+		const base = {
+			...task,
+			status: "cancelled" as const,
+			finishedAt: new Date().toISOString(),
+			error: message,
+		};
+		if (task.status === "running") {
+			return {
+				...base,
+				terminalEvidence: [
+					...(task.terminalEvidence ?? []),
+					buildSyntheticTerminalEvidence("worker", cancelReason, task.startedAt),
+				],
+			};
+		}
+		return base;
+	});
+	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+	for (const taskId of cancelledTaskIds)
+		await appendEventAsync(ctx.manifest.eventsPath, {
+			type: "task.cancelled",
+			runId: ctx.manifest.runId,
+			taskId,
+			message,
+			data: { reason: cancelReason.code },
+		});
+	ctx.manifest = updateRunStatus(ctx.manifest, "cancelled", message, {
+		data: { reason: cancelReason.code, cancelledTaskIds },
+	});
+	return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
+
 async function executeTeamRunCore(
 	input: ExecuteTeamRunInput,
 	manifest: TeamRunManifest,
@@ -1038,47 +1133,33 @@ async function executeTeamRunCore(
 		else input.signal.addEventListener("abort", () => runController.abort(), { once: true });
 	}
 
+	// CORE-4: scheduler context — mutable state bag for extracted scheduler
+	// functions. Fields are synced from closure locals at the top of each
+	// loop iteration; extracted functions mutate ctx in-place.
+	const ctx: SchedulerContext = {
+		input,
+		workflow,
+		manifest,
+		tasks,
+		queueIndex,
+		wfMachine,
+		pendingUnits,
+		runController,
+		runtimeKind,
+		adaptivePlanInjected,
+		adaptivePlanMissing,
+	};
+
 	// CORE-1: single drain point — all early returns + normal exit settle pendingUnits via finally block.
 	try {
 		while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
-			if (input.signal?.aborted) {
-				const cancelReason = cancellationReasonFromSignal(input.signal);
-				const message = `${cancelReason.message} (${cancelReason.code})`;
-				const cancelledTaskIds: string[] = [];
-				tasks = tasks.map((task) => {
-					if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
-					cancelledTaskIds.push(task.id);
-					const base = {
-						...task,
-						status: "cancelled" as const,
-						finishedAt: new Date().toISOString(),
-						error: message,
-					};
-					if (task.status === "running") {
-						return {
-							...base,
-							terminalEvidence: [
-								...(task.terminalEvidence ?? []),
-								buildSyntheticTerminalEvidence("worker", cancelReason, task.startedAt),
-							],
-						};
-					}
-					return base;
-				});
-				await saveRunTasksAsync(manifest, tasks);
-				for (const taskId of cancelledTaskIds)
-					await appendEventAsync(manifest.eventsPath, {
-						type: "task.cancelled",
-						runId: manifest.runId,
-						taskId,
-						message,
-						data: { reason: cancelReason.code },
-					});
-				manifest = updateRunStatus(manifest, "cancelled", message, {
-					data: { reason: cancelReason.code, cancelledTaskIds },
-				});
-				return { manifest, tasks };
-			}
+			// CORE-4 extraction 1: signal-abort cancellation. Sync mutable
+			// locals into ctx before the call; cancelRunFromSignal mutates
+			// ctx in-place and returns a SchedulerDecision.
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			const signalDecision = await cancelRunFromSignal(ctx);
+			if (signalDecision?.kind === "return") return signalDecision.result;
 
 			const failed = tasks.find((task) => task.status === "failed");
 			if (failed) {
