@@ -124,6 +124,8 @@ export async function* readSseJson<T>(stream: ReadableStream<Uint8Array>, signal
 		try {
 			const parsed: T = JSON.parse(evt.data) as T;
 			yield parsed;
-		} catch {}
+		} catch {
+			// intentional parse fallback
+		}
 	}
 }

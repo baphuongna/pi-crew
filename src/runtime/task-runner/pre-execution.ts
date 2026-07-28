@@ -14,36 +14,30 @@
  * Extracted verbatim from `runTeamTask` — no behavioral changes.
  */
 import { errors } from "../../errors.ts";
-import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import type {
-	ArtifactDescriptor,
-	TaskPacket,
-	TeamRunManifest,
-	TeamTaskState,
-} from "../../state/types.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log.ts";
+import { createTaskClaim } from "../../state/task-claims.ts";
+import type { ArtifactDescriptor, TaskPacket, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";
 import { prepareTaskWorkspaceAsync } from "../../worktree/worktree-manager.ts";
 import { reserveControlChannel } from "../agent-control.ts";
-import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
-import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import { cancellationReasonFromSignal } from "../cancellation.ts";
-import { registerStreamBridge } from "../event-stream-bridge.ts";
-import { createWorkerHeartbeat } from "../worker-heartbeat.ts";
-import { createTaskClaim } from "../../state/task-claims.ts";
+import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
+import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
+import type { registerStreamBridge } from "../event-stream-bridge.ts";
 import { permissionForRole, type RolePermissionMode } from "../role-permission.ts";
 import { renderSkillInstructions } from "../skill-instructions.ts";
-import { createStartupEvidence, type WorkerStartupEvidence } from "../worker-startup.ts";
-import { DEFAULT_YIELD_CONFIG } from "../yield-handler.ts";
-import { buildTaskPacket } from "../task-packet.ts";
 import { collectDependencyOutputContext, renderDependencyOutputContext, writeTaskInputsArtifact } from "../task-output-context.ts";
-import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
-import { coordinationBridgeInstructions, renderTaskPrompt } from "./prompt-builder.ts";
-
+import { buildTaskPacket } from "../task-packet.ts";
 // Type-only import avoids runtime circular dependency (task-runner.ts imports
 // this module at runtime; we only need the TaskRunnerInput type here).
 import type { TaskRunnerInput } from "../task-runner.ts";
+import { createWorkerHeartbeat } from "../worker-heartbeat.ts";
+import { createStartupEvidence, type WorkerStartupEvidence } from "../worker-startup.ts";
+import { DEFAULT_YIELD_CONFIG } from "../yield-handler.ts";
+import { coordinationBridgeInstructions, renderTaskPrompt } from "./prompt-builder.ts";
+import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 
 /** The stream bridge handle created by registerStreamBridge. */
 export type StreamBridgeHandle = ReturnType<typeof registerStreamBridge>;

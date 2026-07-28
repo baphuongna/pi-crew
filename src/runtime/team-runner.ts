@@ -239,6 +239,28 @@ function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
 }
 
 /**
+ * CORE-6: Unified cancel/fail of non-terminal tasks. Replaces hand-rolled
+ * `.map()` + transform sites across this file.
+ *
+ * - Without `filter`: all non-terminal tasks (queued/running/waiting) are
+ *   terminalised with the given status.
+ * - With `filter`: the filter is the sole gate — the non-terminal check is
+ *   NOT applied automatically, matching per-task/per-id variants.
+ *
+ * `markBlocked` is intentionally NOT unified here (it sets status "skipped",
+ * not cancelled/failed, and only acts on "queued" tasks).
+ */
+function cancelNonTerminalTasks(
+	tasks: TeamTaskState[],
+	status: "cancelled" | "failed",
+	reason: string,
+	filter?: (task: TeamTaskState) => boolean,
+): TeamTaskState[] {
+	const predicate = filter ?? ((task: TeamTaskState) => isNonTerminalTaskStatus(task.status));
+	return tasks.map((task) => (predicate(task) ? { ...task, status, finishedAt: new Date().toISOString(), error: reason } : task));
+}
+
+/**
  * Returns the finishedAt timestamp as a number, or Infinity for invalid/malformed dates.
  * This makes comparison logic in shouldMergeTaskUpdate more readable by abstracting
  * the NaN handling into a single well-named function.
@@ -889,17 +911,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
 		const freshManifest = fresh?.manifest ?? manifest;
 		const freshTasks = refreshTaskGraphQueues(fresh?.tasks ?? input.tasks);
-		const failedAt = new Date().toISOString();
-		const tasks = freshTasks.map((task) =>
-			task.status === "running" || task.status === "queued" || task.status === "waiting"
-				? {
-						...task,
-						status: "failed" as const,
-						finishedAt: failedAt,
-						error: message,
-					}
-				: task,
-		);
+		const tasks = cancelNonTerminalTasks(freshTasks, "failed", message);
 		manifest = freshManifest;
 		try {
 			await terminateLiveAgentsForRun(manifest.runId, "failed", appendEvent, manifest.eventsPath);
@@ -1609,15 +1621,11 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 				const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
 				const freshManifest = fresh?.manifest ?? ctx.manifest;
 				const freshTasks = fresh?.tasks ?? ctx.tasks;
-				const cancelledTasks = freshTasks.map((item) =>
-					item.id === task.id && (item.status === "queued" || item.status === "running")
-						? {
-								...item,
-								status: "cancelled" as const,
-								finishedAt: new Date().toISOString(),
-								error: `${reason.message} (${reason.code})`,
-							}
-						: item,
+				const cancelledTasks = cancelNonTerminalTasks(
+					freshTasks,
+					"cancelled",
+					`${reason.message} (${reason.code})`,
+					(item) => item.id === task.id && (item.status === "queued" || item.status === "running"),
 				);
 				appendEventAsync(freshManifest.eventsPath, {
 					type: "task.cancelled",
@@ -1704,11 +1712,7 @@ async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision
 	// result so the run continues (mirrors the old validResults guard).
 	const resultToMerge: { manifest: TeamRunManifest; tasks: TeamTaskState[] } = settled.result ?? {
 		manifest: ctx.manifest,
-		tasks: ctx.tasks.map((t) =>
-			completedUnit.taskIds.includes(t.id)
-				? { ...t, status: "failed" as const, error: settled.error!.message, finishedAt: new Date().toISOString() }
-				: t,
-		),
+		tasks: cancelNonTerminalTasks(ctx.tasks, "failed", settled.error!.message, (t) => completedUnit.taskIds.includes(t.id)),
 	};
 	const validResults = [resultToMerge];
 	// Reconstruct manifest from the last worker's snapshot. The .artifacts field
@@ -1797,9 +1801,7 @@ async function advanceWorkflowPhases(ctx: SchedulerContext): Promise<void> {
 		});
 		if (!allTerminal) break;
 		if (phase.status !== "completed" && phase.status !== "failed" && phase.status !== "skipped") {
-			const completedArtifacts = manifest.artifacts
-				.filter((a) => a.kind === "result" || a.kind === "summary")
-				.map((a) => a.path);
+			const completedArtifacts = manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
 			const previousPhaseStatus = pi > 0 ? (wfMachine.phases[pi - 1]?.status ?? "pending") : "completed";
 			const wfContext: PhaseGuardContext = {
 				completedArtifacts,
@@ -2009,11 +2011,7 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 	} else if (effectiveness.severity === "failed") {
 		manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
 	} else if (effectiveness.severity === "blocked") {
-		manifest = updateRunStatus(
-			manifest,
-			"blocked",
-			effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.",
-		);
+		manifest = updateRunStatus(manifest, "blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
 	} else if (blockingDecision) {
 		manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
 	} else if (tasks.some((task) => task.status === "queued")) {
@@ -2312,15 +2310,7 @@ async function executeTeamRunCore(
 				// showing completed/running -- inconsistent and breaks handleRetry's
 				// filter for failed/cancelled tasks. Terminal tasks are NOT clobbered.
 				const cancelMessage = reason ? `${message} (${reason.code})` : message;
-				const reCancelledTasks = tasks.map((task) => {
-					if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
-					return {
-						...task,
-						status: "cancelled" as const,
-						finishedAt: new Date().toISOString(),
-						error: cancelMessage,
-					};
-				});
+				const reCancelledTasks = cancelNonTerminalTasks(tasks, "cancelled", cancelMessage);
 				await saveRunTasksAsync(manifest, reCancelledTasks);
 				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, reCancelledTasks, runtimeKind));
 				await saveRunManifestAsync(manifest);

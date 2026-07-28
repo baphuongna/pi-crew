@@ -12,44 +12,27 @@ import { allAgents, discoverAgents } from "../../../agents/discover-agents.ts";
 import { loadConfig } from "../../../config/config.ts";
 import { FileCheckpointStore } from "../../../runtime/checkpoint.ts";
 import { getSkillCacheStats } from "../../../runtime/skill-instructions.ts";
-import {
-	computeRunCacheKey,
-	getCachedRun,
-	getCacheStats,
-} from "../../../state/run-cache.ts";
+import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
+import { computeRunCacheKey, getCachedRun, getCacheStats } from "../../../state/run-cache.ts";
 import { listRunGraphs, loadRunGraph } from "../../../state/run-graph.ts";
 import { allTeams, discoverTeams } from "../../../teams/discover-teams.ts";
-import {
-	searchAgents,
-	searchTeams,
-} from "../../../utils/bm25-search.ts";
-import { assertSafePathId } from "../../../utils/safe-paths.ts";
+import { searchAgents, searchTeams } from "../../../utils/bm25-search.ts";
 import { projectCrewRoot } from "../../../utils/paths.ts";
-import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
+import { assertSafePathId } from "../../../utils/safe-paths.ts";
 import { formatActionSuggestion } from "../../action-suggestions.ts";
+import { piTeamsHelp } from "../../help.ts";
+import { buildTeamOnboarding } from "../../team-onboard.ts";
+import { formatRecommendation, recommendTeam } from "../../team-recommendation.ts";
+import { handleGet, handleList } from "../../team-tool.ts";
+import type { PiTeamsToolResult } from "../../tool-result.ts";
+import { result, type TeamContext } from "../context.ts";
 import { handleExplain } from "../explain.ts";
-import {
-	handleArtifacts,
-	handleEvents,
-	handleSummary,
-} from "../inspect.ts";
 import { handleHealthMonitor } from "../health-monitor.ts";
+import { handleArtifacts, handleEvents, handleSummary } from "../inspect.ts";
 import { handleWorktrees } from "../lifecycle-actions.ts";
 import { handleStatus } from "../status.ts";
-import { buildTeamOnboarding } from "../../team-onboard.ts";
-import { piTeamsHelp } from "../../help.ts";
-import {
-	formatRecommendation,
-	recommendTeam,
-} from "../../team-recommendation.ts";
-import { result, type TeamContext } from "../context.ts";
-import type { PiTeamsToolResult } from "../../tool-result.ts";
-import { handleGet, handleList } from "../../team-tool.ts";
 
-export async function handleStatusDomain(
-	params: TeamToolParamsValue,
-	ctx: TeamContext,
-): Promise<PiTeamsToolResult> {
+export async function handleStatusDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	switch (params.action) {
 		case "list":
 			return handleList(params, ctx);

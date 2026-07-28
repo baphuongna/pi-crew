@@ -12,7 +12,7 @@ import { appendEvent, readEvents } from "../../state/event-log.ts";
 import { readDeliveryState, readMailbox } from "../../state/mailbox.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
-import { formatDuration } from "../../ui/tool-render.ts";
+import { formatDuration } from "../../ui/format-helpers.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";

@@ -2,8 +2,8 @@ import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
-import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { keyOf } from "../key-utils.ts";
+import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export interface AgentPickerSelection {
 	agentId: string;

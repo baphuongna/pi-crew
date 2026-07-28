@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { allAgents, discoverAgents, listDynamicAgents, registerDynamicAgent, unregisterDynamicAgent } from "../agents/discover-agents.ts";
-import { loadConfig, updateAutonomousConfig, updateConfig } from "../config/config.ts";
+import { loadConfig } from "../config/config.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 // executeTeamRun is only called when a team run actually executes.
 import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner.ts";
@@ -15,16 +15,10 @@ import { replayPendingMailboxMessages } from "../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
-import { assertSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
-import { piTeamsHelp } from "./help.ts";
-import { handleCreate, handleDelete, handleUpdate } from "./management.ts";
-import { initializeProject } from "./project-init.ts";
 import { listRuns } from "./run-index.ts";
-import { formatRecommendation, recommendTeam } from "./team-recommendation.ts";
-import { handleSettings } from "./team-tool/handle-settings.ts";
 import type { PiTeamsToolResult } from "./tool-result.ts";
-import { formatValidationReport, validateResources } from "./validate-resources.ts";
 
 type ExecuteTeamRunFn = typeof _executeTeamRunFn;
 let _cachedExecuteTeamRun: ExecuteTeamRunFn | undefined;
@@ -40,9 +34,8 @@ async function executeTeamRun(...args: Parameters<ExecuteTeamRunFn>): Promise<Aw
 import { directTeamAndWorkflowFromRun } from "../runtime/direct-run.ts";
 import { parsePiJsonOutput } from "../runtime/pi-json-output.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../runtime/runtime-resolver.ts";
-import { handleApi } from "./team-tool/api.ts";
-import { autonomousPatchFromConfig, configPatchFromConfig, effectiveRunConfig, formatAutonomyStatus } from "./team-tool/config-patch.ts";
-import { buildParentContext, configRecord, formatScoped, result, type TeamContext } from "./team-tool/context.ts";
+import { effectiveRunConfig } from "./team-tool/config-patch.ts";
+import { buildParentContext, formatScoped, result, type TeamContext } from "./team-tool/context.ts";
 // Lazy-loaded: run.ts pulls in spawnBackgroundTeamRun, resolveCrewRuntime, etc.
 // Static import fails silently in some jiti contexts (child-process), leaving handleRun undefined.
 import type { handleRun as _handleRunFn } from "./team-tool/run.ts";
@@ -58,54 +51,10 @@ async function handleRun(...args: Parameters<HandleRunFn>): Promise<Awaited<Retu
 	return _cachedHandleRun(...args);
 }
 
-import { FileCheckpointStore } from "../runtime/checkpoint.ts";
 import { waitForRun } from "../runtime/run-tracker.ts";
-import { getSkillCacheStats, normalizeSkillOverride } from "../runtime/skill-instructions.ts";
-import { computeRunCacheKey, getCachedRun, getCacheStats } from "../state/run-cache.ts";
-import { listRunGraphs, loadRunGraph } from "../state/run-graph.ts";
-import { searchAgents, searchTeams } from "../utils/bm25-search.ts";
-import { projectCrewRoot } from "../utils/paths.ts";
+import { normalizeSkillOverride } from "../runtime/skill-instructions.ts";
 import { formatActionSuggestion } from "./action-suggestions.ts";
-import { buildTeamOnboarding } from "./team-onboard.ts";
-import { handleAnchorAccumulate, handleAnchorClear, handleAnchorSet, handleAnchorStatus } from "./team-tool/anchor.ts";
-import {
-	createAutoSummarizeService,
-	handleAutoSummarizeConfig,
-	handleAutoSummarizeOff,
-	handleAutoSummarizeOn,
-	handleAutoSummarizeStatus,
-} from "./team-tool/auto-summarize.ts";
 import { type CacheControlDeps, invalidateSnapshot } from "./team-tool/cache-control.ts";
-import { handleCancel, handleRetry } from "./team-tool/cancel.ts";
-import { handleDoctor } from "./team-tool/doctor.ts";
-import { handleExplain } from "./team-tool/explain.ts";
-import { handleGoal } from "./team-tool/goal.ts";
-import { handleListScheduled, handleSchedule } from "./team-tool/handle-schedule.ts";
-import { handleHealthMonitor } from "./team-tool/health-monitor.ts";
-import { handleArtifacts, handleEvents, handleSummary } from "./team-tool/inspect.ts";
-import {
-	handleCleanup,
-	handleExport,
-	handleForget,
-	handleImport,
-	handleImports,
-	handlePrune,
-	handleWorktrees,
-} from "./team-tool/lifecycle-actions.ts";
-import { handleOrchestrate } from "./team-tool/orchestrate.ts";
-import { handleParallel } from "./team-tool/parallel-dispatch.ts";
-import { handlePlan } from "./team-tool/plan.ts";
-import { handleRespond } from "./team-tool/respond.ts";
-import { RUN_NOT_FOUND_HINT } from "./team-tool/run-not-found.ts";
-import { handleStatus } from "./team-tool/status.ts";
-import {
-	handleWorkflowCreate,
-	handleWorkflowDelete,
-	handleWorkflowGet,
-	handleWorkflowList,
-	handleWorkflowSave,
-} from "./team-tool/workflow-manage.ts";
-
 // API-5 facade dispatch: domain routers replace the former 54-case switch.
 import {
 	domainForAction,
@@ -115,6 +64,7 @@ import {
 	handleRunDomain,
 	handleStatusDomain,
 } from "./team-tool/dispatch/index.ts";
+import { RUN_NOT_FOUND_HINT } from "./team-tool/run-not-found.ts";
 
 export { handleApi } from "./team-tool/api.ts";
 export { handleRetry } from "./team-tool/cancel.ts";

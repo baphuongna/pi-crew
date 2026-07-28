@@ -1,8 +1,8 @@
 import { type MailboxMessage, readDeliveryState, readMailbox } from "../../state/mailbox.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
-import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { keyOf } from "../key-utils.ts";
+import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export type MailboxAction =
 	| { type: "ack"; messageId: string }

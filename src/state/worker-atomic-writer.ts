@@ -88,13 +88,17 @@ function syncAtomicWriteFile(filePath, content) {
     }
     fs.renameSync(tempPath, filePath);
   } catch (error) {
-    try { fs.rmSync(tempPath, { force: true }); } catch {}
+    try { fs.rmSync(tempPath, { force: true }); } catch (cleanupError) {
+      logInternalError("worker-atomic-writer.cleanup-temp", cleanupError, "tempPath=" + tempPath, "debug");
+    }
     // If rename raced with another writer that produced identical content, swallow.
     if (error && error.code === "EEXIST") {
       try {
         const existing = fs.readFileSync(filePath, "utf-8");
         if (existing === content) return;
-      } catch {}
+      } catch (compareError) {
+        logInternalError("worker-atomic-writer.compare-existing", compareError, "filePath=" + filePath, "debug");
+      }
     }
     throw error;
   }

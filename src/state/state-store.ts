@@ -15,8 +15,8 @@ import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushP
 import { canTransitionRunStatus } from "./contracts.ts";
 import { appendEvent } from "./event-log.ts";
 import { withRunLock, withRunLockSync } from "./locks.ts";
-import { CURRENT_SCHEMA_VERSION } from "./types.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
+import { CURRENT_SCHEMA_VERSION } from "./types.ts";
 
 /**
  * stat() the manifest with a brief retry on Windows for the AV-scan window.
@@ -835,7 +835,9 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	// S-01: warn (do not throw) on schemaVersion mismatch — future version
 	// bumps will add migration logic here.
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-		console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+		console.warn(
+			`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+		);
 	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {
@@ -954,7 +956,9 @@ export async function loadRunManifestByIdAsync(
 	// S-01: warn (do not throw) on schemaVersion mismatch — future version
 	// bumps will add migration logic here.
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-		console.warn(`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`);
+		console.warn(
+			`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+		);
 	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {

@@ -9,26 +9,18 @@
  * team-tool.ts module via ESM live bindings (circular import is safe — all
  * references are resolved at call time, not at module-init).
  */
+
+import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
+import { cacheControlDepsFromContext, handleResume, handleRun, handleSteer, handleWait } from "../../team-tool.ts";
+import type { PiTeamsToolResult } from "../../tool-result.ts";
 import { handleRetry } from "../cancel.ts";
 import { result, type TeamContext } from "../context.ts";
 import { handleGoal } from "../goal.ts";
 import { handleOrchestrate } from "../orchestrate.ts";
 import { handleParallel } from "../parallel-dispatch.ts";
 import { handlePlan } from "../plan.ts";
-import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
-import type { PiTeamsToolResult } from "../../tool-result.ts";
-import {
-	cacheControlDepsFromContext,
-	handleResume,
-	handleRun,
-	handleSteer,
-	handleWait,
-} from "../../team-tool.ts";
 
-export async function handleRunDomain(
-	params: TeamToolParamsValue,
-	ctx: TeamContext,
-): Promise<PiTeamsToolResult> {
+export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	switch (params.action) {
 		case "run":
 			return handleRun(params, ctx);
@@ -49,9 +41,13 @@ export async function handleRunDomain(
 		case "goal":
 			return handleGoal(params, ctx);
 		default:
-			return result(`Unhandled run-domain action: ${params.action}`, {
-				action: "unknown",
-				status: "error",
-			}, true);
+			return result(
+				`Unhandled run-domain action: ${params.action}`,
+				{
+					action: "unknown",
+					status: "error",
+				},
+				true,
+			);
 	}
 }

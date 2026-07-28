@@ -37,9 +37,9 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
@@ -245,10 +245,7 @@ test("[char-core5-3] yield-exclusion: child-process task with NO submit_result s
 		assert.equal(t.status, "completed", "child-process must not flag needs_attention for missing submit_result");
 
 		const types = eventTypes(created.manifest.eventsPath);
-		assert.ok(
-			!types.includes("task.needs_attention"),
-			"child-process must NOT emit task.needs_attention for a no-submit_result run",
-		);
+		assert.ok(!types.includes("task.needs_attention"), "child-process must NOT emit task.needs_attention for a no-submit_result run");
 	} finally {
 		restoreMockEnv(prev);
 		fs.rmSync(cwd, { recursive: true, force: true });
@@ -605,12 +602,24 @@ test("[char-core5-11] abort-lifecycle (R3 source-contract): timeout handle + ext
 
 	// 1. The timeout controller is created and armed only when taskTimeoutMs > 0.
 	assert.match(src, /taskTimeoutMs\s*=\s*input\.runtimeConfig\?\.taskTimeoutMs/, "taskTimeoutMs is read from runtimeConfig");
-	assert.match(src, /if\s*\(taskTimeoutMs\s*>\s*0\s*&&\s*!timeoutController\.signal\.aborted\)/, "setTimeout is guarded by taskTimeoutMs > 0");
+	assert.match(
+		src,
+		/if\s*\(taskTimeoutMs\s*>\s*0\s*&&\s*!timeoutController\.signal\.aborted\)/,
+		"setTimeout is guarded by taskTimeoutMs > 0",
+	);
 
 	// 2. The external-abort listener links input.signal → timeoutController,
 	//    registered with { once: true }.
-	assert.match(src, /externalAbortListener\s*=\s*\(\)\s*=>\s*timeoutController\.abort/, "externalAbortListener links the run signal to the timeout controller");
-	assert.match(src, /input\.signal\.addEventListener\(\s*["']abort["']\s*,\s*externalAbortListener\s*,\s*\{\s*once:\s*true\s*\}\s*\)/, "listener registered with { once: true }");
+	assert.match(
+		src,
+		/externalAbortListener\s*=\s*\(\)\s*=>\s*timeoutController\.abort/,
+		"externalAbortListener links the run signal to the timeout controller",
+	);
+	assert.match(
+		src,
+		/input\.signal\.addEventListener\(\s*["']abort["']\s*,\s*externalAbortListener\s*,\s*\{\s*once:\s*true\s*\}\s*\)/,
+		"listener registered with { once: true }",
+	);
 
 	// 3. R3 — the finally block MUST clear the timeout AND remove the listener.
 	//    (clearTimeout + removeEventListener). Lock both, in that the finally

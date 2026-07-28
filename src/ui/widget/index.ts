@@ -83,23 +83,47 @@ const SIGNATURE_CACHE_TTL_MS = 100;
 // than a specific instance, so replaced widgets do not leak listeners.
 let resizeListenerInstalled = false;
 let activeResizeTarget: { invalidate(): void; requestRepaint(): void } | undefined;
+let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * F-1: the resize callback is stored at module level so
+ * `uninstallResizeListener()` can remove the exact same reference via
+ * `process.off` (requires the identical function reference).
+ */
+const onResize = (): void => {
+	if (resizeTimer) clearTimeout(resizeTimer);
+	// Debounce (~120ms) so a drag-resize doesn't thrash renders.
+	resizeTimer = setTimeout(() => {
+		resizeTimer = undefined;
+		activeResizeTarget?.invalidate();
+		activeResizeTarget?.requestRepaint();
+	}, 120);
+};
 
 function installResizeListener(): void {
 	if (resizeListenerInstalled) return;
 	resizeListenerInstalled = true;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const onResize = (): void => {
-		if (timer) clearTimeout(timer);
-		// Debounce (~120ms) so a drag-resize doesn't thrash renders.
-		timer = setTimeout(() => {
-			timer = undefined;
-			activeResizeTarget?.invalidate();
-			activeResizeTarget?.requestRepaint();
-		}, 120);
-	};
 	process.on("SIGWINCH", onResize);
 	// Windows has no SIGWINCH; Node emits "resize" on stdout instead.
 	if (typeof process.stdout?.on === "function") process.stdout.on("resize", onResize);
+}
+
+/**
+ * F-1: remove the process-level resize listeners so they don't outlive the
+ * extension session. Safe to call when no listener is installed (no-op).
+ * Re-installs automatically when a new widget mounts via `installResizeListener()`.
+ */
+export function uninstallResizeListener(): void {
+	if (!resizeListenerInstalled) return;
+	resizeListenerInstalled = false;
+	if (resizeTimer) {
+		clearTimeout(resizeTimer);
+		resizeTimer = undefined;
+	}
+	activeResizeTarget = undefined;
+	process.off("SIGWINCH", onResize);
+	// Windows has no SIGWINCH; Node emits "resize" on stdout instead.
+	if (typeof process.stdout?.off === "function") process.stdout.off("resize", onResize);
 }
 
 // ── Widget Component ──────────────────────────────────────────────────
@@ -376,6 +400,9 @@ export function stopCrewWidget(
 	state: CrewWidgetState,
 	config?: CrewUiConfig,
 ): void {
+	// F-1: remove the process-level SIGWINCH/resize listener when the widget is
+	// stopped. The listener is guarded so re-mounting a widget re-installs it.
+	uninstallResizeListener();
 	if (ctx?.hasUI) {
 		const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
 		ctx.ui.setStatus(STATUS_KEY, undefined);

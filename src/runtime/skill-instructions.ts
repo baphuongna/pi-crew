@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { TeamRole } from "../teams/team-config.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { CONFIDENCE_THRESHOLDS, getWeightedSkillsForRole, registerSkillEffectivenessHooks } from "./skill-effectiveness.ts";
@@ -259,7 +260,9 @@ function readSkillMarkdown(
 				mtimeMs: stat.mtimeMs,
 				size: stat.size,
 			});
-		} catch {}
+		} catch (error) {
+			logInternalError("skill-instructions.stat", error, `name=${name}`, "debug");
+		}
 	}
 	return undefined;
 }

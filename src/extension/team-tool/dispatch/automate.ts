@@ -6,12 +6,11 @@
  * Inline cases (anchor, auto-summarize/auto_boomerang) are moved verbatim from
  * the former handleTeamTool switch.
  */
-import {
-	handleAnchorAccumulate,
-	handleAnchorClear,
-	handleAnchorSet,
-	handleAnchorStatus,
-} from "../anchor.ts";
+
+import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
+import { formatActionSuggestion } from "../../action-suggestions.ts";
+import type { PiTeamsToolResult } from "../../tool-result.ts";
+import { handleAnchorAccumulate, handleAnchorClear, handleAnchorSet, handleAnchorStatus } from "../anchor.ts";
 import { handleApi } from "../api.ts";
 import {
 	createAutoSummarizeService,
@@ -20,16 +19,10 @@ import {
 	handleAutoSummarizeOn,
 	handleAutoSummarizeStatus,
 } from "../auto-summarize.ts";
-import { handleListScheduled, handleSchedule } from "../handle-schedule.ts";
 import { result, type TeamContext } from "../context.ts";
-import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
-import { formatActionSuggestion } from "../../action-suggestions.ts";
-import type { PiTeamsToolResult } from "../../tool-result.ts";
+import { handleListScheduled, handleSchedule } from "../handle-schedule.ts";
 
-export async function handleAutomateDomain(
-	params: TeamToolParamsValue,
-	ctx: TeamContext,
-): Promise<PiTeamsToolResult> {
+export async function handleAutomateDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	switch (params.action) {
 		case "api":
 			return handleApi(params, ctx);

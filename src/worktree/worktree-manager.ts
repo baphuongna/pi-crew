@@ -410,7 +410,9 @@ function branchExists(repoRoot: string, branch: string): { local: boolean; remot
 	try {
 		git(repoRoot, ["rev-parse", "--verify", `refs/heads/${branch}`]);
 		local = true;
-	} catch {}
+	} catch (error) {
+		logInternalError("worktree.branch-local.sync", error, `branch=${branch}`, "debug");
+	}
 	if (local) return { local: true, remoteOnly: false };
 	// Check remote-tracking branch
 	try {
@@ -442,7 +444,9 @@ async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ lo
 	try {
 		await gitAsync(repoRoot, ["rev-parse", "--verify", `refs/heads/${branch}`]);
 		local = true;
-	} catch {}
+	} catch (error) {
+		logInternalError("worktree.branch-local.async", error, `branch=${branch}`, "debug");
+	}
 	if (local) return { local: true, remoteOnly: false };
 	// Check remote-tracking branch
 	try {

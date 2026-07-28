@@ -11,11 +11,9 @@ import { sleep, sleepSync } from "../utils/sleep.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import {
 	applyCompactionUnlocked,
-	compactEventLog,
 	currentGeneration,
 	needsRotation,
 	prepareCompaction,
-	rotateEventLog,
 	rotateEventLogUnlocked,
 } from "./event-log-rotation.ts";
 import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
@@ -1156,9 +1154,7 @@ export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, 
 		// Now that withEventLogLockAsync acquires a cross-process mkdir lock (.alock),
 		// the flush needs multiple event-loop iterations. Without awaiting, the
 		// terminal event would be written before the buffered events.
-		const flushPromise = bufferedQueues.has(eventsPath)
-			? flushOneEventLogBuffer(eventsPath).catch(() => undefined)
-			: Promise.resolve();
+		const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => undefined) : Promise.resolve();
 		return flushPromise.then(() => appendEvent(eventsPath, event));
 	}
 	return new Promise<TeamEvent>((resolve, reject) => {

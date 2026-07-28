@@ -8,31 +8,17 @@
  * Inline cases (init, autonomy, config, validate) are moved verbatim from the
  * former handleTeamTool switch.
  */
-import {
-	loadConfig,
-	updateAutonomousConfig,
-	updateConfig,
-} from "../../../config/config.ts";
+import { loadConfig, updateAutonomousConfig, updateConfig } from "../../../config/config.ts";
 import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
 import { formatActionSuggestion } from "../../action-suggestions.ts";
 import { handleCreate, handleDelete, handleUpdate } from "../../management.ts";
 import { initializeProject } from "../../project-init.ts";
-import {
-	formatValidationReport,
-	validateResources,
-} from "../../validate-resources.ts";
-import {
-	autonomousPatchFromConfig,
-	configPatchFromConfig,
-	formatAutonomyStatus,
-} from "../config-patch.ts";
+import type { PiTeamsToolResult } from "../../tool-result.ts";
+import { formatValidationReport, validateResources } from "../../validate-resources.ts";
+import { autonomousPatchFromConfig, configPatchFromConfig, formatAutonomyStatus } from "../config-patch.ts";
 import { configRecord, result, type TeamContext } from "../context.ts";
 import { handleSettings } from "../handle-settings.ts";
-import {
-	handleExport,
-	handleImport,
-	handleImports,
-} from "../lifecycle-actions.ts";
+import { handleExport, handleImport, handleImports } from "../lifecycle-actions.ts";
 import {
 	handleWorkflowCreate,
 	handleWorkflowDelete,
@@ -40,12 +26,8 @@ import {
 	handleWorkflowList,
 	handleWorkflowSave,
 } from "../workflow-manage.ts";
-import type { PiTeamsToolResult } from "../../tool-result.ts";
 
-export async function handleManageDomain(
-	params: TeamToolParamsValue,
-	ctx: TeamContext,
-): Promise<PiTeamsToolResult> {
+export async function handleManageDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	switch (params.action) {
 		case "init": {
 			const cfg = configRecord(params.config);

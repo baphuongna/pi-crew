@@ -101,7 +101,7 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			try {
 				// Defense-in-depth: validate params at runtime even though Pi framework already does
 				if (!Value.Check(TeamToolParams, params)) {
-					return toolResult('Invalid team tool parameters', { action: 'list', status: 'error' }, true);
+					return toolResult("Invalid team tool parameters", { action: "list", status: "error" }, true);
 				}
 				const resolved = params as TeamToolParamsValue;
 				const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);

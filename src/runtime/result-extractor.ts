@@ -152,7 +152,9 @@ function tryScanJson(text: string): unknown | undefined {
 		const candidate = rest.slice(0, end);
 		try {
 			return JSON.parse(candidate);
-		} catch {}
+		} catch {
+			// intentional parse fallback
+		}
 	}
 	return undefined;
 }
@@ -174,7 +176,9 @@ function tryMarkerExtraction(text: string): unknown | undefined {
 				if (jsonEnd > 0) {
 					try {
 						return JSON.parse(after.slice(0, jsonEnd));
-					} catch {}
+					} catch {
+						// intentional parse fallback
+					}
 				}
 			}
 		}

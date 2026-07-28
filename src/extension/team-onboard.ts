@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamRunManifest } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 
 export interface OnboardingOptions {
@@ -67,7 +68,9 @@ function loadRunSummaries(cwd: string, options: OnboardingOptions = {}): RunSumm
 				completedAt: raw.completedAt ?? raw.updatedAt,
 				taskCount: 0, // tasks stored separately, not in manifest
 			});
-		} catch {}
+		} catch (error) {
+			logInternalError("team-onboard.load-manifest", error, undefined, "debug");
+		}
 	}
 
 	return summaries;

@@ -416,25 +416,221 @@ If preconditions are not met, a friendly error message is returned instead of cr
 
 ### Key Settings
 
-| Section | Keys | Default |
-|---------|------|---------|
-| **Runtime** | `mode`: `auto` \| `child-process` \| `scaffold` \| `live-session` | `auto` |
-| | `maxTurns`, `graceTurns`, `groupJoin`, `requirePlanApproval` | various |
-| **Concurrency** | `limits.maxConcurrentWorkers` | workflow-dependent |
-| | `limits.maxTaskDepth`, `limits.maxChildrenPerTask` | 2, 5 |
-| **Async** | `asyncByDefault` | `false` |
-| | `runtime.groupJoin`: `off` \| `group` \| `smart` | `smart` |
-| **Autonomy** | `profile`: `manual` \| `suggested` \| `assisted` \| `aggressive` | `suggested` |
-| | `autonomous.injectPolicy`, `preferAsyncForLongTasks` | true, false |
-| **UI** | `widgetPlacement`, `dashboardPlacement` | compact widget |
-| | `showModel`, `showTokens` | display controls |
-| **Reliability** | `autoRetry`, `autoRecover`, `deadletterThreshold` | opt-in |
-| **Observability** | `observability.enabled`, `observability.pollIntervalMs`, `otlp.enabled`/`otlp.endpoint` | opt-in |
-| **Worktree** | `worktree.setupHook`, `worktree.linkNodeModules`, `worktree.seedPaths` (mode is set via `workspaceMode: "worktree"` at run time) | disabled by default |
+A comprehensive reference of every config key. 🔒 marks keys that are
+**sensitive** — project config (`.crew/config.json`) cannot set them; they are
+silently ignored with a warning unless set in **user config**
+(`~/.pi/agent/pi-crew.json`). Cross-referenced against `src/config/types.ts`
+(`PiTeamsConfig`), `src/config/defaults.ts`, and the project-override sanitizer
+in `src/config/config.ts`.
 
-> ⚠️ **Trust boundary**: project config cannot override sensitive execution controls (workers, runtime mode, autonomy, agent overrides). Set those in **user config** only.
+For machine-readable validation, see [schema.json](schema.json).
 
-📖 Full config reference: [docs/commands-reference.md#team-settings--config-management](docs/commands-reference.md) and [schema.json](schema.json)
+#### Top-level
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `asyncByDefault` 🔒 | `boolean` | `false` | Detach every `run` by default (survives session switches). |
+| `executeWorkers` 🔒 | `boolean` | `true` | Spawn worker agents. `false` = dry-run planning only. |
+| `notifierIntervalMs` | `number` | `5000` | How often the completion notifier polls. |
+| `requireCleanWorktreeLeader` 🔒 | `boolean` | _(unset)_ | Require a clean git repo before starting a worktree-mode run. |
+| `ignoreMethod` | `"gitignore" \| "exclude"` | _(unset)_ | How run artifacts are ignored by git. |
+
+#### `autonomous.*` — Delegation & magic keywords
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `autonomous.profile` 🔒 | `manual \| suggested \| assisted \| aggressive` | `suggested` | How much the agent self-delegates to crew runs. |
+| `autonomous.enabled` 🔒 | `boolean` | `true` | Master switch for autonomous delegation. |
+| `autonomous.injectPolicy` 🔒 | `boolean` | `true` | Inject the delegation policy into prompts. |
+| `autonomous.preferAsyncForLongTasks` 🔒 | `boolean` | `false` | Auto-detach runs expected to be long. |
+| `autonomous.allowWorktreeSuggestion` 🔒 | `boolean` | `true` | Suggest worktree isolation for mutating goals. |
+| `autonomous.magicKeywords` | `Record<string, string[]>` | _(unset)_ | Trigger words mapped to team/workflow hints. |
+
+#### `limits.*` — Scheduling ceilings
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `limits.maxConcurrentWorkers` | `number` | workflow-dependent¹ | Hard cap on parallel workers. Ceiling 1024. |
+| `limits.allowUnboundedConcurrency` | `boolean` | `false` | Permit unbounded fan-out (dangerous). |
+| `limits.maxTaskDepth` | `number` | `100` | Max nesting depth of the task graph. |
+| `limits.maxChildrenPerTask` | `number` | `1000` | Max children a single task may spawn. |
+| `limits.maxRunMinutes` | `number` | `1440` | Wall-clock cap for a run (24 h). |
+| `limits.maxRetriesPerTask` | `number` | `100` | Max automatic retries per task. |
+| `limits.maxTasksPerRun` | `number` | `10000` | Max tasks allowed in a single run. |
+| `limits.heartbeatStaleMs` | `number` | `86400000` | Heartbeat staleness threshold (24 h). |
+| `limits.serializeOnPathOverlap` | `boolean` | `false` | Skip ready tasks whose `step.output` overlaps an in-flight task. |
+
+¹ Per workflow: `parallelResearch` 4, `research` 3, `implementation` 4, `review` 3, `default` 3 (fallback 2).
+
+#### `runtime.*` — Worker execution
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `runtime.mode` 🔒 | `auto \| scaffold \| child-process \| live-session` | `auto` | How workers are spawned. |
+| `runtime.preferLiveSession` 🔒 | `boolean` | _(unset)_ | Prefer in-process live-session workers. |
+| `runtime.allowChildProcessFallback` 🔒 | `boolean` | _(unset)_ | Fall back to child-process if live-session unavailable. |
+| `runtime.maxTurns` | `number` | `10000` | Max agent turns per task. |
+| `runtime.graceTurns` | `number` | `5` | Extra turns allowed after a stop signal. |
+| `runtime.taskTimeoutMs` | `number` | `0` | Per-task wall-clock timeout (0 = none). |
+| `runtime.inheritContext` 🔒 | `boolean` | `true` | Inherit parent context into workers. |
+| `runtime.promptMode` | `replace \| append` | `replace` | How the task prompt is applied. |
+| `runtime.groupJoin` | `off \| group \| smart` | `smart` | How grouped task results are joined. |
+| `runtime.groupJoinAckTimeoutMs` | `number` | `86400000` | Timeout for group-join acknowledgements. |
+| `runtime.requirePlanApproval` 🔒² | `boolean` | `false` | Pause for plan approval before mutating tasks. |
+| `runtime.completionMutationGuard` | `off \| warn \| fail` | `warn` | Guard against tasks mutating outside plan approval. |
+| `runtime.effectivenessGuard` | `off \| warn \| block \| fail` | `off` | Pre-flight topology validator enforcement mode. |
+| `runtime.isolationPolicy` 🔒 | `{ isolatedRoles?, defaultRuntime? }` | _(unset)_ | Per-role runtime selection for crash isolation. |
+| `runtime.excludeContextBash` | `boolean` | `false` | Exclude certain bash results from worker context. |
+
+² `requirePlanApproval` is sensitive only when set to `false` in project config
+(the sanitizer blocks *disabling* the gate from untrusted project config).
+
+#### `control.*` — Needs-attention gating
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `control.enabled` | `boolean` | _(unset)_ | Enable the needs-attention controller. |
+| `control.needsAttentionAfterMs` | `number` | _(unset)_ | Threshold before flagging a run as needing attention. |
+
+#### `worktree.*` — Git worktree isolation
+
+> Worktree **mode** is chosen at run time via `workspaceMode: "worktree"`, not
+> in config. These keys configure how a worktree is set up.
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `worktree.setupHook` 🔒 | `string` | _(unset)_ | Shell command run after worktree creation. |
+| `worktree.setupHookTimeoutMs` | `number` | _(unset)_ | Timeout for the setup hook. |
+| `worktree.linkNodeModules` | `boolean` | `false` | Symlink `node_modules` into the worktree. |
+| `worktree.seedPaths` | `string[]` | _(unset)_ | Extra paths to copy/symlink into the worktree. |
+
+#### `goalWrap.*` — Goal-completion workflows
+
+A per-workflow map (`Record<workflowName, GoalWrapWorkflowConfig>`) that applies
+the `goal` action's completion-guarantee loop to builtin workflows.
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `goalWrap.<name>.enabled` | `boolean` | _(unset)_ | Enable goal-wrap for this workflow. |
+| `goalWrap.<name>.maxTurns` | `number` (1–50) | _(unset)_ | Max iterations of the goal loop. |
+| `goalWrap.<name>.evaluatorModel` | `string` | _(unset)_ | Model used by the LLM judge. |
+| `goalWrap.<name>.verification.commands` | `string[]` | _(unset)_ | Commands run to verify completion. |
+| `goalWrap.<name>.budgetTotal` | `number` | _(unset)_ | Token budget for the goal loop. |
+| `goalWrap.<name>.budgetUnlimited` | `boolean` | _(unset)_ | Skip the token budget. |
+
+#### `agents.*` — Agent overrides
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `agents.disableBuiltins` 🔒 | `boolean` | `false` | Hide built-in agents. |
+| `agents.overrides` 🔒 | `Record<name, AgentOverride>` | _(unset)_ | Per-agent `model`, `fallbackModels`, `thinking`, `tools`, `skills`, `disabled`. |
+
+#### `tools.*` — Tool behaviour
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `tools.enableClaudeStyleAliases` | `boolean` | _(unset)_ | Accept Claude-style tool aliases. |
+| `tools.enableSteer` 🔒 | `boolean` | _(unset)_ | Enable the `steer` action. |
+| `tools.terminateOnForeground` 🔒 | `boolean` | _(unset)_ | Terminate background runs when foreground starts. |
+
+#### `telemetry.*`
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `telemetry.enabled` | `boolean` | `false` | Collect anonymous usage telemetry. |
+
+#### `policy.*` — Capability gating
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `policy.requireIntentForDestructiveActions` | `boolean` | _(unset)_ | Require explicit intent for deletes/forgets. |
+| `policy.disabledCapabilities` | `string[]` | _(unset)_ | Disable named capabilities. |
+
+#### `notifications.*`
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `notifications.enabled` | `boolean` | `false` | Enable run-completion notifications. |
+| `notifications.severityFilter` | `Severity[]` | `[warning, error, critical]` | Which severities to surface. |
+| `notifications.dedupWindowMs` | `number` | `30000` | De-duplicate notifications within this window. |
+| `notifications.batchWindowMs` | `number` | `0` | Batch notifications for this long before emitting. |
+| `notifications.quietHours` | `string` | _(unset)_ | Quiet-hours schedule (e.g. `"22:00-08:00"`). |
+| `notifications.sinkRetentionDays` | `number` | `7` | How long notification sinks retain data. |
+
+#### `observability.*`
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `observability.enabled` | `boolean` | _(unset)_ | Enable the periodic observability poller. |
+| `observability.pollIntervalMs` | `number` | _(unset)_ | Polling interval. |
+| `observability.metricRetentionDays` | `number` | _(unset)_ | How long metrics are retained. |
+
+#### `reliability.*` — Retry, recovery & validation
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `reliability.autoRetry` | `boolean` | `false` | Auto-retry failed tasks. |
+| `reliability.retryPolicy.maxAttempts` | `number` | _(unset)_ | Max retry attempts. |
+| `reliability.retryPolicy.backoffMs` | `number` | _(unset)_ | Base backoff between retries. |
+| `reliability.retryPolicy.jitterRatio` | `number` | _(unset)_ | Jitter fraction (0–1). |
+| `reliability.retryPolicy.exponentialFactor` | `number` | _(unset)_ | Exponential backoff multiplier. |
+| `reliability.retryPolicy.retryableErrors` | `string[]` | _(unset)_ | Error substrings considered retryable. |
+| `reliability.retryPolicy.maxTotalSpawns` | `number` | `0` | Flat per-task spawn budget (0 = auto). |
+| `reliability.autoRecover` | `boolean` | `false` | Auto-recover stuck/orphaned runs. |
+| `reliability.deadletterThreshold` | `number` | _(unset)_ | Attempts before a task is dead-lettered. |
+| `reliability.autoRepairIntervalMs` | `number` | `60000` | Periodic stale-run repair interval (0 = off). |
+| `reliability.cleanupOrphanedTempDirs` | `boolean` | `true` | Remove orphaned `/tmp/pi-crew-*` dirs. |
+| `reliability.forcePreflight` | `boolean` | `false` | Bypass the topology validator (audit-logged). |
+| `reliability.ambientStatusInjection` | `boolean` | `true` | Inject ambient crew-status note on every LLM call. |
+| `reliability.perWriteValidation` | `boolean` | `true` | Validate `write`/`edit` results (JSON v1). |
+| `reliability.scopeModels` | `boolean` | `false` | Enforce subagent models stay within the allowlist. |
+
+#### `otlp.*` — OpenTelemetry export
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `otlp.enabled` | `boolean` | _(unset)_ | Enable OTLP trace/metric export. |
+| `otlp.endpoint` 🔒 | `string` | _(unset)_ | OTLP collector endpoint. |
+| `otlp.headers` 🔒 | `Record<string, string>` | _(unset)_ | Auth headers sent to the collector. |
+| `otlp.intervalMs` | `number` | _(unset)_ | Export flush interval. |
+
+#### `ui.*` — Dashboard & widget
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `ui.widgetPlacement` | `aboveEditor \| belowEditor` | `aboveEditor` | Where the status widget renders. |
+| `ui.widgetMaxLines` | `number` | `8` | Max lines shown by the widget. |
+| `ui.powerbar` | `boolean` | `true` | Show the power bar. |
+| `ui.dashboardPlacement` | `center \| right` | `center` | Dashboard screen position. |
+| `ui.dashboardWidth` | `number` | `72` | Dashboard column width. |
+| `ui.dashboardLiveRefreshMs` | `number` | `1000` | Dashboard live-refresh interval. |
+| `ui.autoOpenDashboard` | `boolean` | `false` | Auto-open the dashboard. |
+| `ui.autoOpenDashboardForForegroundRuns` | `boolean` | `false` | Auto-open only for foreground runs. |
+| `ui.autoCloseDashboardMs` | `number` | _(unset)_ | Auto-close the dashboard after this long. |
+| `ui.showModel` | `boolean` | `true` | Show model names in the UI. |
+| `ui.showTokens` | `boolean` | `true` | Show token counts. |
+| `ui.showTools` | `boolean` | `true` | Show tool activity. |
+| `ui.transcriptTailBytes` | `number` | `1048576` | Bytes of transcript tail kept. |
+| `ui.mascotStyle` | `cat \| armin` | `cat` | Mascot character. |
+| `ui.mascotEffect` | `random \| none \| …` | `random` | Mascot animation effect. |
+
+#### `broker.*` — Inter-Pi broker
+
+> Default is **ON** since v0.9.47 (Linux + macOS). Disable via
+> `broker.enabled: false`, env `PI_CREW_BROKER=0`, or auto-off on Windows.
+
+| Key path | Type | Default | Description |
+|----------|------|---------|-------------|
+| `broker.enabled` | `boolean` | `true` | Master switch for the local socket broker. |
+| `broker.pathHashLen` | `number` (4–32) | `8` | SHA-256 prefix length in the socket filename. |
+| `broker.maxFrameBytes` | `number` (1024–1048576) | `262144` | Max NDJSON frame size (256 KiB). |
+| `broker.outboundQueueCap` | `number` (32–4096) | `256` | Per-connection outbound queue cap. |
+
+> ⚠️ **Trust boundary**: 🔒 keys are blocked from project config — set them in
+> **user config** only. The project config sanitizer silently drops them with a
+> warning so untrusted repos cannot escalate privileges or redirect telemetry.
+
+📖 Interactive config UI: [docs/commands-reference.md#team-settings--config-management](docs/commands-reference.md) · machine-readable: [schema.json](schema.json)
 
 ---
 

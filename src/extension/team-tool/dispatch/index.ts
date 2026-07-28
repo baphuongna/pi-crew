@@ -65,7 +65,7 @@ const ACTION_TO_DOMAIN: Record<string, TeamDomain> = {
 	// manage domain (16)
 	create: "manage",
 	update: "manage",
-	"delete": "manage",
+	delete: "manage",
 	init: "manage",
 	config: "manage",
 	validate: "manage",

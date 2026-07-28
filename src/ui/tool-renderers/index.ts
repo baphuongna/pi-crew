@@ -9,9 +9,9 @@
 import { type Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { truncateToWidth } from "../../utils/visual.ts";
+import { formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
 import { spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
-import { formatDuration, formatTokens, truncLine } from "../tool-render.ts";
 import { briefToolResult, isBrief } from "./brief-mode.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────

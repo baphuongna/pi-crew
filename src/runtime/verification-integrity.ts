@@ -28,6 +28,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { logInternalError } from "../utils/internal-error.ts";
 
 /**
  * Fixed set of project-manifest files considered by {@link snapshotManifests}.
@@ -71,7 +72,9 @@ export function snapshotManifests(cwd: string): Record<string, string> {
 		try {
 			const content = fs.readFileSync(abs);
 			snapshot[rel] = createHash("sha256").update(content).digest("hex");
-		} catch {}
+		} catch (error) {
+			logInternalError("verification-integrity.snapshot", error, `rel=${rel}`, "debug");
+		}
 	}
 	return snapshot;
 }

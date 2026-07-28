@@ -7,8 +7,8 @@
  */
 
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
+import { formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
-import { formatDuration, formatTokens, truncLine } from "../tool-render.ts";
 
 // ── State ──────────────────────────────────────────────────────────────
 

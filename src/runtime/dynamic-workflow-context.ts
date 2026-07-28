@@ -33,13 +33,13 @@ import type { TeamRunManifest } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { cleanupAgentWorktreeAsync, prepareAgentWorktreeAsync } from "../worktree/worktree-manager.ts";
-import { runWorker } from "./run-worker.ts";
 import type { DwfCheckpointState } from "./dwf-state-store.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
 import { extractStructuredResult } from "./result-extractor.ts";
 import { executeWithRetry } from "./retry-executor.ts";
+import { runWorker } from "./run-worker.ts";
 import { Semaphore } from "./semaphore.ts";
 
 export interface AgentCallOpts {

@@ -79,8 +79,8 @@ import { collectRunMetrics } from "../../state/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
-import { resolveRunDeadline } from "./run-deadline.ts";
 import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
+import { resolveRunDeadline } from "./run-deadline.ts";
 
 function tailFile(filePath: string, maxBytes = 4096): string | undefined {
 	try {

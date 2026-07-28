@@ -44,7 +44,8 @@
 				"noAssignInExpressions": "off",
 				"noNonNullAssertedOptionalChain": "off",
 				"noShadowRestrictedNames": "off",
-				"noDuplicateElseIf": "off"
+				"noDuplicateElseIf": "off",
+				"noEmptyBlockStatements": "warn"
 			}
 		}
 	},

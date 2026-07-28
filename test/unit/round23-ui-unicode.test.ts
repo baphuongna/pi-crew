@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "../../src/ui/card-colors.ts";
-import { truncLine } from "../../src/ui/tool-render.ts";
+import { truncLine } from "../../src/ui/format-helpers.ts";
 
 // truncVisual is module-private in tool-renderers/index.ts; it now delegates
 // to the shared truncateToWidth (utils/visual.ts) which truncLine also uses,

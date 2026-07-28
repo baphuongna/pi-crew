@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { logInternalError } from "../utils/internal-error.ts";
 
 interface PostExitStdioGuardOptions {
 	idleMs: number;
@@ -38,12 +39,16 @@ export function attachPostExitStdioGuard(child: ChildWithPipedStdio, options: Po
 		if (!stdoutEnded) {
 			try {
 				child.stdout?.destroy();
-			} catch {}
+			} catch (error) {
+				logInternalError("post-exit-stdio-guard.stdout-destroy", error, undefined, "debug");
+			}
 		}
 		if (!stderrEnded) {
 			try {
 				child.stderr?.destroy();
-			} catch {}
+			} catch (error) {
+				logInternalError("post-exit-stdio-guard.stderr-destroy", error, undefined, "debug");
+			}
 		}
 	};
 

@@ -22,8 +22,8 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import * as fs from "node:fs";
+import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";

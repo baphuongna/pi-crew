@@ -8,24 +8,37 @@ The `team` tool is the primary tool that pi-crew registers with Pi. All operatio
 |--------|---------|-------------|
 | `recommend` | Suggest a suitable team/workflow | Starting point when unsure what to pick |
 | `run` | Create a run and execute a workflow | Main operation |
+| `parallel` | Fan out independent tasks as concurrent runs | When you need N truly concurrent agents |
 | `plan` | Preview a workflow without running tasks | Dry-run planning |
 | `orchestrate` | Execute from a plan document | Automate a plan |
 | `schedule` | Schedule recurring runs | Periodic automation |
 | `scheduled` | List scheduled jobs | View schedules |
+| `anchor` | Cross-run session anchoring | Persist context across runs |
+| `auto-summarize` | Control auto-summarization of long runs | Manage context summarization |
+| `auto_boomerang` | Toggle auto-summarize (shorthand) | Quick on/off |
 | `status` | Read run status | Track progress |
 | `summary` | Read/write run summary artifact | Summarize |
 | `cancel` | Cancel queued/running work | Stop a run |
 | `resume` | Re-queue failed/cancelled tasks | Resume a run |
+| `retry` | Retry specific failed/cancelled task(s) | Retry a task without full resume |
+| `wait` | Block until a run finishes (with timeout) | Synchronous wait |
+| `steer` | Queue an interrupting message to an active task | Redirect in-flight work |
+| `respond` | Reply to a waiting task and re-queue it | Interactive task Q&A |
 | `list` | List teams, agents, workflows, runs | Explore resources |
 | `get` | Inspect agent/team/workflow | View details |
+| `onboard` | Show team onboarding guide | Learn a team's roles/flow |
 | `search` | BM25-ranked agent/team discovery | Smart search |
 | `events` | Read the event log | Debug/audit |
 | `artifacts` | List run artifacts | View outputs |
 | `worktrees` | List run worktree metadata | Inspect worktrees |
 | `graph` | Load/save/list run graphs | Visualization |
+| `explain` | Explain a run or task structure | Understand a run |
+| `cache` | Run/skill cache stats or cached-run lookup | Inspect caches |
+| `checkpoint` | Read a task's saved checkpoint | Inspect task progress |
 | `cleanup` | Delete run worktrees | Cleanup |
 | `forget` | Delete run state/artifacts | Remove entirely (requires `confirm`) |
 | `prune` | Delete multiple old finished runs | Bulk cleanup |
+| `invalidate` | Drop a run's snapshot cache | Force fresh reads |
 | `export` | Export a portable run bundle | Share/backup |
 | `import` | Import a run bundle | Receive a run from elsewhere |
 | `imports` | List imported bundles | View imports |
@@ -34,7 +47,9 @@ The `team` tool is the primary tool that pi-crew registers with Pi. All operatio
 | `delete` | Delete an agent/team/workflow | Remove resources (requires `confirm`) |
 | `validate` | Validate resources | Health check |
 | `doctor` | Check readiness | Diagnose environment |
-| `config` | Show/update config | Configuration |
+| `health` | Watchdog health monitor across all runs | Diagnose stuck/zombie runs |
+| `config` | Show/update config (raw JSON) | Configuration |
+| `settings` | View/set config via dotted-path keys | Human-readable settings |
 | `init` | Initialize project layout | Initial setup |
 | `autonomy` | Manage delegation settings | Adjust automation |
 | `api` | Safe interop for state operations | Advanced integration |
@@ -686,3 +701,418 @@ Copy builtins:
 ```
 
 Profiles: `manual`, `suggested`, `assisted`, `aggressive`.
+
+---
+
+## Additional Actions (Run domain)
+
+### `parallel` — Fan out independent tasks
+
+Spawns an array of independent tasks as concurrent background agents. Use this when you need N truly concurrent workers in a single call (e.g. parallel research or review). Max concurrency is 8.
+
+```json
+{
+  "action": "parallel",
+  "config": {
+    "tasks": [
+      { "goal": "Audit auth module for CVEs", "agent": "explorer" },
+      { "goal": "Audit payment module for CVEs", "agent": "explorer" }
+    ],
+    "concurrency": 4,
+    "team": "fast-fix"
+  }
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `config.tasks` | `Array<{ goal, agent? }>` | — | **Required.** Each entry becomes a concurrent run. |
+| `config.concurrency` | `number` | `4` | Clamped to `1..8`. |
+| `config.team` | `string` | `fast-fix` | Team whose workflow is used for each task. |
+
+Each task launches its own run; the host agent does not need to emit one
+`Agent()` call per turn.
+
+---
+
+### `retry` — Retry specific failed task(s)
+
+Re-queues `failed` / `cancelled` tasks so the scheduler picks them up again.
+Unlike `resume` (which re-queues *all* non-terminal tasks), `retry` can target a
+single task via `taskId`. Runs the `before_retry` hook before mutating state.
+
+```json
+{
+  "action": "retry",
+  "runId": "team_..."
+}
+```
+
+Retry a single task:
+
+```json
+{
+  "action": "retry",
+  "runId": "team_...",
+  "taskId": "03_execute"
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `taskId` | `string` | — | Retry only this task; omit to retry all failed/cancelled. |
+| `force` | `boolean` | `false` | Override cross-session ownership check. |
+
+---
+
+### `wait` — Block until a run finishes
+
+Synchronously waits (polling) until the run reaches a terminal status, then
+returns the result. Useful when a foreground caller must block on an async run.
+
+```json
+{
+  "action": "wait",
+  "runId": "team_...",
+  "config": { "timeoutMs": 300000, "pollIntervalMs": 2000 }
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `config.timeoutMs` | `number` | `300000` | Clamped to `1000..3_600_000` (1 s – 1 h). |
+| `config.pollIntervalMs` | `number` | `2000` | Clamped to `500..60_000`. |
+
+Returns `status: "error"` when the run finished as `failed`.
+
+---
+
+### `steer` — Interrupt an active task
+
+> ⚠️ **Internal / experimental.** Queues a steering message that is delivered to
+> a task's worker session on its next turn. The message is appended to
+> `pendingSteers` and also written to a live steering file for immediate delivery.
+
+```json
+{
+  "action": "steer",
+  "runId": "team_...",
+  "taskId": "01_explore",
+  "message": "Focus only on src/ — ignore docs/"
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `taskId` | `string` | — | **Required.** Must be a non-terminal task. |
+| `message` | `string` | — | **Required.** The steering instruction. |
+
+The pending-steers queue is capped at 100 entries (oldest dropped with an
+audit event). Terminal tasks cannot be steered.
+
+---
+
+## Additional Actions (Control domain)
+
+### `respond` — Reply to a waiting task
+
+Sends a message to a task in `waiting` status and re-queues it for the durable
+scheduler. Used for interactive task Q&A (e.g. a worker that paused to ask a
+clarifying question).
+
+```json
+{
+  "action": "respond",
+  "runId": "team_...",
+  "taskId": "05_verify",
+  "message": "Yes, use the Postgres dialect."
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `taskId` | `string` | — | Target a specific waiting task; omit to respond to all waiting. |
+| `message` | `string` | — | The reply body. |
+| `force` | `boolean` | `false` | Override cross-session ownership check. |
+
+If no tasks are `waiting`, the response hints at `api operation=follow-up-agent`
+(continuation) or `api operation=steer-agent` (interrupt).
+
+---
+
+### `invalidate` — Drop a run's snapshot cache
+
+> ⚠️ **Internal / experimental.** Discards the cached run snapshot for a run so
+> subsequent reads rebuild it from disk. Use after external state mutations that
+> bypass the normal write path.
+
+```json
+{
+  "action": "invalidate",
+  "runId": "team_..."
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+
+Requires the in-process snapshot cache (only available within a live Pi
+session that has the cache wired up).
+
+---
+
+## Additional Actions (Status domain)
+
+### `onboard` — Team onboarding guide
+
+Prints a human-readable guide describing a team's roles, workflow, and expected
+flow — helpful when adopting a new team.
+
+```json
+{ "action": "onboard", "team": "implementation" }
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `team` | `string` | `default` | The team to onboard. |
+
+---
+
+### `explain` — Explain a run or task
+
+Produces a structured explanation of a run (status, duration, task table) or,
+when `taskId` is given, a single-task breakdown (role, layer, why it exists,
+files touched, connected tasks, complexity).
+
+```json
+{ "action": "explain", "runId": "team_..." }
+```
+
+Explain one task:
+
+```json
+{ "action": "explain", "runId": "team_...", "taskId": "02_plan" }
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `taskId` | `string` | — | Omit to explain the whole run. |
+
+---
+
+### `cache` — Cache stats or cached-run lookup
+
+> ⚠️ **Internal / experimental.** With a `goal`, looks up a previously cached run
+> by goal/team/workflow hash. Without a `goal`, reports run-cache and skill-cache
+> statistics (entries, size, hit rate, evictions).
+
+```json
+{ "action": "cache" }
+```
+
+Lookup a cached run:
+
+```json
+{
+  "action": "cache",
+  "goal": "Investigate failing tests",
+  "team": "default",
+  "workflow": "default"
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `goal` | `string` | — | Omit to show cache stats; provide to look up a cached run. |
+| `team` | `string` | `default` | Used in the cache key when `goal` is set. |
+| `workflow` | `string` | `default` | Used in the cache key when `goal` is set. |
+
+---
+
+### `checkpoint` — Read a task's saved checkpoint
+
+Loads a previously saved checkpoint for a task (step, progress, saved-at
+timestamp). Checkpoints are written during long-running tasks for resume
+support.
+
+```json
+{
+  "action": "checkpoint",
+  "runId": "team_...",
+  "taskId": "07_build"
+}
+```
+
+Params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `runId` | `string` | — | **Required.** |
+| `taskId` | `string` | — | **Required.** |
+
+---
+
+### `health` — Watchdog health monitor
+
+> ⚠️ **Internal / experimental.** Scans all known runs and classifies them by
+> status, surfacing stuck tasks (heartbeat stale > 5 min), zombie workspaces,
+> ghost processes, orphaned temp dirs, and corrupted state. Returns a counts
+> summary (`total`, `running`, `completed`, `failed`, `blocked`, `queued`,
+> `planning`, `waiting`, `stuck`, `zombie`, `ghost`, `orphaned`, `corrupted`).
+
+```json
+{ "action": "health" }
+```
+
+No parameters. This is an auto-monitored watchdog diagnostic — prefer `doctor`
+for environment readiness checks.
+
+---
+
+## Additional Actions (Manage domain)
+
+### `settings` — View/set config via dotted-path keys
+
+A richer, human-readable interface to configuration. Unlike `config` (which
+returns the raw merged JSON), `settings` supports dotted-path `get`/`set`/`unset`,
+a flattened effective-settings listing, a schema reference, config-path
+display, and live Pi-UI theme switching.
+
+```json
+{ "action": "settings", "config": { "args": "list" } }
+```
+
+Set a value:
+
+```json
+{
+  "action": "settings",
+  "config": { "args": "set runtime.mode scaffold", "scope": "project" }
+}
+```
+
+Commands (passed via `config.args`):
+
+| Command | Description |
+|---------|-------------|
+| `list` | Show all effective config values (default). |
+| `json` | Dump full effective config as JSON. |
+| `schema` | List all known config keys (✓ = currently set). |
+| `paths` | Show user + project config file paths. |
+| `get <key>` | Get a specific dotted-path value. |
+| `set <key> <value>` | Set a value (JSON-parsed; scope via `config.scope`). |
+| `unset <key>` | Remove a value. |
+| `scope [user\|project]` | Show/change the write scope for `set`/`unset`. |
+| `themes` | Browse the Pi UI theme gallery. |
+| `theme <name>` | Switch the Pi UI theme (applied live). |
+
+> **`settings` vs `config`:** `config` returns/updates the merged JSON object
+> directly. `settings` is the dotted-path UI with schema hints, theme
+> management, and fuzzy key suggestions — use it for interactive exploration.
+
+---
+
+## Additional Actions (Automate domain)
+
+### `anchor` — Cross-run session anchoring
+
+Persists a named context anchor for the current session so it survives across
+runs and compactions. Sub-actions are selected via `config.subAction`.
+
+```json
+{ "action": "anchor", "config": { "subAction": "status" } }
+```
+
+Set an anchor:
+
+```json
+{
+  "action": "anchor",
+  "config": { "subAction": "set", "context": { "refactor": "auth-split" } }
+}
+```
+
+Sub-actions:
+
+| `subAction` | Description |
+|-------------|-------------|
+| `status` (default) | Show current anchors for the session. |
+| `set` | Create an anchor (accepts `config.context` object or `config.key`). |
+| `clear` | Remove an anchor (by `config.anchorId`, or all if omitted). |
+| `accumulate` | Append to an existing anchor's context. |
+
+---
+
+### `auto-summarize` — Auto-summarization control
+
+Controls automatic context summarization for long-running sessions. When
+enabled, the worker's context is summarized once the token count or tool-use
+count crosses a threshold. Sub-actions via `config.subAction`.
+
+```json
+{ "action": "auto-summarize", "config": { "subAction": "status" } }
+```
+
+Enable and configure:
+
+```json
+{
+  "action": "auto-summarize",
+  "config": {
+    "subAction": "on",
+    "threshold": 8000,
+    "minToolsUsed": 10,
+    "collapseContext": true
+  }
+}
+```
+
+Sub-actions:
+
+| `subAction` | Description |
+|-------------|-------------|
+| `status` (default) | Show current config + trigger thresholds. |
+| `on` | Enable summarization. |
+| `off` | Disable summarization. |
+| `config` | Update thresholds (`threshold`, `minToolsUsed`, `collapseContext`). |
+| `toggle` | Flip enabled state. |
+
+Defaults: `threshold` 5000 tokens, `minToolsUsed` 5, `collapseContext` true.
+
+---
+
+### `auto_boomerang` — Toggle auto-summarize (shorthand)
+
+Shares the same handler as `auto-summarize`; defaults `subAction` to `toggle`
+when omitted, providing a quick on/off switch.
+
+```json
+{ "action": "auto_boomerang" }
+```
+
+Accepts the same `config.subAction` values as `auto-summarize`
+(`on`, `off`, `config`, `toggle`, `status`).

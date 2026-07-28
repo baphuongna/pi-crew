@@ -213,9 +213,7 @@ const sharedFields = {
 			minimum: 0,
 		}),
 	),
-	args: Type.Optional(
-		Type.Any(),
-	),
+	args: Type.Optional(Type.Any()),
 	analysis: Type.Optional(
 		Type.String({
 			maxLength: 100_000,
@@ -337,30 +335,15 @@ const automateActions = Type.Optional(
 
 // ─── Domain schemas (additionalProperties: true — Phase 1, not tightened) ────
 
-export const RunDomainParams = Type.Object(
-	{ action: runActions, ...sharedFields },
-	{ additionalProperties: true },
-);
+export const RunDomainParams = Type.Object({ action: runActions, ...sharedFields }, { additionalProperties: true });
 
-export const StatusDomainParams = Type.Object(
-	{ action: statusActions, ...sharedFields },
-	{ additionalProperties: true },
-);
+export const StatusDomainParams = Type.Object({ action: statusActions, ...sharedFields }, { additionalProperties: true });
 
-export const ControlDomainParams = Type.Object(
-	{ action: controlActions, ...sharedFields },
-	{ additionalProperties: true },
-);
+export const ControlDomainParams = Type.Object({ action: controlActions, ...sharedFields }, { additionalProperties: true });
 
-export const ManageDomainParams = Type.Object(
-	{ action: manageActions, ...sharedFields },
-	{ additionalProperties: true },
-);
+export const ManageDomainParams = Type.Object({ action: manageActions, ...sharedFields }, { additionalProperties: true });
 
-export const AutomateDomainParams = Type.Object(
-	{ action: automateActions, ...sharedFields },
-	{ additionalProperties: true },
-);
+export const AutomateDomainParams = Type.Object({ action: automateActions, ...sharedFields }, { additionalProperties: true });
 
 /**
  * Backward-compatible re-export: Union of all 5 domain schemas.

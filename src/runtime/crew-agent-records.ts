@@ -426,7 +426,9 @@ function nextAgentEventSeq(filePath: string): number {
 		// Clean up stale sidecar when main file is gone.
 		try {
 			fs.unlinkSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`);
-		} catch {}
+		} catch (error) {
+			logInternalError("crew-agent-records.unlink-sidecar", error, `filePath=${filePath}`, "debug");
+		}
 		return 1;
 	}
 	const stat = fs.statSync(filePath);

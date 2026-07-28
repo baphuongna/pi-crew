@@ -3,27 +3,17 @@
  *
  * Actions: cancel, invalidate, respond, cleanup, prune, forget, doctor.
  */
-import { type CacheControlDeps } from "../cache-control.ts";
-import { handleCancel } from "../cancel.ts";
-import { handleDoctor } from "../doctor.ts";
-import { result, type TeamContext } from "../context.ts";
-import {
-	handleCleanup,
-	handleForget,
-	handlePrune,
-} from "../lifecycle-actions.ts";
-import { handleRespond } from "../respond.ts";
-import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
-import type { PiTeamsToolResult } from "../../tool-result.ts";
-import {
-	cacheControlDepsFromContext,
-	handleInvalidate,
-} from "../../team-tool.ts";
 
-export async function handleControlDomain(
-	params: TeamToolParamsValue,
-	ctx: TeamContext,
-): Promise<PiTeamsToolResult> {
+import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
+import { cacheControlDepsFromContext, handleInvalidate } from "../../team-tool.ts";
+import type { PiTeamsToolResult } from "../../tool-result.ts";
+import { handleCancel } from "../cancel.ts";
+import { result, type TeamContext } from "../context.ts";
+import { handleDoctor } from "../doctor.ts";
+import { handleCleanup, handleForget, handlePrune } from "../lifecycle-actions.ts";
+import { handleRespond } from "../respond.ts";
+
+export async function handleControlDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	switch (params.action) {
 		case "doctor":
 			return handleDoctor(ctx, params);
@@ -40,9 +30,13 @@ export async function handleControlDomain(
 		case "respond":
 			return handleRespond(params, ctx);
 		default:
-			return result(`Unhandled control-domain action: ${params.action}`, {
-				action: "unknown",
-				status: "error",
-			}, true);
+			return result(
+				`Unhandled control-domain action: ${params.action}`,
+				{
+					action: "unknown",
+					status: "error",
+				},
+				true,
+			);
 	}
 }

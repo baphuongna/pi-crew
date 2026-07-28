@@ -12,8 +12,16 @@ function readPackage(): Record<string, unknown> {
 test("package snapshot keeps Phase 6 runtime docs, skills, and jiti loader dependency shippable", () => {
 	const pkg = readPackage();
 	const files = pkg.files as string[];
-	assert.ok(files.includes("src/**/*.ts"));
-	assert.ok(files.includes("docs/"));
+	// PKG-2: src/ no longer shipped (dist/index.mjs bundle is the entry since
+	// v0.9.17; src/ was historical bloat). PKG-5: docs/ wholesale replaced by
+	// a consumer whitelist. PKG-3: dist sourcemap excluded. skills/** +
+	// schema.json still shipped.
+	assert.ok(!files.includes("src/**/*.ts"), "PKG-2: src/ no longer shipped (bundle is the entry)");
+	assert.ok(files.includes("dist/index.mjs"), "bundle shipped");
+	assert.ok(!files.includes("dist/index.mjs.map"), "PKG-3: sourcemap excluded from tarball");
+	assert.ok(!files.includes("docs/"), "PKG-5: docs/ wholesale replaced by whitelist");
+	assert.ok(files.includes("docs/actions-reference.md"), "whitelisted consumer doc shipped");
+	assert.ok(files.includes("docs/architecture.md"), "whitelisted consumer doc shipped");
 	assert.ok(files.includes("skills/**"));
 	assert.ok(!files.includes("skills/REFERENCE.md"));
 	assert.ok(files.includes("schema.json"));

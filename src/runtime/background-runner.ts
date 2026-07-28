@@ -363,7 +363,9 @@ async function main(): Promise<void> {
 			if (code === 0 || code === undefined) return;
 			try {
 				fs.appendFileSync(exitCodePath, `${new Date().toISOString()} exit_code=${code} pid=${process.pid}\n`);
-			} catch {}
+			} catch (error) {
+				logInternalError("background-runner.exit-code-write", error, `exitCodePath=${exitCodePath}`, "debug");
+			}
 		});
 	}
 

@@ -14,31 +14,58 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { TeamToolParams, type TeamDomain } from "../../src/schema/team-tool-schema.ts";
 import { domainForAction } from "../../src/extension/team-tool/dispatch/index.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import { type TeamDomain, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
 
 // ─── 54-action → domain mapping table ────────────────────────────────────────
 
 const DOMAIN_ACTIONS: Record<TeamDomain, readonly string[]> = {
 	run: ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"],
 	status: [
-		"status", "list", "get", "events", "artifacts", "summary", "graph", "search",
-		"health", "worktrees", "checkpoint", "cache", "explain", "onboard", "recommend", "help",
+		"status",
+		"list",
+		"get",
+		"events",
+		"artifacts",
+		"summary",
+		"graph",
+		"search",
+		"health",
+		"worktrees",
+		"checkpoint",
+		"cache",
+		"explain",
+		"onboard",
+		"recommend",
+		"help",
 	],
 	control: ["cancel", "invalidate", "respond", "cleanup", "prune", "forget", "doctor"],
 	manage: [
-		"create", "update", "delete", "init", "config", "validate", "autonomy", "settings",
-		"workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete",
-		"import", "imports", "export",
+		"create",
+		"update",
+		"delete",
+		"init",
+		"config",
+		"validate",
+		"autonomy",
+		"settings",
+		"workflow-create",
+		"workflow-get",
+		"workflow-list",
+		"workflow-save",
+		"workflow-delete",
+		"import",
+		"imports",
+		"export",
 	],
 	automate: ["schedule", "scheduled", "anchor", "auto-summarize", "auto_boomerang", "api"],
 };
 
 // Flatten into [action, domain] pairs
-const ALL_ACTIONS: ReadonlyArray<[string, TeamDomain]> = (Object.entries(DOMAIN_ACTIONS) as Array<
-	[TeamDomain, readonly string[]]
->).flatMap(([domain, actions]) => actions.map((action) => [action, domain] as [string, TeamDomain]));
+const ALL_ACTIONS: ReadonlyArray<[string, TeamDomain]> = (Object.entries(DOMAIN_ACTIONS) as Array<[TeamDomain, readonly string[]]>).flatMap(
+	([domain, actions]) => actions.map((action) => [action, domain] as [string, TeamDomain]),
+);
 
 // Sanity: exactly 54 unique actions, 5 domains
 const UNIQUE_ACTIONS = new Set(ALL_ACTIONS.map(([a]) => a));
@@ -73,11 +100,7 @@ test("54-action mapping has exactly 54 unique actions across 5 domains", () => {
 test("domainForAction maps all 54 actions to correct domain", () => {
 	for (const [action, expectedDomain] of ALL_ACTIONS) {
 		const actual = domainForAction(action);
-		assert.equal(
-			actual,
-			expectedDomain,
-			`domainForAction("${action}") should be "${expectedDomain}" but got "${actual}"`,
-		);
+		assert.equal(actual, expectedDomain, `domainForAction("${action}") should be "${expectedDomain}" but got "${actual}"`);
 	}
 });
 
@@ -91,11 +114,7 @@ test("domainForAction returns undefined for unknown actions", () => {
 test("Value.Check accepts all 54 actions (no schema regression)", () => {
 	for (const [action] of ALL_ACTIONS) {
 		const ok = Value.Check(TeamToolParams, { action });
-		assert.equal(
-			ok,
-			true,
-			`Value.Check(TeamToolParams, {action: "${action}"}) should be true`,
-		);
+		assert.equal(ok, true, `Value.Check(TeamToolParams, {action: "${action}"}) should be true`);
 	}
 });
 
@@ -141,9 +160,7 @@ test("handleTeamTool does not throw for all 54 actions", async (t) => {
 				assert.ok(out, `handleTeamTool({action: "${action}"}) returned undefined`);
 				assert.ok(typeof out === "object", `handleTeamTool({action: "${action}"}) did not return an object`);
 			} catch (err) {
-				assert.fail(
-					`handleTeamTool({action: "${action}"}) threw: ${err instanceof Error ? err.message : String(err)}`,
-				);
+				assert.fail(`handleTeamTool({action: "${action}"}) threw: ${err instanceof Error ? err.message : String(err)}`);
 			} finally {
 				cleanupCwd(cwd);
 			}

@@ -27,19 +27,15 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { loadConfig } from "../../config/config.ts";
 import { errors } from "../../errors.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log.ts";
-import { loadConfig } from "../../config/config.ts";
-import type {
-	ArtifactDescriptor,
-	OperationTerminalEvidence,
-	TeamRunManifest,
-	TeamTaskState,
-} from "../../state/types.ts";
+import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import { type ChildPiLifecycleEvent } from "../child-pi.ts";
+import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../cancellation.ts";
+import type { ChildPiLifecycleEvent } from "../child-pi.ts";
 import {
 	appendCrewAgentEvent,
 	appendCrewAgentOutput,
@@ -47,11 +43,8 @@ import {
 	recordFromTask,
 	upsertCrewAgent,
 } from "../crew-agent-records.ts";
-import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../cancellation.ts";
 import { crewHooks } from "../crew-hooks.ts";
 import { bridgeEventFromJsonEvent } from "../event-stream-bridge.ts";
-import { runWorker } from "../run-worker.ts";
-import { DEFAULT_RETRY_POLICY } from "../retry-executor.ts";
 import {
 	buildConfiguredModelRouting,
 	formatModelAttemptNote,
@@ -61,16 +54,18 @@ import {
 import { readEnabledModelsPatterns } from "../model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
+import { DEFAULT_RETRY_POLICY } from "../retry-executor.ts";
+import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
 import { parseSupervisorContactFromLine, recordSupervisorContact } from "../supervisor-contact.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
 import { createStartupEvidence } from "../worker-startup.ts";
+import type { TaskExecutionResult } from "./post-execution.ts";
+import type { StreamBridgeHandle, TaskExecutionContext } from "./pre-execution.ts";
 import { applyAgentProgressEvent, applyUsageToProgress, progressEventSummary, shouldFlushProgressEvent } from "./progress.ts";
 import { cleanResultText, isFinalChildEvent } from "./result-utils.ts";
 import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 import { tailReadWithLineSnap } from "./tail-read.ts";
-import type { TaskExecutionContext, StreamBridgeHandle } from "./pre-execution.ts";
-import type { TaskExecutionResult } from "./post-execution.ts";
 
 /** Async helper for writing steering events — fire-and-forget for non-blocking writes. */
 async function appendSteeringAsync(steeringDir: string, taskId: string, steers: string[]): Promise<void> {
@@ -438,9 +433,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						taskId: task.id,
 						message: `Worker lifecycle: ${event.type}${event.error ? ` error=${event.error}` : ""}${event.exitCode != null ? ` exit=${event.exitCode}` : ""}`,
 						data: { ...event },
-					}).catch((error) =>
-						logInternalError("task-runner.lifecycle-event", error, `taskId=${task.id}, type=${event.type}`),
-					);
+					}).catch((error) => logInternalError("task-runner.lifecycle-event", error, `taskId=${task.id}, type=${event.type}`));
 				},
 				onStdoutLine: (line) => {
 					appendCrewAgentOutput(manifest, task.id, line);
@@ -483,8 +476,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						// This supplements the event log so developers can see what the child Pi worker produced.
 						if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
 							const bgLogPath = `${manifest.stateRoot}/background.log`;
-							const eventLine =
-								typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
+							const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
 							// Fire-and-forget async write for background log
 							void appendBackgroundLogAsync(bgLogPath, eventLine);
 						}
@@ -493,11 +485,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						// did a full locked read-parse-write of tasks.json on EVERY child JSON
 						// event — a 200-event task produced 200 such cycles (Round 15 P1).
 						// Final state is force-flushed on task completion (persistHeartbeat(true)).
-						const nextProgress = applyAgentProgressEvent(
-							task.agentProgress ?? emptyCrewAgentProgress(),
-							event,
-							task.startedAt,
-						);
+						const nextProgress = applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt);
 						task = { ...task, agentProgress: nextProgress };
 						tasks = updateTask(tasks, task);
 						const progressNow = Date.now();

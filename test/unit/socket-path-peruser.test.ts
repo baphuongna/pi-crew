@@ -15,12 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import {
-	getBrokerSocketPath,
-	getPerUserSocketDir,
-	hashSessionId,
-	prepareBrokerSocketDir,
-} from "../../src/utils/socket-path.ts";
+import { getBrokerSocketPath, getPerUserSocketDir, hashSessionId, prepareBrokerSocketDir } from "../../src/utils/socket-path.ts";
 
 const isWindows = process.platform === "win32";
 
@@ -60,11 +55,7 @@ describe("F-04: per-user socket subdir", { skip: isWindows }, () => {
 	it("getPerUserSocketDir returns ${base}/pi-crew-${uid}", () => {
 		const dir = getPerUserSocketDir();
 		const uid = expectedUid();
-		assert.equal(
-			dir,
-			path.join(tmpBase, `pi-crew-${uid}`),
-			"per-user dir should be base/pi-crew-<uid>",
-		);
+		assert.equal(dir, path.join(tmpBase, `pi-crew-${uid}`), "per-user dir should be base/pi-crew-<uid>");
 	});
 
 	it("getBrokerSocketPath places socket under per-user subdir, not base directly", () => {
@@ -103,11 +94,7 @@ describe("F-04: per-user socket subdir", { skip: isWindows }, () => {
 		await prepareBrokerSocketDir(sock);
 
 		const baseModeAfter = statSync(tmpBase).mode & 0o777;
-		assert.equal(
-			baseModeAfter,
-			baseModeBefore,
-			"shared base dir mode must NOT be changed by prepareBrokerSocketDir",
-		);
+		assert.equal(baseModeAfter, baseModeBefore, "shared base dir mode must NOT be changed by prepareBrokerSocketDir");
 	});
 
 	it("sun_path budget: per-user path stays under 107 bytes", () => {
@@ -115,10 +102,7 @@ describe("F-04: per-user socket subdir", { skip: isWindows }, () => {
 		// Typical: /run/user/1000/pi-crew-1000/pi-crew-abcd1234.sock = 48 bytes.
 		const sock = getBrokerSocketPath("budget-test-session");
 		const encoded = Buffer.byteLength(sock, "utf8");
-		assert.ok(
-			encoded < 107,
-			`socket path ${encoded} bytes must stay under sun_path budget (107)`,
-		);
+		assert.ok(encoded < 107, `socket path ${encoded} bytes must stay under sun_path budget (107)`);
 	});
 
 	it("sun_path budget: throws when XDG_RUNTIME_DIR is pathologically long", () => {

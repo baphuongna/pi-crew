@@ -1,23 +1,18 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
-import type {
-	ArtifactDescriptor,
-	OperationTerminalEvidence,
-	TeamRunManifest,
-	TeamTaskState,
-} from "../state/types.ts";
+import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { registerStreamBridge } from "./event-stream-bridge.ts";
 import type { ModelAttemptSummary } from "./model-fallback.ts";
 import type { ParsedPiJsonOutput } from "./pi-json-output.ts";
 import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
-import { runScaffoldTask } from "./task-runner/scaffold-executor.ts";
-import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";
 import { runChildProcessTask } from "./task-runner/child-executor.ts";
 import { finalizeTaskResult, type TaskExecutionResult } from "./task-runner/post-execution.ts";
+import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";
 import { cleanResultText } from "./task-runner/result-utils.ts";
+import { runScaffoldTask } from "./task-runner/scaffold-executor.ts";
 import { registerYieldTool } from "./yield-handler.ts";
 
 // Register the submit_result tool handler so subprocess events can extract yield data.
@@ -83,7 +78,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 	// any module. Under tsx, concurrent first-imports race module-record
 	// instantiation; awaiting the registration-time warmup eliminates the window.
 	await awaitRuntimeWarmup();
-	let manifest = input.manifest;
+	const manifest = input.manifest;
 	// H4: registerStreamBridge inside try so dispose() in finally is safe
 	let streamBridge: ReturnType<typeof registerStreamBridge> | undefined;
 	try {

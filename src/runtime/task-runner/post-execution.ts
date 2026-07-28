@@ -15,8 +15,8 @@
  * exactly (char scenarios 5-7, 9, 10 cover them).
  */
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
-import { appendEventAsync } from "../../state/event-log.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
+import { appendEventAsync } from "../../state/event-log.ts";
 import { withRunLock } from "../../state/locks.ts";
 import { saveRunManifestAsync } from "../../state/state-store.ts";
 import type {
@@ -32,18 +32,18 @@ import { extractCommandTrace } from "../command-trace.ts";
 import { evaluateCompletionMutationGuard } from "../completion-guard.ts";
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import { crewHooks } from "../crew-hooks.ts";
-import { type ModelAttemptSummary } from "../model-fallback.ts";
-import { type OutputValidationResult, validateWorkerOutput } from "../output-validator.ts";
-import { type ParsedPiJsonOutput } from "../pi-json-output.ts";
 import { createVerificationEvidence } from "../green-contract.ts";
+import type { ModelAttemptSummary } from "../model-fallback.ts";
+import { type OutputValidationResult, validateWorkerOutput } from "../output-validator.ts";
+import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
+import { writeTaskSharedOutput } from "../task-output-context.ts";
 import { computeGreenLevelFromResults, executeVerificationCommands } from "../verification-gates.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
-import { writeTaskSharedOutput } from "../task-output-context.ts";
-import { hasYieldInOutput, isYieldEvent, extractYieldResult, type YieldResult } from "../yield-handler.ts";
+import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } from "../yield-handler.ts";
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";
+import type { TaskExecutionContext } from "./pre-execution.ts";
 import { buildWorkerPromptPipeline } from "./prompt-pipeline.ts";
 import { persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
-import type { TaskExecutionContext } from "./pre-execution.ts";
 
 /**
  * Branch execution output — the set of variables produced by the
@@ -105,7 +105,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 	const skillArtifact = ctx.skillArtifact;
 	const coordinationArtifact = ctx.coordinationArtifact;
 
-	let resultArtifact = execResult.resultArtifact;
+	const resultArtifact = execResult.resultArtifact;
 	const logArtifact = execResult.logArtifact;
 	const transcriptArtifact = execResult.transcriptArtifact;
 	let exitCode = execResult.exitCode;

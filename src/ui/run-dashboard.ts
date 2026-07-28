@@ -438,7 +438,9 @@ export class RunDashboard implements DashboardComponent {
 				process.stderr.write(
 					`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.constructor runs=${runs.length} workspaceId=${options.workspaceId ?? "n/a"}\n`,
 				);
-			} catch {}
+			} catch (error) {
+				logInternalError("run-dashboard.constructor-diag", error, undefined, "debug");
+			}
 		}
 		// END TEMP DIAGNOSTIC
 		// Filter runs by workspaceId for session isolation
@@ -826,7 +828,9 @@ export class RunDashboard implements DashboardComponent {
 				process.stderr.write(
 					`[PI-CREW-DIAG] RunDashboard#${this._instanceId}.handleInput data=${JSON.stringify(data)} focused=${this.focused}\n`,
 				);
-			} catch {}
+			} catch (error) {
+				logInternalError("run-dashboard.handleInput-diag", error, undefined, "debug");
+			}
 		}
 		const action = dashboardActionForKey(data, this.activePane);
 		// K-1: "?" toggles the help overlay; while it is shown, any other key
