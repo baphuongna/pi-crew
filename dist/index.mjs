@@ -54593,6 +54593,32 @@ var init_run_metrics = __esm({
   }
 });
 
+// src/extension/team-tool/run-deadline.ts
+function resolveRunDeadline(ctx, params, config) {
+  const timeoutMs = params.timeoutMs;
+  const effectiveConfig = config ?? loadConfig(ctx.cwd).config;
+  const maxRunMinutes = effectiveConfig?.limits?.maxRunMinutes;
+  const deadlineMs = timeoutMs ?? (maxRunMinutes ? maxRunMinutes * 6e4 : DEFAULT_RUN_DEADLINE_MS);
+  const controller = new AbortController();
+  if (ctx.signal) {
+    if (ctx.signal.aborted) controller.abort();
+    else ctx.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  if (deadlineMs > 0) {
+    const timer = setTimeout(() => controller.abort(), deadlineMs);
+    timer.unref?.();
+  }
+  return { signal: controller.signal, deadlineMs, controller };
+}
+var DEFAULT_RUN_DEADLINE_MS;
+var init_run_deadline = __esm({
+  "src/extension/team-tool/run-deadline.ts"() {
+    "use strict";
+    init_config();
+    DEFAULT_RUN_DEADLINE_MS = 36e5;
+  }
+});
+
 // src/extension/team-tool/goal-wrap.ts
 function readGoalWrapConfig(cwd, workflowName) {
   const loaded = loadConfig(cwd);
@@ -57797,6 +57823,7 @@ Commit or stash changes before using worktree mode, or use workspaceMode: 'singl
       team: dwfTeam.name
     };
     atomicWriteJson(paths.manifestPath, dwfManifest);
+    const dwfDeadline = resolveRunDeadline(ctx, params);
     try {
       let dwfResult;
       try {
@@ -57804,7 +57831,7 @@ Commit or stash changes before using worktree mode, or use workspaceMode: 'singl
           manifest: dwfManifest,
           workflow,
           team: dwfTeam,
-          signal: ctx.signal ?? AbortSignal.timeout(36e5),
+          signal: dwfDeadline.signal,
           modelOverride: params.model,
           tokenBudget: params.tokenBudget ?? workflow.maxTokenBudget
         });
@@ -57986,8 +58013,9 @@ ${dwfResult.manifest.summary ?? ""}`,
     });
     ctx.onRunStarted?.(effectiveManifest.runId);
     scheduleBackgroundEarlyExitGuard(resolvedCtx.cwd, effectiveManifest.runId, spawned.pid, spawned.logPath);
+    const asyncDeadline = resolveRunDeadline(ctx, params, executedConfig);
     try {
-      const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 36e5 });
+      const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: asyncDeadline.deadlineMs });
       return formatRunResult(completed.manifest, {
         tasks: completed.tasks,
         metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -58064,8 +58092,13 @@ ${dwfResult.manifest.summary ?? ""}`,
   }
   const executeWorkers = runtime.kind !== "scaffold";
   if (executeWorkers && ctx.startForegroundRun) {
+    const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
     ctx.onRunStarted?.(updatedManifest.runId);
     ctx.startForegroundRun(async (signal) => {
+      if (signal && signal !== fgDeadline.signal) {
+        if (signal.aborted) fgDeadline.controller.abort();
+        else signal.addEventListener("abort", () => fgDeadline.controller.abort(), { once: true });
+      }
       try {
         await executeTeamRun2({
           manifest: executionManifest,
@@ -58082,7 +58115,7 @@ ${dwfResult.manifest.summary ?? ""}`,
           modelRegistry: ctx.modelRegistry,
           modelOverride: params.model,
           skillOverride,
-          signal,
+          signal: fgDeadline.signal,
           reliability: executedConfig.reliability,
           metricRegistry: ctx.metricRegistry,
           onJsonEvent: ctx.onJsonEvent,
@@ -58097,7 +58130,7 @@ ${dwfResult.manifest.summary ?? ""}`,
       }
     }, updatedManifest.runId);
     try {
-      const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 36e5 });
+      const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
       return formatRunResult(completed.manifest, {
         tasks: completed.tasks,
         metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -58128,6 +58161,7 @@ ${dwfResult.manifest.summary ?? ""}`,
       );
     }
   }
+  const inlineDeadline = resolveRunDeadline(ctx, params, executedConfig);
   let executed;
   try {
     executed = await executeTeamRun2({
@@ -58145,7 +58179,7 @@ ${dwfResult.manifest.summary ?? ""}`,
       modelRegistry: ctx.modelRegistry,
       modelOverride: params.model,
       skillOverride,
-      signal: ctx.signal,
+      signal: inlineDeadline.signal,
       reliability: executedConfig.reliability,
       metricRegistry: ctx.metricRegistry,
       onJsonEvent: ctx.onJsonEvent,
@@ -58195,6 +58229,7 @@ var init_run = __esm({
     init_run_metrics();
     init_config_patch();
     init_context();
+    init_run_deadline();
     init_goal_wrap();
     MAX_ANALYSIS_BYTES = 1e5;
   }

@@ -9492,6 +9492,17 @@
       ],
       "format": "esm"
     },
+    "src/extension/team-tool/run-deadline.ts": {
+      "bytes": 2862,
+      "imports": [
+        {
+          "path": "src/config/config.ts",
+          "kind": "import-statement",
+          "original": "../../config/config.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/team-tool/goal-wrap.ts": {
       "bytes": 13171,
       "imports": [
@@ -9895,7 +9906,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 42446,
+      "bytes": 43528,
       "imports": [
         {
           "path": "src/agents/discover-agents.ts",
@@ -10016,6 +10027,11 @@
           "path": "src/extension/team-tool/context.ts",
           "kind": "import-statement",
           "original": "./context.ts"
+        },
+        {
+          "path": "src/extension/team-tool/run-deadline.ts",
+          "kind": "import-statement",
+          "original": "./run-deadline.ts"
         },
         {
           "path": "src/extension/team-tool/goal-wrap.ts",
@@ -13178,7 +13194,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6072009
+      "bytes": 6077036
     },
     "dist/index.mjs": {
       "imports": [
@@ -16057,6 +16073,9 @@
         "src/state/run-metrics.ts": {
           "bytesInOutput": 1522
         },
+        "src/extension/team-tool/run-deadline.ts": {
+          "bytesInOutput": 894
+        },
         "src/extension/team-tool/goal-wrap.ts": {
           "bytesInOutput": 7073
         },
@@ -16103,7 +16122,7 @@
           "bytesInOutput": 6994
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 31312
+          "bytesInOutput": 31880
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 37890
@@ -16406,7 +16425,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2766841
+      "bytes": 2768347
     }
   }
 }

@@ -79,6 +79,7 @@ import { collectRunMetrics } from "../../state/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
+import { resolveRunDeadline } from "./run-deadline.ts";
 import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
 
 function tailFile(filePath: string, maxBytes = 4096): string | undefined {
@@ -639,6 +640,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			team: dwfTeam.name,
 		};
 		atomicWriteJson(paths.manifestPath, dwfManifest);
+		// CORE-8: unified deadline — resolve params > config > 1h default.
+		const dwfDeadline = resolveRunDeadline(ctx, params);
 		try {
 			let dwfResult: import("../../runtime/dynamic-workflow-runner.ts").RunDynamicWorkflowResult | undefined;
 			try {
@@ -646,7 +649,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					manifest: dwfManifest,
 					workflow: workflow as import("../../workflows/workflow-config.ts").DynamicWorkflowConfig,
 					team: dwfTeam,
-					signal: ctx.signal ?? AbortSignal.timeout(3_600_000),
+					signal: dwfDeadline.signal,
 					modelOverride: params.model,
 					tokenBudget:
 						params.tokenBudget ??
@@ -845,9 +848,11 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		});
 		ctx.onRunStarted?.(effectiveManifest.runId);
 		scheduleBackgroundEarlyExitGuard(resolvedCtx.cwd, effectiveManifest.runId, spawned.pid, spawned.logPath);
+		// CORE-8: unified deadline for waitForRun timeout (background process is detached).
+		const asyncDeadline = resolveRunDeadline(ctx, params, executedConfig);
 		// Wait for the async run to complete and return actual results.
 		try {
-			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 3600000 });
+			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: asyncDeadline.deadlineMs });
 			return formatRunResult(completed.manifest, {
 				tasks: completed.tasks,
 				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -925,8 +930,16 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	}
 	const executeWorkers = runtime.kind !== "scaffold";
 	if (executeWorkers && ctx.startForegroundRun) {
+		// CORE-8: unified deadline — resolves params > config > 1h default.
+		const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
 		ctx.onRunStarted?.(updatedManifest.runId);
 		ctx.startForegroundRun(async (signal) => {
+			// Link the foreground-run callback signal to the deadline controller
+			// so cancel-via-abortForegroundRun propagates to executeTeamRun.
+			if (signal && signal !== fgDeadline.signal) {
+				if (signal.aborted) fgDeadline.controller.abort();
+				else signal.addEventListener("abort", () => fgDeadline.controller.abort(), { once: true });
+			}
 			try {
 				await executeTeamRun({
 					manifest: executionManifest,
@@ -944,7 +957,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					modelRegistry: ctx.modelRegistry,
 					modelOverride: params.model,
 					skillOverride,
-					signal,
+					signal: fgDeadline.signal,
 					reliability: executedConfig.reliability,
 					metricRegistry: ctx.metricRegistry,
 					onJsonEvent: ctx.onJsonEvent,
@@ -961,7 +974,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 
 		// Wait for the foreground run to complete and return actual results.
 		try {
-			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: 3600000 });
+			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
 			return formatRunResult(completed.manifest, {
 				tasks: completed.tasks,
 				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -992,6 +1005,9 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			);
 		}
 	}
+	// CORE-8: inline/scaffold path previously had ZERO timeout — now uses unified
+	// deadline (params > config.maxRunMinutes > 1h default).
+	const inlineDeadline = resolveRunDeadline(ctx, params, executedConfig);
 	let executed: Awaited<ReturnType<typeof executeTeamRun>>;
 	try {
 		executed = await executeTeamRun({
@@ -1009,7 +1025,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			modelRegistry: ctx.modelRegistry,
 			modelOverride: params.model,
 			skillOverride,
-			signal: ctx.signal,
+			signal: inlineDeadline.signal,
 			reliability: executedConfig.reliability,
 			metricRegistry: ctx.metricRegistry,
 			onJsonEvent: ctx.onJsonEvent,
