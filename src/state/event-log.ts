@@ -12,6 +12,7 @@ import { atomicWriteFile } from "./atomic-write.ts";
 import {
 	applyCompactionUnlocked,
 	compactEventLog,
+	currentGeneration,
 	needsRotation,
 	prepareCompaction,
 	rotateEventLog,
@@ -1225,6 +1226,11 @@ export interface EventCursorOptions {
 	sinceSeq?: number;
 	limit?: number;
 	fromByteOffset?: number;
+	/** R-03: generation the caller captured on its previous read. When set, a
+	 * mismatch with the live generation signals the file was rotated/truncated
+	 * and the byte offset is stale — the cursor resets to 0 so the new file is
+	 * re-read from its start instead of missing post-rotation events. */
+	generation?: number;
 }
 
 export interface EventCursorResult {
@@ -1232,6 +1238,10 @@ export interface EventCursorResult {
 	nextSeq: number;
 	total: number;
 	nextByteOffset?: number;
+	/** R-03: live generation of the events file at read time. Callers doing
+	 * streaming byte-offset reads should echo this back as `generation` on the
+	 * next call so rotation is detected and the cursor resets. */
+	generation?: number;
 }
 
 function positiveInteger(value: number | undefined): number | undefined {
@@ -1241,7 +1251,17 @@ function positiveInteger(value: number | undefined): number | undefined {
 export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): EventCursorResult {
 	// Incremental byte-offset path: read only new bytes since last known offset
 	if (options.fromByteOffset !== undefined) {
-		const byteOffset = positiveInteger(options.fromByteOffset) ?? 0;
+		// R-03: detect file rotation/truncation via the generation sidecar BEFORE
+		// reusing the byte offset. If the file was rotated since the caller last
+		// read, it was truncated to empty (pre-rotation content archived to
+		// `<eventsPath>.<ts>.archive.jsonl`) and is growing again from 0 — the
+		// caller's offset now points past EOF, so post-rotation events would be
+		// silently missed. Reset to offset 0 to re-read the current file from its
+		// start. Re-reading from 0 re-delivers no previously-returned events:
+		// those live in the archive, not the (now fresh) current file.
+		const liveGen = currentGeneration(eventsPath);
+		const staleCursor = options.generation !== undefined && options.generation !== liveGen;
+		const byteOffset = staleCursor ? 0 : (positiveInteger(options.fromByteOffset) ?? 0);
 		const initialState: IncrementalReadState = { byteOffset, lineCount: 0 };
 		const { items, state: newState, eof } = readJsonlSince<TeamEvent>(eventsPath, initialState);
 		const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
@@ -1254,6 +1274,7 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 			nextSeq: returnedMaxSeq,
 			total: filtered.length,
 			nextByteOffset: newState.byteOffset,
+			generation: liveGen,
 		};
 	}
 

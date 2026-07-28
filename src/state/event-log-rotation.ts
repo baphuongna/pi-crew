@@ -179,6 +179,59 @@ export function applyCompactionUnlocked(
 	}
 }
 
+// --- R-03: generation sidecar for rotation cursor invalidation ---
+
+/**
+ * R-03: Path of the generation sidecar for an events file. Mirrors the
+ * `.seq` sidecar pattern. The generation is bumped every time the events
+ * file is rotated (truncated + archived), so readers holding a byte-offset
+ * cursor can detect their offset is stale and re-read from the start of the
+ * new file instead of missing the post-rotation events.
+ */
+export function generationPath(eventsPath: string): string {
+	return `${eventsPath}.gen`;
+}
+
+/**
+ * R-03: Read the current generation of an events file.
+ *
+ * Primary (and sole authoritative) mechanism = the `.gen` sidecar, which is
+ * cross-platform. Inode (`fs.statSync().ino`) was evaluated as a secondary
+ * fast-path signal but is platform-dependent: on Windows `ino` is always 0,
+ * so it cannot be relied upon to detect rotation. The `.gen` sidecar is
+ * therefore used exclusively (verified Windows path: ino=0 falls back to
+ * the sidecar here).
+ *
+ * Returns 0 when the sidecar is absent (backward-compat: logs created before
+ * this fix have no sidecar and are treated as generation 0, so a streaming
+ * cursor that never tracked generation behaves as before on its first read).
+ */
+export function currentGeneration(eventsPath: string): number {
+	try {
+		const raw = fs.readFileSync(generationPath(eventsPath), "utf-8");
+		const value = Number.parseInt(raw.trim(), 10);
+		return Number.isInteger(value) && value >= 0 ? value : 0;
+	} catch {
+		return 0;
+	}
+}
+
+/**
+ * R-03: Atomically bump and persist the generation sidecar. Called by
+ * `rotateEventLogUnlocked` after truncating the events file. Assumes the
+ * caller already holds the event-log lock (or accepts the unlocked race).
+ * Returns the new generation value.
+ */
+function bumpGenerationUnlocked(eventsPath: string): number {
+	const next = currentGeneration(eventsPath) + 1;
+	try {
+		atomicWriteFile(generationPath(eventsPath), String(next));
+	} catch (error) {
+		logInternalError("event-log.bump-generation", error, `eventsPath=${eventsPath}`);
+	}
+	return next;
+}
+
 /**
  * Rotate an event log file by archiving it with a timestamp.
  * The current file is renamed to `<eventsPath>.<timestamp>.archive.jsonl`
@@ -221,6 +274,10 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		// (no missing-file window for concurrent readers).
 		fs.copyFileSync(eventsPath, archivePath);
 		atomicWriteFile(eventsPath, "");
+		// R-03: bump the generation sidecar so byte-offset cursor readers
+		// detect the truncation and reset (re-read from offset 0 of the new
+		// file), instead of reading past EOF and missing post-rotation events.
+		bumpGenerationUnlocked(eventsPath);
 		return true;
 	} catch (error) {
 		logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);

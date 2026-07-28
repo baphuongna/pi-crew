@@ -9419,6 +9419,27 @@ function applyCompactionUnlocked(eventsPath, prepared) {
     };
   }
 }
+function generationPath(eventsPath) {
+  return `${eventsPath}.gen`;
+}
+function currentGeneration(eventsPath) {
+  try {
+    const raw = fs24.readFileSync(generationPath(eventsPath), "utf-8");
+    const value = Number.parseInt(raw.trim(), 10);
+    return Number.isInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+function bumpGenerationUnlocked(eventsPath) {
+  const next = currentGeneration(eventsPath) + 1;
+  try {
+    atomicWriteFile(generationPath(eventsPath), String(next));
+  } catch (error) {
+    logInternalError("event-log.bump-generation", error, `eventsPath=${eventsPath}`);
+  }
+  return next;
+}
 function rotateEventLog(eventsPath) {
   if (!fs24.existsSync(eventsPath)) return false;
   return withEventLogLockSync(eventsPath, () => rotateEventLogUnlocked(eventsPath));
@@ -9435,6 +9456,7 @@ function rotateEventLogUnlocked(eventsPath) {
     }
     fs24.copyFileSync(eventsPath, archivePath);
     atomicWriteFile(eventsPath, "");
+    bumpGenerationUnlocked(eventsPath);
     return true;
   } catch (error) {
     logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);
@@ -10179,7 +10201,9 @@ function positiveInteger(value) {
 }
 function readEventsCursor(eventsPath, options = {}) {
   if (options.fromByteOffset !== void 0) {
-    const byteOffset = positiveInteger(options.fromByteOffset) ?? 0;
+    const liveGen = currentGeneration(eventsPath);
+    const staleCursor = options.generation !== void 0 && options.generation !== liveGen;
+    const byteOffset = staleCursor ? 0 : positiveInteger(options.fromByteOffset) ?? 0;
     const initialState = { byteOffset, lineCount: 0 };
     const { items, state: newState, eof } = readJsonlSince(eventsPath, initialState);
     const sinceSeq2 = positiveInteger(options.sinceSeq) ?? 0;
@@ -10191,7 +10215,8 @@ function readEventsCursor(eventsPath, options = {}) {
       events: events2,
       nextSeq: returnedMaxSeq2,
       total: filtered2.length,
-      nextByteOffset: newState.byteOffset
+      nextByteOffset: newState.byteOffset,
+      generation: liveGen
     };
   }
   const TAIL_BYTES = 4 * 1024 * 1024;
@@ -33284,7 +33309,7 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync32, mkdirSync as mkdirSync20, readFileSync as readFileSync30, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync32, mkdirSync as mkdirSync20, readFileSync as readFileSync31, writeFileSync as writeFileSync6 } from "node:fs";
 import { dirname as dirname20, join as join35 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
   return join35(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
@@ -33347,7 +33372,7 @@ function getSkillActivations(cwd, runId) {
   if (!existsSync32(path85)) {
     return [];
   }
-  const content = readFileSync30(path85, "utf-8");
+  const content = readFileSync31(path85, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -36758,7 +36783,7 @@ var init_explain = __esm({
 });
 
 // src/runtime/goal-state-store.ts
-import { closeSync as closeSync10, existsSync as existsSync39, mkdirSync as mkdirSync23, openSync as openSync10, readdirSync as readdirSync20, readFileSync as readFileSync36, statSync as statSync28, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync10, existsSync as existsSync39, mkdirSync as mkdirSync23, openSync as openSync10, readdirSync as readdirSync20, readFileSync as readFileSync37, statSync as statSync28, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname22 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -36792,7 +36817,7 @@ var init_goal_state_store = __esm({
         const path85 = goalFilePath(this.cwd, goalId);
         try {
           if (!existsSync39(path85)) return void 0;
-          const raw = readFileSync36(path85, "utf-8");
+          const raw = readFileSync37(path85, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -36980,7 +37005,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash6 } from "node:crypto";
-import { closeSync as closeSync11, existsSync as existsSync40, mkdirSync as mkdirSync24, openSync as openSync11, readdirSync as readdirSync21, readFileSync as readFileSync38, statSync as statSync30, unlinkSync as unlinkSync8, writeFileSync as writeFileSync7 } from "node:fs";
+import { closeSync as closeSync11, existsSync as existsSync40, mkdirSync as mkdirSync24, openSync as openSync11, readdirSync as readdirSync21, readFileSync as readFileSync39, statSync as statSync30, unlinkSync as unlinkSync8, writeFileSync as writeFileSync7 } from "node:fs";
 import * as path44 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path44.resolve(cwd);
@@ -36992,7 +37017,7 @@ function workspaceLockPath(cwd) {
 function readLock(lockPath2) {
   if (!existsSync40(lockPath2)) return void 0;
   try {
-    const parsed = JSON.parse(readFileSync38(lockPath2, "utf-8"));
+    const parsed = JSON.parse(readFileSync39(lockPath2, "utf-8"));
     if (!parsed || typeof parsed !== "object") return void 0;
     return parsed;
   } catch {
@@ -37031,7 +37056,7 @@ var init_workspace_lock = __esm({
     DEFAULT_HEARTBEAT_STALE_MS = 6e4;
     defaultStartTimeResolver = (pid) => {
       try {
-        const stat2 = readFileSync38(`/proc/${pid}/stat`, "utf-8");
+        const stat2 = readFileSync39(`/proc/${pid}/stat`, "utf-8");
         const lastParen = stat2.lastIndexOf(")");
         if (lastParen === -1) return void 0;
         const fieldsAfterComm = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -45717,7 +45742,7 @@ var init_status = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync56, readFileSync as readFileSync52, rmSync as rmSync16, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync56, readFileSync as readFileSync53, rmSync as rmSync16, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname31, join as join55 } from "node:path";
 function allowedWorkflowDirs(cwd) {
   return [join55(projectCrewRoot(cwd), "workflows"), join55(userPiRoot(), "workflows"), join55(packageRoot(), "workflows")];
@@ -45789,7 +45814,7 @@ function handleWorkflowGet(params, ctx) {
   let source = "(static workflow \u2014 no script source)";
   if (isDynamic && wf.filePath && existsSync56(wf.filePath)) {
     try {
-      source = readFileSync52(wf.filePath, "utf-8").slice(0, 8e3);
+      source = readFileSync53(wf.filePath, "utf-8").slice(0, 8e3);
     } catch (error) {
       logInternalError("workflow-manage.get", error, `filePath=${wf.filePath}`);
     }
@@ -56382,7 +56407,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync70, mkdirSync as mkdirSync39, readFileSync as readFileSync64, unlinkSync as unlinkSync10 } from "node:fs";
+import { existsSync as existsSync70, mkdirSync as mkdirSync39, readFileSync as readFileSync65, unlinkSync as unlinkSync10 } from "node:fs";
 import { dirname as dirname35 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -56403,7 +56428,7 @@ var init_dwf_state_store = __esm({
         const path85 = this.path;
         try {
           if (!existsSync70(path85)) return void 0;
-          const raw = readFileSync64(path85, "utf-8");
+          const raw = readFileSync65(path85, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -57232,7 +57257,7 @@ var dynamic_workflow_runner_exports = {};
 __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
-import { readFileSync as readFileSync65 } from "node:fs";
+import { readFileSync as readFileSync66 } from "node:fs";
 import { join as join68 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
@@ -57258,7 +57283,7 @@ function resolveScriptPath(workflow, cwd) {
   );
 }
 async function loadWorkflowModule(scriptPath) {
-  const scriptSource = readFileSync65(scriptPath, "utf-8");
+  const scriptSource = readFileSync66(scriptPath, "utf-8");
   if (isDeterminismCheckEnabled()) {
     const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
@@ -57395,7 +57420,7 @@ async function runDynamicWorkflow(input) {
 }
 function readFinalArtifact(artifactPath) {
   try {
-    return readFileSync65(artifactPath, "utf-8");
+    return readFileSync66(artifactPath, "utf-8");
   } catch (error) {
     logInternalError("dynamic-workflow-runner.readFinal", error, `artifactPath=${artifactPath}`);
     return `(failed to read final artifact ${artifactPath})`;
@@ -68424,11 +68449,11 @@ init_pi_ui_compat();
 init_internal_error();
 
 // src/extension/crew-vibes/config.ts
-import { existsSync as existsSync76, mkdirSync as mkdirSync42, readFileSync as readFileSync71, writeFileSync as writeFileSync11 } from "node:fs";
+import { existsSync as existsSync76, mkdirSync as mkdirSync42, readFileSync as readFileSync72, writeFileSync as writeFileSync11 } from "node:fs";
 import { dirname as dirname37, join as join73 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync75, readFileSync as readFileSync70 } from "node:fs";
+import { existsSync as existsSync75, readFileSync as readFileSync71 } from "node:fs";
 import { homedir as homedir11, platform } from "node:os";
 import { join as join72 } from "node:path";
 function fontPath() {
@@ -68463,13 +68488,13 @@ function isWebTerminal() {
   try {
     let pid = process.pid;
     for (let i = 0; i < 6 && pid > 1; i++) {
-      const cgroup = readFileSync70(`/proc/${pid}/cgroup`, "utf8");
+      const cgroup = readFileSync71(`/proc/${pid}/cgroup`, "utf8");
       if (cgroup.includes("gotty") || cgroup.includes("wetty")) {
         _isWebTerminal = true;
         return true;
       }
       const match = cgroup.match(/\d+:.*:(.*)/);
-      const status = readFileSync70(`/proc/${pid}/status`, "utf8");
+      const status = readFileSync71(`/proc/${pid}/status`, "utf8");
       const ppid = status.match(/^PPid:\s+(\d+)/m);
       pid = ppid ? Number.parseInt(ppid[1], 10) : 1;
     }
@@ -68602,7 +68627,7 @@ function loadConfig2() {
   try {
     const path85 = configPath2();
     if (!existsSync76(path85)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync71(path85, "utf8")));
+    return normalizeConfig(JSON.parse(readFileSync72(path85, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -68986,7 +69011,7 @@ function createCrewVibesFooter(deps) {
 }
 
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync72 } from "node:fs";
+import { readFileSync as readFileSync73 } from "node:fs";
 import { homedir as homedir12 } from "node:os";
 import { join as join74 } from "node:path";
 function withTimeout(ms, fn) {
@@ -69001,7 +69026,7 @@ function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync72(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync73(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -69012,7 +69037,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync72(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync73(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -69023,7 +69048,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync72(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync73(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -69044,7 +69069,7 @@ function loadLegacyCopilotToken() {
   const candidates = [join74(configHome, "github-copilot", "hosts.json"), join74(homedir12(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync72(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync73(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -69065,7 +69090,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync72(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync73(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -71511,7 +71536,7 @@ import * as path78 from "node:path";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync78 } from "node:fs";
+import { readFileSync as readFileSync79 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -71555,7 +71580,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync78(filePath, "utf-8");
+    content = readFileSync79(filePath, "utf-8");
   } catch {
     return null;
   }
