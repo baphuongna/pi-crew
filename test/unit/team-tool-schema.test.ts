@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { RunDomainParams, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
 
 function walkSchema(node: unknown, visit: (node: Record<string, unknown>) => void): void {
 	if (!node || typeof node !== "object" || Array.isArray(node)) return;
@@ -29,7 +29,9 @@ test("team tool schema is strict-provider friendly", () => {
 });
 
 test("team tool flexible fields use explicit schema shapes", () => {
-	const properties = (TeamToolParams as { properties: Record<string, unknown> }).properties;
+	// API-5: TeamToolParams is now a Union of 5 domain schemas. All share the
+	// same field definitions, so we inspect the first variant (RunDomainParams).
+	const properties = (RunDomainParams as { properties: Record<string, unknown> }).properties;
 	const skill = properties.skill as { anyOf?: unknown[] };
 	const config = properties.config as {
 		type?: string;

@@ -106,6 +106,16 @@ import {
 	handleWorkflowSave,
 } from "./team-tool/workflow-manage.ts";
 
+// API-5 facade dispatch: domain routers replace the former 54-case switch.
+import {
+	domainForAction,
+	handleAutomateDomain,
+	handleControlDomain,
+	handleManageDomain,
+	handleRunDomain,
+	handleStatusDomain,
+} from "./team-tool/dispatch/index.ts";
+
 export { handleApi } from "./team-tool/api.ts";
 export { handleRetry } from "./team-tool/cancel.ts";
 export type { TeamContext } from "./team-tool/context.ts";
@@ -549,12 +559,12 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 	});
 }
 
-function cacheControlDepsFromContext(ctx: TeamContext): CacheControlDeps | undefined {
+export function cacheControlDepsFromContext(ctx: TeamContext): CacheControlDeps | undefined {
 	if (!ctx.getRunSnapshotCache) return undefined;
 	return { getRunSnapshotCache: ctx.getRunSnapshotCache };
 }
 
-function handleInvalidate(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+export function handleInvalidate(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	const runId = params.runId;
 	if (!runId) return result("Invalidate requires runId.", { action: "invalidate", status: "error" }, true);
 	const runCwd = locateRunCwd(runId, ctx.cwd);
@@ -611,7 +621,7 @@ export function locateRunCwd(runId: string, baseCwd: string): string | undefined
 	return undefined;
 }
 
-async function handleWait(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
+export async function handleWait(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const { runId } = params;
 	if (!runId) return result("wait requires runId.", { action: "wait", status: "error" }, true);
 
@@ -661,350 +671,19 @@ async function handleWait(params: TeamToolParamsValue, ctx: TeamContext): Promis
 
 export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const action = params.action ?? "list";
-	switch (action as string) {
-		case "list":
-			return handleList(params, ctx);
-		case "get":
-			return handleGet(params, ctx);
-		case "init": {
-			const cfg = configRecord(params.config);
-			const ignoreMethod =
-				typeof cfg.ignoreMethod === "string" && (cfg.ignoreMethod === "gitignore" || cfg.ignoreMethod === "exclude")
-					? cfg.ignoreMethod
-					: undefined;
-			const initialized = initializeProject(ctx.cwd, {
-				copyBuiltins: cfg.copyBuiltins === true,
-				overwrite: cfg.overwrite === true,
-				configScope:
-					cfg.configScope === "project" || cfg.scope === "project"
-						? "project"
-						: cfg.configScope === "none" || cfg.scope === "none"
-							? "none"
-							: "global",
-				ignoreMethod,
-			});
-			return result(
-				[
-					"Initialized pi-crew project layout.",
-					"Directories:",
-					...(initialized.createdDirs.length ? initialized.createdDirs.map((dir) => `- created ${dir}`) : ["- already existed"]),
-					"Copied builtin files:",
-					...(initialized.copiedFiles.length ? initialized.copiedFiles.map((file) => `- ${file}`) : ["- (none)"]),
-					...(initialized.skippedFiles.length
-						? ["Skipped existing files:", ...initialized.skippedFiles.map((file) => `- ${file}`)]
-						: []),
-					`Config: ${initialized.configPath || "(none)"} (${initialized.configScope}${initialized.configCreated ? "; created" : initialized.configSkipped ? "; already existed" : "; unchanged"})`,
-					`Ignore: ${initialized.gitignorePath} (${initialized.gitignoreUpdated ? "updated" : "already configured"})`,
-				].join("\n"),
-				{ action: "init", status: "ok" },
-			);
-		}
-		case "help":
-			return result(piTeamsHelp(), { action: "help", status: "ok" });
-		case "recommend": {
-			const goal = params.goal ?? params.task;
-			if (!goal) return result("Recommend requires goal or task.", { action: "recommend", status: "error" }, true);
-			const loaded = loadConfig(ctx.cwd);
-			const recommendation = recommendTeam(goal, loaded.config.autonomous, {
-				teams: allTeams(discoverTeams(ctx.cwd)),
-				agents: allAgents(discoverAgents(ctx.cwd)),
-			});
-			return result(formatRecommendation(goal, recommendation), {
-				action: "recommend",
-				status: "ok",
-			});
-		}
-		case "autonomy": {
-			const patch = autonomousPatchFromConfig(params.config);
-			const shouldUpdate = Object.values(patch).some((value) => value !== undefined);
-			if (!shouldUpdate) {
-				const loaded = loadConfig(ctx.cwd);
-				return result(
-					formatAutonomyStatus(loaded.config.autonomous, loaded.path, false),
-					{
-						action: "autonomy",
-						status: loaded.error ? "error" : "ok",
-					},
-					Boolean(loaded.error),
-				);
-			}
-			try {
-				const saved = updateAutonomousConfig(patch);
-				return result(formatAutonomyStatus(saved.config.autonomous, saved.path, true), { action: "autonomy", status: "ok" });
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				return result(message, { action: "autonomy", status: "error" }, true);
-			}
-		}
-		case "config": {
-			const patch = configPatchFromConfig(params.config);
-			const cfg = configRecord(params.config);
-			const unsetPaths = Array.isArray(cfg.unset)
-				? cfg.unset.filter((entry): entry is string => typeof entry === "string")
-				: typeof cfg.unset === "string"
-					? [cfg.unset]
-					: [];
-			const shouldUpdate = Object.values(patch).some((value) => value !== undefined) || unsetPaths.length > 0;
-			if (shouldUpdate) {
-				try {
-					const saved = updateConfig(patch, {
-						cwd: ctx.cwd,
-						scope: cfg.scope === "project" ? "project" : "user",
-						unsetPaths,
-					});
-					return result(
-						["Updated pi-crew config.", `Path: ${saved.path}`, "Effective config:", JSON.stringify(saved.config, null, 2)].join(
-							"\n",
-						),
-						{ action: "config", status: "ok" },
-					);
-				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					return result(message, { action: "config", status: "error" }, true);
-				}
-			}
-			const loaded = loadConfig(ctx.cwd);
-			const lines = [
-				"pi-crew config:",
-				`Path: ${loaded.path}`,
-				`Status: ${loaded.error ? `error: ${loaded.error}` : "ok"}`,
-				"Effective config:",
-				JSON.stringify(loaded.config, null, 2),
-				"Schema: package export ./schema.json",
-			];
-			return result(lines.join("\n"), { action: "config", status: loaded.error ? "error" : "ok" }, Boolean(loaded.error));
-		}
-		case "validate": {
-			const report = validateResources(ctx.cwd);
-			const hasErrors = report.issues.some((issue) => issue.level === "error");
-			return result(formatValidationReport(report), { action: "validate", status: hasErrors ? "error" : "ok" }, hasErrors);
-		}
-		case "doctor":
-			return handleDoctor(ctx, params);
-		case "cleanup":
-			return handleCleanup(params, ctx);
-		case "api":
-			return await handleApi(params, ctx);
-		case "events":
-			return handleEvents(params, ctx);
-		case "artifacts":
-			return handleArtifacts(params, ctx);
-		case "worktrees":
-			return handleWorktrees(params, ctx);
-		case "summary":
-			return handleSummary(params, ctx);
-		case "export":
-			return handleExport(params, ctx);
-		case "import":
-			return handleImport(params, ctx);
-		case "imports":
-			return handleImports(params, ctx);
-		case "settings":
-			return handleSettings(params, ctx);
-		case "prune":
-			return handlePrune(params, ctx);
-		case "forget":
-			return handleForget(params, ctx);
+	const domain = domainForAction(action);
+	switch (domain) {
 		case "run":
-			return handleRun(params, ctx);
+			return handleRunDomain(params, ctx);
 		case "status":
-			return handleStatus(params, ctx);
-		case "cancel":
-			return handleCancel(params, ctx, cacheControlDepsFromContext(ctx));
-		case "retry":
-			return handleRetry(params, ctx, cacheControlDepsFromContext(ctx));
-		case "invalidate":
-			return handleInvalidate(params, ctx);
-		case "respond":
-			return handleRespond(params, ctx);
-		case "parallel":
-			return await handleParallel(params, ctx);
-		case "plan":
-			return handlePlan(params, ctx);
-		case "orchestrate":
-			return handleOrchestrate(params, ctx);
-		case "resume":
-			return handleResume(params, ctx);
-		case "create":
-			return handleCreate(params, ctx);
-		case "update":
-			return handleUpdate(params, ctx);
-		case "delete":
-			return handleDelete(params, ctx);
-		case "steer":
-			return handleSteer(params, ctx);
-		case "health":
-			return handleHealthMonitor(ctx, params);
-		case "wait":
-			return handleWait(params, ctx);
-		case "graph": {
-			if (params.runId) {
-				assertSafePathId("runId", params.runId);
-				const graph = loadRunGraph(ctx.cwd, params.runId);
-				return result(
-					graph ? JSON.stringify(graph, null, 2) : "No graph found for this run.",
-					{ action: "graph", status: graph ? "ok" : "error" },
-					!graph,
-				);
-			}
-			const graphs = listRunGraphs(ctx.cwd);
-			return result(graphs.length ? `Available graphs:\n${graphs.join("\n")}` : "No graphs available.", {
-				action: "graph",
-				status: "ok",
-			});
-		}
-		case "search": {
-			const query = params.goal ?? params.task ?? "";
-			if (!query) {
-				return result("Search requires goal or task query.", { action: "search", status: "error" }, true);
-			}
-			try {
-				const [agentResults, teamResults] = await Promise.all([
-					searchAgents(query, { limit: 5 }),
-					searchTeams(query, { limit: 3 }),
-				]);
-				const lines: string[] = [];
-				if (teamResults.length) {
-					lines.push("## Teams");
-					for (const r of teamResults) {
-						lines.push(`- [${r.team.name}] score=${r.score.toFixed(2)}: ${r.team.description ?? "(no description)"}`);
-					}
-				}
-				if (agentResults.length) {
-					lines.push("## Agents");
-					for (const r of agentResults) {
-						lines.push(`- [${r.agent.name}] score=${r.score.toFixed(2)}: ${r.agent.description ?? "(no description)"}`);
-					}
-				}
-				return result(lines.length ? lines.join("\n") : "No results found.", { action: "search", status: "ok" });
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				return result(`Search failed: ${msg}`, { action: "search", status: "error" }, true);
-			}
-		}
-		case "schedule":
-			return handleSchedule(params, ctx);
-		case "scheduled":
-			return handleListScheduled(params, ctx);
-		case "anchor": {
-			const subAction = typeof params.config?.subAction === "string" ? params.config.subAction : "status";
-			switch (subAction) {
-				case "set":
-					return handleAnchorSet(params, ctx);
-				case "clear":
-					return handleAnchorClear(params, ctx);
-				case "accumulate":
-					return handleAnchorAccumulate(params, ctx);
-				default:
-					return handleAnchorStatus(params, ctx);
-			}
-		}
-		case "goal":
-			return handleGoal(params, ctx);
-		case "workflow-create":
-			return handleWorkflowCreate(params, ctx);
-		case "workflow-get":
-			return handleWorkflowGet(params, ctx);
-		case "workflow-list":
-			return handleWorkflowList(params, ctx);
-		case "workflow-save":
-			return handleWorkflowSave(params, ctx);
-		case "workflow-delete":
-			return handleWorkflowDelete(params, ctx);
-		case "auto-summarize":
-		case "auto_boomerang": {
-			const subAction =
-				typeof params.config?.subAction === "string"
-					? params.config.subAction
-					: (params.action as string) === "auto_boomerang"
-						? "toggle"
-						: "status";
-			switch (subAction) {
-				case "on":
-					return handleAutoSummarizeOn(params, ctx);
-				case "off":
-					return handleAutoSummarizeOff(params, ctx);
-				case "config":
-					return handleAutoSummarizeConfig(params, ctx);
-				case "toggle": {
-					const service = createAutoSummarizeService();
-					service.toggle();
-					return result(`Auto-summarize ${service.isEnabled() ? "enabled" : "disabled"}.`, {
-						action: "auto-summarize",
-						status: "ok",
-					});
-				}
-				default:
-					return handleAutoSummarizeStatus(params, ctx);
-			}
-		}
-		case "onboard": {
-			const team = params.team ?? "default";
-			const onboarding = buildTeamOnboarding(team, ctx.cwd);
-			return result(onboarding, { action: "onboard", status: "ok" });
-		}
-		case "explain": {
-			const explainResult = handleExplain(params, ctx.cwd);
-			return result(
-				explainResult.text,
-				{
-					action: "explain",
-					status: explainResult.isError ? "error" : "ok",
-				},
-				explainResult.isError,
-			);
-		}
-		case "cache": {
-			if (params.goal) {
-				const key = computeRunCacheKey(params.goal, params.team ?? "default", params.workflow ?? "default", ctx.cwd);
-				const cached = getCachedRun(ctx.cwd, key);
-				if (cached) {
-					return result(
-						`Cached run found (${new Date(cached.cachedAt).toISOString()}): runId=${cached.runId}, status=${cached.status}, ${cached.tasks.length} tasks`,
-						{
-							action: "cache",
-							status: "ok",
-							data: {
-								cacheKey: key,
-								cacheHit: true,
-								runId: cached.runId,
-								status: cached.status,
-								taskCount: cached.tasks.length,
-							},
-						},
-					);
-				}
-				return result(`No cached result for key: ${key}`, {
-					action: "cache",
-					status: "ok",
-					data: { cacheKey: key, cacheHit: false },
-				});
-			}
-			const stats = getCacheStats(ctx.cwd);
-			const skillStats = getSkillCacheStats();
-			return result(
-				`Run cache: ${stats.entries} entries, ${stats.sizeBytes} bytes\n` +
-					`Skill cache: ${skillStats.hits} hits, ${skillStats.misses} misses (${(skillStats.hitRate * 100).toFixed(1)}% hit rate), ${skillStats.currentSize}/${skillStats.maxEntries} entries, ${skillStats.evictions} evictions`,
-				{ action: "cache", status: "ok" },
-			);
-		}
-		case "checkpoint": {
-			if (!params.runId || !params.taskId) {
-				return result("Checkpoint requires runId and taskId.", { action: "checkpoint", status: "error" }, true);
-			}
-			assertSafePathId("runId", params.runId);
-			assertSafePathId("taskId", params.taskId);
-			const stateRoot = path.join(projectCrewRoot(ctx.cwd), "state", "runs", params.runId);
-			const store = new FileCheckpointStore(stateRoot);
-			const checkpoint = store.load(params.runId, params.taskId);
-			if (!checkpoint) {
-				return result("No checkpoint found.", { action: "checkpoint", status: "error" }, true);
-			}
-			return result(
-				`Checkpoint: step=${checkpoint.step}, progress=${checkpoint.progress}, savedAt=${new Date(checkpoint.savedAt).toISOString()}`,
-				{ action: "checkpoint", status: "ok", data: { checkpoint } },
-			);
-		}
+			return handleStatusDomain(params, ctx);
+		case "control":
+			return handleControlDomain(params, ctx);
+		case "manage":
+			return handleManageDomain(params, ctx);
+		case "automate":
+			return handleAutomateDomain(params, ctx);
+		case undefined:
 		default:
 			return result(
 				`Unknown action: ${action}${formatActionSuggestion(String(action))}`,

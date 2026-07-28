@@ -1,5 +1,13 @@
 import { Type } from "@sinclair/typebox";
 
+// ───────────────────────────────────────────────────────────────────────────
+// API-5 facade split: the 54-action mega-tool schema is split into 5 domain
+// schemas. Each domain owns a subset of the action union; all parameter fields
+// are shared across every variant so Phase 1 validation is identical to the
+// pre-split flat Object (additionalProperties: true → no tightening).
+// `TeamToolParams` is re-exported as a TypeBox Union for backward compat.
+// ───────────────────────────────────────────────────────────────────────────
+
 const SkillOverride = Type.Unsafe({
 	description:
 		"Skill name(s) to add to role/default skills, an array of skill names, or false to disable all injected skills for this run.",
@@ -20,68 +28,15 @@ const FreeformConfig = Type.Unsafe({
 	additionalProperties: true,
 });
 
-export const TeamToolParams = Type.Object({
-	action: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("run"),
-				Type.Literal("parallel"),
-				Type.Literal("plan"),
-				Type.Literal("status"),
-				Type.Literal("wait"),
-				Type.Literal("list"),
-				Type.Literal("get"),
-				Type.Literal("cancel"),
-				Type.Literal("retry"),
-				Type.Literal("resume"),
-				Type.Literal("respond"),
-				Type.Literal("create"),
-				Type.Literal("update"),
-				Type.Literal("delete"),
-				Type.Literal("doctor"),
-				Type.Literal("cleanup"),
-				Type.Literal("events"),
-				Type.Literal("artifacts"),
-				Type.Literal("worktrees"),
-				Type.Literal("forget"),
-				Type.Literal("summary"),
-				Type.Literal("prune"),
-				Type.Literal("export"),
-				Type.Literal("import"),
-				Type.Literal("imports"),
-				Type.Literal("help"),
-				Type.Literal("validate"),
-				Type.Literal("config"),
-				Type.Literal("init"),
-				Type.Literal("recommend"),
-				Type.Literal("autonomy"),
-				Type.Literal("api"),
-				Type.Literal("settings"),
-				Type.Literal("steer"),
-				Type.Literal("invalidate"),
-				Type.Literal("health"),
-				Type.Literal("graph"),
-				Type.Literal("onboard"),
-				Type.Literal("explain"),
-				Type.Literal("cache"),
-				Type.Literal("checkpoint"),
-				Type.Literal("search"),
-				Type.Literal("orchestrate"),
-				Type.Literal("schedule"),
-				Type.Literal("scheduled"),
-				Type.Literal("anchor"),
-				Type.Literal("auto-summarize"),
-				Type.Literal("auto_boomerang"),
-				Type.Literal("goal"),
-				Type.Literal("workflow-create"),
-				Type.Literal("workflow-get"),
-				Type.Literal("workflow-list"),
-				Type.Literal("workflow-save"),
-				Type.Literal("workflow-delete"),
-			],
-			{ description: "Team action. Defaults to 'list' when omitted." },
-		),
-	),
+/**
+ * All optional parameter fields shared across every domain schema.
+ *
+ * Phase 1 (API-5): every field appears in every domain variant so validation
+ * is byte-for-byte identical to the pre-split flat Object — no field is
+ * dropped or loosened. Phase 2 may tighten per-domain field membership once
+ * characterization tests lock the surface.
+ */
+const sharedFields = {
 	resource: Type.Optional(
 		Type.Union([Type.Literal("agent"), Type.Literal("team"), Type.Literal("workflow")], {
 			description: "Resource kind for get/create/update/delete/list. Defaults to all for list.",
@@ -216,7 +171,6 @@ export const TeamToolParams = Type.Object({
 			description: "Mark certain bash commands as excludeFromContext to reduce context tokens (default: false).",
 		}),
 	),
-	// Budget tracking options
 	budgetTotal: Type.Optional(
 		Type.Number({
 			description:
@@ -260,10 +214,6 @@ export const TeamToolParams = Type.Object({
 		}),
 	),
 	args: Type.Optional(
-		// round-14 P1-5: typed workflow arguments. Type.Any() generates an empty {} schema
-		// (matches any JSON value) which is strict-provider friendly — no array type union.
-		// Description lives in the JSDoc / TeamToolParamsValue below to avoid the
-		// "description-only schema" strict-provider check.
 		Type.Any(),
 	),
 	analysis: Type.Optional(
@@ -285,7 +235,148 @@ export const TeamToolParams = Type.Object({
 				"Sub-focus for the doctor action. 'zombies' runs a READ-ONLY scan for orphaned pi-crew sub-agent processes (identified by PI_CREW_KIND=subagent); it never kills and never matches the user's interactive main session.",
 		}),
 	),
-});
+};
+
+// ─── Domain action unions (9+16+7+16+6 = 54 actions) ───────────────────────
+
+const ACTION_DESCRIPTION = "Team action. Defaults to 'list' when omitted.";
+
+const runActions = Type.Optional(
+	Type.Union(
+		[
+			Type.Literal("run"),
+			Type.Literal("parallel"),
+			Type.Literal("plan"),
+			Type.Literal("orchestrate"),
+			Type.Literal("resume"),
+			Type.Literal("retry"),
+			Type.Literal("wait"),
+			Type.Literal("steer"),
+			Type.Literal("goal"),
+		],
+		{ description: ACTION_DESCRIPTION },
+	),
+);
+
+const statusActions = Type.Optional(
+	Type.Union(
+		[
+			Type.Literal("status"),
+			Type.Literal("list"),
+			Type.Literal("get"),
+			Type.Literal("events"),
+			Type.Literal("artifacts"),
+			Type.Literal("summary"),
+			Type.Literal("graph"),
+			Type.Literal("search"),
+			Type.Literal("health"),
+			Type.Literal("worktrees"),
+			Type.Literal("checkpoint"),
+			Type.Literal("cache"),
+			Type.Literal("explain"),
+			Type.Literal("onboard"),
+			Type.Literal("recommend"),
+			Type.Literal("help"),
+		],
+		{ description: ACTION_DESCRIPTION },
+	),
+);
+
+const controlActions = Type.Optional(
+	Type.Union(
+		[
+			Type.Literal("cancel"),
+			Type.Literal("invalidate"),
+			Type.Literal("respond"),
+			Type.Literal("cleanup"),
+			Type.Literal("prune"),
+			Type.Literal("forget"),
+			Type.Literal("doctor"),
+		],
+		{ description: ACTION_DESCRIPTION },
+	),
+);
+
+const manageActions = Type.Optional(
+	Type.Union(
+		[
+			Type.Literal("create"),
+			Type.Literal("update"),
+			Type.Literal("delete"),
+			Type.Literal("init"),
+			Type.Literal("config"),
+			Type.Literal("validate"),
+			Type.Literal("autonomy"),
+			Type.Literal("settings"),
+			Type.Literal("workflow-create"),
+			Type.Literal("workflow-get"),
+			Type.Literal("workflow-list"),
+			Type.Literal("workflow-save"),
+			Type.Literal("workflow-delete"),
+			Type.Literal("import"),
+			Type.Literal("imports"),
+			Type.Literal("export"),
+		],
+		{ description: ACTION_DESCRIPTION },
+	),
+);
+
+const automateActions = Type.Optional(
+	Type.Union(
+		[
+			Type.Literal("schedule"),
+			Type.Literal("scheduled"),
+			Type.Literal("anchor"),
+			Type.Literal("auto-summarize"),
+			Type.Literal("auto_boomerang"),
+			Type.Literal("api"),
+		],
+		{ description: ACTION_DESCRIPTION },
+	),
+);
+
+// ─── Domain schemas (additionalProperties: true — Phase 1, not tightened) ────
+
+export const RunDomainParams = Type.Object(
+	{ action: runActions, ...sharedFields },
+	{ additionalProperties: true },
+);
+
+export const StatusDomainParams = Type.Object(
+	{ action: statusActions, ...sharedFields },
+	{ additionalProperties: true },
+);
+
+export const ControlDomainParams = Type.Object(
+	{ action: controlActions, ...sharedFields },
+	{ additionalProperties: true },
+);
+
+export const ManageDomainParams = Type.Object(
+	{ action: manageActions, ...sharedFields },
+	{ additionalProperties: true },
+);
+
+export const AutomateDomainParams = Type.Object(
+	{ action: automateActions, ...sharedFields },
+	{ additionalProperties: true },
+);
+
+/**
+ * Backward-compatible re-export: Union of all 5 domain schemas.
+ * Replaces the former flat 54-action Object — validation surface is identical
+ * (all fields optional in every variant, additionalProperties: true).
+ */
+export const TeamToolParams = Type.Union([
+	RunDomainParams,
+	StatusDomainParams,
+	ControlDomainParams,
+	ManageDomainParams,
+	AutomateDomainParams,
+]);
+
+/** Domain discriminator for the facade dispatch. */
+export type TeamDomain = "run" | "status" | "control" | "manage" | "automate";
 
 export interface TeamToolParamsValue {
 	action?:
