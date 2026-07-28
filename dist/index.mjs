@@ -53857,6 +53857,345 @@ async function selectDispatchBatch(ctx) {
   }
   return { kind: "dispatch", batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled };
 }
+async function dispatchBatch(ctx, decision2) {
+  const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = decision2;
+  const { workflow, input, runtimeKind, runController } = ctx;
+  void appendEventBuffered(ctx.manifest.eventsPath, {
+    type: "task.progress",
+    runId: ctx.manifest.runId,
+    message: `Starting ready batch with ${readyBatch.length} task(s).`,
+    data: {
+      taskIds: readyBatch.map((task) => task.id),
+      readyCount: snapshot.ready.length,
+      blockedCount: snapshot.blocked.length,
+      runningCount: snapshot.running.length,
+      doneCount: snapshot.done.length,
+      selectedCount: readyBatch.length,
+      maxConcurrent: concurrency.maxConcurrent,
+      defaultConcurrency: concurrency.defaultConcurrency,
+      concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason
+    }
+  });
+  for (const task of readyBatch) {
+    const taskReport = await executeHook("before_task_start", {
+      runId: ctx.manifest.runId,
+      taskId: task.id,
+      cwd: ctx.manifest.cwd
+    });
+    appendHookEvent(ctx.manifest, taskReport);
+    if (taskReport.outcome === "block") {
+      ctx.tasks = ctx.tasks.map(
+        (t2) => t2.id === task.id ? {
+          ...t2,
+          status: "skipped",
+          error: taskReport.reason ?? "before_task_start hook blocked execution."
+        } : t2
+      );
+      ctx.manifest = updateRunStatus(ctx.manifest, ctx.manifest.status, `Task '${task.id}' blocked by hook.`);
+    }
+  }
+  const batchTasks = readyBatch.filter((task) => ctx.tasks.find((t2) => t2.id === task.id && t2.status !== "skipped"));
+  if (batchTasks.length > 1) {
+    await appendEventAsync(ctx.manifest.eventsPath, {
+      type: "task.parallel_start",
+      runId: ctx.manifest.runId,
+      message: `Launching ${batchTasks.length} tasks in PARALLEL (concurrency=${concurrency.selectedCount}): ${batchTasks.map((t2) => `${t2.role}(${t2.id})`).join(", ")}`,
+      data: {
+        taskIds: batchTasks.map((t2) => t2.id),
+        roles: batchTasks.map((t2) => t2.role),
+        concurrency: concurrency.selectedCount
+      }
+    });
+  }
+  const coalescedGroups = planCoalescedGroups(
+    batchTasks.map((t2) => t2.id),
+    ctx.tasks,
+    workflow,
+    coalesceEnabled
+  );
+  const dispatchUnits = buildDispatchUnits(
+    batchTasks.map((t2) => t2.id),
+    coalescedGroups
+  );
+  if (batchTasks.length > 1) {
+    const seenCwds = /* @__PURE__ */ new Set();
+    await Promise.all(
+      batchTasks.filter((task) => {
+        if (seenCwds.has(task.cwd)) return false;
+        seenCwds.add(task.cwd);
+        return true;
+      }).map((task) => {
+        const step = findStep(workflow, task);
+        return computeStablePrefixComponents(ctx.manifest, step, task);
+      })
+    );
+  }
+  const dispatchUnit = async (unit) => {
+    if (unit.kind === "group") {
+      const groupTasks = unit.group.tasks;
+      const firstTask = groupTasks[0];
+      const step2 = findStep(workflow, firstTask);
+      const agent2 = findAgent(input.agents, firstTask);
+      const teamRole2 = input.team.roles.find((role) => role.name === firstTask.role);
+      const perTaskRuntime2 = resolveTaskRuntimeKind(runtimeKind, firstTask.role, input.runtimeConfig?.isolationPolicy);
+      return runCoalescedTaskGroup({
+        manifest: ctx.manifest,
+        tasks: ctx.tasks,
+        groupTasks,
+        step: step2,
+        agent: agent2,
+        signal: runController.signal,
+        executeWorkers: input.executeWorkers,
+        runtimeKind,
+        workspaceId: input.workspaceId,
+        onJsonEvent: input.onJsonEvent,
+        teamRole: teamRole2,
+        perTaskRuntime: perTaskRuntime2
+      });
+    }
+    const task = batchTasks.find((t2) => t2.id === unit.taskId);
+    const step = findStep(workflow, task);
+    const agent = findAgent(input.agents, task);
+    const teamRole = input.team.roles.find((role) => role.name === task.role);
+    const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
+    const policy = retryPolicyFromConfig(input.reliability);
+    const spawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
+    const baseInput = {
+      manifest: ctx.manifest,
+      tasks: ctx.tasks,
+      task,
+      step,
+      agent,
+      signal: runController.signal,
+      executeWorkers: input.executeWorkers,
+      runtimeKind,
+      taskRuntimeOverride: perTaskRuntime !== runtimeKind ? perTaskRuntime : void 0,
+      runtimeConfig: input.runtimeConfig,
+      parentContext: input.parentContext,
+      parentModel: input.parentModel,
+      modelRegistry: input.modelRegistry,
+      modelOverride: input.modelOverride,
+      teamRoleModel: teamRole?.model,
+      teamRoleSkills: teamRole?.skills,
+      skillOverride: input.skillOverride,
+      limits: input.limits,
+      onJsonEvent: input.onJsonEvent,
+      workspaceId: input.workspaceId,
+      spawnBudget
+    };
+    if (!shouldUseRetry(input.reliability))
+      return withCorrelation(childCorrelation(ctx.manifest.runId, task.id), () => runTeamTask(baseInput));
+    let lastFailed;
+    let lastAttemptId;
+    const attemptsSoFar = [...task.attempts ?? []];
+    try {
+      return await executeWithRetry(
+        async (attempt, info2) => {
+          const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+          const inFlightAttempts = [...attemptsSoFar, { attemptId: info2.attemptId, startedAt }];
+          input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({
+            runId: ctx.manifest.runId,
+            taskId: task.id
+          });
+          const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+          const freshManifest = fresh?.manifest ?? ctx.manifest;
+          const freshTasks = fresh?.tasks ?? ctx.tasks;
+          const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+          if (freshTask.status !== "queued" && freshTask.status !== "running")
+            return {
+              manifest: freshManifest,
+              tasks: freshTasks
+            };
+          const taskWithAttempt = {
+            ...freshTask,
+            attempts: inFlightAttempts
+          };
+          const result4 = await withCorrelation(
+            childCorrelation(freshManifest.runId, task.id),
+            () => runTeamTask({
+              ...baseInput,
+              manifest: freshManifest,
+              tasks: freshTasks,
+              task: taskWithAttempt
+            })
+          );
+          const failed = failedTaskFrom(result4, task.id);
+          const endedAt = (/* @__PURE__ */ new Date()).toISOString();
+          const finishedAttempt = {
+            attemptId: info2.attemptId,
+            startedAt,
+            endedAt,
+            ...failed?.error ? { error: failed.error } : {}
+          };
+          attemptsSoFar.push(finishedAttempt);
+          const withAttempt = result4.tasks.map(
+            (item) => item.id === task.id ? { ...item, attempts: [...attemptsSoFar] } : item
+          );
+          const enriched = {
+            manifest: result4.manifest,
+            tasks: withAttempt
+          };
+          if (failed) {
+            lastFailed = enriched;
+            throw new CrewError(ErrorCode.TaskNotFound, failed.error ?? `Task ${task.id} failed.`).withContext(
+              `retry evaluation (run=${ctx.manifest.runId})`
+            );
+          }
+          input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
+            {
+              runId: ctx.manifest.runId,
+              team: input.team.name
+            },
+            Math.max(0, attempt - 1)
+          );
+          return enriched;
+        },
+        policy,
+        {
+          signal: runController.signal,
+          attemptId: (attempt) => `${ctx.manifest.runId}:${task.id}:attempt-${attempt}`,
+          onAttemptFailed: (attempt, error, delayMs, info2) => {
+            lastAttemptId = info2.attemptId;
+            appendEventAsync(ctx.manifest.eventsPath, {
+              type: "crew.task.retry_attempt",
+              runId: ctx.manifest.runId,
+              taskId: task.id,
+              message: error.message,
+              data: {
+                attempt,
+                attemptId: info2.attemptId,
+                delayMs
+              },
+              metadata: { attemptId: info2.attemptId }
+            }).catch((error2) => logInternalError("team-runner.retry-attempt", error2, `taskId=${task.id}`));
+            input.metricRegistry?.histogram("crew.task.retry_delay_ms", "Retry backoff delay, milliseconds").observe(
+              {
+                runId: ctx.manifest.runId,
+                taskId: task.id
+              },
+              delayMs
+            );
+          },
+          onRetryGivenUp: (attempts, error, info2) => {
+            lastAttemptId = info2.attemptId;
+            appendDeadletter(ctx.manifest, {
+              runId: ctx.manifest.runId,
+              taskId: task.id,
+              reason: "max-retries",
+              attempts,
+              attemptId: info2.attemptId,
+              lastError: error.message,
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            });
+            input.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "max-retries" });
+            input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
+              {
+                runId: ctx.manifest.runId,
+                team: input.team.name
+              },
+              Math.max(0, attempts - 1)
+            );
+          }
+        }
+      );
+    } catch (retryError) {
+      if (retryError instanceof CrewCancellationError || input.signal?.aborted) {
+        const reason = retryError instanceof CrewCancellationError ? retryError.reason : cancellationReasonFromSignal(input.signal);
+        const fresh2 = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+        const freshManifest2 = fresh2?.manifest ?? ctx.manifest;
+        const freshTasks2 = fresh2?.tasks ?? ctx.tasks;
+        const cancelledTasks = freshTasks2.map(
+          (item) => item.id === task.id && (item.status === "queued" || item.status === "running") ? {
+            ...item,
+            status: "cancelled",
+            finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            error: `${reason.message} (${reason.code})`
+          } : item
+        );
+        appendEventAsync(freshManifest2.eventsPath, {
+          type: "task.cancelled",
+          runId: freshManifest2.runId,
+          taskId: task.id,
+          message: reason.message,
+          data: { reason, phase: "retry" },
+          metadata: lastAttemptId ? { attemptId: lastAttemptId } : void 0
+        }).catch((error) => logInternalError("team-runner.cancelled", error, `taskId=${task.id}`));
+        return {
+          manifest: updateRunStatus(freshManifest2, "cancelled", reason.message),
+          tasks: cancelledTasks
+        };
+      }
+      if (lastFailed) return lastFailed;
+      const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+      const freshManifest = fresh?.manifest ?? ctx.manifest;
+      const freshTasks = fresh?.tasks ?? ctx.tasks;
+      const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+      if (freshTask.status !== "queued" && freshTask.status !== "running") return { manifest: freshManifest, tasks: freshTasks };
+      return withCorrelation(
+        childCorrelation(freshManifest.runId, task.id),
+        () => runTeamTask({
+          ...baseInput,
+          manifest: freshManifest,
+          tasks: freshTasks,
+          task: freshTask
+        })
+      );
+    }
+  };
+  for (const unit of dispatchUnits) {
+    const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
+    const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t2) => t2.id);
+    ctx.pendingUnits.set(unitKey, {
+      taskIds: unitTaskIds,
+      promise: dispatchUnit(unit)
+    });
+  }
+}
+async function mergeUnitResult(ctx) {
+  const settled = await Promise.race(
+    [...ctx.pendingUnits.entries()].map(async ([key, pending2]) => {
+      try {
+        const result4 = await pending2.promise;
+        return {
+          unitKey: key,
+          result: result4,
+          error: void 0
+        };
+      } catch (error) {
+        return { unitKey: key, result: void 0, error: error instanceof Error ? error : new Error(String(error)) };
+      }
+    })
+  );
+  const completedUnit = ctx.pendingUnits.get(settled.unitKey);
+  ctx.pendingUnits.delete(settled.unitKey);
+  const resultToMerge = settled.result ?? {
+    manifest: ctx.manifest,
+    tasks: ctx.tasks.map(
+      (t2) => completedUnit.taskIds.includes(t2.id) ? { ...t2, status: "failed", error: settled.error.message, finishedAt: (/* @__PURE__ */ new Date()).toISOString() } : t2
+    )
+  };
+  const validResults = [resultToMerge];
+  const mergeResult = await withRunLock(ctx.manifest, async () => {
+    flushPendingAtomicWrites();
+    const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+    const diskManifest = disk?.manifest ?? ctx.manifest;
+    const diskArtifacts = diskManifest.artifacts;
+    const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
+    const resultManifest = updateRunStatus(
+      { ...diskManifest, artifacts: reconciledArtifacts },
+      "running",
+      "Merged task updates from parallel batch."
+    );
+    const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+    await saveRunManifestAsync(resultManifest);
+    await saveRunTasksAsync(resultManifest, resultTasks);
+    return { resultManifest, resultTasks };
+  });
+  ctx.manifest = mergeResult.resultManifest;
+  ctx.tasks = mergeResult.resultTasks;
+  ctx.settledMerge = { taskIds: completedUnit.taskIds, result: resultToMerge };
+  return null;
+}
 async function executeTeamRunCore(input, manifest, workflow) {
   const beforeRunReport = await executeHook("before_run_start", {
     runId: manifest.runId,
@@ -53938,12 +54277,18 @@ async function executeTeamRunCore(input, manifest, workflow) {
     runController,
     runtimeKind,
     adaptivePlanInjected,
-    adaptivePlanMissing
+    adaptivePlanMissing,
+    settledMerge: null
   };
   try {
     while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
       ctx.tasks = tasks;
       ctx.manifest = manifest;
+      ctx.workflow = workflow;
+      ctx.wfMachine = wfMachine;
+      ctx.queueIndex = queueIndex;
+      ctx.adaptivePlanInjected = adaptivePlanInjected;
+      ctx.adaptivePlanMissing = adaptivePlanMissing;
       const signalDecision = await cancelRunFromSignal(ctx);
       if (signalDecision?.kind === "return") return signalDecision.result;
       ctx.tasks = tasks;
@@ -53962,342 +54307,19 @@ async function executeTeamRunCore(input, manifest, workflow) {
       wfMachine = ctx.wfMachine;
       if (dispatchDecision.kind === "return") return dispatchDecision.result;
       if (dispatchDecision.kind !== "dispatch") continue;
-      const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = dispatchDecision;
-      void appendEventBuffered(manifest.eventsPath, {
-        type: "task.progress",
-        runId: manifest.runId,
-        message: `Starting ready batch with ${readyBatch.length} task(s).`,
-        data: {
-          taskIds: readyBatch.map((task) => task.id),
-          readyCount: snapshot.ready.length,
-          blockedCount: snapshot.blocked.length,
-          runningCount: snapshot.running.length,
-          doneCount: snapshot.done.length,
-          selectedCount: readyBatch.length,
-          maxConcurrent: concurrency.maxConcurrent,
-          defaultConcurrency: concurrency.defaultConcurrency,
-          concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason
-        }
-      });
-      for (const task of readyBatch) {
-        const taskReport = await executeHook("before_task_start", {
-          runId: manifest.runId,
-          taskId: task.id,
-          cwd: manifest.cwd
-        });
-        appendHookEvent(manifest, taskReport);
-        if (taskReport.outcome === "block") {
-          tasks = tasks.map(
-            (t2) => t2.id === task.id ? {
-              ...t2,
-              status: "skipped",
-              error: taskReport.reason ?? "before_task_start hook blocked execution."
-            } : t2
-          );
-          manifest = updateRunStatus(manifest, manifest.status, `Task '${task.id}' blocked by hook.`);
-        }
-      }
-      const batchTasks = readyBatch.filter((task) => tasks.find((t2) => t2.id === task.id && t2.status !== "skipped"));
-      if (batchTasks.length > 1) {
-        await appendEventAsync(manifest.eventsPath, {
-          type: "task.parallel_start",
-          runId: manifest.runId,
-          message: `Launching ${batchTasks.length} tasks in PARALLEL (concurrency=${concurrency.selectedCount}): ${batchTasks.map((t2) => `${t2.role}(${t2.id})`).join(", ")}`,
-          data: {
-            taskIds: batchTasks.map((t2) => t2.id),
-            roles: batchTasks.map((t2) => t2.role),
-            concurrency: concurrency.selectedCount
-          }
-        });
-      }
-      const coalescedGroups = planCoalescedGroups(
-        batchTasks.map((t2) => t2.id),
-        tasks,
-        workflow,
-        coalesceEnabled
-      );
-      const dispatchUnits = buildDispatchUnits(
-        batchTasks.map((t2) => t2.id),
-        coalescedGroups
-      );
-      if (batchTasks.length > 1) {
-        const seenCwds = /* @__PURE__ */ new Set();
-        await Promise.all(
-          batchTasks.filter((task) => {
-            if (seenCwds.has(task.cwd)) return false;
-            seenCwds.add(task.cwd);
-            return true;
-          }).map((task) => {
-            const step = findStep(workflow, task);
-            return computeStablePrefixComponents(manifest, step, task);
-          })
-        );
-      }
-      const dispatchUnit = async (unit) => {
-        if (unit.kind === "group") {
-          const groupTasks = unit.group.tasks;
-          const firstTask = groupTasks[0];
-          const step2 = findStep(workflow, firstTask);
-          const agent2 = findAgent(input.agents, firstTask);
-          const teamRole2 = input.team.roles.find((role) => role.name === firstTask.role);
-          const perTaskRuntime2 = resolveTaskRuntimeKind(runtimeKind, firstTask.role, input.runtimeConfig?.isolationPolicy);
-          return runCoalescedTaskGroup({
-            manifest,
-            tasks,
-            groupTasks,
-            step: step2,
-            agent: agent2,
-            signal: runController.signal,
-            executeWorkers: input.executeWorkers,
-            runtimeKind,
-            workspaceId: input.workspaceId,
-            onJsonEvent: input.onJsonEvent,
-            teamRole: teamRole2,
-            perTaskRuntime: perTaskRuntime2
-          });
-        }
-        const task = batchTasks.find((t2) => t2.id === unit.taskId);
-        const step = findStep(workflow, task);
-        const agent = findAgent(input.agents, task);
-        const teamRole = input.team.roles.find((role) => role.name === task.role);
-        const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
-        const policy = retryPolicyFromConfig(input.reliability);
-        const spawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
-        const baseInput = {
-          manifest,
-          tasks,
-          task,
-          step,
-          agent,
-          signal: runController.signal,
-          executeWorkers: input.executeWorkers,
-          runtimeKind,
-          taskRuntimeOverride: perTaskRuntime !== runtimeKind ? perTaskRuntime : void 0,
-          runtimeConfig: input.runtimeConfig,
-          parentContext: input.parentContext,
-          parentModel: input.parentModel,
-          modelRegistry: input.modelRegistry,
-          modelOverride: input.modelOverride,
-          teamRoleModel: teamRole?.model,
-          teamRoleSkills: teamRole?.skills,
-          skillOverride: input.skillOverride,
-          limits: input.limits,
-          onJsonEvent: input.onJsonEvent,
-          workspaceId: input.workspaceId,
-          spawnBudget
-        };
-        if (!shouldUseRetry(input.reliability))
-          return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
-        let lastFailed;
-        let lastAttemptId;
-        const attemptsSoFar = [...task.attempts ?? []];
-        try {
-          return await executeWithRetry(
-            async (attempt, info2) => {
-              const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-              const inFlightAttempts = [...attemptsSoFar, { attemptId: info2.attemptId, startedAt }];
-              input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({
-                runId: manifest.runId,
-                taskId: task.id
-              });
-              const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
-              const freshManifest = fresh?.manifest ?? manifest;
-              const freshTasks = fresh?.tasks ?? tasks;
-              const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
-              if (freshTask.status !== "queued" && freshTask.status !== "running")
-                return {
-                  manifest: freshManifest,
-                  tasks: freshTasks
-                };
-              const taskWithAttempt = {
-                ...freshTask,
-                attempts: inFlightAttempts
-              };
-              const result4 = await withCorrelation(
-                childCorrelation(freshManifest.runId, task.id),
-                () => runTeamTask({
-                  ...baseInput,
-                  manifest: freshManifest,
-                  tasks: freshTasks,
-                  task: taskWithAttempt
-                })
-              );
-              const failed2 = failedTaskFrom(result4, task.id);
-              const endedAt = (/* @__PURE__ */ new Date()).toISOString();
-              const finishedAttempt = {
-                attemptId: info2.attemptId,
-                startedAt,
-                endedAt,
-                ...failed2?.error ? { error: failed2.error } : {}
-              };
-              attemptsSoFar.push(finishedAttempt);
-              const withAttempt = result4.tasks.map(
-                (item) => item.id === task.id ? { ...item, attempts: [...attemptsSoFar] } : item
-              );
-              const enriched = {
-                manifest: result4.manifest,
-                tasks: withAttempt
-              };
-              if (failed2) {
-                lastFailed = enriched;
-                throw new CrewError(ErrorCode.TaskNotFound, failed2.error ?? `Task ${task.id} failed.`).withContext(
-                  `retry evaluation (run=${manifest.runId})`
-                );
-              }
-              input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
-                {
-                  runId: manifest.runId,
-                  team: input.team.name
-                },
-                Math.max(0, attempt - 1)
-              );
-              return enriched;
-            },
-            policy,
-            {
-              signal: runController.signal,
-              attemptId: (attempt) => `${manifest.runId}:${task.id}:attempt-${attempt}`,
-              onAttemptFailed: (attempt, error, delayMs, info2) => {
-                lastAttemptId = info2.attemptId;
-                appendEventAsync(manifest.eventsPath, {
-                  type: "crew.task.retry_attempt",
-                  runId: manifest.runId,
-                  taskId: task.id,
-                  message: error.message,
-                  data: {
-                    attempt,
-                    attemptId: info2.attemptId,
-                    delayMs
-                  },
-                  metadata: { attemptId: info2.attemptId }
-                }).catch((error2) => logInternalError("team-runner.retry-attempt", error2, `taskId=${task.id}`));
-                input.metricRegistry?.histogram("crew.task.retry_delay_ms", "Retry backoff delay, milliseconds").observe(
-                  {
-                    runId: manifest.runId,
-                    taskId: task.id
-                  },
-                  delayMs
-                );
-              },
-              onRetryGivenUp: (attempts, error, info2) => {
-                lastAttemptId = info2.attemptId;
-                appendDeadletter(manifest, {
-                  runId: manifest.runId,
-                  taskId: task.id,
-                  reason: "max-retries",
-                  attempts,
-                  attemptId: info2.attemptId,
-                  lastError: error.message,
-                  timestamp: (/* @__PURE__ */ new Date()).toISOString()
-                });
-                input.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "max-retries" });
-                input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
-                  {
-                    runId: manifest.runId,
-                    team: input.team.name
-                  },
-                  Math.max(0, attempts - 1)
-                );
-              }
-            }
-          );
-        } catch (retryError) {
-          if (retryError instanceof CrewCancellationError || input.signal?.aborted) {
-            const reason = retryError instanceof CrewCancellationError ? retryError.reason : cancellationReasonFromSignal(input.signal);
-            const fresh2 = loadRunManifestById(manifest.cwd, manifest.runId);
-            const freshManifest2 = fresh2?.manifest ?? manifest;
-            const freshTasks2 = fresh2?.tasks ?? tasks;
-            const cancelledTasks = freshTasks2.map(
-              (item) => item.id === task.id && (item.status === "queued" || item.status === "running") ? {
-                ...item,
-                status: "cancelled",
-                finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-                error: `${reason.message} (${reason.code})`
-              } : item
-            );
-            appendEventAsync(freshManifest2.eventsPath, {
-              type: "task.cancelled",
-              runId: freshManifest2.runId,
-              taskId: task.id,
-              message: reason.message,
-              data: { reason, phase: "retry" },
-              metadata: lastAttemptId ? { attemptId: lastAttemptId } : void 0
-            }).catch((error) => logInternalError("team-runner.cancelled", error, `taskId=${task.id}`));
-            return {
-              manifest: updateRunStatus(freshManifest2, "cancelled", reason.message),
-              tasks: cancelledTasks
-            };
-          }
-          if (lastFailed) return lastFailed;
-          const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
-          const freshManifest = fresh?.manifest ?? manifest;
-          const freshTasks = fresh?.tasks ?? tasks;
-          const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
-          if (freshTask.status !== "queued" && freshTask.status !== "running")
-            return { manifest: freshManifest, tasks: freshTasks };
-          return withCorrelation(
-            childCorrelation(freshManifest.runId, task.id),
-            () => runTeamTask({
-              ...baseInput,
-              manifest: freshManifest,
-              tasks: freshTasks,
-              task: freshTask
-            })
-          );
-        }
-      };
-      for (const unit of dispatchUnits) {
-        const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
-        const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t2) => t2.id);
-        pendingUnits.set(unitKey, {
-          taskIds: unitTaskIds,
-          promise: dispatchUnit(unit)
-        });
-      }
-      if (pendingUnits.size === 0) continue;
-      const settled = await Promise.race(
-        [...pendingUnits.entries()].map(async ([key, pending2]) => {
-          try {
-            const result4 = await pending2.promise;
-            return {
-              unitKey: key,
-              result: result4,
-              error: void 0
-            };
-          } catch (error) {
-            return { unitKey: key, result: void 0, error: error instanceof Error ? error : new Error(String(error)) };
-          }
-        })
-      );
-      const completedUnit = pendingUnits.get(settled.unitKey);
-      pendingUnits.delete(settled.unitKey);
-      const resultToMerge = settled.result ?? {
-        manifest,
-        tasks: tasks.map(
-          (t2) => completedUnit.taskIds.includes(t2.id) ? { ...t2, status: "failed", error: settled.error.message, finishedAt: (/* @__PURE__ */ new Date()).toISOString() } : t2
-        )
-      };
-      const validResults = [resultToMerge];
-      const mergeResult = await withRunLock(manifest, async () => {
-        flushPendingAtomicWrites();
-        const disk = loadRunManifestById(manifest.cwd, manifest.runId);
-        const diskManifest = disk?.manifest ?? manifest;
-        const diskArtifacts = diskManifest.artifacts;
-        const reconciledArtifacts = mergeArtifacts(
-          [...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat()
-        );
-        const resultManifest = updateRunStatus(
-          { ...diskManifest, artifacts: reconciledArtifacts },
-          "running",
-          "Merged task updates from parallel batch."
-        );
-        const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? tasks, validResults);
-        await saveRunManifestAsync(resultManifest);
-        await saveRunTasksAsync(resultManifest, resultTasks);
-        return { resultManifest, resultTasks };
-      });
-      manifest = mergeResult.resultManifest;
-      tasks = mergeResult.resultTasks;
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      await dispatchBatch(ctx, dispatchDecision);
+      tasks = ctx.tasks;
+      manifest = ctx.manifest;
+      if (ctx.pendingUnits.size === 0) continue;
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      const mergeDecision = await mergeUnitResult(ctx);
+      tasks = ctx.tasks;
+      manifest = ctx.manifest;
+      if (mergeDecision?.kind === "return") return mergeDecision.result;
+      const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge;
       const terminalStatuses = /* @__PURE__ */ new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
       const phaseTaskMap = /* @__PURE__ */ new Map();
       for (const task of tasks) {
@@ -54463,10 +54485,10 @@ async function executeTeamRunCore(input, manifest, workflow) {
       }
       await saveRunTasksAsync(manifest, tasks);
       saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-      const completedBatch = tasks.filter((t2) => completedUnit.taskIds.includes(t2.id));
+      const completedBatch = tasks.filter((t2) => settledTaskIds.includes(t2.id));
       const batchArtifact = writeArtifact(manifest.artifactsRoot, {
         kind: "summary",
-        relativePath: `batches/${completedUnit.taskIds.join("+")}.md`,
+        relativePath: `batches/${settledTaskIds.join("+")}.md`,
         producer: "team-runner",
         content: aggregateTaskOutputs(completedBatch, manifest)
       });

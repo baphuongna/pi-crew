@@ -980,6 +980,10 @@ interface SchedulerContext {
 	runtimeKind: CrewRuntimeKind;
 	adaptivePlanInjected: boolean;
 	adaptivePlanMissing: boolean;
+	/** Outcome of the most recent mergeUnitResult call: the settled unit's
+	 * taskIds and the merged result object. Read by the post-merge inline
+	 * logic (cancel-during-exec check + batch summary). Set by extraction 5. */
+	settledMerge: { taskIds: string[]; result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } } | null;
 }
 
 /**
@@ -1297,6 +1301,463 @@ async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDeci
 	return { kind: "dispatch", batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled };
 }
 
+/** Dispatch decision variant returned by selectDispatchBatch. */
+type DispatchBatchDecision = Extract<SchedulerDecision, { kind: "dispatch" }>;
+
+/**
+ * CORE-4 extraction 4: execute the dispatch batch selected by
+ * selectDispatchBatch.
+ *
+ * Runs before_task_start hooks (skipping blocked tasks), builds coalesced
+ * dispatch units, pre-warms the stable-prefix cache for unique cwds, and
+ * dispatches each unit into ctx.pendingUnits as a fire-and-forget promise
+ * (wrapped in executeWithRetry on the singleton path). The function is a
+ * verbatim lift of the inline dispatch block; it does not return a
+ * SchedulerDecision (void — it only populates ctx.pendingUnits).
+ *
+ * Reads ctx.manifest/tasks/workflow/input + runController.signal. Mutates
+ * ctx.pendingUnits (add), ctx.tasks (hook skips), ctx.manifest (hook
+ * status). The mutable manifest/tasks are accessed via ctx.* (not captured
+ * locals) so that async retry callbacks observe the caller's re-synced
+ * values, matching the original closure semantics.
+ *
+ * @param ctx       The scheduler context.
+ * @param decision  The dispatch decision from selectDispatchBatch.
+ */
+async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecision): Promise<void> {
+	const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = decision;
+	// Immutable context fields captured once; manifest/tasks are accessed via
+	// ctx.* because they may be re-synced by the caller between dispatch and
+	// promise resolution (retry callbacks fire asynchronously).
+	const { workflow, input, runtimeKind, runController } = ctx;
+
+	// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
+	void appendEventBuffered(ctx.manifest.eventsPath, {
+		type: "task.progress",
+		runId: ctx.manifest.runId,
+		message: `Starting ready batch with ${readyBatch.length} task(s).`,
+		data: {
+			taskIds: readyBatch.map((task) => task.id),
+			readyCount: snapshot.ready.length,
+			blockedCount: snapshot.blocked.length,
+			runningCount: snapshot.running.length,
+			doneCount: snapshot.done.length,
+			selectedCount: readyBatch.length,
+			maxConcurrent: concurrency.maxConcurrent,
+			defaultConcurrency: concurrency.defaultConcurrency,
+			concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason,
+		},
+	});
+	// Execute before_task_start hooks for the batch
+	for (const task of readyBatch) {
+		const taskReport = await executeHook("before_task_start", {
+			runId: ctx.manifest.runId,
+			taskId: task.id,
+			cwd: ctx.manifest.cwd,
+		});
+		appendHookEvent(ctx.manifest, taskReport);
+		if (taskReport.outcome === "block") {
+			ctx.tasks = ctx.tasks.map((t) =>
+				t.id === task.id
+					? {
+							...t,
+							status: "skipped" as const,
+							error: taskReport.reason ?? "before_task_start hook blocked execution.",
+						}
+					: t,
+			);
+			ctx.manifest = updateRunStatus(ctx.manifest, ctx.manifest.status, `Task '${task.id}' blocked by hook.`);
+		}
+	}
+	const batchTasks = readyBatch.filter((task) => ctx.tasks.find((t) => t.id === task.id && t.status !== "skipped"));
+	if (batchTasks.length > 1) {
+		await appendEventAsync(ctx.manifest.eventsPath, {
+			type: "task.parallel_start",
+			runId: ctx.manifest.runId,
+			message: `Launching ${batchTasks.length} tasks in PARALLEL (concurrency=${concurrency.selectedCount}): ${batchTasks.map((t) => `${t.role}(${t.id})`).join(", ")}`,
+			data: {
+				taskIds: batchTasks.map((t) => t.id),
+				roles: batchTasks.map((t) => t.role),
+				concurrency: concurrency.selectedCount,
+			},
+		});
+	}
+
+	// M6 real dispatch: when coalesceMicroTasks is enabled, batch the
+	// ready tasks into dispatch units. Multi-task groups are dispatched
+	// as one worker (single cold-start) instead of N. Singletons fall
+	// through to per-task dispatch.
+	const coalescedGroups = planCoalescedGroups(
+		batchTasks.map((t) => t.id),
+		ctx.tasks,
+		workflow,
+		coalesceEnabled,
+	);
+	const dispatchUnits = buildDispatchUnits(
+		batchTasks.map((t) => t.id),
+		coalescedGroups,
+	);
+
+	// NEW-M1: Pre-warm stable prefix cache for one representative task
+	// per unique cwd. Parallel siblings with the same cwd/step reuse
+	// the cached workspace tree, file retrieval, and knowledge fragment
+	// instead of recomputing them independently (~200-800ms per batch).
+	if (batchTasks.length > 1) {
+		const seenCwds = new Set<string>();
+		await Promise.all(
+			batchTasks
+				.filter((task) => {
+					if (seenCwds.has(task.cwd)) return false;
+					seenCwds.add(task.cwd);
+					return true;
+				})
+				.map((task) => {
+					const step = findStep(workflow, task);
+					return computeStablePrefixComponents(ctx.manifest, step, task);
+				}),
+		);
+	}
+
+	// ── OPT-01 streaming dispatch: dispatch each unit into ctx.pendingUnits
+	// instead of awaiting the entire batch via mapConcurrent. Each unit's
+	// promise is stored so we can Promise.race on the next iteration. ──
+	const dispatchUnit = async (unit: DispatchUnit): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> => {
+		// M6 real dispatch path: single worker for N tasks.
+		if (unit.kind === "group") {
+			const groupTasks = unit.group.tasks;
+			const firstTask = groupTasks[0]!;
+			const step = findStep(workflow, firstTask);
+			const agent = findAgent(input.agents, firstTask);
+			const teamRole = input.team.roles.find((role) => role.name === firstTask.role);
+			const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, firstTask.role, input.runtimeConfig?.isolationPolicy);
+			return runCoalescedTaskGroup({
+				manifest: ctx.manifest,
+				tasks: ctx.tasks,
+				groupTasks,
+				step,
+				agent,
+				signal: runController.signal,
+				executeWorkers: input.executeWorkers,
+				runtimeKind,
+				workspaceId: input.workspaceId,
+				onJsonEvent: input.onJsonEvent,
+				teamRole,
+				perTaskRuntime,
+			});
+		}
+		// Singleton path: original per-task dispatch.
+		const task = batchTasks.find((t) => t.id === unit.taskId)!;
+		const step = findStep(workflow, task);
+		const agent = findAgent(input.agents, task);
+		const teamRole = input.team.roles.find((role) => role.name === task.role);
+		const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
+		// CORE-3: compute retry policy + spawn budget ONCE per dispatch unit.
+		// The spawnBudget object is shared (by reference) across every
+		// runTeamTask call within executeWithRetry via baseInput spread,
+		// so the counter accumulates across retry attempts × model fallbacks.
+		const policy = retryPolicyFromConfig(input.reliability);
+		const spawnBudget: SpawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
+		const baseInput = {
+			manifest: ctx.manifest,
+			tasks: ctx.tasks,
+			task,
+			step,
+			agent,
+			signal: runController.signal,
+			executeWorkers: input.executeWorkers,
+			runtimeKind: runtimeKind,
+			taskRuntimeOverride: perTaskRuntime !== runtimeKind ? perTaskRuntime : undefined,
+			runtimeConfig: input.runtimeConfig,
+			parentContext: input.parentContext,
+			parentModel: input.parentModel,
+			modelRegistry: input.modelRegistry,
+			modelOverride: input.modelOverride,
+			teamRoleModel: teamRole?.model,
+			teamRoleSkills: teamRole?.skills,
+			skillOverride: input.skillOverride,
+			limits: input.limits,
+			onJsonEvent: input.onJsonEvent,
+			workspaceId: input.workspaceId,
+			spawnBudget,
+		};
+		// #1 (assessment): autoRetry now defaults ON (opt-out via reliability.autoRetry=false).
+		// The dominant v0.9.13 failure was ChildTimeout ("worker became unresponsive") with
+		// ZERO retries because this gate was opt-in. isRetryable() defaults to true when
+		// retryableErrors is empty, so transient hangs now retry up to maxAttempts (3) with
+		// exponential backoff. Set reliability.autoRetry=false to restore old single-shot behavior.
+		if (!shouldUseRetry(input.reliability))
+			return withCorrelation(childCorrelation(ctx.manifest.runId, task.id), () => runTeamTask(baseInput));
+		let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
+		let lastAttemptId: string | undefined;
+		const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];
+		try {
+			return await executeWithRetry(
+				async (attempt, info) => {
+					const startedAt = new Date().toISOString();
+					const inFlightAttempts: TaskAttemptState[] = [...attemptsSoFar, { attemptId: info.attemptId, startedAt }];
+					input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({
+						runId: ctx.manifest.runId,
+						taskId: task.id,
+					});
+					// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
+					const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+					const freshManifest = fresh?.manifest ?? ctx.manifest;
+					const freshTasks = fresh?.tasks ?? ctx.tasks;
+					const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+					if (freshTask.status !== "queued" && freshTask.status !== "running")
+						return {
+							manifest: freshManifest,
+							tasks: freshTasks,
+						};
+					const taskWithAttempt: TeamTaskState = {
+						...freshTask,
+						attempts: inFlightAttempts,
+					};
+					const result = await withCorrelation(childCorrelation(freshManifest.runId, task.id), () =>
+						runTeamTask({
+							...baseInput,
+							manifest: freshManifest,
+							tasks: freshTasks,
+							task: taskWithAttempt,
+						}),
+					);
+					const failed = failedTaskFrom(result, task.id);
+					const endedAt = new Date().toISOString();
+					const finishedAttempt: TaskAttemptState = {
+						attemptId: info.attemptId,
+						startedAt,
+						endedAt,
+						...(failed?.error ? { error: failed.error } : {}),
+					};
+					attemptsSoFar.push(finishedAttempt);
+					const withAttempt = result.tasks.map((item) =>
+						item.id === task.id ? { ...item, attempts: [...attemptsSoFar] } : item,
+					);
+					const enriched = {
+						manifest: result.manifest,
+						tasks: withAttempt,
+					};
+					if (failed) {
+						lastFailed = enriched;
+						throw new CrewError(ErrorCode.TaskNotFound, failed.error ?? `Task ${task.id} failed.`).withContext(
+							`retry evaluation (run=${ctx.manifest.runId})`,
+						);
+					}
+					input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
+						{
+							runId: ctx.manifest.runId,
+							team: input.team.name,
+						},
+						Math.max(0, attempt - 1),
+					);
+					return enriched;
+				},
+				policy,
+				{
+					signal: runController.signal,
+					attemptId: (attempt) => `${ctx.manifest.runId}:${task.id}:attempt-${attempt}`,
+					onAttemptFailed: (attempt, error, delayMs, info) => {
+						lastAttemptId = info.attemptId;
+						appendEventAsync(ctx.manifest.eventsPath, {
+							type: "crew.task.retry_attempt",
+							runId: ctx.manifest.runId,
+							taskId: task.id,
+							message: error.message,
+							data: {
+								attempt,
+								attemptId: info.attemptId,
+								delayMs,
+							},
+							metadata: { attemptId: info.attemptId },
+						}).catch((error) => logInternalError("team-runner.retry-attempt", error, `taskId=${task.id}`));
+						input.metricRegistry?.histogram("crew.task.retry_delay_ms", "Retry backoff delay, milliseconds").observe(
+							{
+								runId: ctx.manifest.runId,
+								taskId: task.id,
+							},
+							delayMs,
+						);
+					},
+					onRetryGivenUp: (attempts, error, info) => {
+						lastAttemptId = info.attemptId;
+						appendDeadletter(ctx.manifest, {
+							runId: ctx.manifest.runId,
+							taskId: task.id,
+							reason: "max-retries",
+							attempts,
+							attemptId: info.attemptId,
+							lastError: error.message,
+							timestamp: new Date().toISOString(),
+						});
+						input.metricRegistry
+							?.counter("crew.task.deadletter_total", "Deadletter triggers by reason")
+							.inc({ reason: "max-retries" });
+						input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
+							{
+								runId: ctx.manifest.runId,
+								team: input.team.name,
+							},
+							Math.max(0, attempts - 1),
+						);
+					},
+				},
+			);
+		} catch (retryError) {
+			if (retryError instanceof CrewCancellationError || input.signal?.aborted) {
+				const reason = retryError instanceof CrewCancellationError ? retryError.reason : cancellationReasonFromSignal(input.signal);
+				// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
+				const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+				const freshManifest = fresh?.manifest ?? ctx.manifest;
+				const freshTasks = fresh?.tasks ?? ctx.tasks;
+				const cancelledTasks = freshTasks.map((item) =>
+					item.id === task.id && (item.status === "queued" || item.status === "running")
+						? {
+								...item,
+								status: "cancelled" as const,
+								finishedAt: new Date().toISOString(),
+								error: `${reason.message} (${reason.code})`,
+							}
+						: item,
+				);
+				appendEventAsync(freshManifest.eventsPath, {
+					type: "task.cancelled",
+					runId: freshManifest.runId,
+					taskId: task.id,
+					message: reason.message,
+					data: { reason, phase: "retry" },
+					metadata: lastAttemptId ? { attemptId: lastAttemptId } : undefined,
+				}).catch((error) => logInternalError("team-runner.cancelled", error, `taskId=${task.id}`));
+				return {
+					manifest: updateRunStatus(freshManifest, "cancelled", reason.message),
+					tasks: cancelledTasks,
+				};
+			}
+			if (lastFailed) return lastFailed;
+			// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
+			const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+			const freshManifest = fresh?.manifest ?? ctx.manifest;
+			const freshTasks = fresh?.tasks ?? ctx.tasks;
+			const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+			if (freshTask.status !== "queued" && freshTask.status !== "running") return { manifest: freshManifest, tasks: freshTasks };
+			return withCorrelation(childCorrelation(freshManifest.runId, task.id), () =>
+				runTeamTask({
+					...baseInput,
+					manifest: freshManifest,
+					tasks: freshTasks,
+					task: freshTask,
+				}),
+			);
+		}
+	};
+	// ── OPT-01 streaming dispatch: dispatch units into ctx.pendingUnits ──
+	for (const unit of dispatchUnits) {
+		const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
+		const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t) => t.id);
+		ctx.pendingUnits.set(unitKey, {
+			taskIds: unitTaskIds,
+			promise: dispatchUnit(unit),
+		});
+	}
+}
+
+/**
+ * CORE-4 extraction 5: wait for one in-flight dispatch unit to settle and
+ * merge its result into the run state.
+ *
+ * Awaits Promise.race on ctx.pendingUnits; the first settled unit is merged
+ * into ctx.manifest/tasks under the run lock (flushPendingAtomicWrites +
+ * loadRunManifestById + mergeTaskUpdatesPreservingTerminal + save). The settled
+ * unit is then deleted from ctx.pendingUnits, and the merge outcome (taskIds
+ * + result object) is recorded on ctx.settledMerge for the post-merge inline
+ * logic (cancel-during-exec check + batch summary).
+ *
+ * Returns null to continue to the phase/budget check. A `{ kind: "return" }`
+ * decision is reserved for future run-complete/failure detection during merge.
+ *
+ * Reads ctx.pendingUnits/manifest/tasks. Mutates ctx.pendingUnits (delete),
+ * ctx.manifest/tasks, ctx.settledMerge.
+ *
+ * @param ctx  The scheduler context.
+ */
+async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
+	// Wait for ONE in-flight unit to complete. Promise.race returns as soon
+	// as the first wrapper resolves — others remain pending in ctx.pendingUnits
+	// and are re-raced on the next iteration.
+	const settled = await Promise.race(
+		[...ctx.pendingUnits.entries()].map(async ([key, pending]) => {
+			try {
+				const result = await pending.promise;
+				return {
+					unitKey: key,
+					result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined,
+					error: undefined as Error | undefined,
+				};
+			} catch (error) {
+				return { unitKey: key, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
+			}
+		}),
+	);
+	const completedUnit = ctx.pendingUnits.get(settled.unitKey)!;
+	ctx.pendingUnits.delete(settled.unitKey);
+
+	// Build the single result to merge. On rejection, synthesize a failed
+	// result so the run continues (mirrors the old validResults guard).
+	const resultToMerge: { manifest: TeamRunManifest; tasks: TeamTaskState[] } = settled.result ?? {
+		manifest: ctx.manifest,
+		tasks: ctx.tasks.map((t) =>
+			completedUnit.taskIds.includes(t.id)
+				? { ...t, status: "failed" as const, error: settled.error!.message, finishedAt: new Date().toISOString() }
+				: t,
+		),
+	};
+	const validResults = [resultToMerge];
+	// Reconstruct manifest from the last worker's snapshot. The .artifacts field
+	// is re-merged from both the team-runner's in-memory state and all workers'
+	// snapshots, so artifact writes by task-runner (which individually save manifest
+	// after writing artifacts) are safely persisted. The in-memory manifest is only
+	// used for the next batch iteration's orchestration — actual persistence is safe.
+	// Use updateRunStatus to recompute manifest status from merged tasks rather than
+	// relying on the last result's manifest (which is arbitrary due to mapConcurrent
+	// returning results in arbitrary order).
+	// Use the in-memory manifest as base (not the last-completing worker's snapshot).
+	// Recompute status from merged tasks so the manifest reflects actual task state,
+	// not the arbitrary order in which mapConcurrent returned results.
+	// Read committed manifest from disk inside the lock so artifact merge is based
+	// on committed state, not in-memory state that may differ from disk.
+	const mergeResult = await withRunLock(ctx.manifest, async () => {
+		// NEW-D1: flush any pending coalesced atomic writes before reading from
+		// disk. Without this, a worker's async manifest save (coalesced by
+		// atomic-write) may not be committed yet, causing a lost-update on the
+		// merge read. flushPendingAtomicWrites forces all queued writes to disk.
+		flushPendingAtomicWrites();
+		const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+		const diskManifest = disk?.manifest ?? ctx.manifest;
+		const diskArtifacts = diskManifest.artifacts;
+		const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
+		const resultManifest = updateRunStatus(
+			{ ...diskManifest, artifacts: reconciledArtifacts },
+			"running",
+			"Merged task updates from parallel batch.",
+		);
+		// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
+		// of the in-memory `tasks` closure variable. The in-memory tasks reflect
+		// only team-runner's view; an external cancel (handleCancel, background
+		// race with SIGTERM arriving after cancel wrote but before merge ran)
+		// writes 'cancelled' to disk.tasks — using disk.tasks as base preserves
+		// that cancellation through the merge instead of overwriting it with the
+		// stale in-memory view. disk was loaded inside this lock, so it reflects
+		// the freshest committed state.
+		const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+		await saveRunManifestAsync(resultManifest);
+		await saveRunTasksAsync(resultManifest, resultTasks);
+		return { resultManifest, resultTasks };
+	});
+	ctx.manifest = mergeResult.resultManifest;
+	ctx.tasks = mergeResult.resultTasks;
+	ctx.settledMerge = { taskIds: completedUnit.taskIds, result: resultToMerge };
+	return null;
+}
+
 async function executeTeamRunCore(
 	input: ExecuteTeamRunInput,
 	manifest: TeamRunManifest,
@@ -1402,16 +1863,27 @@ async function executeTeamRunCore(
 		runtimeKind,
 		adaptivePlanInjected,
 		adaptivePlanMissing,
+		settledMerge: null,
 	};
 
 	// CORE-1: single drain point — all early returns + normal exit settle pendingUnits via finally block.
 	try {
 		while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
-			// CORE-4 extraction 1: signal-abort cancellation. Sync mutable
-			// locals into ctx before the call; cancelRunFromSignal mutates
-			// ctx in-place and returns a SchedulerDecision.
+			// CORE-4: full sync of mutable closure locals → ctx at the top of every
+			// iteration. The inline post-merge block (adaptive plan re-injection,
+			// phase advance, queueIndex rebuild) mutates these locals; without this
+			// sync the extracted functions (selectDispatchBatch / dispatchBatch /
+			// mergeUnitResult) would read stale ctx fields — e.g. ctx.workflow
+			// missing newly-injected adaptive steps → E006 step-not-found.
 			ctx.tasks = tasks;
 			ctx.manifest = manifest;
+			ctx.workflow = workflow;
+			ctx.wfMachine = wfMachine;
+			ctx.queueIndex = queueIndex;
+			ctx.adaptivePlanInjected = adaptivePlanInjected;
+			ctx.adaptivePlanMissing = adaptivePlanMissing;
+			// CORE-4 extraction 1: signal-abort cancellation. cancelRunFromSignal
+			// mutates ctx in-place and returns a SchedulerDecision.
 			const signalDecision = await cancelRunFromSignal(ctx);
 			if (signalDecision?.kind === "return") return signalDecision.result;
 
@@ -1439,418 +1911,38 @@ async function executeTeamRunCore(
 			wfMachine = ctx.wfMachine;
 			if (dispatchDecision.kind === "return") return dispatchDecision.result;
 			if (dispatchDecision.kind !== "dispatch") continue;
-			const { batch: readyBatch, concurrency, snapshot, approvalPending, coalesceEnabled } = dispatchDecision;
-
-			// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
-			void appendEventBuffered(manifest.eventsPath, {
-				type: "task.progress",
-				runId: manifest.runId,
-				message: `Starting ready batch with ${readyBatch.length} task(s).`,
-				data: {
-					taskIds: readyBatch.map((task) => task.id),
-					readyCount: snapshot.ready.length,
-					blockedCount: snapshot.blocked.length,
-					runningCount: snapshot.running.length,
-					doneCount: snapshot.done.length,
-					selectedCount: readyBatch.length,
-					maxConcurrent: concurrency.maxConcurrent,
-					defaultConcurrency: concurrency.defaultConcurrency,
-					concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason,
-				},
-			});
-			// Execute before_task_start hooks for the batch
-			for (const task of readyBatch) {
-				const taskReport = await executeHook("before_task_start", {
-					runId: manifest.runId,
-					taskId: task.id,
-					cwd: manifest.cwd,
-				});
-				appendHookEvent(manifest, taskReport);
-				if (taskReport.outcome === "block") {
-					tasks = tasks.map((t) =>
-						t.id === task.id
-							? {
-									...t,
-									status: "skipped" as const,
-									error: taskReport.reason ?? "before_task_start hook blocked execution.",
-								}
-							: t,
-					);
-					manifest = updateRunStatus(manifest, manifest.status, `Task '${task.id}' blocked by hook.`);
-				}
-			}
-			const batchTasks = readyBatch.filter((task) => tasks.find((t) => t.id === task.id && t.status !== "skipped"));
-			if (batchTasks.length > 1) {
-				await appendEventAsync(manifest.eventsPath, {
-					type: "task.parallel_start",
-					runId: manifest.runId,
-					message: `Launching ${batchTasks.length} tasks in PARALLEL (concurrency=${concurrency.selectedCount}): ${batchTasks.map((t) => `${t.role}(${t.id})`).join(", ")}`,
-					data: {
-						taskIds: batchTasks.map((t) => t.id),
-						roles: batchTasks.map((t) => t.role),
-						concurrency: concurrency.selectedCount,
-					},
-				});
-			}
-
-			// M6 real dispatch: when coalesceMicroTasks is enabled, batch the
-			// ready tasks into dispatch units. Multi-task groups are dispatched
-			// as one worker (single cold-start) instead of N. Singletons fall
-			// through to per-task dispatch.
-			const coalescedGroups = planCoalescedGroups(
-				batchTasks.map((t) => t.id),
-				tasks,
-				workflow,
-				coalesceEnabled,
-			);
-			const dispatchUnits = buildDispatchUnits(
-				batchTasks.map((t) => t.id),
-				coalescedGroups,
-			);
-
-			// NEW-M1: Pre-warm stable prefix cache for one representative task
-			// per unique cwd. Parallel siblings with the same cwd/step reuse
-			// the cached workspace tree, file retrieval, and knowledge fragment
-			// instead of recomputing them independently (~200-800ms per batch).
-			if (batchTasks.length > 1) {
-				const seenCwds = new Set<string>();
-				await Promise.all(
-					batchTasks
-						.filter((task) => {
-							if (seenCwds.has(task.cwd)) return false;
-							seenCwds.add(task.cwd);
-							return true;
-						})
-						.map((task) => {
-							const step = findStep(workflow, task);
-							return computeStablePrefixComponents(manifest, step, task);
-						}),
-				);
-			}
-
-			// ── OPT-01 streaming dispatch: dispatch each unit into pendingUnits
-			// instead of awaiting the entire batch via mapConcurrent. Each unit's
-			// promise is stored so we can Promise.race on the next iteration. ──
-			const dispatchUnit = async (unit: DispatchUnit): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> => {
-				// M6 real dispatch path: single worker for N tasks.
-				if (unit.kind === "group") {
-					const groupTasks = unit.group.tasks;
-					const firstTask = groupTasks[0]!;
-					const step = findStep(workflow, firstTask);
-					const agent = findAgent(input.agents, firstTask);
-					const teamRole = input.team.roles.find((role) => role.name === firstTask.role);
-					const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, firstTask.role, input.runtimeConfig?.isolationPolicy);
-					return runCoalescedTaskGroup({
-						manifest,
-						tasks,
-						groupTasks,
-						step,
-						agent,
-						signal: runController.signal,
-						executeWorkers: input.executeWorkers,
-						runtimeKind,
-						workspaceId: input.workspaceId,
-						onJsonEvent: input.onJsonEvent,
-						teamRole,
-						perTaskRuntime,
-					});
-				}
-				// Singleton path: original per-task dispatch.
-				const task = batchTasks.find((t) => t.id === unit.taskId)!;
-				const step = findStep(workflow, task);
-				const agent = findAgent(input.agents, task);
-				const teamRole = input.team.roles.find((role) => role.name === task.role);
-				const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
-				// CORE-3: compute retry policy + spawn budget ONCE per dispatch unit.
-				// The spawnBudget object is shared (by reference) across every
-				// runTeamTask call within executeWithRetry via baseInput spread,
-				// so the counter accumulates across retry attempts × model fallbacks.
-				const policy = retryPolicyFromConfig(input.reliability);
-				const spawnBudget: SpawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
-				const baseInput = {
-					manifest,
-					tasks,
-					task,
-					step,
-					agent,
-					signal: runController.signal,
-					executeWorkers: input.executeWorkers,
-					runtimeKind: runtimeKind,
-					taskRuntimeOverride: perTaskRuntime !== runtimeKind ? perTaskRuntime : undefined,
-					runtimeConfig: input.runtimeConfig,
-					parentContext: input.parentContext,
-					parentModel: input.parentModel,
-					modelRegistry: input.modelRegistry,
-					modelOverride: input.modelOverride,
-					teamRoleModel: teamRole?.model,
-					teamRoleSkills: teamRole?.skills,
-					skillOverride: input.skillOverride,
-					limits: input.limits,
-					onJsonEvent: input.onJsonEvent,
-					workspaceId: input.workspaceId,
-					spawnBudget,
-				};
-				// #1 (assessment): autoRetry now defaults ON (opt-out via reliability.autoRetry=false).
-				// The dominant v0.9.13 failure was ChildTimeout ("worker became unresponsive") with
-				// ZERO retries because this gate was opt-in. isRetryable() defaults to true when
-				// retryableErrors is empty, so transient hangs now retry up to maxAttempts (3) with
-				// exponential backoff. Set reliability.autoRetry=false to restore old single-shot behavior.
-				if (!shouldUseRetry(input.reliability))
-					return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
-				let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
-				let lastAttemptId: string | undefined;
-				const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];
-				try {
-					return await executeWithRetry(
-						async (attempt, info) => {
-							const startedAt = new Date().toISOString();
-							const inFlightAttempts: TaskAttemptState[] = [...attemptsSoFar, { attemptId: info.attemptId, startedAt }];
-							input.metricRegistry?.counter("crew.task.retry_attempt_total", "Retry attempts by run and task").inc({
-								runId: manifest.runId,
-								taskId: task.id,
-							});
-							// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
-							const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
-							const freshManifest = fresh?.manifest ?? manifest;
-							const freshTasks = fresh?.tasks ?? tasks;
-							const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
-							if (freshTask.status !== "queued" && freshTask.status !== "running")
-								return {
-									manifest: freshManifest,
-									tasks: freshTasks,
-								};
-							const taskWithAttempt: TeamTaskState = {
-								...freshTask,
-								attempts: inFlightAttempts,
-							};
-							const result = await withCorrelation(childCorrelation(freshManifest.runId, task.id), () =>
-								runTeamTask({
-									...baseInput,
-									manifest: freshManifest,
-									tasks: freshTasks,
-									task: taskWithAttempt,
-								}),
-							);
-							const failed = failedTaskFrom(result, task.id);
-							const endedAt = new Date().toISOString();
-							const finishedAttempt: TaskAttemptState = {
-								attemptId: info.attemptId,
-								startedAt,
-								endedAt,
-								...(failed?.error ? { error: failed.error } : {}),
-							};
-							attemptsSoFar.push(finishedAttempt);
-							const withAttempt = result.tasks.map((item) =>
-								item.id === task.id ? { ...item, attempts: [...attemptsSoFar] } : item,
-							);
-							const enriched = {
-								manifest: result.manifest,
-								tasks: withAttempt,
-							};
-							if (failed) {
-								lastFailed = enriched;
-								throw new CrewError(ErrorCode.TaskNotFound, failed.error ?? `Task ${task.id} failed.`).withContext(
-									`retry evaluation (run=${manifest.runId})`,
-								);
-							}
-							input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
-								{
-									runId: manifest.runId,
-									team: input.team.name,
-								},
-								Math.max(0, attempt - 1),
-							);
-							return enriched;
-						},
-						policy,
-						{
-							signal: runController.signal,
-							attemptId: (attempt) => `${manifest.runId}:${task.id}:attempt-${attempt}`,
-							onAttemptFailed: (attempt, error, delayMs, info) => {
-								lastAttemptId = info.attemptId;
-								appendEventAsync(manifest.eventsPath, {
-									type: "crew.task.retry_attempt",
-									runId: manifest.runId,
-									taskId: task.id,
-									message: error.message,
-									data: {
-										attempt,
-										attemptId: info.attemptId,
-										delayMs,
-									},
-									metadata: { attemptId: info.attemptId },
-								}).catch((error) => logInternalError("team-runner.retry-attempt", error, `taskId=${task.id}`));
-								input.metricRegistry?.histogram("crew.task.retry_delay_ms", "Retry backoff delay, milliseconds").observe(
-									{
-										runId: manifest.runId,
-										taskId: task.id,
-									},
-									delayMs,
-								);
-							},
-							onRetryGivenUp: (attempts, error, info) => {
-								lastAttemptId = info.attemptId;
-								appendDeadletter(manifest, {
-									runId: manifest.runId,
-									taskId: task.id,
-									reason: "max-retries",
-									attempts,
-									attemptId: info.attemptId,
-									lastError: error.message,
-									timestamp: new Date().toISOString(),
-								});
-								input.metricRegistry
-									?.counter("crew.task.deadletter_total", "Deadletter triggers by reason")
-									.inc({ reason: "max-retries" });
-								input.metricRegistry?.histogram("crew.task.retry_count", "Retries per task", [0, 1, 2, 3, 5, 10]).observe(
-									{
-										runId: manifest.runId,
-										team: input.team.name,
-									},
-									Math.max(0, attempts - 1),
-								);
-							},
-						},
-					);
-				} catch (retryError) {
-					if (retryError instanceof CrewCancellationError || input.signal?.aborted) {
-						const reason =
-							retryError instanceof CrewCancellationError ? retryError.reason : cancellationReasonFromSignal(input.signal);
-						// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
-						const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
-						const freshManifest = fresh?.manifest ?? manifest;
-						const freshTasks = fresh?.tasks ?? tasks;
-						const cancelledTasks = freshTasks.map((item) =>
-							item.id === task.id && (item.status === "queued" || item.status === "running")
-								? {
-										...item,
-										status: "cancelled" as const,
-										finishedAt: new Date().toISOString(),
-										error: `${reason.message} (${reason.code})`,
-									}
-								: item,
-						);
-						appendEventAsync(freshManifest.eventsPath, {
-							type: "task.cancelled",
-							runId: freshManifest.runId,
-							taskId: task.id,
-							message: reason.message,
-							data: { reason, phase: "retry" },
-							metadata: lastAttemptId ? { attemptId: lastAttemptId } : undefined,
-						}).catch((error) => logInternalError("team-runner.cancelled", error, `taskId=${task.id}`));
-						return {
-							manifest: updateRunStatus(freshManifest, "cancelled", reason.message),
-							tasks: cancelledTasks,
-						};
-					}
-					if (lastFailed) return lastFailed;
-					// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
-					const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
-					const freshManifest = fresh?.manifest ?? manifest;
-					const freshTasks = fresh?.tasks ?? tasks;
-					const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
-					if (freshTask.status !== "queued" && freshTask.status !== "running")
-						return { manifest: freshManifest, tasks: freshTasks };
-					return withCorrelation(childCorrelation(freshManifest.runId, task.id), () =>
-						runTeamTask({
-							...baseInput,
-							manifest: freshManifest,
-							tasks: freshTasks,
-							task: freshTask,
-						}),
-					);
-				}
-			};
-			// ── OPT-01 streaming dispatch: dispatch units into pendingUnits ──
-			for (const unit of dispatchUnits) {
-				const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
-				const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t) => t.id);
-				pendingUnits.set(unitKey, {
-					taskIds: unitTaskIds,
-					promise: dispatchUnit(unit),
-				});
-			}
+			// CORE-4 extraction 4: dispatch execution. Sync mutable locals into
+			// ctx; dispatchBatch runs before_task_start hooks, builds coalesced
+			// dispatch units, pre-warms the stable-prefix cache, and adds each
+			// unit's promise to ctx.pendingUnits (wrapped in executeWithRetry).
+			// The function mutates ctx.tasks (hook skips) and ctx.manifest (hook
+			// status) in-place. Verbatim lift of the inline dispatch block.
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			await dispatchBatch(ctx, dispatchDecision);
+			tasks = ctx.tasks;
+			manifest = ctx.manifest;
 
 			// ── OPT-01 wait phase: if no units are in-flight (e.g. all ready tasks
 			// were hook-skipped or readyBatch was empty), re-loop to re-evaluate. ──
-			if (pendingUnits.size === 0) continue;
+			if (ctx.pendingUnits.size === 0) continue;
 
-			// Wait for ONE in-flight unit to complete. Promise.race returns as soon
-			// as the first wrapper resolves — others remain pending in pendingUnits
-			// and are re-raced on the next iteration.
-			const settled = await Promise.race(
-				[...pendingUnits.entries()].map(async ([key, pending]) => {
-					try {
-						const result = await pending.promise;
-						return {
-							unitKey: key,
-							result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined,
-							error: undefined as Error | undefined,
-						};
-					} catch (error) {
-						return { unitKey: key, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
-					}
-				}),
-			);
-			const completedUnit = pendingUnits.get(settled.unitKey)!;
-			pendingUnits.delete(settled.unitKey);
-
-			// Build the single result to merge. On rejection, synthesize a failed
-			// result so the run continues (mirrors the old validResults guard).
-			const resultToMerge: { manifest: TeamRunManifest; tasks: TeamTaskState[] } = settled.result ?? {
-				manifest,
-				tasks: tasks.map((t) =>
-					completedUnit.taskIds.includes(t.id)
-						? { ...t, status: "failed" as const, error: settled.error!.message, finishedAt: new Date().toISOString() }
-						: t,
-				),
-			};
-			const validResults = [resultToMerge];
-			// Reconstruct manifest from the last worker's snapshot. The .artifacts field
-			// is re-merged from both the team-runner's in-memory state and all workers'
-			// snapshots, so artifact writes by task-runner (which individually save manifest
-			// after writing artifacts) are safely persisted. The in-memory manifest is only
-			// used for the next batch iteration's orchestration — actual persistence is safe.
-			// Use updateRunStatus to recompute manifest status from merged tasks rather than
-			// relying on the last result's manifest (which is arbitrary due to mapConcurrent
-			// returning results in arbitrary order).
-			// Use the in-memory manifest as base (not the last-completing worker's snapshot).
-			// Recompute status from merged tasks so the manifest reflects actual task state,
-			// not the arbitrary order in which mapConcurrent returned results.
-			// Read committed manifest from disk inside the lock so artifact merge is based
-			// on committed state, not in-memory state that may differ from disk.
-			const mergeResult = await withRunLock(manifest, async () => {
-				// NEW-D1: flush any pending coalesced atomic writes before reading from
-				// disk. Without this, a worker's async manifest save (coalesced by
-				// atomic-write) may not be committed yet, causing a lost-update on the
-				// merge read. flushPendingAtomicWrites forces all queued writes to disk.
-				flushPendingAtomicWrites();
-				const disk = loadRunManifestById(manifest.cwd, manifest.runId);
-				const diskManifest = disk?.manifest ?? manifest;
-				const diskArtifacts = diskManifest.artifacts;
-				const reconciledArtifacts = mergeArtifacts(
-					[...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat(),
-				);
-				const resultManifest = updateRunStatus(
-					{ ...diskManifest, artifacts: reconciledArtifacts },
-					"running",
-					"Merged task updates from parallel batch.",
-				);
-				// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
-				// of the in-memory `tasks` closure variable. The in-memory tasks reflect
-				// only team-runner's view; an external cancel (handleCancel, background
-				// race with SIGTERM arriving after cancel wrote but before merge ran)
-				// writes 'cancelled' to disk.tasks — using disk.tasks as base preserves
-				// that cancellation through the merge instead of overwriting it with the
-				// stale in-memory view. disk was loaded inside this lock, so it reflects
-				// the freshest committed state.
-				const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? tasks, validResults);
-				await saveRunManifestAsync(resultManifest);
-				await saveRunTasksAsync(resultManifest, resultTasks);
-				return { resultManifest, resultTasks };
-			});
-			manifest = mergeResult.resultManifest;
-			tasks = mergeResult.resultTasks;
+			// CORE-4 extraction 5: wait/merge. Sync ctx; mergeUnitResult awaits
+			// Promise.race on the in-flight units, merges the first settled result
+			// into manifest/tasks under the run lock (loadRunManifestById +
+			// mergeTaskUpdatesPreservingTerminal), deletes it from
+			// ctx.pendingUnits, and records the merge outcome on ctx. Returns null
+			// (continue to phase/budget check) — a return decision is reserved for
+			// future run-complete/failure detection.
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			const mergeDecision = await mergeUnitResult(ctx);
+			tasks = ctx.tasks;
+			manifest = ctx.manifest;
+			if (mergeDecision?.kind === "return") return mergeDecision.result;
+			// Re-derive the merge outcome locals for the post-merge inline logic
+			// (cancel-during-exec check + batch summary artifact).
+			const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge!;
 
 			// Advance workflow phases whose tasks are all in terminal state
 			const terminalStatuses = new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
@@ -2047,10 +2139,10 @@ async function executeTeamRunCore(
 			}
 			await saveRunTasksAsync(manifest, tasks);
 			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-			const completedBatch = tasks.filter((t) => completedUnit.taskIds.includes(t.id));
+			const completedBatch = tasks.filter((t) => settledTaskIds.includes(t.id));
 			const batchArtifact = writeArtifact(manifest.artifactsRoot, {
 				kind: "summary",
-				relativePath: `batches/${completedUnit.taskIds.join("+")}.md`,
+				relativePath: `batches/${settledTaskIds.join("+")}.md`,
 				producer: "team-runner",
 				content: aggregateTaskOutputs(completedBatch, manifest),
 			});
