@@ -48,10 +48,14 @@ test("H3: dropped buffered events are rejected (not hanging)", async () => {
 		for (let i = 0; i < 1100; i += 1) {
 			// Use non-terminal types so they go through the buffer
 			promises.push(
-				appendEventBuffered(eventsPath, {
-					type: "test.spam",
-					data: { i },
-				} as unknown as TeamEvent).catch((err) => err),
+				appendEventBuffered(
+					eventsPath,
+					{
+						type: "test.spam",
+						data: { i },
+					} as unknown as TeamEvent,
+					60000,
+				).catch((err) => err),
 			);
 		}
 		// Manually trigger the flush so the splice+reject logic runs.
