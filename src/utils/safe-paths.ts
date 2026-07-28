@@ -10,6 +10,16 @@ export function assertSafePathId(kind: string, value: string): string {
 	return value;
 }
 
+/**
+ * Resolve `targetPath` against `baseDir` and verify the result stays inside it.
+ *
+ * @deprecated This returns a non-canonical `resolved` path and only validates
+ * the final resolved location, so callers can follow symlink components
+ * (TOCTOU risk). Prefer {@link resolveRealContainedPath}, which performs an
+ * O_NOFOLLOW ancestor walk plus post-realpath revalidation. The internal
+ * callers in this module (resolveRealContainedPath / resolveContainedRelativePath)
+ * still use this for the initial containment check by design.
+ */
 export function resolveContainedPath(baseDir: string, targetPath: string): string {
 	if (targetPath.includes("\0")) {
 		throw new Error(`Security: path contains null byte`);

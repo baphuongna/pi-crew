@@ -539,7 +539,7 @@
       "format": "esm"
     },
     "src/utils/safe-paths.ts": {
-      "bytes": 17380,
+      "bytes": 17922,
       "imports": [
         {
           "path": "node:fs",
@@ -3504,7 +3504,7 @@
       "format": "esm"
     },
     "src/skills/discover-skills.ts": {
-      "bytes": 7903,
+      "bytes": 8318,
       "imports": [
         {
           "path": "node:fs",
@@ -5649,7 +5649,7 @@
       "format": "esm"
     },
     "src/runtime/skill-instructions.ts": {
-      "bytes": 15594,
+      "bytes": 15576,
       "imports": [
         {
           "path": "node:fs",
@@ -6920,7 +6920,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/orchestrate.ts": {
-      "bytes": 2742,
+      "bytes": 2750,
       "imports": [
         {
           "path": "node:fs",
@@ -8881,7 +8881,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 61628,
+      "bytes": 61614,
       "imports": [
         {
           "path": "node:fs",
@@ -9884,7 +9884,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 42464,
+      "bytes": 42446,
       "imports": [
         {
           "path": "src/agents/discover-agents.ts",
@@ -10055,7 +10055,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 45717,
+      "bytes": 45725,
       "imports": [
         {
           "path": "node:fs",
@@ -11923,7 +11923,7 @@
       "format": "esm"
     },
     "src/extension/registration/hook-registration.ts": {
-      "bytes": 4831,
+      "bytes": 4839,
       "imports": [
         {
           "path": "node:fs",
@@ -13167,7 +13167,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6063762
+      "bytes": 6064739
     },
     "dist/index.mjs": {
       "imports": [
@@ -15606,7 +15606,7 @@
           "bytesInOutput": 8697
         },
         "src/runtime/skill-instructions.ts": {
-          "bytesInOutput": 12278
+          "bytesInOutput": 12282
         },
         "src/state/run-cache.ts": {
           "bytesInOutput": 2126
@@ -15732,7 +15732,7 @@
           "bytesInOutput": 4937
         },
         "src/extension/team-tool/orchestrate.ts": {
-          "bytesInOutput": 1943
+          "bytesInOutput": 1947
         },
         "src/ui/render-coalescer.ts": {
           "bytesInOutput": 2165
@@ -16017,7 +16017,7 @@
           "bytesInOutput": 6123
         },
         "src/runtime/task-runner.ts": {
-          "bytesInOutput": 46172
+          "bytesInOutput": 46180
         },
         "src/runtime/workflow-state.ts": {
           "bytesInOutput": 2471
@@ -16089,10 +16089,10 @@
           "bytesInOutput": 6994
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 31308
+          "bytesInOutput": 31312
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 37886
+          "bytesInOutput": 37890
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4137
@@ -16320,7 +16320,7 @@
           "bytesInOutput": 6528
         },
         "src/extension/registration/hook-registration.ts": {
-          "bytesInOutput": 2135
+          "bytesInOutput": 2139
         },
         "src/runtime/per-write-validator.ts": {
           "bytesInOutput": 2205
@@ -16392,7 +16392,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2765842
+      "bytes": 2765870
     }
   }
 }

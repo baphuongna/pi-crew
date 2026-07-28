@@ -5,7 +5,7 @@
  */
 import * as fs from "node:fs";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { resolveContainedPath } from "../../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import {
 	buildAgentChain,
 	formatPlanOverview,
@@ -38,7 +38,7 @@ export function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext)
 	// Resolve and validate path stays within ctx.cwd (path-traversal protection)
 	let resolvedPath: string;
 	try {
-		resolvedPath = resolveContainedPath(ctx.cwd, planPath);
+		resolvedPath = resolveRealContainedPath(ctx.cwd, planPath);
 	} catch {
 		return result(`planPath must be within project directory: ${planPath}`, { action: "orchestrate", status: "error" }, true);
 	}

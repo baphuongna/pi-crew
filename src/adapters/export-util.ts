@@ -1,7 +1,7 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { SkillDescriptor } from "../skills/discover-skills.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
-import { resolveContainedPath } from "../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { adapterRegistry } from "./registry.ts";
 import type { ExportContent } from "./types.ts";
@@ -117,7 +117,7 @@ export function generateToolExport(toolId: string, resources: ExportableResource
 		// Validate path containment when a project root is provided
 		if (projectRoot) {
 			try {
-				resolveContainedPath(projectRoot, filePath);
+				resolveRealContainedPath(projectRoot, filePath);
 			} catch (e) {
 				throw new Error(
 					`Export path '${filePath}' escapes project root '${projectRoot}': ${e instanceof Error ? e.message : String(e)}`,

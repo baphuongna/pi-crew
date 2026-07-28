@@ -132,6 +132,12 @@ export function discoverSkills(cwd: string): SkillDescriptor[] {
 				const skillMdRelative = path.join(entry.name, "SKILL.md");
 				let skillMdPath: string;
 				try {
+					// F-08: intentionally KEPT on resolveContainedPath (not migrated to
+					// resolveRealContainedPath). This is the lenient containment pre-check;
+					// the strict resolveRealContainedPath call below has an explicit
+					// fallback to this lenient path for skills under non-exempted
+					// symlinked system dirs. Migrating here would skip those skills
+					// instead of discovering them via the fallback.
 					skillMdPath = resolveContainedPath(dir.root, skillMdRelative);
 				} catch {
 					continue;

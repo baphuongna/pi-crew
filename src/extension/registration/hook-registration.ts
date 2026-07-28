@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { asRecord, loadConfig } from "../../config/config.ts";
 import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } from "../../runtime/per-write-validator.ts";
-import { resolveContainedPath } from "../../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
@@ -54,7 +54,7 @@ function installResourcesDiscoverHook(pi: ExtensionAPI, ctx: RegistrationContext
 			if (skillDir !== extSkillDir && fs.existsSync(skillDir)) {
 				// Validate skillDir is within sessionCwd to prevent path traversal
 				try {
-					resolveContainedPath(sessionCwd, "skills");
+					resolveRealContainedPath(sessionCwd, "skills");
 					paths.push(skillDir);
 				} catch {
 					// skillDir outside sessionCwd boundary — skip

@@ -33646,7 +33646,7 @@ function readSkillMarkdown(cwd, name) {
   for (const entry of candidateSkillDirs(cwd)) {
     try {
       const relative9 = path37.join(name, "SKILL.md");
-      const contained = resolveContainedPath(entry.root, relative9);
+      const contained = resolveRealContainedPath(entry.root, relative9);
       if (!fs45.existsSync(contained)) continue;
       if (fs45.lstatSync(contained).isSymbolicLink()) continue;
       const filePath = resolveRealContainedPath(entry.root, relative9);
@@ -40826,7 +40826,7 @@ function handleOrchestrate(params, ctx) {
   }
   let resolvedPath;
   try {
-    resolvedPath = resolveContainedPath(ctx.cwd, planPath);
+    resolvedPath = resolveRealContainedPath(ctx.cwd, planPath);
   } catch {
     return result(`planPath must be within project directory: ${planPath}`, { action: "orchestrate", status: "error" }, true);
   }
@@ -51054,7 +51054,7 @@ import * as path68 from "node:path";
 async function appendSteeringAsync(steeringDir, taskId, steers) {
   try {
     await fs83.promises.mkdir(steeringDir, { recursive: true });
-    const steeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
+    const steeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
     const lines = steers.map(
       (msg) => JSON.stringify({
         type: "steer",
@@ -51412,7 +51412,7 @@ async function runTeamTask(input) {
             runId: manifest.runId,
             agentId: task.id,
             artifactsRoot: manifest.artifactsRoot,
-            steeringFile: resolveContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
+            steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
             onSpawn: (pid) => {
               try {
                 ({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
@@ -57435,7 +57435,7 @@ function resolveAnalysisText(params, cwd) {
   if (hasPath) {
     let resolved;
     try {
-      resolved = resolveContainedPath(cwd, params.analysisPath);
+      resolved = resolveRealContainedPath(cwd, params.analysisPath);
     } catch {
       return {
         error: `analysisPath must be within project directory: ${params.analysisPath}`,
@@ -58574,7 +58574,7 @@ function handleSteer(params, ctx) {
   try {
     const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
     fs90.mkdirSync(steeringDir, { recursive: true });
-    const safeSteeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
+    const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
     fs90.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
   } catch {
   }
@@ -71552,7 +71552,7 @@ function installResourcesDiscoverHook(pi, ctx) {
       if (fs101.existsSync(extSkillDir)) paths.push(extSkillDir);
       if (skillDir !== extSkillDir && fs101.existsSync(skillDir)) {
         try {
-          resolveContainedPath(sessionCwd, "skills");
+          resolveRealContainedPath(sessionCwd, "skills");
           paths.push(skillDir);
         } catch {
         }

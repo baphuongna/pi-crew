@@ -15,7 +15,7 @@ import { replayPendingMailboxMessages } from "../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
-import { assertSafePathId, resolveContainedPath } from "../utils/safe-paths.ts";
+import { assertSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { piTeamsHelp } from "./help.ts";
 import { handleCreate, handleDelete, handleUpdate } from "./management.ts";
@@ -532,7 +532,7 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 		// within steeringDir. taskId is currently sanitized via createTaskId, but this
 		// guards against future changes to task-id generation (e.g. if it ever
 		// accepted user input).
-		const safeSteeringPath = resolveContainedPath(steeringDir, `${taskId}.jsonl`);
+		const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
 		fs.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: new Date().toISOString() }) + "\n");
 	} catch {
 		// Best-effort: file write failure doesn't block the steer from pending array

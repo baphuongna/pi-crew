@@ -17,7 +17,7 @@ const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamR
 
 import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { resolveContainedPath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -163,7 +163,7 @@ function resolveAnalysisText(
 	if (hasPath) {
 		let resolved: string;
 		try {
-			resolved = resolveContainedPath(cwd, params.analysisPath as string);
+			resolved = resolveRealContainedPath(cwd, params.analysisPath as string);
 		} catch {
 			return {
 				error: `analysisPath must be within project directory: ${params.analysisPath}`,

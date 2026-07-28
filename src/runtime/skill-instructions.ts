@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { TeamRole } from "../teams/team-config.ts";
-import { isSafePathId, resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { CONFIDENCE_THRESHOLDS, getWeightedSkillsForRole, registerSkillEffectivenessHooks } from "./skill-effectiveness.ts";
 
@@ -245,7 +245,7 @@ function readSkillMarkdown(
 	for (const entry of candidateSkillDirs(cwd)) {
 		try {
 			const relative = path.join(name, "SKILL.md");
-			const contained = resolveContainedPath(entry.root, relative);
+			const contained = resolveRealContainedPath(entry.root, relative);
 			if (!fs.existsSync(contained)) continue;
 			if (fs.lstatSync(contained).isSymbolicLink()) continue;
 			const filePath = resolveRealContainedPath(entry.root, relative);
