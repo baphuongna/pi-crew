@@ -83,7 +83,7 @@ interface ServerConnection {
 	/** Task id bound by hello. */
 	taskId?: string;
 	/** Role bound by hello: orchestrator can steer/msg-send; workers default. */
-	role?: 'orchestrator' | 'worker';
+	role?: "orchestrator" | "worker";
 	/** Outbound queue of encoded frames awaiting drain. */
 	outbound: Buffer[];
 	/** Set when the queue has hit the cap and a frame was dropped. */
@@ -735,8 +735,8 @@ export class CrewBroker {
 
 	/** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
 	private async handleMsgSend(conn: ServerConnection, id: string, params: unknown): Promise<void> {
-		if (conn.role !== 'orchestrator') {
-			this.sendError(conn, id, 'forbidden', 'msg.send requires orchestrator role');
+		if (conn.role !== "orchestrator") {
+			this.sendError(conn, id, "forbidden", "msg.send requires orchestrator role");
 			return;
 		}
 		if (!conn.runId) {
@@ -1082,8 +1082,8 @@ export class CrewBroker {
 	 * mailbox write (1) has already succeeded.
 	 */
 	private async handleSteerPush(conn: ServerConnection, id: string, params: unknown): Promise<void> {
-		if (conn.role !== 'orchestrator') {
-			this.sendError(conn, id, 'forbidden', 'steer.push requires orchestrator role');
+		if (conn.role !== "orchestrator") {
+			this.sendError(conn, id, "forbidden", "steer.push requires orchestrator role");
 			return;
 		}
 		if (!conn.runId) {
