@@ -620,6 +620,11 @@ export async function handleWait(params: TeamToolParamsValue, ctx: TeamContext):
 }
 
 export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
+	// API-5 fix: normalize action into params so the domain routers (which read
+	// params.action) see the resolved default, not the raw undefined. Without this,
+	// a missing action defaulted to "list" at the facade but the router read
+	// params.action=undefined → "Unhandled status-domain action: undefined".
+	params = { ...params, action: params.action ?? "list" };
 	const action = params.action ?? "list";
 	const domain = domainForAction(action);
 	switch (domain) {

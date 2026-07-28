@@ -59584,6 +59584,7 @@ async function handleWait(params, ctx) {
   }
 }
 async function handleTeamTool2(params, ctx) {
+  params = { ...params, action: params.action ?? "list" };
   const action = params.action ?? "list";
   const domain = domainForAction(action);
   switch (domain) {

@@ -179,3 +179,19 @@ test("handleTeamTool returns error for unknown action", async () => {
 		cleanupCwd(cwd);
 	}
 });
+
+// ── 9. Missing/undefined action defaults to list (API-5 facade fix) ─────────
+// Regression: handleTeamTool defaulted action locally but passed the raw
+// params (action=undefined) to the domain router → "Unhandled status-domain
+// action: undefined". The facade now normalizes params.action before dispatch.
+
+test("handleTeamTool defaults missing action to list (no Unhandled error)", async () => {
+	const cwd = makeTmpCwd();
+	try {
+		const out = await handleTeamTool({} as never, { cwd });
+		assert.equal(out.isError, false, `missing action should default to list, not error: ${JSON.stringify(out)}`);
+		assert.equal((out.details as { action?: string } | undefined)?.action, "list");
+	} finally {
+		cleanupCwd(cwd);
+	}
+});
