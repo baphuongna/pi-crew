@@ -54196,6 +54196,251 @@ async function mergeUnitResult(ctx) {
   ctx.settledMerge = { taskIds: completedUnit.taskIds, result: resultToMerge };
   return null;
 }
+async function advanceWorkflowPhases(ctx) {
+  let wfMachine = ctx.wfMachine;
+  const tasks = ctx.tasks;
+  const manifest = ctx.manifest;
+  const terminalStatuses = /* @__PURE__ */ new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
+  const phaseTaskMap = /* @__PURE__ */ new Map();
+  for (const task of tasks) {
+    if (!task.stepId) continue;
+    const existing = phaseTaskMap.get(task.stepId) ?? [];
+    existing.push(task.id);
+    phaseTaskMap.set(task.stepId, existing);
+  }
+  for (let pi = wfMachine.currentPhaseIndex; pi < wfMachine.phases.length; pi++) {
+    const phase = wfMachine.phases[pi];
+    const phaseTaskIds = phaseTaskMap.get(phase.name) ?? [];
+    if (phaseTaskIds.length === 0) continue;
+    const allTerminal = phaseTaskIds.every((taskId) => {
+      const task = tasks.find((t2) => t2.id === taskId);
+      return task ? terminalStatuses.has(task.status) : false;
+    });
+    if (!allTerminal) break;
+    if (phase.status !== "completed" && phase.status !== "failed" && phase.status !== "skipped") {
+      const completedArtifacts = manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
+      const previousPhaseStatus = pi > 0 ? wfMachine.phases[pi - 1]?.status ?? "pending" : "completed";
+      const wfContext = {
+        completedArtifacts,
+        previousPhaseStatus,
+        taskResults: tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => ({
+          taskId: t2.id,
+          status: t2.status,
+          outputPath: t2.resultArtifact?.path
+        }))
+      };
+      const phaseTasks = phaseTaskIds.map((taskId) => tasks.find((t2) => t2.id === taskId)).filter((t2) => t2 !== void 0);
+      const hasFailedOrCancelled = phaseTasks.some((t2) => t2.status === "failed" || t2.status === "cancelled");
+      const phaseStatus = hasFailedOrCancelled ? "failed" : "completed";
+      const transition = transitionPhase(wfMachine, pi, phaseStatus, wfContext);
+      wfMachine = transition.machine;
+      if (transition.guardResult && !transition.guardResult.allowed) {
+        await appendEventAsync(manifest.eventsPath, {
+          type: "workflow.phase_guard_blocked",
+          runId: manifest.runId,
+          message: `Workflow phase '${phase.name}' guard blocked: ${transition.guardResult.reason ?? "unknown"}`,
+          data: {
+            phaseIndex: pi,
+            phaseName: phase.name,
+            reason: transition.guardResult.reason
+          }
+        });
+        break;
+      }
+      await appendEventAsync(manifest.eventsPath, {
+        type: phaseStatus === "failed" ? "workflow.phase_failed" : "workflow.phase_completed",
+        runId: manifest.runId,
+        message: `Workflow phase '${phase.name}' ${phaseStatus}.`,
+        data: { phaseIndex: pi, phaseStatus }
+      });
+    }
+    wfMachine = { ...wfMachine, currentPhaseIndex: pi + 1 };
+  }
+  ctx.wfMachine = wfMachine;
+}
+async function enforceRunBudget(ctx) {
+  const input = ctx.input;
+  let tasks = ctx.tasks;
+  let manifest = ctx.manifest;
+  if (input.budgetTotal !== void 0 && input.budgetTotal > 0 && input.budgetUnlimited !== true) {
+    const warnThreshold = input.budgetWarning ?? 0.8;
+    const abortThreshold = input.budgetAbort ?? 0.95;
+    const budgetCheck = checkPerTaskBudget(tasks, input.budgetTotal, warnThreshold, abortThreshold);
+    if (budgetCheck.abort) {
+      const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
+      console.warn(`[team-runner] ${message}`);
+      await appendEventAsync(manifest.eventsPath, {
+        type: "run.budget_abort",
+        runId: manifest.runId,
+        message,
+        data: {
+          budgetTotal: input.budgetTotal,
+          budgetUsed: budgetCheck.totalUsed,
+          threshold: "abort"
+        }
+      });
+      tasks = markBlocked(tasks, `Budget abort threshold exceeded: ${message}`);
+      await saveRunTasksAsync(manifest, tasks);
+      manifest = updateRunStatus(manifest, "failed", message);
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      return { kind: "return", result: { manifest, tasks } };
+    }
+    if (budgetCheck.warning) {
+      const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
+      console.warn(`[team-runner] ${message}`);
+      await appendEventAsync(manifest.eventsPath, {
+        type: "run.budget_warning",
+        runId: manifest.runId,
+        message,
+        data: {
+          budgetTotal: input.budgetTotal,
+          budgetUsed: budgetCheck.totalUsed,
+          threshold: "warning"
+        }
+      });
+    }
+    for (const violatorId of budgetCheck.fairShareViolators) {
+      const violator = tasks.find((t2) => t2.id === violatorId);
+      if (!violator) continue;
+      const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
+      const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round(taskTotal / input.budgetTotal * 100)}% of total budget) \u2014 exceeds fair share`;
+      console.warn(`[team-runner.fair-share] ${message}`);
+      await appendEventAsync(manifest.eventsPath, {
+        type: "task.budget_fair_share",
+        runId: manifest.runId,
+        taskId: violatorId,
+        message,
+        data: {
+          budgetTotal: input.budgetTotal,
+          taskUsage: taskTotal
+        }
+      });
+    }
+  }
+  return null;
+}
+async function finalizeRun(ctx) {
+  const input = ctx.input;
+  const tasks = ctx.tasks;
+  let manifest = ctx.manifest;
+  const failed = tasks.find((task) => task.status === "failed");
+  const waiting = tasks.find((task) => task.status === "waiting");
+  const running = tasks.find((task) => task.status === "running");
+  manifest = applyPolicy(manifest, tasks, input.limits);
+  if (input.workflow?.steps) {
+    const missingOutputs = [];
+    for (const step of input.workflow.steps) {
+      if (step.output && typeof step.output === "string") {
+        const outputPath = path69.join(manifest.artifactsRoot, step.output);
+        if (!fs85.existsSync(outputPath)) {
+          missingOutputs.push(step.output);
+        }
+      }
+    }
+    if (missingOutputs.length > 0) {
+      appendEventFireAndForget(manifest.eventsPath, {
+        type: "run.deliverable_warning",
+        runId: manifest.runId,
+        message: `Missing workflow output files: ${missingOutputs.join(", ")}`,
+        data: { missingFiles: missingOutputs }
+      });
+    }
+  }
+  const effectiveness = evaluateRunEffectiveness({
+    manifest,
+    tasks,
+    executeWorkers: input.executeWorkers,
+    runtimeConfig: input.runtimeConfig
+  });
+  const effectivenessDecision = effectivenessPolicyDecision(effectiveness);
+  if (effectivenessDecision) {
+    manifest = {
+      ...manifest,
+      policyDecisions: [...manifest.policyDecisions ?? [], effectivenessDecision],
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    await appendEventAsync(manifest.eventsPath, {
+      type: "run.effectiveness",
+      runId: manifest.runId,
+      message: effectivenessDecision.message,
+      data: { effectiveness, policyDecision: effectivenessDecision }
+    });
+  }
+  const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
+  if (failed) {
+    manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
+  } else if (waiting) {
+    manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
+  } else if (running) {
+    manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
+  } else if (effectiveness.severity === "failed") {
+    manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
+  } else if (effectiveness.severity === "blocked") {
+    manifest = updateRunStatus(
+      manifest,
+      "blocked",
+      effectivenessDecision?.message ?? "Run effectiveness guard blocked completion."
+    );
+  } else if (blockingDecision) {
+    manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
+  } else if (tasks.some((task) => task.status === "queued")) {
+    manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
+  } else {
+    manifest = updateRunStatus(
+      manifest,
+      "completed",
+      input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers."
+    );
+  }
+  manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
+  await saveRunManifestAsync(manifest);
+  const usage = aggregateUsage(tasks);
+  const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
+    kind: "summary",
+    relativePath: "summary.md",
+    producer: "team-runner",
+    content: [
+      `# pi-crew run ${manifest.runId}`,
+      "",
+      `Status: ${manifest.status}`,
+      `Team: ${manifest.team}`,
+      `Workflow: ${manifest.workflow ?? "(none)"}`,
+      `Goal: ${manifest.goal}`,
+      `Usage: ${formatUsage(usage)}`,
+      "",
+      "## Tasks",
+      ...tasks.map(formatTaskProgress),
+      "",
+      "## Effectiveness",
+      ...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
+      "",
+      "## Policy decisions",
+      ...manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"],
+      ""
+    ].join("\n")
+  });
+  const finalManifest = {
+    ...manifest,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    artifacts: [...manifest.artifacts, summaryArtifact]
+  };
+  await withRunLock(finalManifest, async () => {
+    await saveRunManifestAsync(finalManifest);
+    await saveRunTasksAsync(finalManifest, tasks);
+  });
+  manifest = finalManifest;
+  const crewRoot = path69.dirname(path69.dirname(path69.dirname(finalManifest.stateRoot)));
+  const healthStore = new HealthStore(crewRoot);
+  healthStore.saveSnapshot({
+    runId: finalManifest.runId,
+    tasks: tasks.map((t2) => ({ id: t2.id, status: t2.status })),
+    createdAt: finalManifest.createdAt
+  });
+  ctx.manifest = manifest;
+  ctx.tasks = tasks;
+  return { manifest, tasks };
+}
 async function executeTeamRunCore(input, manifest, workflow) {
   const beforeRunReport = await executeHook("before_run_start", {
     runId: manifest.runId,
@@ -54320,116 +54565,15 @@ async function executeTeamRunCore(input, manifest, workflow) {
       manifest = ctx.manifest;
       if (mergeDecision?.kind === "return") return mergeDecision.result;
       const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge;
-      const terminalStatuses = /* @__PURE__ */ new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
-      const phaseTaskMap = /* @__PURE__ */ new Map();
-      for (const task of tasks) {
-        if (!task.stepId) continue;
-        const existing = phaseTaskMap.get(task.stepId) ?? [];
-        existing.push(task.id);
-        phaseTaskMap.set(task.stepId, existing);
-      }
-      for (let pi = wfMachine.currentPhaseIndex; pi < wfMachine.phases.length; pi++) {
-        const phase = wfMachine.phases[pi];
-        const phaseTaskIds = phaseTaskMap.get(phase.name) ?? [];
-        if (phaseTaskIds.length === 0) continue;
-        const allTerminal = phaseTaskIds.every((taskId) => {
-          const task = tasks.find((t2) => t2.id === taskId);
-          return task ? terminalStatuses.has(task.status) : false;
-        });
-        if (!allTerminal) break;
-        if (phase.status !== "completed" && phase.status !== "failed" && phase.status !== "skipped") {
-          const completedArtifacts = manifest.artifacts.filter((a) => a.kind === "result" || a.kind === "summary").map((a) => a.path);
-          const previousPhaseStatus = pi > 0 ? wfMachine.phases[pi - 1]?.status ?? "pending" : "completed";
-          const wfContext = {
-            completedArtifacts,
-            previousPhaseStatus,
-            taskResults: tasks.filter((t2) => t2.status === "completed" || t2.status === "needs_attention").map((t2) => ({
-              taskId: t2.id,
-              status: t2.status,
-              outputPath: t2.resultArtifact?.path
-            }))
-          };
-          const phaseTasks = phaseTaskIds.map((taskId) => tasks.find((t2) => t2.id === taskId)).filter((t2) => t2 !== void 0);
-          const hasFailedOrCancelled = phaseTasks.some((t2) => t2.status === "failed" || t2.status === "cancelled");
-          const phaseStatus = hasFailedOrCancelled ? "failed" : "completed";
-          const transition = transitionPhase(wfMachine, pi, phaseStatus, wfContext);
-          wfMachine = transition.machine;
-          if (transition.guardResult && !transition.guardResult.allowed) {
-            await appendEventAsync(manifest.eventsPath, {
-              type: "workflow.phase_guard_blocked",
-              runId: manifest.runId,
-              message: `Workflow phase '${phase.name}' guard blocked: ${transition.guardResult.reason ?? "unknown"}`,
-              data: {
-                phaseIndex: pi,
-                phaseName: phase.name,
-                reason: transition.guardResult.reason
-              }
-            });
-            break;
-          }
-          await appendEventAsync(manifest.eventsPath, {
-            type: phaseStatus === "failed" ? "workflow.phase_failed" : "workflow.phase_completed",
-            runId: manifest.runId,
-            message: `Workflow phase '${phase.name}' ${phaseStatus}.`,
-            data: { phaseIndex: pi, phaseStatus }
-          });
-        }
-        wfMachine = { ...wfMachine, currentPhaseIndex: pi + 1 };
-      }
-      if (input.budgetTotal !== void 0 && input.budgetTotal > 0 && input.budgetUnlimited !== true) {
-        const warnThreshold = input.budgetWarning ?? 0.8;
-        const abortThreshold = input.budgetAbort ?? 0.95;
-        const budgetCheck = checkPerTaskBudget(tasks, input.budgetTotal, warnThreshold, abortThreshold);
-        if (budgetCheck.abort) {
-          const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
-          console.warn(`[team-runner] ${message}`);
-          await appendEventAsync(manifest.eventsPath, {
-            type: "run.budget_abort",
-            runId: manifest.runId,
-            message,
-            data: {
-              budgetTotal: input.budgetTotal,
-              budgetUsed: budgetCheck.totalUsed,
-              threshold: "abort"
-            }
-          });
-          tasks = markBlocked(tasks, `Budget abort threshold exceeded: ${message}`);
-          await saveRunTasksAsync(manifest, tasks);
-          manifest = updateRunStatus(manifest, "failed", message);
-          return { manifest, tasks };
-        }
-        if (budgetCheck.warning) {
-          const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
-          console.warn(`[team-runner] ${message}`);
-          await appendEventAsync(manifest.eventsPath, {
-            type: "run.budget_warning",
-            runId: manifest.runId,
-            message,
-            data: {
-              budgetTotal: input.budgetTotal,
-              budgetUsed: budgetCheck.totalUsed,
-              threshold: "warning"
-            }
-          });
-        }
-        for (const violatorId of budgetCheck.fairShareViolators) {
-          const violator = tasks.find((t2) => t2.id === violatorId);
-          if (!violator) continue;
-          const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
-          const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round(taskTotal / input.budgetTotal * 100)}% of total budget) \u2014 exceeds fair share`;
-          console.warn(`[team-runner.fair-share] ${message}`);
-          await appendEventAsync(manifest.eventsPath, {
-            type: "task.budget_fair_share",
-            runId: manifest.runId,
-            taskId: violatorId,
-            message,
-            data: {
-              budgetTotal: input.budgetTotal,
-              taskUsage: taskTotal
-            }
-          });
-        }
-      }
+      ctx.wfMachine = wfMachine;
+      await advanceWorkflowPhases(ctx);
+      wfMachine = ctx.wfMachine;
+      ctx.tasks = tasks;
+      ctx.manifest = manifest;
+      const budgetDecision = await enforceRunBudget(ctx);
+      tasks = ctx.tasks;
+      manifest = ctx.manifest;
+      if (budgetDecision?.kind === "return") return budgetDecision.result;
       const cancelledResult = resultToMerge.manifest.status === "cancelled" ? resultToMerge : void 0;
       if (cancelledResult || input.signal?.aborted) {
         const reason = input.signal?.aborted ? cancellationReasonFromSignal(input.signal) : void 0;
@@ -54509,120 +54653,10 @@ async function executeTeamRunCore(input, manifest, workflow) {
       manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
       await saveRunManifestAsync(manifest);
     }
-    const failed = tasks.find((task) => task.status === "failed");
-    const waiting = tasks.find((task) => task.status === "waiting");
-    const running = tasks.find((task) => task.status === "running");
-    manifest = applyPolicy(manifest, tasks, input.limits);
-    if (input.workflow?.steps) {
-      const missingOutputs = [];
-      for (const step of input.workflow.steps) {
-        if (step.output && typeof step.output === "string") {
-          const outputPath = path69.join(manifest.artifactsRoot, step.output);
-          if (!fs85.existsSync(outputPath)) {
-            missingOutputs.push(step.output);
-          }
-        }
-      }
-      if (missingOutputs.length > 0) {
-        appendEventFireAndForget(manifest.eventsPath, {
-          type: "run.deliverable_warning",
-          runId: manifest.runId,
-          message: `Missing workflow output files: ${missingOutputs.join(", ")}`,
-          data: { missingFiles: missingOutputs }
-        });
-      }
-    }
-    const effectiveness = evaluateRunEffectiveness({
-      manifest,
-      tasks,
-      executeWorkers: input.executeWorkers,
-      runtimeConfig: input.runtimeConfig
-    });
-    const effectivenessDecision = effectivenessPolicyDecision(effectiveness);
-    if (effectivenessDecision) {
-      manifest = {
-        ...manifest,
-        policyDecisions: [...manifest.policyDecisions ?? [], effectivenessDecision],
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      await appendEventAsync(manifest.eventsPath, {
-        type: "run.effectiveness",
-        runId: manifest.runId,
-        message: effectivenessDecision.message,
-        data: { effectiveness, policyDecision: effectivenessDecision }
-      });
-    }
-    const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
-    if (failed) {
-      manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
-    } else if (waiting) {
-      manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
-    } else if (running) {
-      manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
-    } else if (effectiveness.severity === "failed") {
-      manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
-    } else if (effectiveness.severity === "blocked") {
-      manifest = updateRunStatus(
-        manifest,
-        "blocked",
-        effectivenessDecision?.message ?? "Run effectiveness guard blocked completion."
-      );
-    } else if (blockingDecision) {
-      manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
-    } else if (tasks.some((task) => task.status === "queued")) {
-      manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
-    } else {
-      manifest = updateRunStatus(
-        manifest,
-        "completed",
-        input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers."
-      );
-    }
-    manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
-    await saveRunManifestAsync(manifest);
-    const usage = aggregateUsage(tasks);
-    const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
-      kind: "summary",
-      relativePath: "summary.md",
-      producer: "team-runner",
-      content: [
-        `# pi-crew run ${manifest.runId}`,
-        "",
-        `Status: ${manifest.status}`,
-        `Team: ${manifest.team}`,
-        `Workflow: ${manifest.workflow ?? "(none)"}`,
-        `Goal: ${manifest.goal}`,
-        `Usage: ${formatUsage(usage)}`,
-        "",
-        "## Tasks",
-        ...tasks.map(formatTaskProgress),
-        "",
-        "## Effectiveness",
-        ...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
-        "",
-        "## Policy decisions",
-        ...manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"],
-        ""
-      ].join("\n")
-    });
-    const finalManifest = {
-      ...manifest,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      artifacts: [...manifest.artifacts, summaryArtifact]
-    };
-    await withRunLock(finalManifest, async () => {
-      await saveRunManifestAsync(finalManifest);
-      await saveRunTasksAsync(finalManifest, tasks);
-    });
-    manifest = finalManifest;
-    const crewRoot = path69.dirname(path69.dirname(path69.dirname(finalManifest.stateRoot)));
-    const healthStore = new HealthStore(crewRoot);
-    healthStore.saveSnapshot({
-      runId: finalManifest.runId,
-      tasks: tasks.map((t2) => ({ id: t2.id, status: t2.status })),
-      createdAt: finalManifest.createdAt
-    });
-    return { manifest, tasks };
+    const finalResult = await finalizeRun(ctx);
+    manifest = ctx.manifest;
+    tasks = ctx.tasks;
+    return finalResult;
   } finally {
     await drainPendingUnits(pendingUnits, runController);
   }

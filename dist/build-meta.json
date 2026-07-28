@@ -9216,7 +9216,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 102249,
+      "bytes": 106225,
       "imports": [
         {
           "path": "node:fs",
@@ -13194,7 +13194,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6102215
+      "bytes": 6106619
     },
     "dist/index.mjs": {
       "imports": [
@@ -16065,7 +16065,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 65456
+          "bytesInOutput": 65823
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -16425,7 +16425,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2772296
+      "bytes": 2772663
     }
   }
 }

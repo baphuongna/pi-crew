@@ -1758,6 +1758,341 @@ async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision
 	return null;
 }
 
+/**
+ * CORE-4 extraction 6: advance workflow phases whose tasks are all in
+ * terminal state.
+ *
+ * Iterates phases starting at `ctx.wfMachine.currentPhaseIndex`; for each phase
+ * whose tasks are all terminal, determines the transition status (failed if
+ * any task failed/cancelled, else completed), applies the phase transition,
+ * emits `workflow.phase_completed`/`workflow.phase_failed`/
+ * `workflow.phase_guard_blocked` events, and advances `currentPhaseIndex`.
+ *
+ * Reads `ctx.tasks`, `ctx.manifest` (read-only). Mutates `ctx.wfMachine`
+ * in-place (phase status + currentPhaseIndex). The caller syncs the local
+ * `wfMachine` from ctx after the call.
+ *
+ * @param ctx  The scheduler context.
+ */
+async function advanceWorkflowPhases(ctx: SchedulerContext): Promise<void> {
+	let wfMachine = ctx.wfMachine;
+	const tasks = ctx.tasks;
+	const manifest = ctx.manifest;
+	// Advance workflow phases whose tasks are all in terminal state
+	const terminalStatuses = new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
+	const phaseTaskMap = new Map<string, string[]>();
+	for (const task of tasks) {
+		if (!task.stepId) continue;
+		const existing = phaseTaskMap.get(task.stepId) ?? [];
+		existing.push(task.id);
+		phaseTaskMap.set(task.stepId, existing);
+	}
+	for (let pi = wfMachine.currentPhaseIndex; pi < wfMachine.phases.length; pi++) {
+		const phase = wfMachine.phases[pi]!;
+		const phaseTaskIds = phaseTaskMap.get(phase.name) ?? [];
+		if (phaseTaskIds.length === 0) continue;
+		const allTerminal = phaseTaskIds.every((taskId) => {
+			const task = tasks.find((t) => t.id === taskId);
+			return task ? terminalStatuses.has(task.status) : false;
+		});
+		if (!allTerminal) break;
+		if (phase.status !== "completed" && phase.status !== "failed" && phase.status !== "skipped") {
+			const completedArtifacts = manifest.artifacts
+				.filter((a) => a.kind === "result" || a.kind === "summary")
+				.map((a) => a.path);
+			const previousPhaseStatus = pi > 0 ? (wfMachine.phases[pi - 1]?.status ?? "pending") : "completed";
+			const wfContext: PhaseGuardContext = {
+				completedArtifacts,
+				previousPhaseStatus,
+				taskResults: tasks
+					.filter((t) => t.status === "completed" || t.status === "needs_attention")
+					.map((t) => ({
+						taskId: t.id,
+						status: t.status,
+						outputPath: t.resultArtifact?.path,
+					})),
+			};
+			// Determine phase transition status based on individual task outcomes
+			const phaseTasks = phaseTaskIds
+				.map((taskId) => tasks.find((t) => t.id === taskId))
+				.filter((t): t is NonNullable<typeof t> => t !== undefined);
+			const hasFailedOrCancelled = phaseTasks.some((t) => t.status === "failed" || t.status === "cancelled");
+			const phaseStatus = hasFailedOrCancelled ? "failed" : "completed";
+			const transition = transitionPhase(wfMachine, pi, phaseStatus, wfContext);
+			wfMachine = transition.machine;
+			if (transition.guardResult && !transition.guardResult.allowed) {
+				await appendEventAsync(manifest.eventsPath, {
+					type: "workflow.phase_guard_blocked",
+					runId: manifest.runId,
+					message: `Workflow phase '${phase.name}' guard blocked: ${transition.guardResult.reason ?? "unknown"}`,
+					data: {
+						phaseIndex: pi,
+						phaseName: phase.name,
+						reason: transition.guardResult.reason,
+					},
+				});
+				break;
+			}
+			await appendEventAsync(manifest.eventsPath, {
+				type: phaseStatus === "failed" ? "workflow.phase_failed" : "workflow.phase_completed",
+				runId: manifest.runId,
+				message: `Workflow phase '${phase.name}' ${phaseStatus}.`,
+				data: { phaseIndex: pi, phaseStatus },
+			});
+		}
+		wfMachine = { ...wfMachine, currentPhaseIndex: pi + 1 };
+	}
+	ctx.wfMachine = wfMachine;
+}
+
+/**
+ * CORE-4 extraction 7: enforce per-task run budget after each batch merge.
+ *
+ * When `input.budgetTotal` is set (and not unlimited), checks cumulative usage
+ * against warn/abort thresholds and a fair-share heuristic. On abort, marks all
+ * non-terminal tasks blocked, persists the run as failed, and returns a
+ * `{ kind: "return" }` decision so the caller short-circuits the loop.
+ * Otherwise emits `run.budget_warning` / `task.budget_fair_share` events and
+ * returns null (continue).
+ *
+ * Reads `ctx.input` (budget config). Mutates `ctx.tasks` / `ctx.manifest` only
+ * in the abort path. The caller syncs these locals back after the call.
+ *
+ * @param ctx  The scheduler context.
+ * @returns    `{ kind: "return", result }` on budget abort; `null` otherwise.
+ */
+async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
+	const input = ctx.input;
+	let tasks = ctx.tasks;
+	let manifest = ctx.manifest;
+	// Per-task budget enforcement: check cumulative usage after each batch merge.
+	// This prevents a single task from consuming 100% of the budget before
+	// abort triggers (the goal-loop only checks at turn boundaries).
+	if (input.budgetTotal !== undefined && input.budgetTotal > 0 && input.budgetUnlimited !== true) {
+		const warnThreshold = input.budgetWarning ?? 0.8;
+		const abortThreshold = input.budgetAbort ?? 0.95;
+		const budgetCheck = checkPerTaskBudget(tasks, input.budgetTotal, warnThreshold, abortThreshold);
+
+		if (budgetCheck.abort) {
+			const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
+			console.warn(`[team-runner] ${message}`);
+			await appendEventAsync(manifest.eventsPath, {
+				type: "run.budget_abort",
+				runId: manifest.runId,
+				message,
+				data: {
+					budgetTotal: input.budgetTotal,
+					budgetUsed: budgetCheck.totalUsed,
+					threshold: "abort",
+				},
+			});
+			tasks = markBlocked(tasks, `Budget abort threshold exceeded: ${message}`);
+			await saveRunTasksAsync(manifest, tasks);
+			manifest = updateRunStatus(manifest, "failed", message);
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			return { kind: "return", result: { manifest, tasks } };
+		}
+
+		if (budgetCheck.warning) {
+			const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
+			console.warn(`[team-runner] ${message}`);
+			await appendEventAsync(manifest.eventsPath, {
+				type: "run.budget_warning",
+				runId: manifest.runId,
+				message,
+				data: {
+					budgetTotal: input.budgetTotal,
+					budgetUsed: budgetCheck.totalUsed,
+					threshold: "warning",
+				},
+			});
+		}
+
+		// Fair-share warning: flag tasks that consumed >50% of remaining budget
+		// without killing them mid-execution.
+		for (const violatorId of budgetCheck.fairShareViolators) {
+			const violator = tasks.find((t) => t.id === violatorId);
+			if (!violator) continue;
+			const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
+			const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round((taskTotal / input.budgetTotal) * 100)}% of total budget) — exceeds fair share`;
+			console.warn(`[team-runner.fair-share] ${message}`);
+			await appendEventAsync(manifest.eventsPath, {
+				type: "task.budget_fair_share",
+				runId: manifest.runId,
+				taskId: violatorId,
+				message,
+				data: {
+					budgetTotal: input.budgetTotal,
+					taskUsage: taskTotal,
+				},
+			});
+		}
+	}
+	return null;
+}
+
+/**
+ * CORE-4 extraction 8: finalize the run after the scheduler loop exits.
+ *
+ * Computes the final run status (failed/blocked/completed) from task states,
+ * policy decisions, and effectiveness evaluation; writes the workflow output
+ * deliverable warning, the `summary.md` artifact, the joint atomic manifest+tasks
+ * save, and a health snapshot; then returns the terminal `{ manifest, tasks }`.
+ *
+ * Reads `ctx.input` (limits/workflow/executeWorkers/runtimeConfig). Mutates
+ * `ctx.manifest` / `ctx.tasks` and writes them back before returning so the
+ * caller stays in sync. This function is the terminal step of
+ * `executeTeamRunCore` — its return value is the run result.
+ *
+ * @param ctx  The scheduler context.
+ * @returns    The final `{ manifest, tasks }` result for the run.
+ */
+async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	const input = ctx.input;
+	const tasks = ctx.tasks;
+	let manifest = ctx.manifest;
+	const failed = tasks.find((task) => task.status === "failed");
+	const waiting = tasks.find((task) => task.status === "waiting");
+	const running = tasks.find((task) => task.status === "running");
+	manifest = applyPolicy(manifest, tasks, input.limits);
+
+	// S02: Verify workflow-declared output files exist before marking completed
+	if (input.workflow?.steps) {
+		const missingOutputs: string[] = [];
+		for (const step of input.workflow.steps) {
+			if (step.output && typeof step.output === "string") {
+				const outputPath = path.join(manifest.artifactsRoot, step.output);
+				if (!fs.existsSync(outputPath)) {
+					missingOutputs.push(step.output);
+				}
+			}
+		}
+		if (missingOutputs.length > 0) {
+			// Emit warning event — run still completes normally to avoid hanging
+			appendEventFireAndForget(manifest.eventsPath, {
+				type: "run.deliverable_warning",
+				runId: manifest.runId,
+				message: `Missing workflow output files: ${missingOutputs.join(", ")}`,
+				data: { missingFiles: missingOutputs },
+			});
+		}
+	}
+
+	const effectiveness = evaluateRunEffectiveness({
+		manifest,
+		tasks,
+		executeWorkers: input.executeWorkers,
+		runtimeConfig: input.runtimeConfig,
+	});
+	const effectivenessDecision = effectivenessPolicyDecision(effectiveness);
+	if (effectivenessDecision) {
+		manifest = {
+			...manifest,
+			policyDecisions: [...(manifest.policyDecisions ?? []), effectivenessDecision],
+			updatedAt: new Date().toISOString(),
+		};
+		await appendEventAsync(manifest.eventsPath, {
+			type: "run.effectiveness",
+			runId: manifest.runId,
+			message: effectivenessDecision.message,
+			data: { effectiveness, policyDecision: effectivenessDecision },
+		});
+	}
+	const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
+	if (failed) {
+		manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
+	} else if (waiting) {
+		manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
+	} else if (running) {
+		manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
+	} else if (effectiveness.severity === "failed") {
+		manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
+	} else if (effectiveness.severity === "blocked") {
+		manifest = updateRunStatus(
+			manifest,
+			"blocked",
+			effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.",
+		);
+	} else if (blockingDecision) {
+		manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
+	} else if (tasks.some((task) => task.status === "queued")) {
+		// F1 defense-in-depth: the loop exited with queued tasks still pending
+		// (e.g. a hook skipped all ready tasks and downstream tasks never became
+		// runnable). This is NOT a completed run — mark it blocked rather than
+		// false-green "completed".
+		manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
+	} else {
+		manifest = updateRunStatus(
+			manifest,
+			"completed",
+			input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers.",
+		);
+	}
+	manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
+	await saveRunManifestAsync(manifest);
+	const usage = aggregateUsage(tasks);
+	const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
+		kind: "summary",
+		relativePath: "summary.md",
+		producer: "team-runner",
+		content: [
+			`# pi-crew run ${manifest.runId}`,
+			"",
+			`Status: ${manifest.status}`,
+			`Team: ${manifest.team}`,
+			`Workflow: ${manifest.workflow ?? "(none)"}`,
+			`Goal: ${manifest.goal}`,
+			`Usage: ${formatUsage(usage)}`,
+			"",
+			"## Tasks",
+			...tasks.map(formatTaskProgress),
+			"",
+			"## Effectiveness",
+			...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
+			"",
+			"## Policy decisions",
+			...(manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"]),
+			"",
+		].join("\n"),
+	});
+	// Build the complete manifest BEFORE acquiring the lock so the artifacts array
+	// is already incorporated into the manifest object that will be atomically written.
+	// This prevents crash-between-mutation-and-lock from leaving inconsistent state.
+	const finalManifest = {
+		...manifest,
+		updatedAt: new Date().toISOString(),
+		artifacts: [...manifest.artifacts, summaryArtifact],
+	};
+	// Joint atomic save: wrap manifest + tasks in a single run lock so they are
+	// written together or not at all. Crash between separate saveRunManifestAsync
+	// and saveRunTasksAsync calls could leave manifest/tasks.json out of sync.
+	await withRunLock(finalManifest, async () => {
+		await saveRunManifestAsync(finalManifest);
+		await saveRunTasksAsync(finalManifest, tasks);
+	});
+	manifest = finalManifest;
+	// Save health snapshot on run completion.
+	// BUG A (pts/2 hang investigation 2026-06-16): stateRoot = `<crewRoot>/state/runs/<runId>`,
+	// so the crew root is THREE dirnames up, not two. Two dirnames gave `<crewRoot>/state`
+	// (the state dir), and HealthStore then joined HEALTH_DIR (`.crew/state/health`)
+	// onto it → `<crewRoot>/state/.crew/state/health` — a double-joined BOGUS path.
+	// That wrote health snapshots to a nonexistent subtree (silently breaking the
+	// health feature) AND created junk dirs that the recursive state watcher then
+	// attached extra inotify watches to. Fix: compute the real crew root (3 up)
+	// and make HEALTH_DIR relative to it.
+	const crewRoot = path.dirname(path.dirname(path.dirname(finalManifest.stateRoot)));
+	const healthStore = new HealthStore(crewRoot);
+	healthStore.saveSnapshot({
+		runId: finalManifest.runId,
+		tasks: tasks.map((t) => ({ id: t.id, status: t.status })),
+		createdAt: finalManifest.createdAt,
+	});
+	ctx.manifest = manifest;
+	ctx.tasks = tasks;
+	return { manifest, tasks };
+}
+
 async function executeTeamRunCore(
 	input: ExecuteTeamRunInput,
 	manifest: TeamRunManifest,
@@ -1944,133 +2279,25 @@ async function executeTeamRunCore(
 			// (cancel-during-exec check + batch summary artifact).
 			const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge!;
 
-			// Advance workflow phases whose tasks are all in terminal state
-			const terminalStatuses = new Set(["completed", "failed", "skipped", "cancelled", "needs_attention"]);
-			const phaseTaskMap = new Map<string, string[]>();
-			for (const task of tasks) {
-				if (!task.stepId) continue;
-				const existing = phaseTaskMap.get(task.stepId) ?? [];
-				existing.push(task.id);
-				phaseTaskMap.set(task.stepId, existing);
-			}
-			for (let pi = wfMachine.currentPhaseIndex; pi < wfMachine.phases.length; pi++) {
-				const phase = wfMachine.phases[pi]!;
-				const phaseTaskIds = phaseTaskMap.get(phase.name) ?? [];
-				if (phaseTaskIds.length === 0) continue;
-				const allTerminal = phaseTaskIds.every((taskId) => {
-					const task = tasks.find((t) => t.id === taskId);
-					return task ? terminalStatuses.has(task.status) : false;
-				});
-				if (!allTerminal) break;
-				if (phase.status !== "completed" && phase.status !== "failed" && phase.status !== "skipped") {
-					const completedArtifacts = manifest.artifacts
-						.filter((a) => a.kind === "result" || a.kind === "summary")
-						.map((a) => a.path);
-					const previousPhaseStatus = pi > 0 ? (wfMachine.phases[pi - 1]?.status ?? "pending") : "completed";
-					const wfContext: PhaseGuardContext = {
-						completedArtifacts,
-						previousPhaseStatus,
-						taskResults: tasks
-							.filter((t) => t.status === "completed" || t.status === "needs_attention")
-							.map((t) => ({
-								taskId: t.id,
-								status: t.status,
-								outputPath: t.resultArtifact?.path,
-							})),
-					};
-					// Determine phase transition status based on individual task outcomes
-					const phaseTasks = phaseTaskIds
-						.map((taskId) => tasks.find((t) => t.id === taskId))
-						.filter((t): t is NonNullable<typeof t> => t !== undefined);
-					const hasFailedOrCancelled = phaseTasks.some((t) => t.status === "failed" || t.status === "cancelled");
-					const phaseStatus = hasFailedOrCancelled ? "failed" : "completed";
-					const transition = transitionPhase(wfMachine, pi, phaseStatus, wfContext);
-					wfMachine = transition.machine;
-					if (transition.guardResult && !transition.guardResult.allowed) {
-						await appendEventAsync(manifest.eventsPath, {
-							type: "workflow.phase_guard_blocked",
-							runId: manifest.runId,
-							message: `Workflow phase '${phase.name}' guard blocked: ${transition.guardResult.reason ?? "unknown"}`,
-							data: {
-								phaseIndex: pi,
-								phaseName: phase.name,
-								reason: transition.guardResult.reason,
-							},
-						});
-						break;
-					}
-					await appendEventAsync(manifest.eventsPath, {
-						type: phaseStatus === "failed" ? "workflow.phase_failed" : "workflow.phase_completed",
-						runId: manifest.runId,
-						message: `Workflow phase '${phase.name}' ${phaseStatus}.`,
-						data: { phaseIndex: pi, phaseStatus },
-					});
-				}
-				wfMachine = { ...wfMachine, currentPhaseIndex: pi + 1 };
-			}
+			// CORE-4 extraction 6: workflow phase advance. Sync ctx.wfMachine;
+			// advanceWorkflowPhases advances phases whose tasks are all terminal,
+			// emits phase_* events, and advances currentPhaseIndex. Mutates
+			// ctx.wfMachine in-place.
+			ctx.wfMachine = wfMachine;
+			await advanceWorkflowPhases(ctx);
+			wfMachine = ctx.wfMachine;
 
-			// Per-task budget enforcement: check cumulative usage after each batch merge.
-			// This prevents a single task from consuming 100% of the budget before
-			// abort triggers (the goal-loop only checks at turn boundaries).
-			if (input.budgetTotal !== undefined && input.budgetTotal > 0 && input.budgetUnlimited !== true) {
-				const warnThreshold = input.budgetWarning ?? 0.8;
-				const abortThreshold = input.budgetAbort ?? 0.95;
-				const budgetCheck = checkPerTaskBudget(tasks, input.budgetTotal, warnThreshold, abortThreshold);
-
-				if (budgetCheck.abort) {
-					const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
-					console.warn(`[team-runner] ${message}`);
-					await appendEventAsync(manifest.eventsPath, {
-						type: "run.budget_abort",
-						runId: manifest.runId,
-						message,
-						data: {
-							budgetTotal: input.budgetTotal,
-							budgetUsed: budgetCheck.totalUsed,
-							threshold: "abort",
-						},
-					});
-					tasks = markBlocked(tasks, `Budget abort threshold exceeded: ${message}`);
-					await saveRunTasksAsync(manifest, tasks);
-					manifest = updateRunStatus(manifest, "failed", message);
-					return { manifest, tasks };
-				}
-
-				if (budgetCheck.warning) {
-					const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
-					console.warn(`[team-runner] ${message}`);
-					await appendEventAsync(manifest.eventsPath, {
-						type: "run.budget_warning",
-						runId: manifest.runId,
-						message,
-						data: {
-							budgetTotal: input.budgetTotal,
-							budgetUsed: budgetCheck.totalUsed,
-							threshold: "warning",
-						},
-					});
-				}
-
-				// Fair-share warning: flag tasks that consumed >50% of remaining budget
-				// without killing them mid-execution.
-				for (const violatorId of budgetCheck.fairShareViolators) {
-					const violator = tasks.find((t) => t.id === violatorId);
-					if (!violator) continue;
-					const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
-					const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round((taskTotal / input.budgetTotal) * 100)}% of total budget) — exceeds fair share`;
-					console.warn(`[team-runner.fair-share] ${message}`);
-					await appendEventAsync(manifest.eventsPath, {
-						type: "task.budget_fair_share",
-						runId: manifest.runId,
-						taskId: violatorId,
-						message,
-						data: {
-							budgetTotal: input.budgetTotal,
-							taskUsage: taskTotal,
-						},
-					});
-				}
-			}
+			// CORE-4 extraction 7: budget enforcement. Sync ctx.tasks/manifest;
+			// enforceRunBudget checks cumulative usage against warn/abort thresholds
+			// and a fair-share heuristic. On abort it marks the run failed and
+			// returns { kind: "return" }; otherwise emits warning events and
+			// returns null (continue).
+			ctx.tasks = tasks;
+			ctx.manifest = manifest;
+			const budgetDecision = await enforceRunBudget(ctx);
+			tasks = ctx.tasks;
+			manifest = ctx.manifest;
+			if (budgetDecision?.kind === "return") return budgetDecision.result;
 
 			const cancelledResult = resultToMerge.manifest.status === "cancelled" ? resultToMerge : undefined;
 			if (cancelledResult || input.signal?.aborted) {
@@ -2164,143 +2391,15 @@ async function executeTeamRunCore(
 			await saveRunManifestAsync(manifest);
 		}
 
-		const failed = tasks.find((task) => task.status === "failed");
-		const waiting = tasks.find((task) => task.status === "waiting");
-		const running = tasks.find((task) => task.status === "running");
-		manifest = applyPolicy(manifest, tasks, input.limits);
-
-		// S02: Verify workflow-declared output files exist before marking completed
-		if (input.workflow?.steps) {
-			const missingOutputs: string[] = [];
-			for (const step of input.workflow.steps) {
-				if (step.output && typeof step.output === "string") {
-					const outputPath = path.join(manifest.artifactsRoot, step.output);
-					if (!fs.existsSync(outputPath)) {
-						missingOutputs.push(step.output);
-					}
-				}
-			}
-			if (missingOutputs.length > 0) {
-				// Emit warning event — run still completes normally to avoid hanging
-				appendEventFireAndForget(manifest.eventsPath, {
-					type: "run.deliverable_warning",
-					runId: manifest.runId,
-					message: `Missing workflow output files: ${missingOutputs.join(", ")}`,
-					data: { missingFiles: missingOutputs },
-				});
-			}
-		}
-
-		const effectiveness = evaluateRunEffectiveness({
-			manifest,
-			tasks,
-			executeWorkers: input.executeWorkers,
-			runtimeConfig: input.runtimeConfig,
-		});
-		const effectivenessDecision = effectivenessPolicyDecision(effectiveness);
-		if (effectivenessDecision) {
-			manifest = {
-				...manifest,
-				policyDecisions: [...(manifest.policyDecisions ?? []), effectivenessDecision],
-				updatedAt: new Date().toISOString(),
-			};
-			await appendEventAsync(manifest.eventsPath, {
-				type: "run.effectiveness",
-				runId: manifest.runId,
-				message: effectivenessDecision.message,
-				data: { effectiveness, policyDecision: effectivenessDecision },
-			});
-		}
-		const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
-		if (failed) {
-			manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
-		} else if (waiting) {
-			manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
-		} else if (running) {
-			manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
-		} else if (effectiveness.severity === "failed") {
-			manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
-		} else if (effectiveness.severity === "blocked") {
-			manifest = updateRunStatus(
-				manifest,
-				"blocked",
-				effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.",
-			);
-		} else if (blockingDecision) {
-			manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
-		} else if (tasks.some((task) => task.status === "queued")) {
-			// F1 defense-in-depth: the loop exited with queued tasks still pending
-			// (e.g. a hook skipped all ready tasks and downstream tasks never became
-			// runnable). This is NOT a completed run — mark it blocked rather than
-			// false-green "completed".
-			manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
-		} else {
-			manifest = updateRunStatus(
-				manifest,
-				"completed",
-				input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers.",
-			);
-		}
-		manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
-		await saveRunManifestAsync(manifest);
-		const usage = aggregateUsage(tasks);
-		const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
-			kind: "summary",
-			relativePath: "summary.md",
-			producer: "team-runner",
-			content: [
-				`# pi-crew run ${manifest.runId}`,
-				"",
-				`Status: ${manifest.status}`,
-				`Team: ${manifest.team}`,
-				`Workflow: ${manifest.workflow ?? "(none)"}`,
-				`Goal: ${manifest.goal}`,
-				`Usage: ${formatUsage(usage)}`,
-				"",
-				"## Tasks",
-				...tasks.map(formatTaskProgress),
-				"",
-				"## Effectiveness",
-				...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
-				"",
-				"## Policy decisions",
-				...(manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"]),
-				"",
-			].join("\n"),
-		});
-		// Build the complete manifest BEFORE acquiring the lock so the artifacts array
-		// is already incorporated into the manifest object that will be atomically written.
-		// This prevents crash-between-mutation-and-lock from leaving inconsistent state.
-		const finalManifest = {
-			...manifest,
-			updatedAt: new Date().toISOString(),
-			artifacts: [...manifest.artifacts, summaryArtifact],
-		};
-		// Joint atomic save: wrap manifest + tasks in a single run lock so they are
-		// written together or not at all. Crash between separate saveRunManifestAsync
-		// and saveRunTasksAsync calls could leave manifest/tasks.json out of sync.
-		await withRunLock(finalManifest, async () => {
-			await saveRunManifestAsync(finalManifest);
-			await saveRunTasksAsync(finalManifest, tasks);
-		});
-		manifest = finalManifest;
-		// Save health snapshot on run completion.
-		// BUG A (pts/2 hang investigation 2026-06-16): stateRoot = `<crewRoot>/state/runs/<runId>`,
-		// so the crew root is THREE dirnames up, not two. Two dirnames gave `<crewRoot>/state`
-		// (the state dir), and HealthStore then joined HEALTH_DIR (`.crew/state/health`)
-		// onto it → `<crewRoot>/state/.crew/state/health` — a double-joined BOGUS path.
-		// That wrote health snapshots to a nonexistent subtree (silently breaking the
-		// health feature) AND created junk dirs that the recursive state watcher then
-		// attached extra inotify watches to. Fix: compute the real crew root (3 up)
-		// and make HEALTH_DIR relative to it.
-		const crewRoot = path.dirname(path.dirname(path.dirname(finalManifest.stateRoot)));
-		const healthStore = new HealthStore(crewRoot);
-		healthStore.saveSnapshot({
-			runId: finalManifest.runId,
-			tasks: tasks.map((t) => ({ id: t.id, status: t.status })),
-			createdAt: finalManifest.createdAt,
-		});
-		return { manifest, tasks };
+		// CORE-4 extraction 8: finalization. Sync ctx; finalizeRun computes the
+		// final run status (failed/blocked/completed), writes the summary artifact
+		// + health snapshot, performs the joint atomic manifest+tasks save, and
+		// returns the terminal { manifest, tasks } result. Sync the locals back
+		// from ctx so the finally block observes consistent state.
+		const finalResult = await finalizeRun(ctx);
+		manifest = ctx.manifest;
+		tasks = ctx.tasks;
+		return finalResult;
 	} finally {
 		await drainPendingUnits(pendingUnits, runController);
 	}
