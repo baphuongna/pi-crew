@@ -972,6 +972,7 @@ function parseReliabilityConfig(value: unknown): CrewReliabilityConfig | undefin
 				jitterRatio: parseWithSchema(Type.Number({ minimum: 0, maximum: 1 }), retryObj.jitterRatio),
 				exponentialFactor: parseWithSchema(Type.Number({ minimum: 1, maximum: 5 }), retryObj.exponentialFactor),
 				retryableErrors: parseStringList(retryObj.retryableErrors),
+				maxTotalSpawns: parsePositiveInteger(retryObj.maxTotalSpawns),
 			}
 		: undefined;
 	const reliability: CrewReliabilityConfig = {

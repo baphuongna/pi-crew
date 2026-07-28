@@ -45,7 +45,7 @@ import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagRea
 import { buildTaskGraphIndex, refreshTaskGraphQueues, taskGraphSnapshot } from "./task-graph-scheduler.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
 import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
-import { runTeamTask } from "./task-runner.ts";
+import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { clearTrackedTaskUsage } from "./usage-tracker.ts";
 import {
@@ -1396,6 +1396,12 @@ async function executeTeamRunCore(
 				const agent = findAgent(input.agents, task);
 				const teamRole = input.team.roles.find((role) => role.name === task.role);
 				const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
+				// CORE-3: compute retry policy + spawn budget ONCE per dispatch unit.
+				// The spawnBudget object is shared (by reference) across every
+				// runTeamTask call within executeWithRetry via baseInput spread,
+				// so the counter accumulates across retry attempts × model fallbacks.
+				const policy = retryPolicyFromConfig(input.reliability);
+				const spawnBudget: SpawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
 				const baseInput = {
 					manifest,
 					tasks,
@@ -1417,6 +1423,7 @@ async function executeTeamRunCore(
 					limits: input.limits,
 					onJsonEvent: input.onJsonEvent,
 					workspaceId: input.workspaceId,
+					spawnBudget,
 				};
 				// #1 (assessment): autoRetry now defaults ON (opt-out via reliability.autoRetry=false).
 				// The dominant v0.9.13 failure was ChildTimeout ("worker became unresponsive") with
@@ -1428,7 +1435,6 @@ async function executeTeamRunCore(
 				let lastFailed: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
 				let lastAttemptId: string | undefined;
 				const attemptsSoFar: TaskAttemptState[] = [...(task.attempts ?? [])];
-				const policy = retryPolicyFromConfig(input.reliability);
 				try {
 					return await executeWithRetry(
 						async (attempt, info) => {

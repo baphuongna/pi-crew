@@ -167,6 +167,8 @@ export interface CrewRetryPolicyConfig {
 	jitterRatio?: number;
 	exponentialFactor?: number;
 	retryableErrors?: string[];
+	/** CORE-3: flat override for per-task spawn budget. 0/omitted = auto-compute. */
+	maxTotalSpawns?: number;
 }
 
 export interface CrewReliabilityConfig {

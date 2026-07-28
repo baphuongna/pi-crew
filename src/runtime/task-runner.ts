@@ -38,6 +38,7 @@ import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { bridgeEventFromJsonEvent, registerStreamBridge } from "./event-stream-bridge.ts";
 import { runWorker } from "./run-worker.ts";
+import { DEFAULT_RETRY_POLICY } from "./retry-executor.ts";
 import { createVerificationEvidence } from "./green-contract.ts";
 import {
 	buildConfiguredModelRouting,
@@ -113,6 +114,23 @@ async function appendBackgroundLogAsync(bgLogPath: string, eventLine: string): P
 	}
 }
 
+/**
+ * CORE-3 — mutable per-task spawn budget. Shared across ALL retry attempts
+ * (executeWithRetry in team-runner.ts) × model fallback iterations
+ * (the for-loop in runTeamTask) via a single object reference passed through
+ * baseInput spread. When `count` exceeds `max`, the model fallback loop breaks.
+ *
+ * `max = 0` means auto-compute on first use as
+ * `attemptModels.length × (maxAttempts + 1)` — always one full attempt above
+ * the theoretical maximum of `maxAttempts × attemptModels.length`.
+ */
+export interface SpawnBudget {
+	/** Running spawn count (mutated in place). */
+	count: number;
+	/** Maximum spawns allowed. 0 = auto-compute from attemptModels × maxAttempts. */
+	max: number;
+}
+
 export interface TaskRunnerInput {
 	manifest: TeamRunManifest;
 	tasks: TeamTaskState[];
@@ -141,6 +159,14 @@ export interface TaskRunnerInput {
 	workspaceId: string;
 	/** Optional callback for JSON events from child Pi. Used for overflow recovery tracking. */
 	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
+	/**
+	 * CORE-3 — per-task spawn budget. When provided, runTeamTask tracks total
+	 * runWorker spawns across the model fallback loop and breaks when the
+	 * budget is exhausted. Shared across retry attempts via a single object
+	 * reference (team-runner.ts creates one per dispatch unit and spreads it
+	 * into every runTeamTask call).
+	 */
+	spawnBudget?: SpawnBudget;
 }
 
 export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
@@ -410,6 +436,13 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			});
 			const candidates = modelRoutingPlan.candidates;
 			const attemptModels = candidates.length > 0 ? candidates : [undefined];
+			// CORE-3: auto-compute per-task spawn budget on first entry.
+			// Budget = attemptModels.length × (maxAttempts + 1) — always one
+			// full attempt-worth above the theoretical maximum of
+			// maxAttempts × attemptModels.length. Only computes once (max=0 guard).
+			if (input.spawnBudget && input.spawnBudget.max === 0) {
+				input.spawnBudget.max = attemptModels.length * (DEFAULT_RETRY_POLICY.maxAttempts + 1);
+			}
 			const logs: string[] = [];
 			let finalStderr = "";
 			modelAttempts = [];
@@ -484,6 +517,22 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					recursive: true,
 				});
 				const model = attemptModels[i];
+				// CORE-3: per-task spawn budget cap. Track total runWorker spawns
+				// across ALL retry attempts × model fallback iterations. When
+				// the budget is exhausted, break the loop using the last error
+				// as the final result.
+				if (input.spawnBudget) {
+					input.spawnBudget.count += 1;
+					if (input.spawnBudget.count > input.spawnBudget.max) {
+						logs.push(
+							`[WARN] CORE-3 spawn budget exhausted (max=${input.spawnBudget.max}) — ` +
+								`stopping model fallback after ${modelAttempts.length} attempt(s). ` +
+								`Last error: ${error ?? "<none>"}`,
+							"",
+						);
+						break;
+					}
+				}
 				const attemptStartedAt = new Date();
 				const pendingAttempt: ModelAttemptSummary = {
 					model: model ?? "default",

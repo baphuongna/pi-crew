@@ -2486,7 +2486,8 @@ function parseReliabilityConfig(value) {
     backoffMs: parseWithSchema(Type2.Integer({ minimum: 100, maximum: 6e4 }), retryObj.backoffMs),
     jitterRatio: parseWithSchema(Type2.Number({ minimum: 0, maximum: 1 }), retryObj.jitterRatio),
     exponentialFactor: parseWithSchema(Type2.Number({ minimum: 1, maximum: 5 }), retryObj.exponentialFactor),
-    retryableErrors: parseStringList(retryObj.retryableErrors)
+    retryableErrors: parseStringList(retryObj.retryableErrors),
+    maxTotalSpawns: parsePositiveInteger(retryObj.maxTotalSpawns)
   } : void 0;
   const reliability = {
     autoRetry: parseWithSchema(Type2.Boolean(), obj.autoRetry),
@@ -51312,6 +51313,9 @@ async function runTeamTask(input) {
       });
       const candidates = modelRoutingPlan.candidates;
       const attemptModels = candidates.length > 0 ? candidates : [void 0];
+      if (input.spawnBudget && input.spawnBudget.max === 0) {
+        input.spawnBudget.max = attemptModels.length * (DEFAULT_RETRY_POLICY.maxAttempts + 1);
+      }
       const logs = [];
       let finalStderr = "";
       modelAttempts = [];
@@ -51368,6 +51372,16 @@ async function runTeamTask(input) {
           recursive: true
         });
         const model = attemptModels[i];
+        if (input.spawnBudget) {
+          input.spawnBudget.count += 1;
+          if (input.spawnBudget.count > input.spawnBudget.max) {
+            logs.push(
+              `[WARN] CORE-3 spawn budget exhausted (max=${input.spawnBudget.max}) \u2014 stopping model fallback after ${modelAttempts.length} attempt(s). Last error: ${error ?? "<none>"}`,
+              ""
+            );
+            break;
+          }
+        }
         const attemptStartedAt = /* @__PURE__ */ new Date();
         const pendingAttempt = {
           model: model ?? "default",
@@ -52121,6 +52135,7 @@ var init_task_runner = __esm({
     init_crew_hooks();
     init_event_stream_bridge();
     init_run_worker();
+    init_retry_executor();
     init_green_contract();
     init_model_fallback();
     init_model_scope();
@@ -53919,6 +53934,8 @@ async function executeTeamRunCore(input, manifest, workflow) {
         const agent = findAgent(input.agents, task);
         const teamRole = input.team.roles.find((role) => role.name === task.role);
         const perTaskRuntime = resolveTaskRuntimeKind(runtimeKind, task.role, input.runtimeConfig?.isolationPolicy);
+        const policy = retryPolicyFromConfig(input.reliability);
+        const spawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
         const baseInput = {
           manifest,
           tasks,
@@ -53939,14 +53956,14 @@ async function executeTeamRunCore(input, manifest, workflow) {
           skillOverride: input.skillOverride,
           limits: input.limits,
           onJsonEvent: input.onJsonEvent,
-          workspaceId: input.workspaceId
+          workspaceId: input.workspaceId,
+          spawnBudget
         };
         if (!shouldUseRetry(input.reliability))
           return withCorrelation(childCorrelation(manifest.runId, task.id), () => runTeamTask(baseInput));
         let lastFailed;
         let lastAttemptId;
         const attemptsSoFar = [...task.attempts ?? []];
-        const policy = retryPolicyFromConfig(input.reliability);
         try {
           return await executeWithRetry(
             async (attempt, info2) => {

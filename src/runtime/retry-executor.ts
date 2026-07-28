@@ -7,6 +7,15 @@ export interface RetryPolicy {
 	jitterRatio: number;
 	exponentialFactor: number;
 	retryableErrors?: string[];
+	/**
+	 * CORE-3 — per-task spawn budget cap. Maximum total worker spawns
+	 * (runWorker/runChildPi calls) allowed across ALL retry attempts × model
+	 * fallback iterations for a single task. When omitted or 0, the budget
+	 * auto-computes as `attemptModels.length × (maxAttempts + 1)` in
+	 * task-runner.ts (always ≥ 1 full attempt above the theoretical max).
+	 * Set explicitly to override the auto-computed value.
+	 */
+	maxTotalSpawns?: number;
 }
 
 export interface RetryAttemptInfo {
