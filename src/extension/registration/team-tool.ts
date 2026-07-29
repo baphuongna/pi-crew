@@ -33,6 +33,7 @@ import { loadRunManifestById } from "../../state/state-store.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { withSessionId } from "../team-tool/context.ts";
+import { formatTeamToolParamError } from "../team-tool/param-error.ts";
 import { toolResult } from "../tool-result.ts";
 
 const TEAM_TOOL_PROGRESS_TICK_MS = 1000;
@@ -101,7 +102,7 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			try {
 				// Defense-in-depth: validate params at runtime even though Pi framework already does
 				if (!Value.Check(TeamToolParams, params)) {
-					return toolResult("Invalid team tool parameters", { action: "list", status: "error" }, true);
+					return toolResult(formatTeamToolParamError(TeamToolParams, params), { action: "list", status: "error" }, true);
 				}
 				const resolved = params as TeamToolParamsValue;
 				const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);
