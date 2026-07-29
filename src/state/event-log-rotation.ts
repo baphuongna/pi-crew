@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { readEvents, type TeamEvent, withEventLogLockSync } from "./event-log.ts";
@@ -250,6 +251,30 @@ export function rotateEventLog(eventsPath: string): boolean {
 	return withEventLogLockSync(eventsPath, () => rotateEventLogUnlocked(eventsPath));
 }
 
+/** H2 retention: delete `<eventsPath>.*.archive.jsonl` files older than the window so
+ * they don't accumulate forever (mirrors notification/metric-sink rotateOldFiles). */
+const ARCHIVE_RETENTION_DAYS = 7;
+function sweepOldArchives(eventsPath: string, now = Date.now()): void {
+	const dir = path.dirname(eventsPath);
+	const base = path.basename(eventsPath);
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(dir);
+	} catch {
+		return;
+	}
+	const cutoff = now - ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+	for (const name of entries) {
+		if (!name.startsWith(`${base}.`) || !name.endsWith(".archive.jsonl")) continue;
+		const archivePath = path.join(dir, name);
+		try {
+			if (fs.statSync(archivePath).mtimeMs < cutoff) fs.unlinkSync(archivePath);
+		} catch (error) {
+			logInternalError("event-log.archive-sweep", error, `archivePath=${archivePath}`, "debug");
+		}
+	}
+}
+
 /** Round 24 (BUG 1): the lock-free core of rotation. Assumes the caller
  * already holds the event-log lock (or accepts the unlocked race). */
 export function rotateEventLogUnlocked(eventsPath: string): boolean {
@@ -278,6 +303,9 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		// detect the truncation and reset (re-read from offset 0 of the new
 		// file), instead of reading past EOF and missing post-rotation events.
 		bumpGenerationUnlocked(eventsPath);
+		// H2: retention — sweep archive files older than the window so they don't
+		// accumulate forever (mirrors notification/metric-sink rotateOldFiles).
+		sweepOldArchives(eventsPath);
 		return true;
 	} catch (error) {
 		logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);

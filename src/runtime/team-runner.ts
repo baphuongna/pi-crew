@@ -918,8 +918,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			await saveRunTasksAsync(manifest, tasks);
 			const existingRuntimeByTask = new Map(readCrewAgents(manifest).map((agent) => [agent.taskId, agent.runtime]));
 			const globalRuntime = input.runtime?.kind ?? "child-process";
+			const taskById = new Map(tasks.map((item) => [item.id, item] as const));
 			const runtimeForAgent = (agent: ReturnType<typeof recordsForMaterializedTasks>[number]): CrewRuntimeKind => {
-				const task = tasks.find((item) => item.id === agent.taskId);
+				const task = taskById.get(agent.taskId);
 				return (
 					existingRuntimeByTask.get(agent.taskId) ??
 					resolveTaskRuntimeKind(globalRuntime, task?.role ?? agent.role, input.runtimeConfig?.isolationPolicy)
@@ -1216,9 +1217,9 @@ async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDeci
 		}
 	}
 
-	const readyRoles = readyBeforeFilter
-		.map((taskId) => ctx.tasks.find((task) => task.id === taskId)?.role)
-		.filter((role): role is string => Boolean(role));
+	// W5-4: by-id map once (was O(ready × tasks) via find-per-element).
+	const taskByIdReady = new Map(ctx.tasks.map((t) => [t.id, t] as const));
+	const readyRoles = readyBeforeFilter.map((taskId) => taskByIdReady.get(taskId)?.role).filter((role): role is string => Boolean(role));
 	const concurrency = resolveBatchConcurrency({
 		workflowName: ctx.workflow.name,
 		workflowMaxConcurrency: ctx.workflow.maxConcurrency,
@@ -1290,9 +1291,8 @@ async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDeci
 	const approvalPending = isPlanApprovalPending(ctx.manifest);
 	const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
 	const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
-	const candidateBatch = readyIds
-		.map((id) => ctx.tasks.find((task) => task.id === id))
-		.filter((task): task is TeamTaskState => Boolean(task));
+	const taskByIdDispatch = new Map(ctx.tasks.map((t) => [t.id, t] as const));
+	const candidateBatch = readyIds.map((id) => taskByIdDispatch.get(id)).filter((task): task is TeamTaskState => Boolean(task));
 	const readyBatch = approvalPending ? candidateBatch.filter((task) => !isMutatingTask(task)).slice(0, slotsAvailable) : candidateBatch;
 	if (readyBatch.length === 0) {
 		if (ctx.pendingUnits.size > 0) {
