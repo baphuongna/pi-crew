@@ -60,6 +60,11 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const phaseProgress = computePhaseProgress(tasks);
 	const allEvents = readEvents(manifest.eventsPath);
 	const events = allEvents.slice(-8);
+	// P1-8: pre-build the ack-timeout requestId set once (was O(events × messages)
+	// via allEvents.some() inside the mailbox loop).
+	const ackTimeoutRequestIds = new Set(
+		allEvents.filter((event) => event.type === "agent.group_join.ack_timeout").map((event) => String(event.data?.requestId ?? "")),
+	);
 	const attentionByTask = new Map(
 		allEvents.filter((event) => event.type === "task.attention" && event.taskId).map((event) => [event.taskId!, event]),
 	);
@@ -80,7 +85,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const ageMs = Date.now() - new Date(message.createdAt).getTime();
 		const requestId = String(message.data?.requestId ?? "unknown");
 		const timedOut = ack === "pending" && ackTimeoutMs !== undefined && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
-		if (timedOut && !allEvents.some((event) => event.type === "agent.group_join.ack_timeout" && event.data?.requestId === requestId)) {
+		if (timedOut && !ackTimeoutRequestIds.has(requestId)) {
 			appendEvent(manifest.eventsPath, {
 				type: "agent.group_join.ack_timeout",
 				runId: manifest.runId,

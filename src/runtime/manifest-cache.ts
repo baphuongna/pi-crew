@@ -109,7 +109,11 @@ function parseManifestIfChanged(root: string, runId: string, filePath: string, p
 		return undefined;
 	}
 	if (previous && previous.mtimeMs === stat.mtimeMs && previous.size === stat.size) {
-		return validateManifestForRoot(root, runId, previous.manifest) ? previous : undefined;
+		// P1-9: the manifest file is unchanged, so its recorded paths and their
+		// containment verdict are unchanged too — skip the ~10-syscall
+		// validateManifestForRoot re-check on cache hit. list() and listActive()
+		// both scan within the same TTL window, so the second scan is now free.
+		return previous;
 	}
 	const manifest = parseManifest(filePath);
 	if (!manifest || !validateManifestForRoot(root, runId, manifest)) return undefined;

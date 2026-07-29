@@ -1,5 +1,6 @@
-import { appendEvent, readEvents } from "../state/event-log.ts";
+import { appendEvent, type TeamEvent } from "../state/event-log.ts";
 import type { CrewAttentionEventData, TeamRunManifest } from "../state/types.ts";
+import { readJsonlTail } from "../utils/incremental-reader.ts";
 
 export interface AppendTaskAttentionInput {
 	manifest: TeamRunManifest;
@@ -9,7 +10,7 @@ export interface AppendTaskAttentionInput {
 }
 
 export function appendTaskAttentionEvent(input: AppendTaskAttentionInput): boolean {
-	const recent = readEvents(input.manifest.eventsPath).slice(-200);
+	const recent = readJsonlTail<TeamEvent>(input.manifest.eventsPath, 256 * 1024).items.slice(-200);
 	const dedupKey = `${input.taskId ?? ""}:${input.data.reason}:${input.data.activityState}`;
 	const duplicate = recent.some(
 		(event) =>
