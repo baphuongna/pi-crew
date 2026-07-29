@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { formatTeamToolParamError } from "../../src/extension/team-tool/param-error.ts";
 import { TeamToolParams } from "../../src/schema/team-tool-schema.ts";
 
