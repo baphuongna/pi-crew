@@ -1389,7 +1389,12 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 			ctx.manifest = updateRunStatus(ctx.manifest, ctx.manifest.status, `Task '${task.id}' blocked by hook.`);
 		}
 	}
-	const batchTasks = readyBatch.filter((task) => ctx.tasks.find((t) => t.id === task.id && t.status !== "skipped"));
+	// W5-4: by-id map (was O(readyBatch × tasks) via find-per-element).
+	const ctxTaskById = new Map(ctx.tasks.map((t) => [t.id, t] as const));
+	const batchTasks = readyBatch.filter((task) => {
+		const t = ctxTaskById.get(task.id);
+		return t !== undefined && t.status !== "skipped";
+	});
 	if (batchTasks.length > 1) {
 		await appendEventAsync(ctx.manifest.eventsPath, {
 			type: "task.parallel_start",
@@ -1799,12 +1804,14 @@ async function advanceWorkflowPhases(ctx: SchedulerContext): Promise<void> {
 		existing.push(task.id);
 		phaseTaskMap.set(task.stepId, existing);
 	}
+	// W5-4: by-id map once for the phase loop (was O(phases × phaseTasks × tasks)).
+	const taskById = new Map(tasks.map((t) => [t.id, t] as const));
 	for (let pi = wfMachine.currentPhaseIndex; pi < wfMachine.phases.length; pi++) {
 		const phase = wfMachine.phases[pi]!;
 		const phaseTaskIds = phaseTaskMap.get(phase.name) ?? [];
 		if (phaseTaskIds.length === 0) continue;
 		const allTerminal = phaseTaskIds.every((taskId) => {
-			const task = tasks.find((t) => t.id === taskId);
+			const task = taskById.get(taskId);
 			return task ? terminalStatuses.has(task.status) : false;
 		});
 		if (!allTerminal) break;
@@ -1824,7 +1831,7 @@ async function advanceWorkflowPhases(ctx: SchedulerContext): Promise<void> {
 			};
 			// Determine phase transition status based on individual task outcomes
 			const phaseTasks = phaseTaskIds
-				.map((taskId) => tasks.find((t) => t.id === taskId))
+				.map((taskId) => taskById.get(taskId))
 				.filter((t): t is NonNullable<typeof t> => t !== undefined);
 			const hasFailedOrCancelled = phaseTasks.some((t) => t.status === "failed" || t.status === "cancelled");
 			const phaseStatus = hasFailedOrCancelled ? "failed" : "completed";
