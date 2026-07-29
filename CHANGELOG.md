@@ -3,6 +3,30 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.55] — HOTFIX: ship src/ (child workers load src/prompt/prompt-runtime.ts by path) (2026-07-29)
+
+**Fixes the delegation / team-run regression** that affected 0.9.52–0.9.54. The extension loaded fine (0.9.54), but delegation/team-run failed with "pi-crew run failed" — the child worker `pi` process could not find its extension.
+
+### Root cause (third consequence of PKG-2)
+pi-crew spawns a child `pi` worker per agent task and passes it `--extension <packageRoot>/src/prompt/prompt-runtime.ts` (pi-args.ts `PROMPT_RUNTIME_EXTENSION_PATH`). The child loads that file BY PATH as its extension. PKG-2 (Sprint 6) removed `src/` from the npm tarball to slim it, so the file did not exist in published installs → child failed → "pi-crew run failed".
+
+This was masked in 0.9.52/0.9.53 by the load failure (extension never loaded, so delegation was never reached). 0.9.54 fixed the load, surfacing this. (Not Windows-specific — my Linux repro passed only because the dev checkout has `src/`; published installs do not.)
+
+`prompt-runtime.ts` also imports 3 more src/ files (crew-broker-child, internal-error, safe-paths), so shipping just it is insufficient.
+
+### Fix
+- **Ship `src/` again** — add `"src/"` to package.json `files`. Reverts the PKG-2 src/ removal. The child worker can now find prompt-runtime.ts. Tarball stays lean (2.4MB compressed / 8.9MB unpacked).
+- **prepack hook** (`scripts/clean-strip-types.mjs`): strips the ~290 strip-types `.js` companion files (dev-only cache, gitignored) from `src/` before every pack/publish, keeping the tarball clean regardless of local dev state.
+- esbuild stays in `dependencies` (0.9.54 fix retained).
+
+### Regression guards (CI Test step)
+- `test/unit/package-ships-src.test.ts` — **new**. Asserts `files` includes `src/` and the path-loaded files exist. Would have caught the PKG-2 regression.
+- `test/unit/bundle-deps-consistency.test.ts` (0.9.54) — bundle external imports declared as runtime deps (caught the esbuild-devDep bug).
+- `test/unit/extension-entry-load.test.ts` (0.9.53) — index.ts has no static src/ imports.
+
+### Note on PKG-2 / 0.9.52–0.9.54
+PKG-2's tarball-slimming caused THREE bugs (load failure, esbuild-devDep mask, delegation failure). 0.9.52–0.9.54 are deprecated. `latest` → 0.9.55.
+
 ## [0.9.54] — HOTFIX (real root cause): esbuild runtime dep mis-declared as devDependency (2026-07-29)
 
 **Fixes the TRUE root cause** of the extension-load regression that affected 0.9.52 AND 0.9.53. Both are deprecated; `latest` now points here.

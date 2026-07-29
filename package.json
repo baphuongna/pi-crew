@@ -1,6 +1,6 @@
 {
   "name": "pi-crew",
-  "version": "0.9.54",
+  "version": "0.9.55",
   "description": "Pi extension for coordinated AI teams, workflows, worktrees, and async task orchestration",
   "author": "baphuongna",
   "license": "MIT",
@@ -31,6 +31,7 @@
   "files": [
     "*.ts",
     "*.mjs",
+    "src/",
     "dist/index.mjs",
     "dist/build-meta.json",
     "agents/",
@@ -39,6 +40,7 @@
     "skills/**",
     "themes/",
     "assets/crew-vibes.ttf",
+    "scripts/clean-strip-types.mjs",
     "scripts/postinstall.mjs",
     "scripts/install-crew-vibes-font.mjs",
     "scripts/build-crew-vibes-font.py",
@@ -93,7 +95,8 @@
     "bench:capture": "node scripts/run-bench.mjs && node -e \"require('node:fs').copyFileSync('test/bench/results.json','test/bench/baseline.json')\"",
     "profile:startup": "node scripts/profile-startup.mjs",
     "smoke:pi": "pi install .",
-    "smoke:release": "node scripts/release-smoke.mjs"
+    "smoke:release": "node scripts/release-smoke.mjs",
+    "prepack": "node scripts/clean-strip-types.mjs"
   },
   "exports": {
     "./schema.json": "./schema.json",
