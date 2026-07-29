@@ -463,15 +463,30 @@ async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ lo
 	}
 }
 
+// P1-11: `git worktree prune` is a repo-level write that cleans ALL stale
+// worktrees — running it per task is pure waste. Coalesce concurrent calls
+// (N tasks in a batch → 1 prune) and memoize per repo per process (within a
+// run no new stale worktrees appear, so one prune suffices).
+const _prunedRepos = new Set<string>();
+const _pruneInFlight = new Map<string, Promise<void>>();
 async function pruneStaleWorktreesAsync(repoRoot: string): Promise<void> {
-	try {
-		await execFileAsync("git", ["worktree", "prune"], {
-			cwd: repoRoot,
-			windowsHide: true,
-		});
-	} catch {
-		/* best-effort */
-	}
+	if (_prunedRepos.has(repoRoot)) return;
+	const inFlight = _pruneInFlight.get(repoRoot);
+	if (inFlight) return inFlight;
+	const p = (async () => {
+		try {
+			await execFileAsync("git", ["worktree", "prune"], {
+				cwd: repoRoot,
+				windowsHide: true,
+			});
+		} catch {
+			/* best-effort */
+		}
+		_prunedRepos.add(repoRoot);
+		_pruneInFlight.delete(repoRoot);
+	})();
+	_pruneInFlight.set(repoRoot, p);
+	return p;
 }
 
 /**
