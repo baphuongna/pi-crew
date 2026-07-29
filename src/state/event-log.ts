@@ -69,7 +69,25 @@ const MAX_EVENTS_BYTES = 50 * 1024 * 1024;
 
 const sequenceCache = new Map<string, { size: number; mtimeMs: number; seq: number; lastAccessMs: number }>();
 const MAX_SEQUENCE_CACHE_ENTRIES = 256;
-let appendCounter = 0;
+// P0-2: per-eventsPath append counter. Previously a single module-global shared
+// across all runs AND never incremented on the async path, so the async rotation
+// gate (`0 % 100 === 0`) was always true → needsRotation ran on EVERY async append
+// (a full read+parse+rewrite once the log crossed 4 MB). FIFO-bounded to avoid
+// unbounded growth with run count.
+const appendCounters = new Map<string, number>();
+const APPEND_COUNTER_MAX_ENTRIES = 256;
+export function tickAppendCounter(eventsPath: string, inc = 1): boolean {
+	const prev = appendCounters.get(eventsPath) ?? 0;
+	const next = prev + inc;
+	appendCounters.set(eventsPath, next);
+	if (appendCounters.size > APPEND_COUNTER_MAX_ENTRIES) {
+		const oldest = appendCounters.keys().next().value;
+		if (oldest !== undefined) appendCounters.delete(oldest);
+	}
+	// True when a 100-boundary is crossed (matches the old `next % 100 === 0`
+	// semantics for inc=1, and generalizes to batch increments).
+	return Math.floor(next / 100) > Math.floor(prev / 100);
+}
 let overflowCounter = 0;
 
 /** Simple cross-process lock for an eventsPath to prevent JSONL interleave on concurrent append.
@@ -764,7 +782,7 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		// FIND-10: track whether compaction happened after the append so the
 		// cache-update stat can safely reuse postAppendStat (file unchanged).
 		let compactedAfterAppend = false;
-		if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+		if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
 			compactedAfterAppend = true;
 			try {
 				const prepared = prepareCompaction(eventsPath);
@@ -865,6 +883,8 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
  */
 async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedAppend[]): Promise<void> {
 	if (queue.length === 0) return;
+	// P0-2: keep the per-path counter honest for cross-path rotation sampling.
+	tickAppendCounter(eventsPath, queue.length);
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
 
 	// Pre-flight size check (mirrors appendEventInsideLock). We do it once for
@@ -1100,8 +1120,7 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 			logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
 		}
 	}
-	appendCounter++;
-	if (appendCounter % 100 === 0 && needsRotation(eventsPath)) {
+	if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
 		// Round 24 (BUG 1): we are INSIDE withEventLogLockSync here (called via
 		// appendEventInsideLock). The mkdir lock is NOT re-entrant, so calling the
 		// locked compactEventLog would deadlock → 5s timeout → compaction never

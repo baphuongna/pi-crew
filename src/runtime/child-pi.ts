@@ -11,11 +11,12 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
 import { getActiveBrokerIssuer } from "./broker-issuer.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
-import { appendBoundedTail, clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
+import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
+import { BoundedTail } from "./compact-stages/bounded-tail.ts";
 
 // ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
 // killProcessTree is internal (not previously exported) — keep that invariant.
@@ -431,8 +432,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					ts: new Date().toISOString(),
 				});
 			}
-			let stdout = "";
-			let stderr = "";
+			// P0-1: O(1)-amortized bounded accumulators (segment ring) — replaces the O(n²)
+			// appendBoundedTail rebuild-per-line pattern that re-scanned 512 KiB every line.
+			const stdoutTail = new BoundedTail();
+			const stderrTail = new BoundedTail();
 			let settled = false;
 			let childExited = false;
 			let postExitGuardCleanup: (() => void) | undefined;
@@ -526,6 +529,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				if (noResponseTimer) clearTimeout(noResponseTimer);
 				noResponseTimer = setTimeout(() => {
 					responseTimeoutHit = true;
+					// P0-1: snapshot the bounded stderr accumulator once for this timer fire.
+					const stderr = stderrTail.value();
 					// Capture stderr at timeout moment for debugging
 					// SEC-1: redact secrets before embedding in lifecycle event so
 					// worker-emitted secrets (API keys etc.) don't bypass redaction.
@@ -569,8 +574,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 							const timeoutErr = `Child Pi produced no new output for ${responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
 							void settle({
 								exitCode: null,
-								stdout,
-								stderr,
+								stdout: stdoutTail.value(),
+								stderr: stderrTail.value(),
 								error: timeoutErr,
 								exitStatus: {
 									exitCode: null,
@@ -600,7 +605,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				...input,
 				onStdoutLine: (line) => {
 					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-					stdout = appendBoundedTail(stdout, `${line}\n`);
+					stdoutTail.push(`${line}\n`);
 					input.onStdoutLine?.(line);
 				},
 				onJsonEvent: (event) => {
@@ -913,9 +918,12 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			});
 			child.stderr?.on("data", (chunk: Buffer) => {
 				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-				stderr = appendBoundedTail(stderr, chunk.toString("utf-8"));
+				stderrTail.push(chunk.toString("utf-8"));
 			});
 			child.on("error", (error) => {
+				// P0-1: snapshot the bounded accumulators once for this handler.
+				const stdout = stdoutTail.value();
+				const stderr = stderrTail.value();
 				// Reject pending operations with process error context
 				// SEC-1: redact stderr secrets embedded in the error message + excerpt.
 				const processError = new Error(
@@ -956,6 +964,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				});
 			});
 			child.on("exit", (code, signal) => {
+				// P0-1: snapshot the bounded stderr accumulator once for this handler.
+				const stderr = stderrTail.value();
 				if (child.pid) {
 					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);
@@ -1017,6 +1027,9 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			});
 			child.on("close", (exitCode) => {
+				// P0-1: snapshot the bounded accumulators once for this handler.
+				const stdout = stdoutTail.value();
+				const stderr = stderrTail.value();
 				if (child.pid) {
 					unregisterActiveChild(child.pid);
 					clearHardKillTimer(child.pid);

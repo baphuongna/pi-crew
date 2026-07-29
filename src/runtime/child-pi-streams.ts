@@ -87,6 +87,18 @@ function compactChildPiEvent(event: unknown): unknown | undefined {
 			stopReason: record.stopReason,
 		};
 	}
+	// P2-25: pass supervisor_contact events through with their full payload. The
+	// generic fallthrough below strips everything but `type`, which made the
+	// feature dead — the contact never reached recordSupervisorContact.
+	if (record.type === "supervisor_contact" || record.type === "crew_supervisor_contact") {
+		return {
+			type: record.type,
+			taskId: record.taskId,
+			reason: record.reason,
+			message: record.message,
+			data: record.data,
+		};
+	}
 	return record.type ? { type: record.type } : undefined;
 }
 

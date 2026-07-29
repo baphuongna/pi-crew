@@ -33,7 +33,10 @@ export class Semaphore {
 		// implementation let #queue grow without bound, risking memory
 		// exhaustion under sustained high concurrency with slow releases.
 		if (this.#queue.length >= Semaphore.MAX_QUEUE) {
-			throw new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${Semaphore.MAX_QUEUE}); cannot acquire slot`);
+			// P1-7: reject (don't throw) so callers can backpressure instead of crashing.
+			return Promise.reject(
+				new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${Semaphore.MAX_QUEUE}); cannot acquire slot`),
+			);
 		}
 		const { promise, resolve } = (() => {
 			let res: () => void;

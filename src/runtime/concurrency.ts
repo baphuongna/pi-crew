@@ -1,4 +1,5 @@
 import { DEFAULT_CONCURRENCY } from "../config/defaults.ts";
+import { getWorkerCapCapacity } from "./global-worker-cap.ts";
 
 export interface ResolveBatchConcurrencyInput {
 	workflowName: string;
@@ -7,6 +8,8 @@ export interface ResolveBatchConcurrencyInput {
 	limitMaxConcurrentWorkers?: number;
 	allowUnboundedConcurrency?: boolean;
 	hardCap?: number;
+	/** Optional override for the global worker cap (test determinism). Defaults to getWorkerCapCapacity(). */
+	workerCap?: number;
 	readyCount: number;
 	workspaceMode?: "single" | "worktree";
 	readyRoles?: string[];
@@ -45,9 +48,12 @@ export function resolveBatchConcurrency(input: ResolveBatchConcurrencyInput): Ba
 	else if (teamMax !== undefined) source = "team";
 	else source = "workflow";
 	const hardCap = positiveInteger(input.hardCap) ?? DEFAULT_CONCURRENCY.hardCap;
-	const maxConcurrent = input.allowUnboundedConcurrency ? requested : Math.min(requested, hardCap);
+	// P1-7: consult the global worker cap so the scheduler doesn't over-dispatch
+	// (e.g. dispatch 4 while the global semaphore holds 2 on a 4-core machine).
+	const workerCap = positiveInteger(input.workerCap) ?? getWorkerCapCapacity();
+	const maxConcurrent = input.allowUnboundedConcurrency ? requested : Math.min(requested, hardCap, workerCap);
 	const readyCount = Math.max(0, Math.trunc(Number.isFinite(input.readyCount) ? input.readyCount : 0));
-	const cappedReason = maxConcurrent < requested ? `;capped:${hardCap}` : "";
+	const cappedReason = maxConcurrent < requested ? `;capped:hard=${hardCap},worker=${workerCap}` : "";
 	const unboundedReason = input.allowUnboundedConcurrency && requested > hardCap ? `;unbounded:${hardCap}` : "";
 	return {
 		maxConcurrent,

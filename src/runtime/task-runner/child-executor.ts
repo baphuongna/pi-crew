@@ -57,7 +57,7 @@ import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../p
 import { DEFAULT_RETRY_POLICY } from "../retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
-import { parseSupervisorContactFromLine, recordSupervisorContact } from "../supervisor-contact.ts";
+import { recordSupervisorContact, supervisorContactFromEvent } from "../supervisor-contact.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
 import { createStartupEvidence } from "../worker-startup.ts";
 import type { TaskExecutionResult } from "./post-execution.ts";
@@ -438,19 +438,15 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				onStdoutLine: (line) => {
 					appendCrewAgentOutput(manifest, task.id, line);
 					persistHeartbeat();
-					// Check for supervisor contact requests from child Pi
-					const contact = parseSupervisorContactFromLine(line);
-					if (contact) {
-						recordSupervisorContact(manifest, {
-							runId: manifest.runId,
-							...contact,
-						});
-					}
 				},
 				onJsonEvent: (event) => {
 					// Top-level error boundary: prevent any single event from crashing the task.
 					// Errors are logged but processing continues so subsequent events still update state.
 					try {
+						// P2-25: handle supervisor_contact here (compact pipeline now passes
+						// the full payload through); was dead on the old displayLine path.
+						const contact = supervisorContactFromEvent(event);
+						if (contact) recordSupervisorContact(manifest, { runId: manifest.runId, ...contact });
 						appendCrewAgentEvent(manifest, task.id, event);
 						if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
 							collectedJsonEvents.push(event as Record<string, unknown>);

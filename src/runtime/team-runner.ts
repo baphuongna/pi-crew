@@ -1059,14 +1059,17 @@ async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDeci
 		return base;
 	});
 	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
-	for (const taskId of cancelledTaskIds)
-		await appendEventAsync(ctx.manifest.eventsPath, {
-			type: "task.cancelled",
-			runId: ctx.manifest.runId,
-			taskId,
-			message,
-			data: { reason: cancelReason.code },
-		});
+	await Promise.all(
+		cancelledTaskIds.map((taskId) =>
+			appendEventAsync(ctx.manifest.eventsPath, {
+				type: "task.cancelled",
+				runId: ctx.manifest.runId,
+				taskId,
+				message,
+				data: { reason: cancelReason.code },
+			}),
+		),
+	);
 	ctx.manifest = updateRunStatus(ctx.manifest, "cancelled", message, {
 		data: { reason: cancelReason.code, cancelledTaskIds },
 	});
@@ -1360,13 +1363,18 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 			concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason,
 		},
 	});
-	// Execute before_task_start hooks for the batch
-	for (const task of readyBatch) {
-		const taskReport = await executeHook("before_task_start", {
-			runId: ctx.manifest.runId,
-			taskId: task.id,
-			cwd: ctx.manifest.cwd,
-		});
+	// Execute before_task_start hooks for the batch — P1-10: run hooks in
+	// parallel (each may be a subprocess), then apply skip mutations in order.
+	const beforeTaskStartReports = await Promise.all(
+		readyBatch.map((task) =>
+			executeHook("before_task_start", {
+				runId: ctx.manifest.runId,
+				taskId: task.id,
+				cwd: ctx.manifest.cwd,
+			}).then((taskReport) => ({ task, taskReport })),
+		),
+	);
+	for (const { task, taskReport } of beforeTaskStartReports) {
 		appendHookEvent(ctx.manifest, taskReport);
 		if (taskReport.outcome === "block") {
 			ctx.tasks = ctx.tasks.map((t) =>
@@ -1913,23 +1921,30 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 
 		// Fair-share warning: flag tasks that consumed >50% of remaining budget
 		// without killing them mid-execution.
+		const fairShareAppends: Promise<void>[] = [];
 		for (const violatorId of budgetCheck.fairShareViolators) {
 			const violator = tasks.find((t) => t.id === violatorId);
 			if (!violator) continue;
 			const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
 			const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round((taskTotal / input.budgetTotal) * 100)}% of total budget) — exceeds fair share`;
 			console.warn(`[team-runner.fair-share] ${message}`);
-			await appendEventAsync(manifest.eventsPath, {
-				type: "task.budget_fair_share",
-				runId: manifest.runId,
-				taskId: violatorId,
-				message,
-				data: {
-					budgetTotal: input.budgetTotal,
-					taskUsage: taskTotal,
-				},
-			});
+			fairShareAppends.push(
+				appendEventAsync(manifest.eventsPath, {
+					type: "task.budget_fair_share",
+					runId: manifest.runId,
+					taskId: violatorId,
+					message,
+					data: {
+						budgetTotal: input.budgetTotal,
+						taskUsage: taskTotal,
+					},
+				}).then(
+					() => {},
+					(error) => logInternalError("team-runner.fair-share-event", error, `taskId=${violatorId}`),
+				),
+			);
 		}
+		await Promise.all(fairShareAppends);
 	}
 	return null;
 }

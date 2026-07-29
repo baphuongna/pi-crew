@@ -37,22 +37,21 @@ export function recordSupervisorContact(manifest: TeamRunManifest, payload: Omit
  * Parse a supervisor contact request from child Pi stdout.
  * Detects structured JSON lines with type "supervisor_contact".
  */
-export function parseSupervisorContactFromLine(line: string): Omit<SupervisorContactPayload, "timestamp" | "runId"> | undefined {
-	if (!line.trim()) return undefined;
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(line);
-	} catch {
-		return undefined;
-	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-	const record = parsed as Record<string, unknown>;
+const SUPERVISOR_CONTACT_REASONS = ["decision_needed", "clarification", "approval", "error_escalation", "custom"] as const;
+
+/**
+ * Validate a parsed event object as a supervisor-contact payload. Shared by the
+ * event-based (current) and line-based (deprecated) entry points. Returns the
+ * normalized payload, or undefined if the event is not a supervisor contact.
+ */
+export function supervisorContactFromEvent(event: unknown): Omit<SupervisorContactPayload, "timestamp" | "runId"> | undefined {
+	if (!event || typeof event !== "object" || Array.isArray(event)) return undefined;
+	const record = event as Record<string, unknown>;
 	if (record.type !== "supervisor_contact" && record.type !== "crew_supervisor_contact") return undefined;
 	return {
 		taskId: typeof record.taskId === "string" ? record.taskId : "",
 		reason:
-			typeof record.reason === "string" &&
-			["decision_needed", "clarification", "approval", "error_escalation", "custom"].includes(record.reason)
+			typeof record.reason === "string" && (SUPERVISOR_CONTACT_REASONS as readonly string[]).includes(record.reason)
 				? (record.reason as SupervisorContactPayload["reason"])
 				: "custom",
 		message: typeof record.message === "string" ? record.message : String(record.message ?? ""),
@@ -61,4 +60,20 @@ export function parseSupervisorContactFromLine(line: string): Omit<SupervisorCon
 				? (record.data as Record<string, unknown>)
 				: undefined,
 	};
+}
+
+/**
+ * @deprecated The compact pipeline now passes `supervisor_contact` events through
+ * to `onJsonEvent` with their full payload (P2-25 fix). Prefer
+ * `supervisorContactFromEvent` on the parsed event. Kept for backward compat.
+ */
+export function parseSupervisorContactFromLine(line: string): Omit<SupervisorContactPayload, "timestamp" | "runId"> | undefined {
+	if (!line.trim()) return undefined;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		return undefined;
+	}
+	return supervisorContactFromEvent(parsed);
 }

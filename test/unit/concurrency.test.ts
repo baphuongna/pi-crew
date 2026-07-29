@@ -18,6 +18,7 @@ test("limits override team concurrency and ready count caps selected tasks", () 
 		workflowName: "parallel-research",
 		teamMaxConcurrency: 4,
 		limitMaxConcurrentWorkers: 1,
+		workerCap: 64,
 		readyCount: 3,
 	});
 	assert.equal(decision.maxConcurrent, 1);
@@ -29,6 +30,7 @@ test("workflow maxConcurrency can replace built-in workflow default when provide
 	const decision = resolveBatchConcurrency({
 		workflowName: "implementation",
 		workflowMaxConcurrency: 4,
+		workerCap: 64,
 		readyCount: 10,
 	});
 	assert.equal(decision.defaultConcurrency, 4);
@@ -42,6 +44,7 @@ test("team concurrency can raise workflow-constrained default when no limit is s
 		workflowName: "implementation",
 		workflowMaxConcurrency: 2,
 		teamMaxConcurrency: 4,
+		workerCap: 64,
 		readyCount: 10,
 	});
 	assert.equal(decision.defaultConcurrency, 2);
@@ -51,19 +54,20 @@ test("team concurrency can raise workflow-constrained default when no limit is s
 });
 
 test("zero ready tasks selects zero while positive ready tasks select at least one", () => {
-	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", readyCount: 0 }).selectedCount, 0);
-	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", readyCount: 2 }).selectedCount, 2);
+	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", workerCap: 64, readyCount: 0 }).selectedCount, 0);
+	assert.equal(resolveBatchConcurrency({ workflowName: "unknown", workerCap: 64, readyCount: 2 }).selectedCount, 2);
 });
 
 test("worker concurrency is capped by default", () => {
 	const decision = resolveBatchConcurrency({
 		workflowName: "parallel-research",
 		limitMaxConcurrentWorkers: 64,
+		workerCap: 64,
 		readyCount: 64,
 	});
 	assert.equal(decision.maxConcurrent, 8);
 	assert.equal(decision.selectedCount, 8);
-	assert.match(decision.reason, /capped:8/);
+	assert.match(decision.reason, /capped:.*hard=8/);
 });
 
 test("worker concurrency can be explicitly unbounded", () => {

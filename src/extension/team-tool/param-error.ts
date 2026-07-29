@@ -15,8 +15,9 @@
  *   3. Concrete correct-call examples for the common actions.
  * Agents can self-correct from this instead of looping.
  */
-import { Value } from "@sinclair/typebox/value";
+
 import type { TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 /** Short human description of a received value (for error messages). */
 function describeValue(v: unknown): string {

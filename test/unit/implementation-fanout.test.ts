@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import { __test_resetCap } from "../../src/runtime/global-worker-cap.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 import { readEvents } from "../../src/state/event-log.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
@@ -39,6 +40,9 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "adaptive-plan";
+	// P1-7: raise the worker cap so this test exercises the fanout logic, not the
+	// machine-core-count clamp (the mock plan yields 3 ready specialist tasks).
+	__test_resetCap(8);
 	let runId: string | undefined;
 	try {
 		const run = await handleTeamTool({ action: "run", team: "implementation", goal: "fanout smoke" }, { cwd });
