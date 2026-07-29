@@ -33,7 +33,6 @@
     "*.mjs",
     "src/",
     "dist/index.mjs",
-    "dist/build-meta.json",
     "agents/",
     "teams/",
     "workflows/",

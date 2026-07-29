@@ -13,11 +13,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import {
+	__test_agentPathCacheStats,
+	__test_clearAgentPathCache,
+	agentEventsPath,
 	appendCrewAgentEvent,
 	appendCrewAgentOutput,
-	agentEventsPath,
-	__test_clearAgentPathCache,
-	__test_agentPathCacheStats,
 } from "../../src/runtime/crew-agent-records.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 

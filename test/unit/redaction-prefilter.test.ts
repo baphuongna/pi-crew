@@ -7,8 +7,9 @@
  *   1. clean strings are returned verbatim (the skip path), and
  *   2. EVERY known secret type is still redacted (no bypass).
  */
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { redactSecretString } from "../../src/utils/redaction.ts";
 
 test("pre-filter: clean strings are returned verbatim (skip path)", () => {
