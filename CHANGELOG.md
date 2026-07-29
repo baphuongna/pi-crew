@@ -3,6 +3,27 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.54] — HOTFIX (real root cause): esbuild runtime dep mis-declared as devDependency (2026-07-29)
+
+**Fixes the TRUE root cause** of the extension-load regression that affected 0.9.52 AND 0.9.53. Both are deprecated; `latest` now points here.
+
+### Root cause (the real one — 0.9.53 diagnosed the symptom, not the cause)
+`esbuild` is imported at **runtime** by the shipped bundle `dist/index.mjs` — via `src/runtime/dynamic-workflow-runner.ts` (`import { transformSync } from "esbuild"`, used to compile `.dwf.ts` dynamic-workflow files). But it was declared as a **`devDependency`**, not a `dependency`. `devDependencies` are NOT installed by `npm install pi-crew` (production), so the bundle failed to load with `Cannot find package 'esbuild'`, and `index.ts` then fell back to the `src/` strip-types path — which also fails when `src/` isn't shipped (PKG-2) → `Cannot find module './src/extension/register.ts'`.
+
+This was **latent** since esbuild was first used at runtime: pre-0.9.52 it was masked because `src/` WAS shipped, so the strip-types fallback loaded `register.ts` without eagerly pulling in the dynamic-workflow runner's esbuild import. PKG-2 (0.9.52) removed `src/`, surfacing the latent bundle-load failure.
+
+0.9.53's dynamic-import change to `index.ts` was necessary (correct) but NOT sufficient — it only changed how `index.ts` *reaches* `src/`; it did not fix the bundle failing to load in the first place.
+
+### Fix
+- **Move `esbuild` from `devDependencies` to `dependencies`.** The bundle now loads in production. Verified via a faithful simulation of Pi's loader (jiti with Pi's peerDep alias map) on a production install (`npm install --omit=dev`, no `src/`).
+
+### Regression guards (run in CI's Test step on all platforms)
+- `test/unit/bundle-deps-consistency.test.ts` — **new**. Parses `dist/index.mjs`'s external imports and asserts each is declared in `dependencies` or `peerDependencies` (not `devDependencies`-only). Would have caught both 0.9.52 and 0.9.53. (Regex allows `{}` in named imports so it doesn't miss `import { transformSync } from "esbuild"`.)
+- `test/unit/extension-entry-load.test.ts` (from 0.9.53) — asserts `index.ts` has no static top-level `./src/` imports.
+
+### Note on 0.9.52 / 0.9.53
+Both **deprecated** on npm. `latest` → 0.9.54. Upgrade: `npm install pi-crew@latest`.
+
 ## [0.9.53] — HOTFIX: extension-load regression in published npm installs (2026-07-29)
 
 **Fixes the v0.9.52 regression** where every fresh `npm install pi-crew` failed at extension load with `Cannot find module './src/extension/register.ts'`. Affected all platforms.
