@@ -222,7 +222,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return true;
 }
 
+// P1-6: cheap pre-filter. The common clean case (plain output, JSON event
+// lines without secret-like key names) bails after one sweep instead of running
+// all ~14 redaction passes. The marker set is the NECESSARY substring for every
+// redactable pattern below — a string containing none of them cannot hold a
+// redactable secret, so skipping is safe. Any marker present → full redaction.
+// NOTE: keep this set in sync with the patterns in redactSecretString; the
+// redaction-corpus test asserts every known secret type trips the pre-filter.
+const SECRET_MARKERS_CASE_SENSITIVE = ["-----BEGIN", "eyJ", "AKIA", "AIza", "sk_live_", "xox", "gh"];
+const SECRET_MARKERS_LOWER = ["bearer", "authorization", "token", "api", "key", "password", "passwd", "secret", "credential", "private"];
+
+function mayContainSecret(value: string): boolean {
+	for (const m of SECRET_MARKERS_CASE_SENSITIVE) {
+		if (value.includes(m)) return true;
+	}
+	// Case-insensitive markers (Bearer/auth headers + inline-secret key names).
+	// toLowerCase is a full pass, so only pay it after the case-sensitive misses.
+	const lower = value.toLowerCase();
+	for (const m of SECRET_MARKERS_LOWER) {
+		if (lower.includes(m)) return true;
+	}
+	return false;
+}
+
 export function redactSecretString(value: string): string {
+	// P1-6: skip the ~14 redaction passes when no secret marker is present.
+	if (!mayContainSecret(value)) return value;
 	let result = value;
 
 	// Replace PEM private keys. Skip the regex entirely on very large inputs —

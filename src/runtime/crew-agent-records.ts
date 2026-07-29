@@ -26,14 +26,39 @@ export function agentStateDir(manifest: TeamRunManifest, taskId: string): string
 	return path.join(agentsRoot(manifest), safeAgentTaskId(taskId));
 }
 
+// P1-5: per-task path memoization. The agent state dir + file paths cannot
+// change within a task, so the mkdir/lstat/resolveRealContainedPath validation
+// (≈30 syscalls each, incl. a full ancestor walk) only needs to run ONCE per
+// task — not on every event/output line (was ~60 syscalls/event for the double
+// ensureAgentStateDir call alone). FIFO-bounded so the cache can't grow with
+// run count.
+const ensuredAgentDirs = new Map<string, string>();
+const resolvedAgentFiles = new Map<string, string>();
+const AGENT_PATH_CACHE_MAX = 512;
+
+function bumpAgentPathCache(): void {
+	if (ensuredAgentDirs.size > AGENT_PATH_CACHE_MAX) {
+		const oldest = ensuredAgentDirs.keys().next().value;
+		if (oldest !== undefined) ensuredAgentDirs.delete(oldest);
+	}
+	if (resolvedAgentFiles.size > AGENT_PATH_CACHE_MAX) {
+		const oldest = resolvedAgentFiles.keys().next().value;
+		if (oldest !== undefined) resolvedAgentFiles.delete(oldest);
+	}
+}
+
 export function ensureAgentStateDir(manifest: TeamRunManifest, taskId: string): string {
 	const root = agentsRoot(manifest);
+	const dir = agentStateDir(manifest, taskId);
+	const cachedDir = ensuredAgentDirs.get(dir);
+	if (cachedDir !== undefined) return cachedDir;
 	fs.mkdirSync(root, { recursive: true });
 	if (fs.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid agents root: ${root}`);
-	const dir = agentStateDir(manifest, taskId);
 	fs.mkdirSync(dir, { recursive: true });
 	if (fs.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid agent state directory: ${dir}`);
 	resolveRealContainedPath(root, path.basename(dir));
+	ensuredAgentDirs.set(dir, dir);
+	bumpAgentPathCache();
 	return dir;
 }
 
@@ -45,8 +70,26 @@ function safeExistingAgentFile(manifest: TeamRunManifest, taskId: string, fileNa
 }
 
 export function agentStateFile(manifest: TeamRunManifest, taskId: string, fileName: string): string {
+	const dir = agentStateDir(manifest, taskId);
+	const cacheKey = `${dir}\0${fileName}`;
+	const cached = resolvedAgentFiles.get(cacheKey);
+	if (cached !== undefined) return cached;
 	ensureAgentStateDir(manifest, taskId);
-	return safeExistingAgentFile(manifest, taskId, fileName);
+	const resolved = safeExistingAgentFile(manifest, taskId, fileName);
+	resolvedAgentFiles.set(cacheKey, resolved);
+	bumpAgentPathCache();
+	return resolved;
+}
+
+/** @internal Test-only: clear the path memoization cache. */
+export function __test_clearAgentPathCache(): void {
+	ensuredAgentDirs.clear();
+	resolvedAgentFiles.clear();
+}
+
+/** @internal Test-only: inspect cache occupancy (regression guard for P1-5). */
+export function __test_agentPathCacheStats(): { dirs: number; files: number } {
+	return { dirs: ensuredAgentDirs.size, files: resolvedAgentFiles.size };
 }
 
 export function agentStatusPath(manifest: TeamRunManifest, taskId: string): string {
