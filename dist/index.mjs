@@ -34576,7 +34576,7 @@ var init_zombie_scanner = __esm({
 
 // src/schema/team-tool-schema.ts
 import { Type as Type5 } from "@sinclair/typebox";
-var SkillOverride, FreeformConfig, sharedFields, ACTION_DESCRIPTION, runActions, statusActions, controlActions, manageActions, automateActions, RunDomainParams, StatusDomainParams, ControlDomainParams, ManageDomainParams, AutomateDomainParams, TeamToolParams;
+var SkillOverride, FreeformConfig, sharedFields, ACTION_DESCRIPTION, runActions, statusActions, controlActions, manageActions, automateActions, RunDomainParams, StatusDomainParams, ControlDomainParams, ManageDomainParams, AutomateDomainParams, allActionLiterals, TeamToolParams;
 var init_team_tool_schema = __esm({
   "src/schema/team-tool-schema.ts"() {
     "use strict";
@@ -34878,13 +34878,16 @@ var init_team_tool_schema = __esm({
     ControlDomainParams = Type5.Object({ action: controlActions, ...sharedFields }, { additionalProperties: true });
     ManageDomainParams = Type5.Object({ action: manageActions, ...sharedFields }, { additionalProperties: true });
     AutomateDomainParams = Type5.Object({ action: automateActions, ...sharedFields }, { additionalProperties: true });
-    TeamToolParams = Type5.Union([
-      RunDomainParams,
-      StatusDomainParams,
-      ControlDomainParams,
-      ManageDomainParams,
-      AutomateDomainParams
-    ]);
+    allActionLiterals = [runActions, statusActions, controlActions, manageActions, automateActions].flatMap(
+      (set) => set.anyOf ?? []
+    );
+    TeamToolParams = Type5.Object(
+      {
+        action: Type5.Optional(Type5.Union(allActionLiterals, { description: ACTION_DESCRIPTION })),
+        ...sharedFields
+      },
+      { additionalProperties: true }
+    );
   }
 });
 

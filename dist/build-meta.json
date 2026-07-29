@@ -5746,7 +5746,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 16653,
+      "bytes": 17274,
       "imports": [
         {
           "path": "@sinclair/typebox",
@@ -13587,7 +13587,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6154132
+      "bytes": 6154957
     },
     "dist/index.mjs": {
       "imports": [
@@ -16045,7 +16045,7 @@
           "bytesInOutput": 6424
         },
         "src/schema/team-tool-schema.ts": {
-          "bytesInOutput": 13165
+          "bytesInOutput": 13380
         },
         "src/workflows/validate-workflow.ts": {
           "bytesInOutput": 1924
@@ -16864,7 +16864,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2794563
+      "bytes": 2794778
     }
   }
 }
