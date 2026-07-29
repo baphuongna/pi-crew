@@ -151,19 +151,33 @@ function scopeBaseRoot(cwd: string): string {
 	return useProjectState(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
 }
 
+// P1-12: the containment verdict (resolveRealContainedPath ancestor walk, ~8-12
+// syscalls) cannot change for a run dir that isn't replaced — memoize positive
+// results per (cwd, runId) with a short TTL. Negatives are NOT cached (so a
+// newly-created run is found promptly). Downstream manifest stat still catches
+// deletions, so a stale positive is harmless.
+const runStateRootCache = new Map<string, { root: string; expiresAt: number }>();
+const RUN_STATE_ROOT_TTL_MS = 10_000;
+const RUN_STATE_ROOT_CACHE_MAX = 256;
+
 function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
 	assertSafePathId("runId", runId);
+	const key = `${cwd}\0${runId}`;
+	const now = Date.now();
+	const cached = runStateRootCache.get(key);
+	if (cached && cached.expiresAt > now) return cached.root;
 	const runsRoot = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
 	const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
 	try {
-		// Single atomic validation: resolves through symlinks via realpath,
-		// verifies containment within runsRoot, and throws ENOENT if missing.
-		// Eliminates the TOCTOU window from the previous existsSync + lstatSync
-		// + resolveRealContainedPath sequence.
 		resolveRealContainedPath(runsRoot, runId);
 	} catch {
 		return undefined;
 	}
+	if (runStateRootCache.size >= RUN_STATE_ROOT_CACHE_MAX) {
+		const oldest = runStateRootCache.keys().next().value;
+		if (oldest !== undefined) runStateRootCache.delete(oldest);
+	}
+	runStateRootCache.set(key, { root: scopedPath, expiresAt: now + RUN_STATE_ROOT_TTL_MS });
 	return scopedPath;
 }
 
