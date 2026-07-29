@@ -3,6 +3,24 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.53] — HOTFIX: extension-load regression in published npm installs (2026-07-29)
+
+**Fixes the v0.9.52 regression** where every fresh `npm install pi-crew` failed at extension load with `Cannot find module './src/extension/register.ts'`. Affected all platforms.
+
+### Root cause
+v0.9.52's PKG-2 (Sprint 6) excluded `src/` from the npm tarball to slim it (16→4.8MB), but `index.ts` — the extension entry Pi loads via strip-types — still had **top-level static imports** from `./src/extension/register.ts` and `./src/runtime/run-tracker.ts`. The module loader resolves static imports BEFORE any code in the file runs, so the load failed before the shipped, self-contained `dist/index.mjs` bundle was ever tried. Pre-0.9.52 this was masked because `src/` was shipped alongside.
+
+CI missed it because the `test:bundle` step loads `dist/index.mjs` directly (with repo peerDeps), and the CI-5 smoke test used `node --check` (syntax only — does not resolve imports).
+
+### Fix (`index.ts`)
+The src/ imports are now **dynamic `import()`** inside the fallback path only. The self-contained `dist/index.mjs` bundle (always shipped in the tarball) is the default and loads without `src/`. The src/ fallback is reached only when the bundle is absent — i.e. dev clones without a built `dist/`. Published installs never touch `src/`. No behavior change for bundle users; the fallback semantics (`PI_CREW_USE_BUNDLE=0` opt-out) are preserved.
+
+### Regression guard
+New `test/unit/extension-entry-load.test.ts` asserts `index.ts` has no static top-level `./src/` value imports (and that the dynamic src/ fallback imports still exist). Would have caught v0.9.52. Runs in CI's Test step on all platforms.
+
+### Note on v0.9.52
+v0.9.52 is **deprecated** on npm — upgrade to 0.9.53. If you installed 0.9.52, run `npm install pi-crew@latest` (or `npx pi install npm:pi-crew`).
+
 ## [0.9.52] — Sprint 1-6: security hardening, durability, god-module refactor, tarball slim (2026-07-28)
 
 A full audit-driven upgrade pass — 6 sprints, ~60 findings from `REVIEW-UPGRADE-2026-07-27.md`, independently verified in `VERIFY-2026-07-27.md` (~22% of the original report's claims corrected: 4 false positives, count inflations, stale line refs). Test suite 6446 unit + 191 integration, 0 fail. CI green on ubuntu/macos/windows.

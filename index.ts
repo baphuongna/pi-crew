@@ -47,18 +47,29 @@
  *     avoid recursion), the bundle flip risk is acceptable.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerPiTeams as registerPiTeamsFromSrc } from "./src/extension/register.ts";
-import { waitForRun as waitForRunFromSrc } from "./src/runtime/run-tracker.ts";
 import { accessSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-// Minimal bundle shape — we only use a few named exports. Keep this loose
-// because dist/index.mjs has no .d.ts (it's a build artifact, not source).
+// IMPORTANT: src/ imports here MUST be dynamic (lazy `import()`), never
+// top-level static imports. Published npm packages ship only dist/index.mjs
+// in the tarball (src/ is excluded by the package.json "files" field — keeps
+// the package ~5MB instead of ~16MB). A top-level static
+// `import { x } from "./src/..."` is resolved by the module loader BEFORE
+// this file's code runs, so it would break every fresh `npm install`
+// (Cannot find module './src/...'). Dynamic import() defers src/ resolution
+// to the fallback path below, which only executes when the bundle is
+// unavailable — i.e. dev clones that still have src/. Published installs
+// always ship + load the bundle, so src/ is never touched there.
+
+// Minimal bundle shape — loose types because dist/index.mjs has no .d.ts
+// (it's a build artifact, not source). The src fallback types use
+// `typeof import(...)` type queries, which are type-only constructs erased
+// at runtime (no module load) — they stay in sync with the real modules.
 type BundleModule = {
 	default?: (pi: ExtensionAPI) => void;
-	waitForRun?: typeof waitForRunFromSrc;
-	registerPiTeams?: (pi: ExtensionAPI) => void;
+	waitForRun?: typeof import("./src/runtime/run-tracker.ts").waitForRun;
+	registerPiTeams?: typeof import("./src/extension/register.ts").registerPiTeams;
 };
 
 const OPT_OUT = new Set(["0", "false", "no", "off"]);
@@ -91,8 +102,26 @@ if (!envForceOff) {
 	}
 }
 
-export const waitForRun = bundleModule?.waitForRun ?? waitForRunFromSrc;
-export const registerPiTeams: (pi: ExtensionAPI) => void =
-	bundleModule?.registerPiTeams ?? registerPiTeamsFromSrc;
+// Lazy src/ fallback — only resolved when the bundle is unavailable
+// (dev clones without a built dist/). NEVER imported in published
+// installs, where the bundle always ships + loads above. This dynamic
+// import() is what lets us exclude src/ from the npm tarball.
+let srcRegister:
+	| typeof import("./src/extension/register.ts").registerPiTeams
+	| undefined;
+let srcWaitForRun:
+	| typeof import("./src/runtime/run-tracker.ts").waitForRun
+	| undefined;
+if (!bundleModule) {
+	({ registerPiTeams: srcRegister } = await import(
+		"./src/extension/register.ts",
+	));
+	({ waitForRun: srcWaitForRun } = await import(
+		"./src/runtime/run-tracker.ts",
+	));
+}
 
-export default bundleModule?.default ?? ((pi: ExtensionAPI) => registerPiTeamsFromSrc(pi));
+export const waitForRun = bundleModule?.waitForRun ?? srcWaitForRun!;
+export const registerPiTeams: (pi: ExtensionAPI) => void =
+	bundleModule?.registerPiTeams ?? srcRegister!;
+export default bundleModule?.default ?? ((pi: ExtensionAPI) => srcRegister!(pi));
