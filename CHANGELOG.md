@@ -3,6 +3,41 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.52] — Sprint 1-6: security hardening, durability, god-module refactor, tarball slim (2026-07-28)
+
+A full audit-driven upgrade pass — 6 sprints, ~60 findings from `REVIEW-UPGRADE-2026-07-27.md`, independently verified in `VERIFY-2026-07-27.md` (~22% of the original report's claims corrected: 4 false positives, count inflations, stale line refs). Test suite 6446 unit + 191 integration, 0 fail. CI green on ubuntu/macos/windows.
+
+### Sprint 1 — P0 security + durability + runtime (`47be124`)
+- **F-01 (RCE):** project `.dwf.ts` trust gate (`PI_CREW_TRUST_PROJECT_DWF=1`); builtin/user exempt.
+- **F-02 (RCE):** preStepScript project deny (discover-layer strip + runtime allowlist).
+- **R-01:** crash-recovery quarantines corrupt manifests (no more `stateRoot` delete on a single bad byte).
+- **CORE-1:** pendingUnits try/finally drain + `runController.signal` propagated to children.
+- **F-05 (ReDoS):** PEM regex bounded `{0,8192}?` + 2MB length guard + >100 BEGIN-count cap.
+- **D-01, C-02:** atomic-write POSIX rename; lock suffix disambiguation (`.mkdirlock` vs `.flock`).
+
+### Sprint 2 — broker P0 + worker cap (`ad6cde0`)
+- **F-06:** per-task broker token + `tokenRole` (orchestrator-only `steer.push`/`msg.send` — closed the self-declared-role privilege escalation).
+- **CORE-2:** global worker cap moved from the goal-loop coordinator to the actual `runChildPi` spawn sites (deadlock-safe under low caps).
+- **VAL-1:** `Value.Check` guard (downgraded P0→P2 — Pi framework already validates tool params).
+
+### Sprint 3 — 11 P1 quick wins (`b13036c`)
+A-01/A-02 (atomic-write dir fsync + fd-leak), F-2 (diag gate), F-9 (keyOf migration), CORE-7/10/11 (process-exit, detached spawn, AbortSignal into session.prompt), API-2 (3 missing action literals), CFG-3 (config precedence doc), DOC-1 (README bundle default), S-01 (schemaVersion validate).
+
+### Sprint 4 — 11 P1 medium (`e8e60a9`→`484a584`)
+DEP bump (@earendil-works/* 0.77→0.82), F-04 (per-user 0700 socket subdir), F-08 (migrate `resolveContainedPath` → hardened `resolveRealContainedPath`), CORE-13 (extract unified `runWorker()`), CORE-3 (per-task spawn budget), CORE-8 (unified `resolveRunDeadline` — closes inline-path zero-timeout), R-03 (rotation generation sidecar), C-01 (cross-process event-log lock, two-tier deadlock-safe).
+
+### Sprint 5 — god-module refactor (`c50b114`→`77daf87`)
+Characterization-test-first discipline (10 + 11 scenarios locked before refactor, held green across every extraction). **CORE-4:** `executeTeamRunCore` 1075→311 lines (8 extracted scheduler functions + `SchedulerContext`/`SchedulerDecision`). **CORE-5:** `runTeamTask` → `child-executor` + `pre-execution` + `post-execution`. **API-5:** 54-action mega-tool → 5-domain schema + dispatch facade (zero caller changes, `additionalProperties:true` Phase 1).
+
+### Sprint 6 — cleanup + tarball slim (`3884ae6`)
+CORE-6/17, F-1 (SIGWINCH teardown), F-21 (delete 454-LOC `tool-render.ts`), CI-4 (bundle size budget), CI-5 (pack→install→`node --check` smoke), **PKG-2/3/5 (tarball 16.0 → 4.8MB, −70%)**, API-1 (15 missing action docs), CFG-5 (17-section config reference).
+
+### CI hardening (`67d3e1c`→`400d780`)
+Format check, CI-5 `node --check`, P-02 structural (machine-independent), F-04 Windows named-pipe regex, H3 timer-race.
+
+### Deferred (follow-ups in `ROADMAP-2026-07-27.md`)
+F-26 (async `refreshIfStale`), C-03 (mailbox async cross-process lock), CORE-3 `retryableErrors` default subset, API-5 Phase 2 (`additionalProperties:false` tightening).
+
 ## [0.9.51] — Complete the UI animation audit + Windows coalescing fix (2026-07-26)
 
 Closes out the remaining deferred findings from `reports/ui-animation-audit-2026-07-24.md`

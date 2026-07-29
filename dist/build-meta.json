@@ -13540,7 +13540,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6125306
+      "bytes": 6125322
     },
     "dist/index.mjs": {
       "imports": [
