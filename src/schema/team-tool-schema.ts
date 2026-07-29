@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type TSchema } from "@sinclair/typebox";
 
 // ───────────────────────────────────────────────────────────────────────────
 // API-5 facade split: the 54-action mega-tool schema is split into 5 domain
@@ -346,17 +346,25 @@ export const ManageDomainParams = Type.Object({ action: manageActions, ...shared
 export const AutomateDomainParams = Type.Object({ action: automateActions, ...sharedFields }, { additionalProperties: true });
 
 /**
- * Backward-compatible re-export: Union of all 5 domain schemas.
- * Replaces the former flat 54-action Object — validation surface is identical
- * (all fields optional in every variant, additionalProperties: true).
+ * LLM-facing team-tool schema. FLAT single Object (all actions + all shared
+ * fields optional) — NOT the former 5-variant Type.Union. The union emitted a
+ * giant `anyOf` (each variant repeated all ~30 shared fields) that LLM
+ * tool-callers could not reliably satisfy → empty/malformed calls → params
+ * dropped → the tool defaulted to `list`. The handler validates per-action
+ * fields at runtime (defense-in-depth, team-tool.ts execute()), so the schema
+ * only needs to enumerate valid actions + field types. Domain objects above
+ * (RunDomainParams etc.) are kept for the facade dispatch + backward compat.
  */
-export const TeamToolParams = Type.Union([
-	RunDomainParams,
-	StatusDomainParams,
-	ControlDomainParams,
-	ManageDomainParams,
-	AutomateDomainParams,
-]);
+const allActionLiterals = ([runActions, statusActions, controlActions, manageActions, automateActions] as TSchema[]).flatMap(
+	(set) => set.anyOf ?? [],
+);
+export const TeamToolParams = Type.Object(
+	{
+		action: Type.Optional(Type.Union(allActionLiterals, { description: ACTION_DESCRIPTION })),
+		...sharedFields,
+	},
+	{ additionalProperties: true },
+);
 
 /** Domain discriminator for the facade dispatch. */
 export type TeamDomain = "run" | "status" | "control" | "manage" | "automate";
