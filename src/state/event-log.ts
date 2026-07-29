@@ -336,7 +336,9 @@ function nextSequence(eventsPath: string): number {
 
 function persistSequence(eventsPath: string, seq: number): void {
 	try {
-		atomicWriteFile(sequencePath(eventsPath), String(seq));
+		// P0-4: the .seq sidecar is disposable (event-reconstructor tolerates an
+		// inconsistent tail); best-effort avoids 2 fsyncs per event append.
+		atomicWriteFile(sequencePath(eventsPath), String(seq), { durability: "best-effort" });
 	} catch (error) {
 		logInternalError("event-log.persist-sequence-file", error, `eventsPath=${eventsPath}`);
 	}
@@ -519,7 +521,8 @@ async function withEventLogLockAsync<T>(
 			try {
 				await fs.promises.mkdir(lockDir);
 				try {
-					atomicWriteFile(pidFile, String(process.pid));
+					// P0-4: the lock pid file is disposable stale-lock state; best-effort.
+					atomicWriteFile(pidFile, String(process.pid), { durability: "best-effort" });
 				} catch {
 					/* best-effort */
 				}
@@ -742,12 +745,15 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			// Phase 1.5: when worker atomic writer is enabled, append via worker.
 			if (isWorkerAtomicWriterEnabled()) {
 				await appendFileViaWorker(eventsPath, line);
-				// Worker path: fsync via a separate open (worker manages its own fd).
-				const fd = await fs.promises.open(eventsPath, "r+");
-				try {
-					await fd.sync();
-				} finally {
-					await fd.close();
+				// P0-4 (F3a mirror): fsync terminal events only; non-terminal events are
+				// informational and the event-reconstructor tolerates an inconsistent tail.
+				if (isTerminal) {
+					const fd = await fs.promises.open(eventsPath, "r+");
+					try {
+						await fd.sync();
+					} finally {
+						await fd.close();
+					}
 				}
 			} else {
 				// FIND-10: single-fd append+fsync. Opens in append mode, writes,
@@ -758,7 +764,8 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				const fd = await fs.promises.open(eventsPath, "a");
 				try {
 					await fd.appendFile(line, "utf-8");
-					await fd.sync();
+					// P0-4 (F3a mirror): skip the data fsync for non-terminal events.
+					if (isTerminal) await fd.sync();
 					// FIND-10 R1 fix: the cache-optimization fd.stat() must NOT sit in the
 					// seq-durability critical path. If it threw (rare — fd invalidated),
 					// it would skip persistSequence below and reopen the seq-reuse

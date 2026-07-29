@@ -23,7 +23,7 @@ import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
 import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./coalesce-tasks.ts";
 import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./concurrency.ts";
-import { readCrewAgents, saveCrewAgents } from "./crew-agent-records.ts";
+import { readCrewAgents, saveCrewAgents, saveCrewAgentsCoalesced } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { appendDeadletter } from "./deadletter.ts";
@@ -2370,7 +2370,10 @@ async function executeTeamRunCore(
 				return { manifest, tasks };
 			}
 			await saveRunTasksAsync(manifest, tasks);
-			saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
+			// P0-3: per-batch progress write — coalesced (best-effort, no lock) so the
+			// sync spin-lock (Atomics.wait) doesn't block the event loop every batch.
+			// The terminal saveCrewAgents at closeout remains durable + flushes this.
+			saveCrewAgentsCoalesced(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
 			const completedBatch = tasks.filter((t) => settledTaskIds.includes(t.id));
 			const batchArtifact = writeArtifact(manifest.artifactsRoot, {
 				kind: "summary",

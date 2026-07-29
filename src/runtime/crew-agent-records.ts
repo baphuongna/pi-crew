@@ -293,6 +293,9 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 }
 
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
+	// P0-3: flush any pending coalesced (best-effort) write first so a stale
+	// debounced progress snapshot can't clobber this durable write.
+	flushPendingAgentWrites();
 	withAgentsLock(manifest, () => {
 		fs.mkdirSync(manifest.stateRoot, { recursive: true });
 		const filePath = agentsPath(manifest);
