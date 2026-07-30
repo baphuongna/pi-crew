@@ -229,7 +229,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // redactable secret, so skipping is safe. Any marker present → full redaction.
 // NOTE: keep this set in sync with the patterns in redactSecretString; the
 // redaction-corpus test asserts every known secret type trips the pre-filter.
-const SECRET_MARKERS_CASE_SENSITIVE = ["-----BEGIN", "eyJ", "AKIA", "AIza", "sk_live_", "xox", "gh"];
+const SECRET_MARKERS_CASE_SENSITIVE = [
+	"-----BEGIN",
+	"eyJ",
+	"AKIA",
+	"AIza",
+	"sk_live_",
+	"xox",
+	// GitHub PAT prefixes (gh[pousr]_) — exact, not the over-broad "gh" which
+	// matched "though"/"highlight"/"might" and defeated the pre-filter skip.
+	"ghp_",
+	"gho_",
+	"ghu_",
+	"ghs_",
+	"ghr_",
+];
 const SECRET_MARKERS_LOWER = ["bearer", "authorization", "token", "api", "key", "password", "passwd", "secret", "credential", "private"];
 
 function mayContainSecret(value: string): boolean {

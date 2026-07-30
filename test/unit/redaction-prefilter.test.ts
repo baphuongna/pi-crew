@@ -19,6 +19,11 @@ test("pre-filter: clean strings are returned verbatim (skip path)", () => {
 		JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "sure, here is the answer" }] } }),
 		"running task explore-1: reading files",
 		"the quick brown fox jumps over the lazy dog",
+		// 'gh'-containing words that the old over-broad "gh" marker forced through
+		// full redaction; the tightened gh[pousr]_ marker now lets them skip.
+		"though we tried hard",
+		"highlight the result",
+		"might be fine",
 	];
 	for (const s of clean) {
 		assert.equal(redactSecretString(s), s, `clean string should be unchanged: ${s.slice(0, 40)}`);
@@ -36,9 +41,13 @@ test("pre-filter: JWT is redacted", () => {
 	assert.ok(!redactSecretString(jwt).includes("eyJhbGciOiJIUzI1NiJ9"));
 });
 
-test("pre-filter: GitHub PAT is redacted", () => {
-	const pat = "ghp_" + "a".repeat(36);
-	assert.ok(!redactSecretString(pat).includes("ghp_"));
+test("pre-filter: all GitHub PAT prefix variants (gh[pousr]_) are redacted", () => {
+	for (const prefix of ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"]) {
+		const pat = prefix + "a".repeat(36);
+		const redacted = redactSecretString(pat);
+		assert.ok(!redacted.includes(prefix), `${prefix} PAT prefix must be redacted`);
+		assert.ok(!redacted.includes("a".repeat(36)), `${prefix} PAT body must be redacted`);
+	}
 });
 
 test("pre-filter: AWS access key is redacted", () => {

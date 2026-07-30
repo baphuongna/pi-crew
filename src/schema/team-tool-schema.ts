@@ -1,4 +1,4 @@
-import { Type, type TSchema } from "@sinclair/typebox";
+import { type TSchema, Type } from "@sinclair/typebox";
 
 // ───────────────────────────────────────────────────────────────────────────
 // API-5 facade split: the 54-action mega-tool schema is split into 5 domain
@@ -355,7 +355,7 @@ export const AutomateDomainParams = Type.Object({ action: automateActions, ...sh
  * only needs to enumerate valid actions + field types. Domain objects above
  * (RunDomainParams etc.) are kept for the facade dispatch + backward compat.
  */
-const allActionLiterals = ([runActions, statusActions, controlActions, manageActions, automateActions] as TSchema[]).flatMap(
+export const allActionLiterals = ([runActions, statusActions, controlActions, manageActions, automateActions] as TSchema[]).flatMap(
 	(set) => set.anyOf ?? [],
 );
 export const TeamToolParams = Type.Object(

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { allActionLiterals, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
 
 const NEW_ACTIONS = ["goal", "workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete"] as const;
 const EXISTING_ACTIONS = ["run", "list", "status", "plan"] as const;
@@ -27,4 +27,14 @@ test("TypeBox TeamToolParams still accepts existing actions (no regression)", ()
 
 test("TypeBox TeamToolParams rejects unknown actions (validation still works)", () => {
 	assert.equal(Value.Check(TeamToolParams, { action: "nonexistent-action" }), false, "unknown action must be rejected");
+});
+
+test("flat schema enumerates all 54 actions (allActionLiterals derivation guard)", () => {
+	// 9 (run) + 16 (status) + 7 (control) + 16 (manage) + 6 (automate) = 54.
+	// Guards the .flatMap(set.anyOf ?? []) derivation: if a domain set's structure
+	// changes and the flatten drops literals, this fails. Update the expected
+	// count if a new action is added.
+	assert.equal(allActionLiterals.length, 54, `expected 54 action literals, got ${allActionLiterals.length}`);
+	const consts = allActionLiterals.map((l) => (l as { const?: string }).const).filter((c): c is string => c !== undefined);
+	assert.equal(new Set(consts).size, consts.length, "duplicate action literals in flat schema");
 });
