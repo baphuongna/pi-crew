@@ -6043,7 +6043,21 @@ var init_redaction = __esm({
     GOOGLE_API_KEY_PATTERN = /(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g;
     STRIPE_KEY_PATTERN = /(?<![A-Za-z0-9_])sk_live_[0-9a-zA-Z]{24}(?![0-9a-zA-Z])/g;
     AUTH_HEADER_BOUNDARY_CHARS = /* @__PURE__ */ new Set([" ", ",", "{", "[", '"', "\r", "\n", "-", "	"]);
-    SECRET_MARKERS_CASE_SENSITIVE = ["-----BEGIN", "eyJ", "AKIA", "AIza", "sk_live_", "xox", "gh"];
+    SECRET_MARKERS_CASE_SENSITIVE = [
+      "-----BEGIN",
+      "eyJ",
+      "AKIA",
+      "AIza",
+      "sk_live_",
+      "xox",
+      // GitHub PAT prefixes (gh[pousr]_) — exact, not the over-broad "gh" which
+      // matched "though"/"highlight"/"might" and defeated the pre-filter skip.
+      "ghp_",
+      "gho_",
+      "ghu_",
+      "ghs_",
+      "ghr_"
+    ];
     SECRET_MARKERS_LOWER = ["bearer", "authorization", "token", "api", "key", "password", "passwd", "secret", "credential", "private"];
   }
 });

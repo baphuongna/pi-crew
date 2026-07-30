@@ -746,7 +746,7 @@
       "format": "esm"
     },
     "src/utils/redaction.ts": {
-      "bytes": 16372,
+      "bytes": 16573,
       "imports": [],
       "format": "esm"
     },
@@ -5746,7 +5746,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 17274,
+      "bytes": 17281,
       "imports": [
         {
           "path": "@sinclair/typebox",
@@ -13587,7 +13587,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6154957
+      "bytes": 6155302
     },
     "dist/index.mjs": {
       "imports": [
@@ -15328,7 +15328,7 @@
           "bytesInOutput": 15106
         },
         "src/utils/redaction.ts": {
-          "bytesInOutput": 8055
+          "bytesInOutput": 8324
         },
         "src/runtime/broker-issuer.ts": {
           "bytesInOutput": 242
@@ -16864,7 +16864,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2794778
+      "bytes": 2795047
     }
   }
 }
