@@ -3,6 +3,35 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.56] — performance remediation + team-tool schema fix (2026-07-30)
+
+Follows the verified `performance-audit-2026-07-29.md` (16 findings addressed). Independently deep-reviewed by a 4-agent review team (explore/code-review/security-review/verify — no P0/P1), full unit 6486/0 + integration 190/0, CI green on ubuntu/macos/windows.
+
+### Performance
+- **P0-1**: new `BoundedTail` segment ring replaces the O(n²) `appendBoundedTail` rebuild-per-line on stdout/stderr (5000 CJK lines: 112s → 26ms).
+- **P0-2**: per-eventsPath rotation counter — the async append path's `% 100` gate was always true (counter never incremented there) so `needsRotation` ran every event; now ticked on all three append paths.
+- **P0-3**: the per-batch hot-loop `saveCrewAgents` switched to `saveCrewAgentsCoalesced` (removes the `Atomics.wait`/`sleepSync` main-thread block); terminal writes flush coalesced first.
+- **P0-4**: async event append drops from 5 fsyncs to ~0 (non-terminal) / 1 (terminal) — best-effort pid/`.seq` + F3a-style terminal-only data fsync.
+- **P1-5**: memoize validated agent paths per task (~60 syscalls/event → ~0 after first).
+- **P1-6**: redaction pre-filter `mayContainSecret` skips the ~14 redaction passes on clean strings (no bypass — every secret type still redacted).
+- **P1-7**: scheduler consults the global worker cap (no more over-dispatch on low-core machines).
+- **P1-8**: tail readers use `readJsonlTail`; `status.ts` O(events×messages) → O(events+messages).
+- **P1-9**: manifest cache-hit skips the redundant path re-validation.
+- **P1-10**: `before_task_start` hooks run via `Promise.all`.
+- **P1-11**: `git worktree prune` memoized per-repo (coalesces concurrent calls + once per process).
+- **P1-12**: `resolveRunStateRoot` memoized (containment check was ~8-12 syscalls/call).
+- **P2-21**: drop `dist/build-meta.json` from the npm tarball (−470KB).
+- **P2-25**: `supervisor_contact` events now reach `recordSupervisorContact` (was fully dead — the compact pipeline stripped the payload and `onStdoutLine` received display prose).
+- **H2**: archive retention sweep (`.archive.jsonl` no longer accumulate forever).
+- **H5**: `tasks.find` O(N²) → `Map` at all scheduler sites.
+
+### Platform fix
+- **team-tool schema flatten**: `TeamToolParams` was `Type.Union([5 domain objects])`, emitting a giant `anyOf` that LLM tool-callers could not reliably satisfy → empty/malformed calls → the tool silently defaulted to `list`. Flattened to a single `Type.Object` (all 54 actions + shared fields optional); the handler still validates per-action fields at runtime (defense-in-depth, unchanged).
+
+### Review follow-ups
+- Tighten the `"gh"` redaction marker to `gh[pousr]_` (reduces false-positives like "though"/"highlight").
+- Test guard: `allActionLiterals.length === 54` (schema-derivation regression guard).
+
 ## [0.9.55] — HOTFIX: ship src/ (child workers load src/prompt/prompt-runtime.ts by path) (2026-07-29)
 
 **Fixes the delegation / team-run regression** that affected 0.9.52–0.9.54. The extension loaded fine (0.9.54), but delegation/team-run failed with "pi-crew run failed" — the child worker `pi` process could not find its extension.
