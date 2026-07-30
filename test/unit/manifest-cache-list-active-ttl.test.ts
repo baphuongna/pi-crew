@@ -70,7 +70,7 @@ test("listActive memoizes within TTL — many calls only scan once", () => {
 			runIds.push(manifest.runId);
 		}
 
-		const cache = createManifestCache(cwd, { watch: false });
+		const cache = createManifestCache(cwd, { watch: false, debounceMs: 10_000 }); // long TTL: the 49-call burst must not expire the cache on slow CI
 
 		// Warm the cache (1 full scan reads all manifests → all status "running").
 		const warm = cache.listActive(1000);
@@ -107,7 +107,7 @@ test("listActive re-scans after cache.clear() (the watcher invalidation path)", 
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-list-active-invalidate-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
-		const cache = createManifestCache(cwd, { watch: false });
+		const cache = createManifestCache(cwd, { watch: false, debounceMs: 10_000 }); // long TTL: avoid CI timing flakes
 
 		// Create 5 manifests and warm the cache (snapshot of 5).
 		for (let i = 0; i < 5; i++) {
@@ -158,7 +158,7 @@ test("listActive cache does NOT cap by list()'s top-N (all-running semantic pres
 			runningIds.push(manifest.runId);
 		}
 
-		const cache = createManifestCache(cwd, { watch: false });
+		const cache = createManifestCache(cwd, { watch: false, debounceMs: 10_000 }); // long TTL: avoid CI timing flakes
 		// First call with limit=5 forces the cache to be populated. The
 		// cache itself must store the full un-capped set (per FIND-03
 		// design); a second call with a larger cap must surface the rest.
