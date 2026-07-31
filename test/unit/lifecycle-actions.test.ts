@@ -44,6 +44,7 @@ test("handleCleanup records audit intent on worktree cleanup events", async () =
 			{
 				action: "cleanup",
 				runId: run.runId,
+				confirm: true,
 				config: { _intent: "clean temporary worktrees before release" },
 			},
 			{ cwd: run.cwd },

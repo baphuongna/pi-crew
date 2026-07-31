@@ -118,7 +118,7 @@ test("cleanup requires intent only when force is set", async () => {
 	const run = createRun();
 	try {
 		const normal = await handleCleanup(
-			{ action: "cleanup", runId: run.runId },
+			{ action: "cleanup", runId: run.runId, confirm: true },
 			{
 				cwd: run.cwd,
 				sessionId: "session-a",
@@ -127,7 +127,7 @@ test("cleanup requires intent only when force is set", async () => {
 		);
 		assert.equal(normal.isError, false);
 		const forced = await handleCleanup(
-			{ action: "cleanup", runId: run.runId, force: true },
+			{ action: "cleanup", runId: run.runId, force: true, confirm: true },
 			{
 				cwd: run.cwd,
 				sessionId: "session-a",

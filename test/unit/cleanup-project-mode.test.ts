@@ -72,7 +72,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		// Sanity: the marker section is present before cleanup.
 		assert.ok(readAgents(f.agentsMd).includes(MARKER_START));
 
-		const r = await handleCleanup(params({}), ctx(f.cwd));
+		const r = await handleCleanup(params({ confirm: true }), ctx(f.cwd));
 		const after = readAgents(f.agentsMd);
 
 		assert.match(textFromToolResult(r), /AGENTS\.md guidance block/);
@@ -89,7 +89,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		const original = readAgents(f.agentsMd);
 		fs.writeFileSync(f.agentsMd, `${userLine}\n\n${original}`, "utf-8");
 
-		await handleCleanup(params({}), ctx(f.cwd));
+		await handleCleanup(params({ confirm: true }), ctx(f.cwd));
 		const after = readAgents(f.agentsMd);
 
 		assert.ok(after.includes(userLine), "user content must survive cleanup");
@@ -101,7 +101,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		fixtures.push(f);
 		const before = readAgents(f.agentsMd);
 
-		const r = await handleCleanup(params({}), ctx(f.cwd));
+		const r = await handleCleanup(params({ confirm: true }), ctx(f.cwd));
 		const after = readAgents(f.agentsMd);
 
 		assert.match(textFromToolResult(r), /no pi-crew marker section found/);
@@ -114,7 +114,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		fs.mkdirSync(path.join(f.crewDir, "state"), { recursive: true });
 		fs.writeFileSync(path.join(f.crewDir, "state", "marker"), "x", "utf-8");
 
-		const r = await handleCleanup(params({}), ctx(f.cwd));
+		const r = await handleCleanup(params({ confirm: true }), ctx(f.cwd));
 
 		assert.match(textFromToolResult(r), /\.crew\/ state directory:/);
 		assert.match(textFromToolResult(r), /preserved — use force: true to remove/);
@@ -126,7 +126,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		fixtures.push(f);
 		fs.mkdirSync(path.join(f.crewDir, "state"), { recursive: true });
 
-		const r = await handleCleanup(params({ force: true }), ctx(f.cwd));
+		const r = await handleCleanup(params({ force: true, confirm: true }), ctx(f.cwd));
 
 		assert.match(textFromToolResult(r), /removed:/);
 		assert.match(textFromToolResult(r), /\.crew/);
@@ -150,7 +150,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 	it("reminds the user to run 'pi uninstall npm:pi-crew' afterwards", async () => {
 		const f = makeFixture(true);
 		fixtures.push(f);
-		const r = await handleCleanup(params({}), ctx(f.cwd));
+		const r = await handleCleanup(params({ confirm: true }), ctx(f.cwd));
 		assert.match(textFromToolResult(r), /pi uninstall npm:pi-crew/);
 	});
 
@@ -165,7 +165,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		try {
 			const f = makeFixture(true);
 			fixtures.push(f);
-			const r = await handleCleanup(params({ scope: "user" }), ctx(f.cwd));
+			const r = await handleCleanup(params({ scope: "user", confirm: true }), ctx(f.cwd));
 			assert.equal(r.isError, false);
 			assert.match(textFromToolResult(r), /User-scope cleanup/);
 		} finally {
@@ -179,7 +179,7 @@ describe("team action=cleanup — project-level uninstall cleanup (Issue #35)", 
 		const f = makeFixture(false);
 		fixtures.push(f);
 		// No run exists → per-run path returns "not found" (not project-mode output).
-		const r = await handleCleanup(params({ runId: "nonexistent_run" }), ctx(f.cwd));
+		const r = await handleCleanup(params({ runId: "nonexistent_run", confirm: true }), ctx(f.cwd));
 		assert.equal(r.isError, true);
 		assert.match(textFromToolResult(r), /not found/);
 		assert.ok(!readAgents(f.agentsMd).includes("Project cleanup"), "must not run project-mode on runId path");

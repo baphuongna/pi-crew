@@ -308,7 +308,21 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// would be nice but this path is sync and minimal — keeping parity
 		// with the rest of the agent loader's best-effort semantics).
 		const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
-		const allowed = input.agent.extensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
+		let allowed = input.agent.extensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
+		// SEC-1: Defense-in-depth — deny untrusted project-sourced extensions
+		// unless explicitly trusted via PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1.
+		// Even if parseAgentFile missed the strip (e.g., agent was constructed
+		// at runtime), buildPiWorkerArgs must never emit --extension
+		// <attacker-path> for a project / project-pi agent. Both `project`
+		// (.crew/agents/) and `project-pi` (.pi/agents/) are repo-adjacent /
+		// untrusted sources. Only the trusted PROMPT_RUNTIME_EXTENSION_PATH is
+		// allowed through.
+		const extEnv = input.env ?? process.env;
+		if ((input.agent.source === "project" || input.agent.source === "project-pi") && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
+			allowed = allowed.filter(
+				(ext) => path.resolve(ext) === path.resolve(PROMPT_RUNTIME_EXTENSION_PATH),
+			);
+		}
 		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
 	} else {
 		args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);

@@ -193,7 +193,7 @@ test("handleTeamTool 'cleanup' without runId does PROJECT cleanup (Issue #35)", 
 		// No runId → project-level uninstall cleanup (not an error). Reverses
 		// `team action=init` by removing the AGENTS.md guidance block. With no
 		// marker present it's an idempotent no-op that returns ok.
-		const out = await handleTeamTool({ action: "cleanup" }, { cwd });
+		const out = await handleTeamTool({ action: "cleanup", confirm: true }, { cwd });
 		assert.equal(out.isError, false);
 		assert.match(firstText(out), /Project cleanup for pi-crew:/);
 	} finally {
@@ -205,7 +205,7 @@ test("handleTeamTool 'cleanup' succeeds for a valid run", async () => {
 	const cwd = makeTmpCwd();
 	try {
 		const { runId } = seedRun(cwd);
-		const out = await handleTeamTool({ action: "cleanup", runId }, { cwd });
+		const out = await handleTeamTool({ action: "cleanup", runId, confirm: true }, { cwd });
 		assert.equal(out.isError, false);
 		assert.match(firstText(out), /Worktree cleanup/);
 		assert.equal(out.details.action, "cleanup");

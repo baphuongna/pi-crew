@@ -317,7 +317,9 @@ export function sanitizeAgentSystemPrompt(content: string, source: ResourceSourc
 	sanitized = sanitized.replace(/[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]/g, "");
 
 	// 2. Strip HTML/JS comments (instruction hiding) — all trust levels
-	sanitized = sanitized.replace(/<!--[\s\S]*?-->|<\/?script[^>]*>/gi, "");
+	// SEC-4: bounded quantifier {0,8192} prevents polynomial O(n²) backtracking
+	// DoS on pathological inputs (e.g. an unclosed `<!--` with no matching `-->`).
+	sanitized = sanitized.replace(/<!--[\s\S]{0,8192}?-->|<\/?script[^>]*>/gi, "");
 
 	// 3. Strip known prompt injection directive patterns — user and project
 	if (trustLevel !== "builtin") {
@@ -337,7 +339,8 @@ export function sanitizeAgentSystemPrompt(content: string, source: ResourceSourc
 		sanitized = sanitized.replace(/\b(eval|exec|spawn|subprocess)\s*\(\s*(?:base64|Buffer\.from)\s*\(/gi, "[suspicious-call-redacted]");
 
 		// Strip markdown that attempts to hide instructions
-		sanitized = sanitized.replace(/```\s*(?:system|instruction|prompt)\n[\s\S]*?```/gi, "");
+		// SEC-4: bounded quantifier {0,8192} prevents polynomial backtracking DoS.
+		sanitized = sanitized.replace(/```\s*(?:system|instruction|prompt)\n[\s\S]{0,8192}?```/gi, "");
 	}
 
 	// 4. Project-level strict sanitization
@@ -417,8 +420,20 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 			fallbackModels: parseCsv(frontmatter.fallbackModels),
 			thinking: frontmatter.thinking === "false" ? undefined : frontmatter.thinking || undefined,
 			tools: parseToolsField(frontmatter.tools),
-			extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
-			excludeExtensions: parseCsv(frontmatter.excludeExtensions ?? frontmatter.exclude_extensions),
+			// SEC-1: Strip extensions/excludeExtensions for untrusted project-sourced
+			// agents (RCE prevention). Both `project` (.crew/agents/) and
+			// `project-pi` (.pi/agents/) are repo-adjacent / untrusted sources —
+			// their frontmatter `extensions:` could point to attacker-controlled
+			// code. Bypass only when PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1 is
+			// explicitly set. buildPiWorkerArgs also enforces this as
+			// defense-in-depth.
+			...((source === "project" || source === "project-pi")
+				&& process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
+				? { extensions: [], excludeExtensions: [] }
+				: {
+						extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
+						excludeExtensions: parseCsv(frontmatter.excludeExtensions ?? frontmatter.exclude_extensions),
+				}),
 			skills: parseCsv(frontmatter.skills ?? frontmatter.skill),
 			systemPromptMode: frontmatter.systemPromptMode === "append" ? "append" : "replace",
 			inheritProjectContext: frontmatter.inheritProjectContext === "true",
@@ -448,12 +463,33 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 	}
 }
 
+// SEC-4: Maximum agent file size. Files exceeding this are skipped to prevent
+// resource-exhaustion DoS (a 10MB agent file would block the event loop during
+// readFileSync + frontmatter parse + regex sanitization). 256KB is generous —
+// the largest builtin agent file is ~2KB.
+const MAX_AGENT_FILE_BYTES = 256 * 1024;
+
 function readAgentDir(dir: string, source: ResourceSource): AgentConfig[] {
 	if (!fs.existsSync(dir)) return [];
 	const agents = fs
 		.readdirSync(dir)
 		.filter((entry) => entry.endsWith(".md") && !entry.endsWith(".team.md") && !entry.endsWith(".workflow.md"))
-		.map((entry) => parseAgentFile(path.join(dir, entry), source))
+		.map((entry) => {
+			const fullPath = path.join(dir, entry);
+			// SEC-4: Skip files exceeding the size cap before reading/parsing.
+			try {
+				const stat = fs.statSync(fullPath);
+				if (stat.size > MAX_AGENT_FILE_BYTES) {
+					console.warn(
+						`[pi-crew] Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`,
+					);
+					return undefined;
+				}
+			} catch {
+				return undefined;
+			}
+			return parseAgentFile(fullPath, source);
+		})
 		.filter((agent): agent is AgentConfig => agent !== undefined)
 		.sort((a, b) => a.name.localeCompare(b.name));
 

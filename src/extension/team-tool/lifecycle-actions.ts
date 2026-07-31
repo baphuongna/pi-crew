@@ -269,6 +269,10 @@ export async function handleCleanup(params: TeamToolParamsValue, ctx: TeamContex
 	// can stay focused on their own logic.
 	const intentError = enforceDestructiveIntent("cleanup", params, ctx.config);
 	if (intentError) return intentError;
+	// SEC-5: self-enforce confirm:true (defense-in-depth), matching handlePrune/handleForget.
+	// dryRun:true is a non-destructive preview and is always allowed.
+	if (params.confirm !== true && params.dryRun !== true)
+		return result("cleanup requires confirm: true.", { action: "cleanup", status: "error" }, true);
 	// Three cleanup modes:
 	//  1. WITH runId              → per-run worktree cleanup (existing behavior).
 	//  2. WITHOUT runId, scope=project (default) → PROJECT-LEVEL uninstall:

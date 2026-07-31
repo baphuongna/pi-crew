@@ -64,7 +64,7 @@ describe("team action=cleanup scope=user — user-level junk (Issue #35)", () =>
 		fs.writeFileSync(path.join(crewStateDir, "state", "marker.json"), "{}");
 		assert.ok(fs.existsSync(crewStateDir));
 
-		const r = await handleCleanup(params({ scope: "user" }), makeCtx(tempCwd));
+		const r = await handleCleanup(params({ scope: "user", confirm: true }), makeCtx(tempCwd));
 		const text = textFromToolResult(r);
 
 		assert.match(text, /pi-crew user state dir/);
@@ -76,7 +76,7 @@ describe("team action=cleanup scope=user — user-level junk (Issue #35)", () =>
 		const cfg = path.join(tempHome, ".pi", "agent", "pi-crew.json");
 		fs.writeFileSync(cfg, "{}", "utf-8");
 
-		const r = await handleCleanup(params({ scope: "user" }), makeCtx(tempCwd));
+		const r = await handleCleanup(params({ scope: "user", confirm: true }), makeCtx(tempCwd));
 		const text = textFromToolResult(r);
 
 		assert.match(text, /pi-crew global config:/);
@@ -88,7 +88,7 @@ describe("team action=cleanup scope=user — user-level junk (Issue #35)", () =>
 		const cfg = path.join(tempHome, ".pi", "agent", "pi-crew.json");
 		fs.writeFileSync(cfg, "{}", "utf-8");
 
-		const r = await handleCleanup(params({ scope: "user", force: true }), makeCtx(tempCwd));
+		const r = await handleCleanup(params({ scope: "user", force: true, confirm: true }), makeCtx(tempCwd));
 		const text = textFromToolResult(r);
 
 		assert.match(text, /removed:.*pi-crew\.json/);
@@ -107,7 +107,7 @@ describe("team action=cleanup scope=user — user-level junk (Issue #35)", () =>
 		const copiedAgent = path.join(agentsDir, "explorer.md");
 		fs.writeFileSync(copiedAgent, "# explorer", "utf-8");
 
-		const r = await handleCleanup(params({ scope: "user" }), makeCtx(tempCwd));
+		const r = await handleCleanup(params({ scope: "user", confirm: true }), makeCtx(tempCwd));
 		const text = textFromToolResult(r);
 
 		assert.match(text, /pi-crew test junk in agents dir:/);
@@ -133,7 +133,7 @@ describe("team action=cleanup scope=user — user-level junk (Issue #35)", () =>
 		// Remove everything we created in makeTempHome so the user dir is clean.
 		fs.rmSync(path.join(tempHome, ".pi", "agent", "extensions", "pi-crew"), { recursive: true, force: true });
 
-		const r = await handleCleanup(params({ scope: "user" }), makeCtx(tempCwd));
+		const r = await handleCleanup(params({ scope: "user", confirm: true }), makeCtx(tempCwd));
 		const text = textFromToolResult(r);
 
 		assert.match(text, /nothing to do/);

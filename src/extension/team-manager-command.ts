@@ -148,6 +148,8 @@ export async function handleTeamManagerCommand(_args: string, ctx: ExtensionComm
 			"Force cleanup?",
 			"Force may remove dirty worktrees. Choose false to preserve dirty worktrees and capture cleanup diffs.",
 		);
-		await notifyResult(ctx, await handleTeamTool({ action: "cleanup", runId, force }, ctx));
+		// SEC-5: confirm:true is implicit — the user explicitly invoked cleanup
+		// via the UI picker, so the self-enforcement guard is satisfied.
+		await notifyResult(ctx, await handleTeamTool({ action: "cleanup", runId, force, confirm: true }, ctx));
 	}
 }

@@ -155,6 +155,7 @@ describe("F1 — tools: frontmatter wildcards (parseToolsField)", () => {
 describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
 	it("'exclude_extensions: foo' filters out the foo extension from --extension flags", () => {
 		const agent = makeAgentConfig({
+			source: "user",
 			extensions: ["foo", "bar", "baz"],
 			excludeExtensions: ["foo", "baz"],
 		});
@@ -174,6 +175,7 @@ describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
 
 	it("excludeExtensions is case-insensitive on basename", () => {
 		const agent = makeAgentConfig({
+			source: "user",
 			extensions: ["Foo", "Bar"],
 			excludeExtensions: ["FOO"],
 		});
@@ -191,7 +193,7 @@ describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
 	});
 
 	it("omit excludeExtensions = all extensions pass through (back-compat)", () => {
-		const agent = makeAgentConfig({ extensions: ["foo", "bar"] });
+		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar"] });
 		const { args } = buildPiWorkerArgs({
 			agent,
 			role: "test",
@@ -207,6 +209,7 @@ describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
 
 	it("empty excludeExtensions array = no-op (all extensions pass through)", () => {
 		const agent = makeAgentConfig({
+			source: "user",
 			extensions: ["foo"],
 			excludeExtensions: [],
 		});
