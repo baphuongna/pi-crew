@@ -342,7 +342,7 @@ export const runEventBus = new RunEventBus();
 export function runEventBusAsRenderScheduler(channels: readonly EventChannel[]): RenderSchedulerEventBus {
 	const allowed = new Set<EventChannel>(channels);
 	return {
-		on: (event: string, handler: (payload: unknown) => void): (() => void) | void => {
+		on: (event: string, handler: (payload: unknown) => void): (() => void) | undefined => {
 			if (!allowed.has(event as EventChannel)) return undefined;
 			return runEventBus.onChannel(event as EventChannel, handler);
 		},

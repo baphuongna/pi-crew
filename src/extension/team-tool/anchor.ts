@@ -3,7 +3,7 @@
  * Provides set/clear/status commands for anchor points.
  */
 
-import { type AnchorManager, AnchorNotFoundError, createAnchorManager, NoHandoffsError } from "../../runtime/anchor-manager.ts";
+import { type AnchorManager, AnchorNotFoundError, type AnchorStatus, createAnchorManager, NoHandoffsError } from "../../runtime/anchor-manager.ts";
 import type { HandoffSummary } from "../../runtime/handoff-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -130,7 +130,7 @@ export function handleAnchorStatus(params: TeamToolParamsValue, ctx: TeamContext
 		anchorId = cfg.anchorId as string;
 	}
 
-	let status;
+	let status: AnchorStatus | null;
 	if (anchorId) {
 		status = manager.getAnchorStatus(anchorId);
 	} else {

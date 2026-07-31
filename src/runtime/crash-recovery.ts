@@ -11,6 +11,7 @@ import type { TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { sleepSync } from "../utils/sleep.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { terminateLiveAgentsForRun } from "./live-agent-manager.ts";
 import type { ManifestCache } from "./manifest-cache.ts";
@@ -33,6 +34,72 @@ function isTerminalTask(task: TeamTaskState): boolean {
 		task.status === "skipped" ||
 		task.status === "needs_attention"
 	);
+}
+
+/**
+ * Errno codes that represent transient filesystem conditions (e.g. Windows AV
+ * scan temporarily locking the file, or a brief permission window). On these
+ * errors the manifest is NOT corrupt — retrying the read after a short backoff
+ * will succeed.
+ */
+const TRANSIENT_READ_ERRNO_CODES = new Set(["EBUSY", "EACCES", "EAGAIN", "EPERM", "ENFILE", "EMFILE"]);
+
+/**
+ * Raw file-read function used by readManifestWithTransientRetry. Separated as
+ * a module-level binding so tests can inject transient-error mocks without
+ * needing to mutate the frozen ESM `fs` namespace.
+ */
+let _readManifestFileSync: (filePath: string) => string = (p) => fs.readFileSync(p, "utf-8");
+
+/**
+ * @internal — test seam for readManifestWithTransientRetry. Pass `null` to reset.
+ */
+export function _setReadManifestFileSyncForTest(fn: ((filePath: string) => string) | null): void {
+	_readManifestFileSync = fn ?? ((p) => fs.readFileSync(p, "utf-8"));
+}
+
+/**
+ * Read and JSON-parse a manifest file, retrying transient read errors
+ * (EBUSY/EACCES/EAGAIN — common on Windows when AV software briefly locks the
+ * file) with exponential backoff.
+ *
+ * ST-6: Previously, a single `catch` quarantined the manifest on ALL errors,
+ * including transient I/O failures that left a perfectly healthy manifest
+ * unparseable for a few milliseconds. This renamed the valid file to
+ * `.corrupt-*`, making the run permanently unloadable.
+ *
+ * Behavior:
+ * - Success → returns parsed object
+ * - SyntaxError (genuinely corrupt JSON) → rethrown immediately (caller quarantines)
+ * - Transient ErrnoException → retried up to `maxRetries` times; if still
+ *   failing, rethrown so the caller can skip WITHOUT quarantining
+ * - Other ErrnoException (ENOENT, etc.) → rethrown immediately
+ */
+export function readManifestWithTransientRetry(
+	manifestPath: string,
+	maxRetries = 3,
+	baseDelayMs = 100,
+): Record<string, unknown> {
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			return JSON.parse(_readManifestFileSync(manifestPath)) as Record<string, unknown>;
+		} catch (err) {
+			// SyntaxError = genuinely corrupt JSON → rethrow immediately
+			if (err instanceof SyntaxError) throw err;
+			const code = (err as NodeJS.ErrnoException).code;
+			// Transient read error → retry with exponential backoff
+			if (code !== undefined && TRANSIENT_READ_ERRNO_CODES.has(code)) {
+				if (attempt < maxRetries) {
+					sleepSync(baseDelayMs * 2 ** attempt);
+					continue;
+				}
+			}
+			// Non-transient error, or retries exhausted → rethrow
+			throw err;
+		}
+	}
+	// Unreachable: the loop either returns or throws on every iteration.
+	throw new Error(`unreachable: readManifestWithTransientRetry exhausted for ${manifestPath}`);
 }
 
 function shouldRecoverTask(task: TeamTaskState, deadMs: number): boolean {
@@ -375,11 +442,20 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 			  }
 			| undefined;
 		try {
-			manifest = JSON.parse(fs.readFileSync(entry.manifestPath, "utf-8"));
-		} catch {
-			// R-01: Quarantine the corrupt manifest instead of deleting all run state.
-			// A single corrupted byte must NOT cause total data loss — events.jsonl,
-			// task data, and artifacts are preserved for manual recovery.
+			manifest = readManifestWithTransientRetry(entry.manifestPath) as typeof manifest;
+		} catch (err) {
+			// ST-6: Transient read errors (EBUSY/EACCES/EAGAIN from Windows AV
+			// scans) must NOT quarantine a healthy manifest — the file is fine,
+			// just temporarily locked. Skip this entry and try again next cycle.
+			const code = (err as NodeJS.ErrnoException).code;
+			const isTransient = code !== undefined && TRANSIENT_READ_ERRNO_CODES.has(code);
+			if (isTransient) continue;
+
+			// R-01: Quarantine the corrupt manifest instead of deleting all run
+			// state. A single corrupted byte must NOT cause total data loss —
+			// events.jsonl, task data, and artifacts are preserved for manual
+			// recovery. SyntaxError (genuinely corrupt JSON) and unexpected
+			// non-transient errors fall through to here.
 			try {
 				// Include pid for uniqueness across concurrent quarantines in the same ms.
 				fs.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);

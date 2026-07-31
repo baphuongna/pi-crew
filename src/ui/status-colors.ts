@@ -30,7 +30,6 @@ export function colorForStatus(status: RunStatus): CrewThemeColor {
 			return "warning";
 		case "needs_attention":
 			return "warning";
-		case "queued":
 		default:
 			return "dim";
 	}
@@ -100,7 +99,6 @@ function glyphColor(glyph: string): CrewThemeColor {
 		case "◦":
 		case "·":
 			return "dim";
-		case "▶":
 		default:
 			return "accent";
 	}

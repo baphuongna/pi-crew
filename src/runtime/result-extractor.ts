@@ -191,15 +191,15 @@ function findMatchingBracket(text: string): number {
 	const closeChar = openChar === "{" ? "}" : "]";
 	let depth = 0;
 	let inString = false;
-	let escape = false;
+	let escaping = false;
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i];
-		if (escape) {
-			escape = false;
+		if (escaping) {
+			escaping = false;
 			continue;
 		}
 		if (ch === "\\") {
-			escape = true;
+			escaping = true;
 			continue;
 		}
 		if (ch === '"') {

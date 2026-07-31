@@ -68,7 +68,8 @@ export const BASE_ALLOWLIST: string[] = [
  *   1. Validate cwd (realpath + isDirectory) — fall back to lexical path on ENOENT.
  *   2. Filter env vars to the allowlist (model-aware provider key scoping).
  *   3. Validate NODE_PATH against safe prefixes (/opt, /lib, /usr, /home).
- *   4. Add PI_CREW_PARENT_PID for the child-side parent-guard.
+ *   4. Add PI_CREW_PARENT_PID for the child-side parent-guard (currently UNUSED —
+ *      see note at the PI_CREW_PARENT_PID assignment below).
  */
 export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, model?: string): SpawnOptions {
 	// SECURITY FIX (Issue #1): Validate cwd before passing to spawn.
@@ -131,17 +132,32 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 
 	return {
 		cwd: validatedCwd,
-		env: { ...filteredEnv, PI_CREW_PARENT_PID: String(process.pid) },
+		env: {
+			...filteredEnv,
+			// PI_CREW_PARENT_PID is set so that child pi workers could theoretically
+			// run a parent-guard (parent-guard.ts). However, as of RT-19/RT-2, this
+			// env var has ZERO consumers: child workers are the external `pi` binary
+			// (@earendil-works/pi-coding-agent) which does NOT read
+			// PI_CREW_PARENT_PID or call startParentGuard (grep of Pi dist = 0 matches).
+			// The deeper fix (wiring startParentGuard into the pi worker entry point)
+			// is DEFERRED because workers are an external binary pi-crew doesn't control.
+			//
+			// Orphan-mitigation for this gap relies on:
+			//   1. The RT-2 SIGINT fix in background-runner.ts (abort + exitCode pattern
+			//      lets the finally/runCleanup block terminate child-pi processes).
+			//   2. The reactive zombie-scanner.ts sweep (finds workers whose
+			//      PI_CREW_PARENT_PID points at a dead PID).
+			PI_CREW_PARENT_PID: String(process.pid),
+		},
 		stdio: ["ignore", "pipe", "pipe"], // stdin=ignore: child doesn't wait for input; task comes via CLI args
 		detached: process.platform !== "win32",
 		setsid: true,
 		// NOTE: setsid creates a new session; the child process becomes the session leader
 		// and its parent becomes that session leader (still the team-runner in the same
-		// process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner).
-		// The parent-guard in the child checks direct parent liveness via process.kill(pid, 0) —
-		// it does NOT follow the lineage beyond the direct parent. If the team-runner's parent
-		// (the original pi session) dies, the team-runner becomes an orphan but the child still
-		// sees its direct parent (team-runner) as alive. This is correct for the parent-guard model.
+		// process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner),
+		// but see the comment above — child pi workers do NOT actually consume it. The
+		// parent-guard model would check direct parent liveness via process.kill(pid, 0),
+		// but this is only implemented in background-runner.ts, not in the worker binary.
 		windowsHide: true,
 	} as SpawnOptions;
 }

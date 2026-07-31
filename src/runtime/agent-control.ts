@@ -32,7 +32,7 @@ export function resolveCrewControlConfig(config: PiTeamsConfig | undefined): Cre
 		  })
 		| undefined;
 	return {
-		enabled: raw?.control?.enabled === false ? false : true,
+		enabled: raw?.control?.enabled !== false,
 		needsAttentionAfterMs: positiveInt(raw?.control?.needsAttentionAfterMs) ?? DEFAULT_NEEDS_ATTENTION_MS,
 		consecutiveFailureThreshold: positiveInt(raw?.control?.consecutiveFailureThreshold) ?? DEFAULT_CONSECUTIVE_FAILURE_THRESHOLD,
 		longRunningMinutes: positiveInt(raw?.control?.longRunningMinutes) ?? DEFAULT_LONG_RUNNING_MINUTES,

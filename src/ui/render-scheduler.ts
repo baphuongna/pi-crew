@@ -1,7 +1,7 @@
 import { logInternalError } from "../utils/internal-error.ts";
 
 export interface RenderSchedulerEventBus {
-	on?: (event: string, handler: (payload: unknown) => void) => (() => void) | void;
+	on?: (event: string, handler: (payload: unknown) => void) => (() => void) | undefined;
 }
 
 export interface RenderSchedulerOptions {

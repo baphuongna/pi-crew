@@ -23,8 +23,10 @@ import { loadConfig } from "../../config/config.ts";
 import { t } from "../../i18n.ts";
 import type { BatchBarrier } from "../../runtime/batch-barrier.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
+import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { checkSubagentSpawnPermission, currentCrewRole } from "../../runtime/role-permission.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import {
 	readPersistedSubagentRecord,
 	type SubagentManager,
@@ -419,9 +421,9 @@ function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: On
 		try {
 			const record = manager.getRecord(agentRecordId);
 			if (!record) return;
-			let manifest;
-			let tasks;
-			let agents;
+			let manifest: TeamRunManifest | undefined;
+			let tasks: TeamTaskState[] | undefined;
+			let agents: CrewAgentRecord[] | undefined;
 			if (record.runId) {
 				const loaded = loadRunManifestById(cwd, record.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 				if (loaded) {

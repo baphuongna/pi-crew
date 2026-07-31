@@ -1,16 +1,32 @@
 /**
- * Parent liveness guard for pi-crew worker processes.
+ * Parent liveness guard for pi-crew background-runner process.
  *
- * Workers call `startParentGuard(parentPid)` at startup. A lightweight
- * interval checks if the parent PID is still alive. When the parent dies
- * (SIGKILL, crash, power loss, terminal close), the worker self-terminates
- * immediately — no sentinel process needed.
+ * REALITY (verified by grep, RT-19/RT-2): `startParentGuard` is called in
+ * exactly ONE production location — `background-runner.ts:508`. The
+ * background-runner watches the main pi session that spawned it. If that
+ * parent dies, the runner self-terminates so it does not leak.
+ *
+ * Child pi workers do NOT call `startParentGuard`. They are the external
+ * `pi` binary (`@earendil-works/pi-coding-agent`) — pi-crew does not control
+ * its entry point. Although `PI_CREW_PARENT_PID` is set in the child's env
+ * (`child-pi-spawn.ts:134`), it has ZERO consumers: grep of the Pi binary
+ * dist for `PI_CREW_PARENT_PID` / `startParentGuard` / `parent-guard` = 0
+ * matches. This means child workers are NOT protected by this guard.
+ *
+ * The deeper fix (wiring `startParentGuard` into the pi worker entry point) is
+ * DEFERRED because workers are an external binary pi-crew doesn't control.
+ *
+ * Orphan-mitigation for this gap relies on:
+ *   1. The RT-2 SIGINT fix in `background-runner.ts` (abort + exitCode pattern
+ *      lets the finally/runCleanup block terminate child-pi processes).
+ *   2. The reactive `zombie-scanner.ts` sweep (finds workers whose
+ *      `PI_CREW_PARENT_PID` points at a dead PID and reports them).
  *
  * Note: `process.kill(pid, 0)` works on both Unix and Windows in Node.js
  * for checking process existence. On Windows, it may throw for processes
  * owned by other users (permission error), but correctly detects dead PIDs.
  *
- * Usage in worker entry points:
+ * Usage in background-runner.ts (the ONLY consumer):
  * ```ts
  * const parentPid = Number(process.env.PI_CREW_PARENT_PID);
  * if (parentPid > 0) startParentGuard(parentPid);
@@ -81,12 +97,16 @@ function selfTerminate(parentPid: number): never {
 
 /**
  * Start a lightweight poll that checks if the parent process is still alive.
- * If the parent dies, this worker exits immediately with code 124.
+ * If the parent dies, the calling process exits immediately with code 124.
+ *
+ * CURRENT REALITY: the only production caller is `background-runner.ts`, which
+ * uses this to self-terminate when the main pi session dies. Child pi workers
+ * do NOT call this (see module header for the DEFERRED deeper fix).
  *
  * FIX: Removed unref() — the guard interval MUST keep the event loop alive
- * to prevent premature worker exit when the parent is still alive but the
- * worker has no other pending work (LLM calls, timers, I/O). Without this,
- * a worker in pure CPU wait could exit even though its parent is alive.
+ * to prevent premature runner exit when the parent is still alive but the
+ * runner has no other pending work (LLM calls, timers, I/O). Without this,
+ * a runner in pure CPU wait could exit even though its parent is alive.
  */
 export function startParentGuard(parentPid: number): void {
 	if (!parentPid || !Number.isFinite(parentPid) || parentPid <= 0) return;

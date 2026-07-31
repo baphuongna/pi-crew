@@ -5,6 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { allAgents, discoverAgents } from "../../src/agents/discover-agents.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import type { PiTeamsToolResult } from "../../src/extension/tool-result.ts";
 import { __test__parseAdaptivePlan, __test__repairAdaptivePlan, executeTeamRun } from "../../src/runtime/team-runner.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 import { readEvents } from "../../src/state/event-log.ts";
@@ -96,7 +97,7 @@ test("adaptive plan repair recovers malformed, oversized, and aliased-role plans
 		],
 	};
 	const trimmed = __test__repairAdaptivePlan(`ADAPTIVE_PLAN_JSON_START\n${JSON.stringify(oversized)}\nADAPTIVE_PLAN_JSON_END`, roles);
-	assert.equal(trimmed.plan?.phases[0]!.tasks.length, 12);
+	assert.equal(trimmed.plan?.phases[0]?.tasks.length, 12);
 
 	const aliased = __test__repairAdaptivePlan(
 		`ADAPTIVE_PLAN_JSON_START\n${JSON.stringify({
@@ -112,16 +113,16 @@ test("adaptive plan repair recovers malformed, oversized, and aliased-role plans
 		})}\nADAPTIVE_PLAN_JSON_END`,
 		roles,
 	);
-	assert.equal(aliased.plan?.phases[0]!.tasks.length, 1);
-	assert.equal(aliased.plan?.phases[0]!.tasks[0]!.role, "reviewer");
+	assert.equal(aliased.plan?.phases[0]?.tasks.length, 1);
+	assert.equal(aliased.plan?.phases[0]?.tasks[0]?.role, "reviewer");
 
 	const compactedTail = __test__repairAdaptivePlan(
 		`ADAPTIVE_PLAN_JSON_START\n{"phases":[{"name":"build","tasks":[{"role":"executor","task":"Implement"}]},{"name":"handoff","tasks":[{"role":"writer","task":"Prepare notes:\n[pi-crew compacted 303 chars]\n`,
 		roles,
 	);
 	assert.equal(compactedTail.plan?.phases.length, 1);
-	assert.equal(compactedTail.plan?.phases[0]!.name, "build");
-	assert.equal(compactedTail.plan?.phases[0]!.tasks[0]!.role, "executor");
+	assert.equal(compactedTail.plan?.phases[0]?.name, "build");
+	assert.equal(compactedTail.plan?.phases[0]?.tasks[0]?.role, "executor");
 });
 
 test("adaptive implementation workflow is planner-assessed, not a fixed specialist template", () => {
@@ -142,7 +143,7 @@ test("implementation workflow produces runnable result with mock child-pi", asyn
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
-	let run;
+	let run: PiTeamsToolResult | undefined;
 	try {
 		run = await handleTeamTool({ action: "run", team: "implementation", goal: "mock test" }, { cwd });
 		assert.equal(run.isError, false);
@@ -171,7 +172,7 @@ test("implementation workflow with PI_CREW_ADAPTIVE_REPAIR=0 behaves consistentl
 	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	process.env.PI_CREW_ADAPTIVE_REPAIR = "0";
-	let run;
+	let run: PiTeamsToolResult | undefined;
 	try {
 		run = await handleTeamTool({ action: "run", team: "implementation", goal: "test no repair" }, { cwd });
 		assert.equal(run.isError, false);

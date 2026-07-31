@@ -71,7 +71,7 @@
     "check:bundle-size": "node scripts/check-bundle-size.mjs",
     "check:conflict-markers": "node scripts/check-conflict-markers.mjs",
     "typecheck": "tsc --noEmit && node --experimental-strip-types -e \"await import('./index.ts'); console.log('strip-types import ok')\"",
-    "lint": "biome check --linter-enabled=true --formatter-enabled=false --max-diagnostics=50 --diagnostic-level=error .",
+    "lint": "biome check --linter-enabled=true --formatter-enabled=false --max-diagnostics=50 .",
     "format:check": "biome format .",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node scripts/test-runner.mjs --test-concurrency=4 --test-timeout=180000 --test-force-exit test/unit/*.test.ts",

@@ -44,7 +44,10 @@ test("parallel-research dynamically fans out Source/pi-* projects into shard tas
 				fs.rmSync(cwd, { recursive: true, force: true });
 				break;
 			} catch (err) {
-				if (attempt === 4 || !/ENOTEMPTY|EBUSY|EPERM/.test(String((err as NodeJS.ErrnoException).code ?? ""))) throw err;
+				if (attempt === 4 || !/ENOTEMPTY|EBUSY|EPERM/.test(String((err as NodeJS.ErrnoException).code ?? ""))) {
+					console.error(`[parallel-research-dynamic test] cleanup failed after ${attempt + 1} attempts:`, err);
+					break;
+				}
 				// brief backoff then retry
 				fs.rmSync(cwd, { recursive: true, force: true });
 			}

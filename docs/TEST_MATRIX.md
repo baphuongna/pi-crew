@@ -16,7 +16,7 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 
 | Story | Contract | Unit | Integration | CI | Status | Evidence |
 |-------|----------|------|-------------|-----|--------|----------|
-| Core team run | `docs/product/team-run.md` | yes | yes | yes 3/3 | implemented | 2703 tests pass (133 suites) |
+| Core team run | `docs/product/team-run.md` | yes | yes | yes 3/3 | implemented | 6489 tests pass (839 suites) |
 | Child process runner | `docs/product/child-process.md` | yes | yes | yes 3/3 | implemented | child-pi-pool.test.ts, child-pi-timeout.test.ts, mock-child-run.test.ts |
 | Async runner | `docs/product/async-runner.md` | yes | yes | yes 3/3 | implemented | async-runner.test.ts, async-restart-recovery.test.ts |
 | Live session | `docs/product/live-session.md` | yes | no | yes 3/3 | implemented | live-session-context.test.ts, live-session-runtime.test.ts |
@@ -42,7 +42,7 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 ## Validation Commands
 
 ```bash
-npm test                    # Run all unit tests (1655 tests across 268 unit files + 14 integration files)
+npm test                    # Run all unit + integration tests (6489 tests across 670 unit files + 29 integration files)
 npm run typecheck           # TypeScript check + strip-types import
 npm run check               # Biome lint + format
 npm run test:unit           # Unit tests only (fast, parallel)

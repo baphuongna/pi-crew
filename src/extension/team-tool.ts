@@ -638,7 +638,6 @@ export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamConte
 			return handleManageDomain(params, ctx);
 		case "automate":
 			return handleAutomateDomain(params, ctx);
-		case undefined:
 		default:
 			return result(
 				`Unknown action: ${action}${formatActionSuggestion(String(action))}`,

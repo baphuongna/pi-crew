@@ -661,7 +661,10 @@ class AgentOverridesSubmenu {
 	}
 
 	handleInput(data: string): void {
-		if (this.editField) return this.handleEditInput(data);
+		if (this.editField) {
+			this.handleEditInput(data);
+			return;
+		}
 
 		const k = keyOf(data);
 		if (k === "up" || k === "k") {

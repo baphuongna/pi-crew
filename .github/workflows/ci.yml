@@ -53,6 +53,8 @@ jobs:
         # to catch the "all tests green but shipped artifact broken" class of
         # regression (e.g. v0.9.13 stale-bundle incident).
         run: npm run build:bundle
+      - name: Check bundle size
+        run: npm run check:bundle-size
       - name: Bundle load test
         # Exercises dist/index.mjs (the actual entry Pi loads), not just the
         # TypeScript source. Catches bundle-only regressions.

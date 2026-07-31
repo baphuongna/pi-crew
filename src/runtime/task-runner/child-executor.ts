@@ -35,7 +35,7 @@ import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } f
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../cancellation.ts";
-import type { ChildPiLifecycleEvent } from "../child-pi.ts";
+import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi.ts";
 import {
 	appendCrewAgentEvent,
 	appendCrewAgentOutput,
@@ -390,7 +390,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			}, taskTimeoutMs);
 			timeoutHandle.unref?.();
 		}
-		let childResult;
+		let childResult: ChildPiRunResult;
 		try {
 			childResult = await runWorker({
 				cwd: task.cwd,

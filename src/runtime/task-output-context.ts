@@ -410,7 +410,7 @@ export function collectDependencyOutputContext(
 	// (used for recency sort in the trim step). Both are looked up against
 	// `task.dependsOn` (the declared order) and `tasks` (finished timestamps).
 	const declaredOrder = new Map<string, number>();
-	task.dependsOn.forEach((depId, index) => declaredOrder.set(depId, index));
+	task.dependsOn.forEach((depId, index) => { declaredOrder.set(depId, index); });
 	const recencyByTaskId = new Map<string, number>();
 	for (const item of tasks) {
 		if (!item.finishedAt) continue;

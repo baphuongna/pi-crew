@@ -1,4 +1,22 @@
-import { type TSchema, Type } from "@sinclair/typebox";
+import { type TSchema, Type, TypeRegistry } from "@sinclair/typebox";
+
+// ─────────────────────────────────────────────────────────────────────────
+// EXT-7: Compact enum action schema. TypeBox has no built-in type that
+// produces JSON Schema `{ enum: [...] }` AND validates via Value.Check.
+// Type.Unsafe defaults to Kind 'Unsafe' which Value.Check throws on.
+// We register a custom 'StringEnum' kind once: JSON Schema consumers (the
+// LLM tool definition) see the compact `{ type: "string", enum: [...] }`
+// (~600 chars vs ~1890 for anyOf+const), and Value.Check validates via
+// the registered predicate.
+// ─────────────────────────────────────────────────────────────────────────
+TypeRegistry.Set("StringEnum", (schema, value) => {
+	const s = schema as { enum?: unknown[] };
+	return typeof value === "string" && Array.isArray(s.enum) && s.enum.includes(value);
+});
+const KIND = Symbol.for("TypeBox.Kind");
+function stringEnum(values: readonly string[], description: string): TSchema {
+	return Type.Unsafe({ [KIND]: "StringEnum", type: "string", enum: [...values], description });
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // API-5 facade split: the 54-action mega-tool schema is split into 5 domain
@@ -239,99 +257,27 @@ const sharedFields = {
 
 const ACTION_DESCRIPTION = "Team action. Defaults to 'list' when omitted.";
 
-const runActions = Type.Optional(
-	Type.Union(
-		[
-			Type.Literal("run"),
-			Type.Literal("parallel"),
-			Type.Literal("plan"),
-			Type.Literal("orchestrate"),
-			Type.Literal("resume"),
-			Type.Literal("retry"),
-			Type.Literal("wait"),
-			Type.Literal("steer"),
-			Type.Literal("goal"),
-		],
-		{ description: ACTION_DESCRIPTION },
-	),
-);
+const RUN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
+const runActions = Type.Optional(stringEnum(RUN_ACTIONS, ACTION_DESCRIPTION));
 
-const statusActions = Type.Optional(
-	Type.Union(
-		[
-			Type.Literal("status"),
-			Type.Literal("list"),
-			Type.Literal("get"),
-			Type.Literal("events"),
-			Type.Literal("artifacts"),
-			Type.Literal("summary"),
-			Type.Literal("graph"),
-			Type.Literal("search"),
-			Type.Literal("health"),
-			Type.Literal("worktrees"),
-			Type.Literal("checkpoint"),
-			Type.Literal("cache"),
-			Type.Literal("explain"),
-			Type.Literal("onboard"),
-			Type.Literal("recommend"),
-			Type.Literal("help"),
-		],
-		{ description: ACTION_DESCRIPTION },
-	),
-);
+const STATUS_ACTIONS = [
+	"status", "list", "get", "events", "artifacts", "summary", "graph", "search", "health", "worktrees",
+	"checkpoint", "cache", "explain", "onboard", "recommend", "help",
+] as const;
+const statusActions = Type.Optional(stringEnum(STATUS_ACTIONS, ACTION_DESCRIPTION));
 
-const controlActions = Type.Optional(
-	Type.Union(
-		[
-			Type.Literal("cancel"),
-			Type.Literal("invalidate"),
-			Type.Literal("respond"),
-			Type.Literal("cleanup"),
-			Type.Literal("prune"),
-			Type.Literal("forget"),
-			Type.Literal("doctor"),
-		],
-		{ description: ACTION_DESCRIPTION },
-	),
-);
+const CONTROL_ACTIONS = ["cancel", "invalidate", "respond", "cleanup", "prune", "forget", "doctor"] as const;
+const controlActions = Type.Optional(stringEnum(CONTROL_ACTIONS, ACTION_DESCRIPTION));
 
-const manageActions = Type.Optional(
-	Type.Union(
-		[
-			Type.Literal("create"),
-			Type.Literal("update"),
-			Type.Literal("delete"),
-			Type.Literal("init"),
-			Type.Literal("config"),
-			Type.Literal("validate"),
-			Type.Literal("autonomy"),
-			Type.Literal("settings"),
-			Type.Literal("workflow-create"),
-			Type.Literal("workflow-get"),
-			Type.Literal("workflow-list"),
-			Type.Literal("workflow-save"),
-			Type.Literal("workflow-delete"),
-			Type.Literal("import"),
-			Type.Literal("imports"),
-			Type.Literal("export"),
-		],
-		{ description: ACTION_DESCRIPTION },
-	),
-);
+const MANAGE_ACTIONS = [
+	"create", "update", "delete", "init", "config", "validate", "autonomy", "settings",
+	"workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete",
+	"import", "imports", "export",
+] as const;
+const manageActions = Type.Optional(stringEnum(MANAGE_ACTIONS, ACTION_DESCRIPTION));
 
-const automateActions = Type.Optional(
-	Type.Union(
-		[
-			Type.Literal("schedule"),
-			Type.Literal("scheduled"),
-			Type.Literal("anchor"),
-			Type.Literal("auto-summarize"),
-			Type.Literal("auto_boomerang"),
-			Type.Literal("api"),
-		],
-		{ description: ACTION_DESCRIPTION },
-	),
-);
+const AUTOMATE_ACTIONS = ["schedule", "scheduled", "anchor", "auto-summarize", "auto_boomerang", "api"] as const;
+const automateActions = Type.Optional(stringEnum(AUTOMATE_ACTIONS, ACTION_DESCRIPTION));
 
 // ─── Domain schemas (additionalProperties: true — Phase 1, not tightened) ────
 
@@ -356,11 +302,16 @@ export const AutomateDomainParams = Type.Object({ action: automateActions, ...sh
  * (RunDomainParams etc.) are kept for the facade dispatch + backward compat.
  */
 export const allActionLiterals = ([runActions, statusActions, controlActions, manageActions, automateActions] as TSchema[]).flatMap(
-	(set) => set.anyOf ?? [],
+	(set) =>
+		(set.anyOf as { const: string }[] | undefined) ??
+		(Array.isArray(set.enum) ? set.enum.map((v: unknown) => ({ const: v })) : []) ??
+		[],
 );
 export const TeamToolParams = Type.Object(
 	{
-		action: Type.Optional(Type.Union(allActionLiterals, { description: ACTION_DESCRIPTION })),
+		action: Type.Optional(
+			stringEnum(allActionLiterals.map((l) => (l as { const: string }).const), ACTION_DESCRIPTION),
+		),
 		...sharedFields,
 	},
 	{ additionalProperties: true },

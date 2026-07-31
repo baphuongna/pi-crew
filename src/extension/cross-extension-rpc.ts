@@ -21,7 +21,7 @@ async function handleTeamTool(
 import { parseLiveControlRealtimeMessage, publishLiveControlRealtime } from "../runtime/live-control-realtime.ts";
 
 export interface EventBusLike {
-	on(event: string, handler: (data: unknown) => void): (() => void) | void;
+	on(event: string, handler: (data: unknown) => void): (() => void) | undefined;
 	emit(event: string, data: unknown): void;
 }
 
@@ -346,5 +346,5 @@ export function registerPiCrewRpc(
 			}, "pi-crew:rpc:live-control"),
 		),
 	];
-	return { unsubscribe: () => unsubs.forEach((unsub) => unsub()) };
+	return { unsubscribe: () => unsubs.forEach((unsub) => { unsub(); }) };
 }

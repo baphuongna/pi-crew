@@ -12,7 +12,7 @@ export function tryRegisterSessionCleanup(pi: ExtensionAPI, cleanup: () => void)
 	const registerFn = api.registerSessionResourceCleanup;
 	if (typeof registerFn === "function") {
 		try {
-			const unregister = (registerFn as (fn: () => void) => (() => void) | void)(cleanup);
+			const unregister = (registerFn as (fn: () => void) => (() => void) | undefined)(cleanup);
 			if (typeof unregister === "function") return unregister;
 			// API returned void — cleanup is registered but cannot be unregistered
 			return undefined;

@@ -21,6 +21,56 @@ export interface PruneRunsOptions {
 	signal?: AbortSignal;
 }
 
+/**
+ * Default age threshold for stale .corrupt-* quarantine files: 7 days.
+ * Quarantined manifests older than this are deleted to prevent unbounded growth.
+ */
+export const DEFAULT_CORRUPT_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Sweep and delete .corrupt-* files older than maxAgeMs in a runs directory tree.
+ *
+ * These files are created by crash-recovery's purgeStaleActiveRunIndex when a
+ * manifest fails to parse (SyntaxError) or encounters an unexpected error.
+ * Without this sweep, they accumulate indefinitely across runs.
+ *
+ * @param runsDir Absolute path to the runs directory (<crewRoot>/state/runs/)
+ * @returns count of stale .corrupt-* files deleted
+ */
+export function sweepStaleCorruptFiles(runsDir: string, maxAgeMs = DEFAULT_CORRUPT_FILE_TTL_MS, now = Date.now()): number {
+	let deleted = 0;
+	let runDirs: fs.Dirent[];
+	try {
+		runDirs = fs.readdirSync(runsDir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+	for (const dir of runDirs) {
+		if (!dir.isDirectory()) continue;
+		const runDirPath = path.join(runsDir, dir.name);
+		let files: string[];
+		try {
+			files = fs.readdirSync(runDirPath);
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			if (!file.includes(".corrupt-")) continue;
+			const filePath = path.join(runDirPath, file);
+			try {
+				const mtime = fs.statSync(filePath).mtimeMs;
+				if (now - mtime > maxAgeMs) {
+					fs.unlinkSync(filePath);
+					deleted++;
+				}
+			} catch {
+				// Best effort — file may have been removed concurrently
+			}
+		}
+	}
+	return deleted;
+}
+
 function isFinished(run: TeamRunManifest): boolean {
 	// P3: "blocked" is NOT a terminal status — the run is waiting on something
 	// (plan approval, mailbox reply, scheduler stall) and can transition to
@@ -98,6 +148,9 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
 		removed.push(run.runId);
 	}
+	// ST-6: Sweep stale .corrupt-* quarantine files to prevent unbounded growth.
+	sweepStaleCorruptFiles(path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
+
 	const auditPath = appendPruneAudit(cwd, {
 		action: "prune",
 		keep,
@@ -185,6 +238,9 @@ export function pruneUserLevelRuns(keep: number): PruneRunsResult {
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
 		removed.push(run.runId);
 	}
+
+	// ST-6: Sweep stale .corrupt-* quarantine files at user level too.
+	sweepStaleCorruptFiles(runsRoot);
 
 	return { kept, removed: [...removed, ...ghostRemoved] };
 }

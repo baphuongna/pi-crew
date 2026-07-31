@@ -124,7 +124,6 @@ export function listRunsByScope(
 			return projectRoot ? collectRuns(projectCrewRoot(cwd), max, signal) : [];
 		case "user":
 			return collectRuns(userCrewRoot(), max, signal);
-		case "all":
 		default:
 			return max !== undefined ? listRecentRuns(cwd, max, signal) : listRuns(cwd, signal);
 	}

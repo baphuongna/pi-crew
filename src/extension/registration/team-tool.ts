@@ -29,6 +29,7 @@ async function handleTeamTool(
 }
 
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
+import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -192,7 +193,7 @@ function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolPr
 				onUpdate({ content: [{ type: "text", text: msg }] });
 				return;
 			}
-			let agents;
+			let agents: CrewAgentRecord[] | undefined;
 			try {
 				agents = readCrewAgents(loaded.manifest);
 			} catch {

@@ -421,10 +421,15 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					pid: child.pid,
 					ts: new Date().toISOString(),
 				});
-				// Register with cleanup handler for graceful shutdown
-				if (input.runId && input.agentId) {
-					registerChildProcess(child.pid, input.runId, input.agentId);
-				}
+				// Register with cleanup handler for graceful shutdown (RT-11):
+				// ALWAYS register — every spawned child must be visible to host-SIGTERM
+				// cleanup. Use synthetic IDs when the caller omitted runId/agentId so the
+				// PID is still tracked for killProcessPid on session shutdown.
+				registerChildProcess(
+					child.pid,
+					input.runId ?? `untracked-run-${child.pid}`,
+					input.agentId ?? `untracked-agent-${child.pid}`,
+				);
 			} else {
 				input.onLifecycleEvent?.({
 					type: "spawn_error",
@@ -476,37 +481,6 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let hardKilled = false;
 			const cleanupErrors: string[] = [];
 			const steeringController = new ChildPiSteeringController(input.maxTurns, input.graceTurns);
-			// Track in-flight operations for proper rejection on unexpected exit
-			interface PendingOperation {
-				id: string;
-				type: "prompt" | "steer" | "json_event";
-				startedAt: number;
-			}
-			const pendingOperations = new Map<string, PendingOperation>();
-			let operationIdCounter = 0;
-
-			const startOperation = (type: PendingOperation["type"]): string => {
-				const id = `op-${++operationIdCounter}`;
-				pendingOperations.set(id, { id, type, startedAt: Date.now() });
-				return id;
-			};
-
-			const completeOperation = (id: string): void => {
-				pendingOperations.delete(id);
-			};
-
-			const rejectPendingOperations = (error: Error): void => {
-				pendingOperations.forEach((op, id) => {
-					logInternalError(
-						"child-pi.pending-operation-rejected",
-						error,
-						`opId=${id} type=${op.type} elapsed=${Date.now() - op.startedAt}ms`,
-					);
-				});
-				pendingOperations.clear();
-			};
-
-			const steerInjectionFailed = false;
 			let abortDueToParentSignal = false;
 			// CP-1: track whether the turn-limit hard-abort has been initiated. Once
 			// true, we must NOT restart the no-response timer — the child is already
@@ -610,21 +584,14 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				},
 				onJsonEvent: (event) => {
 					if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-					const eventOpId = startOperation("json_event");
-					try {
-						// Turn-count-based steering: soft limit steer + hard abort after graceTurns
-						if (event && typeof event === "object" && !Array.isArray(event)) {
-							const obj = event as Record<string, unknown>;
-							if (obj.type === "turn_end") {
-								// H-7 step 5: steering state machine extracted to ChildPiSteeringController.
-								const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
-								if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
-							}
+					// Turn-count-based steering: soft limit steer + hard abort after graceTurns
+					if (event && typeof event === "object" && !Array.isArray(event)) {
+						const obj = event as Record<string, unknown>;
+						if (obj.type === "turn_end") {
+							// H-7 step 5: steering state machine extracted to ChildPiSteeringController.
+							const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
+							if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
 						}
-						completeOperation(eventOpId);
-					} catch (err) {
-						completeOperation(eventOpId);
-						throw err;
 					}
 					// F12: capture monotonic timestamp BEFORE dispatching — any stdout
 					// JSON event counts as activity. This lets the quiet-window
@@ -924,12 +891,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				// P0-1: snapshot the bounded accumulators once for this handler.
 				const stdout = stdoutTail.value();
 				const stderr = stderrTail.value();
-				// Reject pending operations with process error context
 				// SEC-1: redact stderr secrets embedded in the error message + excerpt.
 				const processError = new Error(
 					`Child Pi process error: ${error.message}. Stderr: ${redactStderrExcerpt(stderr, 500) || "(none)"}`,
 				);
-				rejectPendingOperations(processError);
 				try {
 					input.onLifecycleEvent?.({
 						type: "spawn_error",
@@ -985,9 +950,6 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 								`Stderr: ${redactStderrExcerpt(stderr, 1000) || "(none)"}`,
 						)
 					: null;
-				if (exitError) {
-					rejectPendingOperations(exitError);
-				}
 				try {
 					// Phase-0 diagnostic (HB-003a): capture signal + drain timing in the
 					// exit lifecycle event so the exit-null race is diagnosable instead of
@@ -1072,10 +1034,6 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					steeringController.getTurnCount() >=
 						(steeringController.getMaxTurns() ?? 0) + (steeringController.getGraceTurns() ?? 5);
 				const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
-				// steerInjectionFailed is now always false (Phase-1 fix: steer backpressure
-				// is logged, not fatal). The steerError branch is retained for safety in
-				// case a future change reintroduces a fatal steer path.
-				const steerError = steerInjectionFailed ? "Steer injection failed due to stdin backpressure; process killed" : undefined;
 				// P0 crash taxonomy: classify the exit so callers/dashboards can bucket
 				// failure modes (timeout vs cancel vs native panic vs signal …).
 				// The classifier is a pure function; this is the single integration point.
@@ -1093,7 +1051,6 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					stdout,
 					stderr,
 					...(timeoutError ? { error: timeoutError.error } : {}),
-					...(steerError ? { error: steerError } : {}),
 					aborted: wasGraceAborted || wasParentAborted,
 					steered: steeringController.isSoftLimitReached() && !wasGraceAborted,
 					exitStatus: {

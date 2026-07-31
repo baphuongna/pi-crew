@@ -11,7 +11,7 @@ test("ProgressTracker counts tool calls", () => {
 	const events: AgentSessionEvent[] = [];
 	const mockSession = {
 		subscribe: (listener: (e: any) => void) => {
-			events.forEach((e) => listener(e));
+			events.forEach((e) => { listener(e); });
 			return () => {};
 		},
 	};
@@ -73,7 +73,7 @@ test("ProgressTracker tracks errors", () => {
 
 	const mockSession = {
 		subscribe: (listener: (e: any) => void) => {
-			events.forEach((e) => listener(e));
+			events.forEach((e) => { listener(e); });
 			return () => {};
 		},
 	};

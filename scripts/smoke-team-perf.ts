@@ -13,6 +13,7 @@
  *   PI_TEAMS_MOCK_CHILD_PI=adaptive-plan npx tsx scripts/smoke-team-perf.ts  # fast/free mock
  */
 import { handleRun } from "../src/extension/team-tool/run.ts";
+import type { PiTeamsToolResult } from "../src/extension/tool-result.ts";
 
 const goal =
 	"Smoke test: write the text 'pi-crew perf-batch smoke OK' to /tmp/pi-crew-perf-smoke.txt, " +
@@ -23,7 +24,7 @@ const ctx = { cwd: process.cwd() };
 console.log("[smoke-team-perf] Launching fast-fix team run (real orchestration path)...");
 console.log("[smoke-team-perf] cwd:", ctx.cwd);
 const t0 = Date.now();
-let result;
+let result: PiTeamsToolResult;
 try {
 	result = await handleRun({ action: "run", team: "fast-fix", workflow: "fast-fix", goal }, ctx);
 } catch (error) {

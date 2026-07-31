@@ -24,27 +24,17 @@
 				"useTemplate": "off"
 			},
 			"complexity": {
-				"noUselessSwitchCase": "off",
-				"noUselessTernary": "off",
 				"noUselessEscapeInRegex": "off"
 			},
 			"correctness": {
 				"noUnusedImports": "error",
 				"noUnusedFunctionParameters": "off",
-				"noUnusedVariables": "off",
-				"noVoidTypeReturn": "off",
-				"noUnsafeFinally": "off"
+				"noUnusedVariables": "off"
 			},
 			"suspicious": {
 				"noExplicitAny": "off",
-				"noImplicitAnyLet": "off",
-				"noConfusingVoidType": "off",
-				"useIterableCallbackReturn": "off",
 				"noControlCharactersInRegex": "off",
 				"noAssignInExpressions": "off",
-				"noNonNullAssertedOptionalChain": "off",
-				"noShadowRestrictedNames": "off",
-				"noDuplicateElseIf": "off",
 				"noEmptyBlockStatements": "warn"
 			}
 		}

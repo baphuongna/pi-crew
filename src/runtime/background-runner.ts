@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
-import { appendEvent } from "../state/event-log.ts";
+import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
 import { withRunLockSync } from "../state/locks.ts";
 import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -119,6 +119,13 @@ function startInterruptGuard(
 	// FIX: Made configurable via PI_CREW_INTERRUPT_GUARD_INTERVAL_MS env var.
 	// Default 250ms balances fast SIGINT response against filesystem overhead.
 	const interruptGuardInterval = Number(process.env.PI_CREW_INTERRUPT_GUARD_INTERVAL_MS) || 250;
+	// RT-4 FIX: Module-local gate so the interrupt body runs only once per
+	// interrupt request. Without this, the guard re-fires every
+	// interruptGuardInterval (250ms) — each tick does a full
+	// terminateActiveChildPiProcesses sweep + sync appendEvent = ~4×/s steady
+	// state. The ack write stops the re-fire; this gate is defense-in-depth if
+	// the ack write fails (e.g. transient fs error).
+	let interruptHandled = false;
 	const interval = setInterval(() => {
 		try {
 			if (!fs.existsSync(controlPath)) return;
@@ -127,6 +134,25 @@ function startInterruptGuard(
 			};
 			const last = parsed.requests?.at(-1);
 			if (last?.type === "interrupt" && last?.acknowledged !== true) {
+				// RT-4 FIX: Gate ensures the interrupt body runs only once even if
+				// the synchronous ack write below fails.
+				if (interruptHandled) return;
+				interruptHandled = true;
+
+				// RT-4 FIX: Write acknowledged:true back to foreground-control.json
+				// SYNCHRONOUSLY. This stops the guard from re-firing on the next tick
+				// (250ms). Must be sync because this is a setInterval polling callback
+				// — we cannot await in a polling callback.
+				try {
+					const reqs = parsed.requests ?? [];
+					if (reqs.length > 0) {
+						reqs[reqs.length - 1].acknowledged = true;
+						atomicWriteFile(controlPath, JSON.stringify(parsed, null, 2));
+					}
+				} catch {
+					/* best-effort ack — interruptHandled gate prevents re-fire */
+				}
+
 				appendEvent(manifest.eventsPath, {
 					type: "async.interrupt_detected",
 					runId: manifest.runId,
@@ -337,10 +363,15 @@ async function main(): Promise<void> {
 	scrubProcessEnv();
 	// Install signal handlers EARLY — log events before exiting so we can distinguish
 	// OOM/SIGKILL (no event) from SIGTERM/SIGINT (event written).
+	// RT-18 FIX: Use fire-and-forget instead of sync appendEvent. Each of the
+	// 18+ signal handlers previously performed synchronous file I/O + lock
+	// acquisition, blocking the signal handler on every signal. The
+	// fire-and-forget path routes through appendEventAsync (async queue) which
+	// does not block the caller. Events are best-effort on signal paths.
 	const signalLog = (sig: string, eventsPath: string): void => {
 		const runId = argValue("--run-id");
 		if (runId && eventsPath) {
-			appendEvent(eventsPath, {
+			appendEventFireAndForget(eventsPath, {
 				type: "async.failed",
 				runId,
 				message: `Background runner received ${sig} — exiting.`,
@@ -424,7 +455,14 @@ async function main(): Promise<void> {
 	});
 	process.on("SIGINT", () => {
 		signalLog("SIGINT", manifest.eventsPath);
-		process.exit(130);
+		// RT-2 FIX: Mirror the CORE-7 pattern at the interrupt guard (:146-151).
+		// Do NOT call process.exit(130) — it bypasses the finally/runCleanup block
+		// in main(), orphaning child-pi workers (they have no parent-guard, see
+		// RT-19). Setting exitCode lets the event loop drain naturally so main()'s
+		// finally block runs terminateActiveChildPiProcesses + unregisterWorker.
+		abortController.abort();
+		stopParentGuard();
+		process.exitCode = 130;
 	});
 	// BUG #17: Catch ALL signals to identify what kills the background runner
 	for (const sig of [
@@ -832,6 +870,27 @@ try {
 	// called process.exit(1) directly, bypassing the finally block and leaving
 	// orphaned child processes.
 	exitDueToRejection = true;
+	// RT-3 FIX: Startup failures (lock-fail, missing manifest, pre-try throws)
+	// previously wrote NO event and left exitCode at 0. The run stayed 'queued'
+	// until the stale reconciler reaped it. Now write async.failed so the
+	// notifier/foreground detects the failure immediately, and set exitCode=1
+	// so the process exits non-zero.
+	try {
+		const mCwd = argValue("--cwd");
+		const mRunId = argValue("--run-id");
+		if (mCwd && mRunId) {
+			const mEventsPath = createRunPaths(mCwd, mRunId).eventsPath;
+			appendEvent(mEventsPath, {
+				type: "async.failed",
+				runId: mRunId,
+				message: errorMessage(err),
+				data: { stack: err instanceof Error ? err.stack : undefined },
+			});
+		}
+	} catch {
+		/* best-effort — don't let event-write failure mask the original error */
+	}
+	process.exitCode = 1;
 	// FIX: Call stopParentGuard directly here as a safety net in case the
 	// finally block (which calls runCleanup→stopParentGuard) does not complete.
 	// This ensures the parent guard is stopped in ALL exit paths: normal
