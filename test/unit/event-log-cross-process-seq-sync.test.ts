@@ -37,9 +37,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	type AppendTeamEvent,
+	appendEvent,
 	__test__clearSeqCounters as clearSeqCounters,
 	__test__clearSequenceCache as clearSequenceCache,
-	appendEvent,
 	readEvents,
 	resetEventLogMode,
 	scanSequence,
@@ -147,11 +147,7 @@ describe("ST-5: cross-process seq uniqueness (sync locked append)", () => {
 		//   OLD (bug): counter=3 -> returns 4   (regressed, collides with future writes)
 		//   NEW (fix): max(sidecar=102, counter=3)=102 -> returns 103
 		const ev = appendEvent(eventsPath, makeEvent("p1-d"));
-		assert.equal(
-			ev.metadata?.seq,
-			103,
-			"sync append must re-read the sidecar; a stale in-process counter must not regress the seq",
-		);
+		assert.equal(ev.metadata?.seq, 103, "sync append must re-read the sidecar; a stale in-process counter must not regress the seq");
 
 		// No duplicate seqs across both processes.
 		const seqs = readEvents(eventsPath).map((e) => e.metadata?.seq ?? 0);
@@ -173,20 +169,14 @@ describe("ST-5: cross-process seq uniqueness (sync locked append)", () => {
 
 		// P1 batch 2: must jump above 51 (-> 52), not reuse its stale counter (4).
 		assignedByP1.push(appendEvent(eventsPath, makeEvent("p1-4")).metadata?.seq ?? 0); // 52
-		assert.ok(
-			assignedByP1[3]! > 51,
-			`P1's 4th seq must exceed the foreign sidecar (51); got ${assignedByP1[3]}`,
-		);
+		assert.ok(assignedByP1[3]! > 51, `P1's 4th seq must exceed the foreign sidecar (51); got ${assignedByP1[3]}`);
 
 		// P2 batch 2: foreign write seq 200 -> sidecar 200.
 		appendAsOtherProcess(eventsPath, 200);
 
 		// P1 batch 3: must jump above 200 (-> 201).
 		assignedByP1.push(appendEvent(eventsPath, makeEvent("p1-5")).metadata?.seq ?? 0); // 201
-		assert.ok(
-			assignedByP1[4]! > 200,
-			`P1's 5th seq must exceed the foreign sidecar (200); got ${assignedByP1[4]}`,
-		);
+		assert.ok(assignedByP1[4]! > 200, `P1's 5th seq must exceed the foreign sidecar (200); got ${assignedByP1[4]}`);
 
 		// P1's own seqs are strictly increasing.
 		for (let i = 1; i < assignedByP1.length; i++) {
@@ -195,11 +185,7 @@ describe("ST-5: cross-process seq uniqueness (sync locked append)", () => {
 
 		// Every seq in the file is unique.
 		const allSeqs = readEvents(eventsPath).map((e) => e.metadata?.seq ?? 0);
-		assert.equal(
-			new Set(allSeqs).size,
-			allSeqs.length,
-			`global duplicate seqs found: ${allSeqs.join(", ")}`,
-		);
+		assert.equal(new Set(allSeqs).size, allSeqs.length, `global duplicate seqs found: ${allSeqs.join(", ")}`);
 		// The file's max equals P1's last assignment (201).
 		assert.equal(scanSequence(eventsPath), assignedByP1[assignedByP1.length - 1]);
 		// Sidecar agrees with the file max.

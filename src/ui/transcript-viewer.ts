@@ -3,13 +3,13 @@ import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.t
 import type { TeamRunManifest } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { pad, truncate, truncateToVisualLines } from "../utils/visual.ts";
+import type { InteractiveComponent } from "./component.ts";
 import { renderDiff } from "./render-diff.ts";
 import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
 import { highlightCode, highlightJson } from "./syntax-highlight.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
 import { DEFAULT_TRANSCRIPT_TAIL_BYTES, getTranscriptCacheEntry, readTranscriptLinesCached } from "./transcript-cache.ts";
-import type { InteractiveComponent } from "./component.ts";
 
 // PR-G3 (UI-3): alias the shared InteractiveComponent contract (render +
 // invalidate + handleInput). Structurally identical to the previous local

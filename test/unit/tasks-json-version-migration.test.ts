@@ -7,7 +7,6 @@ import {
 	loadRunManifestById,
 	saveRunTasks,
 } from "../../src/state/state-store.ts";
-import type { TeamTaskState } from "../../src/state/types.ts";
 import { CURRENT_TASKS_SCHEMA_VERSION } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

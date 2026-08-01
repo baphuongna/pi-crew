@@ -19,6 +19,7 @@
 
 import { loadConfig } from "../../config/config.ts";
 import type { GoalWrapWorkflowConfig } from "../../config/types.ts";
+import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { GoalStore } from "../../runtime/goal-state-store.ts";
 import { snapshotManifests } from "../../runtime/verification-integrity.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -26,7 +27,6 @@ import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { appendEvent } from "../../state/event-log.ts";
 import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
 import type { GoalLoopState, TeamRunManifest } from "../../state/types.ts";
-import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
 import { result, type TeamContext } from "./context.ts";

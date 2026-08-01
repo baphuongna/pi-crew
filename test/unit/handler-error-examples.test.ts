@@ -13,9 +13,9 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
 import { handleApi } from "../../src/extension/team-tool/api.ts";
 import { handleCancel } from "../../src/extension/team-tool/cancel.ts";
+import type { TeamContext } from "../../src/extension/team-tool/context.ts";
 import { handleArtifacts, handleEvents, handleSummary } from "../../src/extension/team-tool/inspect.ts";
 import { handleRespond } from "../../src/extension/team-tool/respond.ts";
 import { handleRun } from "../../src/extension/team-tool/run.ts";
@@ -177,10 +177,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-readtask-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "read-task", taskId: "no-such-task" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "read-task", taskId: "no-such-task" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);
@@ -195,10 +192,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-getagent-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "get-agent-result" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "get-agent-result" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);
@@ -213,10 +207,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-nudge-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "nudge-agent" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "nudge-agent" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);
@@ -230,10 +221,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-sendmsg-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "send-message" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "send-message" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);
@@ -248,10 +236,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-ackmsg-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "ack-message" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "ack-message" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);
@@ -266,10 +251,7 @@ describe("EXT-2: api.ts subAction missing-field errors include example shapes", 
 		const tmp = createTrackedTempDir("ext2-api-transition-");
 		try {
 			const { runId } = seedApiRun(tmp);
-			const res = await handleApi(
-				makeParams({ runId, config: { operation: "transition-task-status" } }),
-				makeCtx(tmp),
-			);
+			const res = await handleApi(makeParams({ runId, config: { operation: "transition-task-status" } }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /Example:/);

@@ -18,13 +18,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/global-worker-cap.ts";
 import {
 	__test__cancelPlanTasks,
 	__test__lastProgressContentHash,
 	__test__writeProgress,
 	executeTeamRun,
 } from "../../src/runtime/team-runner.ts";
-import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/global-worker-cap.ts";
 import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 
@@ -277,11 +277,7 @@ test("[RT-7a] progress descriptor createdAt is fresh (not stale) after a skip-re
 		assert.ok(progressAfterSecond, "second call should produce a progress artifact");
 
 		const nowIso = new Date(fixedMs).toISOString();
-		assert.notEqual(
-			progressAfterSecond.createdAt,
-			staleTime,
-			"createdAt must NOT be the stale value after a skip-reuse (RT-7a)",
-		);
+		assert.notEqual(progressAfterSecond.createdAt, staleTime, "createdAt must NOT be the stale value after a skip-reuse (RT-7a)");
 		assert.equal(
 			progressAfterSecond.createdAt,
 			nowIso,
@@ -319,9 +315,7 @@ test("[RT-7b] lastProgressContentHash entry is cleared after run completion", as
 			source: "test",
 			filePath: "builtin",
 		} as never;
-		const agents = [
-			{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" },
-		] as never;
+		const agents = [{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" }] as never;
 
 		const created = createRunManifest({ cwd, team, workflow, goal: "RT-7b cleanup test" });
 		const runId = created.manifest.runId;
@@ -329,11 +323,7 @@ test("[RT-7b] lastProgressContentHash entry is cleared after run completion", as
 		saveRunTasks(created.manifest, tasks);
 
 		// Before the run, no cache entry for this runId yet.
-		assert.equal(
-			__test__lastProgressContentHash.has(runId),
-			false,
-			"no cache entry should exist for runId before the run starts",
-		);
+		assert.equal(__test__lastProgressContentHash.has(runId), false, "no cache entry should exist for runId before the run starts");
 
 		await executeTeamRun({
 			manifest: { ...created.manifest, status: "running" },
@@ -368,7 +358,10 @@ test("[RT-14] cancelPlanTasks cancels only non-terminal tasks and preserves grap
 	const tasks: TeamTaskState[] = [
 		{ ...makeTask("queued-1", "queued"), graph: { taskId: "queued-1", queue: "ready", children: [], dependencies: [] } } as never,
 		{ ...makeTask("running-1", "running"), graph: { taskId: "running-1", queue: "ready", children: [], dependencies: [] } } as never,
-		{ ...makeTask("completed-1", "completed"), graph: { taskId: "completed-1", queue: "done", children: [], dependencies: [] } } as never,
+		{
+			...makeTask("completed-1", "completed"),
+			graph: { taskId: "completed-1", queue: "done", children: [], dependencies: [] },
+		} as never,
 	];
 
 	const result = __test__cancelPlanTasks(tasks, "Plan approval was cancelled.");
@@ -408,6 +401,10 @@ test("[RT-14] both inline cancel sites delegate to cancelNonTerminalTasks (struc
 	);
 	// Extra logic preserved: terminalEvidence synthesis for running workers +
 	// cancelledTaskIds collection.
-	assert.match(sigBody, /buildSyntheticTerminalEvidence\("worker", cancelReason, task\.startedAt\)/, "cancelRunFromSignal should preserve terminalEvidence synthesis for running workers");
+	assert.match(
+		sigBody,
+		/buildSyntheticTerminalEvidence\("worker", cancelReason, task\.startedAt\)/,
+		"cancelRunFromSignal should preserve terminalEvidence synthesis for running workers",
+	);
 	assert.match(sigBody, /cancelledTaskIds\.push\(task\.id\)/, "cancelRunFromSignal should preserve cancelledTaskIds collection");
 });

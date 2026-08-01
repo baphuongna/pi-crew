@@ -23,11 +23,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { invalidateConfigCache, loadConfig } from "../../src/config/config.ts";
-import {
-	computeSpawnBudgetMax,
-	resolveConfiguredMaxAttempts,
-} from "../../src/runtime/task-runner/child-executor.ts";
 import { DEFAULT_RETRY_POLICY } from "../../src/runtime/retry-executor.ts";
+import { computeSpawnBudgetMax, resolveConfiguredMaxAttempts } from "../../src/runtime/task-runner/child-executor.ts";
 import { runTeamTask, type SpawnBudget } from "../../src/runtime/task-runner.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
@@ -103,11 +100,7 @@ function withMockEnv<T>(mock: string, fn: () => Promise<T>): Promise<T> {
 /** Write a project `.crew/config.json` setting reliability.retryPolicy.maxAttempts. */
 function writeReliabilityConfig(cwd: string, maxAttempts: number): void {
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
-	fs.writeFileSync(
-		path.join(cwd, ".crew", "config.json"),
-		JSON.stringify({ reliability: { retryPolicy: { maxAttempts } } }),
-		"utf-8",
-	);
+	fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ reliability: { retryPolicy: { maxAttempts } } }), "utf-8");
 }
 
 // ─── RT-6: pure spawn-budget formula uses configured maxAttempts ───
@@ -115,11 +108,7 @@ function writeReliabilityConfig(cwd: string, maxAttempts: number): void {
 test("RT-6: computeSpawnBudgetMax uses configured maxAttempts (not default 3)", () => {
 	// 3 model candidates × (10 + 1) = 33. With the bug (DEFAULT_RETRY_POLICY=3)
 	// this would have been 3 × (3 + 1) = 12 — silently halving the retry ceiling.
-	assert.equal(
-		computeSpawnBudgetMax(3, 10),
-		33,
-		"3 candidates × (maxAttempts 10 + 1) must equal 33, not the default-based 12",
-	);
+	assert.equal(computeSpawnBudgetMax(3, 10), 33, "3 candidates × (maxAttempts 10 + 1) must equal 33, not the default-based 12");
 	// Sanity: the default-based value is the distinct lower bound the bug produced.
 	assert.equal(computeSpawnBudgetMax(3, DEFAULT_RETRY_POLICY.maxAttempts), 12);
 	// Single candidate edge case.
@@ -135,11 +124,7 @@ test("RT-6: resolveConfiguredMaxAttempts reads reliability.retryPolicy.maxAttemp
 		// Confirm the merged config actually surfaces maxAttempts=10 (project
 		// config is the base; user config does not override reliability here).
 		assert.equal(loadConfig(cwd).config.reliability?.retryPolicy?.maxAttempts, 10);
-		assert.equal(
-			resolveConfiguredMaxAttempts(cwd),
-			10,
-			"resolveConfiguredMaxAttempts must read the configured 10, not the default 3",
-		);
+		assert.equal(resolveConfiguredMaxAttempts(cwd), 10, "resolveConfiguredMaxAttempts must read the configured 10, not the default 3");
 	} finally {
 		invalidateConfigCache();
 		fs.rmSync(cwd, { recursive: true, force: true });
@@ -238,11 +223,7 @@ test("RT-8: runTeamTask does not mutate the input task object (immutable-snapsho
 			});
 
 			// The input task must be byte-for-byte unchanged.
-			assert.deepEqual(
-				task,
-				inputSnapshot,
-				"input task must NOT be mutated in place (immutable-snapshot invariant)",
-			);
+			assert.deepEqual(task, inputSnapshot, "input task must NOT be mutated in place (immutable-snapshot invariant)");
 
 			// And the result task must reflect the run's updates (usage parsed
 			// from the json-success mock transcript) — proving the executor
@@ -274,27 +255,12 @@ test("RT-8: runTeamTask does not mutate the input task object (immutable-snapsho
 
 test("RT-8: child-executor spreads before mutating pendingSteers/lifetimeUsage (source contract)", () => {
 	const testDir = path.dirname(fileURLToPath(import.meta.url));
-	const src = fs.readFileSync(
-		path.join(testDir, "..", "..", "src", "runtime", "task-runner", "child-executor.ts"),
-		"utf-8",
-	);
+	const src = fs.readFileSync(path.join(testDir, "..", "..", "src", "runtime", "task-runner", "child-executor.ts"), "utf-8");
 	// Buggy in-place forms must be absent (these are the exact patterns the fix
 	// removed — their presence would re-introduce the invariant violation).
-	assert.ok(
-		!src.includes("task.pendingSteers = [];"),
-		"RT-8: pendingSteers must be cleared via spread, not in-place mutation",
-	);
-	assert.ok(
-		!src.includes("task.lifetimeUsage = {"),
-		"RT-8: lifetimeUsage must be accumulated via spread, not in-place mutation",
-	);
+	assert.ok(!src.includes("task.pendingSteers = [];"), "RT-8: pendingSteers must be cleared via spread, not in-place mutation");
+	assert.ok(!src.includes("task.lifetimeUsage = {"), "RT-8: lifetimeUsage must be accumulated via spread, not in-place mutation");
 	// Fixed spread forms must be present.
-	assert.ok(
-		src.includes("{ ...task, pendingSteers: [] }"),
-		"RT-8: pendingSteers clear must use the spread form",
-	);
-	assert.ok(
-		src.includes("...task,") && src.includes("lifetimeUsage: {"),
-		"RT-8: lifetimeUsage accumulation must use the spread form",
-	);
+	assert.ok(src.includes("{ ...task, pendingSteers: [] }"), "RT-8: pendingSteers clear must use the spread form");
+	assert.ok(src.includes("...task,") && src.includes("lifetimeUsage: {"), "RT-8: lifetimeUsage accumulation must use the spread form");
 });

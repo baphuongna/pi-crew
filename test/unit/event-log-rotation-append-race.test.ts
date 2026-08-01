@@ -20,8 +20,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Worker } from "node:worker_threads";
 import { describe, it } from "node:test";
+import { Worker } from "node:worker_threads";
 import { rotateEventLog, rotateEventLogUnlocked } from "../../src/state/event-log-rotation.ts";
 
 function tmpDir(): string {

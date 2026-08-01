@@ -12,13 +12,13 @@
 
 import assert from "node:assert/strict";
 import { after, afterEach, describe, it } from "node:test";
+import { getCrewScheduler, registerCrewScheduler, unregisterCrewScheduler } from "../../src/extension/team-tool/handle-schedule.ts";
 import {
 	getCrewGlobalRegistry,
 	installCrewGlobalRegistry,
 	registerCrewGlobalRegistry,
 	uninstallCrewGlobalRegistry,
 } from "../../src/extension/team-tool.ts";
-import { getCrewScheduler, registerCrewScheduler, unregisterCrewScheduler } from "../../src/extension/team-tool/handle-schedule.ts";
 
 const REGISTRY_KEY = Symbol.for("pi-crew:registry");
 const SCHEDULER_KEY = Symbol.for("pi-crew:scheduler");

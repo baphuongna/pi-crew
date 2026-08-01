@@ -14,6 +14,7 @@
  *       §0c C11 (control path: cooperative flag + handleCancel(currentRunId) via abortOwned).
  */
 
+import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { GoalStore } from "../../runtime/goal-state-store.ts";
 import { snapshotManifests } from "../../runtime/verification-integrity.ts";
 import { isWorkspaceBusy } from "../../runtime/workspace-lock.ts";
@@ -21,7 +22,6 @@ import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";
 import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state/types.ts";
-import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { result, type TeamContext } from "./context.ts";
 import { paramRequired } from "./param-error.ts";

@@ -29,6 +29,7 @@ import { DEFAULT_UI } from "../../config/defaults.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { listRecentDiagnostic } from "../../runtime/diagnostic-export.ts";
+import type { TeamAction } from "../../schema/team-tool-schema.ts";
 import { getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../skills/skill-templates.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
@@ -41,7 +42,6 @@ import type {
 } from "../../ui/overlays/mailbox-compose-overlay.ts";
 import type { MailboxAction, MailboxDetailOverlay as MailboxDetailOverlayType } from "../../ui/overlays/mailbox-detail-overlay.ts";
 import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
-import type { TeamAction } from "../../schema/team-tool-schema.ts";
 // Eagerly import lightweight modules
 import {
 	dispatchDiagnosticExport,

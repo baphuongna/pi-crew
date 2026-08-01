@@ -16,9 +16,9 @@ import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktre
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
 import { errorMessage } from "../../utils/guards.ts";
-import { paramRequired } from "./param-error.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { paramRequired } from "./param-error.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -30,11 +30,11 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 	return _cachedExecuteTeamRun(...args);
 }
 
+import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtime-resolver.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import type { RunMetrics } from "../../state/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
-import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 
 /**
  * Module-scoped latch for the crew-init dynamic import.
@@ -73,6 +73,7 @@ function loadCrewInit(): Promise<typeof import("../../state/crew-init.ts")> {
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { t } from "../../i18n.ts";
 import { hasAsyncStartMarker } from "../../runtime/async-marker.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
 import { waitForRun } from "../../runtime/run-tracker.ts";
@@ -80,7 +81,6 @@ import { collectRunMetrics } from "../../state/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
-import { t } from "../../i18n.ts";
 import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
 import { resolveRunDeadline } from "./run-deadline.ts";
 
@@ -287,7 +287,10 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 	}
 
 	// mode === "waited" — detailed per-task summary.
-	const lines: string[] = [t("team.run.completed", { status: manifest.status, runId: manifest.runId, team }), `Goal: ${goal.slice(0, 100)}`];
+	const lines: string[] = [
+		t("team.run.completed", { status: manifest.status, runId: manifest.runId, team }),
+		`Goal: ${goal.slice(0, 100)}`,
+	];
 	if (metrics) {
 		lines.push("");
 		lines.push(

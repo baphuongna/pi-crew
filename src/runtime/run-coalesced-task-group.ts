@@ -5,8 +5,8 @@ import { appendEventAsync } from "../state/event-log.ts";
 import { saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
-import { DEFAULT_RETRY_POLICY, executeWithRetry } from "./retry-executor.ts";
 import type { RetryPolicy } from "./retry-executor.ts";
+import { DEFAULT_RETRY_POLICY, executeWithRetry } from "./retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
 import { runWorker } from "./run-worker.ts";
 import type { CrewRuntimeMode } from "./runtime-resolver.ts";
@@ -174,9 +174,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
 				timeoutHandle = setTimeout(() => {
 					if (!timeoutController.signal.aborted) {
-						timeoutController.abort(
-							new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`),
-						);
+						timeoutController.abort(new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`));
 					}
 				}, taskTimeoutMs);
 				timeoutHandle.unref?.();
@@ -200,9 +198,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			}
 		};
 		try {
-			const result = useRetry
-				? await executeWithRetry(runOnce, policy, { signal })
-				: await runOnce();
+			const result = useRetry ? await executeWithRetry(runOnce, policy, { signal }) : await runOnce();
 			rawOutput = result.rawFinalText ?? result.stdout ?? "";
 			// RT-5 #1/#2: distinguish cancel from failure. Cancel = run-level
 			// signal aborted OR the child reports cooperative cancellation.
@@ -249,11 +245,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		newArtifacts.push(resultArtifact);
 		return {
 			...t,
-			status: ok
-				? ("completed" as const)
-				: cancelled
-					? ("cancelled" as const)
-					: ("failed" as const),
+			status: ok ? ("completed" as const) : cancelled ? ("cancelled" as const) : ("failed" as const),
 			finishedAt,
 			result: {
 				text,

@@ -21,6 +21,7 @@ import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker-issuer.ts";
+import { terminateActiveChildPiProcesses } from "../../runtime/child-pi.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
 import { CrewBroker } from "../../runtime/crew-broker.ts";
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
@@ -33,7 +34,6 @@ import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
-import { terminateActiveChildPiProcesses } from "../../runtime/child-pi.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";
 import {

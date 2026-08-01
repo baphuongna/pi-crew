@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { snapshotDirtyWorktree } from "../../src/worktree/worktree-manager.ts";
-import { CURRENT_SCHEMA_VERSION } from "../../src/state/types.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { CURRENT_SCHEMA_VERSION } from "../../src/state/types.ts";
+import { snapshotDirtyWorktree } from "../../src/worktree/worktree-manager.ts";
 
 function hasGit(): boolean {
 	try {
@@ -64,8 +64,22 @@ test("ST-1: snapshotDirtyWorktree captures untracked dirs, binary files, and tra
 
 		// 2) Untracked binary file (non-UTF-8 PNG-like header)
 		const pngBytes = Buffer.from([
-			0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
-			0xff, 0xfe, 0x00, 0x01, 0x80, 0x7f, 0xc0, 0xde, // arbitrary binary data
+			0x89,
+			0x50,
+			0x4e,
+			0x47,
+			0x0d,
+			0x0a,
+			0x1a,
+			0x0a, // PNG signature
+			0xff,
+			0xfe,
+			0x00,
+			0x01,
+			0x80,
+			0x7f,
+			0xc0,
+			0xde, // arbitrary binary data
 		]);
 		fs.mkdirSync(path.join(worktreePath, "assets"), { recursive: true });
 		fs.writeFileSync(path.join(worktreePath, "assets", "logo.png"), pngBytes);
@@ -123,11 +137,7 @@ test("ST-1: snapshotDirtyWorktree captures untracked dirs, binary files, and tra
 		assert.ok(snapshot.includes("export const x = 1;"), "dir file content must be captured");
 
 		// Assertion 2: untracked binary is base64-encoded, not corrupted
-		assert.match(
-			snapshot,
-			/Untracked file: assets\/logo\.png .*base64-encoded binary/,
-			"binary file must be marked as base64-encoded",
-		);
+		assert.match(snapshot, /Untracked file: assets\/logo\.png .*base64-encoded binary/, "binary file must be marked as base64-encoded");
 		assert.ok(snapshot.includes("```base64"), "binary section must use base64 code fence");
 		// Extract the base64 content and verify it round-trips to the original bytes
 		const b64Match = snapshot.match(/```base64\n([\s\S]*?)\n```/);

@@ -20,13 +20,13 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allActionLiterals } from "../../src/schema/team-tool-schema.ts";
+import { AUTOMATE_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/automate.ts";
+import { CONTROL_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/control.ts";
 import { domainForAction } from "../../src/extension/team-tool/dispatch/index.ts";
+import { MANAGE_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/manage.ts";
 import { RUN_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/run.ts";
 import { STATUS_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/status.ts";
-import { CONTROL_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/control.ts";
-import { MANAGE_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/manage.ts";
-import { AUTOMATE_DOMAIN_ACTIONS } from "../../src/extension/team-tool/dispatch/automate.ts";
+import { allActionLiterals } from "../../src/schema/team-tool-schema.ts";
 
 /** Raw action strings from the schema's single source of truth. */
 const schemaActions: string[] = allActionLiterals.map((l) => (l as { const: string }).const);
@@ -72,11 +72,7 @@ test("union of domain dispatch arrays exactly equals allActionLiterals (no drift
 	for (const actions of Object.values(DOMAIN_DISPATCH)) {
 		for (const action of actions) union.add(action);
 	}
-	assert.deepEqual(
-		[...union].sort(),
-		[...new Set(schemaActions)].sort(),
-		"domain dispatch arrays drifted from the schema action list",
-	);
+	assert.deepEqual([...union].sort(), [...new Set(schemaActions)].sort(), "domain dispatch arrays drifted from the schema action list");
 });
 
 test("each domain dispatch array has no internal duplicates", () => {

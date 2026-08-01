@@ -26,13 +26,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-	appendMailboxMessage,
-	appendMailboxMessageAsync,
-	readMailbox,
-	updateMailboxMessageReply,
-} from "../../src/state/mailbox.ts";
 import { withFileLockAsync } from "../../src/state/locks.ts";
+import { appendMailboxMessage, appendMailboxMessageAsync, readMailbox, updateMailboxMessageReply } from "../../src/state/mailbox.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
@@ -475,10 +470,11 @@ describe("ST-3: mailbox unified .flock — cross-process", () => {
 
 			// Verify archive files were created (rotation actually triggered)
 			const mailboxDir = path.join(ws.manifest.stateRoot, "mailbox");
-			const archives = fs
-				.readdirSync(mailboxDir)
-				.filter((e) => e.includes("inbox.jsonl.") && e.endsWith(".archive.jsonl"));
-			assert.ok(archives.length > 0, `rotation should have created at least one archive; dir: ${fs.readdirSync(mailboxDir).join(", ")}`);
+			const archives = fs.readdirSync(mailboxDir).filter((e) => e.includes("inbox.jsonl.") && e.endsWith(".archive.jsonl"));
+			assert.ok(
+				archives.length > 0,
+				`rotation should have created at least one archive; dir: ${fs.readdirSync(mailboxDir).join(", ")}`,
+			);
 		} finally {
 			removeTrackedTempDir(ws.dir);
 		}

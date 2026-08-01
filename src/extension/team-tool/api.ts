@@ -4,7 +4,18 @@ import { buildAgentDashboard, readAgentOutput } from "../../runtime/agent-observ
 import { buildCapabilityInventory } from "../../runtime/capability-inventory.ts";
 import { agentOutputPath, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { readForegroundControlStatus, writeForegroundInterruptRequest } from "../../runtime/foreground-control.ts";
-import { terminateLiveAgentsForRun } from "../../runtime/live-agent-manager.ts";
+import { appendLiveAgentControlRequest } from "../../runtime/live-agent-control.ts";
+import {
+	followUpLiveAgent,
+	getLiveAgent,
+	listActiveLiveAgents,
+	resumeLiveAgent,
+	steerLiveAgent,
+	stopLiveAgent,
+	terminateLiveAgentsForRun,
+} from "../../runtime/live-agent-manager.ts";
+import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-control-realtime.ts";
+import { probeLiveSessionRuntime } from "../../runtime/live-session-runtime.ts";
 import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import { touchWorkerHeartbeat } from "../../runtime/worker-heartbeat.ts";
@@ -28,17 +39,6 @@ import {
 } from "../../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
-import { appendLiveAgentControlRequest } from "../../runtime/live-agent-control.ts";
-import {
-	followUpLiveAgent,
-	getLiveAgent,
-	listActiveLiveAgents,
-	resumeLiveAgent,
-	steerLiveAgent,
-	stopLiveAgent,
-} from "../../runtime/live-agent-manager.ts";
-import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-control-realtime.ts";
-import { probeLiveSessionRuntime } from "../../runtime/live-session-runtime.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -123,11 +123,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		});
 	}
 	if (!params.runId)
-		return result(
-			paramRequired("api", "runId", "{ action: 'api', runId: 'team_...' }"),
-			{ action: "api", status: "error" },
-			true,
-		);
+		return result(paramRequired("api", "runId", "{ action: 'api', runId: 'team_...' }"), { action: "api", status: "error" }, true);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "api", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
@@ -308,7 +304,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				paramRequired("API read-task", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-task', taskId: '01_01-agent' } }"),
+				paramRequired(
+					"API read-task",
+					"config.taskId matching a task id or step id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-task', taskId: '01_01-agent' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -374,7 +374,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
 		if (!agent)
 			return result(
-				paramRequired("API get-agent-result", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'get-agent-result', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API get-agent-result",
+					"config.agentId matching an agent id or task id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'get-agent-result', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -397,7 +401,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const status = agent ? (readCrewAgentStatus(loaded.manifest, agent.taskId) ?? agent) : undefined;
 		if (!status)
 			return result(
-				paramRequired("API read-agent-status", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-status', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API read-agent-status",
+					"config.agentId matching an agent id or task id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-status', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -418,7 +426,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				paramRequired("API read-agent-events", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-events', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API read-agent-events",
+					"config.agentId matching an agent id or task id, or at least one agent in the run",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-events', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -444,7 +456,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				paramRequired("API read-agent-transcript", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-transcript', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API read-agent-transcript",
+					"config.agentId matching an agent id or task id, or at least one agent in the run",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-transcript', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -473,7 +489,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				paramRequired("API read-agent-output", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-output', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API read-agent-output",
+					"config.agentId matching an agent id or task id, or at least one agent in the run",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-output', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -519,7 +539,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
 		if (!agent)
 			return result(
-				paramRequired("API nudge-agent", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'nudge-agent', agentId: 'agent-1' } }"),
+				paramRequired(
+					"API nudge-agent",
+					"config.agentId matching an agent id or task id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'nudge-agent', agentId: 'agent-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -586,7 +610,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
 		if (!agentId)
 			return result(
-				paramRequired(`API ${operation}`, "config.agentId", `{ action: 'api', runId: 'team_...', config: { operation: '${operation}', agentId: 'agent-1' } }`),
+				paramRequired(
+					`API ${operation}`,
+					"config.agentId",
+					`{ action: 'api', runId: 'team_...', config: { operation: '${operation}', agentId: 'agent-1' } }`,
+				),
 				{
 					action: "api",
 					status: "error",
@@ -643,7 +671,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			if (operation === "follow-up-agent") {
 				if (!prompt)
 					return result(
-						paramRequired("API follow-up-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }"),
+						paramRequired(
+							"API follow-up-agent",
+							"config.prompt or config.message",
+							"{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }",
+						),
 						{
 							action: "api",
 							status: "error",
@@ -668,7 +700,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			if (operation === "resume-agent") {
 				if (!prompt)
 					return result(
-						paramRequired("API resume-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }"),
+						paramRequired(
+							"API resume-agent",
+							"config.prompt or config.message",
+							"{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }",
+						),
 						{
 							action: "api",
 							status: "error",
@@ -716,7 +752,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				);
 			if (operation === "resume-agent" && !prompt)
 				return result(
-					paramRequired("API resume-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }"),
+					paramRequired(
+						"API resume-agent",
+						"config.prompt or config.message",
+						"{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }",
+					),
 					{
 						action: "api",
 						status: "error",
@@ -726,7 +766,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				);
 			if (operation === "follow-up-agent" && !prompt)
 				return result(
-					paramRequired("API follow-up-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }"),
+					paramRequired(
+						"API follow-up-agent",
+						"config.prompt or config.message",
+						"{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }",
+					),
 					{
 						action: "api",
 						status: "error",
@@ -873,7 +917,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const taskId = typeof cfg.taskId === "string" && cfg.taskId.trim() ? cfg.taskId.trim() : undefined;
 		if (!body)
 			return result(
-				paramRequired("API send-message", "config.body", "{ action: 'api', runId: 'team_...', config: { operation: 'send-message', body: '<message>' } }"),
+				paramRequired(
+					"API send-message",
+					"config.body",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'send-message', body: '<message>' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -938,7 +986,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const messageId = typeof cfg.messageId === "string" ? cfg.messageId : undefined;
 		if (!messageId)
 			return result(
-				paramRequired("API ack-message", "config.messageId", "{ action: 'api', runId: 'team_...', config: { operation: 'ack-message', messageId: 'msg-1' } }"),
+				paramRequired(
+					"API ack-message",
+					"config.messageId",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'ack-message', messageId: 'msg-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -1001,7 +1053,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				paramRequired("API read-heartbeat", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-heartbeat', taskId: '01_01-agent' } }"),
+				paramRequired(
+					"API read-heartbeat",
+					"config.taskId matching a task id or step id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'read-heartbeat', taskId: '01_01-agent' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -1022,7 +1078,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				paramRequired("API claim-task", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'claim-task', taskId: '01_01-agent' } }"),
+				paramRequired(
+					"API claim-task",
+					"config.taskId matching a task id or step id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'claim-task', taskId: '01_01-agent' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -1072,7 +1132,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task || !owner || !token)
 			return result(
-				paramRequired("API release-task-claim", "config.taskId, config.owner, and config.token", "{ action: 'api', runId: 'team_...', config: { operation: 'release-task-claim', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1' } }"),
+				paramRequired(
+					"API release-task-claim",
+					"config.taskId, config.owner, and config.token",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'release-task-claim', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -1119,7 +1183,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task || !owner || !token || !isTeamTaskStatus(to))
 			return result(
-				paramRequired("API transition-task-status", "config.taskId, config.owner, config.token, and valid config.status", "{ action: 'api', runId: 'team_...', config: { operation: 'transition-task-status', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1', status: 'done' } }"),
+				paramRequired(
+					"API transition-task-status",
+					"config.taskId, config.owner, config.token, and valid config.status",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'transition-task-status', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1', status: 'done' } }",
+				),
 				{
 					action: "api",
 					status: "error",
@@ -1173,7 +1241,11 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				paramRequired("API write-heartbeat", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'write-heartbeat', taskId: '01_01-agent' } }"),
+				paramRequired(
+					"API write-heartbeat",
+					"config.taskId matching a task id or step id",
+					"{ action: 'api', runId: 'team_...', config: { operation: 'write-heartbeat', taskId: '01_01-agent' } }",
+				),
 				{
 					action: "api",
 					status: "error",

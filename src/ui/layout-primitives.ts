@@ -1,5 +1,5 @@
-import type { CrewComponent } from "./component.ts";
 import { pad, wrapHard } from "../utils/visual.ts";
+import type { CrewComponent } from "./component.ts";
 
 // PR-G3 (UI-3): the shared CrewComponent contract (render + invalidate).
 // RenderableComponent now extends it so every layout primitive is usable

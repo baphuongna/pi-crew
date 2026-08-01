@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { ArtifactDescriptor } from "../../src/state/types.ts";
 import { isArtifactExpired, pruneExpiredArtifacts, TEMPORARY_RETENTION_TTL_MS } from "../../src/state/artifact-store.ts";
+import type { ArtifactDescriptor } from "../../src/state/types.ts";
 
 /**
  * ST-10 tests: ArtifactDescriptor.retention/expiresAt enforcement.
@@ -148,9 +148,7 @@ test("ST-10: pruneExpiredArtifacts does NOT delete 'run' or 'project' retention 
 test("ST-10: pruneExpiredArtifacts handles missing files gracefully", () => {
 	const dir = makeTmpDir();
 	try {
-		const descriptors: ArtifactDescriptor[] = [
-			makeDescriptor(path.join(dir, "does-not-exist.log"), { expiresAt: iso(-60_000) }),
-		];
+		const descriptors: ArtifactDescriptor[] = [makeDescriptor(path.join(dir, "does-not-exist.log"), { expiresAt: iso(-60_000) })];
 
 		// Should not throw — best-effort.
 		const deleted = pruneExpiredArtifacts(descriptors);
@@ -173,9 +171,7 @@ test("ST-10: pruneExpiredArtifacts respects custom temporaryTtlMs", () => {
 
 		const now = Date.now();
 		const created5sAgo = new Date(now - 5000).toISOString();
-		const descriptors: ArtifactDescriptor[] = [
-			makeDescriptor(file, { retention: "temporary", createdAt: created5sAgo }),
-		];
+		const descriptors: ArtifactDescriptor[] = [makeDescriptor(file, { retention: "temporary", createdAt: created5sAgo })];
 
 		// With a 10s TTL, 5s old is NOT expired.
 		assert.equal(pruneExpiredArtifacts(descriptors, { now, temporaryTtlMs: 10_000 }), 0);

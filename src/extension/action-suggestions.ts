@@ -13,8 +13,8 @@
  * (`test/unit/action-list-single-source.test.ts`) guards against regression.
  */
 
-import { allActionLiterals } from "../schema/team-tool-schema.ts";
 import { findClosestKey } from "../config/suggestions.ts";
+import { allActionLiterals } from "../schema/team-tool-schema.ts";
 
 /**
  * The complete set of valid top-level `team` actions. EXT-4/EXT-8: derived from

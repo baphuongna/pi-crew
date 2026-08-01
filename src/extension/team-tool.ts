@@ -51,6 +51,7 @@ async function handleRun(...args: Parameters<HandleRunFn>): Promise<Awaited<Retu
 	return _cachedHandleRun(...args);
 }
 
+import { t } from "../i18n.ts";
 import { waitForRun } from "../runtime/run-tracker.ts";
 import { normalizeSkillOverride } from "../runtime/skill-instructions.ts";
 import { formatActionSuggestion } from "./action-suggestions.ts";
@@ -65,7 +66,6 @@ import {
 	handleStatusDomain,
 } from "./team-tool/dispatch/index.ts";
 import { RUN_NOT_FOUND_HINT } from "./team-tool/run-not-found.ts";
-import { t } from "../i18n.ts";
 
 export { handleApi } from "./team-tool/api.ts";
 export { handleRetry } from "./team-tool/cancel.ts";

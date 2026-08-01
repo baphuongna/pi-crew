@@ -10,7 +10,7 @@ import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { TeamToolParams, type TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
-import { statusIcon, teamToolRenderer, type ToolRenderContext } from "../../ui/tool-renderers/index.ts";
+import { statusIcon, type ToolRenderContext, teamToolRenderer } from "../../ui/tool-renderers/index.ts";
 import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

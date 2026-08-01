@@ -9,9 +9,9 @@
 // npm pack tarball (i.e. NOT ignored by .npmignore), while the genuine
 // strip-types companions (.js / .js.map) remain excluded.
 import assert from "node:assert/strict";
-import test from "node:test";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import test from "node:test";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const NPMIGNORE_PATH = join(ROOT, ".npmignore");
@@ -113,10 +113,7 @@ test("QA-11: no src/**/*.d.ts file is excluded by .npmignore", () => {
 	const rules = parseNpmignore(readFileSync(NPMIGNORE_PATH, "utf-8"));
 
 	const dtsFiles = listDtsFiles(join(ROOT, "src"), ROOT);
-	assert.ok(
-		dtsFiles.length > 0,
-		"expected at least one src/**/*.d.ts file to test against",
-	);
+	assert.ok(dtsFiles.length > 0, "expected at least one src/**/*.d.ts file to test against");
 
 	for (const file of dtsFiles) {
 		assert.equal(
