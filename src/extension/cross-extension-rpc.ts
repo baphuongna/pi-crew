@@ -146,7 +146,7 @@ export function isAllowedRpcRunParams(
 	return { ok: true };
 }
 
-function on(events: EventBusLike, channel: string, handler: (raw: any) => unknown): () => void {
+function on(events: EventBusLike, channel: string, handler: (raw: unknown) => unknown): () => void {
 	const unsub = events.on(channel, handler);
 	return typeof unsub === "function" ? unsub : () => {};
 }

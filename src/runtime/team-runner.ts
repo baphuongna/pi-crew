@@ -842,13 +842,17 @@ type PendingUnit = {
  *
  * Exported so unit tests can exercise it directly.
  */
+/** Settled outcome of a single in-flight dispatch unit promise (returned by drainPendingUnits). */
+export type DrainOutcome = PromiseSettledResult<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }>;
+
 export async function drainPendingUnits<
 	T extends { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> },
->(pendingUnits: Map<string, T>, controller?: AbortController): Promise<void> {
-	if (pendingUnits.size === 0) return;
+>(pendingUnits: Map<string, T>, controller?: AbortController): Promise<DrainOutcome[]> {
+	if (pendingUnits.size === 0) return [];
 	controller?.abort();
-	await Promise.allSettled([...pendingUnits.values()].map((p) => p.promise));
+	const outcomes = await Promise.allSettled([...pendingUnits.values()].map((p) => p.promise));
 	pendingUnits.clear();
+	return outcomes;
 }
 
 export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
@@ -1283,48 +1287,44 @@ async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecisio
 	// loss. Draining first preserves settled results and gives non-settled
 	// in-flight tasks a re-queueable terminal status (cancelled, not skipped).
 	//
-	// Snapshot in-flight promises before draining — drainPendingUnits clears
-	// the map. The promises are the same objects; awaiting them again after
-	// drain is safe (promises cache their resolution). After drain,
-	// ctx.pendingUnits is empty, so the finally-block drainPendingUnits call
-	// (~:2419) is a no-op (idempotent — no double-drain).
+	// #3 refactor: drainPendingUnits now RETURNS the settled outcomes directly,
+	// so we collect inflightTaskIds before draining (it clears the map), then
+	// consume the returned outcomes — no redundant re-await of the same promises.
+	// After drain, ctx.pendingUnits is empty, so the finally-block
+	// drainPendingUnits call (~:2419) is a no-op (idempotent — no double-drain).
 	const inflightTaskIds = new Set<string>();
-	const inflightPromises = [...ctx.pendingUnits.values()].map((unit) => {
+	for (const unit of ctx.pendingUnits.values()) {
 		for (const id of unit.taskIds) inflightTaskIds.add(id);
-		return unit.promise;
-	});
-	await drainPendingUnits(ctx.pendingUnits, ctx.runController);
-	if (inflightPromises.length > 0) {
-		const outcomes = await Promise.allSettled(inflightPromises);
-		const validResults: { manifest: TeamRunManifest; tasks: TeamTaskState[] }[] = [];
-		for (const outcome of outcomes) {
-			if (outcome.status === "fulfilled") validResults.push(outcome.value);
-		}
-		if (validResults.length > 0) {
-			// Merge under the run lock — same pattern as mergeUnitResult:
-			// flush pending writes, load disk state, merge artifacts + tasks,
-			// save atomically.
-			const mergeResult = await withRunLock(ctx.manifest, async () => {
-				flushPendingAtomicWrites();
-				const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
-				const diskManifest = disk?.manifest ?? ctx.manifest;
-				const reconciledArtifacts = mergeArtifacts([
-					...diskManifest.artifacts,
-					...validResults.map((item) => item.manifest.artifacts).flat(),
-				]);
-				const resultManifest = updateRunStatus(
-					{ ...diskManifest, artifacts: reconciledArtifacts },
-					"running",
-					"Merged in-flight results during failed-task abort.",
-				);
-				const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
-				await saveRunManifestAsync(resultManifest);
-				await saveRunTasksAsync(resultManifest, resultTasks);
-				return { resultManifest, resultTasks };
-			});
-			ctx.manifest = mergeResult.resultManifest;
-			ctx.tasks = mergeResult.resultTasks;
-		}
+	}
+	const outcomes = await drainPendingUnits(ctx.pendingUnits, ctx.runController);
+	const validResults: { manifest: TeamRunManifest; tasks: TeamTaskState[] }[] = [];
+	for (const outcome of outcomes) {
+		if (outcome.status === "fulfilled") validResults.push(outcome.value);
+	}
+	if (validResults.length > 0) {
+		// Merge under the run lock — same pattern as mergeUnitResult:
+		// flush pending writes, load disk state, merge artifacts + tasks,
+		// save atomically.
+		const mergeResult = await withRunLock(ctx.manifest, async () => {
+			flushPendingAtomicWrites();
+			const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+			const diskManifest = disk?.manifest ?? ctx.manifest;
+			const reconciledArtifacts = mergeArtifacts([
+				...diskManifest.artifacts,
+				...validResults.map((item) => item.manifest.artifacts).flat(),
+			]);
+			const resultManifest = updateRunStatus(
+				{ ...diskManifest, artifacts: reconciledArtifacts },
+				"running",
+				"Merged in-flight results during failed-task abort.",
+			);
+			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+			await saveRunManifestAsync(resultManifest);
+			await saveRunTasksAsync(resultManifest, resultTasks);
+			return { resultManifest, resultTasks };
+		});
+		ctx.manifest = mergeResult.resultManifest;
+		ctx.tasks = mergeResult.resultTasks;
 	}
 	// RT-1: cancel in-flight tasks that did NOT settle (e.g. rejected promises)
 	// so team resume CAN re-queue them. markBlocked maps queued→skipped, which
@@ -2466,7 +2466,22 @@ async function executeTeamRunCore(
 			const failedDecision = await handleFailedTask(ctx);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
-			if (failedDecision?.kind === "return") return failedDecision.result;
+			if (failedDecision?.kind === "return") {
+				// #4 (completeness): route the failed-run short-circuit through
+				// finalizeRun so the summary artifact + health snapshot + policy
+				// decisions are written (previously bypassed — failed runs had no
+				// closeout artifacts). handleFailedTask already set manifest status
+				// to "failed" and saved tasks; finalizeRun re-derives the status
+				// (still "failed" since a failed task exists — the `if (failed)`
+				// branch in finalizeRun takes priority) and performs the closeout
+				// writes. Policy-decision semantics are UNCHANGED — finalizeRun
+				// uses identical logic for both the normal-completion and
+				// failed-short-circuit paths.
+				const failedResult = await finalizeRun(ctx);
+				manifest = ctx.manifest;
+				tasks = ctx.tasks;
+				return failedResult;
+			}
 			if (failedDecision?.kind === "continue") continue;
 
 			// CORE-4 extraction 3: batch selection. ctx is already synced from
@@ -2625,6 +2640,9 @@ async function executeTeamRunCore(
 		tasks = ctx.tasks;
 		return finalResult;
 	} finally {
+		// #3: drainPendingUnits returns settled outcomes, but the finally block
+		// only needs the drain side-effect (abort + await + clear); the return
+		// value is intentionally unused here.
 		await drainPendingUnits(pendingUnits, runController);
 	}
 }

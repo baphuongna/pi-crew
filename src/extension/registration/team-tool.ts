@@ -10,7 +10,7 @@ import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { TeamToolParams, type TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
-import { statusIcon, teamToolRenderer } from "../../ui/tool-renderers/index.ts";
+import { statusIcon, teamToolRenderer, type ToolRenderContext } from "../../ui/tool-renderers/index.ts";
 import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -209,14 +209,17 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 				stopProgress.stop();
 			}
 		},
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		renderCall(args: any, theme: any, context: any): any {
-			return teamToolRenderer.renderCall(args, theme, context);
+		renderCall(args, theme, context) {
+			return teamToolRenderer.renderCall(args as Record<string, unknown>, theme, context as ToolRenderContext);
 		},
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		renderResult(result: any, options: any, theme: any, context: any): any {
+		renderResult(result, options, theme, context) {
 			try {
-				return teamToolRenderer.renderResult(result, options, theme, context);
+				return teamToolRenderer.renderResult(
+					result as unknown as Record<string, unknown>,
+					options,
+					theme,
+					context as ToolRenderContext,
+				);
 			} catch {
 				return new Text(statusIcon("completed", theme) + " done", 0, 0);
 			}

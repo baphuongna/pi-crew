@@ -32,7 +32,7 @@
 				"noUnusedVariables": "off"
 			},
 			"suspicious": {
-				"noExplicitAny": "off",
+				"noExplicitAny": "error",
 				"noControlCharactersInRegex": "off",
 				"noAssignInExpressions": "off",
 				"noEmptyBlockStatements": "warn"
@@ -52,5 +52,17 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["test/**/*.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "off"
+					}
+				}
+			}
+		}
+	]
 }

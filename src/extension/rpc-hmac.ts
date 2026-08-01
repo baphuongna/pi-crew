@@ -134,8 +134,9 @@ export function verifyRpcSignature(payload: RpcSignedPayload, body: unknown): { 
 export function withHmacVerification<P extends { requestId: string }>(
 	handler: (params: P) => unknown | Promise<unknown>,
 	_channel: string,
-): (params: P) => unknown | Promise<unknown> {
-	return (params: P) => {
+): (raw: unknown) => unknown | Promise<unknown> {
+	return (raw: unknown) => {
+		const params = raw as P;
 		if (!isHmacEnabled()) {
 			// No secret configured → backward compat: allow unsigned.
 			// Emit a soft info note (once per process) only when an actual RPC

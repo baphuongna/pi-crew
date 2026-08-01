@@ -41,6 +41,7 @@ import type {
 } from "../../ui/overlays/mailbox-compose-overlay.ts";
 import type { MailboxAction, MailboxDetailOverlay as MailboxDetailOverlayType } from "../../ui/overlays/mailbox-detail-overlay.ts";
 import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
+import type { TeamAction } from "../../schema/team-tool-schema.ts";
 // Eagerly import lightweight modules
 import {
 	dispatchDiagnosticExport,
@@ -531,10 +532,9 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 											},
 											teamCommandContext(cmdCtx),
 										)
-									: // eslint-disable-next-line @typescript-eslint/no-explicit-any
-										await handleTeamTool(
+									: await handleTeamTool(
 											{
-												action: selection.action as any,
+												action: selection.action as TeamAction,
 												runId: selection.runId,
 											},
 											teamCommandContext(cmdCtx),
