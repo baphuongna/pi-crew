@@ -247,6 +247,15 @@ function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
  *   terminalised with the given status.
  * - With `filter`: the filter is the sole gate — the non-terminal check is
  *   NOT applied automatically, matching per-task/per-id variants.
+ * - Optional `transform(task, terminalised)`: lets a caller attach
+ *   site-specific fields (graph mutation, terminalEvidence) to the
+ *   terminalised task. `terminalised` already carries status/finishedAt/error;
+ *   the transform returns it unchanged or a modified copy.
+ *
+ * RT-14: the two remaining inline cancel sites (cancelPlanTasks,
+ * cancelRunFromSignal) route through this helper via `transform` so EVERY
+ * cancel site uses the single shared transform. Their extra logic
+ * (graph mutation / terminalEvidence) is preserved inside the transform.
  *
  * `markBlocked` is intentionally NOT unified here (it sets status "skipped",
  * not cancelled/failed, and only acts on "queued" tasks).
@@ -256,9 +265,14 @@ export function cancelNonTerminalTasks(
 	status: "cancelled" | "failed",
 	reason: string,
 	filter?: (task: TeamTaskState) => boolean,
+	transform?: (task: TeamTaskState, terminalised: TeamTaskState) => TeamTaskState,
 ): TeamTaskState[] {
 	const predicate = filter ?? ((task: TeamTaskState) => isNonTerminalTaskStatus(task.status));
-	return tasks.map((task) => (predicate(task) ? { ...task, status, finishedAt: new Date().toISOString(), error: reason } : task));
+	return tasks.map((task) => {
+		if (!predicate(task)) return task;
+		const terminalised: TeamTaskState = { ...task, status, finishedAt: new Date().toISOString(), error: reason };
+		return transform ? transform(task, terminalised) : terminalised;
+	});
 }
 
 /**
@@ -538,12 +552,22 @@ function writeProgress(
 
 	const progress = canSkip
 		? (() => {
-				// Reuse the previous artifact descriptor rather than rebuilding one
-				// via writeArtifact. This skips mkdirSync, resolveRealContainedPath,
+				// Reuse the previous artifact rather than rebuilding one via
+				// writeArtifact. This skips mkdirSync, resolveRealContainedPath,
 				// redactSecrets, atomicWriteFile, and the post-write readFileSync +
 				// statSync.
 				const existing = manifest.artifacts.find((a) => a.kind === "progress");
-				if (existing) return existing;
+				if (existing) {
+					// RT-7a: return a FRESH descriptor with a refreshed createdAt
+					// instead of reusing the stale existing reference. The existing
+					// descriptor's createdAt reflects the FIRST write time, not this
+					// skip-write; refreshing it matches the non-skip path (writeArtifact
+					// stamps createdAt with the actual write time) so the manifest
+					// always carries a descriptor whose createdAt reflects the current
+					// write. Content is identical (that's why we skipped), so path /
+					// sizeBytes / contentHash / retention are unchanged.
+					return { ...existing, createdAt: new Date().toISOString() };
+				}
 				// No prior progress artifact (rare; first call from a stale manifest
 				// view). Fall through to the normal write.
 				return writeArtifact(manifest.artifactsRoot, {
@@ -585,6 +609,8 @@ function writeProgress(
 export const __test__lastProgressContentHash = lastProgressContentHash;
 /** @internal RT-7 test export — exercise writeProgress directly. */
 export const __test__writeProgress = writeProgress;
+/** @internal RT-14 test export — verify cancelPlanTasks preserves graph mutation after consolidation. */
+export const __test__cancelPlanTasks = cancelPlanTasks;
 
 function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?: CrewLimitsConfig): TeamRunManifest {
 	const branchFreshness = checkBranchFreshness(manifest.cwd);
@@ -733,17 +759,15 @@ async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tasks: Tea
 }
 
 function cancelPlanTasks(tasks: TeamTaskState[], reason: string): TeamTaskState[] {
-	return tasks.map((task) =>
-		task.status === "queued" || task.status === "running" || task.status === "waiting"
-			? {
-					...task,
-					status: "cancelled",
-					finishedAt: new Date().toISOString(),
-					error: reason,
-					graph: task.graph ? { ...task.graph, queue: "done" } : undefined,
-				}
-			: task,
-	);
+	// RT-14: delegate to the shared cancelNonTerminalTasks helper. The
+	// non-terminal gate (queued/running/waiting) is identical to the helper's
+	// default filter (isNonTerminalTaskStatus). The only site-specific logic is
+	// the graph mutation (move the task graph to the "done" queue), passed via
+	// the `transform` hook so every cancel site uses the single shared path.
+	return cancelNonTerminalTasks(tasks, "cancelled", reason, undefined, (task, terminalised) => ({
+		...terminalised,
+		graph: task.graph ? { ...task.graph, queue: "done" } : undefined,
+	}));
 }
 
 function hasPendingMutatingAdaptiveTask(tasks: TeamTaskState[]): boolean {
@@ -1038,6 +1062,12 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// NEW-M1: clear the stable-prefix cache (keyed by runId) so it does not
 		// grow unbounded across runs in a long-lived session.
 		clearStablePrefixCache();
+		// RT-7b: clear the progress-content cache entry for this run so the
+		// module-level lastProgressContentHash Map (keyed by runId) does not grow
+		// unbounded across runs in a long-lived session. The finally block is the
+		// single guaranteed exit point (success, failure, and re-throw), so this
+		// runs on every run completion. Mirrors clearStablePrefixCache() above.
+		lastProgressContentHash.delete(manifest.runId);
 	}
 }
 
@@ -1149,25 +1179,25 @@ async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDeci
 	const cancelReason = cancellationReasonFromSignal(ctx.input.signal);
 	const message = `${cancelReason.message} (${cancelReason.code})`;
 	const cancelledTaskIds: string[] = [];
-	ctx.tasks = ctx.tasks.map((task) => {
-		if (task.status !== "queued" && task.status !== "running" && task.status !== "waiting") return task;
+	// RT-14: delegate to the shared cancelNonTerminalTasks helper. The
+	// non-terminal gate (queued/running/waiting) is identical to the helper's
+	// default filter. The site-specific logic lives in the `transform` hook:
+	// (1) collect cancelledTaskIds for the run-status event payload, and
+	// (2) synthesise terminalEvidence for in-flight ("running") workers so the
+	// signal-abort is recorded. Both are preserved exactly — only the
+	// transform frame changed, not the per-task output.
+	ctx.tasks = cancelNonTerminalTasks(ctx.tasks, "cancelled", message, undefined, (task, terminalised) => {
 		cancelledTaskIds.push(task.id);
-		const base = {
-			...task,
-			status: "cancelled" as const,
-			finishedAt: new Date().toISOString(),
-			error: message,
-		};
 		if (task.status === "running") {
 			return {
-				...base,
+				...terminalised,
 				terminalEvidence: [
 					...(task.terminalEvidence ?? []),
 					buildSyntheticTerminalEvidence("worker", cancelReason, task.startedAt),
 				],
 			};
 		}
-		return base;
+		return terminalised;
 	});
 	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
 	await Promise.all(

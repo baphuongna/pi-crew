@@ -24,7 +24,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { buildKnowledgeFragment, knowledgePath } from "../../../src/extension/knowledge-injection.ts";
+import {
+	buildKnowledgeFragment,
+	knowledgePath,
+	MAX_CONVENTIONS_BYTES,
+} from "../../../src/extension/knowledge-injection.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 /** Write a knowledge.md file inside cwd/.crew/knowledge.md. */
@@ -251,6 +255,54 @@ test("SEC-2: no-query path caps injected knowledge body to <= 2KB (MAX_KNOWLEDGE
 			rawKnowledge.length <= 2000,
 			`user-authored knowledge body must be <= 2000 bytes (MAX_KNOWLEDGE_HEAD_BYTES), got ${rawKnowledge.length}`,
 		);
+	} finally {
+		removeTrackedTempDir(cwd);
+	}
+});
+
+// ─── Section-aware conventions cap (SEC-2 LOW follow-up) ───────────────────
+
+test("SEC-2 LOW: section-aware path caps conventions to MAX_CONVENTIONS_BYTES with a truncation marker", () => {
+	const cwd = createTrackedTempDir("sec2-conv-cap-");
+	try {
+		// A single convention section WAY over the cap (~5KB of bullet text).
+		// Only convention headers trigger the section-aware path, and this query
+		// is irrelevant so no session-log body is injected alongside.
+		const bigConvention = `## Code Style\n${"- convention bullet line content padding here\n".repeat(200)}`;
+		assert.ok(
+			bigConvention.length > MAX_CONVENTIONS_BYTES,
+			`fixture must exceed MAX_CONVENTIONS_BYTES (${MAX_CONVENTIONS_BYTES})`,
+		);
+		writeKnowledge(cwd, bigConvention);
+		// A query forces the section-aware (worker/query) path, not the head-only path.
+		const out = buildKnowledgeFragment(cwd, { goal: "zzz unrelated query zzz" });
+		const body = extractUntrusted(out);
+		// The "...[truncated]" marker must be present.
+		assert.ok(body.includes("...[truncated]"), "oversized conventions must show a ...[truncated] marker");
+		// User-authored knowledge content is everything before the first system marker.
+		const rawKnowledge = body.split("<!--")[0].trim();
+		assert.ok(
+			rawKnowledge.length <= MAX_CONVENTIONS_BYTES,
+			`conventions body must be <= MAX_CONVENTIONS_BYTES (${MAX_CONVENTIONS_BYTES}), got ${rawKnowledge.length}`,
+		);
+		// Demarcation + sanitization still intact (SEC-2 Sprint A not regressed).
+		assert.match(out, /<untrusted-project-data>/, "untrusted demarcation still present");
+	} finally {
+		removeTrackedTempDir(cwd);
+	}
+});
+
+test("SEC-2 LOW: small conventions section is unchanged (no truncation marker)", () => {
+	const cwd = createTrackedTempDir("sec2-conv-small-");
+	try {
+		writeKnowledge(cwd, BENIGN_CONVENTIONS);
+		const out = buildKnowledgeFragment(cwd, { goal: "some task query" });
+		const body = extractUntrusted(out);
+		// No truncation marker for content well under the cap.
+		assert.equal(body.includes("[truncated]"), false, "small conventions must NOT be truncated");
+		// Content present unchanged.
+		assert.ok(body.includes("## Code Style"), "small conventions content must be present unchanged");
+		assert.ok(body.includes("pi-api.ts"), "architecture note must survive");
 	} finally {
 		removeTrackedTempDir(cwd);
 	}

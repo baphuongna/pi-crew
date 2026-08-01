@@ -308,7 +308,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				"API read-task requires config.taskId matching a task id or step id.",
+				paramRequired("API read-task", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-task', taskId: '01_01-agent' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -374,7 +374,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
 		if (!agent)
 			return result(
-				"API get-agent-result requires config.agentId matching an agent id or task id.",
+				paramRequired("API get-agent-result", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'get-agent-result', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -397,7 +397,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const status = agent ? (readCrewAgentStatus(loaded.manifest, agent.taskId) ?? agent) : undefined;
 		if (!status)
 			return result(
-				"API read-agent-status requires config.agentId matching an agent id or task id.",
+				paramRequired("API read-agent-status", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-status', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -418,7 +418,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				"API read-agent-events requires config.agentId matching an agent id or task id, or at least one agent in the run.",
+				paramRequired("API read-agent-events", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-events', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -444,7 +444,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				"API read-agent-transcript requires config.agentId matching an agent id or task id, or at least one agent in the run.",
+				paramRequired("API read-agent-transcript", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-transcript', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -473,7 +473,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = agentId ? agents.find((item) => item.id === agentId || item.taskId === agentId) : agents[0];
 		if (!agent)
 			return result(
-				"API read-agent-output requires config.agentId matching an agent id or task id, or at least one agent in the run.",
+				paramRequired("API read-agent-output", "config.agentId matching an agent id or task id, or at least one agent in the run", "{ action: 'api', runId: 'team_...', config: { operation: 'read-agent-output', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -519,7 +519,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agent = readCrewAgents(loaded.manifest).find((item) => item.id === agentId || item.taskId === agentId);
 		if (!agent)
 			return result(
-				"API nudge-agent requires config.agentId matching an agent id or task id.",
+				paramRequired("API nudge-agent", "config.agentId matching an agent id or task id", "{ action: 'api', runId: 'team_...', config: { operation: 'nudge-agent', agentId: 'agent-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -586,7 +586,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
 		if (!agentId)
 			return result(
-				`API ${operation} requires config.agentId.`,
+				paramRequired(`API ${operation}`, "config.agentId", `{ action: 'api', runId: 'team_...', config: { operation: '${operation}', agentId: 'agent-1' } }`),
 				{
 					action: "api",
 					status: "error",
@@ -643,7 +643,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			if (operation === "follow-up-agent") {
 				if (!prompt)
 					return result(
-						"API follow-up-agent requires config.prompt or config.message.",
+						paramRequired("API follow-up-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }"),
 						{
 							action: "api",
 							status: "error",
@@ -668,7 +668,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			if (operation === "resume-agent") {
 				if (!prompt)
 					return result(
-						"API resume-agent requires config.prompt or config.message.",
+						paramRequired("API resume-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }"),
 						{
 							action: "api",
 							status: "error",
@@ -716,7 +716,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				);
 			if (operation === "resume-agent" && !prompt)
 				return result(
-					"API resume-agent requires config.prompt or config.message.",
+					paramRequired("API resume-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'resume-agent', agentId: 'agent-1', prompt: '<resume instruction>' } }"),
 					{
 						action: "api",
 						status: "error",
@@ -726,7 +726,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 				);
 			if (operation === "follow-up-agent" && !prompt)
 				return result(
-					"API follow-up-agent requires config.prompt or config.message.",
+					paramRequired("API follow-up-agent", "config.prompt or config.message", "{ action: 'api', runId: 'team_...', config: { operation: 'follow-up-agent', agentId: 'agent-1', prompt: '<next step>' } }"),
 					{
 						action: "api",
 						status: "error",
@@ -873,7 +873,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const taskId = typeof cfg.taskId === "string" && cfg.taskId.trim() ? cfg.taskId.trim() : undefined;
 		if (!body)
 			return result(
-				"API send-message requires config.body.",
+				paramRequired("API send-message", "config.body", "{ action: 'api', runId: 'team_...', config: { operation: 'send-message', body: '<message>' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -938,7 +938,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const messageId = typeof cfg.messageId === "string" ? cfg.messageId : undefined;
 		if (!messageId)
 			return result(
-				"API ack-message requires config.messageId.",
+				paramRequired("API ack-message", "config.messageId", "{ action: 'api', runId: 'team_...', config: { operation: 'ack-message', messageId: 'msg-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -1001,7 +1001,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				"API read-heartbeat requires config.taskId matching a task id or step id.",
+				paramRequired("API read-heartbeat", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'read-heartbeat', taskId: '01_01-agent' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -1022,7 +1022,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				"API claim-task requires config.taskId matching a task id or step id.",
+				paramRequired("API claim-task", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'claim-task', taskId: '01_01-agent' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -1072,7 +1072,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task || !owner || !token)
 			return result(
-				"API release-task-claim requires config.taskId, config.owner, and config.token.",
+				paramRequired("API release-task-claim", "config.taskId, config.owner, and config.token", "{ action: 'api', runId: 'team_...', config: { operation: 'release-task-claim', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -1119,7 +1119,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task || !owner || !token || !isTeamTaskStatus(to))
 			return result(
-				"API transition-task-status requires config.taskId, config.owner, config.token, and valid config.status.",
+				paramRequired("API transition-task-status", "config.taskId, config.owner, config.token, and valid config.status", "{ action: 'api', runId: 'team_...', config: { operation: 'transition-task-status', taskId: '01_01-agent', owner: 'worker-1', token: 'tok-1', status: 'done' } }"),
 				{
 					action: "api",
 					status: "error",
@@ -1173,7 +1173,7 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 		const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 		if (!task)
 			return result(
-				"API write-heartbeat requires config.taskId matching a task id or step id.",
+				paramRequired("API write-heartbeat", "config.taskId matching a task id or step id", "{ action: 'api', runId: 'team_...', config: { operation: 'write-heartbeat', taskId: '01_01-agent' } }"),
 				{
 					action: "api",
 					status: "error",

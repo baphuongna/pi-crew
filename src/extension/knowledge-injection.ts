@@ -31,12 +31,25 @@ import type { BeforeAgentStartEvent, ExtensionAPI } from "./pi-api.ts";
 export const KNOWLEDGE_FILENAME = "knowledge.md";
 
 /**
- * Session-log injection cap (B2). Conventions are always injected in full;
- * matched session-log sections are capped here to bound total prompt size.
- * Sized so 2-3 typical sections (~1-2.5KB each) fit, while the largest single
- * outlier (v0.9.10 IN PROGRESS, ~7KB) is excluded from a full-match scenario.
+ * Session-log injection cap (B2). Convention sections are always injected
+ * but capped at MAX_CONVENTIONS_BYTES (see below); matched session-log
+ * sections are capped here to bound total prompt size. Sized so 2-3 typical
+ * sections (~1-2.5KB each) fit, while the largest single outlier
+ * (v0.9.10 IN PROGRESS, ~7KB) is excluded from a full-match scenario.
  */
 const MAX_SESSION_LOG_BYTES = 5_000;
+
+/**
+ * Conventions-section cap for the section-aware (worker/query) path
+ * (SEC-2 LOW defense-in-depth). The no-query path already caps raw content
+ * at MAX_KNOWLEDGE_HEAD_BYTES; this mirrors that bound on the query path,
+ * where convention sections were previously injected in full (uncapped).
+ * When the combined convention bodies exceed this limit the tail is dropped
+ * and a "...[truncated]" marker is appended so a worker can `read` the full
+ * file. Sanitization/demarcation (SEC-2 Sprint A) is applied upstream on the
+ * raw file content BEFORE this cap, so the truncation marker survives.
+ */
+export const MAX_CONVENTIONS_BYTES = 2_048;
 
 /**
  * Relevance context for section-aware injection. When omitted (or when goal/
@@ -318,8 +331,18 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 		const matchedSessionLog = selectSessionLog(queryText, parsed.sessionLog, MAX_SESSION_LOG_BYTES);
 
 		const parts: string[] = [];
-		// Conventions: always full.
-		for (const sec of parsed.conventions) parts.push(sec.body);
+		// Conventions: always injected, but capped at MAX_CONVENTIONS_BYTES
+		// (SEC-2 LOW defense-in-depth — the no-query path already bounds raw
+		// content at MAX_KNOWLEDGE_HEAD_BYTES; this mirrors that bound on the
+		// worker/query path where convention sections were previously uncapped).
+		const conventionsBody = parsed.conventions.map((s) => s.body).join("\n");
+		if (conventionsBody.length > MAX_CONVENTIONS_BYTES) {
+			parts.push(
+				`${conventionsBody.slice(0, MAX_CONVENTIONS_BYTES)}\n\n<!-- ...[truncated] conventions section capped at ${MAX_CONVENTIONS_BYTES} bytes. Full file: ${p} — use \`read\`. -->`,
+			);
+		} else if (conventionsBody) {
+			parts.push(conventionsBody);
+		}
 		// Matched session-log (drop-whole, budget-capped).
 		for (const sec of matchedSessionLog) parts.push(sec.body);
 		// Always: section-index of ALL session-log headers (recovery safety net).

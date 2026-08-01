@@ -356,3 +356,176 @@ test("[RT-1] downstream non-dispatched task IS skipped (original behavior preser
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("[RT-1] in-flight sibling's SUCCESSFUL result is preserved when another task fails", async () => {
+	// Coverage gap closed: the tests above use an ALL-FAIL mock for in-flight
+	// tasks, so they can only assert that in-flight tasks are NOT wrongly marked
+	// "skipped". They cannot verify that a SUCCESSFUL in-flight result is
+	// PRESERVED by the drain+merge. This test mixes success + failure in the
+	// SAME parallel batch so that when the failing task triggers
+	// handleFailedTask, an in-flight sibling that SUCCEEDED keeps its completed
+	// result + output (not dropped, not skipped).
+	//
+	// Mock: `retryable-failure-then-success` — the FIRST runChildPi invocation
+	// (per process) returns a soft retryable failure; subsequent invocations
+	// return the standard json-success transcript. The mock counter is a
+	// synchronous read-modify-write keyed by process.pid, so across the 3
+	// concurrent (in-process, mock-mode) workers EXACTLY ONE reads count=1
+	// (fails) and the other TWO read count>=2 (succeed) — regardless of
+	// dispatch order. A single-model registry is supplied so the failing task
+	// has NO fallback candidate to retry-and-succeed on; it stays "failed".
+	//
+	// NOTE on the abort race: handleFailedTask drains in-flight units via
+	// drainPendingUnits, which aborts the run-scoped controller before
+	// awaiting all settled promises. Workers that already produced output are
+	// merged ("completed"); workers still mid-flight are cancelled
+	// (re-queueable, NOT skipped). The completed/cancelled split is a
+	// timing-dependent micro-race, so the assertions below verify INVARIANTS
+	// that hold in every outcome (never skipped; exactly one model-error
+	// failure; all terminal) plus the coverage-gap check that any task which
+	// DID succeed keeps its full result data (modelAttempts/finishedAt).
+	const counterFile = path.join(os.tmpdir(), `pi-crew-mock-counter-${process.pid}-retryable-failure-then-success`);
+	try {
+		fs.unlinkSync(counterFile);
+	} catch {
+		/* clean start — ignore if missing */
+	}
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rt1-success-preserved-"));
+	const prevEnv = saveMockEnv();
+	setMockEnv("retryable-failure-then-success");
+	const prevCap = getWorkerCapCapacity();
+	__test_resetCap(4); // enough worker slots for 3 parallel tasks
+	// Single-model registry → exactly one candidate → no model-fallback retry.
+	// This makes the test robust regardless of the host's configured models.
+	const modelRegistry = { getAvailable: () => [{ provider: "test", id: "mock-model" }] };
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
+
+		const team = {
+			name: "rt1-success",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		// 3 INDEPENDENT tasks — all ready at once, dispatched as a parallel batch.
+		const workflow = {
+			name: "rt1-success",
+			description: "",
+			steps: [
+				{ id: "a", role: "worker", task: "A" },
+				{ id: "b", role: "worker", task: "B" },
+				{ id: "c", role: "worker", task: "C" },
+			],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const agents = [{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" }] as never;
+
+		const created = createRunManifest({ cwd, team, workflow, goal: "RT-1 success-preserved test" });
+		const tasks: TeamTaskState[] = [
+			makeTask("01_a", "a", "worker", "worker", created.manifest.runId, cwd),
+			makeTask("02_b", "b", "worker", "worker", created.manifest.runId, cwd),
+			makeTask("03_c", "c", "worker", "worker", created.manifest.runId, cwd),
+		];
+		saveRunTasks(created.manifest, tasks);
+
+		const result = await executeTeamRun({
+			manifest: { ...created.manifest, status: "running" },
+			tasks,
+			team,
+			workflow,
+			agents,
+			executeWorkers: true,
+			limits: { maxRetriesPerTask: 0, maxConcurrentWorkers: 3 },
+			reliability: { autoRetry: false },
+			modelRegistry,
+			workspaceId: cwd,
+		});
+
+		const sm = statusMap(result.tasks);
+
+		// ── DETERMINISTIC INVARIANTS (hold regardless of the abort race) ──────
+		//
+		// handleFailedTask drains in-flight units by aborting the run-scoped
+		// controller (drainPendingUnits) then merging whatever settled. Workers
+		// that already produced output are merged ("completed"); workers still
+		// running are cancelled (re-queueable). The exact split between
+		// completed/cancelled is timing-dependent (a micro-race between worker
+		// completion and abort propagation), so we assert INVARIANTS that hold
+		// in every outcome rather than exact counts.
+
+		// INVARIANT 1 (core RT-1 fix): NO task is skipped. In-flight tasks are
+		// drained+merged or cancelled — never markBlocked→skipped. Without the
+		// fix, the in-flight siblings would be clobbered to "skipped".
+		const skipped = result.tasks.filter((t) => t.status === "skipped");
+		assert.equal(
+			skipped.length,
+			0,
+			`no in-flight task should be skipped (RT-1 fix). Got skipped: [${skipped.map((t) => t.id).join(", ")}]. ` +
+				`All tasks: ${JSON.stringify(sm)}`,
+		);
+
+		// INVARIANT 2: exactly one task fails with the mock's model error — the
+		// count=1 worker (single-model registry → no fallback retry → stays
+		// failed). Other tasks may be completed/cancelled (abort race) but are
+		// never the model-error failure.
+		const modelFailed = result.tasks.filter((t) => /provider[_ ]?error/i.test(t.error ?? ""));
+		assert.equal(
+			modelFailed.length,
+			1,
+			`exactly one task should fail with the mock model error. Got: ${JSON.stringify(sm)}`,
+		);
+		assert.ok(modelFailed[0]!.error, `failed task ${modelFailed[0]!.id} must carry an error`);
+
+		// INVARIANT 3: all tasks reach a terminal, accounted-for state — none is
+		// lost/dropped (left "queued"/"running").
+		for (const t of result.tasks) {
+			assert.ok(
+				t.status === "failed" || t.status === "completed" || t.status === "cancelled",
+				`task ${t.id} should be terminal (failed/completed/cancelled), got "${t.status}"`,
+			);
+		}
+
+		// INVARIANT 4: run is failed (the model-error task aborts via handleFailedTask).
+		assert.equal(result.manifest.status, "failed", "run should be failed");
+
+		// ── COVERAGE-GAP ASSERTION (closes the gap the all-fail tests leave) ──
+		// The all-fail tests can only assert "not skipped". This test mixes a
+		// real SUCCESS into the in-flight batch. Any task that SUCCEEDED must
+		// keep its completed result + execution evidence (modelAttempts /
+		// finishedAt) — PRESERVED by the drain+merge, not dropped. A task
+		// clobbered to "skipped" (the original RT-1 bug) would have none of
+		// this. With 2 success tasks in the batch, at least one typically
+		// settles and is preserved; whenever a completion occurs this asserts
+		// its data is intact.
+		const completed = result.tasks.filter((t) => t.status === "completed");
+		for (const t of completed) {
+			assert.ok(t.finishedAt, `completed task ${t.id} must have finishedAt (result not dropped). All: ${JSON.stringify(sm)}`);
+			assert.ok(
+				t.modelAttempts && t.modelAttempts.some((a) => a.success),
+				`completed task ${t.id} must preserve a successful model attempt (result not dropped). All: ${JSON.stringify(sm)}`,
+			);
+		}
+
+		// Disk consistency: no task clobbered to "skipped" on disk either.
+		const diskState = loadRunManifestById(cwd, created.manifest.runId);
+		assert.ok(diskState, "run should be loadable from disk");
+		const diskSkipped = diskState!.tasks.filter((t) => t.status === "skipped");
+		assert.equal(
+			diskSkipped.length,
+			0,
+			`no task should be skipped on disk. Got: ${JSON.stringify(statusMap(diskState!.tasks))}`,
+		);
+	} finally {
+		__test_resetCap(prevCap);
+		restoreMockEnv(prevEnv);
+		try {
+			fs.unlinkSync(counterFile);
+		} catch {
+			/* fine if already gone */
+		}
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

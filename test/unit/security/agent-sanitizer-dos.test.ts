@@ -3,8 +3,10 @@
  *
  * Verifies:
  * 1. `readAgentDir` skips files > 256KB (short-circuit before parse).
- * 2. Timing for a 320KB-file skip is < 100ms.
- * 3. Sanitizer timing on 80K/160K/320KB inputs is ~linear (not quadratic).
+ * 2. The 320KB-file skip is fast (loose timing sanity; structural proof is #1).
+ * 3. The HTML-comment sanitizer uses a BOUNDED quantifier {0,8192} — asserted
+ *    STRUCTURALLY at the 8192-char boundary (not via wall-clock ratios, which
+ *    were flaky on slow CI per QA-12).
  * 4. Sanitizer still strips valid `<script>` tags and code-fence directives.
  */
 
@@ -73,7 +75,13 @@ describe("SEC-4: readAgentDir file-size cap", () => {
 		}
 	});
 
-	it("short-circuits a 320KB file in <100ms", () => {
+	it("short-circuits a 320KB file without parsing it (loose timing sanity)", () => {
+		// The size-cap stat check short-circuits BEFORE readFileSync + parse +
+		// sanitize. The structural proof that the skip happens is "skips agent
+		// files exceeding 256KB" above (the oversized file is absent from the
+		// discovery result). This is a LOOSE wall-clock sanity that the
+		// short-circuit is fast — generous tolerance (was <100ms) to avoid CI
+		// flakiness (QA-12: tight timing assertions flake on slow/loaded CI).
 		invalidateAgentDiscoveryCache();
 		const dir = createTrackedTempDir("sec4-time-");
 		writeAgent(dir, "tiny.md", "ok");
@@ -82,52 +90,57 @@ describe("SEC-4: readAgentDir file-size cap", () => {
 			const t0 = performance.now();
 			discoverAgents(dir);
 			const elapsed = performance.now() - t0;
-			assert.ok(elapsed < 100, `discoverAgents with 320KB file took ${elapsed.toFixed(1)}ms (expected <100ms)`);
+			assert.ok(elapsed < 3000, `discoverAgents with 320KB file took ${elapsed.toFixed(1)}ms (expected <3000ms)`);
 		} finally {
 			invalidateAgentDiscoveryCache();
 		}
 	});
 });
 
-describe("SEC-4: sanitizer regex timing is linear (not quadratic)", () => {
-	it("80K → 320KB timing ratio is < 6x (linear, not quadratic)", () => {
-		const sizes = [80 * 1024, 160 * 1024, 320 * 1024];
-		const timings: number[] = [];
-		for (const size of sizes) {
-			const input = makePathological(size);
-			// Warm-up run (JIT).
-			sanitizeAgentSystemPrompt(input, "project");
-			// Timed run.
-			const t0 = performance.now();
-			sanitizeAgentSystemPrompt(input, "project");
-			timings.push(performance.now() - t0);
-		}
-		const [t80, t160, t320] = timings;
-		const ratio = t320 / Math.max(t80, 0.01);
-		// Linear: 4x size → ~4x time. Quadratic: 4x size → ~16x time.
-		// Threshold 6x clearly separates linear from quadratic.
-		assert.ok(
-			ratio < 6,
-			`Sanitizer timing ratio 320K/80K = ${ratio.toFixed(1)}x (expected <6 for linear; ` +
-				`timings: 80K=${t80.toFixed(1)}ms 160K=${t160.toFixed(1)}ms 320K=${t320.toFixed(1)}ms)`,
-		);
+describe("SEC-4: sanitizer uses bounded quantifier (structural DoS mitigation, not timing)", () => {
+	// The DoS mitigation is the BOUNDED quantifier {0,8192} on the HTML-comment
+	// regex (`/[\s\S]{0,8192}?/`). An UNBOUNDED `*?` quantifier backtracks
+	// polynomially (O(n²)) on pathological inputs (many unclosed `<!--`). We
+	// assert the bound STRUCTURALLY — by behaviour at the boundary — rather
+	// than via wall-clock ratios, which were flaky on slow CI (QA-12).
+
+	it("strips an HTML comment within the 8192-char bound", () => {
+		// Body of 8000 chars ≤ 8192 → the bounded quantifier can reach the `-->`
+		// terminator → comment is stripped.
+		const inner = "x".repeat(8000);
+		const content = `<!--${inner}-->after`;
+		const out = sanitizeAgentSystemPrompt(content, "project");
+		assert.doesNotMatch(out, /<!--/, "comment within the 8192-char bound should be stripped");
+		assert.match(out, /after/);
 	});
 
-	it("160K → 320KB timing ratio is < 3x (linear)", () => {
-		const input160 = makePathological(160 * 1024);
-		const input320 = makePathological(320 * 1024);
-		sanitizeAgentSystemPrompt(input160, "project"); // warm-up
-		sanitizeAgentSystemPrompt(input320, "project");
+	it("leaves an HTML comment exceeding the 8192-char bound intact (proves quantifier is bounded)", () => {
+		// Body of 9000 chars > 8192 → the bounded quantifier CANNOT reach the
+		// `-->` terminator → the comment is left intact. An UNBOUNDED quantifier
+		// (`[\s\S]*?`) would STILL strip it, so this assertion structurally proves
+		// the DoS-mitigation bound is in place — independent of wall-clock timing.
+		const inner = "x".repeat(9000);
+		const content = `<!--${inner}-->after`;
+		const out = sanitizeAgentSystemPrompt(content, "project");
+		assert.match(out, /<!--/, "comment exceeding the bound must NOT be stripped (proves bounded quantifier)");
+		assert.match(out, /after/);
+	});
+
+	it("completes on a pathological input without catastrophic backtracking (loose sanity)", () => {
+		// Many unclosed `<!--` markers stress the bounded quantifier. With the
+		// {0,8192} bound each marker scans ≤8192 chars (linear). An unbounded
+		// quantifier would scan to EOF per marker (O(n²)) and hang. Asserting the
+		// call returns a string structurally proves the mitigation; the loose
+		// timing (<5000ms) is a sanity backstop with generous CI tolerance.
+		const input = makePathological(256 * 1024);
+		sanitizeAgentSystemPrompt(input, "project"); // warm-up (JIT)
 		const t0 = performance.now();
-		sanitizeAgentSystemPrompt(input160, "project");
-		const t160 = performance.now() - t0;
-		const t1 = performance.now();
-		sanitizeAgentSystemPrompt(input320, "project");
-		const t320 = performance.now() - t1;
-		const ratio = t320 / Math.max(t160, 0.01);
+		const out = sanitizeAgentSystemPrompt(input, "project");
+		const elapsed = performance.now() - t0;
+		assert.equal(typeof out, "string", "sanitizer must return a string (not hang)");
 		assert.ok(
-			ratio < 3,
-			`Sanitizer timing ratio 320K/160K = ${ratio.toFixed(1)}x (expected <3 for linear)`,
+			elapsed < 5000,
+			`sanitizer on 256KB pathological input took ${elapsed.toFixed(1)}ms (expected <5000ms with bounded quantifier)`,
 		);
 	});
 });
