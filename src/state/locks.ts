@@ -440,11 +440,16 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	newHeld.add(lockFile);
 	return fileLockSyncCtx.run(newHeld, () => {
 		fileLockHeldByUs.set(lockFile, token);
+		// ST-3-FIX: register the SYNC hold separately so withFileLockAsync's bypass
+		// can detect it WITHOUT seeing async's own holds (which would break
+		// async↔async mutual exclusion).
+		fileSyncLockHeldByUs.add(lockFile);
 		try {
 			return fn();
 		} finally {
 			// Token-guarded release: don't rm the lock if it has been stolen.
 			fileLockHeldByUs.delete(lockFile);
+			fileSyncLockHeldByUs.delete(lockFile);
 			releaseLock(lockFile, token);
 		}
 	});
@@ -469,11 +474,21 @@ const lockCtx = new AsyncLocalStorage<Set<string>>();
 // held set to the current async context.
 const fileLockSyncCtx = new AsyncLocalStorage<Set<string>>();
 // Round 29: process-global map for cross-tier sync↔async coordination. Set by
-// BOTH withFileLockSync and withFileLockAsync when they hold the on-disk .flock,
-// so the OTHER tier can detect the hold and bypass to avoid a sleepSync
-// deadlock. NOT a re-entrance guard — re-entrance is tracked per async context
-// (fileLockSyncCtx for sync, fileAsyncLockCtx for async).
+// BOTH withFileLockSync and withFileLockAsync when they hold the on-disk .flock.
+// Consumed by withFileLockSync's bypass (detects when ASYNC holds the .flock, so
+// the sync retry loop doesn't sleepSync-block the event loop and starve the
+// async holder). NOT a re-entrance guard — re-entrance is tracked per async
+// context (fileLockSyncCtx for sync, fileAsyncLockCtx for async).
 const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
+// ST-3-FIX: process-global set populated ONLY by withFileLockSync when it holds
+// the on-disk .flock. Consumed by withFileLockAsync's bypass to detect SYNC
+// holds (so async skips sleepSync-wait when sync holds, preventing sync↔async
+// deadlock). SEPARATE from fileLockHeldByUs so that a SECOND concurrent ASYNC
+// caller does NOT see the FIRST async caller's hold and bypass — that broke
+// async↔async mutual exclusion (the in-process promise chain + on-disk .flock
+// were both skipped). fileLockHeldByUs is set by BOTH tiers; this set is
+// SYNC-only.
+const fileSyncLockHeldByUs = new Set<string>(); // lockFile (held by sync path)
 
 // --- Async file lock (non-blocking alternative to withFileLockSync) ---
 // Two-tier: in-process promise chain (serialize within this process) + on-disk
@@ -500,13 +515,20 @@ export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T
 	if (fileAsyncLockCtx.getStore()?.has(lockFile)) {
 		return await fn();
 	}
-	// Cross-path re-entrance with the SYNC lock: if withFileLockSync currently
-	// holds the .flock in this process, bypass to avoid a sleepSync deadlock
-	// (the sync retry loop blocks the event loop, starving our async holder).
-	// In production this never fires: child-process mode uses sync-only mailbox
-	// operations; live-session mode uses async-only. The bypass is safe for
-	// O_APPEND writes on POSIX (the mailbox append path).
-	if (fileLockHeldByUs.has(lockFile)) {
+	// Cross-tier bypass for SYNC holds: if withFileLockSync currently holds the
+	// .flock in this process, bypass to avoid a sleepSync deadlock (the sync
+	// retry loop blocks the event loop, starving our async holder). In production
+	// this never fires: child-process mode uses sync-only mailbox operations;
+	// live-session mode uses async-only. The bypass is safe for O_APPEND writes
+	// on POSIX (the mailbox append path).
+	// ST-3-FIX: consult fileSyncLockHeldByUs (SYNC-only) — NOT fileLockHeldByUs.
+	// Previously this checked fileLockHeldByUs, which withFileLockAsync ALSO
+	// populates (~line 536), so a SECOND concurrent ASYNC caller for the same
+	// file saw the FIRST async caller's hold and bypassed BOTH the in-process
+	// promise chain AND the on-disk .flock → broke async↔async mutual exclusion.
+	// Checking the SYNC-only set restores async↔async serialization while
+	// preserving sync↔async deadlock prevention.
+	if (fileSyncLockHeldByUs.has(lockFile)) {
 		return await fn();
 	}
 	// Merge with the parent context's held set so nested DIFFERENT-path locks
