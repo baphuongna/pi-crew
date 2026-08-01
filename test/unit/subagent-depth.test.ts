@@ -5,8 +5,8 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { buildPiWorkerArgs, checkCrewDepth } from "../../src/runtime/pi-args.ts";
-import { SubagentManager } from "../../src/subagents/manager.ts";
-import { runChildPi } from "../../src/subagents/spawn.ts";
+import { SubagentManager } from "../../src/runtime/subagent-manager.ts";
+import { runChildPi } from "../../src/runtime/child-pi.ts";
 
 const agent: AgentConfig = {
 	name: "executor",
