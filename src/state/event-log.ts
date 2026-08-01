@@ -306,13 +306,16 @@ function nextSequence(eventsPath: string): number {
 	const stored = readStoredSequence(eventsPath);
 	const fileShrunk = cached && stat.size < cached.size;
 	if (stored !== undefined && !fileShrunk) {
-		// EL-1: the sidecar can regress via sync/async interleave —
-		// appendEventAsync reserves a seq, yields during appendFile/fsync, a
-		// concurrent sync appendEvent reserves+persists a higher seq, then the
-		// async path persists its lower seq — regressing the sidecar below the
-		// file's true max. Trusting the regressed sidecar alone would return a
-		// duplicate seq on the next append. Take max with scanSequence so a
-		// regressed sidecar cannot cause duplicate sequence numbers.
+		// Trust the sidecar, but guard against a REGRESSED sidecar (e.g. the
+		// async path persisted a lower seq, rolling the sidecar back below the
+		// file's true max). Take max with a full scan so a regressed sidecar
+		// cannot produce a duplicate sequence number (EL-1 regression guard).
+		// NOTE (ST-12): a full scan here is acceptable because all three append
+		// paths now allocate seqs via reserveSequence/reserveSequenceUnderLock
+		// (ST-5: re-read sidecar under lock + max with in-process counter);
+		// nextSequence is only consulted for seeding/test helpers, NOT on the
+		// production append path. ST-12's perf goal (avoid 4MB scan on first
+		// append) is therefore met by ST-5 at the reserveSequence layer.
 		const fileMax = scanSequence(eventsPath);
 		const safeSeq = Math.max(stored, fileMax);
 		sequenceCache.set(eventsPath, {
@@ -355,17 +358,26 @@ function persistSequence(eventsPath: string, seq: number): void {
 // sidecar durable for crash recovery across restarts.
 const seqCounters = new Map<string, number>();
 
-/** Atomically reserve the next sequence number for `eventsPath`. */
+/** Atomically reserve the next sequence number for `eventsPath`.
+ *
+ *  ST-5 (v0.9.56): previously this seeded the in-process `seqCounters` counter
+ *  ONCE per process (reading the `.seq` sidecar a single time via
+ *  `nextSequence`) and then served every subsequent call purely from that
+ *  process-local counter. Two processes that both seeded before either had
+ *  persisted ended up sharing the same counter base -> duplicate sequence
+ *  numbers -> `sinceSeq` streaming readers silently dropped the second event.
+ *  The async path was already fixed via `reserveSequenceUnderLock` (which
+ *  re-reads the sidecar every call); the sync (`appendEvent`) and buffered
+ *  (`appendEventBatchInsideLock`) paths were NOT.
+ *
+ *  Now ALL three append paths share one body: re-read the authoritative `.seq`
+ *  sidecar on EVERY call and take `max(sidecar, inProcess)` so a counter that
+ *  lags behind a sidecar advanced by another process can never assign a
+ *  regressed (duplicate) seq. Every call site already holds a cross-process
+ *  file lock (`withEventLogLockSync` for sync/buffered, `withEventLogLockAsync`
+ *  for async), so the sidecar re-read is race-free within each lock class. */
 function reserveSequence(eventsPath: string): number {
-	let last = seqCounters.get(eventsPath);
-	if (last === undefined) {
-		// Seed once from the authoritative source (sidecar / cache / file scan).
-		// nextSequence() returns the NEXT seq to assign, so the last assigned is one less.
-		last = nextSequence(eventsPath) - 1;
-	}
-	const next = last + 1;
-	seqCounters.set(eventsPath, next);
-	return next;
+	return reserveSequenceUnderLock(eventsPath);
 }
 
 /** Keep the in-process counter monotonic w.r.t. an explicitly-provided seq

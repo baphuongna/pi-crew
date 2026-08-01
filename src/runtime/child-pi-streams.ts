@@ -199,9 +199,16 @@ export class ChildPiLineObserver {
 				new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
 				`bufferLen=${this.buffer.length}`,
 			);
-			const line = this.buffer;
+			// RT-9: split on newlines first so each complete \n-delimited JSON event
+			// is emitted as its own line. Previously the ENTIRE buffer was flushed
+			// as one "line", merging all events → JSON.parse failure → usage/turn/
+			// transcript events lost. Now only the trailing partial (no terminating
+			// newline) is force-flushed; complete lines keep per-line identity. When
+			// there are no newlines at all (the original RT-F8 single-huge-line case)
+			// split yields a single element and behavior is unchanged.
+			const overflowLines = this.buffer.split(/\r?\n/);
 			this.buffer = "";
-			this.emitLine(line);
+			for (const line of overflowLines) this.emitLine(line);
 			return;
 		}
 		const lines = this.buffer.split(/\r?\n/);

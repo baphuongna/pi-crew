@@ -116,6 +116,35 @@ async function resolveTaskScopeModelsPatterns(cwd: string): Promise<string[]> {
 }
 
 /**
+ * RT-6: resolve the configured retry policy's maxAttempts from the project
+ * reliability config (`reliability.retryPolicy.maxAttempts`), falling back to
+ * {@link DEFAULT_RETRY_POLICY}.maxAttempts when config is unavailable or the
+ * field is unset. Mirrors `retryPolicyFromConfig` in team-runner.ts so the
+ * spawn-budget math and the actual retry loop (executeWithRetry) agree on the
+ * same ceiling. Best-effort: any config read failure silently falls back to
+ * the default so a misconfiguration never blocks the spawn.
+ */
+export function resolveConfiguredMaxAttempts(cwd: string): number {
+	try {
+		return loadConfig(cwd).config.reliability?.retryPolicy?.maxAttempts ?? DEFAULT_RETRY_POLICY.maxAttempts;
+	} catch {
+		return DEFAULT_RETRY_POLICY.maxAttempts;
+	}
+}
+
+/**
+ * RT-6: pure spawn-budget max formula. `attemptModelsCount × (maxAttempts + 1)`
+ * — always ≥ 1 full attempt above the theoretical max of
+ * `maxAttempts × attemptModelsCount`. Exported for direct unit testing so the
+ * configured-vs-default maxAttempts distinction is locked independently of
+ * the retry loop (previously hard-coded DEFAULT_RETRY_POLICY.maxAttempts = 3,
+ * silently halving retries when a higher maxAttempts — up to 10 — was set).
+ */
+export function computeSpawnBudgetMax(attemptModelsCount: number, configuredMaxAttempts: number): number {
+	return attemptModelsCount * (configuredMaxAttempts + 1);
+}
+
+/**
  * 429/rate-limit detection (PI_CREW_TOOLING_429_NOTE.md).
  *
  * A worker can exit code 0 with no hard error, yet the transcript is full of
@@ -246,8 +275,13 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	// Budget = attemptModels.length × (maxAttempts + 1) — always one
 	// full attempt-worth above the theoretical maximum of
 	// maxAttempts × attemptModels.length. Only computes once (max=0 guard).
+	// RT-6: use the configured retry policy's maxAttempts (from project
+	// reliability config), NOT DEFAULT_RETRY_POLICY (3). The retry loop in
+	// team-runner.ts wraps runTeamTask in executeWithRetry with the same
+	// configured maxAttempts (up to 10); hard-coding the default here silently
+	// halved the spawn budget relative to the real retry ceiling.
 	if (input.spawnBudget && input.spawnBudget.max === 0) {
-		input.spawnBudget.max = attemptModels.length * (DEFAULT_RETRY_POLICY.maxAttempts + 1);
+		input.spawnBudget.max = computeSpawnBudgetMax(attemptModels.length, resolveConfiguredMaxAttempts(task.cwd));
 	}
 	const logs: string[] = [];
 	let finalStderr = "";
@@ -419,7 +453,10 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							const steeringDir = `${manifest.artifactsRoot}/steering`;
 							// Fire-and-forget async write for steering events
 							void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
-							task.pendingSteers = [];
+							// RT-8: spread before clearing pendingSteers instead of mutating
+							// in place — preserves the immutable-snapshot invariant (the same
+							// object may already be referenced by the tasks array / snapshots).
+							task = { ...task, pendingSteers: [] };
 							tasks = persistSingleTaskUpdate(manifest, tasks, task);
 						}
 					} catch (err) {
@@ -459,10 +496,15 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							if (msg?.role === "assistant") {
 								const usage = msg.usage as Record<string, number> | undefined;
 								if (usage) {
-									task.lifetimeUsage = {
-										input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
-										output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
-										cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
+									// RT-8: spread before accumulating lifetimeUsage instead of
+									// mutating in place — preserves the immutable-snapshot invariant.
+									task = {
+										...task,
+										lifetimeUsage: {
+											input: (task.lifetimeUsage?.input ?? 0) + (usage.input ?? 0),
+											output: (task.lifetimeUsage?.output ?? 0) + (usage.output ?? 0),
+											cacheWrite: (task.lifetimeUsage?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
+										},
 									};
 								}
 							}

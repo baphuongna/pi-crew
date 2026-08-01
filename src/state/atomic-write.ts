@@ -596,8 +596,16 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 	// Write temp with restrictive permissions
 	const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
 	let fd: number | undefined;
+	// ST-7: track the temp-file lifecycle independently of `fd`. `fd` is cleared
+	// (set to undefined) right after the successful close — BEFORE the rename
+	// attempt (line ~621) — so gating temp cleanup on `fd !== undefined` leaks
+	// the temp file when the rename fails. `tempNeedsCleanup` stays true from
+	// open until the rename consumes the temp, so the finally block always
+	// removes a leftover instead of being skipped by the stale `fd` guard.
+	let tempNeedsCleanup = false;
 	try {
 		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
+		tempNeedsCleanup = true; // ST-7: temp file now exists on disk
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = fs.fstatSync(fd);
 		if (!openedStat.isFile()) {
@@ -636,6 +644,10 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 			}
 			// Issue 1 fix: use link+unlink instead of rename to avoid following symlinks
 			renameWithLinkSync(tempPath, filePath);
+			// ST-7: rename consumed the temp file — it no longer exists at tempPath, so
+			// the finally block must NOT try to remove it (and must not be gated on
+			// `fd`, which is already undefined here from the close at line ~621).
+			tempNeedsCleanup = false;
 			// FIX (2026-07-01 mailbox-replay CI flake): fsync the parent directory
 			// after rename so the directory entry update is durable. On most Linux
 			// filesystems, rename is journaled but the journal flush isn't always
@@ -679,8 +691,12 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 			throw renameError;
 		}
 	} finally {
-		// Issue 4 fix: always clean up temp file, regardless of success or error path.
-		// This ensures no orphaned temp files remain when errors occur at any point.
+		// ST-7: temp cleanup must be gated on `tempNeedsCleanup` (whether a leftover
+		// temp file still exists), NOT on `fd !== undefined`. `fd` is set to undefined
+		// right after the successful close — BEFORE the rename attempt — so the old
+		// `fd !== undefined` guard skipped `rmSync(tempPath)` whenever the rename
+		// failed, leaking the temp file. `tempNeedsCleanup` is true from open until
+		// the rename consumes the temp, so this branch fires exactly when needed.
 		if (fd !== undefined) {
 			// A-02: close fd if still open before cleanup. If an error occurred
 			// between openSync and the normal closeSync (e.g. fstat/write/fsync
@@ -691,6 +707,8 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 			} catch {
 				/* fd may already be closed */
 			}
+		}
+		if (tempNeedsCleanup) {
 			try {
 				fs.rmSync(tempPath, { force: true });
 			} catch {
@@ -764,6 +782,9 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 		// A-02: close fd if still open before cleanup. If an error occurred
 		// between open and the normal close (e.g. stat/writeFile/sync threw),
 		// the FileHandle would leak.
+		// ST-7: unlike the sync path, the async `rm(tempPath)` below is
+		// UNCONDITIONAL (not gated on `fd`), so a rename failure here does NOT
+		// leak the temp file. Verified during the ST-7 audit — no fix needed.
 		if (fd) {
 			try {
 				await fd.close();
