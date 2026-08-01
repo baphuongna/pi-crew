@@ -2,7 +2,111 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
-import { readEvents, type TeamEvent, withEventLogLockSync } from "./event-log.ts";
+import { type TeamEvent, withEventLogLockSync } from "./event-log.ts";
+
+/**
+ * ST-11: Stream a JSONL file line-by-line using a bounded read buffer (8 KB
+ * chunks), invoking `onLine` for each non-empty line. Replaces the previous
+ * `readFileSync` approach that loaded the ENTIRE event log (up to 4 MB /
+ * 50 000 events) into a single string before splitting + JSON.parsing every
+ * line into an array. Memory is now bounded by the chunk size plus the
+ * longest single line, and parsing is interleaved with I/O so the append
+ * lock is held for less wall-clock time.
+ */
+function forEachLineSync(filePath: string, onLine: (line: string) => void): void {
+	const fd = fs.openSync(filePath, "r");
+	try {
+		const chunkSize = 8192;
+		const buf = Buffer.alloc(chunkSize);
+		let leftover = "";
+		let offset = 0;
+		let bytesRead: number;
+		while ((bytesRead = fs.readSync(fd, buf, 0, chunkSize, offset)) > 0) {
+			offset += bytesRead;
+			leftover += buf.subarray(0, bytesRead).toString("utf-8");
+			let nl: number;
+			while ((nl = leftover.indexOf("\n")) >= 0) {
+				const line = leftover.slice(0, nl);
+				leftover = leftover.slice(nl + 1);
+				if (line.length > 0) onLine(line);
+			}
+		}
+		if (leftover.length > 0) {
+			// Trailing line without a final newline.
+			onLine(leftover);
+		}
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+/**
+ * ST-11: Stream the event log and keep only the last `maxKeep` valid (parseable)
+ * events using a fixed-size ring buffer. Bounds memory to O(maxKeep) event
+ * objects regardless of file size — previously the entire file was parsed
+ * into a single array just to `slice(-compactToCount)` it. Corrupt lines
+ * are skipped (matching `readEvents` behaviour). Returns the ordered
+ * last-N events and the total count of valid events seen.
+ */
+function readLastEvents(filePath: string, maxKeep: number): { events: TeamEvent[]; totalCount: number } {
+	if (maxKeep <= 0) {
+		let totalCount = 0;
+		forEachLineSync(filePath, (line) => {
+			try {
+				JSON.parse(line);
+				totalCount++;
+			} catch {
+				/* skip corrupt */
+			}
+		});
+		return { events: [], totalCount };
+	}
+	const ring: TeamEvent[] = new Array(maxKeep);
+	let ringFilled = 0;
+	let writeIdx = 0;
+	let totalCount = 0;
+	forEachLineSync(filePath, (line) => {
+		let event: TeamEvent;
+		try {
+			event = JSON.parse(line) as TeamEvent;
+		} catch {
+			return; // skip corrupt — not counted (matches readEvents)
+		}
+		ring[writeIdx] = event;
+		writeIdx = (writeIdx + 1) % maxKeep;
+		if (ringFilled < maxKeep) ringFilled++;
+		totalCount++;
+	});
+	const events: TeamEvent[] = [];
+	if (ringFilled < maxKeep) {
+		for (let i = 0; i < ringFilled; i++) events.push(ring[i]);
+	} else {
+		for (let i = 0; i < maxKeep; i++) events.push(ring[(writeIdx + i) % maxKeep]);
+	}
+	return { events, totalCount };
+}
+
+/**
+ * ST-11: Stream the event log to count valid events and collect their seq
+ * numbers, without materialising the full event array. Used by
+ * `applyCompactionUnlocked` for the post-write recovery check. Memory is
+ * bounded to the count + seq-set of the (small, post-compaction) file.
+ */
+function countEventsAndSeqs(filePath: string): { count: number; seqs: Set<number> } {
+	const seqs = new Set<number>();
+	let count = 0;
+	forEachLineSync(filePath, (line) => {
+		try {
+			const event = JSON.parse(line) as TeamEvent;
+			count++;
+			const seq = event.metadata?.seq;
+			if (typeof seq === "number") seqs.add(seq);
+		} catch {
+			/* skip corrupt */
+		}
+	});
+	return { count, seqs };
+}
 
 export interface RotationConfig {
 	maxFileSizeBytes: number;
@@ -81,7 +185,13 @@ export function compactEventLog(eventsPath: string, config?: Partial<RotationCon
 
 /** Round 24 (BUG 1): the lock-free pre-read for compaction. Safe to run
  * outside the lock (read-only). Returns the compacted lines + stats needed
- * for the write phase. */
+ * for the write phase.
+ *
+ * ST-11: streams the event log line-by-line through a ring buffer instead of
+ * `readEvents` (full readFileSync + JSON.parse of every line into a single
+ * array). Memory is bounded to O(compactToCount) events regardless of file
+ * size, and the append lock is held for less time because parsing is
+ * interleaved with I/O rather than deferred until the entire file is loaded. */
 export function prepareCompaction(
 	eventsPath: string,
 	config?: Partial<RotationConfig>,
@@ -101,10 +211,8 @@ export function prepareCompaction(
 	} catch {
 		return undefined;
 	}
-	const allEvents = readEvents(eventsPath);
-	const originalCount = allEvents.length;
+	const { events: kept, totalCount: originalCount } = readLastEvents(eventsPath, cfg.compactToCount);
 	if (originalCount <= cfg.compactToCount) return undefined;
-	const kept = allEvents.slice(-cfg.compactToCount);
 	const lines = kept.map((e) => JSON.stringify(e)).join("\n") + "\n";
 	return { lines, originalSize, originalCount, kept };
 }
@@ -129,26 +237,21 @@ export function applyCompactionUnlocked(
 		return undefined;
 	}
 	// C2: Re-read to recover any events appended during the compaction window.
-	// Events appended during the compaction window are preserved because they
-	// appear in afterWrite and the condition afterWrite.length >= kept.length is
-	// true, so they are included in the return stats without entering the
-	// recovery branch.
+	// ST-11: stream the post-write file instead of `readEvents` (full
+	// readFileSync + JSON.parse per line into an array). We only need the event
+	// count and the set of seq numbers for the recovery check, so memory is
+	// bounded without materialising every event object.
 	try {
-		const afterWrite = readEvents(eventsPath);
-		// FIX: Check if events were actually lost (afterWrite.length < kept.length)
-		// rather than using appendedDuringWindow >= 0 which is always true.
-		// Also use sequence numbers for comparison instead of JSON.stringify
-		// which is fragile due to key ordering and floating point differences.
-		if (afterWrite.length >= kept.length) {
+		const { count: afterWriteCount, seqs: afterSeqs } = countEventsAndSeqs(eventsPath);
+		if (afterWriteCount >= kept.length) {
 			return {
 				originalSize,
 				compactedSize: fs.statSync(eventsPath).size,
 				eventsRemoved: originalCount - kept.length,
-				eventsKept: kept.length + Math.max(0, afterWrite.length - kept.length),
+				eventsKept: kept.length + Math.max(0, afterWriteCount - kept.length),
 			};
 		}
-		// afterWrite.length < kept.length — events were lost during compaction window.
-		const afterSeqs = new Set(afterWrite.map((e) => e.metadata?.seq).filter((s): s is number => s !== undefined));
+		// afterWriteCount < kept.length — events were lost during compaction window.
 		const missingEvents = kept.filter((e) => e.metadata?.seq === undefined || !afterSeqs.has(e.metadata.seq));
 		let recoveredCount = 0;
 		let recoveryFailed = false;
@@ -243,8 +346,10 @@ function bumpGenerationUnlocked(eventsPath: string): number {
 export function rotateEventLog(eventsPath: string): boolean {
 	if (!fs.existsSync(eventsPath)) return false;
 	// FIX: Wrap rotation in lock to prevent race conditions with concurrent readers.
-	// Order of operations: (1) create new empty file, (2) rename old file to archive.
-	// This ensures eventsPath always exists — a reader never sees a missing file.
+	// Order of operations: (1) rename old live file to archive, (2) create new
+	// empty live file. The rename is atomic (POSIX) so eventsPath is briefly
+	// absent between (1) and (2); readers using readEvents tolerate a missing
+	// file (return []). See rotateEventLogUnlocked for the ST-8 rationale.
 	//
 	// NOTE (Round 24 BUG 1): callers ALREADY holding the lock must call
 	// rotateEventLogUnlocked directly — this locked variant is NOT re-entrant.
@@ -290,15 +395,40 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 			archivePath = `${eventsPath}.${ts}.${collision}.archive.jsonl`;
 			collision++;
 		}
-		// BUGFIX (Round 12 C1): the previous order (atomicWriteFile empty THEN
-		// rename) destroyed ALL events — atomicWriteFile replaces the file
-		// in place, so the rename then moved an EMPTY file to the archive.
-		// FIX: copy current content to the archive first (archive is populated,
-		// original still intact), then truncate the original to empty in place.
-		// copyFileSync + writeFileSync("") ensures eventsPath ALWAYS exists
-		// (no missing-file window for concurrent readers).
-		fs.copyFileSync(eventsPath, archivePath);
-		atomicWriteFile(eventsPath, "");
+		// ST-8: rename+create instead of copy+truncate. The old approach
+		// (copyFileSync + atomicWriteFile("")) had two data-loss windows:
+		//
+		//   1. Copy window: events appended between copyFileSync and the
+		//      atomicWriteFile truncate landed on the OLD inode. After
+		//      atomicWriteFile replaced eventsPath with a new (empty) inode,
+		//      those appends were on an orphaned inode with no path → lost
+		//      forever once the writer's fd closed.
+		//   2. atomicWriteFile replaces the inode → any in-flight writer fd
+		//      (opened before rotation) continues writing to the old inode,
+		//      which is now orphaned.
+		//
+		// rename+create fixes both:
+		//   - rename(2) is atomic: the live log's inode moves to the archive
+		//     path in one step, carrying ALL pre-rotation content. No copy
+		//     window exists — there is nothing to lose between "read" and
+		//     "truncate" because both happen in the single rename syscall.
+		//   - In-flight writer fds that opened the old inode before the rename
+		//     continue writing to it — but it is now the ARCHIVE (it has a
+		//     path), so their appends are preserved, not orphaned. The next
+		//     append (all write paths open per-call) naturally opens the new
+		//     inode at eventsPath.
+		//   - The new live file is created with O_CREAT|O_EXCL ("wx"): if a
+		//     concurrent writer (different lock class — sync `.mkdirlock` vs
+		//     async `.alock` are separate) already recreated the file between
+		//     our rename and here, we leave their data intact (EEXIST → skip).
+		fs.renameSync(eventsPath, archivePath);
+		try {
+			const fd = fs.openSync(eventsPath, "wx", 0o644);
+			fs.closeSync(fd);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+			// A concurrent writer recreated the file — their data is preserved.
+		}
 		// R-03: bump the generation sidecar so byte-offset cursor readers
 		// detect the truncation and reset (re-read from offset 0 of the new
 		// file), instead of reading past EOF and missing post-rotation events.

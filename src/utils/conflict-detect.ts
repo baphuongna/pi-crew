@@ -341,11 +341,20 @@ export function parseConflictUri(raw: string): ParsedConflictUri | null {
  * Works by locating the recorded marker block by content (anchored to
  * `entry.startLine` as the preferred match), so out-of-band edits earlier
  * in the file that shift line numbers don't break resolution.
+ *
+ * EOL preservation: lines are split keeping each line's original ending
+ * bytes (CRLF / LF / none). Only the conflicting region is rewritten; every
+ * other line is round-tripped byte-for-byte, so a mixed-EOL file produces a
+ * minimal git diff (previously every line ending was normalised, rewriting
+ * the whole file even when only a few lines conflicted).
  */
 export function spliceConflict(originalText: string, entry: ConflictEntry, replacement: string): string {
-	// Preserve the original line ending (CRLF or LF) for a byte-accurate round-trip.
-	const eol = originalText.includes("\r\n") ? "\r\n" : "\n";
-	const lines = originalText.split(/\r?\n/);
+	// Split preserving each line's original EOL so non-conflicting lines are
+	// round-tripped byte-for-byte (minimal git diff on mixed-EOL files).
+	const segments = splitPreservingEol(originalText);
+	// Content-only view (CR stripped) — identical to the old `split(/\r?\n/)`,
+	// so conflict detection / region matching behaviour is unchanged.
+	const lines = segments.map((s) => s.content);
 	const expected = buildRecordedRegion(entry);
 	const match = locateRegion(lines, expected, entry.startLine - 1);
 	if (!match) {
@@ -356,8 +365,52 @@ export function spliceConflict(originalText: string, entry: ConflictEntry, repla
 
 	const trimmed = normalizeTrailingNewline(replacement);
 	const replacementLines = trimmed.split("\n");
-	const next = [...lines.slice(0, match.startIdx), ...replacementLines, ...lines.slice(match.endIdx + 1)];
-	return next.join(eol);
+	// EOL for the inserted lines: prefer the EOL that originally terminated the
+	// conflict region (local style); fall back to the file's dominant EOL.
+	const regionEol = segments[match.endIdx]?.eol ?? "";
+	const interEol = regionEol || (originalText.includes("\r\n") ? "\r\n" : "\n");
+
+	const out: string[] = [];
+	// Lines before the conflict — verbatim (original content + original EOL).
+	for (let i = 0; i < match.startIdx; i++) out.push(segments[i].content, segments[i].eol);
+	// Replacement lines — intermediate ones use the local EOL; the final one
+	// reuses the boundary EOL that originally separated the region from the
+	// following line, preserving that line's leading boundary exactly.
+	for (let i = 0; i < replacementLines.length; i++) {
+		out.push(replacementLines[i]);
+		out.push(i < replacementLines.length - 1 ? interEol : regionEol);
+	}
+	// Lines after the conflict — verbatim.
+	for (let i = match.endIdx + 1; i < segments.length; i++) out.push(segments[i].content, segments[i].eol);
+	return out.join("");
+}
+
+/**
+ * Split `text` into `{ content, eol }` segments keeping each line's exact
+ * ending bytes. The `content` view equals `text.split(/\r?\n/)`, but the
+ * original EOL (`"\r\n"`, `"\n"`, or `""` for the final line) is retained
+ * so callers can reconstruct the text byte-for-byte.
+ */
+function splitPreservingEol(text: string): { content: string; eol: string }[] {
+	const segments: { content: string; eol: string }[] = [];
+	const n = text.length;
+	let i = 0;
+	while (i <= n) {
+		const nl = text.indexOf("\n", i);
+		if (nl === -1) {
+			segments.push({ content: text.slice(i), eol: "" });
+			break;
+		}
+		let contentEnd = nl;
+		let eol = "\n";
+		if (nl > 0 && text.charCodeAt(nl - 1) === 13 /* \r */) {
+			contentEnd = nl - 1;
+			eol = "\r\n";
+		}
+		segments.push({ content: text.slice(i, contentEnd), eol });
+		i = nl + 1;
+	}
+	return segments;
 }
 
 /** Reconstruct the recorded marker block as it should appear in the file. */

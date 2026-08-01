@@ -381,15 +381,25 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	// append, or even the lock acquisition itself) would race with the lock.
 	const lockFile = `${filePath}.flock`;
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
-	// FIX (Round 29): re-entrance guard — mirrors withRunLockSync below.
-	// When the same call stack already holds the file lock (e.g.
-	// registerWorker -> cleanupOrphanWorkers -> readRegistry), the second
-	// acquisition would otherwise read its own freshly-written lock file
-	// (same pid, fresh createdAt), fail the steal check, and deadlock for
-	// the full staleMs window. Strace-confirmed in
-	// .github/issues/pre-existing-2026-06-10/04-orphan-worker-registry-tests.md:75-86.
-	const existingToken = fileLockHeldByUs.get(lockFile);
-	if (existingToken) {
+	// ST-14: re-entrance guard is scoped to the current async context, mirroring
+	// the H-1 fix for withRunLockSync (lockCtx). Previously this used the
+	// process-global fileLockHeldByUs map, so a re-entrance decision in one
+	// async context could leak into another (same bug class as H-1).
+	// fileLockSyncCtx (AsyncLocalStorage) scopes the held set to the current
+	// async context: a call from a DIFFERENT async context sees no held set
+	// and properly serializes against the on-disk lock. True nested calls in
+	// the SAME async context still bypass via fileLockSyncCtx.getStore().
+	if (fileLockSyncCtx.getStore()?.has(lockFile)) {
+		return fn();
+	}
+	// Cross-tier bypass: if withFileLockAsync currently holds the .flock in
+	// THIS process, bypass to avoid a sleepSync deadlock (the sync retry loop
+	// blocks the event loop, starving the async holder). In production this
+	// never fires: child-process mode uses sync-only mailbox operations;
+	// live-session mode uses async-only. Mirrors the symmetric check in
+	// withFileLockAsync. fileLockHeldByUs remains process-global by design —
+	// it tracks actual on-disk holds, not re-entrance.
+	if (fileLockHeldByUs.get(lockFile)) {
 		return fn();
 	}
 	// FIX: Validate the parent directory is not a symlink BEFORE calling mkdirSync.
@@ -422,14 +432,22 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 		}
 	}
 	if (token === "") throw new Error(`Run '${path.basename(lockFile)}' is locked by another operation.`);
-	fileLockHeldByUs.set(lockFile, token);
-	try {
-		return fn();
-	} finally {
-		// Token-guarded release: don't rm the lock if it has been stolen.
-		fileLockHeldByUs.delete(lockFile);
-		releaseLock(lockFile, token);
-	}
+	// ST-14: enter a new async context carrying the held set, mirroring
+	// withRunLockSync's lockCtx.run pattern. Nested same-context calls see
+	// the held set and bypass (re-entrant); cross-context callers do not.
+	const prevHeld = fileLockSyncCtx.getStore() ?? new Set<string>();
+	const newHeld = new Set(prevHeld);
+	newHeld.add(lockFile);
+	return fileLockSyncCtx.run(newHeld, () => {
+		fileLockHeldByUs.set(lockFile, token);
+		try {
+			return fn();
+		} finally {
+			// Token-guarded release: don't rm the lock if it has been stolen.
+			fileLockHeldByUs.delete(lockFile);
+			releaseLock(lockFile, token);
+		}
+	});
 }
 
 // H-1: track re-entrant run-lock acquisitions PER ASYNC CONTEXT (not process-global).
@@ -443,8 +461,18 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 // async context (e.g. handleResume -> executeTeamRun -> executeTeamRunCore) still
 // bypass via lockCtx.getStore(), avoiding the deadlock the bypass was designed for.
 const lockCtx = new AsyncLocalStorage<Set<string>>();
-// Round 29: parallel map for withFileLockSync re-entrance. See the comment
-// at the top of withFileLockSync for the full deadlock mechanism.
+// ST-14: track re-entrant withFileLockSync acquisitions PER ASYNC CONTEXT
+// (not process-global), mirroring the H-1 fix (lockCtx) for withRunLockSync.
+// Previously withFileLockSync used the process-global fileLockHeldByUs map for
+// re-entrance detection, so a re-entrance hit/miss decision in one async context
+// could leak into another (same bug class as H-1). fileLockSyncCtx scopes the
+// held set to the current async context.
+const fileLockSyncCtx = new AsyncLocalStorage<Set<string>>();
+// Round 29: process-global map for cross-tier sync↔async coordination. Set by
+// BOTH withFileLockSync and withFileLockAsync when they hold the on-disk .flock,
+// so the OTHER tier can detect the hold and bypass to avoid a sleepSync
+// deadlock. NOT a re-entrance guard — re-entrance is tracked per async context
+// (fileLockSyncCtx for sync, fileAsyncLockCtx for async).
 const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
 
 // --- Async file lock (non-blocking alternative to withFileLockSync) ---
@@ -467,8 +495,8 @@ const fileAsyncLockCtx = new AsyncLocalStorage<Set<string>>();
 export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
 	const lockFile = `${filePath}.flock`;
 	// Re-entrant within the same async context — run fn() directly (no chaining).
-	// Same semantics as the sync guard in withFileLockSync (fileLockHeldByUs)
-	// and the async guard in withRunLock (lockCtx).
+	// Same semantics as the sync guard in withFileLockSync (fileLockSyncCtx,
+	// ST-14) and the async guard in withRunLock (lockCtx).
 	if (fileAsyncLockCtx.getStore()?.has(lockFile)) {
 		return await fn();
 	}

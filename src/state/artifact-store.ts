@@ -101,6 +101,71 @@ export function cleanupOldArtifacts(artifactsRoot: string, options: ArtifactClea
 	if (!didCleanup) writeCleanupMarker(artifactsRoot, markerFile);
 }
 
+/**
+ * ST-10: Default TTL for "temporary" retention artifacts (1 hour).
+ * Temporary artifacts (progress, notepad) are short-lived and should not
+ * accumulate. One hour balances cleanup aggressiveness with the possibility
+ * that a long-running task writes periodic progress updates.
+ */
+export const TEMPORARY_RETENTION_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * ST-10: Check whether an artifact descriptor indicates the file should be
+ * pruned (expired).
+ *
+ * Enforces:
+ * - `expiresAt`: if set and now ≥ expiresAt → expired.
+ * - `retention: "temporary"`: if createdAt age ≥ temporaryTtlMs → expired.
+ *   ("run" and "project" retentions are handled by run-level prune and the
+ *   age-based {@link cleanupOldArtifacts}, not by this per-descriptor check.)
+ */
+export function isArtifactExpired(
+	desc: ArtifactDescriptor,
+	nowMs: number,
+	temporaryTtlMs: number = TEMPORARY_RETENTION_TTL_MS,
+): boolean {
+	// Explicit expiresAt takes precedence.
+	if (desc.expiresAt) {
+		const expiryMs = Date.parse(desc.expiresAt);
+		if (Number.isFinite(expiryMs) && nowMs >= expiryMs) return true;
+	}
+	// "temporary" retention has a short TTL.
+	if (desc.retention === "temporary" && desc.createdAt) {
+		const createdMs = Date.parse(desc.createdAt);
+		if (Number.isFinite(createdMs) && nowMs - createdMs >= temporaryTtlMs) return true;
+	}
+	return false;
+}
+
+/**
+ * ST-10: Prune expired artifacts by enforcing ArtifactDescriptor.retention/expiresAt.
+ *
+ * Deletes artifact files whose descriptor indicates expiry (expiresAt passed
+ * or temporary-retention TTL exceeded). Returns the count of files deleted.
+ *
+ * Unlike {@link cleanupOldArtifacts} (which is filesystem age-based on raw
+ * files), this operates on artifact *metadata* from the manifest's `artifacts[]`
+ * and deletes specific expired files via their descriptor `path`.
+ */
+export function pruneExpiredArtifacts(
+	descriptors: ArtifactDescriptor[],
+	options?: { now?: number; temporaryTtlMs?: number },
+): number {
+	const nowMs = options?.now ?? Date.now();
+	const temporaryTtlMs = options?.temporaryTtlMs ?? TEMPORARY_RETENTION_TTL_MS;
+	let deleted = 0;
+	for (const desc of descriptors) {
+		if (!isArtifactExpired(desc, nowMs, temporaryTtlMs)) continue;
+		try {
+			fs.unlinkSync(desc.path);
+			deleted++;
+		} catch {
+			// Best-effort: file may already be removed or path may be stale.
+		}
+	}
+	return deleted;
+}
+
 function resolveInside(baseDir: string, relativePath: string): string {
 	// Check if baseDir is a symlink on every call to prevent symlink attacks
 	try {

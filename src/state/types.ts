@@ -183,6 +183,30 @@ export interface CrewAttentionEventData {
  */
 export const CURRENT_SCHEMA_VERSION = 1 as const;
 
+/**
+ * ST-9: schemaVersion sentinel for tasks.json (and future goal-state/mailbox
+ * files). Mirrors {@link CURRENT_SCHEMA_VERSION} for the manifest.
+ *
+ * tasks.json has two on-disk shapes:
+ * - v0 (legacy): bare JSON array `TeamTaskState[]` — no schemaVersion.
+ * - v1+ (current): envelope `{ schemaVersion, tasks }` — see {@link TasksFileData}.
+ *
+ * The reader detects the shape, warns on version mismatch, and applies
+ * migration logic in state-store.ts (the structured migration hook).
+ */
+export const CURRENT_TASKS_SCHEMA_VERSION = 1 as const;
+
+/**
+ * ST-9: Versioned envelope for tasks.json on disk.
+ * Writers produce this shape; readers accept it OR the legacy v0 bare array.
+ * `TeamTaskState` is defined later in this module but interface declarations
+ * are type-hoisted so the forward reference is valid.
+ */
+export interface TasksFileData {
+	schemaVersion: typeof CURRENT_TASKS_SCHEMA_VERSION;
+	tasks: TeamTaskState[];
+}
+
 export interface TeamRunManifest {
 	schemaVersion: typeof CURRENT_SCHEMA_VERSION;
 	runId: string;

@@ -17,7 +17,7 @@ import { appendEvent } from "./event-log.ts";
 import { reconstructTasksFromEvents } from "./event-reconstructor.ts";
 import { withRunLock, withRunLockSync } from "./locks.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
-import { CURRENT_SCHEMA_VERSION } from "./types.ts";
+import { CURRENT_SCHEMA_VERSION, CURRENT_TASKS_SCHEMA_VERSION } from "./types.ts";
 
 /**
  * stat() the manifest with a brief retry on Windows for the AV-scan window.
@@ -436,8 +436,8 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
  */
 function shouldPersistTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): boolean {
 	if (tasks.length > 0) return true;
-	const existing = readJsonFile<TeamTaskState[]>(manifest.tasksPath);
-	if (Array.isArray(existing) && existing.length > 0) {
+	const existing = extractTaskArray(readJsonFile<unknown>(manifest.tasksPath));
+	if (existing.length > 0) {
 		console.warn(
 			`[state-store] refusing to persist empty tasks over ${existing.length} existing task(s) — possible corrupt-load cascade (runId=${manifest.runId})`,
 		);
@@ -821,6 +821,68 @@ function reconstructTasksFromEventLog(eventsPath: string, runId: string): TeamTa
  * - Non-array JSON (e.g. `{}`) → corrupt → same as SyntaxError.
  * - Valid array → return as-is.
  */
+
+/**
+ * ST-9: Extract the task array from a tasks.json payload.
+ *
+ * Accepts both the v0 legacy bare-array format and the v1+ envelope
+ * `{ schemaVersion, tasks }`. Returns [] for unrecognized shapes.
+ */
+function extractTaskArray(raw: unknown): TeamTaskState[] {
+	if (Array.isArray(raw)) return raw as TeamTaskState[];
+	if (raw !== null && typeof raw === "object" && "tasks" in raw) {
+		const envelope = raw as { tasks?: unknown };
+		if (Array.isArray(envelope.tasks)) return envelope.tasks as TeamTaskState[];
+	}
+	return [];
+}
+
+/**
+ * ST-9: Whether `parsed` is a recognizable tasks.json shape (v0 bare array
+ * or v1+ envelope). Used to distinguish legitimate formats from corruption.
+ */
+function isRecognizableTasksPayload(parsed: unknown): boolean {
+	if (Array.isArray(parsed)) return true;
+	if (parsed !== null && typeof parsed === "object" && "tasks" in parsed) {
+		return Array.isArray((parsed as { tasks?: unknown }).tasks);
+	}
+	return false;
+}
+
+/**
+ * ST-9: Version-check + migration hook for tasks.json.
+ *
+ * tasks.json has two on-disk shapes:
+ * - v0 (legacy): bare JSON array `TeamTaskState[]` — no schemaVersion field.
+ * - v1+ (current): envelope `{ schemaVersion: number, tasks: TeamTaskState[] }`.
+ *
+ * This detects the shape, warns on version mismatch (mirroring the manifest
+ * schemaVersion check), and returns the task array. Future breaking changes
+ * add migration logic in the v0 branch — for now v0→v1 is a warn-and-proceed
+ * no-op (the task array is structurally identical).
+ */
+function migrateTasksFile(parsed: unknown, runId: string): TeamTaskState[] {
+	// v0 legacy: bare array (no schemaVersion envelope).
+	if (Array.isArray(parsed)) {
+		if (parsed.length > 0) {
+			console.warn(
+				`[state-store] tasks.json v0 (legacy bare-array) for run ${runId} — migration stub applied (no-op for v0→v1).`,
+			);
+		}
+		return parsed as TeamTaskState[];
+	}
+	// v1+ envelope: { schemaVersion, tasks }.
+	if (parsed !== null && typeof parsed === "object" && "tasks" in parsed) {
+		const envelope = parsed as { schemaVersion?: unknown; tasks?: unknown };
+		const detected = typeof envelope.schemaVersion === "number" ? envelope.schemaVersion : 0;
+		if (detected !== CURRENT_TASKS_SCHEMA_VERSION) {
+			console.warn(
+				`[state-store] tasks.json schemaVersion mismatch: expected ${CURRENT_TASKS_SCHEMA_VERSION}, got ${detected}. Run ${runId} may be incompatible.`,
+			);
+		}
+	}
+	return extractTaskArray(parsed);
+}
 function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: string): TeamTaskState[] {
 	let content: string;
 	try {
@@ -840,14 +902,14 @@ function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: str
 		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
 		return reconstructed;
 	}
-	if (!Array.isArray(parsed)) {
-		// Non-array JSON (e.g. `{}`) — corrupt.
+	if (!isRecognizableTasksPayload(parsed)) {
+		// Neither v0 bare array nor v1+ envelope (e.g. `{}`) — corrupt.
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
 		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
 		return reconstructed;
 	}
-	return parsed as TeamTaskState[];
+	return migrateTasksFile(parsed, runId);
 }
 
 /**
@@ -869,13 +931,13 @@ async function loadTasksWithRecoveryAsync(tasksPath: string, eventsPath: string,
 		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
 		return reconstructed;
 	}
-	if (!Array.isArray(parsed)) {
+	if (!isRecognizableTasksPayload(parsed)) {
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
 		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
 		return reconstructed;
 	}
-	return parsed as TeamTaskState[];
+	return migrateTasksFile(parsed, runId);
 }
 
 /**

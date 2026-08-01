@@ -1089,52 +1089,78 @@ export async function captureWorktreeDiffAsync(worktreePath: string): Promise<st
  * assertCleanLeader, pruneStaleWorktrees, sanitizeBranchPart,
  * linkNodeModulesIfPresent) but with a minimal, task-free signature.
  *
- * Returns `undefined` when worktree creation is unavailable (no git repo, dirty
- * leader, git error) so the caller (`ctx.agent`) can fall back gracefully.
+ * Returns `undefined` when worktree isolation is genuinely unavailable (no git
+ * repo, dirty leader) so the caller (`ctx.agent`) can fall back gracefully.
+ * ST-15: when creation was attempted but failed (e.g. disk full), this THROWS
+ * instead of returning undefined so the caller never silently runs in the
+ * leader repo. The branch + path suffix is non-deterministic so a 2nd call for
+ * the same agentId always produces a distinct worktree.
  */
 export function prepareAgentWorktree(manifest: TeamRunManifest, agentId: string): PreparedTaskWorkspace | undefined {
+	// ST-15: Split preconditions from worktree creation.
+	// Precondition failures (no git repo, dirty leader) → return undefined so the
+	// caller falls back gracefully (worktree isolation is genuinely unavailable).
+	let repoRoot: string;
+	let loadedConfig: ReturnType<typeof loadConfig>;
 	try {
-		const repoRoot = findGitRoot(manifest.cwd);
-		const loadedConfig = loadConfig(manifest.cwd);
+		repoRoot = findGitRoot(manifest.cwd);
+		loadedConfig = loadConfig(manifest.cwd);
 		if (loadedConfig.config.requireCleanWorktreeLeader !== false) assertCleanLeader(repoRoot);
-		const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
-		const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-		fs.mkdirSync(worktreeRoot, { recursive: true });
-		const sanitizedAgentId = sanitizeBranchPart(agentId);
-		const worktreePath = path.join(worktreeRoot, sanitizedAgentId);
-		const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}`;
-		pruneStaleWorktrees(repoRoot);
-		git(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
-		const nodeModulesLinked =
-			loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
-		return { cwd: worktreePath, worktreePath, branch, nodeModulesLinked };
 	} catch {
-		// Graceful fallback: no git repo, dirty leader, or git error → run normally.
+		// Graceful fallback: no git repo or dirty leader → run normally in cwd.
 		return undefined;
 	}
+
+	// ST-15: NON-DETERMINISTIC branch + path suffix. The OLD deterministic name
+	// (`pi-crew/<runId>/<agentId>`) made a 2nd call for the same agent collide
+	// ("already exists") → catch → returned undefined → the run silently fell
+	// back to the leader repo (isolation lost, no error). The timestamp +
+	// short-uuid suffix makes every call produce a distinct worktree.
+	// Creation failures here THROW (not undefined) so callers never silently lose
+	// isolation when worktree creation was requested but failed.
+	const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
+	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
+	fs.mkdirSync(worktreeRoot, { recursive: true });
+	const sanitizedAgentId = sanitizeBranchPart(agentId);
+	const stamp = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+	const worktreePath = path.join(worktreeRoot, `${sanitizedAgentId}-${stamp}`);
+	const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}-${stamp}`;
+	pruneStaleWorktrees(repoRoot);
+	git(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
+	const nodeModulesLinked =
+		loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
+	return { cwd: worktreePath, worktreePath, branch, nodeModulesLinked };
 }
 
 /** Async version of prepareAgentWorktree — yields the event loop during git operations. */
 export async function prepareAgentWorktreeAsync(manifest: TeamRunManifest, agentId: string): Promise<PreparedTaskWorkspace | undefined> {
+	// ST-15: Split preconditions from worktree creation (see prepareAgentWorktree).
+	let repoRoot: string;
+	let loadedConfig: ReturnType<typeof loadConfig>;
 	try {
-		const repoRoot = await findGitRootAsync(manifest.cwd);
-		const loadedConfig = loadConfig(manifest.cwd);
+		repoRoot = await findGitRootAsync(manifest.cwd);
+		loadedConfig = loadConfig(manifest.cwd);
 		if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
-		const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
-		const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-		fs.mkdirSync(worktreeRoot, { recursive: true });
-		const sanitizedAgentId = sanitizeBranchPart(agentId);
-		const worktreePath = path.join(worktreeRoot, sanitizedAgentId);
-		const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}`;
-		await pruneStaleWorktreesAsync(repoRoot);
-		await gitAsync(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
-		const nodeModulesLinked =
-			loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
-		return { cwd: worktreePath, worktreePath, branch, nodeModulesLinked };
 	} catch {
-		// Graceful fallback: no git repo, dirty leader, or git error → run normally.
+		// Graceful fallback: no git repo or dirty leader → run normally in cwd.
 		return undefined;
 	}
+
+	// ST-15: NON-DETERMINISTIC branch + path suffix — a 2nd call for the same
+	// agentId creates a DISTINCT worktree instead of colliding. Creation failures
+	// here THROW so callers never silently fall back to the leader repo.
+	const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
+	const worktreeRoot = path.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
+	fs.mkdirSync(worktreeRoot, { recursive: true });
+	const sanitizedAgentId = sanitizeBranchPart(agentId);
+	const stamp = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+	const worktreePath = path.join(worktreeRoot, `${sanitizedAgentId}-${stamp}`);
+	const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}-${stamp}`;
+	await pruneStaleWorktreesAsync(repoRoot);
+	await gitAsync(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
+	const nodeModulesLinked =
+		loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
+	return { cwd: worktreePath, worktreePath, branch, nodeModulesLinked };
 }
 
 /**
