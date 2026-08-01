@@ -853,22 +853,24 @@ function isRecognizableTasksPayload(parsed: unknown): boolean {
  * ST-9: Version-check + migration hook for tasks.json.
  *
  * tasks.json has two on-disk shapes:
- * - v0 (legacy): bare JSON array `TeamTaskState[]` — no schemaVersion field.
- * - v1+ (current): envelope `{ schemaVersion: number, tasks: TeamTaskState[] }`.
+ * - v0 (current): bare JSON array `TeamTaskState[]` — what saveRunTasks*
+ *   write today (backward-compatible; no schemaVersion envelope).
+ * - v1+ (future): envelope `{ schemaVersion: number, tasks: TeamTaskState[] }`
+ *   — read-supported defensively for a future write-side switch.
  *
- * This detects the shape, warns on version mismatch (mirroring the manifest
- * schemaVersion check), and returns the task array. Future breaking changes
- * add migration logic in the v0 branch — for now v0→v1 is a warn-and-proceed
- * no-op (the task array is structurally identical).
+ * This detects the shape and returns the task array. v0 needs NO migration
+ * (it IS the current write format). For v1+ envelopes, a schemaVersion
+ * mismatch warns (mirroring the manifest check). Future breaking changes
+ * add real migration logic here.
  */
 function migrateTasksFile(parsed: unknown, runId: string): TeamTaskState[] {
-	// v0 legacy: bare array (no schemaVersion envelope).
+	// v0 current: bare array (no schemaVersion envelope) — what writers produce.
 	if (Array.isArray(parsed)) {
-		if (parsed.length > 0) {
-			console.warn(
-				`[state-store] tasks.json v0 (legacy bare-array) for run ${runId} — migration stub applied (no-op for v0→v1).`,
-			);
-		}
+		// v0 bare array is the CURRENT write format (saveRunTasks* write the
+		// array directly, by design — backward compat). Nothing to migrate:
+		// return as-is. (v1+ envelope read-support below is defensive, for a
+		// future write-side switch.) Do NOT warn here — it would fire for 100%
+		// of runs on every load and flood the UI on startup.
 		return parsed as TeamTaskState[];
 	}
 	// v1+ envelope: { schemaVersion, tasks }.
