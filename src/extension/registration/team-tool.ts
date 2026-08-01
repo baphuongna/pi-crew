@@ -125,18 +125,22 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 	const tool: ToolDefinition = {
 		name: "team",
 		label: "Team",
+		// EXT-11: do NOT embed one-off performance benchmarks ("Run #3", "~30× faster",
+		// "5.7× slower", etc.) in the tool description — they are stale, do not
+		// generalize, and mislead the calling LLM about when to reach for the
+		// team tool. Keep factual usage guidance (what the tool does, preflight
+		// advisory behavior, action='recommend').
 		description: [
 			"Coordinate Pi teams. Use proactively for complex multi-file work, planning, implementation, tests, reviews, security audits, research, async/background runs, and worktree-isolated execution. Use action='recommend' when unsure which team/workflow to choose. Destructive actions require explicit user confirmation.",
 			"",
 			"ℹ️  ADVISORY NOTE (preflight, never blocks): pi-crew prints informational notes about workflow topology. Review the note, then decide. There is no BLOCK — agents always exercise judgment.",
-			"- Single-task run: raw `Agent` tool would be ~30× faster and ~5× cheaper. pi-crew notes this and proceeds anyway.",
-			"- 2–3 step sequential run: measured 5.7× slower than raw `Agent` calls in Run #3. pi-crew notes this and proceeds anyway.",
-			"- ≥3 concurrent or complex DAG: validated good use case, pi-crew notes 'validated use case'.",
+			"- Single-task or 2–3 step sequential run: pi-crew notes that a raw `Agent` call may be simpler and faster, then proceeds anyway.",
+			"- ≥3 concurrent or complex DAG: validated good use case; pi-crew notes 'validated use case'.",
 			"If unsure, call { action: 'recommend', goal } first to get a team/workflow suggestion.",
 		].join("\n"),
 		promptSnippet: [
 			"Use the team tool for multi-agent orchestration when you need ≥3 concurrent agents or a complex DAG.",
-			"For single tasks or 2–3 sequential steps, the raw Agent tool is usually faster (raw calls = ~5× faster for 3-step chains).",
+			"For single tasks or 2–3 sequential steps, the raw Agent tool is usually faster.",
 			"pi-crew notes the topology (informational only) but proceeds either way — you decide based on your context (audit trail, team coordination, etc.).",
 			"If unsure, call { action: 'recommend', goal } first.",
 		].join("\n"),

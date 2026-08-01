@@ -24,6 +24,13 @@ const fallback = {
 	"steer.noted": "Steering request noted for {id}.",
 	"steer.unavailable": "Current default pi-crew backend is child-process, so mid-turn session.steer is not available yet.",
 	"steer.cancelHint": "Use team cancel runId={runId} if the agent must be interrupted.",
+	// PR-F12 (EXT-12): team tool user-facing strings routed through t() for
+	// consistency with the subagent tools (Agent / get_subagent_result).
+	"team.run.created": "Created pi-crew run {runId}.",
+	"team.run.completed": "pi-crew run {status}: {runId} ({team})",
+	"team.run.allCompleted": "All tasks completed successfully.",
+	"team.run.tasksFailed": "{count} task(s) failed: {ids}. Consider retrying.",
+	"team.unknownAction": "Unknown action: {action}",
 } as const;
 
 type Key = keyof typeof fallback;
@@ -50,6 +57,11 @@ const translations: Record<string, Partial<Record<Key, string>>> = {
 		"steer.unavailable":
 			"El backend predeterminado actual de pi-crew es child-process, así que session.steer a mitad de turno aún no está disponible.",
 		"steer.cancelHint": "Usa team cancel runId={runId} si hay que interrumpir el agente.",
+		"team.run.created": "Ejecución de pi-crew creada {runId}.",
+		"team.run.completed": "Ejecución de pi-crew {status}: {runId} ({team})",
+		"team.run.allCompleted": "Todas las tareas se completaron con éxito.",
+		"team.run.tasksFailed": "{count} tarea(s) fallaron: {ids}. Considera reintentar.",
+		"team.unknownAction": "Acción desconocida: {action}",
 	},
 	fr: {
 		"agent.requiresPrompt": "Agent nécessite un prompt.",
@@ -71,6 +83,11 @@ const translations: Record<string, Partial<Record<Key, string>>> = {
 		"steer.unavailable":
 			"Le backend pi-crew par défaut actuel est child-process, donc session.steer en milieu de tour n'est pas encore disponible.",
 		"steer.cancelHint": "Utilisez team cancel runId={runId} si l'agent doit être interrompu.",
+		"team.run.created": "Exécution pi-crew créée {runId}.",
+		"team.run.completed": "Exécution pi-crew {status} : {runId} ({team})",
+		"team.run.allCompleted": "Toutes les tâches ont été effectuées avec succès.",
+		"team.run.tasksFailed": "{count} tâche(s) ont échoué : {ids}. Envisagez de réessayer.",
+		"team.unknownAction": "Action inconnue : {action}",
 	},
 	"pt-BR": {
 		"agent.requiresPrompt": "Agent requer prompt.",
@@ -92,7 +109,11 @@ const translations: Record<string, Partial<Record<Key, string>>> = {
 		"steer.unavailable":
 			"O backend padrão atual do pi-crew é child-process, então session.steer no meio do turno ainda não está disponível.",
 		"steer.cancelHint": "Use team cancel runId={runId} se o agente precisar ser interrompido.",
-	},
+		"team.run.created": "Execução do pi-crew criada {runId}.",
+		"team.run.completed": "Execução do pi-crew {status}: {runId} ({team})",
+		"team.run.allCompleted": "Todas as tarefas foram concluídas com sucesso.",
+		"team.run.tasksFailed": "{count} tarefa(s) falharam: {ids}. Considere tentar novamente.",
+		"team.unknownAction": "Ação desconhecida: {action}",	},
 };
 
 // --- Runtime state ---

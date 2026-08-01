@@ -1,0 +1,11 @@
+# strip-types emits .js companions to every .ts file at runtime (tests/dev).
+# They are gitignored (never committed) but can exist locally; exclude from the
+# published package so we never ship stale compiled-by-strip-types artifacts.
+# NOTE: .d.ts files are hand-written type shims (e.g. src/types/diff.d.ts),
+# NOT strip-types output — they must be preserved (see clean-strip-types.mjs).
+src/**/*.js
+src/**/*.js.map
+
+# keep gitignored build/runtime cruft out of the tarball
+.crew/
+*.tgz

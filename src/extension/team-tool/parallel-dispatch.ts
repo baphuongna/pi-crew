@@ -12,7 +12,7 @@ import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";
 import { createRunManifest } from "../../state/state-store.ts";
-import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
+import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { discoverTeams } from "../../teams/discover-teams.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import { discoverWorkflows } from "../../workflows/discover-workflows.ts";

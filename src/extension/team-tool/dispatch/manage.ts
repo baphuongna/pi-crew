@@ -27,8 +27,37 @@ import {
 	handleWorkflowSave,
 } from "../workflow-manage.ts";
 
+/**
+ * Actions owned by the Manage domain. Single source of truth for the switch
+ * below AND for the runtime exhaustiveness test
+ * (test/unit/dispatch-exhaustive.test.ts). The compile-time `never` sentinel in
+ * the `default` branch errors if a ManageDomainAction is added here without a
+ * matching `case`.
+ */
+export const MANAGE_DOMAIN_ACTIONS = [
+	"create",
+	"update",
+	"delete",
+	"init",
+	"config",
+	"validate",
+	"autonomy",
+	"settings",
+	"workflow-create",
+	"workflow-get",
+	"workflow-list",
+	"workflow-save",
+	"workflow-delete",
+	"import",
+	"imports",
+	"export",
+] as const;
+type ManageDomainAction = (typeof MANAGE_DOMAIN_ACTIONS)[number];
+
 export async function handleManageDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
-	switch (params.action) {
+	// `domainForAction` routes only Manage-domain actions here, so narrowing is sound.
+	const action = params.action as ManageDomainAction;
+	switch (action) {
 		case "init": {
 			const cfg = configRecord(params.config);
 			const ignoreMethod =
@@ -151,11 +180,14 @@ export async function handleManageDomain(params: TeamToolParamsValue, ctx: TeamC
 			return handleWorkflowSave(params, ctx);
 		case "workflow-delete":
 			return handleWorkflowDelete(params, ctx);
-		default:
+		default: {
+			// Compile-time exhaustiveness: errors if a ManageDomainAction lacks a case above.
+			const _exhaustive: never = action;
 			return result(
 				`Unhandled manage-domain action: ${params.action}${formatActionSuggestion(String(params.action ?? ""))}`,
 				{ action: "unknown", status: "error" },
 				true,
 			);
+		}
 	}
 }

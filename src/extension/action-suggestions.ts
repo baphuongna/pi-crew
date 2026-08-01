@@ -7,75 +7,28 @@
  * (`src/config/suggestions.ts → suggestConfigKey`); this module applies it to
  * the known set of team actions.
  *
- * The known-action list mirrors the `action` enum in
- * `src/schema/team-tool-schema.ts`. Kept as a hand-maintained constant (not
- * derived from the TypeBox schema at runtime) so it is trivially testable and
- * avoids pulling the schema into low-level error paths.
+ * EXT-4/EXT-8: the known-action list is now derived from the single source of
+ * truth — `allActionLiterals` in `src/schema/team-tool-schema.ts` — so it can
+ * never drift from the schema's action enum. A drift test
+ * (`test/unit/action-list-single-source.test.ts`) guards against regression.
  */
 
+import { allActionLiterals } from "../schema/team-tool-schema.ts";
 import { findClosestKey } from "../config/suggestions.ts";
 
 /**
- * The complete set of valid top-level `team` actions (mirrors the action enum
- * in `src/schema/team-tool-schema.ts`). Exported so callers and tests can use
- * the single source of truth.
+ * The complete set of valid top-level `team` actions. EXT-4/EXT-8: derived from
+ * `allActionLiterals` (the schema's single source of truth), not hand-maintained.
+ * Each `allActionLiterals` entry is a `{ const: string }` produced by the domain
+ * `stringEnum` schemas; we map to the raw string for use with the fuzzy matcher.
+ *
+ * Sorted by (length desc, then alphabetical) so `findClosestKey` tie-breaking
+ * is deterministic and prefers longer (more specific) matches on equal
+ * Levenshtein distance — e.g. "cancle" → "cancel" over "cache".
  */
-export const KNOWN_TEAM_ACTIONS = [
-	"run",
-	"parallel",
-	"plan",
-	"status",
-	"wait",
-	"list",
-	"get",
-	"cancel",
-	"retry",
-	"resume",
-	"respond",
-	"create",
-	"update",
-	"delete",
-	"doctor",
-	"cleanup",
-	"events",
-	"artifacts",
-	"worktrees",
-	"forget",
-	"summary",
-	"prune",
-	"export",
-	"import",
-	"imports",
-	"help",
-	"validate",
-	"config",
-	"init",
-	"recommend",
-	"autonomy",
-	"api",
-	"settings",
-	"steer",
-	"invalidate",
-	"health",
-	"graph",
-	"onboard",
-	"explain",
-	"cache",
-	"checkpoint",
-	"search",
-	"orchestrate",
-	"schedule",
-	"scheduled",
-	"anchor",
-	"auto-summarize",
-	"auto_boomerang",
-	"goal",
-	"workflow-create",
-	"workflow-get",
-	"workflow-list",
-	"workflow-save",
-	"workflow-delete",
-] as const;
+export const KNOWN_TEAM_ACTIONS: readonly string[] = allActionLiterals
+	.map((l) => (l as { const: string }).const)
+	.sort((a, b) => b.length - a.length || a.localeCompare(b));
 
 /**
  * Suggest the closest known team action for a (likely typo'd) input.

@@ -20,8 +20,30 @@ import { handleOrchestrate } from "../orchestrate.ts";
 import { handleParallel } from "../parallel-dispatch.ts";
 import { handlePlan } from "../plan.ts";
 
+/**
+ * Actions owned by the Run domain. Single source of truth for the switch
+ * below AND for the runtime exhaustiveness test
+ * (test/unit/dispatch-exhaustive.test.ts). The compile-time `never` sentinel in
+ * the `default` branch errors if a RunDomainAction is added here without a
+ * matching `case`.
+ */
+export const RUN_DOMAIN_ACTIONS = [
+	"run",
+	"parallel",
+	"plan",
+	"orchestrate",
+	"resume",
+	"retry",
+	"wait",
+	"steer",
+	"goal",
+] as const;
+type RunDomainAction = (typeof RUN_DOMAIN_ACTIONS)[number];
+
 export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
-	switch (params.action) {
+	// `domainForAction` routes only Run-domain actions here, so narrowing is sound.
+	const action = params.action as RunDomainAction;
+	switch (action) {
 		case "run":
 			return handleRun(params, ctx);
 		case "parallel":
@@ -40,7 +62,9 @@ export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamCont
 			return handleSteer(params, ctx);
 		case "goal":
 			return handleGoal(params, ctx);
-		default:
+		default: {
+			// Compile-time exhaustiveness: errors if a RunDomainAction lacks a case above.
+			const _exhaustive: never = action;
 			return result(
 				`Unhandled run-domain action: ${params.action}`,
 				{
@@ -49,5 +73,6 @@ export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamCont
 				},
 				true,
 			);
+		}
 	}
 }

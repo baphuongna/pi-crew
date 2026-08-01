@@ -20,7 +20,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { clearHooksScoped } from "../../hooks/registry.ts";
-import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
+import { terminateActiveChildPiProcesses } from "../../runtime/child-pi.ts";
 import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar-publisher.ts";
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

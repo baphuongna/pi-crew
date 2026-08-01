@@ -65,6 +65,7 @@ import {
 	handleStatusDomain,
 } from "./team-tool/dispatch/index.ts";
 import { RUN_NOT_FOUND_HINT } from "./team-tool/run-not-found.ts";
+import { t } from "../i18n.ts";
 
 export { handleApi } from "./team-tool/api.ts";
 export { handleRetry } from "./team-tool/cancel.ts";
@@ -640,7 +641,7 @@ export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamConte
 			return handleAutomateDomain(params, ctx);
 		default:
 			return result(
-				`Unknown action: ${action}${formatActionSuggestion(String(action))}`,
+				t("team.unknownAction", { action: String(action) }) + formatActionSuggestion(String(action)),
 				{ action: "unknown", status: "error" },
 				true,
 			);

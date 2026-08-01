@@ -33,7 +33,7 @@ import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
-import { terminateActiveChildPiProcesses } from "../../subagents/spawn.ts";
+import { terminateActiveChildPiProcesses } from "../../runtime/child-pi.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";
 import {

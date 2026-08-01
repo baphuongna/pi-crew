@@ -22,8 +22,20 @@ import {
 import { result, type TeamContext } from "../context.ts";
 import { handleListScheduled, handleSchedule } from "../handle-schedule.ts";
 
+/**
+ * Actions owned by the Automate domain. Single source of truth for the switch
+ * below AND for the runtime exhaustiveness test
+ * (test/unit/dispatch-exhaustive.test.ts). The compile-time `never` sentinel in
+ * the `default` branch errors if an AutomateDomainAction is added here without
+ * a matching `case`.
+ */
+export const AUTOMATE_DOMAIN_ACTIONS = ["schedule", "scheduled", "anchor", "auto-summarize", "auto_boomerang", "api"] as const;
+type AutomateDomainAction = (typeof AUTOMATE_DOMAIN_ACTIONS)[number];
+
 export async function handleAutomateDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
-	switch (params.action) {
+	// `domainForAction` routes only Automate-domain actions here, so narrowing is sound.
+	const action = params.action as AutomateDomainAction;
+	switch (action) {
 		case "api":
 			return handleApi(params, ctx);
 		case "schedule":
@@ -70,11 +82,14 @@ export async function handleAutomateDomain(params: TeamToolParamsValue, ctx: Tea
 					return handleAutoSummarizeStatus(params, ctx);
 			}
 		}
-		default:
+		default: {
+			// Compile-time exhaustiveness: errors if an AutomateDomainAction lacks a case above.
+			const _exhaustive: never = action;
 			return result(
 				`Unhandled automate-domain action: ${params.action}${formatActionSuggestion(String(params.action ?? ""))}`,
 				{ action: "unknown", status: "error" },
 				true,
 			);
+		}
 	}
 }

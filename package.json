@@ -29,10 +29,10 @@
     "orchestration"
   ],
   "files": [
-    "*.ts",
-    "*.mjs",
     "src/",
     "dist/index.mjs",
+    "index.ts",
+    "install.mjs",
     "agents/",
     "teams/",
     "workflows/",
@@ -129,10 +129,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
-    "@earendil-works/pi-agent-core": "^0.82.0",
-    "@earendil-works/pi-ai": "^0.82.0",
-    "@earendil-works/pi-coding-agent": "^0.82.0",
-    "@earendil-works/pi-tui": "^0.82.0",
+    "@earendil-works/pi-agent-core": "^0.83.0",
+    "@earendil-works/pi-ai": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.83.0",
     "@types/node": "^25.9.5",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"

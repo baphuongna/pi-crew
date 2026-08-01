@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadRunManifestById } from "../../state/state-store.ts";
-import { type SubagentRecord, type SubagentSpawnOptions, savePersistedSubagentRecord } from "../../subagents/manager.ts";
+import { type SubagentRecord, type SubagentSpawnOptions, savePersistedSubagentRecord } from "../../runtime/subagent-manager.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
 interface FollowUpCapablePi {

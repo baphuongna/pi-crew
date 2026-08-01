@@ -16,7 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { BatchBarrier } from "../../runtime/batch-barrier.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import type { CrewScheduler } from "../../runtime/scheduler.ts";
-import type { SubagentManager } from "../../subagents/manager.ts";
+import type { SubagentManager } from "../../runtime/subagent-manager.ts";
 import type { RenderScheduler } from "../../ui/render-scheduler.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
 import type { TerminalStatusController } from "../../ui/terminal-status.ts";

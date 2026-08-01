@@ -307,6 +307,21 @@ export const allActionLiterals = ([runActions, statusActions, controlActions, ma
 		(Array.isArray(set.enum) ? set.enum.map((v: unknown) => ({ const: v })) : []) ??
 		[],
 );
+
+/**
+ * EXT-8: Single source of truth for the valid `action` type. Derived from the
+ * domain action arrays (the same arrays `allActionLiterals` reads), so the
+ * `TeamToolParamsValue.action` interface field, schema enum, and suggestions
+ * can never drift apart. Adding/removing an action in any `*_ACTIONS` array
+ * propagates to every consumer automatically.
+ */
+export type TeamAction =
+	| (typeof RUN_ACTIONS)[number]
+	| (typeof STATUS_ACTIONS)[number]
+	| (typeof CONTROL_ACTIONS)[number]
+	| (typeof MANAGE_ACTIONS)[number]
+	| (typeof AUTOMATE_ACTIONS)[number];
+
 export const TeamToolParams = Type.Object(
 	{
 		action: Type.Optional(
@@ -321,61 +336,7 @@ export const TeamToolParams = Type.Object(
 export type TeamDomain = "run" | "status" | "control" | "manage" | "automate";
 
 export interface TeamToolParamsValue {
-	action?:
-		| "run"
-		| "parallel"
-		| "plan"
-		| "status"
-		| "wait"
-		| "list"
-		| "get"
-		| "cancel"
-		| "retry"
-		| "resume"
-		| "respond"
-		| "create"
-		| "update"
-		| "delete"
-		| "doctor"
-		| "cleanup"
-		| "events"
-		| "artifacts"
-		| "worktrees"
-		| "forget"
-		| "summary"
-		| "prune"
-		| "export"
-		| "import"
-		| "imports"
-		| "help"
-		| "validate"
-		| "config"
-		| "init"
-		| "recommend"
-		| "autonomy"
-		| "api"
-		| "settings"
-		| "steer"
-		| "invalidate"
-		| "health"
-		| "graph"
-		| "onboard"
-		| "explain"
-		| "cache"
-		| "checkpoint"
-		| "search"
-		| "orchestrate"
-		| "schedule"
-		| "scheduled"
-		| "anchor"
-		| "auto-summarize"
-		| "auto_boomerang"
-		| "goal"
-		| "workflow-create"
-		| "workflow-get"
-		| "workflow-list"
-		| "workflow-save"
-		| "workflow-delete";
+	action?: TeamAction;
 	resource?: "agent" | "team" | "workflow";
 	team?: string;
 	workflow?: string;

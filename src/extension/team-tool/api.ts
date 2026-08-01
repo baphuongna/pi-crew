@@ -28,7 +28,7 @@ import {
 } from "../../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
-import { appendLiveAgentControlRequest } from "../../subagents/live/control.ts";
+import { appendLiveAgentControlRequest } from "../../runtime/live-agent-control.ts";
 import {
 	followUpLiveAgent,
 	getLiveAgent,
@@ -36,9 +36,9 @@ import {
 	resumeLiveAgent,
 	steerLiveAgent,
 	stopLiveAgent,
-} from "../../subagents/live/manager.ts";
-import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../subagents/live/realtime.ts";
-import { probeLiveSessionRuntime } from "../../subagents/live/session-runtime.ts";
+} from "../../runtime/live-agent-manager.ts";
+import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-control-realtime.ts";
+import { probeLiveSessionRuntime } from "../../runtime/live-session-runtime.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { locateRunCwd } from "../team-tool.ts";

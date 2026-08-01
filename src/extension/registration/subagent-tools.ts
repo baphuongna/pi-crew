@@ -32,7 +32,7 @@ import {
 	type SubagentManager,
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
-} from "../../subagents/manager.ts";
+} from "../../runtime/subagent-manager.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { agentToolRenderer } from "../../ui/tool-renderers/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

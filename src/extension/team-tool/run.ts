@@ -34,7 +34,7 @@ import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtim
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import type { RunMetrics } from "../../state/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
-import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
+import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 
 /**
  * Module-scoped latch for the crew-init dynamic import.
@@ -80,6 +80,7 @@ import { collectRunMetrics } from "../../state/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
+import { t } from "../../i18n.ts";
 import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
 import { resolveRunDeadline } from "./run-deadline.ts";
 
@@ -257,7 +258,7 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 					? "Experimental live-session worker execution was enabled."
 					: "Safe scaffold mode: child Pi workers were not launched because runtime.mode=scaffold or executeWorkers=false was configured.";
 		const text = [
-			`Created pi-crew run ${manifest.runId}.`,
+			t("team.run.created", { runId: manifest.runId }),
 			`Team: ${team}`,
 			`Workflow: ${workflow}`,
 			`Status: ${manifest.status}`,
@@ -286,7 +287,7 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 	}
 
 	// mode === "waited" — detailed per-task summary.
-	const lines: string[] = [`pi-crew run ${manifest.status}: ${manifest.runId} (${team})`, `Goal: ${goal.slice(0, 100)}`];
+	const lines: string[] = [t("team.run.completed", { status: manifest.status, runId: manifest.runId, team }), `Goal: ${goal.slice(0, 100)}`];
 	if (metrics) {
 		lines.push("");
 		lines.push(
@@ -347,10 +348,10 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 
 		if (failedCount === 0) {
 			lines.push("");
-			lines.push("All tasks completed successfully.");
+			lines.push(t("team.run.allCompleted"));
 		} else {
 			lines.push("");
-			lines.push(`${failedCount} task(s) failed: ${failedIds.join(", ")}. Consider retrying.`);
+			lines.push(t("team.run.tasksFailed", { count: failedCount, ids: failedIds.join(", ") }));
 		}
 	} else {
 		lines.push(

@@ -32,8 +32,37 @@ import { handleArtifacts, handleEvents, handleSummary } from "../inspect.ts";
 import { handleWorktrees } from "../lifecycle-actions.ts";
 import { handleStatus } from "../status.ts";
 
+/**
+ * Actions owned by the Status domain. Single source of truth for the switch
+ * below AND for the runtime exhaustiveness test
+ * (test/unit/dispatch-exhaustive.test.ts). The compile-time `never` sentinel in
+ * the `default` branch errors if a StatusDomainAction is added here without a
+ * matching `case`.
+ */
+export const STATUS_DOMAIN_ACTIONS = [
+	"status",
+	"list",
+	"get",
+	"events",
+	"artifacts",
+	"summary",
+	"graph",
+	"search",
+	"health",
+	"worktrees",
+	"checkpoint",
+	"cache",
+	"explain",
+	"onboard",
+	"recommend",
+	"help",
+] as const;
+type StatusDomainAction = (typeof STATUS_DOMAIN_ACTIONS)[number];
+
 export async function handleStatusDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
-	switch (params.action) {
+	// `domainForAction` routes only Status-domain actions here, so narrowing is sound.
+	const action = params.action as StatusDomainAction;
+	switch (action) {
 		case "list":
 			return handleList(params, ctx);
 		case "get":
@@ -177,11 +206,14 @@ export async function handleStatusDomain(params: TeamToolParamsValue, ctx: TeamC
 				{ action: "checkpoint", status: "ok", data: { checkpoint } },
 			);
 		}
-		default:
+		default: {
+			// Compile-time exhaustiveness: errors if a StatusDomainAction lacks a case above.
+			const _exhaustive: never = action;
 			return result(
 				`Unhandled status-domain action: ${params.action}${formatActionSuggestion(String(params.action ?? ""))}`,
 				{ action: "unknown", status: "error" },
 				true,
 			);
+		}
 	}
 }
