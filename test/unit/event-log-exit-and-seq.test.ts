@@ -18,7 +18,7 @@ import {
 test("flushBufferedQueuesSync writes buffered events synchronously and persists the sidecar (EL-2 regression)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el2-sync-"));
 	const eventsPath = path.join(dir, "events.jsonl");
-	const keepAlive = setInterval(() => {}, 50);
+	const keepAlive = setInterval(() => undefined, 50);
 	try {
 		// Queue 5 buffered events. appendEventBuffered returns a Promise that
 		// resolves when the buffer flushes (or immediately for terminal events).

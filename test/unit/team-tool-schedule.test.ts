@@ -203,7 +203,7 @@ describe("handleListScheduled", () => {
 		const tmp = createTrackedTempDir("sched-list-");
 		try {
 			const emptyScheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
@@ -238,7 +238,7 @@ describe("handleListScheduled", () => {
 				},
 			];
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => jobs,
 				remove: () => false,
 				update: () => undefined,
@@ -265,7 +265,7 @@ describe("handleRemoveScheduled", () => {
 		try {
 			let removedId: string | undefined;
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: (id: string) => {
 					removedId = id;
@@ -291,7 +291,7 @@ describe("handleRemoveScheduled", () => {
 		const tmp = createTrackedTempDir("sched-remove-");
 		try {
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
@@ -312,7 +312,7 @@ describe("handleRemoveScheduled", () => {
 		const tmp = createTrackedTempDir("sched-remove-");
 		try {
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
@@ -336,7 +336,7 @@ describe("handleUpdateScheduled", () => {
 		try {
 			let updatedPatch: unknown;
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: (_id: string, patch: unknown) => {
@@ -374,7 +374,7 @@ describe("handleUpdateScheduled", () => {
 		const tmp = createTrackedTempDir("sched-update-");
 		try {
 			const scheduler = {
-				add: () => {},
+				add: () => undefined,
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,

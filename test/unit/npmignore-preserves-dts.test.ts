@@ -18,7 +18,7 @@ const NPMIGNORE_PATH = join(ROOT, ".npmignore");
 
 // Inline `resolve` to avoid an extra import only for one call.
 function resolve(...parts: string[]): string {
-	let p = parts.join(sep);
+	const p = parts.join(sep);
 	return p;
 }
 
@@ -34,7 +34,7 @@ interface IgnoreRule {
  * Mirrors the semantics npm-packlist uses for `.npmignore`.
  */
 function globToRegExp(pattern: string): RegExp {
-	let p = pattern.replace(/^\//, "");
+	const p = pattern.replace(/^\//, "");
 	let re = "^";
 	for (let i = 0; i < p.length; i++) {
 		const c = p[i];

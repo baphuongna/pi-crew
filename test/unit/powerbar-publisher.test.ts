@@ -241,7 +241,7 @@ test("powerbar skips status fallback when a powerbar consumer is registered", ()
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const bus = {
-			emit: () => {},
+			emit: () => undefined,
 			listenerCount: (event: string) => (event === "powerbar:update" ? 1 : 0),
 		};
 		const statuses: Array<{ key: string; text: string | undefined }> = [];

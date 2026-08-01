@@ -23,10 +23,10 @@ import {
 
 function makeSession() {
 	return {
-		steer: async () => {},
-		prompt: async () => {},
-		abort: async () => {},
-		dispose: () => {},
+		steer: async () => undefined,
+		prompt: async () => undefined,
+		abort: async () => undefined,
+		dispose: () => undefined,
 		getSessionStats: () => ({ contextUsage: { percent: 42 } }),
 	};
 }

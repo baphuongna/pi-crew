@@ -82,7 +82,7 @@ test("process.on SIGTERM/SIGHUP listeners are registered only once (no stacking)
 	// should guard against re-registration with a module-level flag.
 	// We test indirectly: after we add a listener, calling registerCleanupHandler
 	// should not increase the count.
-	const fakeApi = { on: () => {} } as never;
+	const fakeApi = { on: () => undefined } as never;
 	for (let i = 0; i < 5; i++) {
 		registerCleanupHandler(fakeApi);
 	}

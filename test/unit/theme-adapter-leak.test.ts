@@ -60,7 +60,7 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 			},
 		};
 
-		const unsub = subscribeThemeChange(theme, () => {});
+		const unsub = subscribeThemeChange(theme, () => undefined);
 		assert.equal(active.length, 1, "listener registered on subscribe");
 		assert.equal(active[0][0], "change", "registered for the 'change' event");
 
@@ -85,7 +85,7 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 			},
 		};
 
-		const unsub = subscribeThemeChange(theme, () => {});
+		const unsub = subscribeThemeChange(theme, () => undefined);
 		const registered = theme._listeners[0][1];
 		unsub();
 
@@ -95,14 +95,14 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 
 	it("UI-11: event-driven theme does NOT spawn a polling interval", () => {
 		const theme = {
-			addEventListener(): void {},
-			removeEventListener(): void {},
+			addEventListener(): void { /* no-op */ },
+			removeEventListener(): void { /* no-op */ },
 			getColorMode(): string {
 				return "dark";
 			},
 		};
 
-		const unsub = subscribeThemeChange(theme, () => {});
+		const unsub = subscribeThemeChange(theme, () => undefined);
 		assert.equal(createdTimers.length, 0, "no polling interval for event-driven theme (UI-11)");
 		unsub();
 	});
@@ -114,7 +114,7 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 			},
 		};
 
-		const unsub = subscribeThemeChange(theme, () => {});
+		const unsub = subscribeThemeChange(theme, () => undefined);
 		assert.equal(createdTimers.length, 1, "polling fallback created exactly one interval");
 
 		unsub();
@@ -138,7 +138,7 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 			},
 		};
 
-		const unsub = subscribeThemeChange(theme, () => {});
+		const unsub = subscribeThemeChange(theme, () => undefined);
 		assert.equal(createdTimers.length, 0, "on/off API used instead of polling (UI-11)");
 		assert.equal(listeners.length, 1, "on() registered a listener");
 

@@ -10,7 +10,7 @@ function createMockEventBus(): {
 	const bus: EventBus = {
 		on(event: string, handler: (data: unknown) => void) {
 			// No-op for this test
-			return () => {};
+			return () => undefined;
 		},
 		emit(event: string, data: unknown) {
 			emitted.push({ event, data });

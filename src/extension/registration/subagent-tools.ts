@@ -418,7 +418,7 @@ export function registerSubagentTools(
 }
 
 function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: OnUpdate | undefined, manager: SubagentManager): () => void {
-	if (!onUpdate) return () => {};
+	if (!onUpdate) return () => undefined;
 	const startedAt = Date.now();
 	const tick = (): void => {
 		try {

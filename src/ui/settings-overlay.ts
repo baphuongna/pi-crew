@@ -442,7 +442,7 @@ class SelectSubmenu {
 		this.scrollOffset = Math.max(0, this.selectedIndex - Math.floor(this.maxVisible / 2));
 	}
 
-	invalidate(): void {}
+	invalidate(): void { /* no-op */ }
 
 	private ensureVisible(): void {
 		if (this.selectedIndex < this.scrollOffset) {
@@ -535,7 +535,7 @@ class TextinputSubmenu {
 		this.onCancel = onCancel;
 	}
 
-	invalidate(): void {}
+	invalidate(): void { /* no-op */ }
 
 	render(width: number): string[] {
 		const lines: string[] = [];
@@ -585,7 +585,6 @@ class AgentOverridesSubmenu {
 	private selectedIndex = 0;
 	private editField: "model" | "thinking" | null = null;
 	private editBuffer = "";
-	private readonly onApply: (overrides: Record<string, unknown>) => void;
 	private readonly onCancel: () => void;
 
 	constructor(
@@ -595,7 +594,6 @@ class AgentOverridesSubmenu {
 		onCancel: () => void,
 	) {
 		this.theme = theme;
-		this.onApply = onApply;
 		this.onCancel = onCancel;
 		const existing = (config.agents as Record<string, unknown>)?.overrides as
 			| Record<string, { model?: string; thinking?: string }>
@@ -616,7 +614,7 @@ class AgentOverridesSubmenu {
 		];
 	}
 
-	invalidate(): void {}
+	invalidate(): void { /* no-op */ }
 
 	render(width: number): string[] {
 		if (this.editField) return this.renderEdit(width);
@@ -741,7 +739,6 @@ class SettingsOverlay {
 	private scrollOffset = 0;
 	private maxVisible = 10;
 	private submenu: SelectSubmenu | TextinputSubmenu | AgentOverridesSubmenu | null = null;
-	private submenuSettingId: string | null = null;
 	private changedValues = new Map<string, unknown>();
 
 	constructor(config: Record<string, unknown>, theme: CrewTheme, callbacks: SettingsOverlayCallbacks) {
@@ -929,7 +926,6 @@ class SettingsOverlay {
 			}
 			case "enum": {
 				if (!def.values?.length) return;
-				this.submenuSettingId = def.id;
 				this.submenu = new SelectSubmenu(
 					def.label,
 					def.description ?? "",
@@ -940,17 +936,14 @@ class SettingsOverlay {
 						this.changedValues.set(def.id, value);
 						this.callbacks.onChange(def.id, value);
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 					() => {
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 				);
 				break;
 			}
 			case "number": {
-				this.submenuSettingId = def.id;
 				this.submenu = new TextinputSubmenu(
 					def.label,
 					def.description ?? "",
@@ -966,17 +959,14 @@ class SettingsOverlay {
 							this.callbacks.onChange(def.id, undefined);
 						}
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 					() => {
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 				);
 				break;
 			}
 			case "string": {
-				this.submenuSettingId = def.id;
 				this.submenu = new TextinputSubmenu(
 					def.label,
 					def.description ?? "",
@@ -986,11 +976,9 @@ class SettingsOverlay {
 						this.changedValues.set(def.id, value || undefined);
 						this.callbacks.onChange(def.id, value || undefined);
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 					() => {
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 				);
 				break;
@@ -1003,11 +991,9 @@ class SettingsOverlay {
 						this.changedValues.set("agents.overrides", overrides);
 						this.callbacks.onChange("agents.overrides", overrides);
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 					() => {
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 				);
 				break;
@@ -1018,7 +1004,6 @@ class SettingsOverlay {
 					typeof this.changedValues.get(def.id) === "string"
 						? (this.changedValues.get(def.id) as string)
 						: ((currentValueFor(this.config, def.id) as string | undefined) ?? "");
-				this.submenuSettingId = def.id;
 				this.submenu = new SelectSubmenu(
 					def.label,
 					def.description ?? "",
@@ -1029,11 +1014,9 @@ class SettingsOverlay {
 						this.changedValues.set(def.id, value);
 						this.callbacks.onAction?.(def.action!, value);
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 					() => {
 						this.submenu = null;
-						this.submenuSettingId = null;
 					},
 				);
 				break;

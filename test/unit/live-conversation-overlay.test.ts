@@ -107,7 +107,7 @@ test("session.subscribe events append text/content lines and ignore empty/non-te
 	const session = {
 		subscribe(fn: (event: unknown) => void): () => void {
 			cb = fn;
-			return () => {};
+			return () => undefined;
 		},
 	};
 	const overlay = new LiveConversationOverlay(makeHandle({ session }), theme, 80, 24);
@@ -165,7 +165,7 @@ test("cached lines are capped at MAX_CACHED_LINES (oldest dropped first)", () =>
 	const session = {
 		subscribe(fn: (event: unknown) => void): () => void {
 			cb = fn;
-			return () => {};
+			return () => undefined;
 		},
 	};
 	const overlay = new LiveConversationOverlay(makeHandle({ session }), theme, 80, 24);

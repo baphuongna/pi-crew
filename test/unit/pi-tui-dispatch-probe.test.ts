@@ -17,7 +17,7 @@ import { RunDashboard } from "../../src/ui/run-dashboard.ts";
 describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 	it("isFocusable accepts a RunDashboard instance now that we declare `focused`", () => {
 		const runs: never[] = [];
-		const dashboard = new RunDashboard(runs, () => {}, {} as never, {
+		const dashboard = new RunDashboard(runs, () => undefined, {} as never, {
 			placement: "center",
 			showModel: false,
 			showTokens: false,
@@ -76,7 +76,7 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 			render() {
 				return [];
 			},
-			invalidate() {},
+			invalidate() { /* no-op */ },
 		};
 		assert.equal(piTui.isFocusable(obj), false);
 	});

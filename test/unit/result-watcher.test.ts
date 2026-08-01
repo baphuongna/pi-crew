@@ -62,7 +62,7 @@ test("result watcher does not restart when generation is stale", async () => {
 	let watchCalls = 0;
 	let current = true;
 	try {
-		const watcher = createResultWatcher({ emit: () => {} }, dir, {
+		const watcher = createResultWatcher({ emit: () => undefined }, dir, {
 			isCurrent: () => current,
 			watch: (_resultsDir, _listener, onError) => {
 				watchCalls += 1;

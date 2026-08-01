@@ -153,7 +153,7 @@ test("DurableTranscriptViewer renders transcript overlay and scroll controls", (
 				fg: (_color: string, value: string) => value,
 				bold: (value: string) => value,
 			} as never,
-			() => {},
+			() => undefined,
 		);
 		assert.ok(resultViewer.render(80).some((line) => line.includes("result hello")));
 	} finally {

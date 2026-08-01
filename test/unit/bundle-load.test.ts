@@ -37,15 +37,15 @@ test("default export is callable with a minimal fake Pi API", async () => {
 		on: (event: string, fn: (...args: unknown[]) => void) => {
 			handlers.push({ event, fn });
 		},
-		registerTool: () => {},
-		registerCommand: () => {},
+		registerTool: () => undefined,
+		registerCommand: () => undefined,
 		events: {
-			on: () => {},
-			emit: () => {},
+			on: () => undefined,
+			emit: () => undefined,
 		},
 		getSessionName: () => undefined,
-		setSessionName: () => {},
-		appendEntry: () => {},
+		setSessionName: () => undefined,
+		appendEntry: () => undefined,
 	};
 	assert.doesNotThrow(() => mod.default(fakePi));
 });

@@ -97,7 +97,7 @@ test("crewHooks duplicate registration is idempotent", () => {
 
 test("crewHooks unregister of non-existent hook is a no-op", () => {
 	// Should not throw
-	crewHooks.unregister("run_completed", () => {});
+	crewHooks.unregister("run_completed", () => undefined);
 });
 
 test("crewHooks emits to multiple subscribers", () => {

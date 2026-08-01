@@ -197,7 +197,7 @@ export class OwnedProcess {
 		}
 	}
 
-	private deregisterFn: () => void = () => {};
+	private deregisterFn: () => void = () => undefined;
 
 	/** `true` once `dispose()` has started. */
 	get isDisposed(): boolean {

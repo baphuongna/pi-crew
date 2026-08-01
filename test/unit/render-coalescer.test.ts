@@ -86,7 +86,7 @@ test("RenderCoalescer — dispose() prevents callback from firing", async () => 
 });
 
 test("RenderCoalescer — pending property reflects state", async () => {
-	const coalescer = new RenderCoalescer(() => {}, 15);
+	const coalescer = new RenderCoalescer(() => undefined, 15);
 	assert.equal(coalescer.pending, false);
 	coalescer.request();
 	assert.equal(coalescer.pending, true);

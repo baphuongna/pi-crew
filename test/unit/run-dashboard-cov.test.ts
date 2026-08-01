@@ -26,7 +26,7 @@ function makeRun(id: string, status: TeamRunManifest["status"] = "running", over
 
 describe("RunDashboard constructor", () => {
 	it("creates dashboard with empty runs", () => {
-		const dashboard = new RunDashboard([], () => {});
+		const dashboard = new RunDashboard([], () => undefined);
 		const lines = dashboard.render(80);
 		assert.ok(lines.some((l) => l.includes("No runs")));
 		dashboard.dispose();
@@ -38,7 +38,7 @@ describe("RunDashboard constructor", () => {
 			makeRun("ws-run-2", "running", { ownerSessionId: "ws-2" }),
 			makeRun("legacy-run", "completed"),
 		];
-		const dashboard = new RunDashboard(runs, () => {}, {}, { workspaceId: "ws-1" });
+		const dashboard = new RunDashboard(runs, () => undefined, {}, { workspaceId: "ws-1" });
 		const lines = dashboard.render(80);
 		assert.ok(lines.some((l) => l.includes("ws-run-1")));
 		// Should not show ws-run-2 (different workspace)
@@ -49,7 +49,7 @@ describe("RunDashboard constructor", () => {
 
 describe("RunDashboard render", () => {
 	it("renders run list with status icons", () => {
-		const dashboard = new RunDashboard([makeRun("render-1", "completed"), makeRun("render-2", "failed")], () => {});
+		const dashboard = new RunDashboard([makeRun("render-1", "completed"), makeRun("render-2", "failed")], () => undefined);
 		const lines = dashboard.render(80);
 		assert.ok(lines.some((l) => l.includes("2 runs")));
 		assert.ok(lines.some((l) => l.includes("render-1")));
@@ -59,7 +59,7 @@ describe("RunDashboard render", () => {
 
 	it("caches rendering output for same width and state", () => {
 		let renderCount = 0;
-		const dashboard = new RunDashboard([makeRun("cache-run", "completed")], () => {});
+		const dashboard = new RunDashboard([makeRun("cache-run", "completed")], () => undefined);
 		const lines1 = dashboard.render(80);
 		renderCount++;
 		const lines2 = dashboard.render(80);
@@ -68,7 +68,7 @@ describe("RunDashboard render", () => {
 	});
 
 	it("handles zero width gracefully", () => {
-		const dashboard = new RunDashboard([makeRun("zero-w", "running")], () => {});
+		const dashboard = new RunDashboard([makeRun("zero-w", "running")], () => undefined);
 		// Should not throw even with very small width
 		const lines = dashboard.render(0);
 		assert.ok(Array.isArray(lines));
@@ -118,7 +118,7 @@ describe("RunDashboard handleInput", () => {
 	});
 
 	it("switches to progress pane on key 2", () => {
-		const dashboard = new RunDashboard([makeRun("pane-prog")], () => {});
+		const dashboard = new RunDashboard([makeRun("pane-prog")], () => undefined);
 		dashboard.handleInput("2");
 		// Should not throw on subsequent render
 		const lines = dashboard.render(80);
@@ -127,7 +127,7 @@ describe("RunDashboard handleInput", () => {
 	});
 
 	it("switches to mailbox pane on key 3", () => {
-		const dashboard = new RunDashboard([makeRun("pane-mail")], () => {});
+		const dashboard = new RunDashboard([makeRun("pane-mail")], () => undefined);
 		dashboard.handleInput("3");
 		const lines = dashboard.render(80);
 		assert.ok(Array.isArray(lines));
@@ -135,7 +135,7 @@ describe("RunDashboard handleInput", () => {
 	});
 
 	it("switches to output pane on key 4", () => {
-		const dashboard = new RunDashboard([makeRun("pane-out")], () => {});
+		const dashboard = new RunDashboard([makeRun("pane-out")], () => undefined);
 		dashboard.handleInput("4");
 		const lines = dashboard.render(80);
 		assert.ok(Array.isArray(lines));
@@ -143,7 +143,7 @@ describe("RunDashboard handleInput", () => {
 	});
 
 	it("switches to health pane on key 5", () => {
-		const dashboard = new RunDashboard([makeRun("pane-hp")], () => {});
+		const dashboard = new RunDashboard([makeRun("pane-hp")], () => undefined);
 		dashboard.handleInput("5");
 		const lines = dashboard.render(80);
 		assert.ok(Array.isArray(lines));
@@ -151,7 +151,7 @@ describe("RunDashboard handleInput", () => {
 	});
 
 	it("switches to agents pane on key 1", () => {
-		const dashboard = new RunDashboard([makeRun("pane-ag")], () => {});
+		const dashboard = new RunDashboard([makeRun("pane-ag")], () => undefined);
 		dashboard.handleInput("3"); // switch away first
 		dashboard.handleInput("1"); // back to agents
 		const lines = dashboard.render(80);
@@ -199,7 +199,7 @@ describe("RunDashboard with runProvider", () => {
 		const initial = [makeRun("provider-1", "running")];
 		const dashboard = new RunDashboard(
 			initial,
-			() => {},
+			() => undefined,
 			{},
 			{
 				runProvider: () => {
@@ -238,7 +238,7 @@ describe("RunDashboard with runProvider", () => {
 
 describe("RunDashboard dispose", () => {
 	it("dispose is idempotent", () => {
-		const dashboard = new RunDashboard([makeRun("disp")], () => {});
+		const dashboard = new RunDashboard([makeRun("disp")], () => undefined);
 		dashboard.dispose();
 		dashboard.dispose();
 	});

@@ -13,25 +13,25 @@ describe("createFileCoalescer", () => {
 				handler();
 				return 1;
 			},
-			clearTimeout: () => {},
+			clearTimeout: () => undefined,
 		});
 		coalescer.schedule("test.txt");
 		assert.deepEqual(calls, ["test.txt"]);
 	});
 
 	it("returns true for new file schedule", () => {
-		const coalescer = createFileCoalescer(() => {}, 1000, {
+		const coalescer = createFileCoalescer(() => undefined, 1000, {
 			setTimeout: () => 1,
-			clearTimeout: () => {},
+			clearTimeout: () => undefined,
 		});
 		const result = coalescer.schedule("a.txt");
 		assert.equal(result, true);
 	});
 
 	it("returns false for already-scheduled file", () => {
-		const coalescer = createFileCoalescer(() => {}, 1000, {
+		const coalescer = createFileCoalescer(() => undefined, 1000, {
 			setTimeout: () => 1,
-			clearTimeout: () => {},
+			clearTimeout: () => undefined,
 		});
 		coalescer.schedule("a.txt");
 		const result = coalescer.schedule("a.txt");
@@ -46,7 +46,7 @@ describe("createFileCoalescer", () => {
 				timers.push(handler);
 				return timers.length;
 			},
-			clearTimeout: () => {},
+			clearTimeout: () => undefined,
 		});
 		coalescer.schedule("a.txt");
 		// Fire the first timer manually (simulates delay elapsing)
@@ -58,7 +58,7 @@ describe("createFileCoalescer", () => {
 
 	it("clear() cancels all pending timers", () => {
 		let cleared = 0;
-		const coalescer = createFileCoalescer(() => {}, 10000, {
+		const coalescer = createFileCoalescer(() => undefined, 10000, {
 			setTimeout: () => Symbol("timer"),
 			clearTimeout: () => {
 				cleared++;

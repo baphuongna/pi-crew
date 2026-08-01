@@ -42,7 +42,7 @@ describe("RunWatcherRegistry — lifecycle", () => {
 
 	it("addRunWatcher increments size and hasWatcher reports true", () => {
 		const dir = makeRunDir(root, "run_a");
-		const ok = reg.addRunWatcher("run_a", dir, () => {});
+		const ok = reg.addRunWatcher("run_a", dir, () => undefined);
 		assert.equal(ok, true);
 		assert.equal(reg.size, 1);
 		assert.equal(reg.hasWatcher("run_a"), true);
@@ -51,15 +51,15 @@ describe("RunWatcherRegistry — lifecycle", () => {
 
 	it("addRunWatcher replaces an existing watcher (no size leak)", () => {
 		const dir = makeRunDir(root, "run_a");
-		reg.addRunWatcher("run_a", dir, () => {});
+		reg.addRunWatcher("run_a", dir, () => undefined);
 		assert.equal(reg.size, 1);
-		reg.addRunWatcher("run_a", dir, () => {});
+		reg.addRunWatcher("run_a", dir, () => undefined);
 		assert.equal(reg.size, 1); // replaced, not duplicated
 	});
 
 	it("removeRunWatcher decrements size and is a no-op when absent", () => {
 		const dir = makeRunDir(root, "run_a");
-		reg.addRunWatcher("run_a", dir, () => {});
+		reg.addRunWatcher("run_a", dir, () => undefined);
 		reg.removeRunWatcher("run_a");
 		assert.equal(reg.size, 0);
 		assert.equal(reg.hasWatcher("run_a"), false);
@@ -71,8 +71,8 @@ describe("RunWatcherRegistry — lifecycle", () => {
 	it("closeAll clears everything and is idempotent", () => {
 		makeRunDir(root, "run_a");
 		makeRunDir(root, "run_b");
-		reg.addRunWatcher("run_a", path.join(root, "runs", "run_a"), () => {});
-		reg.addRunWatcher("run_b", path.join(root, "runs", "run_b"), () => {});
+		reg.addRunWatcher("run_a", path.join(root, "runs", "run_a"), () => undefined);
+		reg.addRunWatcher("run_b", path.join(root, "runs", "run_b"), () => undefined);
 		reg.closeAll();
 		assert.equal(reg.size, 0);
 		reg.closeAll(); // idempotent
@@ -82,7 +82,7 @@ describe("RunWatcherRegistry — lifecycle", () => {
 	it("addRunWatcher after closeAll is a no-op", () => {
 		reg.closeAll();
 		const dir = makeRunDir(root, "run_a");
-		const ok = reg.addRunWatcher("run_a", dir, () => {});
+		const ok = reg.addRunWatcher("run_a", dir, () => undefined);
 		assert.equal(ok, false);
 		assert.equal(reg.size, 0);
 	});
@@ -109,7 +109,7 @@ describe("RunWatcherRegistry — reconcile", () => {
 				{ runId: "run_a", runDir: a },
 				{ runId: "run_b", runDir: b },
 			],
-			() => {},
+			() => undefined,
 		);
 		assert.deepEqual(res.added.sort(), ["run_a", "run_b"]);
 		assert.deepEqual(res.removed, []);
@@ -124,10 +124,10 @@ describe("RunWatcherRegistry — reconcile", () => {
 				{ runId: "run_a", runDir: a },
 				{ runId: "run_b", runDir: b },
 			],
-			() => {},
+			() => undefined,
 		);
 		// run_b completes → leaves active set
-		const res = reg.reconcile([{ runId: "run_a", runDir: a }], () => {});
+		const res = reg.reconcile([{ runId: "run_a", runDir: a }], () => undefined);
 		assert.deepEqual(res.added, []);
 		assert.deepEqual(res.removed, ["run_b"]);
 		assert.equal(reg.size, 1);
@@ -136,8 +136,8 @@ describe("RunWatcherRegistry — reconcile", () => {
 
 	it("reconcile is idempotent when the active set is unchanged", () => {
 		const a = makeRunDir(root, "run_a");
-		reg.reconcile([{ runId: "run_a", runDir: a }], () => {});
-		const res = reg.reconcile([{ runId: "run_a", runDir: a }], () => {});
+		reg.reconcile([{ runId: "run_a", runDir: a }], () => undefined);
+		const res = reg.reconcile([{ runId: "run_a", runDir: a }], () => undefined);
 		assert.deepEqual(res.added, []);
 		assert.deepEqual(res.removed, []);
 		assert.equal(reg.size, 1);
@@ -145,8 +145,8 @@ describe("RunWatcherRegistry — reconcile", () => {
 
 	it("reconcile with empty active set removes all watchers", () => {
 		const a = makeRunDir(root, "run_a");
-		reg.reconcile([{ runId: "run_a", runDir: a }], () => {});
-		const res = reg.reconcile([], () => {});
+		reg.reconcile([{ runId: "run_a", runDir: a }], () => undefined);
+		const res = reg.reconcile([], () => undefined);
 		assert.deepEqual(res.removed, ["run_a"]);
 		assert.equal(reg.size, 0);
 	});

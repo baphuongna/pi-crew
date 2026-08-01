@@ -362,7 +362,7 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// already .unref()'d so it never blocks event-loop exit; errors are
 	// swallowed because teardown failures during shutdown are harmless.
 	pi.on("session_shutdown", () => {
-		void brokerHandle.close().catch(() => {});
+		void brokerHandle.close().catch(() => undefined);
 	});
 
 	// ── Prompt rewriting (existing) ────────────────────────────────────────

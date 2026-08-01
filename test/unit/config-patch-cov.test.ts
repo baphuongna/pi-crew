@@ -11,6 +11,7 @@ import {
 describe("sanitizeObject", () => {
 	it("strips __proto__ keys from null-prototype objects", () => {
 		const obj = Object.create(null);
+		// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 		obj.__proto__ = "bad";
 		obj.safe = "yes";
 		const result = sanitizeObject(obj) as Record<string, unknown>;
@@ -38,6 +39,7 @@ describe("sanitizeObject", () => {
 
 	it("recursively sanitizes nested objects", () => {
 		const inner = Object.create(null);
+		// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 		inner.__proto__ = "bad";
 		inner.inner = true;
 		const obj = { outer: inner };
@@ -60,6 +62,7 @@ describe("sanitizeObject", () => {
 
 	it("sanitizes arrays recursively", () => {
 		const inner = Object.create(null);
+		// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 		inner.__proto__ = "bad";
 		inner.ok = true;
 		const result = sanitizeObject([inner]) as Record<string, unknown>[];
@@ -157,6 +160,7 @@ describe("effectiveRunConfig", () => {
 
 	it("strips dangerous keys from override before merging", () => {
 		const obj: Record<string, unknown> = {};
+		// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 		obj.__proto__ = "bad";
 		obj.limits = { maxConcurrentWorkers: 10 };
 		const base = configPatchFromConfig({});

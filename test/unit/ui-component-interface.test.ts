@@ -28,9 +28,9 @@ import { DurableTextViewer } from "../../src/ui/transcript-viewer.ts";
 // assertions below double as compile-time guards.
 
 /** Asserts T is assignable to CrewComponent (render + invalidate). */
-function assertCrewComponent<T extends CrewComponent>(): void {}
+function assertCrewComponent<T extends CrewComponent>(): void { /* no-op */ }
 /** Asserts T is assignable to InteractiveComponent (render + invalidate + handleInput). */
-function assertInteractive<T extends InteractiveComponent>(): void {}
+function assertInteractive<T extends InteractiveComponent>(): void { /* no-op */ }
 
 // 1. RenderableComponent (layout-primitives.ts) — exported, extends CrewComponent.
 assertCrewComponent<RenderableComponent>();
@@ -51,7 +51,7 @@ const _widgetShapeCheck: CrewComponent = {
 	render(_width: number): string[] {
 		return [];
 	},
-	invalidate(): void {},
+	invalidate(): void { /* no-op */ },
 };
 void _widgetShapeCheck;
 
@@ -76,7 +76,7 @@ test("UI-3: a widget-shaped object satisfies CrewComponent polymorphically", () 
 		render(width: number): string[] {
 			return [`widget@${width}`];
 		},
-		invalidate(): void {},
+		invalidate(): void { /* no-op */ },
 	};
 	const lines = widget.render(80);
 	assert.deepEqual(lines, ["widget@80"]);
@@ -85,7 +85,7 @@ test("UI-3: a widget-shaped object satisfies CrewComponent polymorphically", () 
 test("UI-3: interactive components satisfy both CrewComponent and InteractiveComponent", () => {
 	// Family 3 (DashboardComponent-shaped) and Family 4 (transcript Component)
 	// are interactive. ConfirmOverlay is an overlay using the same contract.
-	const overlay = new ConfirmOverlay({ title: "Are you sure?" }, () => {});
+	const overlay = new ConfirmOverlay({ title: "Are you sure?" }, () => undefined);
 
 	// Usable as the base CrewComponent.
 	const asComponent: CrewComponent = overlay;
@@ -104,7 +104,7 @@ test("UI-3: interactive components satisfy both CrewComponent and InteractiveCom
 
 test("UI-3: DurableTextViewer (transcript Component) renders through the shared interface", () => {
 	// Family 4 (transcript-viewer Component).
-	const viewer = new DurableTextViewer("title", "subtitle", ["line-1", "line-2"], {}, () => {});
+	const viewer = new DurableTextViewer("title", "subtitle", ["line-1", "line-2"], {}, () => undefined);
 	const asComponent: CrewComponent = viewer;
 	asComponent.invalidate();
 	const lines = asComponent.render(60);

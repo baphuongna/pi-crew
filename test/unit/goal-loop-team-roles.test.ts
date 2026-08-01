@@ -64,6 +64,7 @@ test("buildGoalTeam: defaults to 'executor' when workerAgent is undefined", () =
 	assert.equal(team.roles[0]?.name, "executor");
 });
 
+// biome-ignore lint/suspicious/noTemplateCurlyInString: literal team-name pattern in test description
 test("buildGoalTeam: team name follows goal-${goalId} convention", () => {
 	const team = buildGoalTeam(fakeGoal("executor"));
 	assert.match(team.name, /^goal-goal_test_xxx$/);

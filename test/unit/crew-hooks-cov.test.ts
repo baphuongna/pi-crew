@@ -113,8 +113,8 @@ describe("HookRegistry", () => {
 
 	it("hooksFor returns registered hooks", () => {
 		const registry = new HookRegistry();
-		const fn1 = () => {};
-		const fn2 = () => {};
+		const fn1 = () => undefined;
+		const fn2 = () => undefined;
 		registry.register("task_failed", fn1);
 		registry.register("task_failed", fn2);
 		const hooks = registry.hooksFor("task_failed");
@@ -131,14 +131,14 @@ describe("HookRegistry", () => {
 	it("count returns correct number", () => {
 		const registry = new HookRegistry();
 		assert.equal(registry.count("task_started"), 0);
-		registry.register("task_started", () => {});
+		registry.register("task_started", () => undefined);
 		assert.equal(registry.count("task_started"), 1);
 	});
 
 	it("clear removes hooks for a specific event type", () => {
 		const registry = new HookRegistry();
-		registry.register("task_started", () => {});
-		registry.register("task_failed", () => {});
+		registry.register("task_started", () => undefined);
+		registry.register("task_failed", () => undefined);
 		registry.clear("task_started");
 		assert.equal(registry.count("task_started"), 0);
 		assert.equal(registry.count("task_failed"), 1);
@@ -146,8 +146,8 @@ describe("HookRegistry", () => {
 
 	it("clearAll removes all hooks", () => {
 		const registry = new HookRegistry();
-		registry.register("task_started", () => {});
-		registry.register("task_failed", () => {});
+		registry.register("task_started", () => undefined);
+		registry.register("task_failed", () => undefined);
 		registry.clearAll();
 		assert.equal(registry.count("task_started"), 0);
 		assert.equal(registry.count("task_failed"), 0);
@@ -169,7 +169,7 @@ describe("HookRegistry", () => {
 
 	it("registering the same hook twice is a no-op (Set semantics)", () => {
 		const registry = new HookRegistry();
-		const fn = () => {};
+		const fn = () => undefined;
 		registry.register("task_started", fn);
 		registry.register("task_started", fn);
 		assert.equal(registry.count("task_started"), 1);

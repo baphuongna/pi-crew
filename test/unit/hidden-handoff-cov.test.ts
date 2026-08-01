@@ -112,7 +112,7 @@ describe("HiddenHandoffService.sendHandoff", () => {
 	it("rejects invalid recipient format", () => {
 		const events: { event: string }[] = [];
 		const svc = new HiddenHandoffService({
-			mailbox: { send: () => {} },
+			mailbox: { send: () => undefined },
 			eventEmitter: {
 				emit: (e, _d) => {
 					events.push({ event: e });
@@ -168,7 +168,7 @@ describe("HiddenHandoffService.sendHandoff", () => {
 	it("emits handoff:sent event on successful send", () => {
 		const events: { event: string }[] = [];
 		const svc = new HiddenHandoffService({
-			mailbox: { send: () => {} },
+			mailbox: { send: () => undefined },
 			eventEmitter: {
 				emit: (e, _d) => {
 					events.push({ event: e });
@@ -187,7 +187,7 @@ describe("HiddenHandoffService rate limiting", () => {
 	it("rate limits after max sends to same recipient", () => {
 		const events: { event: string }[] = [];
 		const svc = new HiddenHandoffService({
-			mailbox: { send: () => {} },
+			mailbox: { send: () => undefined },
 			eventEmitter: {
 				emit: (e, _d) => {
 					events.push({ event: e });

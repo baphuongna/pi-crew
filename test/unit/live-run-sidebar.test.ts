@@ -67,7 +67,7 @@ test("LiveRunSidebar renders active, waiting, model, and usage sections", () => 
 		const sidebar = new LiveRunSidebar({
 			cwd,
 			runId: manifest.runId,
-			done: () => {},
+			done: () => undefined,
 		});
 		const text = sidebar.render(80).join("\n");
 		assert.match(text, /pi-crew live sidebar/);

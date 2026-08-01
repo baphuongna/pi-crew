@@ -1311,7 +1311,7 @@ async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecisio
 			const diskManifest = disk?.manifest ?? ctx.manifest;
 			const reconciledArtifacts = mergeArtifacts([
 				...diskManifest.artifacts,
-				...validResults.map((item) => item.manifest.artifacts).flat(),
+				...validResults.flatMap((item) => item.manifest.artifacts),
 			]);
 			const resultManifest = updateRunStatus(
 				{ ...diskManifest, artifacts: reconciledArtifacts },
@@ -2158,7 +2158,7 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 						taskUsage: taskTotal,
 					},
 				}).then(
-					() => {},
+					() => undefined,
 					(error) => logInternalError("team-runner.fair-share-event", error, `taskId=${violatorId}`),
 				),
 			);

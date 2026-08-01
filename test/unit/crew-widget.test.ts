@@ -57,7 +57,7 @@ test("crew widget renders installed-style run and agent summary lines", async ()
 				hasUI: true,
 				sessionManager: { getSessionId: () => "test-session" } as never,
 				ui: {
-					setStatus: () => {},
+					setStatus: () => undefined,
 					setWidget: (key: string, content: string[] | undefined) => calls.push({ key, content }),
 				} as never,
 			},
@@ -203,14 +203,14 @@ test("crew widget keeps persistent component until placement changes and refresh
 			cwd,
 			hasUI: true,
 			ui: {
-				setStatus: () => {},
+				setStatus: () => undefined,
 				setWidget: (key: string, content: unknown, options?: { placement?: string }) =>
 					setWidgetCalls.push({
 						key,
 						content,
 						placement: options?.placement,
 					}),
-				requestRender: () => {},
+				requestRender: () => undefined,
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 0 };
@@ -307,9 +307,9 @@ test("crew widget header spinner animates time-based across renders even when st
 			cwd,
 			hasUI: true,
 			ui: {
-				setStatus: () => {},
+				setStatus: () => undefined,
 				setWidget: (key: string, content: unknown) => setWidgetCalls.push({ key, content }),
-				requestRender: () => {},
+				requestRender: () => undefined,
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 7 };
@@ -426,9 +426,9 @@ test("C4: widget signature cache invalidates on write so genuine state changes t
 			cwd,
 			hasUI: true,
 			ui: {
-				setStatus: () => {},
+				setStatus: () => undefined,
 				setWidget: (key: string, content: unknown) => setWidgetCalls.push({ key, content }),
-				requestRender: () => {},
+				requestRender: () => undefined,
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 0 };

@@ -56,7 +56,7 @@ describe("triggerContinuation", () => {
 				return Promise.resolve();
 			},
 		};
-		const fakeCtx = { ui: { notify: () => {} } };
+		const fakeCtx = { ui: { notify: () => undefined } };
 
 		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
 
@@ -74,7 +74,7 @@ describe("triggerContinuation", () => {
 				return Promise.resolve();
 			},
 		};
-		const fakeCtx = { ui: { notify: () => {} } };
+		const fakeCtx = { ui: { notify: () => undefined } };
 
 		triggerContinuation(fakePi as never, fakeCtx as never, []);
 

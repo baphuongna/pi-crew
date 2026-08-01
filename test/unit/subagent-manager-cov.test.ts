@@ -62,7 +62,7 @@ describe("subagent-manager", () => {
 			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
 			const record = makeRecord();
 			// Add a promise field (should be stripped)
-			(record as any).promise = new Promise(() => {});
+			(record as any).promise = new Promise(() => undefined);
 			savePersistedSubagentRecord(tmpDir, record);
 			const loaded = readPersistedSubagentRecord(tmpDir, record.id);
 			assert.ok(loaded);
@@ -116,7 +116,7 @@ describe("subagent-manager", () => {
 			const mgr = new SubagentManager(4);
 			// Runner that will never resolve (but abort marks as stopped before it runs)
 			const runner = async (): Promise<PiTeamsToolResult> => {
-				await new Promise(() => {});
+				await new Promise(() => undefined);
 				return makeResult();
 			};
 			const record = mgr.spawn(makeSpawnOptions(tmpDir, { background: false }), runner);
@@ -130,7 +130,7 @@ describe("subagent-manager", () => {
 			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
 			const mgr = new SubagentManager(4);
 			const runner = async (): Promise<PiTeamsToolResult> => {
-				await new Promise(() => {});
+				await new Promise(() => undefined);
 				return makeResult();
 			};
 			mgr.spawn(makeSpawnOptions(tmpDir, { background: false }), runner);
@@ -155,7 +155,7 @@ describe("subagent-manager", () => {
 			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
 			const mgr = new SubagentManager(1);
 			const slowRunner = async (): Promise<PiTeamsToolResult> => {
-				await new Promise(() => {});
+				await new Promise(() => undefined);
 				return makeResult();
 			};
 			const r1 = mgr.spawn(makeSpawnOptions(tmpDir, { background: true }), slowRunner);

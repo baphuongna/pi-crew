@@ -82,7 +82,7 @@ test("dashboard snapshot render scales to 50 runs with bounded cache entries", {
 			return created.manifest;
 		});
 		const cache = createRunSnapshotCache(cwd, { ttlMs: 0, maxEntries: 60 });
-		const dashboard = new RunDashboard(manifests, () => {}, {}, { snapshotCache: cache, runProvider: () => manifests });
+		const dashboard = new RunDashboard(manifests, () => undefined, {}, { snapshotCache: cache, runProvider: () => manifests });
 		const rendered = dashboard.render(140);
 		// Verify that the dashboard renders output with the correct number of runs
 		// The dashboard should show run IDs and status info
@@ -159,8 +159,8 @@ test("repeated widget updates keep a single persistent widget install", () => {
 			cwd,
 			hasUI: true,
 			ui: {
-				setStatus: () => {},
-				requestRender: () => {},
+				setStatus: () => undefined,
+				requestRender: () => undefined,
 				setWidget: (key: string, content: unknown) => setWidgetCalls.push({ key, content }),
 			},
 		} as never;

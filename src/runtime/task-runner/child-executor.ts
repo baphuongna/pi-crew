@@ -244,8 +244,6 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	const collectedJsonEvents = ctx.collectedJsonEvents;
 	const streamBridge: StreamBridgeHandle | undefined = ctx.streamBridge;
 
-	let resultArtifact: ArtifactDescriptor;
-	let logArtifact: ArtifactDescriptor | undefined;
 	let transcriptArtifact: ArtifactDescriptor | undefined;
 	let exitCode: number | null = 0;
 	let error: string | undefined;
@@ -718,7 +716,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			});
 		}
 	}
-	resultArtifact = writeArtifact(manifest.artifactsRoot, {
+	const resultArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "result",
 		relativePath: `results/${task.id}.txt`,
 		content:
@@ -737,7 +735,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			"(no output)",
 		producer: task.id,
 	});
-	logArtifact = writeArtifact(manifest.artifactsRoot, {
+	const logArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "log",
 		relativePath: `logs/${task.id}.log`,
 		content: [

@@ -70,7 +70,7 @@ describe("group-join (cov)", () => {
 		}
 
 		it("returns 'pass' for unregistered agent", () => {
-			const mgr = new GroupJoinManager(() => {});
+			const mgr = new GroupJoinManager(() => undefined);
 			assert.equal(mgr.onAgentComplete(makeRecord("unknown")), "pass");
 			mgr.dispose();
 		});
@@ -92,7 +92,7 @@ describe("group-join (cov)", () => {
 		});
 
 		it("isGrouped returns true for registered agents", () => {
-			const mgr = new GroupJoinManager(() => {});
+			const mgr = new GroupJoinManager(() => undefined);
 			mgr.registerGroup("g2", ["x", "y"]);
 			assert.equal(mgr.isGrouped("x"), true);
 			assert.equal(mgr.isGrouped("z"), false);
@@ -100,7 +100,7 @@ describe("group-join (cov)", () => {
 		});
 
 		it("returns 'pass' for already delivered group", () => {
-			const mgr = new GroupJoinManager(() => {});
+			const mgr = new GroupJoinManager(() => undefined);
 			mgr.registerGroup("g3", ["c"]);
 			assert.equal(mgr.onAgentComplete(makeRecord("c")), "delivered");
 			assert.equal(mgr.onAgentComplete(makeRecord("c")), "pass");

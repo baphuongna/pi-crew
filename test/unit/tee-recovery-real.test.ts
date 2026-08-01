@@ -220,6 +220,7 @@ test("readIfSmall (legacy) returns undefined for missing files (backward-compat)
 
 // --- teePathForArtifact: path safety + format ---
 
+// biome-ignore lint/suspicious/noTemplateCurlyInString: literal path pattern in test description
 test("teePathForArtifact produces ${artifactsRoot}/tee/${taskId}-${artifactName}.full.txt", () => {
 	const p = teePathForArtifact("/run/artifacts", "task-42", "build-output.txt");
 	assert.equal(p, path.join("/run/artifacts", "tee", "task-42-build-output.txt.full.txt"));

@@ -103,7 +103,6 @@ export class CrewBroker {
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
 	private stopped = false;
-	private starting = false;
 	private startingPromise: Promise<void> | null = null;
 	private readonly connections = new Set<ServerConnection>();
 	/** Connections indexed by runId for live message fanout (Phase 1.3). */
@@ -186,13 +185,8 @@ export class CrewBroker {
 		}
 		if (this.server) return Promise.resolve();
 		if (this.startingPromise) return this.startingPromise;
-		this.starting = true;
 		this.startingPromise = this.doStart()
-			.then(() => {
-				this.starting = false;
-			})
 			.catch((err) => {
-				this.starting = false;
 				this.startingPromise = null;
 				throw err;
 			});

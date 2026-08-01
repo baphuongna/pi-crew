@@ -45,8 +45,8 @@ function makeObserver(transcriptPath: string): ChildPiLineObserver {
 		task: "test",
 		agent: SAMPLE_AGENT,
 		transcriptPath,
-		onJsonEvent: () => {},
-		onStdoutLine: () => {},
+		onJsonEvent: () => undefined,
+		onStdoutLine: () => undefined,
 	};
 	return new ChildPiLineObserver(input);
 }

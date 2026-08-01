@@ -64,13 +64,13 @@ test("GroupJoinManager: delivers when all agents complete", () => {
 });
 
 test("GroupJoinManager: returns 'pass' for unknown agent", () => {
-	const mgr = new GroupJoinManager(() => {});
+	const mgr = new GroupJoinManager(() => undefined);
 	mgr.registerGroup("g1", ["a1"]);
 	assert.equal(mgr.onAgentComplete(makeRecord("unknown")), "pass");
 });
 
 test("GroupJoinManager: returns 'pass' for already-delivered group", () => {
-	const mgr = new GroupJoinManager(() => {});
+	const mgr = new GroupJoinManager(() => undefined);
 	mgr.registerGroup("g1", ["a1"]);
 	assert.equal(mgr.onAgentComplete(makeRecord("a1")), "delivered");
 	// Second completion for same agent should return "pass" (group already delivered)
@@ -78,7 +78,7 @@ test("GroupJoinManager: returns 'pass' for already-delivered group", () => {
 });
 
 test("GroupJoinManager: isGrouped returns true for registered agent", () => {
-	const mgr = new GroupJoinManager(() => {});
+	const mgr = new GroupJoinManager(() => undefined);
 	mgr.registerGroup("g1", ["a1", "a2"]);
 	assert.equal(mgr.isGrouped("a1"), true);
 	assert.equal(mgr.isGrouped("a2"), true);
@@ -86,7 +86,7 @@ test("GroupJoinManager: isGrouped returns true for registered agent", () => {
 });
 
 test("GroupJoinManager: isGrouped returns false after delivery", () => {
-	const mgr = new GroupJoinManager(() => {});
+	const mgr = new GroupJoinManager(() => undefined);
 	mgr.registerGroup("g1", ["a1"]);
 	mgr.onAgentComplete(makeRecord("a1"));
 	assert.equal(mgr.isGrouped("a1"), false);
@@ -110,7 +110,7 @@ test("GroupJoinManager: timeout delivers partial results", (_, done) => {
 });
 
 test("GroupJoinManager: dispose clears timers and maps", () => {
-	const mgr = new GroupJoinManager(() => {}, 60000);
+	const mgr = new GroupJoinManager(() => undefined, 60000);
 	mgr.registerGroup("g1", ["a1"]);
 	assert.equal(mgr.isGrouped("a1"), true);
 	mgr.dispose();

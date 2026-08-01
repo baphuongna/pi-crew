@@ -3,7 +3,7 @@ import test from "node:test";
 import { ConfirmOverlay } from "../../src/ui/overlays/confirm-overlay.ts";
 
 test("ConfirmOverlay renders title and safe hint", () => {
-	const overlay = new ConfirmOverlay({ title: "Delete?", body: "Danger", dangerLevel: "high" }, () => {});
+	const overlay = new ConfirmOverlay({ title: "Delete?", body: "Danger", dangerLevel: "high" }, () => undefined);
 	const lines = overlay.render(80);
 	assert.ok(lines.some((line) => line.includes("Delete?")));
 	assert.ok(lines.some((line) => line.includes("Y confirm")));

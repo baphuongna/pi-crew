@@ -51,7 +51,7 @@ describe("intercom-bridge: IntercomQueue", () => {
 		// Keep event loop alive while unref'd timer fires. Without this, Node's
 		// test runner sees the event loop as resolved and cancels the pending
 		// promise before the 50ms timeout fires.
-		const keepAlive = setInterval(() => {}, 25);
+		const keepAlive = setInterval(() => undefined, 25);
 		try {
 			const promise = queue.enqueue(msg);
 			const response = await promise;

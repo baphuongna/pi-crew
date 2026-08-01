@@ -52,6 +52,7 @@ describe("F-04: per-user socket subdir", { skip: isWindows }, () => {
 		rmSync(tmpBase, { recursive: true, force: true });
 	});
 
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: literal path pattern in test description
 	it("getPerUserSocketDir returns ${base}/pi-crew-${uid}", () => {
 		const dir = getPerUserSocketDir();
 		const uid = expectedUid();

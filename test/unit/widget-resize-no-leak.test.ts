@@ -57,8 +57,8 @@ test("UI-7: resize listener is NOT added when off()/removeListener() are unavail
 	const stdout = process.stdout as unknown as Record<string, unknown>;
 	// Shadow the prototype-provided removal methods with `undefined` to simulate
 	// an older runtime / mock stdout that only implements `on`.
-	const hadOff = Object.prototype.hasOwnProperty.call(stdout, "off");
-	const hadRm = Object.prototype.hasOwnProperty.call(stdout, "removeListener");
+	const hadOff = Object.hasOwn(stdout, "off");
+	const hadRm = Object.hasOwn(stdout, "removeListener");
 	const savedOff = Object.getOwnPropertyDescriptor(stdout, "off");
 	const savedRm = Object.getOwnPropertyDescriptor(stdout, "removeListener");
 

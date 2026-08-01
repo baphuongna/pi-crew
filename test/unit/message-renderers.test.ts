@@ -132,7 +132,7 @@ describe("registerCrewMessageRenderers", () => {
 	});
 
 	it("works with a real-shaped ExtensionAPI (registerMessageRenderer present)", () => {
-		const fakePi = { registerMessageRenderer: () => {} };
+		const fakePi = { registerMessageRenderer: () => undefined };
 		// Should not throw
 		registerCrewMessageRenderers(fakePi as never);
 	});

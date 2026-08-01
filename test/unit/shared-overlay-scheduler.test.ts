@@ -28,13 +28,13 @@ test("C3: register fan-out — onInvalidate fires for both overlays", async () =
 	let invA = 0;
 	let invB = 0;
 	const a = registerOverlayScheduler(
-		() => {},
+		() => undefined,
 		() => {
 			invA += 1;
 		},
 	);
 	const b = registerOverlayScheduler(
-		() => {},
+		() => undefined,
 		() => {
 			invB += 1;
 		},
@@ -50,7 +50,7 @@ test("C3: register fan-out — onInvalidate fires for both overlays", async () =
 
 test("C3: dispose ref-count — disposing one keeps shared scheduler alive for the other", async () => {
 	let renderB = 0;
-	const a = registerOverlayScheduler(() => {});
+	const a = registerOverlayScheduler(() => undefined);
 	const b = registerOverlayScheduler(() => {
 		renderB += 1;
 	});
@@ -91,13 +91,13 @@ test("C3: error isolation — a throwing renderer does not block the other", asy
 test("C3: error isolation — a throwing onInvalidate does not block others", async () => {
 	let invOk = 0;
 	const throwing = registerOverlayScheduler(
-		() => {},
+		() => undefined,
 		() => {
 			throw new Error("boom in invalidate");
 		},
 	);
 	const ok = registerOverlayScheduler(
-		() => {},
+		() => undefined,
 		() => {
 			invOk += 1;
 		},

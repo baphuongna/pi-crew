@@ -11,11 +11,11 @@ function mockRegistry(): MetricRegistry {
 
 	return {
 		gauge: (name: string, _help: string) => {
-			if (!gauges.has(name)) gauges.set(name, { set: () => {} });
+			if (!gauges.has(name)) gauges.set(name, { set: () => undefined });
 			return gauges.get(name)!;
 		},
 		counter: (name: string, _help: string) => {
-			if (!counters.has(name)) counters.set(name, { inc: () => {} });
+			if (!counters.has(name)) counters.set(name, { inc: () => undefined });
 			return counters.get(name)!;
 		},
 	} as unknown as MetricRegistry;
@@ -26,7 +26,7 @@ function mockManifestCache(): ManifestCache {
 	return {
 		list: () => [],
 		get: () => undefined,
-		refresh: async () => {},
+		refresh: async () => undefined,
 	} as unknown as ManifestCache;
 }
 
@@ -128,7 +128,7 @@ describe("HeartbeatWatcher.tick", () => {
 		const cache: ManifestCache = {
 			list: () => [],
 			get: () => undefined,
-			refresh: async () => {},
+			refresh: async () => undefined,
 		} as unknown as ManifestCache;
 
 		const watcher = new HeartbeatWatcher({
@@ -151,7 +151,7 @@ describe("HeartbeatWatcher.tick", () => {
 				},
 			],
 			get: () => undefined,
-			refresh: async () => {},
+			refresh: async () => undefined,
 		} as unknown as ManifestCache;
 
 		const watcher = new HeartbeatWatcher({
@@ -174,7 +174,7 @@ describe("HeartbeatWatcher.tick", () => {
 				},
 			],
 			get: () => undefined,
-			refresh: async () => {},
+			refresh: async () => undefined,
 		} as unknown as ManifestCache;
 
 		const watcher = new HeartbeatWatcher({

@@ -45,7 +45,7 @@ test("every allActionLiteral has a dispatch handler in its routed domain", () =>
 	for (const action of schemaActions) {
 		const domain = domainForAction(action);
 		const handled = domain ? DOMAIN_DISPATCH[domain] : undefined;
-		if (!handled || !handled.includes(action)) {
+		if (!handled?.includes(action)) {
 			missing.push(`${action} → ${domain ?? "(no domain)"}`);
 		}
 	}

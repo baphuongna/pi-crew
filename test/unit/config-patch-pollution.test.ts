@@ -42,6 +42,7 @@ test("sanitizeObject: strips prototype key", () => {
 
 test("sanitizeObject: recursively strips from nested objects", () => {
 	const nested = Object.create(null);
+	// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 	nested.__proto__ = { polluted: true };
 	const deep = Object.create(null);
 	deep.constructor = "evil";
@@ -61,6 +62,7 @@ test("sanitizeObject: recursively strips from nested objects", () => {
 
 test("sanitizeObject: strips from arrays", () => {
 	const item0: Record<string, unknown> = Object.create(null);
+	// biome-ignore lint/suspicious/noProto: intentionally testing prototype-pollution guard
 	(item0 as any).__proto__ = "bad";
 	item0.ok = 1;
 	const item1: Record<string, unknown> = Object.create(null);
@@ -97,6 +99,7 @@ test("addTranslations: strips __proto__ key from translation bundle", () => {
 		"agent.requiresPrompt": "Test prompt",
 	} as any);
 	// The dangerous key should not have polluted anything
+	// biome-ignore lint/suspicious/noProto: verify prototype was NOT polluted
 	assert.equal(typeof (globalThis as any).__proto__?.polluted === "undefined", true, "__proto__ should not pollute global prototype");
 });
 

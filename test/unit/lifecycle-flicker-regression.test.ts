@@ -154,7 +154,7 @@ test("flicker regression: a no-runId RenderScheduler fallback tick must NOT clea
 		const cache = createRunSnapshotCache(cwd, { ttlMs: 0 });
 		cache.refresh(manifest.runId);
 		let invalidateCalls = 0;
-		const scheduler = new RenderScheduler(new FakeEvents(), () => {}, {
+		const scheduler = new RenderScheduler(new FakeEvents(), () => undefined, {
 			debounceMs: 50,
 			fallbackMs: 1_000_000, // do not auto-tick during the test
 			events: [],

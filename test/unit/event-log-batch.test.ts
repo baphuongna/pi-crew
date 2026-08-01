@@ -113,7 +113,7 @@ test("terminal event flushes pending buffered events before writing (via appendE
 test("mixed terminal and non-terminal events maintain unique monotonic seqs", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-batch-mixed-seq-"));
 	const eventsPath = path.join(dir, "events.jsonl");
-	const keepAlive = setInterval(() => {}, 50);
+	const keepAlive = setInterval(() => undefined, 50);
 	try {
 		// Mix of sync (direct path) and async (buffered for non-terminal) calls
 		const syncTerminal = appendEvent(eventsPath, { type: "run.created", runId: "r1" });
@@ -166,7 +166,7 @@ test("appendEventFireAndForget routes non-terminal events through buffer", async
 test("non-terminal events via appendEventAsync batch under single lock acquire", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-batch-lock-"));
 	const eventsPath = path.join(dir, "events.jsonl");
-	const keepAlive = setInterval(() => {}, 50);
+	const keepAlive = setInterval(() => undefined, 50);
 	try {
 		// Queue many non-terminal events rapidly — they should coalesce into a single flush
 		const count = 50;

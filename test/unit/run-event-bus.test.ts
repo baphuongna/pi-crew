@@ -29,8 +29,8 @@ test("runEventBus onAny receives events from all runs", async () => {
 });
 
 test("runEventBus listenerCount tracks subscriptions", () => {
-	const unsub1 = runEventBus.on("test-run-2", () => {});
-	const unsub2 = runEventBus.on("test-run-2", () => {});
+	const unsub1 = runEventBus.on("test-run-2", () => undefined);
+	const unsub2 = runEventBus.on("test-run-2", () => undefined);
 	assert.equal(runEventBus.listenerCount("test-run-2"), 2);
 	assert.equal(runEventBus.listenerCount("nonexistent"), 0);
 	unsub1();

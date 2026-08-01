@@ -41,7 +41,7 @@ export interface StartChildBrokerClientOptions {
 
 const NOOP_HANDLE: ChildBrokerClientHandle = {
 	active: false,
-	close: async () => {},
+	close: async () => undefined,
 };
 
 export function startChildBrokerClient(options: StartChildBrokerClientOptions = {}): ChildBrokerClientHandle {
@@ -75,7 +75,7 @@ export function startChildBrokerClient(options: StartChildBrokerClientOptions = 
 	// Establish the persistent connection so the broker can push events. This
 	// is fire-and-forget: on any failure the client becomes sticky-fallback and
 	// the file-poll steering path remains fully functional.
-	void client.reconnect().catch(() => {});
+	void client.reconnect().catch(() => undefined);
 
 	return {
 		get active() {

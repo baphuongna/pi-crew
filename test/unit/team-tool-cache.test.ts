@@ -32,7 +32,7 @@ describe("invalidateSnapshot", () => {
 		const deps: CacheControlDeps = {
 			getRunSnapshotCache: (cwd: string) => {
 				receivedCwd = cwd;
-				return { invalidate: () => {} } as never;
+				return { invalidate: () => undefined } as never;
 			},
 		};
 
@@ -49,7 +49,7 @@ describe("invalidateSnapshot", () => {
 
 		try {
 			const deps: CacheControlDeps = {
-				getRunSnapshotCache: () => ({ invalidate: () => {} }) as never,
+				getRunSnapshotCache: () => ({ invalidate: () => undefined }) as never,
 			};
 
 			invalidateSnapshot("run-bus-test", "/cwd", deps);

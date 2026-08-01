@@ -250,7 +250,7 @@ function startThemeSourceSubscription(theme: object, subscription: ThemeSourceSu
 }
 
 export function subscribeThemeChange(theme: unknown, callback: () => void): () => void {
-	if (!theme || typeof theme !== "object") return () => {};
+	if (!theme || typeof theme !== "object") return () => undefined;
 	const key = theme;
 	let subscription = themeSubscriptions.get(key);
 	if (!subscription) {

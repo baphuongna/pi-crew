@@ -108,7 +108,7 @@ describe("DeliveryCoordinator", () => {
 		it("emits secondary event when active and follow-up succeeds", () => {
 			let emitted = false;
 			const dc = new DeliveryCoordinator({
-				sendFollowUp: () => {},
+				sendFollowUp: () => undefined,
 				emit: (event: string) => {
 					if (event === "pi-crew:notification") emitted = true;
 				},

@@ -31,6 +31,7 @@ test("VULN-4: bare $VARNAME reference is rejected (no secret exfiltration)", () 
 
 test("VULN-4 regression: $-command-substitution still rejected", () => {
 	reject("echo $(whoami)");
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell variable syntax under test
 	reject("echo ${MY_SECRET}");
 });
 

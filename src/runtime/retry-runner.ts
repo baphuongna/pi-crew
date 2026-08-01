@@ -73,7 +73,6 @@ export class RetryRunner {
 
 	private taskRunner: TaskRunnerLike;
 	private handoffManager: HandoffManager;
-	private _handoffs: HandoffSummary[] = [];
 
 	constructor(taskRunner: TaskRunnerLike, handoffManager: HandoffManager) {
 		this.taskRunner = taskRunner;
@@ -99,9 +98,7 @@ export class RetryRunner {
 	 * Clear accumulated handoffs to free memory.
 	 * Useful when you want to reset state without disposing.
 	 */
-	clearHandoffs(): void {
-		this._handoffs = [];
-	}
+	clearHandoffs(): void { /* no-op: _handoffs field removed (was never read) */ }
 
 	/**
 	 * Get the effective max handoffs limit from config or default.
@@ -138,9 +135,6 @@ export class RetryRunner {
 		const handoffs: HandoffSummary[] = [];
 		const startTime = Date.now();
 		const maxHandoffs = this.getMaxHandoffs(config);
-
-		// Clear previous handoffs at start of each retry run
-		this._handoffs = [];
 
 		for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
 			if (this._disposed) {

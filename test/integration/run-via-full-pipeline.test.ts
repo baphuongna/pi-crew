@@ -55,18 +55,18 @@ test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix
 	}> = [];
 	const pi = {
 		registerTool: (tool: { name: string; execute: (...args: unknown[]) => Promise<unknown> }) => registeredTools.push(tool),
-		registerCommand: () => {},
-		registerShortcut: () => {},
-		registerProvider: () => {},
-		registerFlag: () => {},
-		unregisterProvider: () => {},
-		registerMessageRenderer: () => {},
-		on: () => {},
-		off: () => {},
+		registerCommand: () => undefined,
+		registerShortcut: () => undefined,
+		registerProvider: () => undefined,
+		registerFlag: () => undefined,
+		unregisterProvider: () => undefined,
+		registerMessageRenderer: () => undefined,
+		on: () => undefined,
+		off: () => undefined,
 		getSessionName: () => null,
-		setSessionName: () => {},
-		appendEntry: () => {},
-		events: { on: () => {}, off: () => {} },
+		setSessionName: () => undefined,
+		appendEntry: () => undefined,
+		events: { on: () => undefined, off: () => undefined },
 		getSessionFile: () => null,
 		getModel: () => null,
 		getModelRegistry: () => ({ find: () => null }),
@@ -88,10 +88,10 @@ test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix
 	const mockCache = {
 		list: () => [],
 		get: () => null,
-		set: () => {},
+		set: () => undefined,
 		peek: () => null,
-		invalidate: () => {},
-		touch: () => {},
+		invalidate: () => undefined,
+		touch: () => undefined,
 	};
 	// The team tool's deps are captured by closure inside registration/team-tool.ts.
 	// We can't inject them post-hoc, but the tool itself wraps execute and closes
@@ -100,15 +100,15 @@ test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix
 	const deps = {
 		foregroundControllers: new Map(),
 		startForegroundRun: (_ctx: unknown, runner: (signal?: AbortSignal) => Promise<void>, _runId?: string) => {
-			setImmediate(() => runner(undefined).catch(() => {}));
+			setImmediate(() => runner(undefined).catch(() => undefined));
 		},
 		abortForegroundRun: () => false,
-		openLiveSidebar: () => {},
+		openLiveSidebar: () => undefined,
 		getManifestCache: () => mockCache,
 		getRunSnapshotCache: () => null,
 		getMetricRegistry: () => undefined,
 		widgetState: {},
-		onJsonEvent: () => {},
+		onJsonEvent: () => undefined,
 	};
 
 	// Note: tool.execute uses the deps captured at registration time, not our

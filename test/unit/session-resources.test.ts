@@ -5,7 +5,7 @@ import { tryRegisterSessionCleanup } from "../../src/runtime/session-resources.t
 describe("tryRegisterSessionCleanup", () => {
 	it("returns undefined when API is not available", () => {
 		const pi = {} as never; // No registerSessionResourceCleanup method
-		const result = tryRegisterSessionCleanup(pi, () => {});
+		const result = tryRegisterSessionCleanup(pi, () => undefined);
 		assert.equal(result, undefined);
 	});
 
@@ -13,7 +13,7 @@ describe("tryRegisterSessionCleanup", () => {
 		const pi = {
 			registerSessionResourceCleanup: "not-a-function",
 		} as never;
-		const result = tryRegisterSessionCleanup(pi, () => {});
+		const result = tryRegisterSessionCleanup(pi, () => undefined);
 		assert.equal(result, undefined);
 	});
 
@@ -27,7 +27,7 @@ describe("tryRegisterSessionCleanup", () => {
 				};
 			},
 		} as never;
-		const result = tryRegisterSessionCleanup(pi, () => {});
+		const result = tryRegisterSessionCleanup(pi, () => undefined);
 		assert.equal(registered, true);
 		assert.equal(typeof result, "function");
 	});
@@ -39,7 +39,7 @@ describe("tryRegisterSessionCleanup", () => {
 				registered = true;
 			},
 		} as never;
-		const result = tryRegisterSessionCleanup(pi, () => {});
+		const result = tryRegisterSessionCleanup(pi, () => undefined);
 		assert.equal(registered, true);
 		assert.equal(result, undefined); // void return
 	});
@@ -50,7 +50,7 @@ describe("tryRegisterSessionCleanup", () => {
 				throw new Error("test error");
 			},
 		} as never;
-		const result = tryRegisterSessionCleanup(pi, () => {});
+		const result = tryRegisterSessionCleanup(pi, () => undefined);
 		assert.equal(result, undefined);
 	});
 });

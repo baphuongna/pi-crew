@@ -76,7 +76,7 @@ if (parentPid > 0) {
 }
 
 // ─── KeepAlive (same interval as background-runner.ts) ─────────────────────────
-const keepAlive = setInterval(() => {}, 5000);
+const keepAlive = setInterval(() => undefined, 5000);
 // NOTE: intentionally NOT unref'd — must hold the event loop open while the
 // process is alive. The event loop MUST stay alive so the forceExit setTimeout
 // below can fire. If keepAlive is cleared too early, the event loop drains

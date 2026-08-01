@@ -504,7 +504,7 @@ test("[RT-1] in-flight sibling's SUCCESSFUL result is preserved when another tas
 		for (const t of completed) {
 			assert.ok(t.finishedAt, `completed task ${t.id} must have finishedAt (result not dropped). All: ${JSON.stringify(sm)}`);
 			assert.ok(
-				t.modelAttempts && t.modelAttempts.some((a) => a.success),
+				t.modelAttempts?.some((a) => a.success),
 				`completed task ${t.id} must preserve a successful model attempt (result not dropped). All: ${JSON.stringify(sm)}`,
 			);
 		}

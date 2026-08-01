@@ -153,7 +153,7 @@ describe("EventBus off (unsubscribe)", () => {
 	});
 
 	it("is a no-op for a listener that was never registered", () => {
-		const listener = (_e: CrewEvent) => {};
+		const listener = (_e: CrewEvent) => undefined;
 		// Should not throw
 		crewEventBus.off("run:start", listener);
 		assert.ok(true, "off on non-existent listener should not throw");

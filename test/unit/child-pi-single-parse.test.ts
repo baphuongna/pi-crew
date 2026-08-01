@@ -25,8 +25,8 @@ function buildInput(): ChildPiRunInput {
 		cwd: process.cwd(),
 		task: "test",
 		agent: SAMPLE_AGENT,
-		onJsonEvent: () => {},
-		onStdoutLine: () => {},
+		onJsonEvent: () => undefined,
+		onStdoutLine: () => undefined,
 	};
 }
 

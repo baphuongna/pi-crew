@@ -11,7 +11,7 @@ test("watchWithErrorHandler invokes fallback when fs.watch throws", () => {
 	const nonExistent = `/tmp/pi-crew-watch-missing-${Date.now()}`;
 	const watcher = watchWithErrorHandler(
 		nonExistent,
-		() => {},
+		() => undefined,
 		() => {
 			onErrorCalled = true;
 		},

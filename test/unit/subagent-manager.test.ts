@@ -198,7 +198,7 @@ test("SubagentManager.spawn queues when at maxConcurrent", () => {
 	try {
 		const slowRunner = async (_options: SubagentSpawnOptions, _signal?: AbortSignal) => {
 			// Never resolves — keeps the first agent running
-			await new Promise(() => {});
+			await new Promise(() => undefined);
 			return makeResult("never");
 		};
 		const r1 = manager.spawn(

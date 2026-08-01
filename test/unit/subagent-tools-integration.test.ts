@@ -44,11 +44,11 @@ import { firstText } from "../fixtures/tool-result-helpers.ts";
 function createFakePi(options: { throwForTools?: string[] } = {}) {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
-	const handlers = new Map<string, Function[]>();
+	const handlers = new Map<string, ((...args: unknown[]) => unknown)[]>();
 	const sentMessages: unknown[] = [];
 	const sentUserMessages: Array<{ content: string; options?: unknown }> = [];
 	const events = {
-		on(event: string, handler: Function) {
+		on(event: string, handler: (...args: unknown[]) => unknown) {
 			const list = handlers.get(event) ?? [];
 			list.push(handler);
 			handlers.set(event, list);
@@ -92,9 +92,9 @@ function fakeCtx(cwd: string) {
 		cwd,
 		hasUI: false,
 		ui: {
-			notify() {},
-			setWidget() {},
-			setStatus() {},
+			notify() { /* no-op */ },
+			setWidget() { /* no-op */ },
+			setStatus() { /* no-op */ },
 		},
 	};
 }

@@ -465,7 +465,7 @@ function setupCrewScheduler(
 			});
 			return agentId;
 		},
-		finalizer: () => {},
+		finalizer: () => undefined,
 		runCancelFn: (runId: string) => {
 			try {
 				handleTeamTool({ action: "cancel", runId, confirm: true }, { cwd: extensionCtx.cwd, sessionId }).catch((err) =>

@@ -35,7 +35,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 		// FIX (split-scope install): prime the ESM peer dep BEFORE team-runner is
 		// imported, so its transitive skill-instructions.ts can read getAgentDir()
 		// from the primed cache instead of crashing on `Cannot find module`.
-		await primePeerDep().catch(() => {});
+		await primePeerDep().catch(() => undefined);
 		// LAZY: avoid pulling team-runner into background-runner at module load time.
 		const mod = await import("./team-runner.ts");
 		_cachedExecuteTeamRun = mod.executeTeamRun;
@@ -565,7 +565,7 @@ async function main(): Promise<void> {
 	// compilation of team-runner.ts, the event loop must not drain prematurely.
 	// The interval is always cleared in the finally block, so the delay is
 	// bounded by the 5s interval. The event loop exit is deferred at most 5s.
-	const keepAlive = setInterval(() => {}, 5000);
+	const keepAlive = setInterval(() => undefined, 5000);
 
 	// WATCHDOG (anti-zombie): if the run exceeds MAX_BACKGROUND_RUN_MS without
 	// completing, abort it and force-exit. Without this, a hung team run

@@ -46,7 +46,7 @@ test("RunDashboard renders and selects runs", () => {
 });
 
 test("RunDashboard renders a visibly right-sidebar title when requested", () => {
-	const dashboard = new RunDashboard([run("team_right", "running")], () => {}, {}, { placement: "right" });
+	const dashboard = new RunDashboard([run("team_right", "running")], () => undefined, {}, { placement: "right" });
 	const lines = dashboard.render(70);
 	assert.ok(lines.some((line) => line.includes("pi-crew")));
 	assert.ok(lines.some((line) => line.includes("team_right")));
@@ -114,7 +114,7 @@ test("RunDashboard renders compact agent preview", () => {
 				},
 			},
 		]);
-		const dashboard = new RunDashboard([manifest], () => {});
+		const dashboard = new RunDashboard([manifest], () => undefined);
 		const lines = dashboard.render(120);
 		assert.ok(lines.some((line) => line.includes("Agents:")));
 		assert.ok(lines.some((line) => line.includes("executor->executor")));
@@ -161,7 +161,7 @@ test("RunDashboard renders model and token details from task state", () => {
 				progress: { recentTools: [], recentOutput: [], toolCount: 0 },
 			},
 		]);
-		const dashboard = new RunDashboard([manifest], () => {}, {}, { showModel: true, showTokens: true });
+		const dashboard = new RunDashboard([manifest], () => undefined, {}, { showModel: true, showTokens: true });
 		const lines = dashboard.render(140);
 		assert.ok(lines.some((line) => line.includes("model=configured-provider/configured-model")));
 		assert.ok(lines.some((line) => line.includes("tok=2.0k")));
@@ -223,7 +223,7 @@ test("RunDashboard switches live snapshot panes and shows mailbox badges", () =>
 		const cache = createRunSnapshotCache(tmp, { ttlMs: 0 });
 		const dashboard = new RunDashboard(
 			[created.manifest],
-			() => {},
+			() => undefined,
 			{},
 			{ snapshotCache: cache, runProvider: () => [created.manifest] },
 		);
@@ -254,7 +254,7 @@ test("RunDashboard renders progress preview", () => {
 			producer: "test",
 			retention: "run",
 		});
-		const dashboard = new RunDashboard([manifest], () => {});
+		const dashboard = new RunDashboard([manifest], () => undefined);
 		const lines = dashboard.render(100);
 		assert.ok(lines.some((line) => line.includes("Progress:")));
 		assert.ok(lines.some((line) => line.includes("Task counts")));

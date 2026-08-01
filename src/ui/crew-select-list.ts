@@ -29,7 +29,7 @@ export class CrewSelectList<T = string> {
 		this.selectedIndex = this.items.length ? 0 : -1;
 	}
 
-	invalidate(): void {}
+	invalidate(): void { /* no-op */ }
 
 	getSelected(): CrewSelectItem<T> | undefined {
 		return this.selectedIndex >= 0 ? this.items[this.selectedIndex] : undefined;

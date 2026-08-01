@@ -55,7 +55,7 @@ test("watchdog semantics: a hung run that exceeds the timeout must be abortable,
 		watchdog: NodeJS.Timeout;
 		cleared: boolean;
 	} = {
-		keepAlive: setTimeout(() => {}, 5000),
+		keepAlive: setTimeout(() => undefined, 5000),
 		watchdog: setTimeout(() => {
 			timers.cleared = false;
 		}, 999_999), // would fire on timeout

@@ -25,7 +25,7 @@ test("foreground run with scheduler waits for completion and returns results", a
 					scheduled = true;
 					// Run the runner to completion (mock agents finish instantly)
 					const p = runner();
-					p.then(() => {}).catch(() => {});
+					p.then(() => undefined).catch(() => undefined);
 				},
 			},
 		);

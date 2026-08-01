@@ -26,7 +26,7 @@ test("api rejects direct live-agent control for a different run", async () => {
 			runId: "other-run",
 			taskId: "task",
 			status: "running",
-			session: { steer: async () => {} },
+			session: { steer: async () => undefined },
 			workspaceId: cwd,
 		});
 		const rejected = await handleTeamTool(
@@ -75,7 +75,7 @@ test("api rejects steer for live agent with mismatched workspaceId", async () =>
 			runId,
 			taskId: "task",
 			status: "running",
-			session: { steer: async () => {} },
+			session: { steer: async () => undefined },
 			workspaceId: otherWorkspace,
 		});
 		const rejected = await handleTeamTool(

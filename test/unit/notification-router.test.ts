@@ -95,7 +95,7 @@ test("NotificationRouter.sink errors do not break enqueue", () => {
 				throw new Error("sink broken");
 			},
 		},
-		() => {},
+		() => undefined,
 	);
 	// Should not throw
 	assert.equal(router.enqueue(baseNotification()), true);

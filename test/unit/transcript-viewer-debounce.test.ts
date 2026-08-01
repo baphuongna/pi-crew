@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TeamRunManifest } from "../../src/state/types.ts";
-import { DurableTranscriptViewer, readRunTranscript } from "../../src/ui/transcript-viewer.ts";
+import { DurableTranscriptViewer, type readRunTranscript } from "../../src/ui/transcript-viewer.ts";
 
 type TranscriptResult = ReturnType<typeof readRunTranscript>;
 
@@ -42,7 +42,7 @@ test("DurableTranscriptViewer reads the transcript once on open, not on every ke
 	const viewer = new DurableTranscriptViewer(
 		manifest,
 		noopTheme,
-		() => {},
+		() => undefined,
 		undefined,
 		{ readTranscript: spy.fn },
 	);
@@ -69,7 +69,7 @@ test("DurableTranscriptViewer refreshes the cache only on the explicit full/tail
 	const viewer = new DurableTranscriptViewer(
 		manifest,
 		noopTheme,
-		() => {},
+		() => undefined,
 		undefined,
 		{ readTranscript: spy.fn },
 	);
@@ -94,7 +94,7 @@ test("DurableTranscriptViewer scroll math stays correct without per-keypress rea
 	const viewer = new DurableTranscriptViewer(
 		manifest,
 		noopTheme,
-		() => {},
+		() => undefined,
 		undefined,
 		{ readTranscript: spy.fn },
 	);

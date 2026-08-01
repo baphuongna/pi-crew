@@ -75,7 +75,7 @@ test("redacts secrets at event, mailbox, artifact, log, and agent persistence bo
 		assertRedacted(fs.readFileSync(artifact.path, "utf-8"));
 
 		const logPath = path.join(manifest.stateRoot, "stream.jsonl");
-		const writer = createJsonlWriter(logPath, { pause() {}, resume() {} });
+		const writer = createJsonlWriter(logPath, { pause() { /* no-op */ }, resume() { /* no-op */ } });
 		writer.writeLine(JSON.stringify({ token: SECRET, ok: true }));
 		await writer.close();
 		assertRedacted(fs.readFileSync(logPath, "utf-8"));

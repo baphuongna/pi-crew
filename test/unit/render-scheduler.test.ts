@@ -57,7 +57,7 @@ test("RenderScheduler coalesces event bursts and disposes listeners", async () =
 test("RenderScheduler 1.9: per-runId invalidate coalesce collapses same-run bursts", async () => {
 	const events = new FakeEvents();
 	const invalidations: string[] = [];
-	const scheduler = new RenderScheduler(events, () => {}, {
+	const scheduler = new RenderScheduler(events, () => undefined, {
 		debounceMs: 5,
 		fallbackMs: 10_000,
 		events: ["crew.subagent.completed"],
@@ -84,7 +84,7 @@ test("RenderScheduler 1.9: per-runId invalidate coalesce collapses same-run burs
 test("RenderScheduler 1.9: payload without runId still invalidates immediately", () => {
 	const events = new FakeEvents();
 	let invalidations = 0;
-	const scheduler = new RenderScheduler(events, () => {}, {
+	const scheduler = new RenderScheduler(events, () => undefined, {
 		debounceMs: 5,
 		fallbackMs: 10_000,
 		events: ["crew.mailbox.updated"],

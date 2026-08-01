@@ -148,7 +148,7 @@ export function isAllowedRpcRunParams(
 
 function on(events: EventBusLike, channel: string, handler: (raw: unknown) => unknown): () => void {
 	const unsub = events.on(channel, handler);
-	return typeof unsub === "function" ? unsub : () => {};
+	return typeof unsub === "function" ? unsub : () => undefined;
 }
 
 // SECURITY TRUST BOUNDARY: RPC channels (pi-crew:rpc:run, pi-crew:rpc:status,

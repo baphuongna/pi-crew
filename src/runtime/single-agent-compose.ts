@@ -72,6 +72,7 @@ export function composeSingleAgentPrompt(workflow: WorkflowConfig, goal: string)
 		if (step.output) {
 			lines.push(`Output: write your result to \`${step.output}\``);
 		}
+		// biome-ignore lint/complexity/useOptionalChain: reads is `string[] | false | undefined` — optional chain doesn't narrow out `false` (no .length on boolean)
 		if (step.reads && step.reads.length) {
 			lines.push(`Read first: ${step.reads.join(", ")}`);
 		}

@@ -24,13 +24,13 @@ class FakeEventBus {
 
 describe("RenderScheduler constructor", () => {
 	it("accepts no event bus", () => {
-		const scheduler = new RenderScheduler(undefined, () => {});
+		const scheduler = new RenderScheduler(undefined, () => undefined);
 		scheduler.dispose();
 	});
 
 	it("accepts custom event list", () => {
 		const bus = new FakeEventBus();
-		const scheduler = new RenderScheduler(bus, () => {}, {
+		const scheduler = new RenderScheduler(bus, () => undefined, {
 			events: ["custom.event"],
 		});
 		assert.equal(bus.listenerCount("custom.event"), 1);
@@ -39,7 +39,7 @@ describe("RenderScheduler constructor", () => {
 	});
 
 	it("uses default debounceMs when not specified", () => {
-		const scheduler = new RenderScheduler(undefined, () => {});
+		const scheduler = new RenderScheduler(undefined, () => undefined);
 		// No assertion on internal value, just verify no crash
 		scheduler.dispose();
 	});
@@ -151,7 +151,7 @@ describe("RenderScheduler event subscription", () => {
 
 	it("unsubscribes from all events on dispose", () => {
 		const bus = new FakeEventBus();
-		const scheduler = new RenderScheduler(bus, () => {}, {
+		const scheduler = new RenderScheduler(bus, () => undefined, {
 			events: ["e1", "e2"],
 		});
 		assert.equal(bus.listenerCount("e1"), 1);
@@ -166,7 +166,7 @@ describe("RenderScheduler invalidate coalesce", () => {
 	it("coalesces same runId invalidations", async () => {
 		const bus = new FakeEventBus();
 		const invalidations: string[] = [];
-		const scheduler = new RenderScheduler(bus, () => {}, {
+		const scheduler = new RenderScheduler(bus, () => undefined, {
 			debounceMs: 5,
 			fallbackMs: 9999,
 			events: ["e"],
@@ -188,7 +188,7 @@ describe("RenderScheduler invalidate coalesce", () => {
 	it("passes non-runId payloads through immediately", () => {
 		const bus = new FakeEventBus();
 		let count = 0;
-		const scheduler = new RenderScheduler(bus, () => {}, {
+		const scheduler = new RenderScheduler(bus, () => undefined, {
 			debounceMs: 9999,
 			fallbackMs: 9999,
 			events: ["e"],
@@ -224,7 +224,7 @@ describe("RenderScheduler dispose", () => {
 	});
 
 	it("is idempotent", () => {
-		const scheduler = new RenderScheduler(undefined, () => {});
+		const scheduler = new RenderScheduler(undefined, () => undefined);
 		scheduler.dispose();
 		scheduler.dispose();
 		scheduler.dispose();

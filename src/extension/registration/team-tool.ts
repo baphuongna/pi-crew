@@ -235,7 +235,7 @@ interface TeamToolProgressBinder {
 
 function startTeamToolProgressBinder(onUpdate: OnUpdate | undefined): TeamToolProgressBinder {
 	if (!onUpdate) {
-		return { attach: () => {}, stop: () => {} };
+		return { attach: () => undefined, stop: () => undefined };
 	}
 	const startedAt = Date.now();
 	let cwd: string | undefined;

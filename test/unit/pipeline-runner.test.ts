@@ -70,6 +70,7 @@ test("PipelineRunner passes previous results to next stage", async () => {
 		goal: "Test goal",
 		stages: [
 			{ name: "stage1", team: "team1", inputs: "initial" },
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 			{ name: "stage2", team: "team2", inputs: "${previous}" },
 		],
 	};
@@ -267,6 +268,7 @@ test("PipelineRunner resolves context variables", async () => {
 		name: "context-test",
 		description: "Test context resolution",
 		goal: "Test goal",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 		stages: [{ name: "stage1", team: "team", inputs: "${context.value}" }],
 	};
 
@@ -287,6 +289,7 @@ test("PipelineRunner resolves args variables", async () => {
 		name: "args-test",
 		description: "Test args resolution",
 		goal: "Test goal",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 		stages: [{ name: "stage1", team: "team", inputs: "${args.topic}" }],
 	};
 
@@ -309,6 +312,7 @@ test("PipelineRunner resolves previous[N] pattern", async () => {
 		goal: "Test goal",
 		stages: [
 			{ name: "stage1", team: "team", inputs: "initial" },
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 			{ name: "stage2", team: "team", inputs: "${previous[0]}" },
 		],
 	};
@@ -574,6 +578,7 @@ test("PipelineRunner resolves nested context paths", async () => {
 			{
 				name: "stage1",
 				team: "team",
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 				inputs: "${context.nested.deep.value}",
 			},
 		],
@@ -596,6 +601,7 @@ test("PipelineRunner handles undefined previous results gracefully", async () =>
 		name: "undefined-previous",
 		description: "Test undefined previous",
 		goal: "Test goal",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: literal pipeline template string under test
 		stages: [{ name: "stage1", team: "team", inputs: "${previous[99]}" }],
 	};
 

@@ -324,7 +324,7 @@ function footerData(entries: [string, string][]) {
 		getGitBranch: () => null,
 		getExtensionStatuses: () => new Map(entries),
 		getAvailableProviderCount: () => 1,
-		onBranchChange: () => () => {},
+		onBranchChange: () => () => undefined,
 	};
 }
 

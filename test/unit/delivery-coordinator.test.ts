@@ -40,8 +40,8 @@ describe("DeliveryCoordinator", () => {
 			emit: (event, data) => {
 				emitted.push({ event, data });
 			},
-			sendFollowUp: () => {},
-			sendWakeUp: () => {},
+			sendFollowUp: () => undefined,
+			sendWakeUp: () => undefined,
 		});
 		// Queue on the inactive DC
 		activeDc.deliverResult("run1", { status: "completed" });

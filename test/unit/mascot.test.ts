@@ -16,7 +16,7 @@ test("AnimatedMascot animates frames over time", async () => {
 		{
 			frameIntervalMs: 20,
 			autoCloseMs: 300,
-			requestRender: () => {},
+			requestRender: () => undefined,
 			style: "cat",
 			effect: "none",
 		},
@@ -45,7 +45,7 @@ test("AnimatedMascot closes on q input", async () => {
 		{
 			frameIntervalMs: 0,
 			autoCloseMs: 0,
-			requestRender: () => {},
+			requestRender: () => undefined,
 			style: "cat",
 			effect: "none",
 		},
@@ -66,7 +66,7 @@ test("AnimatedMascot auto-closes after timeout", async () => {
 		{
 			frameIntervalMs: 30,
 			autoCloseMs: 40,
-			requestRender: () => {},
+			requestRender: () => undefined,
 			style: "cat",
 			effect: "none",
 		},
@@ -76,10 +76,10 @@ test("AnimatedMascot auto-closes after timeout", async () => {
 });
 
 test("AnimatedMascot cat render output includes greeting and mascot", () => {
-	const mascot = new AnimatedMascot(undefined, () => {}, {
+	const mascot = new AnimatedMascot(undefined, () => undefined, {
 		frameIntervalMs: 30,
 		autoCloseMs: 0,
-		requestRender: () => {},
+		requestRender: () => undefined,
 		style: "cat",
 		effect: "none",
 	});
@@ -91,10 +91,10 @@ test("AnimatedMascot cat render output includes greeting and mascot", () => {
 });
 
 test("AnimatedMascot armin style renders XBM grid and resolves effect", async () => {
-	const mascot = new AnimatedMascot(undefined, () => {}, {
+	const mascot = new AnimatedMascot(undefined, () => undefined, {
 		frameIntervalMs: 16,
 		autoCloseMs: 0,
-		requestRender: () => {},
+		requestRender: () => undefined,
 		style: "armin",
 		effect: "scanline",
 	});
@@ -118,10 +118,10 @@ test("AnimatedMascot armin style renders XBM grid and resolves effect", async ()
 });
 
 test("AnimatedMascot armin glitch effect produces frames within bounds", () => {
-	const mascot = new AnimatedMascot(undefined, () => {}, {
+	const mascot = new AnimatedMascot(undefined, () => undefined, {
 		frameIntervalMs: 16,
 		autoCloseMs: 0,
-		requestRender: () => {},
+		requestRender: () => undefined,
 		style: "armin",
 		effect: "glitch",
 	});
@@ -132,7 +132,7 @@ test("AnimatedMascot armin glitch effect produces frames within bounds", () => {
 
 test("AnimatedMascot does not requestRender when invisible (C6)", async () => {
 	let renderCalls = 0;
-	const mascot = new AnimatedMascot(undefined, () => {}, {
+	const mascot = new AnimatedMascot(undefined, () => undefined, {
 		frameIntervalMs: 20,
 		autoCloseMs: 0,
 		requestRender: () => {

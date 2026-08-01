@@ -27,7 +27,7 @@ function rendered(overlay: { render(w: number): string[] }, width = 80): string 
 }
 
 test("createSettingsOverlay returns overlay+component with focused defaulting false", () => {
-	const { overlay, component } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay, component } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	assert.equal(component, overlay);
 	assert.equal(overlay.focused, false);
 	assert.equal(typeof overlay.render, "function");
@@ -36,7 +36,7 @@ test("createSettingsOverlay returns overlay+component with focused defaulting fa
 });
 
 test("render draws the title, tab bar, the first runtime setting, and the hint", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	const out = rendered(overlay);
 	assert.ok(out.includes("pi-crew Settings"));
 	assert.ok(out.includes("Runtime")); // tab label
@@ -45,20 +45,20 @@ test("render draws the title, tab bar, the first runtime setting, and the hint",
 });
 
 test("invalidate is safe to call with no submenu open", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	assert.doesNotThrow(() => overlay.invalidate());
 });
 
 test("Escape and q both trigger onClose (done)", () => {
 	let closes = 0;
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => closes++);
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => closes++);
 	overlay.handleInput("\u001b"); // escape
 	overlay.handleInput("q");
 	assert.equal(closes, 2);
 });
 
 test("Tab advances to the next tab (runtime -> limits) and resets selection", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	assert.ok(rendered(overlay).includes("How workers execute")); // runtime.mode description
 	overlay.handleInput("\t");
 	const out = rendered(overlay);
@@ -67,13 +67,13 @@ test("Tab advances to the next tab (runtime -> limits) and resets selection", ()
 });
 
 test("shift+tab wraps back to the last tab (runtime -> advanced)", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	overlay.handleInput("\u001b[Z"); // backtab
 	assert.ok(rendered(overlay).includes("Execute Workers")); // advanced first setting
 });
 
 test("down/up moves the selection and updates the description line", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	overlay.handleInput("\u001b[B"); // down -> index 1 (Max Turns)
 	assert.ok(rendered(overlay).includes("Maximum agent turns"));
 	overlay.handleInput("\u001b[A"); // up -> back to index 0
@@ -82,7 +82,7 @@ test("down/up moves the selection and updates the description line", () => {
 
 test("Enter on a boolean setting toggles the value and fires onChange each time", () => {
 	const changes: Array<[string, unknown]> = [];
-	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => {});
+	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => undefined);
 	// runtime(0) limits(1) agents(2) ui(3) themes(4) autonomous(5)
 	for (let i = 0; i < 5; i++) overlay.handleInput("\t");
 	assert.ok(rendered(overlay).includes("Enable autonomous pi-crew delegation"));
@@ -95,7 +95,7 @@ test("Enter on a boolean setting toggles the value and fires onChange each time"
 });
 
 test("Enter on an enum setting opens the select submenu; Esc cancels back to the list", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	overlay.handleInput("\r"); // runtime.mode (enum) -> open submenu
 	let out = rendered(overlay);
 	assert.ok(out.includes("Enter to select")); // submenu hint
@@ -108,7 +108,7 @@ test("Enter on an enum setting opens the select submenu; Esc cancels back to the
 
 test("number submenu: typing digits + Enter fires onChange with a number", () => {
 	const changes: Array<[string, unknown]> = [];
-	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => {});
+	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => undefined);
 	overlay.handleInput("\u001b[B"); // down -> Max Turns (number)
 	overlay.handleInput("\r"); // open text input
 	overlay.handleInput("5");
@@ -119,7 +119,7 @@ test("number submenu: typing digits + Enter fires onChange with a number", () =>
 
 test("number submenu: submitting an empty buffer unsets the value (onChange undefined)", () => {
 	const changes: Array<[string, unknown]> = [];
-	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => {});
+	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => undefined);
 	overlay.handleInput("\u001b[B"); // Max Turns
 	overlay.handleInput("\r"); // open
 	overlay.handleInput("\r"); // submit empty
@@ -128,7 +128,7 @@ test("number submenu: submitting an empty buffer unsets the value (onChange unde
 
 test("number submenu: Esc cancels without firing onChange", () => {
 	const changes: Array<[string, unknown]> = [];
-	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => {});
+	const { overlay } = createSettingsOverlay({}, theme, (id, value) => changes.push([id, value]), () => undefined);
 	overlay.handleInput("\u001b[B"); // Max Turns
 	overlay.handleInput("\r"); // open
 	overlay.handleInput("9");
@@ -138,7 +138,7 @@ test("number submenu: Esc cancels without firing onChange", () => {
 });
 
 test("agent overrides submenu opens and Esc cancels", () => {
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined);
 	overlay.handleInput("\t"); // limits
 	overlay.handleInput("\t"); // agents
 	overlay.handleInput("\r"); // open agent overrides submenu
@@ -149,7 +149,7 @@ test("agent overrides submenu opens and Esc cancels", () => {
 
 test("action setting (Pi theme) dispatches onAction with the action id and chosen value", () => {
 	const actions: Array<[string, unknown]> = [];
-	const { overlay } = createSettingsOverlay({}, theme, () => {}, () => {}, (a, v) => actions.push([a, v]));
+	const { overlay } = createSettingsOverlay({}, theme, () => undefined, () => undefined, (a, v) => actions.push([a, v]));
 	// runtime(0) limits(1) agents(2) ui(3) themes(4)
 	for (let i = 0; i < 4; i++) overlay.handleInput("\t");
 	overlay.handleInput("\r"); // open theme select submenu
@@ -160,7 +160,7 @@ test("action setting (Pi theme) dispatches onAction with the action id and chose
 });
 
 test("explicitly-set config values render without a (default) suffix", () => {
-	const { overlay } = createSettingsOverlay({ runtime: { maxTurns: 7 } }, theme, () => {}, () => {});
+	const { overlay } = createSettingsOverlay({ runtime: { maxTurns: 7 } }, theme, () => undefined, () => undefined);
 	const out = rendered(overlay);
 	assert.ok(out.includes("7")); // value flowed through formatValue
 	assert.ok(!out.includes("10000")); // the EFFECTIVE_DEFAULTS value is suppressed

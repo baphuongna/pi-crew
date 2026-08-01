@@ -537,9 +537,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			},
 		};
 		const mockSession = {
-			steer: async () => {},
-			prompt: async () => {},
-			abort: async () => {},
+			steer: async () => undefined,
+			prompt: async () => undefined,
+			abort: async () => undefined,
 		};
 		registerLiveAgent(
 			{

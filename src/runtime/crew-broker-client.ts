@@ -95,7 +95,6 @@ export class CrewBrokerClient {
 	private socket: net.Socket | null = null;
 	private decoder: NdjsonDecoder | null = null;
 	private readonly pending = new Map<string, PendingRequest>();
-	private attempts = 0;
 	/** Listeners attached to the current socket; kept for explicit close(). */
 	private readonly socketListeners: Array<{
 		event: string;
@@ -234,7 +233,6 @@ export class CrewBrokerClient {
 	async reconnect(): Promise<boolean> {
 		// Close the current socket if any.
 		this.teardownSocket();
-		this.attempts = 0;
 		this._mode = "unstarted";
 		const res = await this.request("ping", null);
 		return res.ok;
@@ -309,7 +307,6 @@ export class CrewBrokerClient {
 			if (this.closed) {
 				return { ok: false, fallback: true, errorCode: "closed" };
 			}
-			this.attempts = attempt + 1;
 			const result = await this.attemptHello(netModule);
 			if (result.ok) {
 				// Belt-and-suspenders: a successful hello can still race
@@ -460,7 +457,7 @@ export class CrewBrokerClient {
 						return;
 					}
 					// Hello ack: must include `result.ok === true` and matching id.
-					if (frame.id && frame.id.startsWith("hello-")) {
+					if (frame.id?.startsWith("hello-")) {
 						if (frame.error) {
 							const code = (frame.error as { code?: string }).code ?? "auth";
 							finish({ ok: false, fallback: true, errorCode: code });

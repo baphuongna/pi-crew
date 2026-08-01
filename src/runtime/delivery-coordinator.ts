@@ -28,21 +28,18 @@ export class DeliveryCoordinator {
 	private readonly deps: DeliveryCoordinatorDeps;
 	private ttlTimer: ReturnType<typeof setInterval> | undefined;
 	private timerStarted = false;
-	private ownerSessionId: string | undefined = undefined;
 
 	constructor(deps: DeliveryCoordinatorDeps) {
 		this.deps = deps;
 	}
 
 	activate(sessionId: string): void {
-		this.ownerSessionId = sessionId;
 		this.active = true;
 		this.flushQueuedResults();
 	}
 
 	deactivate(): void {
 		this.active = false;
-		this.ownerSessionId = undefined;
 		this.generation += 1;
 	}
 

@@ -35,8 +35,8 @@ export interface JsonlWriter {
 export function createJsonlWriter(filePath: string | undefined, source: DrainableSource, deps: JsonlWriterDeps = {}): JsonlWriter {
 	if (!filePath) {
 		return {
-			writeLine() {},
-			async close() {},
+			writeLine() { /* no-op: null writer */ },
+			async close() { /* no-op: null writer */ },
 		};
 	}
 
@@ -46,8 +46,8 @@ export function createJsonlWriter(filePath: string | undefined, source: Drainabl
 		stream = createWriteStream(filePath);
 	} catch {
 		return {
-			writeLine() {},
-			async close() {},
+			writeLine() { /* no-op: stream creation failed */ },
+			async close() { /* no-op: stream creation failed */ },
 		};
 	}
 

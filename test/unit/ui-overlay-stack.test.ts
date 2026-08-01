@@ -19,7 +19,7 @@ function makeOverlay(id: string, body: string[]): RecordingOverlay {
 		id,
 		rendered: 0,
 		inputs: [],
-		invalidate(): void {},
+		invalidate(): void { /* no-op */ },
 		render(_width: number): string[] {
 			this.rendered += 1;
 			return body.slice();
@@ -157,7 +157,7 @@ test("UI-4: invalidateAll forwards to every overlay", () => {
 		render(): string[] {
 			return [];
 		},
-		handleInput(): void {},
+		handleInput(): void { /* no-op */ },
 	});
 	stack.push({
 		id: "b",
@@ -167,7 +167,7 @@ test("UI-4: invalidateAll forwards to every overlay", () => {
 		render(): string[] {
 			return [];
 		},
-		handleInput(): void {},
+		handleInput(): void { /* no-op */ },
 	});
 
 	stack.invalidateAll();
@@ -203,11 +203,11 @@ test("UI-4: onTopChanged fires on push, pop, dismissTop, and clear (not on empty
 test("UI-4: real overlays (ConfirmOverlay) opt in automatically via structural compatibility", () => {
 	const stack = new OverlayStack();
 	const overlay = new (class {
-		invalidate(): void {}
+		invalidate(): void { /* no-op */ }
 		render(_w: number): string[] {
 			return ["overlay"];
 		}
-		handleInput(_d: string): void {}
+		handleInput(_d: string): void { /* no-op */ }
 	})();
 	// A plain InteractiveComponent-shaped object pushes without adaptation.
 	stack.push(overlay);

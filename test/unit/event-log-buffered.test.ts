@@ -9,7 +9,7 @@ test("appendEventBuffered batches into single lock acquire and preserves seq ord
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-buffer-"));
 	const eventsPath = path.join(dir, "events.jsonl");
 	// Keep event loop alive so unref'd timer still fires
-	const keepAlive = setInterval(() => {}, 50);
+	const keepAlive = setInterval(() => undefined, 50);
 	try {
 		const promises: Promise<unknown>[] = [];
 		for (let i = 0; i < 10; i++) {
@@ -60,7 +60,7 @@ test("appendEvent and appendEventBuffered share the same seq sequence (2.2)", as
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-mix-"));
 	const eventsPath = path.join(dir, "events.jsonl");
 	// Keep event loop alive so unref'd timer still fires
-	const keepAlive = setInterval(() => {}, 50);
+	const keepAlive = setInterval(() => undefined, 50);
 	try {
 		const sync = appendEvent(eventsPath, {
 			type: "run.created",

@@ -19,8 +19,8 @@ function items(count: number): CrewSelectItem<number>[] {
 
 test("CrewSelectList renders items with selected marker", () => {
 	const list = new CrewSelectList(items(5), theme, {
-		onSelect: () => {},
-		onCancel: () => {},
+		onSelect: () => undefined,
+		onCancel: () => undefined,
 	});
 	const lines = list.render(80);
 	assert.equal(lines.length, 5);
@@ -30,8 +30,8 @@ test("CrewSelectList renders items with selected marker", () => {
 test("CrewSelectList moves down with j and previews selected item", () => {
 	const previews: number[] = [];
 	const list = new CrewSelectList(items(3), theme, {
-		onSelect: () => {},
-		onCancel: () => {},
+		onSelect: () => undefined,
+		onCancel: () => undefined,
 		onPreview: (item) => previews.push(item.value),
 	});
 	list.handleInput("j");
@@ -45,7 +45,7 @@ test("CrewSelectList selects current item on enter", () => {
 		onSelect: (item) => {
 			selected = item.value;
 		},
-		onCancel: () => {},
+		onCancel: () => undefined,
 	});
 	list.setSelectedIndex(2);
 	list.handleInput("\n");
@@ -55,7 +55,7 @@ test("CrewSelectList selects current item on enter", () => {
 test("CrewSelectList cancels on escape", () => {
 	let cancelled = false;
 	const list = new CrewSelectList(items(1), theme, {
-		onSelect: () => {},
+		onSelect: () => undefined,
 		onCancel: () => {
 			cancelled = true;
 		},
@@ -66,8 +66,8 @@ test("CrewSelectList cancels on escape", () => {
 
 test("CrewSelectList scrolls and shows more indicators", () => {
 	const list = new CrewSelectList(items(10), theme, {
-		onSelect: () => {},
-		onCancel: () => {},
+		onSelect: () => undefined,
+		onCancel: () => undefined,
 		maxHeight: 3,
 	});
 	list.setSelectedIndex(5);

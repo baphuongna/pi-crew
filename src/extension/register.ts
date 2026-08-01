@@ -53,7 +53,7 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	time("register:start");
 
 	startRuntimeWarmup();
-	primePeerDep().catch(() => {});
+	primePeerDep().catch(() => undefined);
 	deployBundledThemes();
 
 	const ctx = buildRegistrationContext(pi);

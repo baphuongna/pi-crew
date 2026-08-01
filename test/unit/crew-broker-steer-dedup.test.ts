@@ -135,7 +135,7 @@ class FakeBrokerClientForDedupTest extends EventEmitter {
 	constructor(options: CrewBrokerClientOptions) {
 		super();
 		this.options = options;
-		this.onEvent = options.onEvent ?? (() => {});
+		this.onEvent = options.onEvent ?? (() => undefined);
 	}
 	async reconnect(): Promise<boolean> {
 		this.mode = "fallback"; // The fake never establishes a real connection.

@@ -41,10 +41,10 @@ describe("probeLiveSessionRuntime", () => {
 describe("live agent lifecycle (session-runtime context)", () => {
 	it("tracks full agent lifecycle from registration to completion", () => {
 		const session = {
-			steer: async () => {},
-			prompt: async () => {},
-			abort: async () => {},
-			dispose: () => {},
+			steer: async () => undefined,
+			prompt: async () => undefined,
+			abort: async () => undefined,
+			dispose: () => undefined,
 		};
 		const handle = registerLiveAgent({
 			agentId: "lifecycle-agent",
@@ -77,16 +77,16 @@ describe("live agent lifecycle (session-runtime context)", () => {
 
 	it("supports multiple concurrent agents with independent state", () => {
 		const s1 = {
-			steer: async () => {},
-			prompt: async () => {},
-			abort: async () => {},
-			dispose: () => {},
+			steer: async () => undefined,
+			prompt: async () => undefined,
+			abort: async () => undefined,
+			dispose: () => undefined,
 		};
 		const s2 = {
-			steer: async () => {},
-			prompt: async () => {},
-			abort: async () => {},
-			dispose: () => {},
+			steer: async () => undefined,
+			prompt: async () => undefined,
+			abort: async () => undefined,
+			dispose: () => undefined,
 		};
 		registerLiveAgent({
 			agentId: "multi-1",
@@ -120,10 +120,10 @@ describe("live agent lifecycle (session-runtime context)", () => {
 
 	it("handles turn with compaction tracking", () => {
 		const s = {
-			steer: async () => {},
-			prompt: async () => {},
-			abort: async () => {},
-			dispose: () => {},
+			steer: async () => undefined,
+			prompt: async () => undefined,
+			abort: async () => undefined,
+			dispose: () => undefined,
 		};
 		registerLiveAgent({
 			agentId: "compact",

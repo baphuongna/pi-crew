@@ -100,6 +100,7 @@ test("whitelist blocks subshells", () => {
 });
 
 test("whitelist allows plain variable expansion (no command substitution)", () => {
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell variable syntax under test
 	assert.ok(isAllowedWhitelist("echo ${HOME}"));
 	assert.ok(isAllowedWhitelist("ls $HOME"));
 });
