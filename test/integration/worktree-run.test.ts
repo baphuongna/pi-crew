@@ -129,7 +129,7 @@ test("worktree mode creates task worktrees and exposes them", async (t) => {
 		assert.equal(worktrees.isError, false);
 		assert.match(firstText(worktrees), /branch=pi-crew\//);
 
-		const cleanup = await handleTeamTool({ action: "cleanup", runId }, { cwd });
+		const cleanup = await handleTeamTool({ action: "cleanup", runId, confirm: true }, { cwd });
 		assert.equal(cleanup.isError, false);
 		assert.match(firstText(cleanup), /Removed:/);
 	} finally {

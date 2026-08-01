@@ -586,7 +586,7 @@ test("G6: cleanup removes run worktrees", async () => {
 			goal: "Cleanup test",
 		});
 		const runId = run.details!.runId as string;
-		const res = await tool({ action: "cleanup", runId });
+		const res = await tool({ action: "cleanup", runId, confirm: true });
 		ok(res, "cleanup");
 	} finally {
 		teardown();
