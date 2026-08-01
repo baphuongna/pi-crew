@@ -18,6 +18,7 @@ import { renderMetricsPane } from "./dashboard-panes/metrics-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
+import type { InteractiveComponent } from "./component.ts";
 import { dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
@@ -40,11 +41,9 @@ function safeRenderPane(name: string, fn: () => string[]): string[] {
 	}
 }
 
-interface DashboardComponent {
-	invalidate(): void;
-	render(width: number): string[];
-	handleInput(data: string): void;
-}
+// PR-G3 (UI-3): extend the shared InteractiveComponent contract (render +
+// invalidate + handleInput). Structurally identical — no behavior change.
+interface DashboardComponent extends InteractiveComponent {}
 
 export interface RunDashboardOptions {
 	placement?: "center" | "right";

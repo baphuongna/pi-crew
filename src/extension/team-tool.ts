@@ -649,11 +649,15 @@ export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamConte
 }
 
 /**
- * Global RPC registry for cross-extension access to pi-crew's team orchestrator.
- * Uses Symbol.for() for cross-package singleton pattern (same as OpenTelemetry).
- * Extensions can access via: const reg = globalThis[Symbol.for("pi-crew:registry")];
+ * Module-scoped RPC registry for access to pi-crew's team orchestrator.
+ *
+ * EXT-9: Previously this used a `globalThis[Symbol.for("pi-crew:registry")]`
+ * singleton — fragile (cross-realm, no lifecycle, peer extensions could
+ * read/overwrite it). It is now a module-level variable: exactly one instance
+ * per extension load (one per pi session), invisible to peer extensions.
+ * Cross-extension consumers should use the `pi.events` RPC channel
+ * (`registerPiCrewRpc`) instead of poking globalThis.
  */
-const CREW_REGISTRY_KEY = Symbol.for("pi-crew:registry");
 interface CrewRegistry {
 	version: 2;
 	getRecord: (runId: string) => TeamRunManifest | undefined;
@@ -674,13 +678,16 @@ interface CrewRegistry {
 // discovery results with highest priority. The CrewRegistry interface exposes
 // registerAgent/unregisterAgent/listDynamicAgents for cross-extension access.
 
+// Module-scoped singleton instance — one per extension load (EXT-9).
+let crewRegistryInstance: CrewRegistry | undefined;
+
 export function registerCrewGlobalRegistry(registry: CrewRegistry): void {
-	(globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] = registry;
+	crewRegistryInstance = registry;
 }
 
-/** @internal */
-function getCrewGlobalRegistry(): CrewRegistry | undefined {
-	return (globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY] as CrewRegistry | undefined;
+/** @internal — exported for lifecycle tests. */
+export function getCrewGlobalRegistry(): CrewRegistry | undefined {
+	return crewRegistryInstance;
 }
 
 /** Manifest cache shape needed to construct the global registry's read-side. */
@@ -744,7 +751,7 @@ export function installCrewGlobalRegistry(deps?: { manifestCache: ManifestCacheF
 	registerCrewGlobalRegistry(registry);
 }
 
-/** Remove the global CrewRegistry singleton. Call during session cleanup. */
+/** Remove the CrewRegistry singleton. Call during session cleanup. */
 export function uninstallCrewGlobalRegistry(): void {
-	delete (globalThis as Record<symbol | string, unknown>)[CREW_REGISTRY_KEY];
+	crewRegistryInstance = undefined;
 }

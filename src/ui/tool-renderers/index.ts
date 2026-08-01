@@ -9,6 +9,7 @@
 import { type Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { truncateToWidth } from "../../utils/visual.ts";
+import type { CrewComponent } from "../component.ts";
 import { formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
 import { spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
@@ -30,6 +31,17 @@ export interface ToolRenderer {
 }
 
 export type Component = Container | Text;
+
+// PR-G3 (UI-3): `Container | Text` structurally satisfies the shared
+// CrewComponent contract — both come from @earendil-works/pi-tui and each
+// implements the library `Component` interface (render + invalidate). The
+// assertion below makes the relationship compiler-enforced without changing
+// the exported union type or any behavior.
+type _AssertComponentIsCrewComponent = Container extends CrewComponent
+	? Text extends CrewComponent
+		? true
+		: never
+	: never;
 
 // ── ANSI-aware padding ─────────────────────────────────────────────────
 

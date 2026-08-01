@@ -1,9 +1,11 @@
+import type { CrewComponent } from "./component.ts";
 import { pad, wrapHard } from "../utils/visual.ts";
 
-export interface RenderableComponent {
-	invalidate(): void;
-	render(width: number): string[];
-}
+// PR-G3 (UI-3): the shared CrewComponent contract (render + invalidate).
+// RenderableComponent now extends it so every layout primitive is usable
+// wherever a CrewComponent is expected. Structurally identical — no behavior
+// change.
+export interface RenderableComponent extends CrewComponent {}
 
 export class Container implements RenderableComponent {
 	private children: RenderableComponent[] = [];

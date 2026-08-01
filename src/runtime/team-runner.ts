@@ -13,6 +13,7 @@ import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
+import { canTransitionRunStatus } from "../state/contracts.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatTokens, formatUsage } from "../state/usage.ts";
@@ -1019,6 +1020,29 @@ type SchedulerDecision =
 			approvalPending: boolean;
 			coalesceEnabled: boolean;
 	  };
+
+/**
+ * RT-13: Safely normalize the manifest status to "running" so a subsequent
+ * terminal transition (e.g. → cancelled) goes through updateRunStatus legally.
+ *
+ * Replaces the former inline status-rewrite hack
+ * `manifest = { ...manifest, status: "running" }` which bypassed
+ * updateRunStatus entirely. Unlike the raw spread, this validates the
+ * transition via canTransitionRunStatus. Does NOT call updateRunStatus —
+ * no event is emitted, no persistence — preserving the exact observable
+ * behavior of the former hack. If the transition is somehow illegal, the
+ * manifest is returned unchanged (safe fallback, no throw introduced).
+ *
+ * All non-terminal statuses and the terminal statuses failed/cancelled/
+ * completed can legally reach "running" per TEAM_RUN_STATUS_TRANSITIONS, so
+ * in practice the validation always passes.
+ */
+export function setRunStatusRunning(manifest: TeamRunManifest): TeamRunManifest {
+	if (canTransitionRunStatus(manifest.status, "running")) {
+		return { ...manifest, status: "running" };
+	}
+	return manifest;
+}
 
 /**
  * CORE-4 extraction 1: handle a pre-aborted signal at the top of the
@@ -2291,11 +2315,17 @@ async function executeTeamRunCore(
 	// CORE-1: single drain point — all early returns + normal exit settle pendingUnits via finally block.
 	try {
 		while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
-			// CORE-4: full sync of mutable closure locals → ctx at the top of every
-			// iteration. The inline post-merge block (adaptive plan re-injection,
-			// phase advance, queueIndex rebuild) mutates these locals; without this
-			// sync the extracted functions (selectDispatchBatch / dispatchBatch /
-			// mergeUnitResult) would read stale ctx fields — e.g. ctx.workflow
+			// CORE-4 / RT-15: full sync of mutable closure locals → ctx at the top
+			// of every iteration. This is the SINGLE forward-sync point — all
+			// extracted scheduler functions (cancelRunFromSignal /
+			// handleFailedTask / selectDispatchBatch / dispatchBatch /
+			// mergeUnitResult / advanceWorkflowPhases / enforceRunBudget) read
+			// ctx directly. The per-function redundant forward-syncs were removed
+			// (RT-15) because back-syncs after each call keep locals aligned with
+			// ctx, making intermediate re-syncs no-ops. The inline post-merge
+			// block (adaptive plan re-injection, phase advance, queueIndex
+			// rebuild) mutates these locals; without this top-of-loop sync the
+			// extracted functions would read stale ctx fields — e.g. ctx.workflow
 			// missing newly-injected adaptive steps → E006 step-not-found.
 			ctx.tasks = tasks;
 			ctx.manifest = manifest;
@@ -2309,24 +2339,20 @@ async function executeTeamRunCore(
 			const signalDecision = await cancelRunFromSignal(ctx);
 			if (signalDecision?.kind === "return") return signalDecision.result;
 
-			// CORE-4 extraction 2: failed-task handling. Sync mutable locals into
-			// ctx before the call; handleFailedTask mutates ctx in-place and
-			// returns a SchedulerDecision.
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
+			// CORE-4 extraction 2: failed-task handling. ctx is already synced
+			// from the top-of-loop sync (RT-15); handleFailedTask mutates ctx
+			// in-place and returns a SchedulerDecision.
 			const failedDecision = await handleFailedTask(ctx);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
 			if (failedDecision?.kind === "return") return failedDecision.result;
 			if (failedDecision?.kind === "continue") continue;
 
-			// CORE-4 extraction 3: batch selection. Sync mutable locals into ctx;
-			// selectDispatchBatch computes the ready batch and returns a dispatch
-			// decision (or return if the run must block/abort). The caller syncs
-			// ctx.wfMachine back because the function may advance phases.
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
-			ctx.wfMachine = wfMachine;
+			// CORE-4 extraction 3: batch selection. ctx is already synced from
+			// the top-of-loop sync (RT-15); selectDispatchBatch computes the
+			// ready batch and returns a dispatch decision (or return if the run
+			// must block/abort). The caller syncs ctx.wfMachine back because
+			// the function may advance phases.
 			const dispatchDecision = await selectDispatchBatch(ctx);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
@@ -2338,9 +2364,7 @@ async function executeTeamRunCore(
 			// dispatch units, pre-warms the stable-prefix cache, and adds each
 			// unit's promise to ctx.pendingUnits (wrapped in executeWithRetry).
 			// The function mutates ctx.tasks (hook skips) and ctx.manifest (hook
-			// status) in-place. Verbatim lift of the inline dispatch block.
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
+			// status) in-place. ctx is already synced from the top-of-loop sync.
 			await dispatchBatch(ctx, dispatchDecision);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
@@ -2356,8 +2380,6 @@ async function executeTeamRunCore(
 			// ctx.pendingUnits, and records the merge outcome on ctx. Returns null
 			// (continue to phase/budget check) — a return decision is reserved for
 			// future run-complete/failure detection.
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
 			const mergeDecision = await mergeUnitResult(ctx);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
@@ -2366,21 +2388,20 @@ async function executeTeamRunCore(
 			// (cancel-during-exec check + batch summary artifact).
 			const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge!;
 
-			// CORE-4 extraction 6: workflow phase advance. Sync ctx.wfMachine;
+			// CORE-4 extraction 6: workflow phase advance. ctx.wfMachine is
+			// already synced from the top-of-loop sync (RT-15);
 			// advanceWorkflowPhases advances phases whose tasks are all terminal,
 			// emits phase_* events, and advances currentPhaseIndex. Mutates
 			// ctx.wfMachine in-place.
-			ctx.wfMachine = wfMachine;
 			await advanceWorkflowPhases(ctx);
 			wfMachine = ctx.wfMachine;
 
-			// CORE-4 extraction 7: budget enforcement. Sync ctx.tasks/manifest;
-			// enforceRunBudget checks cumulative usage against warn/abort thresholds
-			// and a fair-share heuristic. On abort it marks the run failed and
-			// returns { kind: "return" }; otherwise emits warning events and
-			// returns null (continue).
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
+			// CORE-4 extraction 7: budget enforcement. ctx is already synced
+			// from the top-of-loop sync (RT-15); enforceRunBudget checks
+			// cumulative usage against warn/abort thresholds and a fair-share
+			// heuristic. On abort it marks the run failed and returns
+			// { kind: "return" }; otherwise emits warning events and returns
+			// null (continue).
 			const budgetDecision = await enforceRunBudget(ctx);
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
@@ -2390,7 +2411,7 @@ async function executeTeamRunCore(
 			if (cancelledResult || input.signal?.aborted) {
 				const reason = input.signal?.aborted ? cancellationReasonFromSignal(input.signal) : undefined;
 				const message = reason?.message ?? cancelledResult?.manifest.summary ?? "Run cancelled during task execution.";
-				manifest = { ...manifest, status: "running" };
+				manifest = setRunStatusRunning(manifest);
 				manifest = updateRunStatus(manifest, "cancelled", message);
 				// CANCEL-2: re-cancel non-terminal tasks here, mirroring the batch-loop
 				// cancel check at team-runner.ts:~925. A manifest cancelled mid-merge

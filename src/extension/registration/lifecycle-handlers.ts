@@ -54,7 +54,7 @@ import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
 import { notifyActiveRuns } from "../session-summary.ts";
-import { persistScheduledJobUpdate } from "../team-tool/handle-schedule.ts";
+import { persistScheduledJobUpdate, registerCrewScheduler } from "../team-tool/handle-schedule.ts";
 import { handleTeamTool } from "../team-tool.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
 import type { RegistrationContext } from "./registration-types.ts";
@@ -196,8 +196,8 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
 
 		// Wire scheduler into handle-schedule.ts so handlers can add/list jobs.
-		// Uses a global symbol so the module doesn't need a direct circular import.
-		(globalThis as Record<symbol | string, unknown>)[Symbol.for("pi-crew:scheduler")] = ctx.crewScheduler;
+		// EXT-9: module-scoped setter (was globalThis[Symbol.for(...)]).
+		registerCrewScheduler(ctx.crewScheduler);
 		// Load scheduled jobs from settings if present
 		if (Array.isArray(crewSettings.scheduledJobs)) {
 			for (const job of crewSettings.scheduledJobs) {

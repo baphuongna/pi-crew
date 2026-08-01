@@ -147,12 +147,14 @@ export function uninstallResizeListener(): void {
 	}
 }
 
-// ── Widget Component ──────────────────────────────────────────────────
+import type { CrewComponent } from "../component.ts";
 
-interface WidgetComponent {
-	render(width: number): string[];
-	invalidate(): void;
-}
+// ── Widget Component ──────────────────────────────────────────────────────
+
+// PR-G3 (UI-3): extend the shared CrewComponent contract (render +
+// invalidate). Structurally identical to the previous declaration — no
+// behavior change.
+interface WidgetComponent extends CrewComponent {}
 
 class CrewWidgetComponent implements WidgetComponent {
 	private readonly model: CrewWidgetModel;

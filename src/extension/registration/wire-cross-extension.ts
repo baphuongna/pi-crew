@@ -4,10 +4,10 @@
  * Two small wires:
  *   • wireRpc — the in-process pi-crew RPC handle (other modules in
  *     the same extension can subscribe via `pi.events`).
- *   • wireGlobalRegistry — the cross-extension crew global registry,
- *     lazily loaded from team-tool.ts (heavy module) and installed under
- *     `globalThis[Symbol.for("pi-crew:registry")]` so peer extensions
- *     (e.g., pi-subagents3) can discover pi-crew at runtime.
+ *   • wireGlobalRegistry — the crew registry, lazily loaded from
+ *     team-tool.ts (heavy module) and installed in module-scoped state so
+ *     the rest of pi-crew can discover pi-crew's RPC handle at runtime
+ *     (EXT-9: no longer on globalThis[Symbol.for(...)]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerPiCrewRpc } from "../cross-extension-rpc.ts";
@@ -24,9 +24,9 @@ export function installCrossExtensionWiring(pi: ExtensionAPI, ctx: RegistrationC
 	};
 	ctx.rpcHandle = registerPiCrewRpc(getPiEvents(), () => ctx.currentCtx);
 
-	// Install the cross-extension crew global registry. Lazy import keeps
-	// team-tool.ts (which pulls in the entire runtime chain) out of the
-	// cold-start module graph.
+	// Install the crew registry. Lazy import keeps team-tool.ts (which pulls
+	// in the entire runtime chain) out of the cold-start module graph. EXT-9:
+	// the registry now lives in module-scoped state, not globalThis.
 	void import("../team-tool.ts").then(({ installCrewGlobalRegistry }) => {
 		const manifestCacheForRegistry = ctx.getManifestCache(ctx.currentCtx?.cwd ?? process.cwd());
 		installCrewGlobalRegistry({

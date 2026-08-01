@@ -6,8 +6,9 @@ import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
 import { paramRequired } from "./param-error.ts";
 
-// Global key for cross-module scheduler access.
-const CREW_SCHEDULER_KEY = Symbol.for("pi-crew:scheduler");
+// Module-scoped scheduler reference — one per extension load (EXT-9).
+// Previously this lived on `globalThis[Symbol.for("pi-crew:scheduler")]`, which
+// was fragile (cross-realm, no lifecycle, peer extensions could overwrite it).
 type SchedulerRef = {
 	add(job: import("../../runtime/scheduler.ts").ScheduledJob): void;
 	list(): import("../../runtime/scheduler.ts").ScheduledJob[];
@@ -18,12 +19,21 @@ type SchedulerRef = {
 	): import("../../runtime/scheduler.ts").ScheduledJob | undefined;
 };
 
-function getCrewScheduler(): SchedulerRef | undefined {
-	return (globalThis as Record<symbol | string, unknown>)[CREW_SCHEDULER_KEY] as SchedulerRef | undefined;
+// Module-scoped scheduler instance — one per extension load (EXT-9).
+let crewSchedulerInstance: SchedulerRef | undefined;
+
+/** @internal — exported for lifecycle tests. */
+export function getCrewScheduler(): SchedulerRef | undefined {
+	return crewSchedulerInstance;
 }
 
 export function registerCrewScheduler(scheduler: SchedulerRef): void {
-	(globalThis as Record<symbol | string, unknown>)[CREW_SCHEDULER_KEY] = scheduler;
+	crewSchedulerInstance = scheduler;
+}
+
+/** Remove the scheduler singleton. Call during session cleanup. */
+export function unregisterCrewScheduler(): void {
+	crewSchedulerInstance = undefined;
 }
 
 interface ScheduleParams {

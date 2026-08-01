@@ -9,12 +9,13 @@ import { highlightCode, highlightJson } from "./syntax-highlight.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "./theme-adapter.ts";
 import { DEFAULT_TRANSCRIPT_TAIL_BYTES, getTranscriptCacheEntry, readTranscriptLinesCached } from "./transcript-cache.ts";
+import type { InteractiveComponent } from "./component.ts";
 
-type Component = {
-	invalidate(): void;
-	render(width: number): string[];
-	handleInput(data: string): void;
-};
+// PR-G3 (UI-3): alias the shared InteractiveComponent contract (render +
+// invalidate + handleInput). Structurally identical to the previous local
+// declaration — no behavior change. DurableTextViewer / DurableTranscriptViewer
+// also have an extra `dispose()`, which is allowed (superset).
+type Component = InteractiveComponent;
 
 type TranscriptTheme = CrewTheme;
 
