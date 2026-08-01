@@ -12,8 +12,9 @@ import { toPiSessionId } from "../utils/session-utils.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
 import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "./atomic-write.ts";
-import { canTransitionRunStatus } from "./contracts.ts";
+import { canTransitionRunStatus, isTeamTaskStatus } from "./contracts.ts";
 import { appendEvent } from "./event-log.ts";
+import { reconstructTasksFromEvents } from "./event-reconstructor.ts";
 import { withRunLock, withRunLockSync } from "./locks.ts";
 import type { TeamRunManifest, TeamTaskState } from "./types.ts";
 import { CURRENT_SCHEMA_VERSION } from "./types.ts";
@@ -424,7 +425,32 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
 	});
 }
 
+/**
+ * ST-4: Defense-in-depth guard — refuse to persist an empty tasks array over
+ * a previously non-empty tasks file. Prevents the cascade where a corrupt
+ * tasks.json (→ [] on load via readJsonFile catching SyntaxError) is then
+ * persisted as [], permanently destroying the data. If the on-disk file has
+ * tasks and the incoming array is empty, we log a warning and refuse.
+ *
+ * @returns true if the write should proceed, false if it was refused.
+ */
+function shouldPersistTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): boolean {
+	if (tasks.length > 0) return true;
+	const existing = readJsonFile<TeamTaskState[]>(manifest.tasksPath);
+	if (Array.isArray(existing) && existing.length > 0) {
+		console.warn(
+			`[state-store] refusing to persist empty tasks over ${existing.length} existing task(s) — possible corrupt-load cascade (runId=${manifest.runId})`,
+		);
+		return false;
+	}
+	return true;
+}
+
 export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): void {
+	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
+	// Prevents the cascade where a corrupt tasks.json (→ [] on load) is then
+	// persisted as [], permanently destroying the data.
+	if (!shouldPersistTasks(manifest, tasks)) return;
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
 	invalidateRunCache(manifest.stateRoot);
 
@@ -501,6 +527,8 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
  */
 /** @internal */
 export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[], skipCoalesce: boolean = false): void {
+	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
+	if (!shouldPersistTasks(manifest, tasks)) return;
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
 	invalidateRunCache(manifest.stateRoot);
 	try {
@@ -512,6 +540,8 @@ export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTask
 }
 
 export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTaskState[]): Promise<void> {
+	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
+	if (!shouldPersistTasks(manifest, tasks)) return;
 	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
 	invalidateRunCache(manifest.stateRoot);
 	try {
@@ -734,6 +764,121 @@ async function readJsonFileAsync<T>(filePath: string): Promise<T | undefined> {
 }
 
 /**
+ * ST-4: Rename a corrupt file to a quarantine path (`.corrupt-<ts>`) so it is
+ * preserved for debugging but no longer read as the primary source of truth.
+ */
+function quarantineCorruptFile(filePath: string): void {
+	try {
+		fs.renameSync(filePath, `${filePath}.corrupt-${Date.now()}`);
+	} catch {
+		// Best-effort — if rename fails (file already gone, permission, etc.),
+		// we still proceed with reconstruction from the event log.
+	}
+}
+
+/**
+ * ST-4: Convert event-reconstructor output into TeamTaskState[].
+ * Reconstructed tasks carry lifecycle data (id, status, timing) from the
+ * event log; auxiliary fields (role, agent, title) are filled with defaults
+ * since they are not present in lifecycle events.
+ */
+function reconstructTasksFromEventLog(eventsPath: string, runId: string): TeamTaskState[] {
+	try {
+		const result = reconstructTasksFromEvents(eventsPath);
+		const tasks: TeamTaskState[] = [];
+		for (const [, rt] of result.tasks) {
+			tasks.push({
+				id: rt.id,
+				runId,
+				role: "unknown",
+				agent: "unknown",
+				title: "reconstructed from events",
+				status: isTeamTaskStatus(rt.status) ? rt.status : "queued",
+				dependsOn: [],
+				cwd: "",
+				startedAt: rt.startedAt,
+				finishedAt: rt.finishedAt,
+				error: rt.error,
+				segment: rt.segment,
+				diagnostics: rt.diagnostics,
+				metrics: rt.metrics,
+			});
+		}
+		return tasks;
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * ST-4: Load tasks.json with corruption recovery (sync path).
+ *
+ * Distinguishes:
+ * - ENOENT / ENOTDIR → legitimate empty → [] (NOT quarantined).
+ * - SyntaxError (parse failure) → corrupt → quarantine `.corrupt-<ts>` AND
+ *   reconstruct from events.jsonl. If reconstruction yields tasks, persist
+ *   them so subsequent loads see a valid file.
+ * - Non-array JSON (e.g. `{}`) → corrupt → same as SyntaxError.
+ * - Valid array → return as-is.
+ */
+function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: string): TeamTaskState[] {
+	let content: string;
+	try {
+		content = fs.readFileSync(tasksPath, "utf-8");
+	} catch {
+		// ENOENT / ENOTDIR / other read errors → empty (retry loop handles
+		// transient instability; ENOENT is a legitimate empty run).
+		return [];
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		// SyntaxError — corrupt file.
+		quarantineCorruptFile(tasksPath);
+		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
+		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
+		return reconstructed;
+	}
+	if (!Array.isArray(parsed)) {
+		// Non-array JSON (e.g. `{}`) — corrupt.
+		quarantineCorruptFile(tasksPath);
+		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
+		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
+		return reconstructed;
+	}
+	return parsed as TeamTaskState[];
+}
+
+/**
+ * ST-4: async twin of {@link loadTasksWithRecovery}.
+ */
+async function loadTasksWithRecoveryAsync(tasksPath: string, eventsPath: string, runId: string): Promise<TeamTaskState[]> {
+	let content: string;
+	try {
+		content = await fs.promises.readFile(tasksPath, "utf-8");
+	} catch {
+		return [];
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		quarantineCorruptFile(tasksPath);
+		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
+		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
+		return reconstructed;
+	}
+	if (!Array.isArray(parsed)) {
+		quarantineCorruptFile(tasksPath);
+		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
+		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
+		return reconstructed;
+	}
+	return parsed as TeamTaskState[];
+}
+
+/**
  * Load a run manifest and its tasks by runId.
  * WARNING: This function provides best-effort consistency only. The sentinel-based
  * retry loop does NOT guarantee manifest/tasks consistency under contention —
@@ -813,7 +958,7 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 		const freshStat = fs.statSync(manifestPath);
 		manifest = readJsonFile<TeamRunManifest>(manifestPath);
 		const freshTasksStat = fs.existsSync(tasksPath) ? fs.statSync(tasksPath) : undefined;
-		tasks = readJsonFile<TeamTaskState[]>(tasksPath) ?? [];
+		tasks = loadTasksWithRecovery(tasksPath, manifest?.eventsPath ?? path.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
 		// If size/mtime didn't change between stat and read, we're consistent.
 		if (
 			freshStat.mtimeMs === manifestStat.mtimeMs &&
@@ -933,7 +1078,7 @@ export async function loadRunManifestByIdAsync(
 		const freshStat = await fs.promises.stat(manifestPath);
 		manifest = await readJsonFileAsync<TeamRunManifest>(manifestPath);
 		const freshTasksStat = await fs.promises.stat(tasksPath).catch(() => undefined);
-		tasks = (await readJsonFileAsync<TeamTaskState[]>(tasksPath)) ?? [];
+		tasks = await loadTasksWithRecoveryAsync(tasksPath, manifest?.eventsPath ?? path.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
 		// If size/mtime didn't change between stat and read, we're consistent.
 		if (
 			freshStat.mtimeMs === manifestStat.mtimeMs &&

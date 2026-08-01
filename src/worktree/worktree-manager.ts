@@ -583,7 +583,7 @@ export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPat
  * recovered via `git apply` / manual restore. Best-effort: a snapshot failure
  * only logs (it must not block the clean-slate reuse flow).
  */
-function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, worktreePath: string, dirtyStatus: string): boolean {
+export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, worktreePath: string, dirtyStatus: string): boolean {
 	try {
 		const parts: string[] = [
 			`# Worktree recovery snapshot`,
@@ -591,15 +591,18 @@ function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, w
 			`capturedAt: ${new Date().toISOString()}`,
 			"",
 		];
+		// ST-1: use --binary so tracked binary modifications are recoverable via `git apply`.
 		let trackedDiff = "";
 		try {
-			trackedDiff = git(worktreePath, ["diff", "HEAD"]);
+			trackedDiff = git(worktreePath, ["diff", "HEAD", "--binary"]);
 		} catch {
 			trackedDiff = "";
 		}
 		if (trackedDiff.trim()) {
-			parts.push("## Tracked changes (`git diff HEAD`)", "```diff", trackedDiff, "```", "");
+			parts.push("## Tracked changes (`git diff HEAD --binary`)", "```diff", trackedDiff, "```", "");
 		}
+		// ST-1: per-file byte cap — skip/truncate larger files with a note to avoid OOM.
+		const MAX_FILE_BYTES = 256 * 1024;
 		for (const line of dirtyStatus.split("\n")) {
 			if (!line.startsWith("?? ")) continue;
 			// Strip the "?? " prefix and surrounding git quotes.
@@ -608,8 +611,33 @@ function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, w
 			try {
 				const abs = path.join(worktreePath, rel);
 				if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) continue;
-				const content = fs.readFileSync(abs, "utf-8");
-				parts.push(`## Untracked file: ${rel}`, "```", content, "```", "");
+				// ST-1: read raw bytes (not utf-8) so binary files are not corrupted.
+				const buf = fs.readFileSync(abs);
+				const originalSize = buf.byteLength;
+				let data: Buffer = buf;
+				let note = "";
+				if (originalSize > MAX_FILE_BYTES) {
+					data = buf.subarray(0, MAX_FILE_BYTES);
+					note = ` (truncated: ${originalSize} → ${MAX_FILE_BYTES} bytes)`;
+				}
+				// ST-1: detect non-UTF-8 via fatal TextDecoder; base64-encode binary files.
+				let isUtf8 = true;
+				try {
+					new TextDecoder("utf-8", { fatal: true }).decode(data);
+				} catch {
+					isUtf8 = false;
+				}
+				if (isUtf8) {
+					parts.push(`## Untracked file: ${rel}${note}`, "```", data.toString("utf-8"), "```", "");
+				} else {
+					parts.push(
+						`## Untracked file: ${rel}${note} (base64-encoded binary)`,
+						"```base64",
+						data.toString("base64"),
+						"```",
+						"",
+					);
+				}
 			} catch {
 				/* skip unreadable/unstat-able entry */
 			}
@@ -744,8 +772,8 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		if (currentBranch !== branch) {
 			throw new Error(`Existing worktree branch mismatch at ${worktreePath}: expected '${branch}', got '${currentBranch}'.`);
 		}
-		// Check for uncommitted changes from previous run before reusing
-		const dirtyStatus = git(worktreePath, ["status", "--porcelain"]);
+		// ST-1: use -uall so untracked directories are expanded to individual files.
+		const dirtyStatus = git(worktreePath, ["status", "--porcelain", "-uall"]);
 		if (dirtyStatus.trim()) {
 			// Snapshot uncommitted work to a recovery artifact BEFORE discarding, so the
 			// previous run's changes are never silently destroyed on reuse.
@@ -904,7 +932,8 @@ export async function prepareTaskWorkspaceAsync(
 		if (currentBranch !== branch) {
 			throw new Error(`Existing worktree branch mismatch at ${worktreePath}: expected '${branch}', got '${currentBranch}'.`);
 		}
-		const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain"]);
+		// ST-1: use -uall so untracked directories are expanded to individual files.
+		const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain", "-uall"]);
 		if (dirtyStatus.trim()) {
 			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
 			if (snapshotOk) {
