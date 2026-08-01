@@ -23,6 +23,8 @@
  * `use-global-shortcuts.ts:38-61`.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import { keyOf } from "./key-utils.ts";
 
@@ -113,7 +115,10 @@ export type DashboardKeyAction =
 	| "notifications-dismiss";
 
 /**
- * The dispatch table. ORDER MATTERS — first match wins.
+ * The default dispatch table. ORDER MATTERS — first match wins. These
+ * hardcoded defaults may be overridden per-action via `.crew/config.json`
+ * (`keybindings` section) and/or the `PI_CREW_KEYBINDINGS` env var — see
+ * `getEffectiveBindings` below.
  *
  * Precedence notes (must match the pre-L2 if-chain exactly):
  *   1. `close` always wins (q / Esc).
@@ -129,7 +134,7 @@ export type DashboardKeyAction =
  * reservation but are handled by the mailbox overlay's own `handleInput`,
  * not by the dashboard dispatch. Adding them here would change behavior.
  */
-const BINDINGS: readonly KeyBinding[] = [
+const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.close, action: "close" },
 	{ keys: DASHBOARD_KEYS.help, action: "help" },
 	{
@@ -202,13 +207,192 @@ const KEY_RESERVED = new Set<string>([
 
 export { KEY_RESERVED };
 
+// ─── Keybinding overrides (UI-2) ───────────────────────────────────────────
+//
+// The hardcoded DEFAULT_BINDINGS above can be overridden per-action via two
+// layered sources (later wins):
+//   1. `.crew/config.json` → top-level `keybindings` object, e.g.
+//        { "keybindings": { "reload": ["z"], "events": ["E"] } }
+//   2. `PI_CREW_KEYBINDINGS` env var — a JSON object string of the same shape
+//      (highest precedence; handy for ad-hoc / test overrides).
+//
+// Each entry REPLACES the default key list for that action (the action keeps
+// its original pane scope). Actions not listed keep their defaults, so the
+// parity golden snapshot is unaffected when no override is configured.
+//
+// Collision validation: an overridden key that would clash with another
+// (default or overridden) binding in a compatible pane scope is treated as a
+// collision; the offending action's override is reverted to its default and a
+// warning is recorded (getKeybindingOverrideWarnings). This keeps the
+// first-match-wins dispatch unambiguous — a shadowed override never silently
+// changes behaviour.
+
+/** Override map: action → replacement keys. `Partial` ⇒ only listed actions. */
+export type KeybindingOverride = Partial<Record<DashboardKeyAction, readonly string[]>>;
+
+const KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
+
+/** Every dispatched action is a valid override target. */
+const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set(
+	DEFAULT_BINDINGS.map((b) => b.action),
+);
+
+/** Coerce an unknown parsed value into a safe {@link KeybindingOverride}. */
+function parseKeybindingOverride(raw: unknown): KeybindingOverride {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+	const result: KeybindingOverride = {};
+	for (const [action, keys] of Object.entries(raw as Record<string, unknown>)) {
+		if (!VALID_OVERRIDE_ACTIONS.has(action)) continue;
+		if (!Array.isArray(keys)) continue;
+		const clean = keys.filter((k): k is string => typeof k === "string" && k.length > 0);
+		if (clean.length > 0) result[action as DashboardKeyAction] = clean;
+	}
+	return result;
+}
+
+/**
+ * Two pane scopes are "compatible" when some `activePane` could make both
+ * bindings fire at once (so a shared key is genuinely ambiguous). Global
+ * (`undefined`) matches anything; two different concrete panes never overlap.
+ */
+function paneScopesCompatible(a: ActivePane | undefined, b: ActivePane | undefined): boolean {
+	if (a === undefined || b === undefined) return true;
+	return a === b;
+}
+
+interface EffectiveBindingsResult {
+	readonly bindings: readonly KeyBinding[];
+	/** Actions whose override was rejected due to a collision. */
+	readonly reverted: readonly DashboardKeyAction[];
+}
+
+/**
+ * Apply `overrides` onto {@link DEFAULT_BINDINGS} (replace keys per action,
+ * preserving each action's pane scope) and detect collisions. A colliding
+ * override is reverted to its default so the dispatch stays unambiguous.
+ */
+function computeEffectiveBindings(overrides: KeybindingOverride): EffectiveBindingsResult {
+	const applied = new Map<DashboardKeyAction, KeyBinding>();
+	for (const def of DEFAULT_BINDINGS) {
+		const ov = overrides[def.action];
+		applied.set(
+			def.action,
+			ov && ov.length > 0 ? { keys: [...ov], action: def.action, pane: def.pane } : def,
+		);
+	}
+	const effective = [...applied.values()];
+	const reverted = new Set<DashboardKeyAction>();
+	for (const def of DEFAULT_BINDINGS) {
+		const ov = overrides[def.action];
+		if (!ov || ov.length === 0) continue; // not overridden
+		const ob = applied.get(def.action);
+		if (!ob) continue;
+		for (const other of effective) {
+			if (other.action === def.action) continue;
+			if (!paneScopesCompatible(ob.pane, other.pane)) continue;
+			if (ob.keys.some((k) => other.keys.includes(k))) {
+				reverted.add(def.action);
+				break;
+			}
+		}
+	}
+	const bindings =
+		reverted.size > 0
+			? effective.map((b) =>
+					reverted.has(b.action) ? (DEFAULT_BINDINGS.find((d) => d.action === b.action) ?? b) : b,
+				)
+			: effective;
+	return { bindings, reverted: [...reverted] };
+}
+
+/** Read the `keybindings` section from `<cwd>/.crew/config.json`. */
+function readConfigKeybindings(cwd: string): KeybindingOverride {
+	try {
+		const raw: unknown = JSON.parse(fs.readFileSync(path.join(cwd, ".crew", "config.json"), "utf-8"));
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+		return parseKeybindingOverride((raw as Record<string, unknown>).keybindings);
+	} catch {
+		return {};
+	}
+}
+
+/** Read the `PI_CREW_KEYBINDINGS` env var (JSON object string). */
+function readEnvKeybindings(): KeybindingOverride {
+	const raw = process.env[KEYBINDINGS_ENV];
+	if (!raw) return {};
+	try {
+		return parseKeybindingOverride(JSON.parse(raw));
+	} catch {
+		return {};
+	}
+}
+
+function configKeybindingsMtime(cwd: string): number | undefined {
+	try {
+		return fs.statSync(path.join(cwd, ".crew", "config.json")).mtimeMs;
+	} catch {
+		return undefined;
+	}
+}
+
+interface EffectiveCache {
+	readonly env: string | undefined;
+	readonly configMtime: number | undefined;
+	readonly cwd: string;
+	readonly bindings: readonly KeyBinding[];
+}
+
+let _effectiveCache: EffectiveCache | null = null;
+let _overrideWarnings: readonly string[] = [];
+
+/**
+ * Resolve the effective dispatch table: {@link DEFAULT_BINDINGS} with config +
+ * env overrides applied (env wins per action). Memoised on (env value, config
+ * mtime, cwd); a single `statSync` per call detects on-disk config changes.
+ */
+function getEffectiveBindings(cwd: string = process.cwd()): readonly KeyBinding[] {
+	const envRaw = process.env[KEYBINDINGS_ENV];
+	const configMtime = configKeybindingsMtime(cwd);
+	if (
+		_effectiveCache &&
+		_effectiveCache.env === envRaw &&
+		_effectiveCache.configMtime === configMtime &&
+		_effectiveCache.cwd === cwd
+	) {
+		return _effectiveCache.bindings;
+	}
+	const merged: KeybindingOverride = { ...readConfigKeybindings(cwd), ...readEnvKeybindings() };
+	const { bindings, reverted } = computeEffectiveBindings(merged);
+	_overrideWarnings = reverted.map(
+		(a) => `keybinding override for '${a}' collides with another binding — reverting to default`,
+	);
+	_effectiveCache = { env: envRaw, configMtime, cwd, bindings };
+	return bindings;
+}
+
+/** Warnings from the most recent override resolution (e.g. collisions). */
+export function getKeybindingOverrideWarnings(): readonly string[] {
+	// Ensure a resolution has run so warnings are populated.
+	getEffectiveBindings();
+	return _overrideWarnings;
+}
+
+/** @internal — drop the memoised effective-binding cache (tests). */
+export function __test__resetKeybindingCache(): void {
+	_effectiveCache = null;
+	_overrideWarnings = [];
+}
+
 /**
  * Resolve a raw input `data` string to a dashboard action.
  *
- * Data-driven dispatch: iterates `BINDINGS` in order and returns the action of
- * the first binding whose `keys` contain `data` and whose optional `pane`
- * restriction matches `activePane`. Behavior is identical to the pre-L2
- * if-chain (verified by `test/unit/keybinding-map.parity.test.ts`).
+ * Data-driven dispatch: iterates the effective binding table (hardcoded
+ * {@link DEFAULT_BINDINGS}, optionally overridden per-action via config/env —
+ * see {@link getEffectiveBindings}) in order and returns the action of the
+ * first binding whose `keys` contain `data` and whose optional `pane`
+ * restriction matches `activePane`. With no override configured the result is
+ * identical to the pre-L2 if-chain (verified by
+ * `test/unit/keybinding-map.parity.test.ts`).
  *
  * @param data Raw key input (single char or escape sequence).
  * @param activePane Currently focused pane; pane-scoped bindings only fire
@@ -217,6 +401,9 @@ export { KEY_RESERVED };
  *                   arg skipped the `activePane === ...` branches).
  */
 export function dashboardActionForKey(data: string, activePane?: ActivePane): DashboardKeyAction | undefined {
+	// Effective table = hardcoded DEFAULT_BINDINGS with optional config/env
+	// overrides applied (see getEffectiveBindings). Memoised; one statSync/call.
+	const BINDINGS = getEffectiveBindings();
 	// Two-pass dispatch to preserve case-sensitivity for plain ASCII keys
 	// while still normalizing escape sequences via matchesKey().
 	//

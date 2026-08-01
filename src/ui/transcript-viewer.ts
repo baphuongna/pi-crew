@@ -344,20 +344,33 @@ export class DurableTranscriptViewer implements Component {
 	private fullTranscript = false;
 	private maxTailBytes: number;
 	private readonly unsubscribeTheme: () => void;
+	// UI-9: transcript content is read once when the viewer opens and then
+	// reused for per-keypress scroll math, so handleInput no longer performs a
+	// synchronous fs read on every keystroke. The cache is refreshed on the
+	// explicit full/tail toggle ("f") and kept fresh by the periodic render()
+	// call (which still reads, TTL-cached at ~500ms). `readTranscript` defaults
+	// to the module function and is overridable for tests.
+	private readTranscript: typeof readRunTranscript;
+	private cached: ReadRunTranscriptResult;
 
 	constructor(
 		manifest: TeamRunManifest,
 		theme: unknown,
 		done: (result: undefined) => void,
 		taskId?: string,
-		options: { maxTailBytes?: number } = {},
+		options: { maxTailBytes?: number; readTranscript?: typeof readRunTranscript } = {},
 	) {
 		this.manifest = manifest;
 		this.theme = asCrewTheme(theme);
 		this.done = done;
 		this.taskId = taskId;
 		this.maxTailBytes = options.maxTailBytes ?? DEFAULT_TRANSCRIPT_TAIL_BYTES;
+		this.readTranscript = options.readTranscript ?? readRunTranscript;
 		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidate());
+		this.cached = this.readTranscript(this.manifest, this.taskId, {
+			full: this.fullTranscript,
+			maxTailBytes: this.maxTailBytes,
+		});
 	}
 
 	invalidate(): void {}
@@ -371,10 +384,7 @@ export class DurableTranscriptViewer implements Component {
 			this.done(undefined);
 			return;
 		}
-		const content = readRunTranscript(this.manifest, this.taskId, {
-			full: this.fullTranscript,
-			maxTailBytes: this.maxTailBytes,
-		}).lines;
+		const content = this.cached.lines;
 		const maxScroll = Math.max(0, content.length - this.lastHeight);
 		if (data === "k" || data === "\u001b[A") {
 			this.scroll = Math.max(0, this.scroll - 1);
@@ -400,14 +410,23 @@ export class DurableTranscriptViewer implements Component {
 			this.fullTranscript = !this.fullTranscript;
 			this.scroll = 0;
 			this.autoScroll = !this.fullTranscript;
+			// The full/tail toggle changes the read options, so refresh the cache
+			// with a single explicit read rather than per keystroke.
+			this.cached = this.readTranscript(this.manifest, this.taskId, {
+				full: this.fullTranscript,
+				maxTailBytes: this.maxTailBytes,
+			});
 		}
 	}
 
 	render(width: number): string[] {
-		const data = readRunTranscript(this.manifest, this.taskId, {
+		const data = this.readTranscript(this.manifest, this.taskId, {
 			full: this.fullTranscript,
 			maxTailBytes: this.maxTailBytes,
 		});
+		// Keep the per-keypress cache in sync with the latest rendered content
+		// (the read is TTL-cached at ~500ms, so this stays cheap on each tick).
+		this.cached = data;
 		return renderViewerBase(
 			{
 				theme: this.theme,

@@ -100,12 +100,26 @@ const onResize = (): void => {
 	}, 120);
 };
 
-function installResizeListener(): void {
+/**
+ * F-1: install the single, guarded terminal-resize listener (exported for
+ * testability). The stdout "resize" listener is only registered when it can
+ * ALSO be removed later (off()/removeListener()); otherwise it is skipped so
+ * it can never leak across widget reinstalls (UI-7).
+ */
+export function installResizeListener(): void {
 	if (resizeListenerInstalled) return;
 	resizeListenerInstalled = true;
 	process.on("SIGWINCH", onResize);
 	// Windows has no SIGWINCH; Node emits "resize" on stdout instead.
-	if (typeof process.stdout?.on === "function") process.stdout.on("resize", onResize);
+	// Guard (UI-7): only register when removal is possible too. Older runtimes
+	// or mock stdouts that expose only `on` would otherwise add a listener that
+	// uninstallResizeListener() can never address → leak on every reinstall.
+	if (
+		typeof process.stdout?.on === "function" &&
+		(typeof process.stdout?.off === "function" || typeof process.stdout?.removeListener === "function")
+	) {
+		process.stdout.on("resize", onResize);
+	}
 }
 
 /**
@@ -123,7 +137,14 @@ export function uninstallResizeListener(): void {
 	activeResizeTarget = undefined;
 	process.off("SIGWINCH", onResize);
 	// Windows has no SIGWINCH; Node emits "resize" on stdout instead.
-	if (typeof process.stdout?.off === "function") process.stdout.off("resize", onResize);
+	// Remove via whichever API is present. The listener was only registered
+	// when removal was possible (UI-7), so at most one of these applies; both
+	// are no-ops if no listener was ever added.
+	if (typeof process.stdout?.off === "function") {
+		process.stdout.off("resize", onResize);
+	} else if (typeof process.stdout?.removeListener === "function") {
+		process.stdout.removeListener("resize", onResize);
+	}
 }
 
 // ── Widget Component ──────────────────────────────────────────────────

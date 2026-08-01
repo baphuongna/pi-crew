@@ -629,15 +629,25 @@ async function mailboxFromAsync(manifest: TeamRunManifest, agents: CrewAgentReco
 	let outbox = await readMailboxCountsAsync(path.join(root, "outbox.jsonl"), delivery);
 	const tasksRoot = path.join(root, "tasks");
 	try {
-		for (const entry of await fs.promises.readdir(tasksRoot, {
+		// PR-F2 / UI-5 — batch the O(tasks) per-task inbox/outbox reads in
+		// parallel instead of sequential awaits on the async render path.
+		const taskDirs = (await fs.promises.readdir(tasksRoot, {
 			withFileTypes: true,
-		})) {
-			if (!entry.isDirectory()) continue;
-			const taskInbox = await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery);
-			const taskOutbox = await readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery);
-			inbox = mergeKindCounts(inbox, taskInbox);
-			outbox = mergeKindCounts(outbox, taskOutbox);
-		}
+		})).filter((entry) => entry.isDirectory());
+		const [taskInboxes, taskOutboxes] = await Promise.all([
+			Promise.all(
+				taskDirs.map((entry) =>
+					readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery),
+				),
+			),
+			Promise.all(
+				taskDirs.map((entry) =>
+					readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery),
+				),
+			),
+		]);
+		for (const ti of taskInboxes) inbox = mergeKindCounts(inbox, ti);
+		for (const to of taskOutboxes) outbox = mergeKindCounts(outbox, to);
 	} catch {
 		// No task mailboxes yet.
 	}
@@ -991,14 +1001,37 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		evictIfNeeded();
 		return entry.snapshot;
 	}
+	// PR-F2 / UI-1 — in-flight async refresh dedup. Prevents multiple
+	// concurrent `preloadStale` calls for the same runId when the render
+	// path (refreshIfStale) and event-bus handler fire close together.
+	const inFlightRefreshes = new Set<string>();
+	function triggerAsyncRefresh(runId: string): void {
+		if (inFlightRefreshes.has(runId)) return;
+		inFlightRefreshes.add(runId);
+		void preloadStale(runId)
+			.catch(() => {
+				/* best-effort; widget falls back to cached snapshot */
+			})
+			.finally(() => {
+				inFlightRefreshes.delete(runId);
+			});
+	}
 	function localRefreshIfStale(runId: string): RunUiSnapshot {
 		const previous = entries.get(runId);
 		if (!previous) return localRefresh(runId);
 		const now = Date.now();
 		if (now - previous.loadedAtMs < ttlMs) return touch(runId, previous);
-		const stamps = currentStamps(previous);
-		if (sameStamps(stamps, previous.stamps)) return touch(runId, previous);
-		return localRefresh(runId);
+		// PR-F2 / UI-1 — stale-while-revalidate: the render path previously
+		// did 8-9 sync statSync/readFileSync calls (currentStamps) every TTL
+		// window per run. Now we return the cached snapshot immediately and
+		// kick off an async refresh that uses the existing async fs path
+		// (fsp.stat/fsp.readFile). Also fixes UI-5 because buildAsync uses
+		// mailboxFromAsync (batched async reads) instead of the sync
+		// mailboxFrom's O(tasks) readdirSync + per-task reads. The next
+		// render tick picks up the refreshed snapshot once the async build
+		// completes (typically <5ms for small files).
+		triggerAsyncRefresh(runId);
+		return touch(runId, previous);
 	}
 	const pendingRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 	const INVAL_COALESCE_MS = 80;
@@ -1007,11 +1040,10 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		if (existing) clearTimeout(existing);
 		const timer = setTimeout(() => {
 			pendingRefreshes.delete(runId);
-			try {
-				localRefreshIfStale(runId);
-			} catch {
-				/* best-effort; widget falls back gracefully */
-			}
+			// PR-F2 / UI-1 — use the async refresh path (no sync fs on the
+			// event-bus hot path). triggerAsyncRefresh deduplicates
+			// concurrent refreshes.
+			triggerAsyncRefresh(runId);
 		}, INVAL_COALESCE_MS);
 		timer.unref();
 		pendingRefreshes.set(runId, timer);
@@ -1051,6 +1083,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		},
 		dispose(): void {
 			unsubscribe();
+			inFlightRefreshes.clear();
 			entries.clear();
 		},
 	};

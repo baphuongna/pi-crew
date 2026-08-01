@@ -10,6 +10,60 @@ import { getTaskUsage } from "../../runtime/usage-tracker.ts";
 import { visibleWidth } from "../../utils/visual.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";
 
+// ── No-color mode (UI-10) ─────────────────────────────────────────────
+// Comprehensive color/emoji suppression. Color + emoji formatting is
+// disabled when (a) NO_COLOR is set to a non-empty value (de-facto standard,
+// https://bixense.com/clicolors/), OR (b) stdout is not a TTY (piped/
+// redirected — escape codes & wide glyphs are noise there). Detected once at
+// module init; `paint()` and the notification-badge emoji decision consult
+// `colorEnabled`, so EVERY formatter in this file emits plain strings when the
+// mode is active. Previously (line ~179) only the notification badge checked
+// `NO_COLOR !== "1"` — a partial check that ignored the broader NO_COLOR-any-
+// value standard and the non-TTY case, so color codes could still leak to
+// pipes/logs. This makes the suppression uniform across the file.
+
+const RESET = "\x1b[0m";
+const ANSI_SGR_RE = /\u001b\[[0-9;]*m/g;
+
+// Status foreground colors used by the activity formatters below.
+const COLOR_RED = "\x1b[31m"; // failures
+const COLOR_YELLOW = "\x1b[33m"; // needs-attention / warning
+
+function computeColorEnabled(): boolean {
+	if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== "") return false;
+	// Treat both `false` and `undefined` (piped/redirected/captured) as non-TTY:
+	// color is only enabled when stdout is positively a TTY.
+	if (process.stdout?.isTTY !== true) return false;
+	return true;
+}
+
+let colorEnabled = computeColorEnabled();
+
+/**
+ * Wrap `text` in an ANSI SGR sequence (e.g. `\x1b[31m`) when color is active.
+ * In no-color mode the text is returned verbatim — no escape sequences — so the
+ * formatters are safe to feed into logs, pipes, and other non-TTY sinks.
+ */
+function paint(text: string, sgr: string): string {
+	if (!colorEnabled || !text) return text;
+	return `${sgr}${text}${RESET}`;
+}
+
+/** Strip ANSI SGR escape sequences from a string. */
+export function stripAnsi(text: string): string {
+	return text.replace(ANSI_SGR_RE, "");
+}
+
+/** Re-evaluate the color mode from the current env/stdout (repeat of init). */
+export function __resetColorMode(): void {
+	colorEnabled = computeColorEnabled();
+}
+
+/** Test-only: force the color mode into a known state. */
+export function __setColorModeForTest(enabled: boolean): void {
+	colorEnabled = enabled;
+}
+
 // ── Token formatting ──────────────────────────────────────────────────
 
 // V-1: fixed visible widths for per-agent numeric metrics so columns don't
@@ -111,14 +165,14 @@ export function agentActivity(agent: CrewAgentRecord, liveHandle?: LiveAgentHand
 		const cleaned = recent.replace(/\s+/g, " ").trim();
 		return cleaned.length > 60 ? cleaned.slice(0, 60) + "…" : cleaned;
 	}
-	if (agent.progress?.activityState === "needs_attention") return "needs attention";
+	if (agent.progress?.activityState === "needs_attention") return paint("needs attention", COLOR_YELLOW);
 	if (agent.status === "queued") return "queued";
 	if (agent.status === "running") {
 		const age = agent.startedAt ? Date.now() - new Date(agent.startedAt).getTime() : Infinity;
 		if (age < 5000 && !agent.progress?.currentTool) return "spawning…";
 		return "thinking…";
 	}
-	if (agent.status === "failed") return agent.error ?? "failed";
+	if (agent.status === "failed") return paint(agent.error ?? "failed", COLOR_RED);
 	return "done";
 }
 
@@ -176,7 +230,11 @@ export const NOTIFICATION_BADGE_CAP = 99;
 export function notificationBadge(count: number | undefined, env: NodeJS.ProcessEnv = process.env): string {
 	if (!count || count <= 0) return "";
 	const term = `${env.TERM ?? ""} ${env.WT_SESSION ?? ""} ${env.TERM_PROGRAM ?? ""}`.toLowerCase();
-	const supportsEmoji = !term.includes("dumb") && env.NO_COLOR !== "1";
+	// UI-10: emoji is formatting too — gate it on the comprehensive color mode
+	// (NO_COLOR / non-TTY) in addition to a per-call env NO_COLOR check (standard:
+	// any non-empty value disables) and the dumb-terminal fallback.
+	const envNoColor = env.NO_COLOR !== undefined && env.NO_COLOR !== "";
+	const supportsEmoji = colorEnabled && !envNoColor && !term.includes("dumb");
 	const label = count > NOTIFICATION_BADGE_CAP ? `${NOTIFICATION_BADGE_CAP}+ alerts` : `${count} alerts`;
 	return supportsEmoji ? ` · ${label}` : ` [${label}]`;
 }

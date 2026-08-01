@@ -94,12 +94,6 @@ export const THEME_COLOR_FALLBACKS: Record<CrewThemeColor, string> = {
 	bashMode: "\x1b[32m",
 };
 
-/** Map a thinking intensity level (0–5) to a theme color slot. */
-export function thinkingColorForLevel(level: number): CrewThemeColor {
-	const slots: CrewThemeColor[] = ["thinkingOff", "thinkingMinimal", "thinkingLow", "thinkingMedium", "thinkingHigh", "thinkingXhigh"];
-	return slots[Math.min(Math.max(level, 0), 5)] ?? "thinkingOff";
-}
-
 export interface CrewTheme {
 	fg(color: CrewThemeColor, text: string): string;
 	bg?(color: CrewThemeBg, text: string): string;
@@ -202,6 +196,31 @@ function asUnsubscribe(value: unknown): Unsubscribe | undefined {
 	return undefined;
 }
 
+/**
+ * Register a "change" listener through whichever event API the theme object
+ * exposes (DOM EventTarget, Node EventEmitter `on`/`off`, or its legacy
+ * `addListener`/`removeListener` alias) and return a teardown that removes it.
+ * A registration is only performed when a paired removal exists, guaranteeing
+ * no orphaned listener (UI-6). Returns undefined when no recognised event API
+ * is present so the caller falls back to signature polling (UI-11).
+ */
+function registerChangeListener(record: Record<string, unknown>, emit: () => void): Unsubscribe | undefined {
+	const apis: Array<{ register: string; revoke: string }> = [
+		{ register: "addEventListener", revoke: "removeEventListener" },
+		{ register: "on", revoke: "off" },
+		{ register: "addListener", revoke: "removeListener" },
+	];
+	for (const { register, revoke } of apis) {
+		const registerFn = record[register];
+		const revokeFn = record[revoke];
+		if (typeof registerFn === "function" && typeof revokeFn === "function") {
+			(registerFn as (...args: unknown[]) => void).call(record, "change", emit);
+			return () => (revokeFn as (...args: unknown[]) => void).call(record, "change", emit);
+		}
+	}
+	return undefined;
+}
+
 function startThemeSourceSubscription(theme: object, subscription: ThemeSourceSubscription): void {
 	const record = theme as Record<string, unknown>;
 	const emit = () => {
@@ -212,12 +231,13 @@ function startThemeSourceSubscription(theme: object, subscription: ThemeSourceSu
 		subscription.unsubscribeSource = asUnsubscribe(result);
 		return;
 	}
-	if (typeof record.addEventListener === "function") {
-		(record.addEventListener as (type: string, callback: () => void) => void)("change", emit);
-		if (typeof record.removeEventListener === "function") {
-			subscription.unsubscribeSource = () =>
-				(record.removeEventListener as (type: string, callback: () => void) => void)("change", emit);
-		}
+	// Event-driven detection (UI-6/UI-11): register through whichever event API
+	// the theme exposes. registerChangeListener only registers when a paired
+	// removal exists, so every listener is teardown-able. Falls back to polling
+	// below when no event API is recognised.
+	const removeListener = registerChangeListener(record, emit);
+	if (removeListener) {
+		subscription.unsubscribeSource = removeListener;
 		return;
 	}
 	subscription.pollTimer = setInterval(() => {
