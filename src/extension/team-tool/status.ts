@@ -16,10 +16,16 @@ import { formatDuration } from "../../ui/format-helpers.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Status requires runId.", { action: "status", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("status", "runId", "{ action: 'status', runId: 'team_...' }"),
+			{ action: "status", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "status", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency

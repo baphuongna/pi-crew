@@ -1531,6 +1531,8 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 				runtimeKind,
 				workspaceId: input.workspaceId,
 				onJsonEvent: input.onJsonEvent,
+				runtimeConfig: input.runtimeConfig,
+				reliability: input.reliability,
 				teamRole,
 				perTaskRuntime,
 			});

@@ -14,6 +14,7 @@ import type { PiTeamsToolResult } from "../tool-result.ts";
 import { type CacheControlDeps, invalidateSnapshot } from "./cache-control.ts";
 import { result, type TeamContext } from "./context.ts";
 import { enforceDestructiveIntent, intentFromConfig } from "./intent-policy.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 export interface AbortOwnedResult {
@@ -84,7 +85,12 @@ function cancelReasonFromParams(params: TeamToolParamsValue): CancellationReason
 }
 
 export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext, deps?: CacheControlDeps): Promise<PiTeamsToolResult> {
-	if (!params.runId) return result("Retry requires runId.", { action: "retry", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("retry", "runId", "{ action: 'retry', runId: 'team_...' }"),
+			{ action: "retry", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "retry", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
@@ -176,7 +182,12 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext, deps?: CacheControlDeps): Promise<PiTeamsToolResult> {
 	const intentError = enforceDestructiveIntent("cancel", params, ctx.config);
 	if (intentError) return intentError;
-	if (!params.runId) return result("Cancel requires runId.", { action: "cancel", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("cancel", "runId", "{ action: 'cancel', runId: 'team_...' }"),
+			{ action: "cancel", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "cancel", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency

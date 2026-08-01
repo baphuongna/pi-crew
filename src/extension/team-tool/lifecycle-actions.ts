@@ -18,10 +18,16 @@ import { pruneFinishedRuns } from "../run-maintenance.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { configRecord, result, type TeamContext } from "./context.ts";
 import { enforceDestructiveIntent, intentFromConfig } from "./intent-policy.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 export function handleWorktrees(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Worktrees requires runId.", { action: "worktrees", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("worktrees", "runId", "{ action: 'worktrees', runId: 'team_...' }"),
+			{ action: "worktrees", status: "error" },
+			true,
+		);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "worktrees", status: "error" }, true);
 	const withWorktrees = loaded.tasks.filter((task) => task.worktree);
@@ -59,7 +65,12 @@ export function handleImports(_params: TeamToolParamsValue, ctx: TeamContext): P
 export function handleImport(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	const cfg = configRecord(params.config);
 	const bundlePath = typeof cfg.path === "string" ? cfg.path : typeof cfg.bundlePath === "string" ? cfg.bundlePath : undefined;
-	if (!bundlePath) return result("Import requires config.path pointing at run-export.json.", { action: "import", status: "error" }, true);
+	if (!bundlePath)
+		return result(
+			paramRequired("import", "config.path pointing at run-export.json", "{ action: 'import', config: { path: '/path/to/run-export.json' } }"),
+			{ action: "import", status: "error" },
+			true,
+		);
 	const scope = cfg.scope === "user" ? "user" : "project";
 	try {
 		const imported = importRunBundle(ctx.cwd, bundlePath, scope);
@@ -74,7 +85,12 @@ export function handleImport(params: TeamToolParamsValue, ctx: TeamContext): PiT
 }
 
 export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
-	if (!params.runId) return result("Export requires runId.", { action: "export", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("export", "runId", "{ action: 'export', runId: 'team_...' }"),
+			{ action: "export", status: "error" },
+			true,
+		);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "export", status: "error" }, true);
 
@@ -126,7 +142,12 @@ export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext
 export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const intentError = enforceDestructiveIntent("prune", params, ctx.config);
 	if (intentError) return intentError;
-	if (!params.confirm) return result("prune requires confirm: true.", { action: "prune", status: "error" }, true);
+	if (!params.confirm)
+		return result(
+			paramRequired("prune", "confirm: true", "{ action: 'prune', confirm: true }"),
+			{ action: "prune", status: "error" },
+			true,
+		);
 	const keep = params.keep ?? 20;
 	if (keep < 0 || !Number.isInteger(keep)) return result("keep must be an integer >= 0.", { action: "prune", status: "error" }, true);
 	const intent = intentFromConfig(params.config);
@@ -164,8 +185,18 @@ export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext)
 export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const intentError = enforceDestructiveIntent("forget", params, ctx.config);
 	if (intentError) return intentError;
-	if (!params.runId) return result("Forget requires runId.", { action: "forget", status: "error" }, true);
-	if (!params.confirm) return result("forget requires confirm: true.", { action: "forget", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("forget", "runId", "{ action: 'forget', runId: 'team_...', confirm: true }"),
+			{ action: "forget", status: "error" },
+			true,
+		);
+	if (!params.confirm)
+		return result(
+			paramRequired("forget", "confirm: true", "{ action: 'forget', runId: 'team_...', confirm: true }"),
+			{ action: "forget", status: "error" },
+			true,
+		);
 	const loaded = loadRunManifestById(ctx.cwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "forget", status: "error" }, true);
 
@@ -272,7 +303,11 @@ export async function handleCleanup(params: TeamToolParamsValue, ctx: TeamContex
 	// SEC-5: self-enforce confirm:true (defense-in-depth), matching handlePrune/handleForget.
 	// dryRun:true is a non-destructive preview and is always allowed.
 	if (params.confirm !== true && params.dryRun !== true)
-		return result("cleanup requires confirm: true.", { action: "cleanup", status: "error" }, true);
+		return result(
+			paramRequired("cleanup", "confirm: true", "{ action: 'cleanup', confirm: true }"),
+			{ action: "cleanup", status: "error" },
+			true,
+		);
 	// Three cleanup modes:
 	//  1. WITH runId              → per-run worktree cleanup (existing behavior).
 	//  2. WITHOUT runId, scope=project (default) → PROJECT-LEVEL uninstall:

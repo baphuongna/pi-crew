@@ -24,6 +24,7 @@ import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state
 import { spawnBackgroundTeamRun } from "../../subagents/async-entry.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4000;
 
@@ -296,7 +297,12 @@ function assertGoalOwnership(goal: GoalLoopState, ctx: TeamContext, action: stri
 function handleStateFlip(input: GoalSubActionInput, nextState: GoalLoopStatus, label: string): ReturnType<typeof result> {
 	const { params, ctx, store } = input;
 	const goalId = params.config?.goalId as string | undefined;
-	if (!goalId) return result(`${label} requires config.goalId.`, { action: "goal", status: "error" }, true);
+	if (!goalId)
+		return result(
+			paramRequired(label, "config.goalId", "{ action: 'goal', config: { goalId: '...' } }"),
+			{ action: "goal", status: "error" },
+			true,
+		);
 	const existing = store.load(goalId);
 	if (!existing) return result(`Goal '${goalId}' not found.`, { action: "goal", status: "error" }, true);
 	if (params.force !== true) {
@@ -325,7 +331,12 @@ function handleStateFlip(input: GoalSubActionInput, nextState: GoalLoopStatus, l
 async function handleStop(input: GoalSubActionInput): Promise<ReturnType<typeof result>> {
 	const { params, ctx, store } = input;
 	const goalId = params.config?.goalId as string | undefined;
-	if (!goalId) return result("stop requires config.goalId.", { action: "goal", status: "error" }, true);
+	if (!goalId)
+		return result(
+			paramRequired("stop", "config.goalId", "{ action: 'goal', config: { subAction: 'stop', goalId: '...' } }"),
+			{ action: "goal", status: "error" },
+			true,
+		);
 	const eventsPath = createRunPaths(ctx.cwd, goalId).eventsPath;
 	const before = store.load(goalId);
 	if (!before) return result(`Goal '${goalId}' not found.`, { action: "goal", status: "error" }, true);
@@ -386,7 +397,12 @@ async function handleStop(input: GoalSubActionInput): Promise<ReturnType<typeof 
 async function handleResume(input: GoalSubActionInput): Promise<ReturnType<typeof result>> {
 	const { params, ctx, store } = input;
 	const goalId = params.config?.goalId as string | undefined;
-	if (!goalId) return result("resume requires config.goalId.", { action: "goal", status: "error" }, true);
+	if (!goalId)
+		return result(
+			paramRequired("resume", "config.goalId", "{ action: 'goal', config: { subAction: 'resume', goalId: '...' } }"),
+			{ action: "goal", status: "error" },
+			true,
+		);
 	const existing = store.load(goalId);
 	if (!existing) return result(`Goal '${goalId}' not found.`, { action: "goal", status: "error" }, true);
 	if (params.force !== true) {
@@ -510,7 +526,12 @@ export async function handleGoal(params: TeamToolParamsValue, ctx: TeamContext):
 			// Fix P1-3 + round-5 P2: remove the goal file. But refuse if the loop is still
 			// running (would leave a zombie background process). Require stop first.
 			const clearGoalId = params.config?.goalId as string | undefined;
-			if (!clearGoalId) return result("clear requires config.goalId.", { action: "goal", status: "error" }, true);
+			if (!clearGoalId)
+				return result(
+					paramRequired("clear", "config.goalId", "{ action: 'goal', config: { subAction: 'clear', goalId: '...' } }"),
+					{ action: "goal", status: "error" },
+					true,
+				);
 			const existing = store.load(clearGoalId);
 			if (!existing) return result(`Goal '${clearGoalId}' not found (already cleared?).`, { action: "goal", status: "error" }, true);
 			if (params.force !== true) {

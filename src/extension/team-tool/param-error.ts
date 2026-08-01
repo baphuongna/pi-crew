@@ -112,3 +112,27 @@ export function formatTeamToolParamError(schema: TSchema, params: unknown): stri
 		"as an array/object instead of a single string; params nested instead of flat.",
 	].join("\n");
 }
+
+/**
+ * Build a runtime handler error string for a MISSING REQUIRED FIELD, including
+ * a concrete example shape so the calling agent (LLM) can self-correct instead
+ * of looping on the same malformed call.
+ *
+ * The schema-validation path (`formatTeamToolParamError` above) already
+ * provides rich examples, but runtime handler errors used to return a plain
+ * `"X requires Y."` with NO example — giving LLMs worse guidance for the MORE
+ * COMMON failure (valid action, missing field). This helper closes that
+ * two-tier error-quality gap (AUDIT-2026-07-30 EXT-2).
+ *
+ * @param action The team-tool action (e.g. "status", "cancel").
+ * @param field The required field/fields (e.g. "runId", "goal or task").
+ * @param example Optional concrete example shape,
+ *   e.g. `{ action: 'status', runId: 'team_...' }`.
+ * @returns An error string like
+ *   `"Status requires runId. Example: { action: 'status', runId: 'team_...' }"`.
+ */
+export function paramRequired(action: string, field: string, example?: string): string {
+	const subject = action.charAt(0).toUpperCase() + action.slice(1);
+	const base = `${subject} requires ${field}.`;
+	return example ? `${base} Example: ${example}` : base;
+}

@@ -8,6 +8,7 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 /**
@@ -16,9 +17,22 @@ import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
  * mailbox and the task is re-queued for durable scheduler resume.
  */
 export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Respond requires runId.", { action: "respond", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("respond", "runId", "{ action: 'respond', runId: 'team_...', message: '...' }"),
+			{ action: "respond", status: "error" },
+			true,
+		);
 	if (!params.message && !params.taskId)
-		return result("Respond requires taskId and/or message.", { action: "respond", status: "error" }, true);
+		return result(
+			paramRequired(
+			"respond",
+			"taskId and/or message",
+			"{ action: 'respond', runId: 'team_...', taskId: '01_agent', message: '...' }",
+			),
+			{ action: "respond", status: "error" },
+			true,
+		);
 
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "respond", status: "error" }, true);

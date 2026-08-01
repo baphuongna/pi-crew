@@ -448,11 +448,11 @@ const lockCtx = new AsyncLocalStorage<Set<string>>();
 const fileLockHeldByUs = new Map<string, string>(); // lockFile -> token
 
 // --- Async file lock (non-blocking alternative to withFileLockSync) ---
-// Uses a promise-chain pattern to serialize per-path access without blocking
-// the Node.js event loop. Unlike withFileLockSync (which uses O_EXCL +
-// sleepSync for cross-process safety), this is **in-process only** —
-// sufficient for single-process mailbox writes (team-runner is single-process).
-// Mirrors the structure of withEventLogLockAsync in event-log.ts.
+// Two-tier: in-process promise chain (serialize within this process) + on-disk
+// .flock (serialize cross-process via O_EXCL + async retry). The on-disk tier
+// was added in ST-3 to fix message loss when the sync append path
+// (withFileLockSync, also .flock) and the async append path (previously
+// in-process only) ran concurrently across processes on the same mailbox file.
 const fileAsyncLocks = new Map<string, Promise<unknown>>();
 
 // FIND-02 follow-up (P3): re-entrance guard for the async file lock, mirroring
@@ -465,37 +465,68 @@ const fileAsyncLocks = new Map<string, Promise<unknown>>();
 const fileAsyncLockCtx = new AsyncLocalStorage<Set<string>>();
 
 export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+	const lockFile = `${filePath}.flock`;
 	// Re-entrant within the same async context — run fn() directly (no chaining).
 	// Same semantics as the sync guard in withFileLockSync (fileLockHeldByUs)
 	// and the async guard in withRunLock (lockCtx).
-	if (fileAsyncLockCtx.getStore()?.has(filePath)) {
+	if (fileAsyncLockCtx.getStore()?.has(lockFile)) {
+		return await fn();
+	}
+	// Cross-path re-entrance with the SYNC lock: if withFileLockSync currently
+	// holds the .flock in this process, bypass to avoid a sleepSync deadlock
+	// (the sync retry loop blocks the event loop, starving our async holder).
+	// In production this never fires: child-process mode uses sync-only mailbox
+	// operations; live-session mode uses async-only. The bypass is safe for
+	// O_APPEND writes on POSIX (the mailbox append path).
+	if (fileLockHeldByUs.has(lockFile)) {
 		return await fn();
 	}
 	// Merge with the parent context's held set so nested DIFFERENT-path locks
 	// also bypass correctly (prevents cross-path deadlock, matching withRunLock).
 	const prevHeld = fileAsyncLockCtx.getStore() ?? new Set<string>();
 	const held = new Set(prevHeld);
-	held.add(filePath);
-	const prev = fileAsyncLocks.get(filePath) ?? Promise.resolve();
+	held.add(lockFile);
+	const prev = fileAsyncLocks.get(lockFile) ?? Promise.resolve();
 	// Chain fn after the previous holder. `next` may reject (propagating to the
 	// caller), but `stored` never rejects so subsequent waiters aren't blocked.
 	// fn() is wrapped in fileAsyncLockCtx.run so nested same-context calls see
 	// `held` and bypass the promise chain (re-entrant), while cross-context
 	// callers chain normally via `prev`.
-	const next = prev.then(() => fileAsyncLockCtx.run(held, () => fn()));
+	const next = prev.then(() =>
+		fileAsyncLockCtx.run(held, async () => {
+			// ST-3: cross-process tier — acquire the on-disk .flock so that a
+			// concurrent process (sync append, reply-rewrite) cannot interleave.
+			// acquireLockWithRetryAsync uses `await sleep` (timer), NOT sleepSync,
+			// so the event loop is not blocked during contention.
+			if (!isSymlinkSafePath(path.dirname(lockFile)))
+				throw new Error("Refusing: parent of lock directory is a symlink");
+			fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+			const token = await acquireLockWithRetryAsync(lockFile, DEFAULT_STALE_MS, "file");
+			// Register in fileLockHeldByUs so a concurrent withFileLockSync in
+			// THIS process detects our hold and bypasses (prevents sleepSync
+			// deadlock). See the bypass check at the top of this function.
+			fileLockHeldByUs.set(lockFile, token);
+			try {
+				return await fn();
+			} finally {
+				fileLockHeldByUs.delete(lockFile);
+				releaseLock(lockFile, token);
+			}
+		}),
+	);
 	const stored = next.then(
 		() => undefined,
 		() => undefined,
 	);
-	fileAsyncLocks.set(filePath, stored);
+	fileAsyncLocks.set(lockFile, stored);
 	try {
 		return await next;
 	} finally {
 		// Compare-and-delete: only remove our entry if it still points at `stored`.
 		// With 3+ overlapping callers, an earlier caller's finally would otherwise
 		// delete a later caller's promise, breaking mutual exclusion.
-		if (fileAsyncLocks.get(filePath) === stored) {
-			fileAsyncLocks.delete(filePath);
+		if (fileAsyncLocks.get(lockFile) === stored) {
+			fileAsyncLocks.delete(lockFile);
 		}
 	}
 }

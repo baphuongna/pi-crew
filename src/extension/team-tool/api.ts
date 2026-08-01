@@ -44,6 +44,7 @@ import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { configRecord, result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 export function globMatch(value: string, pattern: string): boolean {
@@ -121,7 +122,12 @@ export async function handleApi(params: TeamToolParamsValue, ctx: TeamContext): 
 			status: "ok",
 		});
 	}
-	if (!params.runId) return result("API requires runId.", { action: "api", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("api", "runId", "{ action: 'api', runId: 'team_...' }"),
+			{ action: "api", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "api", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency

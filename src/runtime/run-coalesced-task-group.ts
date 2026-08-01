@@ -1,10 +1,12 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
+import type { CrewReliabilityConfig, CrewRuntimeConfig } from "../config/types.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { appendEventAsync } from "../state/event-log.ts";
 import { saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry } from "./retry-executor.ts";
+import type { RetryPolicy } from "./retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
 import { runWorker } from "./run-worker.ts";
 import type { CrewRuntimeMode } from "./runtime-resolver.ts";
@@ -27,6 +29,10 @@ export interface CoalescedTaskGroupInput {
 	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 	teamRole?: unknown;
 	perTaskRuntime?: CrewRuntimeMode;
+	/** RT-5: runtime config for maxTurns, graceTurns, taskTimeoutMs (mirror singleton). */
+	runtimeConfig?: CrewRuntimeConfig;
+	/** RT-5: reliability config for autoRetry + retryPolicy (mirror singleton). */
+	reliability?: CrewReliabilityConfig;
 }
 
 export interface CoalescedTaskGroupResult {
@@ -80,6 +86,9 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 
 	let rawOutput = "";
 	let success = false;
+	// RT-5 #1: track cancellation separately from failure so the status
+	// mapping can branch cancel → "cancelled" (not "failed").
+	let cancelled = false;
 	// FIND-06: serialize heartbeat saves and retain the active save so terminal
 	// results can drain it before their final write.
 	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -110,7 +119,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 						if (!taskIds.includes(t.id)) return t;
 						// FIND-06 belt-and-suspenders: never replace terminal state or its
 						// resultArtifact with a heartbeat-only snapshot.
-						if (t.status === "completed" || t.status === "failed") return t;
+						if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") return t;
 						return {
 							...t,
 							heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
@@ -135,26 +144,80 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 				}
 			})();
 		}, 15_000);
+		// RT-5 #3/#4/#5: compute maxTurns, wall-clock timeout, and retry policy
+		// from config instead of hardcoding — mirrors the singleton path
+		// (team-runner.ts:1548-1578 + child-executor.ts:395-430).
+		const taskTimeoutMs = input.runtimeConfig?.taskTimeoutMs ?? 0;
+		const useRetry = input.reliability?.autoRetry !== false;
+		const policy: RetryPolicy = {
+			...DEFAULT_RETRY_POLICY,
+			...(input.reliability?.retryPolicy ?? {}),
+		};
+		// RT-5 #3: pass maxTurns from config instead of hardcoded 5.
+		// RT-5 #4: arm a per-attempt wall-clock timeout mirroring the singleton's
+		// AbortController+setTimeout pattern (child-executor.ts:395-430). The
+		// timeoutController is linked to the run-level signal so an external
+		// abort also aborts the worker. Its signal is passed to runWorker; the
+		// existing SIGTERM→SIGKILL escalation in child-pi.ts handles cleanup.
+		const runOnce = async () => {
+			const timeoutController = new AbortController();
+			let externalAbortListener: (() => void) | undefined;
+			if (signal) {
+				if (signal.aborted) {
+					timeoutController.abort(signal.reason);
+				} else {
+					externalAbortListener = () => timeoutController.abort(signal!.reason);
+					signal.addEventListener("abort", externalAbortListener, { once: true });
+				}
+			}
+			let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+			if (taskTimeoutMs > 0 && !timeoutController.signal.aborted) {
+				timeoutHandle = setTimeout(() => {
+					if (!timeoutController.signal.aborted) {
+						timeoutController.abort(
+							new Error(`Task exceeded wall-clock timeout of ${taskTimeoutMs}ms`),
+						);
+					}
+				}, taskTimeoutMs);
+				timeoutHandle.unref?.();
+			}
+			try {
+				return await runWorker({
+					cwd: firstTask.cwd,
+					task: combinedPrompt,
+					agent,
+					signal: timeoutController.signal,
+					excludeContextBash: true,
+					maxTurns: input.runtimeConfig?.maxTurns,
+					graceTurns: input.runtimeConfig?.graceTurns,
+					onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
+				});
+			} finally {
+				if (timeoutHandle) clearTimeout(timeoutHandle);
+				if (externalAbortListener && signal) {
+					signal.removeEventListener("abort", externalAbortListener);
+				}
+			}
+		};
 		try {
-			const result = await executeWithRetry(
-				async () => {
-					return await runWorker({
-						cwd: firstTask.cwd,
-						task: combinedPrompt,
-						agent,
-						signal,
-						excludeContextBash: true,
-						maxTurns: 5,
-						onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
-					});
-				},
-				DEFAULT_RETRY_POLICY,
-				{ signal },
-			);
+			const result = useRetry
+				? await executeWithRetry(runOnce, policy, { signal })
+				: await runOnce();
 			rawOutput = result.rawFinalText ?? result.stdout ?? "";
-			success = result.exitStatus?.exitCode === 0;
+			// RT-5 #1/#2: distinguish cancel from failure. Cancel = run-level
+			// signal aborted OR the child reports cooperative cancellation.
+			// success requires exitCode===0 AND no error AND not cancelled
+			// (previously success = exitCode===0 only, which misreported
+			// depth-guard exitCode:1 and ignored the error field).
+			cancelled = signal?.aborted === true || result.exitStatus?.cancelled === true;
+			success = !cancelled && result.exitCode === 0 && !result.error;
 		} catch (err) {
-			rawOutput = `Worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`;
+			// RT-5 #1: detect cancel in the throw path (e.g. executeWithRetry's
+			// throwIfCancelled when the run-level signal is already aborted).
+			cancelled = signal?.aborted === true;
+			rawOutput = cancelled
+				? `Worker dispatch cancelled: ${err instanceof Error ? err.message : String(err)}`
+				: `Worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`;
 			success = false;
 		} finally {
 			if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
@@ -186,7 +249,11 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 		newArtifacts.push(resultArtifact);
 		return {
 			...t,
-			status: ok ? ("completed" as const) : ("failed" as const),
+			status: ok
+				? ("completed" as const)
+				: cancelled
+					? ("cancelled" as const)
+					: ("failed" as const),
 			finishedAt,
 			result: {
 				text,
@@ -232,8 +299,8 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 	await appendEventAsync(updatedManifest.eventsPath, {
 		type: "task.coalesced_dispatch_end",
 		runId: manifest.runId,
-		message: `Coalesced dispatch ${success ? "completed" : "failed"} (${taskIds.length} tasks, ${split[0]?.strategy ?? "broadcast"} split)`,
-		data: { groupId, taskIds, success, strategy: split[0]?.strategy },
+		message: `Coalesced dispatch ${success ? "completed" : cancelled ? "cancelled" : "failed"} (${taskIds.length} tasks, ${split[0]?.strategy ?? "broadcast"} split)`,
+		data: { groupId, taskIds, success, cancelled, strategy: split[0]?.strategy },
 	});
 
 	return { manifest: updatedManifest, tasks: updatedTasks, taskIds, rawOutput, success };

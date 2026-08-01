@@ -1,8 +1,10 @@
 import { statSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type { TObject } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { loadConfig } from "../../config/config.ts";
+import { findClosestKey } from "../../config/suggestions.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { TeamToolParams, type TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -73,6 +75,52 @@ export function resolveCwdOverride(
 	}
 }
 
+/**
+ * EXT-1: detect unrecognized (likely typo'd) parameter field names.
+ *
+ * `TeamToolParams` is declared with `additionalProperties: true`, so TypeBox
+ * `Value.Check` does NOT reject unknown keys. A mistyped call like
+ * `{ action: "run", goals: "..." }` (typo `goals` vs `goal`) passes validation,
+ * the handler then reads `params.goal` (undefined) and returns a generic
+ * "Run requires goal or task." with ZERO hint about the typo — so calling
+ * agents (LLMs) loop indefinitely on the same malformed shape.
+ *
+ * This scans `params` for keys absent from `schema.properties` (`action` is
+ * excluded — it is validated separately by the schema enum) and, for each
+ * unknown key, suggests the closest known field via Levenshtein distance.
+ *
+ * @returns A multi-line actionable error message, or `null` when every key
+ *          is recognized.
+ */
+export function detectUnrecognizedParams(schema: TObject, params: unknown): string | null {
+	if (typeof params !== "object" || params === null || Array.isArray(params)) return null;
+	const knownKeys = Object.keys(schema.properties ?? {});
+	const knownSet = new Set(knownKeys);
+
+	const p = params as Record<string, unknown>;
+	const unknowns: string[] = [];
+	for (const key of Object.keys(p)) {
+		if (key === "action") continue; // validated separately by the schema action enum
+		if (!knownSet.has(key)) unknowns.push(key);
+	}
+	if (unknowns.length === 0) return null;
+
+	// Suggest the closest known field for each typo (action excluded as a candidate).
+	const candidates = knownKeys.filter((k) => k !== "action");
+	const hints = unknowns.map((key) => {
+		const closest = findClosestKey(key, candidates);
+		return closest ? `Unrecognized field '${key}' — did you mean '${closest}'?` : `Unrecognized field '${key}'.`;
+	});
+
+	return [
+		`Unrecognized team tool parameter field${unknowns.length > 1 ? "s" : ""}:`,
+		...hints.map((h) => `  • ${h}`),
+		"",
+		"Check the field name spelling against the schema. Common fields:",
+		"action, goal, team, runId, task, role, agent, workflow, model, cwd.",
+	].join("\n");
+}
+
 export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): void {
 	const tool: ToolDefinition = {
 		name: "team",
@@ -104,6 +152,13 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 				// Defense-in-depth: validate params at runtime even though Pi framework already does
 				if (!Value.Check(TeamToolParams, params)) {
 					return toolResult(formatTeamToolParamError(TeamToolParams, params), { action: "list", status: "error" }, true);
+				}
+				// EXT-1: additionalProperties:true lets unknown (typo'd) keys slip past
+				// Value.Check. Catch them here and suggest the closest known field so
+				// the caller gets an actionable hint instead of a generic handler error.
+				const typoError = detectUnrecognizedParams(TeamToolParams, params);
+				if (typoError) {
+					return toolResult(typoError, { action: "list", status: "error" }, true);
 				}
 				const resolved = params as TeamToolParamsValue;
 				const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);

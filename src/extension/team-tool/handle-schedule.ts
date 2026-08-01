@@ -4,6 +4,7 @@ import { type CrewSettings, updateCrewSettings } from "../../runtime/settings-st
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 
 // Global key for cross-module scheduler access.
 const CREW_SCHEDULER_KEY = Symbol.for("pi-crew:scheduler");
@@ -100,7 +101,12 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 
 	const team = params.team ?? "default";
 	const goal = params.goal ?? params.task ?? "";
-	if (!goal) return result("Schedule requires goal or task.", { action: "schedule", status: "error" }, true);
+	if (!goal)
+		return result(
+			paramRequired("schedule", "goal or task", "{ action: 'schedule', goal: '...', cron: '0 9 * * *' }"),
+			{ action: "schedule", status: "error" },
+			true,
+		);
 
 	let specResult: ReturnType<typeof buildScheduleSpec>;
 	try {

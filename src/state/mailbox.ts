@@ -4,7 +4,6 @@ import { DEFAULT_MAILBOX } from "../config/defaults.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
-import { withEventLogLockSync } from "./event-log.ts";
 import { withFileLockAsync, withFileLockSync } from "./locks.ts";
 import type { TeamRunManifest } from "./types.ts";
 
@@ -555,11 +554,18 @@ export function appendMailboxMessage(
 		repliedAt: message.repliedAt,
 		replyContent: message.replyContent,
 	};
-	// H2 fix: wrap append in cross-process lock to prevent interleaving on Windows.
+	// ST-3: collapse to ONE lock namespace (.flock) for ALL mailbox-file
+	// operations — sync append, async append, and full-file rewrite. Previously
+	// this used withEventLogLockSync (.mkdirlock) while async append used an
+	// in-process promise chain (no on-disk artifact) and reply-rewrite used
+	// withFileLockSync (.flock). The three DISJOINT namespaces let concurrent
+	// operations interleave, silently losing messages (especially during the
+	// rotation rename↔recreate window). Now all three use withFileLockSync /
+	// withFileLockAsync — both backed by the same .flock sidecar.
 	// B8: rotation (rename + recreate) also runs INSIDE the lock so it is serialized
 	// with appends — otherwise a concurrent append between rename and recreate can
 	// be truncated to an empty file.
-	withEventLogLockSync(mailboxFile(manifest, complete.direction, complete.taskId), () => {
+	withFileLockSync(mailboxFile(manifest, complete.direction, complete.taskId), () => {
 		fs.appendFileSync(
 			mailboxFile(manifest, complete.direction, complete.taskId),
 			`${JSON.stringify(redactSecrets(complete))}\n`,

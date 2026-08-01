@@ -16,6 +16,7 @@ import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktre
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
 import { errorMessage } from "../../utils/guards.ts";
+import { paramRequired } from "./param-error.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
@@ -385,7 +386,12 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		return handleChainRun(params, ctx, handleRun);
 	}
 	const goal = params.goal ?? params.task;
-	if (!goal) return result("Run requires goal or task.", { action: "run", status: "error" }, true);
+	if (!goal)
+		return result(
+			paramRequired("run", "goal or task", "{ action: 'run', goal: '<what to achieve>' }"),
+			{ action: "run", status: "error" },
+			true,
+		);
 	const intentPrefix = goal.length > 60 ? `${goal.slice(0, 57)}...` : goal;
 
 	// P0: Ensure .crew directory structure exists before creating any manifests.

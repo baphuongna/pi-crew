@@ -6,10 +6,16 @@ import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
 import { formatFailurePatterns } from "./failure-patterns.ts";
+import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 export function handleEvents(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Events requires runId.", { action: "events", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("events", "runId", "{ action: 'events', runId: 'team_...' }"),
+			{ action: "events", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "events", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
@@ -33,7 +39,12 @@ export function handleEvents(params: TeamToolParamsValue, ctx: TeamContext): PiT
 }
 
 export function handleArtifacts(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Artifacts requires runId.", { action: "artifacts", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("artifacts", "runId", "{ action: 'artifacts', runId: 'team_...' }"),
+			{ action: "artifacts", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "artifacts", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
@@ -56,7 +67,12 @@ export function handleArtifacts(params: TeamToolParamsValue, ctx: TeamContext): 
 }
 
 export function handleSummary(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
-	if (!params.runId) return result("Summary requires runId.", { action: "summary", status: "error" }, true);
+	if (!params.runId)
+		return result(
+			paramRequired("summary", "runId", "{ action: 'summary', runId: 'team_...' }"),
+			{ action: "summary", status: "error" },
+			true,
+		);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "summary", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency

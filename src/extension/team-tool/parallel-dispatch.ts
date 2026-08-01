@@ -20,6 +20,7 @@ import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
 import { resolveCwdOverride } from "../registration/team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
+import { paramRequired } from "./param-error.ts";
 
 const MAX_CONCURRENCY = 8;
 const DEFAULT_CONCURRENCY = 4;
@@ -29,7 +30,15 @@ const DEFAULT_AGENT = "explorer";
 export async function handleParallel(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const tasksParam = params.config?.tasks;
 	if (!Array.isArray(tasksParam) || tasksParam.length === 0) {
-		return result("parallel action requires config.tasks: [{goal, agent?}]", { action: "parallel", status: "error" }, true);
+		return result(
+			paramRequired(
+				"parallel",
+				"config.tasks: [{goal, agent?}]",
+				"{ action: 'parallel', config: { tasks: [{ goal: '...', agent: 'explorer' }] } }",
+			),
+			{ action: "parallel", status: "error" },
+			true,
+		);
 	}
 
 	const concurrency = Math.min(Math.max(1, Math.floor((params.config?.concurrency as number) ?? DEFAULT_CONCURRENCY)), MAX_CONCURRENCY);
