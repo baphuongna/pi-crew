@@ -251,7 +251,7 @@ function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
  * `markBlocked` is intentionally NOT unified here (it sets status "skipped",
  * not cancelled/failed, and only acts on "queued" tasks).
  */
-function cancelNonTerminalTasks(
+export function cancelNonTerminalTasks(
 	tasks: TeamTaskState[],
 	status: "cancelled" | "failed",
 	reason: string,
@@ -484,7 +484,11 @@ function runEffectivenessLines(
 // (the previous implementation ran 2 redundant passes on every batch) to
 // a single-pass Map-based replacement: remove the existing entry by path, then
 // append the new one. Net complexity: O(N) build + O(1) replace per write.
-const lastProgressContentHash = new WeakMap<TeamRunManifest, string>();
+// RT-7: key on manifest.runId (stable string) instead of object identity
+// (WeakMap). Every writeProgress mutator returns a NEW manifest object via
+// spread, so object-identity keying meant the cache NEVER hit. Using runId
+// makes back-to-back calls (same millisecond) actually dedup.
+const lastProgressContentHash = new Map<string, string>();
 
 function writeProgress(
 	manifest: TeamRunManifest,
@@ -523,10 +527,14 @@ function writeProgress(
 	// both calls happen within the same millisecond. It's a minor win but
 	// matches the audit recommendation (skip artifact write when nothing
 	// material changed).
-	const prevHash = lastProgressContentHash.get(manifest);
+	// RT-7: compute the content hash ONCE (was hashed twice per call: once
+	// for the canSkip comparison and again for the cache .set). Key the cache
+	// on manifest.runId (stable) instead of object identity (never hit).
+	const contentHash = hashContent(content);
+	const prevHash = lastProgressContentHash.get(manifest.runId);
 	// Cheap pre-check: avoid the redaction + atomicWrite + readback roundtrip
 	// when both the timestamp and the input args are identical to last time.
-	const canSkip = prevHash === hashContent(content);
+	const canSkip = prevHash === contentHash;
 
 	const progress = canSkip
 		? (() => {
@@ -551,7 +559,7 @@ function writeProgress(
 				producer,
 				content,
 			});
-	lastProgressContentHash.set(manifest, hashContent(content));
+	lastProgressContentHash.set(manifest.runId, contentHash);
 
 	// P6 dedup: replace by path in a single Map pass instead of
 	//   .filter(...)  // O(N) to remove the old entry
@@ -572,6 +580,11 @@ function writeProgress(
 		artifacts: deduped,
 	};
 }
+
+/** @internal RT-7 test export — verify cache is keyed on runId (stable string). */
+export const __test__lastProgressContentHash = lastProgressContentHash;
+/** @internal RT-7 test export — exercise writeProgress directly. */
+export const __test__writeProgress = writeProgress;
 
 function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?: CrewLimitsConfig): TeamRunManifest {
 	const branchFreshness = checkBranchFreshness(manifest.cwd);
@@ -776,6 +789,25 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
 	return getDagReadyTasks(plan, completedIds);
 }
 
+/** RT-12: result shape from a settled dispatch unit (pre-created wrapper). */
+type SettledUnit = {
+	unitKey: string;
+	result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
+	error: Error | undefined;
+};
+
+/**
+ * RT-12: in-flight dispatch unit. `wrapped` is a pre-created wrapper promise
+ * (try/catch → SettledUnit) so mergeUnitResult can Promise.race without
+ * allocating new async closures every loop iteration (O(C) total wrappers
+ * instead of O(C×T) churn).
+ */
+type PendingUnit = {
+	taskIds: string[];
+	promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }>;
+	wrapped: Promise<SettledUnit>;
+};
+
 /**
  * Drain in-flight dispatch units (pendingUnits) by aborting the run-scoped
  * controller and awaiting all settled promises before clearing the map.
@@ -786,10 +818,9 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
  *
  * Exported so unit tests can exercise it directly.
  */
-export async function drainPendingUnits(
-	pendingUnits: Map<string, { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }>,
-	controller?: AbortController,
-): Promise<void> {
+export async function drainPendingUnits<
+	T extends { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> },
+>(pendingUnits: Map<string, T>, controller?: AbortController): Promise<void> {
 	if (pendingUnits.size === 0) return;
 	controller?.abort();
 	await Promise.allSettled([...pendingUnits.values()].map((p) => p.promise));
@@ -1030,7 +1061,7 @@ interface SchedulerContext {
 	tasks: TeamTaskState[];
 	queueIndex: TaskGraphIndex;
 	wfMachine: WorkflowStateMachine;
-	pendingUnits: Map<string, { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }>;
+	pendingUnits: Map<string, PendingUnit>;
 	runController: AbortController;
 	runtimeKind: CrewRuntimeKind;
 	adaptivePlanInjected: boolean;
@@ -1083,6 +1114,20 @@ export function setRunStatusRunning(manifest: TeamRunManifest): TeamRunManifest 
 		return { ...manifest, status: "running" };
 	}
 	return manifest;
+}
+
+/**
+ * RT-17: compute a bounded batch-summary filename slug from coalesced task IDs.
+ *
+ * The unbounded join of coalesced task IDs (e.g. "01+02+…+20") can exceed
+ * NAME_MAX (255) on ext4 with ~20 members. For short joins (common case: ≤180
+ * chars) use the raw IDs to preserve readability + uniqueness; for long joins,
+ * hash to a fixed-length slug (SHA-256 hex = 64 chars) with a member-count
+ * prefix for human scannability.
+ */
+export function batchSummarySlug(taskIds: string[]): string {
+	const joined = taskIds.join("+");
+	return joined.length <= 180 ? joined : `coalesced-${taskIds.length}-${hashContent(joined)}`;
 }
 
 /**
@@ -1806,9 +1851,26 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 	for (const unit of dispatchUnits) {
 		const unitKey = unit.kind === "singleton" ? unit.taskId : unit.group.id;
 		const unitTaskIds = unit.kind === "singleton" ? [unit.taskId] : unit.group.tasks.map((t) => t.id);
+		// RT-12: create the wrapper promise ONCE at dispatch time so
+		// mergeUnitResult can Promise.race on pre-existing wrappers instead
+		// of allocating new async closures every loop iteration.
+		const rawPromise = dispatchUnit(unit);
+		const wrapped: Promise<SettledUnit> = (async () => {
+			try {
+				const result = await rawPromise;
+				return {
+					unitKey,
+					result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined,
+					error: undefined as Error | undefined,
+				};
+			} catch (error) {
+				return { unitKey, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
+			}
+		})();
 		ctx.pendingUnits.set(unitKey, {
 			taskIds: unitTaskIds,
-			promise: dispatchUnit(unit),
+			promise: rawPromise,
+			wrapped,
 		});
 	}
 }
@@ -1833,23 +1895,11 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
  * @param ctx  The scheduler context.
  */
 async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
-	// Wait for ONE in-flight unit to complete. Promise.race returns as soon
-	// as the first wrapper resolves — others remain pending in ctx.pendingUnits
-	// and are re-raced on the next iteration.
-	const settled = await Promise.race(
-		[...ctx.pendingUnits.entries()].map(async ([key, pending]) => {
-			try {
-				const result = await pending.promise;
-				return {
-					unitKey: key,
-					result: result as { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined,
-					error: undefined as Error | undefined,
-				};
-			} catch (error) {
-				return { unitKey: key, result: undefined, error: error instanceof Error ? error : new Error(String(error)) };
-			}
-		}),
-	);
+	// RT-12: race on pre-created wrapper promises (created once at dispatch
+	// time) instead of rebuilding a wrapper-promise array with new async
+	// closures every iteration. This reduces allocation from O(C×T) wrapper
+	// promises to O(C) total (one per unit, created once at dispatch).
+	const settled = await Promise.race([...ctx.pendingUnits.values()].map((u) => u.wrapped));
 	const completedUnit = ctx.pendingUnits.get(settled.unitKey)!;
 	ctx.pendingUnits.delete(settled.unitKey);
 
@@ -2324,7 +2374,7 @@ async function executeTeamRunCore(
 	// task can be dispatched as soon as a slot frees, without waiting for
 	// the entire batch to complete. Each entry maps a unit key (singleton
 	// task ID or coalesced-group ID) to the in-flight promise + member IDs. ──
-	const pendingUnits = new Map<string, { taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }>();
+	const pendingUnits = new Map<string, PendingUnit>();
 
 	// CORE-1: run-scoped AbortController linked to input.signal. Aborted by
 	// drainPendingUnits() so in-flight dispatch promises are settled (and
@@ -2513,7 +2563,7 @@ async function executeTeamRunCore(
 			const completedBatch = tasks.filter((t) => settledTaskIds.includes(t.id));
 			const batchArtifact = writeArtifact(manifest.artifactsRoot, {
 				kind: "summary",
-				relativePath: `batches/${settledTaskIds.join("+")}.md`,
+				relativePath: `batches/${batchSummarySlug(settledTaskIds)}.md`,
 				producer: "team-runner",
 				content: aggregateTaskOutputs(completedBatch, manifest),
 			});
