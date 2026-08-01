@@ -13,7 +13,7 @@ import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write
 import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
-import { canTransitionRunStatus } from "../state/contracts.ts";
+import { type TeamTaskStatus, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, canTransitionRunStatus } from "../state/contracts.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatTokens, formatUsage } from "../state/usage.ts";
@@ -281,34 +281,73 @@ function isMalformedFinishedAtReplacement(currentTime: number, updatedTime: numb
 	return !Number.isFinite(currentTime) && Number.isFinite(updatedTime);
 }
 
+/**
+ * RT-16: status-level gate for shouldMergeTaskUpdate. Returns the stable
+ * "from->to" key used by REJECTED_STATUS_MERGE_TRANSITIONS.
+ */
+function statusMergeKey(from: TeamTaskStatus, to: TeamTaskStatus): string {
+	return `${from}->${to}`;
+}
+
+/**
+ * RT-16 — derived merge-gate transition table.
+ *
+ * The set of old->new status pairs that shouldMergeTaskUpdate must REJECT based
+ * solely on the status transition (before any field-level comparison). It
+ * replaces the former 13 hand-written status guards that hand-duplicated the
+ * lifecycle table. Built once from the single source-of-truth table
+ * (TEAM_TASK_STATUSES + TEAM_TERMINAL_TASK_STATUSES — the terminal half of
+ * TEAM_TASK_STATUS_TRANSITIONS) plus two merge-specific policies that are
+ * STRICTER than the lifecycle table on the parallel-merge path:
+ *
+ *  P1 Terminal preservation — every terminal->non-terminal pair is rejected.
+ *    The lifecycle table permits retries (e.g. completed->queued), but a stale
+ *    worker snapshot must never resurrect a settled task.
+ *  P2 Completed integrity — five terminal->terminal flips that touch the
+ *    "completed" success terminal are rejected: completed->failed,
+ *    completed->needs_attention, failed->completed, cancelled->completed,
+ *    needs_attention->completed. (completed may still move to
+ *    cancelled/skipped; that is intentionally allowed, so these are NOT simply
+ *    "every illegal terminal->terminal flip".)
+ *  P3 waiting->running regression — the single stale-snapshot case.
+ *
+ * The decision for every old->new pair is byte-for-byte identical to the former
+ * 7 status guards (verified exhaustively in
+ * test/unit/team-runner-should-merge-table.test.ts).
+ */
+const REJECTED_STATUS_MERGE_TRANSITIONS: ReadonlySet<string> = (() => {
+	const rejected = new Set<string>();
+	// P1 — terminal preservation: reject every terminal->non-terminal pair.
+	for (const from of TEAM_TASK_STATUSES) {
+		if (!TEAM_TERMINAL_TASK_STATUSES.has(from)) continue;
+		for (const to of TEAM_TASK_STATUSES) {
+			if (!TEAM_TERMINAL_TASK_STATUSES.has(to)) rejected.add(statusMergeKey(from, to));
+		}
+	}
+	// P3 — waiting->running stale-snapshot regression.
+	rejected.add(statusMergeKey("waiting", "running"));
+	// P2 — completed integrity flips (bespoke terminal->terminal policy).
+	const completedIntegrityFlips: ReadonlyArray<[TeamTaskStatus, TeamTaskStatus]> = [
+		["completed", "failed"],
+		["completed", "needs_attention"],
+		["failed", "completed"],
+		["cancelled", "completed"],
+		["needs_attention", "completed"],
+	];
+	for (const [from, to] of completedIntegrityFlips) rejected.add(statusMergeKey(from, to));
+	return rejected;
+})();
+
 function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): boolean {
-	// Parallel workers receive the same input snapshot. A later result may still
-	// contain stale queued/running copies of tasks that another worker already
-	// completed. Never let those stale snapshots regress durable task state.
-	if (current.status === "waiting" && updated.status === "running") return false;
-	// Block terminal→non-terminal transitions (e.g. completed→running).
-	// A task that has reached a terminal state must not be resurrected.
-	const currentIsTerminal = !isNonTerminalTaskStatus(current.status);
-	const updatedIsNonTerminal = isNonTerminalTaskStatus(updated.status);
-	if (currentIsTerminal && updatedIsNonTerminal) return false;
-	// Explicitly block completed↔needs_attention terminal-to-terminal transitions.
-	// Both are success terminal states used interchangeably; stale worker updates must
-	// not cause a completed task to appear as needs_attention or vice versa.
-	if (current.status === "completed" && updated.status === "needs_attention") return false;
-	if (current.status === "needs_attention" && updated.status === "completed") return false;
-	// Explicitly block failed→completed resurrection. Both statuses are terminal,
-	// but completed is the success terminal state and should not be reachable from
-	// failed via a stale merge. The check above only guards non-terminal→terminal.
-	if (current.status === "failed" && updated.status === "completed") return false;
-	// Mirror that guard for the other dangerous terminal→terminal flips (reverse
-	// audit CANCEL-3 + F3): a cancelled task must not be resurrected to completed,
-	// and a completed task must not be demoted to failed, by a stale worker merge.
-	// The task transition table (contracts.ts) only permits terminal→queued
-	// (retry); these flips are always stale results. A worker that completed after
-	// the task was cancelled, or a stale failed result arriving after completion,
-	// must not flip a settled terminal status.
-	if (current.status === "cancelled" && updated.status === "completed") return false;
-	if (current.status === "completed" && updated.status === "failed") return false;
+	// RT-16: status-level gate — reject stale/dangerous transitions via the
+	// derived transition table (REJECTED_STATUS_MERGE_TRANSITIONS) instead of
+	// hand-written guards. Parallel workers receive the same input snapshot; a
+	// later result may still carry stale copies. The table encodes three
+	// merge-specific policies stricter than the lifecycle table: terminal
+	// preservation (no terminal->non-terminal resurrection), completed integrity
+	// (no flipping the "completed" success terminal to/from failed or
+	// needs_attention), and the waiting->running stale-snapshot regression.
+	if (REJECTED_STATUS_MERGE_TRANSITIONS.has(statusMergeKey(current.status, updated.status))) return false;
 	// Guard: when current is "running" but has resultArtifact (another worker already
 	// completed it), a stale updated with status="running" and no resultArtifact
 	// must not overwrite the actual completed state.
@@ -360,6 +399,8 @@ function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskState): 
 		updated.agentProgress?.lastActivityAt !== current.agentProgress?.lastActivityAt;
 	return hasMeaningfulUpdate;
 }
+/** Exposed for the exhaustive status-merge table test (RT-16). */
+export const __test__shouldMergeTaskUpdate = shouldMergeTaskUpdate;
 
 // H4 fix: rename to descriptive name. Kept __test__ as alias for backward
 // compat test imports.
