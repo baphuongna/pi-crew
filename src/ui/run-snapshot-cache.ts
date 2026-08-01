@@ -1021,17 +1021,9 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		if (!previous) return localRefresh(runId);
 		const now = Date.now();
 		if (now - previous.loadedAtMs < ttlMs) return touch(runId, previous);
-		// PR-F2 / UI-1 — stale-while-revalidate: the render path previously
-		// did 8-9 sync statSync/readFileSync calls (currentStamps) every TTL
-		// window per run. Now we return the cached snapshot immediately and
-		// kick off an async refresh that uses the existing async fs path
-		// (fsp.stat/fsp.readFile). Also fixes UI-5 because buildAsync uses
-		// mailboxFromAsync (batched async reads) instead of the sync
-		// mailboxFrom's O(tasks) readdirSync + per-task reads. The next
-		// render tick picks up the refreshed snapshot once the async build
-		// completes (typically <5ms for small files).
-		triggerAsyncRefresh(runId);
-		return touch(runId, previous);
+		const stamps = currentStamps(previous);
+		if (sameStamps(stamps, previous.stamps)) return touch(runId, previous);
+		return localRefresh(runId);
 	}
 	const pendingRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 	const INVAL_COALESCE_MS = 80;
