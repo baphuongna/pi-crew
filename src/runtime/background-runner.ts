@@ -110,7 +110,47 @@ function argValue(name: string): string | undefined {
 	return process.argv[index + 1];
 }
 
-function startInterruptGuard(
+/**
+ * Fire-and-forget event log for signal handlers. Extracted to module level
+ * (from inside main()) so the exported SIGINT handler installer (test seam)
+ * and the inline signal-handler loop inside main() can both use it.
+ * Pure function of its arguments — no closure captures from main().
+ */
+function signalLog(sig: string, eventsPath: string): void {
+	const runId = argValue("--run-id");
+	if (runId && eventsPath) {
+		appendEventFireAndForget(eventsPath, {
+			type: "async.failed",
+			runId,
+			message: `Background runner received ${sig} — exiting.`,
+			data: { signal: sig, pid: process.pid },
+		});
+	}
+}
+
+/**
+ * RT-2 SIGINT handler installer — exported as a test seam so integration tests
+ * can exercise the REAL handler logic (process.exitCode = 130, NOT
+ * process.exit(130)) without re-implementing it in a harness copy.
+ *
+ * Behavior is IDENTICAL to the previous inline handler in main() — pure
+ * extraction, zero logic change.
+ */
+export function installBackgroundRunnerSigintHandler(abortController: AbortController, eventsPath: string): void {
+	process.on("SIGINT", () => {
+		signalLog("SIGINT", eventsPath);
+		// RT-2 FIX: Mirror the CORE-7 pattern at the interrupt guard (:146-151).
+		// Do NOT call process.exit(130) — it bypasses the finally/runCleanup block
+		// in main(), orphaning child-pi workers (they have no parent-guard, see
+		// RT-19). Setting exitCode lets the event loop drain naturally so main()'s
+		// finally block runs terminateActiveChildPiProcesses + unregisterWorker.
+		abortController.abort();
+		stopParentGuard();
+		process.exitCode = 130;
+	});
+}
+
+export function startInterruptGuard(
 	manifest: { runId: string; stateRoot: string; eventsPath: string },
 	abortController: AbortController,
 	stopParentGuard: () => void,
@@ -361,24 +401,8 @@ async function main(): Promise<void> {
 
 	// Scrub macOS malloc vars BEFORE anything else — must be clean for all child processes
 	scrubProcessEnv();
-	// Install signal handlers EARLY — log events before exiting so we can distinguish
-	// OOM/SIGKILL (no event) from SIGTERM/SIGINT (event written).
-	// RT-18 FIX: Use fire-and-forget instead of sync appendEvent. Each of the
-	// 18+ signal handlers previously performed synchronous file I/O + lock
-	// acquisition, blocking the signal handler on every signal. The
-	// fire-and-forget path routes through appendEventAsync (async queue) which
-	// does not block the caller. Events are best-effort on signal paths.
-	const signalLog = (sig: string, eventsPath: string): void => {
-		const runId = argValue("--run-id");
-		if (runId && eventsPath) {
-			appendEventFireAndForget(eventsPath, {
-				type: "async.failed",
-				runId,
-				message: `Background runner received ${sig} — exiting.`,
-				data: { signal: sig, pid: process.pid },
-			});
-		}
-	};
+	// signalLog is now defined at module level (shared by the exported SIGINT
+	// handler installer and the inline signal-handler loop below).
 	// BUG #17 FIX: Compute exitCodePath at module load time using args,
 	// NOT by referencing `manifest` (declared inside main() and not in scope at module load).
 	const exitCodePath = ((): string | undefined => {
@@ -453,17 +477,7 @@ async function main(): Promise<void> {
 		// Trigger graceful shutdown via abort signal so finally block runs
 		abortController.abort();
 	});
-	process.on("SIGINT", () => {
-		signalLog("SIGINT", manifest.eventsPath);
-		// RT-2 FIX: Mirror the CORE-7 pattern at the interrupt guard (:146-151).
-		// Do NOT call process.exit(130) — it bypasses the finally/runCleanup block
-		// in main(), orphaning child-pi workers (they have no parent-guard, see
-		// RT-19). Setting exitCode lets the event loop drain naturally so main()'s
-		// finally block runs terminateActiveChildPiProcesses + unregisterWorker.
-		abortController.abort();
-		stopParentGuard();
-		process.exitCode = 130;
-	});
+	installBackgroundRunnerSigintHandler(abortController, manifest.eventsPath);
 	// BUG #17: Catch ALL signals to identify what kills the background runner
 	for (const sig of [
 		"SIGHUP",
