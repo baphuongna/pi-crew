@@ -22,8 +22,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { CrewBroker } from "../../src/runtime/crew-broker.ts";
-import { CrewBrokerClient } from "../../src/runtime/crew-broker-client.ts";
+import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
+import { CrewBrokerClient } from "../../src/runtime/broker/crew-broker-client.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 
 // ----------------------------------------------------------------------------

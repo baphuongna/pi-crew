@@ -20,10 +20,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
-import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker-issuer.ts";
+import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker/broker-issuer.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
-import { CrewBroker } from "../../runtime/crew-broker.ts";
+import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";

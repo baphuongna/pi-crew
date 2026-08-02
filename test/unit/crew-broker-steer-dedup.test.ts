@@ -42,8 +42,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { createSeenSteerIdSet } from "../../src/prompt/prompt-runtime.ts";
-import { startChildBrokerClient } from "../../src/runtime/crew-broker-child.ts";
-import type { BrokerEventFrame, CrewBrokerClient, CrewBrokerClientOptions } from "../../src/runtime/crew-broker-client.ts";
+import { startChildBrokerClient } from "../../src/runtime/broker/crew-broker-child.ts";
+import type { BrokerEventFrame, CrewBrokerClient, CrewBrokerClientOptions } from "../../src/runtime/broker/crew-broker-client.ts";
 
 // ============================================================================
 // (a) Direct unit tests of createSeenSteerIdSet

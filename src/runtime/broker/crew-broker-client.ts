@@ -24,9 +24,9 @@
 import { randomUUID } from "node:crypto";
 import * as net from "node:net";
 
-import { logInternalError } from "../utils/internal-error.ts";
-import { BrokerError, encodeBrokerFrame, NdjsonDecoder } from "../utils/ndjson.ts";
-import { redactSecretString } from "../utils/redaction.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { BrokerError, encodeBrokerFrame, NdjsonDecoder } from "../../utils/ndjson.ts";
+import { redactSecretString } from "../../utils/redaction.ts";
 
 /** Shape of an unsolicited event frame pushed by the broker (mailbox.message,
  *  team.event, etc.). */

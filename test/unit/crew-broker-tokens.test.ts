@@ -1,6 +1,6 @@
 /**
  * crew-broker-tokens.test.ts — Behavioral security tests for the per-run
- * broker token registry (src/runtime/crew-broker-tokens.ts).
+ * broker token registry (src/runtime/broker/crew-broker-tokens.ts).
  *
  * This module is SECURITY-SENSITIVE: it authenticates broker connections
  * (parent ↔ worker IPC). These tests exercise the full accept/reject
@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { type BrokerToken, BrokerTokenRegistry, newBrokerToken } from "../../src/runtime/crew-broker-tokens.ts";
+import { type BrokerToken, BrokerTokenRegistry, newBrokerToken } from "../../src/runtime/broker/crew-broker-tokens.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

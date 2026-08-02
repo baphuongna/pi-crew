@@ -24,7 +24,7 @@
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
 
-import { readEventsCursor } from "../state/event-log.ts";
+import { readEventsCursor } from "../../state/event-log.ts";
 import {
 	appendMailboxMessageAsync,
 	type MailboxMessage,
@@ -32,14 +32,14 @@ import {
 	type MailboxMessagePriority,
 	readMailbox,
 	registerMailboxAppendObserver,
-} from "../state/mailbox.ts";
-import { loadRunManifestById } from "../state/state-store.ts";
-import { runEventBus } from "../ui/run-event-bus.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../utils/ndjson.ts";
-import { redactSecretString } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../utils/socket-path.ts";
+} from "../../state/mailbox.ts";
+import { loadRunManifestById } from "../../state/state-store.ts";
+import { runEventBus } from "../../ui/run-event-bus.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
+import { redactSecretString } from "../../utils/redaction.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../../utils/socket-path.ts";
 import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */

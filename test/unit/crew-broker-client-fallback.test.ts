@@ -29,7 +29,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { CrewBrokerClient, type CrewBrokerClientOptions } from "../../src/runtime/crew-broker-client.ts";
+import { CrewBrokerClient, type CrewBrokerClientOptions } from "../../src/runtime/broker/crew-broker-client.ts";
 import { encodeBrokerFrame } from "../../src/utils/ndjson.ts";
 
 // ----------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 /**
  * broker-issuer.test.ts — Tests for the process-local broker issuer singleton
- * (src/runtime/broker-issuer.ts) and its cross-module integration with the
- * token registry (src/runtime/crew-broker-tokens.ts).
+ * (src/runtime/broker/broker-issuer.ts) and its cross-module integration with the
+ * token registry (src/runtime/broker/crew-broker-tokens.ts).
  *
  * The issuer is the seam between the broker lifecycle controller and the
  * child-spawn path: the parent registers an `issueForChild` function here,
@@ -27,8 +27,8 @@ import {
 	type BrokerSpawnCredentials,
 	getActiveBrokerIssuer,
 	setActiveBrokerIssuer,
-} from "../../src/runtime/broker-issuer.ts";
-import { BrokerTokenRegistry } from "../../src/runtime/crew-broker-tokens.ts";
+} from "../../src/runtime/broker/broker-issuer.ts";
+import { BrokerTokenRegistry } from "../../src/runtime/broker/crew-broker-tokens.ts";
 
 // ---------------------------------------------------------------------------
 // Singleton state hygiene — restore whatever was registered before this suite.
