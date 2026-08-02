@@ -115,7 +115,7 @@ async function cleanupChildProcesses(): Promise<void> {
 	// extension load path (check-lazy-imports) AND to avoid a static import cycle
 	// (child-pi.ts already imports registerChildProcess from this module).
 	// LAZY: defer child-pi.ts load (heavy runtime chain) + avoid static import cycle.
-	const { killProcessPid } = await import("../runtime/child-pi.ts");
+	const { killProcessPid } = await import("../runtime/child-pi/child-pi.ts");
 	for (const pid of pids) {
 		// killProcessPid signals the whole process GROUP (-pid on POSIX, taskkill /T on
 		// Windows) and escalates to SIGKILL after HARD_KILL_MS. A bare

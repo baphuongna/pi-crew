@@ -23,7 +23,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { compactString } from "../../src/runtime/child-pi.ts";
+import { compactString } from "../../src/runtime/child-pi/child-pi.ts";
 import { applyCompactPipeline, type ICompactStage, type PipelineResult } from "../../src/runtime/compact-pipeline.ts";
 import {
 	ANSI_STRIP_STAGE,

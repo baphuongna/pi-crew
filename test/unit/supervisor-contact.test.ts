@@ -14,8 +14,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ChildPiRunInput } from "../../src/runtime/child-pi.ts";
-import { ChildPiLineObserver } from "../../src/runtime/child-pi-streams.ts";
+import type { ChildPiRunInput } from "../../src/runtime/child-pi/child-pi.ts";
+import { ChildPiLineObserver } from "../../src/runtime/child-pi/child-pi-streams.ts";
 import { parseSupervisorContactFromLine, supervisorContactFromEvent } from "../../src/runtime/supervisor-contact.ts";
 
 function makeObserver(onJsonEvent?: (e: unknown) => void): ChildPiLineObserver {

@@ -2,21 +2,21 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentConfig } from "../agents/agent-config.ts";
-import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
-import { registerChildProcess, unregisterChildProcess } from "../extension/crew-cleanup.ts";
-import { atomicWriteFile } from "../state/atomic-write.ts";
-import type { WorkerExitStatus } from "../state/types.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactSecretString } from "../utils/redaction.ts";
-import { getActiveBrokerIssuer } from "./broker-issuer.ts";
+import type { AgentConfig } from "../../agents/agent-config.ts";
+import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
+import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
+import { atomicWriteFile } from "../../state/atomic-write.ts";
+import type { WorkerExitStatus } from "../../state/types.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { redactSecretString } from "../../utils/redaction.ts";
+import { getActiveBrokerIssuer } from "../broker-issuer.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
-import { BoundedTail } from "./compact-stages/bounded-tail.ts";
+import { BoundedTail } from "../compact-stages/bounded-tail.ts";
 
 // ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
 // killProcessTree is internal (not previously exported) — keep that invariant.
@@ -33,10 +33,10 @@ export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
-import { classifyProcessCrash } from "./crash-classification.ts";
-import { checkCrewDepth, cleanupTempDir } from "./pi-args.ts";
+import { classifyProcessCrash } from "../crash-classification.ts";
+import { checkCrewDepth, cleanupTempDir } from "../pi-args.ts";
 
-import { attachPostExitStdioGuard, trySignalChild } from "./post-exit-stdio-guard.ts";
+import { attachPostExitStdioGuard, trySignalChild } from "../post-exit-stdio-guard.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth

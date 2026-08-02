@@ -2,14 +2,14 @@
  * Real-function tests for child-pi.ts output-handling fixes (Sprint 1).
  *
  * These tests import and call the REAL exported `compactString` and
- * `compactValue` functions from src/runtime/child-pi.ts — NOT local mirror
+ * `compactValue` functions from src/runtime/child-pi/child-pi.ts — NOT local mirror
  * copies. This guards against the algorithm drifting from the real
  * implementation (the bug that output-handling-l4.test.ts had).
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compactString, compactValue } from "../../src/runtime/child-pi.ts";
+import { compactString, compactValue } from "../../src/runtime/child-pi/child-pi.ts";
 import { redactSecretString } from "../../src/utils/redaction.ts";
 
 test("BUG-3: compactString must NOT expand input just over threshold (monotonic shrink)", () => {

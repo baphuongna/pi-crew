@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildChildPiSpawnOptions } from "../../src/runtime/child-pi.ts";
+import { buildChildPiSpawnOptions } from "../../src/runtime/child-pi/child-pi.ts";
 
 // Per-task API key scoping: a worker assigned to a specific model only receives
 // that provider's env keys. Provider keys for other models are stripped.

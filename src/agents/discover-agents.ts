@@ -394,7 +394,7 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 		// runtime is the default child-process path. `contextMode: fork`
 		// is only effective in the live-session runtime (the experimental
 		// path that runs the agent IN the parent pi's session). The
-		// default child-process path (runChildPi in src/runtime/child-pi.ts)
+		// default child-process path (runChildPi in src/runtime/child-pi/child-pi.ts)
 		// spawns a NEW pi process and has no parent session to inherit,
 		// so the agent will behave as `fresh` regardless of the setting.
 		// We warn (not throw) so existing configs that predate live-session

@@ -26,8 +26,8 @@
  * caller-owned (they need task/manifest state that runWorker does not see).
  */
 
-import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
-import { runChildPi } from "./child-pi.ts";
+import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi/child-pi.ts";
+import { runChildPi } from "./child-pi/child-pi.ts";
 import { withWorkerSlot } from "./global-worker-cap.ts";
 
 /**

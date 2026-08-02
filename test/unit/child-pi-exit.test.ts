@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ChildPiLifecycleEvent } from "../../src/runtime/child-pi.ts";
+import type { ChildPiLifecycleEvent } from "../../src/runtime/child-pi/child-pi.ts";
 
 // --- Test a: ChildPiLifecycleEvent type has stderrExcerpt field (structural check) ---
 test("ChildPiLifecycleEvent type includes stderrExcerpt optional field", () => {

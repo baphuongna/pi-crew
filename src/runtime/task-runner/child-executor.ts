@@ -35,7 +35,7 @@ import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } f
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../cancellation.ts";
-import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi.ts";
+import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
 import {
 	appendCrewAgentEvent,
 	appendCrewAgentOutput,

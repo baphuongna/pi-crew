@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runChildPi } from "../../src/runtime/child-pi.ts";
+import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
 import { assertHasAnswer, fakeExecutorAgent, makeTmpCwd, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
 
 test("smoke: ctx.agent() plain returns exit 0 + answer", {

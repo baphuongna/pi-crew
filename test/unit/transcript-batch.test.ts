@@ -13,8 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import type { ChildPiRunInput } from "../../src/runtime/child-pi.ts";
-import { ChildPiLineObserver, flushPendingTranscriptWrites, resetTranscriptBatchState } from "../../src/runtime/child-pi.ts";
+import type { ChildPiRunInput } from "../../src/runtime/child-pi/child-pi.ts";
+import { ChildPiLineObserver, flushPendingTranscriptWrites, resetTranscriptBatchState } from "../../src/runtime/child-pi/child-pi.ts";
 
 const SAMPLE_AGENT: AgentConfig = {
 	name: "explorer",

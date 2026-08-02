@@ -8,7 +8,7 @@
  * and makes the timing budget configurable from one place.
  */
 
-import { DEFAULT_CHILD_PI } from "../config/defaults.ts";
+import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 
 /** Post-exit window during which stdio is guarded against late writes. */
 export const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;

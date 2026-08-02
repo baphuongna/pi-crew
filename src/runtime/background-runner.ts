@@ -45,7 +45,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { logInternalError } from "../utils/internal-error.ts";
 import { writeAsyncStartMarker } from "./async-marker.ts";
-import { terminateActiveChildPiProcesses } from "./child-pi.ts";
+import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
 import { expandParallelResearchWorkflow } from "./parallel-research.ts";

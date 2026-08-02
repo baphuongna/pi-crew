@@ -382,7 +382,7 @@ test("project config cannot override otlp.endpoint", () => {
 
 // FIX: Wildcard env vars no longer leak NPM_TOKEN, NODE_ENV, etc.
 test("child Pi does not leak NPM_TOKEN or NODE_ENV through wildcards", async () => {
-	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi.ts");
+	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi/child-pi.ts");
 	const options = buildChildPiSpawnOptions("/tmp/project", {
 		PATH: "/usr/bin",
 		HOME: "/home/user",
@@ -414,7 +414,7 @@ test("child Pi does not leak NPM_TOKEN or NODE_ENV through wildcards", async () 
 
 // Per-task API key scoping: worker assigned to a specific model only gets that provider's keys
 test("buildChildPiSpawnOptions scopes API keys to assigned model", async () => {
-	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi.ts");
+	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi/child-pi.ts");
 	const env = {
 		PATH: "/usr/bin",
 		HOME: "/home/user",
@@ -451,7 +451,7 @@ test("buildChildPiSpawnOptions scopes API keys to assigned model", async () => {
 // Security: when model is undefined, NO provider keys leak (deny-by-default).
 // Only BASE_ALLOWLIST system vars (PATH, HOME, etc.) pass through.
 test("buildChildPiSpawnOptions leaks no provider keys when model is undefined", async () => {
-	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi.ts");
+	const { buildChildPiSpawnOptions } = await import("../../src/runtime/child-pi/child-pi.ts");
 	const env = {
 		PATH: "/usr/bin",
 		HOME: "/home/user",

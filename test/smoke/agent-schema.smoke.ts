@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
-import { runChildPi } from "../../src/runtime/child-pi.ts";
+import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
 import { fakeExecutorAgent, makeTmpCwd, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
 
 const VerdictSchema = Type.Object({

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { removeGuidance } from "../../config/markers.ts";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
-import { killProcessPid } from "../../runtime/child-pi.ts";
+import { killProcessPid } from "../../runtime/child-pi/child-pi.ts";
 import { terminateLiveAgentsForRun } from "../../runtime/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";

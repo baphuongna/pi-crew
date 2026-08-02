@@ -27,7 +27,7 @@
  * NOT run — no cleanup-ran.txt, grandchild stays alive. Test MUST fail.
  *
  * @see src/runtime/background-runner.ts installBackgroundRunnerSigintHandler (RT-2 fix)
- * @see src/runtime/child-pi-kill.ts registerActiveChild / terminateActiveChildPiProcesses
+ * @see src/runtime/child-pi/child-pi-kill.ts registerActiveChild / terminateActiveChildPiProcesses
  */
 
 import assert from "node:assert/strict";
@@ -76,7 +76,7 @@ const { installBackgroundRunnerSigintHandler } = await import(
 \tpathToFileURL(path.join(projectRoot, "src/runtime/background-runner.ts")).href
 );
 const { registerActiveChild, terminateActiveChildPiProcesses } = await import(
-\tpathToFileURL(path.join(projectRoot, "src/runtime/child-pi-kill.ts")).href
+\tpathToFileURL(path.join(projectRoot, "src/runtime/child-pi/child-pi-kill.ts")).href
 );
 
 // Reset exitCode (importing background-runner.ts sets it to 1 via the graceful

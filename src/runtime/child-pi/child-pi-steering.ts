@@ -13,7 +13,7 @@
  */
 
 import * as fs from "node:fs";
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { killProcessTree } from "./child-pi-kill.ts";
 
 /** Action emitted by the controller when a `turn_end` event is processed. */

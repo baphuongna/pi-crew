@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { rewriteTeamWorkerPrompt } from "../../src/prompt/prompt-runtime.ts";
-import { runChildPi } from "../../src/runtime/child-pi.ts";
+import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
 import { buildPiWorkerArgs, checkCrewDepth } from "../../src/runtime/pi-args.ts";
 
 const agent: AgentConfig = {

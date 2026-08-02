@@ -2,7 +2,7 @@
  * SEC-1 regression test: worker-emitted secrets embedded in lifecycle events
  * and error messages MUST be redacted.
  *
- * `redactStderrExcerpt` (src/runtime/child-pi.ts) is the security boundary
+ * `redactStderrExcerpt` (src/runtime/child-pi/child-pi.ts) is the security boundary
  * between the in-memory raw stderr/stdout accumulators and any persisted
  * event/diagnostic log. The real runChildPi spawn error/timeout paths fire
  * these lifecycle events, but they are NOT reachable via PI_TEAMS_MOCK_CHILD_PI
@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { redactStderrExcerpt } from "../../src/runtime/child-pi.ts";
+import { redactStderrExcerpt } from "../../src/runtime/child-pi/child-pi.ts";
 
 // Real-shaped secrets matching the anchored patterns in redaction.ts.
 const GITHUB_PAT = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"; // 36 chars after prefix

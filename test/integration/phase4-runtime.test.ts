@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { ChildPiLineObserver } from "../../src/runtime/child-pi.ts";
+import { ChildPiLineObserver } from "../../src/runtime/child-pi/child-pi.ts";
 import { deliverGroupJoin, resolveGroupJoinMode, shouldGroupJoin } from "../../src/runtime/group-join.ts";
 import { parseSessionUsageFromJsonlText } from "../../src/runtime/session-usage.ts";
 import { readMailbox } from "../../src/state/mailbox.ts";

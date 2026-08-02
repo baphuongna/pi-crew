@@ -6,7 +6,7 @@ import {
 	disposeWarmPool,
 	releasePooledChild,
 	resolveWarmPoolSize,
-} from "../../src/runtime/child-pi-pool.ts";
+} from "../../src/runtime/child-pi/child-pi-pool.ts";
 
 test("DEFAULT_WARM_POOL_OPTIONS keeps the pool off (2.6)", () => {
 	assert.equal(DEFAULT_WARM_POOL_OPTIONS.size, 0);

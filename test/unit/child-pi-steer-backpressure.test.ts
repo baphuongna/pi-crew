@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const childPiSource = fs.readFileSync(path.join(repoRoot, "src/runtime/child-pi.ts"), "utf-8");
+const childPiSource = fs.readFileSync(path.join(repoRoot, "src/runtime/child-pi/child-pi.ts"), "utf-8");
 
 /** Slice the source between two anchor strings (inclusive of anchors). */
 function sliceBetween(src: string, startAnchor: string, endAnchor: string): string {
@@ -49,7 +49,7 @@ test("HB-003a source contract: steer-injection does NOT call killProcessTree", (
 	// verify the steer block there: the onTurnEnd method handles the soft-limit
 	// steer via appendFileSync (no killProcessTree), and only the hard-abort
 	// branch (later in the same method) calls killProcessTree.
-	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi-steering.ts");
+	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi/child-pi-steering.ts");
 	const steeringSource = fs.readFileSync(steeringPath, "utf-8");
 	// Delivered via the steering file, not stdin.
 	assert.match(steeringSource, /steeringFile/, "steer must be delivered via the steering file");
@@ -74,7 +74,7 @@ test("HB-003a source contract: hard-abort at maxTurns + graceTurns still enforce
 	// H-7 step 5: steering state machine (turn count, soft limit, hard abort) was
 	// extracted to child-pi-steering.ts. The source-contract assertions now apply
 	// to that module instead of child-pi.ts.
-	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi-steering.ts");
+	const steeringPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "src/runtime/child-pi/child-pi-steering.ts");
 	const steeringSource = fs.readFileSync(steeringPath, "utf-8");
 	// The hard-abort logic in ChildPiSteeringController must:
 	//   1. Key off maxTurns + graceTurns (so a runaway worker is terminated).
@@ -101,7 +101,7 @@ test("HB-003a source contract: hard-abort at maxTurns + graceTurns still enforce
 test("HB-003a real-binary smoke: maxTurns:1 + disableTools returns exit 0 (5x)", {
 	skip: process.env.PI_CREW_SMOKE !== "1",
 }, async () => {
-	const { runChildPi } = await import("../../src/runtime/child-pi.ts");
+	const { runChildPi } = await import("../../src/runtime/child-pi/child-pi.ts");
 	const os = await import("node:os");
 	let pass = 0;
 	const fail = [] as string[];
