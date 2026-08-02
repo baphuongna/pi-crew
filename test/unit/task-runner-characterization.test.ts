@@ -49,6 +49,7 @@ import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 // ─── Shared fixtures ────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ function restoreMockEnv(state: MockEnvState): void {
 
 /** Create a temp workspace + manifest + the default task. */
 function makeFixture(opts: { workflow: WorkflowConfig; goal?: string } = { workflow: workflowOf([step()]) }) {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-char-core5-"));
+	const cwd = createTrackedTempDir("pi-crew-char-core5-");
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
 	const created = createRunManifest({ cwd, team, workflow: opts.workflow, goal: opts.goal ?? "characterization" });

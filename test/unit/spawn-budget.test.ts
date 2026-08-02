@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
@@ -8,6 +7,7 @@ import { runTeamTask, type SpawnBudget } from "../../src/runtime/task-runner.ts"
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 /**
  * CORE-3 — per-task spawn budget cap.
@@ -81,7 +81,7 @@ function withMockEnv<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 test("CORE-3: spawn budget caps model fallback spawns at max", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spawn-budget-"));
+	const cwd = createTrackedTempDir("pi-crew-spawn-budget-");
 	fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
 	try {
 		await withMockEnv(async () => {
@@ -129,7 +129,7 @@ test("CORE-3: spawn budget caps model fallback spawns at max", async () => {
 });
 
 test("CORE-3: generous budget allows all model fallback spawns", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spawn-budget-gen-"));
+	const cwd = createTrackedTempDir("pi-crew-spawn-budget-gen-");
 	fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
 	try {
 		await withMockEnv(async () => {

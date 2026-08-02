@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { runTeamTask } from "../../src/runtime/task-runner.ts";
 import { createRunManifest, loadRunManifestById } from "../../src/state/state-store.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 const team = {
 	name: "t",
@@ -29,7 +29,7 @@ const agent = {
 } as const;
 
 test("runTeamTask refreshes worker heartbeat while child JSON events stream", async () => {
-	let cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-task-heartbeat-"));
+	let cwd = createTrackedTempDir("pi-crew-task-heartbeat-");
 	// Canonicalize to long-name form matching production code
 	try {
 		const r = fs.realpathSync.native(cwd);

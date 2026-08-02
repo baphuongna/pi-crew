@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("api supports claim, transition, and release task claim", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-api-claim-"));
+	const cwd = createTrackedTempDir("pi-crew-api-claim-");
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool(

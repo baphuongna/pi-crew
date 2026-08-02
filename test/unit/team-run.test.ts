@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 function restoreEnv(name: string, value: string | undefined): void {
@@ -13,7 +13,7 @@ function restoreEnv(name: string, value: string | undefined): void {
 }
 
 test("team run creates durable artifacts and status", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-test-"));
+	const cwd = createTrackedTempDir("pi-crew-run-test-");
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const run = await handleTeamTool(
@@ -50,7 +50,7 @@ test("team run creates durable artifacts and status", async () => {
 });
 
 test("team run blocks implicit scaffold when worker execution is disabled", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-disabled-workers-"));
+	const cwd = createTrackedTempDir("pi-crew-run-disabled-workers-");
 	const previous = process.env.PI_CREW_EXECUTE_WORKERS;
 	process.env.PI_CREW_EXECUTE_WORKERS = "0";
 	fs.mkdirSync(path.join(cwd, ".crew"));
@@ -70,7 +70,7 @@ test("team run blocks implicit scaffold when worker execution is disabled", asyn
 });
 
 test("team resume blocks implicit scaffold when worker execution is disabled", async () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-resume-disabled-workers-"));
+	const cwd = createTrackedTempDir("pi-crew-resume-disabled-workers-");
 	const previous = process.env.PI_CREW_EXECUTE_WORKERS;
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {

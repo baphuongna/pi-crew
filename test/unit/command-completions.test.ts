@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { suggestAgents, suggestRunIds, suggestTaskIds, suggestTeams, suggestWorkflows } from "../../src/extension/command-completions.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
-
-const realTmp = fs.realpathSync(os.tmpdir());
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "test-team",
@@ -29,10 +27,10 @@ let tmpCwd: string;
 let previousHome: string | undefined;
 
 function beforeEachFn() {
-	tmpCwd = fs.mkdtempSync(path.join(realTmp, "pi-crew-completions-"));
+	tmpCwd = createTrackedTempDir("pi-crew-completions-");
 	// Isolate the home dir so user-config team discovery doesn't leak in.
 	previousHome = process.env.PI_TEAMS_HOME;
-	const home = fs.mkdtempSync(path.join(realTmp, "pi-crew-comp-home-"));
+	const home = createTrackedTempDir("pi-crew-comp-home-");
 	fs.mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
 	process.env.PI_TEAMS_HOME = home;
 	// NOTE: do NOT process.chdir() — node:test runs files concurrently and

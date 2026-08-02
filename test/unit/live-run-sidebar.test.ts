@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { recordFromTask, saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
@@ -8,6 +7,7 @@ import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts"
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import { LiveRunSidebar } from "../../src/ui/live-run-sidebar.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "research",
@@ -36,7 +36,7 @@ const workflow: WorkflowConfig = {
 };
 
 test("LiveRunSidebar renders active, waiting, model, and usage sections", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-sidebar-"));
+	const cwd = createTrackedTempDir("pi-crew-live-sidebar-");
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest, tasks } = createRunManifest({

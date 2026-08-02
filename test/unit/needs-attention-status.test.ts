@@ -5,7 +5,6 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { applyAttentionState, resolveCrewControlConfig } from "../../src/runtime/agent-control.ts";
@@ -20,6 +19,7 @@ import { readEvents } from "../../src/state/event-log.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "needs-attention-test",
@@ -73,7 +73,7 @@ test("running can transition to needs_attention (via noYield)", () => {
 // --- Agent control idle detection ---
 
 test("agent control marks stale running agents as needs_attention", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-needs-attention-"));
+	const cwd = createTrackedTempDir("pi-crew-needs-attention-");
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest } = createRunManifest({
@@ -120,7 +120,7 @@ test("agent control marks stale running agents as needs_attention", () => {
 });
 
 test("agent control does NOT mark recently active agents", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-needs-attention-"));
+	const cwd = createTrackedTempDir("pi-crew-needs-attention-");
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		const { manifest } = createRunManifest({

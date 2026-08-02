@@ -7,19 +7,18 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 function makeRunCwd(): string {
-	// realpathSync: os.tmpdir() is a symlink on macOS (/var → /private/var) and
-	// can be an 8.3 short name on Windows. writeArtifact stores canonicalized
-	// paths, so exact-string path assertions below need a canonical cwd too —
-	// without this the manifest.artifacts[] lookup fails on macOS/Windows CI.
-	const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-analysis-test-")));
+	// createTrackedTempDir resolves to the canonical long-name path (handles
+	// macOS /var → /private/var and Windows 8.3 short names) so exact-string
+	// path assertions below match writeArtifact's canonicalized paths.
+	const cwd = createTrackedTempDir("pi-crew-analysis-test-");
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	return cwd;
 }
