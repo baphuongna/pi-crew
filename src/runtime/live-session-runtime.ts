@@ -33,8 +33,6 @@ import { buildConfiguredModelRouting } from "./model-fallback.ts";
 import { readEnabledModelsPatterns } from "./model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "./runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
-// prose-compressor imported for custom tool descriptions below;
-// tool description compression for SDK-managed tools awaits SDK support.
 import { buildSensitivePathConstraint } from "./sensitive-paths.ts";
 import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "./sidechain-output.ts";
 // NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
