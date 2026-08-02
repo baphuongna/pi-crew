@@ -11,8 +11,19 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { rotateEventLogUnlocked } from "../../src/state/event-log-rotation.ts";
+
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -24,6 +35,7 @@ function touchAge(filePath: string, ageDays: number): void {
 
 test("H2: rotation sweeps archive files older than the retention window", () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-archive-ret-"));
+	createdTmpDirs.push(dir);
 	const eventsPath = path.join(dir, "events.jsonl");
 	fs.writeFileSync(eventsPath, '{"type":"run.created"}\n');
 
@@ -49,6 +61,7 @@ test("H2: rotation sweeps archive files older than the retention window", () => 
 
 test("H2: sweep is best-effort (missing dir / no archives does not throw)", () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-archive-empty-"));
+	createdTmpDirs.push(dir);
 	const eventsPath = path.join(dir, "events.jsonl");
 	fs.writeFileSync(eventsPath, '{"type":"x"}\n');
 	// No archives present — rotation + sweep must not throw.

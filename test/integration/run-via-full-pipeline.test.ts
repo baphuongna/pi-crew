@@ -32,12 +32,23 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
 const thisFile = fileURLToPath(import.meta.url);
+
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
 
 test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix)", async () => {
 	const jitiMod = require(path.join(repoRoot, "node_modules/jiti/lib/jiti.cjs"));
@@ -79,6 +90,7 @@ test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix
 
 	// Set up a temp cwd with a dynamic workflow.
 	const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rfc17-"));
+	createdTmpDirs.push(tmpCwd);
 	fs.mkdirSync(path.join(tmpCwd, ".crew", "workflows"), { recursive: true });
 	fs.writeFileSync(
 		path.join(tmpCwd, ".crew", "workflows", "rfc17-test.dwf.ts"),

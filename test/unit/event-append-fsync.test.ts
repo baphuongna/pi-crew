@@ -17,9 +17,20 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { appendEventAsync, readEvents } from "../../src/state/event-log.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
+
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
 
 function buildManifest(cwd: string) {
 	return createRunManifest({
@@ -32,6 +43,7 @@ function buildManifest(cwd: string) {
 
 test("P0-4: non-terminal then terminal appends all persist with monotonic seq", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fsync-correct-"));
+	createdTmpDirs.push(cwd);
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	const manifest = buildManifest(cwd);
 
@@ -53,6 +65,7 @@ test("P0-4: non-terminal then terminal appends all persist with monotonic seq", 
 
 test("P0-4: appendEventAsync preserves the F3a terminal-fsync invariant (terminal readable immediately)", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fsync-terminal-"));
+	createdTmpDirs.push(cwd);
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	const manifest = buildManifest(cwd);
 

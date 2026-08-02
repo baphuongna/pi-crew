@@ -2,11 +2,22 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import type { PiTeamsConfig } from "../../src/config/config.ts";
 import { DEFAULT_RUN_DEADLINE_MS, resolveRunDeadline } from "../../src/extension/team-tool/run-deadline.ts";
 
 const realTmp = fs.realpathSync(os.tmpdir());
+
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
 
 /** Minimal ctx satisfying `Pick<TeamContext, "cwd" | "signal">`. */
 function makeCtx(cwd: string, signal?: AbortSignal): { cwd: string; signal?: AbortSignal } {
@@ -15,6 +26,7 @@ function makeCtx(cwd: string, signal?: AbortSignal): { cwd: string; signal?: Abo
 
 test("resolveRunDeadline: params.timeoutMs takes highest priority over config and default", () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-params-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir);
 	const config: PiTeamsConfig = { limits: { maxRunMinutes: 60 } };
 	const { deadlineMs } = resolveRunDeadline(ctx, { timeoutMs: 5000 }, config);
@@ -23,6 +35,7 @@ test("resolveRunDeadline: params.timeoutMs takes highest priority over config an
 
 test("resolveRunDeadline: config limits.maxRunMinutes used when no params.timeoutMs", () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-config-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir);
 	const config: PiTeamsConfig = { limits: { maxRunMinutes: 30 } };
 	const { deadlineMs } = resolveRunDeadline(ctx, {}, config);
@@ -31,6 +44,7 @@ test("resolveRunDeadline: config limits.maxRunMinutes used when no params.timeou
 
 test("resolveRunDeadline: falls back to DEFAULT_RUN_DEADLINE_MS when config has no maxRunMinutes", () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-default-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir);
 	const config: PiTeamsConfig = {};
 	const { deadlineMs } = resolveRunDeadline(ctx, {}, config);
@@ -40,6 +54,7 @@ test("resolveRunDeadline: falls back to DEFAULT_RUN_DEADLINE_MS when config has 
 
 test("resolveRunDeadline: abort signal fires after deadlineMs timeout", async () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-timeout-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir);
 	const { signal } = resolveRunDeadline(ctx, { timeoutMs: 50 }, { limits: { maxRunMinutes: 9999 } });
 	assert.equal(signal.aborted, false);
@@ -49,6 +64,7 @@ test("resolveRunDeadline: abort signal fires after deadlineMs timeout", async ()
 
 test("resolveRunDeadline: ctx.signal abort propagates to deadline signal", () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-propagate-"));
+	createdTmpDirs.push(dir);
 	const callerController = new AbortController();
 	const ctx = makeCtx(dir, callerController.signal);
 	const { signal } = resolveRunDeadline(ctx, { timeoutMs: 3_600_000 }, {});
@@ -59,6 +75,7 @@ test("resolveRunDeadline: ctx.signal abort propagates to deadline signal", () =>
 
 test("resolveRunDeadline: pre-aborted ctx.signal immediately aborts deadline signal", () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-pre-abort-"));
+	createdTmpDirs.push(dir);
 	const callerController = new AbortController();
 	callerController.abort();
 	const ctx = makeCtx(dir, callerController.signal);
@@ -68,6 +85,7 @@ test("resolveRunDeadline: pre-aborted ctx.signal immediately aborts deadline sig
 
 test("resolveRunDeadline: returned controller allows linking additional parent signals", async () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-link-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir);
 	const { signal, controller } = resolveRunDeadline(ctx, { timeoutMs: 3_600_000 }, {});
 	const parentController = new AbortController();
@@ -81,6 +99,7 @@ test("resolveRunDeadline: returned controller allows linking additional parent s
 
 test("resolveRunDeadline: no ctx.signal — deadline timer still works", async () => {
 	const dir = fs.mkdtempSync(path.join(realTmp, "rd-no-ctx-signal-"));
+	createdTmpDirs.push(dir);
 	const ctx = makeCtx(dir); // no signal property
 	const { signal } = resolveRunDeadline(ctx, { timeoutMs: 40 }, {});
 	assert.equal(signal.aborted, false);

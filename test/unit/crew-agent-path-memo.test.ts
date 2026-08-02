@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import {
 	__test_agentPathCacheStats,
 	__test_clearAgentPathCache,
@@ -20,6 +20,17 @@ import {
 	appendCrewAgentOutput,
 } from "../../src/runtime/crew-agent-records.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
+
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
 
 function buildManifest(cwd: string) {
 	return createRunManifest({
@@ -38,6 +49,7 @@ function buildManifest(cwd: string) {
 
 test("agent paths are memoized once per task across many events", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-path-memo-"));
+	createdTmpDirs.push(cwd);
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	const manifest = buildManifest(cwd);
 
@@ -61,6 +73,7 @@ test("agent paths are memoized once per task across many events", () => {
 
 test("distinct files (events.jsonl vs output.log) cache independently", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-path-memo2-"));
+	createdTmpDirs.push(cwd);
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	const manifest = buildManifest(cwd);
 
@@ -76,6 +89,7 @@ test("distinct files (events.jsonl vs output.log) cache independently", () => {
 
 test("distinct tasks cache independently (no cross-task path reuse)", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-path-memo3-"));
+	createdTmpDirs.push(cwd);
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	const manifest = buildManifest(cwd);
 

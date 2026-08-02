@@ -24,12 +24,23 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 
 /**
  * Mirror of the fixed `origWrite` in src/runtime/background-runner.ts.
  * If this drift-detector asserts, update both copies in lockstep.
  */
+const createdTmpDirs: string[] = [];
+after(() => {
+	for (const d of createdTmpDirs) {
+		try {
+			fs.rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+});
+
 function makeOrigWrite(getLogFd: () => number | undefined) {
 	return (_prefix: string) =>
 		(data: unknown, ...args: unknown[]) => {
@@ -56,6 +67,7 @@ test("origWrite with undefined logFd is a no-op (never throws)", () => {
 
 test("origWrite with a valid logFd writes the formatted message to the file", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-redirect-ok-"));
+	createdTmpDirs.push(tmp);
 	const logPath = path.join(tmp, "log.txt");
 	const logFd = fs.openSync(logPath, "w");
 	try {
@@ -74,6 +86,7 @@ test("origWrite with a valid logFd writes the formatted message to the file", ()
 
 test("origWrite swallows EPIPE / EBADF when the log fd is closed (the Bug Y crash trigger)", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-redirect-ebadf-"));
+	createdTmpDirs.push(tmp);
 	const logPath = path.join(tmp, "log.txt");
 	const logFd = fs.openSync(logPath, "w");
 	const origWrite = makeOrigWrite(() => logFd);
@@ -100,6 +113,7 @@ test("origWrite swallows EPIPE / EBADF when the log fd is closed (the Bug Y cras
 
 test("origWrite is safe when getLogFd returns undefined AFTER a successful write", () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-redirect-toggle-"));
+	createdTmpDirs.push(tmp);
 	const logPath = path.join(tmp, "log.txt");
 	const logFd = fs.openSync(logPath, "w");
 	let fd: number | undefined = logFd;
