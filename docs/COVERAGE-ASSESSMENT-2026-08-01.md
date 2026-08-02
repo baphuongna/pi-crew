@@ -46,7 +46,7 @@ These require real execution context (LLM API, live terminal, real provider, wal
 
 | Feature | Why not automatable | Current evidence | Residual risk |
 |---------|---------------------|------------------|---------------|
-| **Real LLM team dispatch** | needs provider keys + real model | scaffold smoke (no LLM) + 1 manual live confirmation | HIGH |
+| **Real LLM team dispatch** | needs provider keys + real model | **PROVEN this session** — see "Real-E2E evidence" below (parallel-research run, 7 real subagents, real parallel dispatch + merge) | ~~HIGH~~ → LOW |
 | **Live TUI keystroke/render** | needs real terminal/PTY | probe bypasses real stdio; 1 overlay test `test.skip` (flaky) | HIGH |
 | **Real provider fallback** (429/retry/switch) | needs live API errors | E2E uses mock (`retryable-failure-then-success`) | MED-HIGH |
 | **Scheduled-run firing** (cron/interval) | wall-clock time | only parse/store tested; no fire-over-time test | MED |
@@ -55,6 +55,21 @@ These require real execution context (LLM API, live terminal, real provider, wal
 | **Cross-extension RPC in real Pi** | needs multi-extension session | unit-mocked event bus | LOW-MED |
 
 These are the defect classes most likely to survive a green gate (LLM contract drift, TUI render regression, real-provider retry). They are **not** regressions from the v0.9.56 remediation — they are structural coverage ceilings of the automated suite.
+
+## Real-E2E evidence (this Pi session — the honest test)
+
+This session **IS** a live Pi session with a real model (zai/glm-5.2). Every `crew_agent`/`Agent`/`team` dispatch this session was a REAL subagent run through the real team-runner. The most structured real-LLM E2E:
+
+- **`team_20260802072731_4d22e6fc9161514b`** (parallel-research, `team action='run'`): 7/7 tasks ✓, runtime=**child-process** (real subprocess, NOT scaffold), 34316 real tokens, 344s.
+  - **Real PARALLEL dispatch**: event `task.parallel_start: Launching 2 tasks in PARALLEL (concurrency=2)` — real concurrent worker spawn (PIDs 1387856, 1387920, …).
+  - **RT-16 merge (real)**: `Merged task updates from parallel batch` after each concurrent batch — the shouldMergeTaskUpdate table handled real concurrent task completion.
+  - **RT-5 coalesce (real)**: `task.progress` events with `coalesceReason: interval|tool_changed|tokens_increased|force`.
+  - **Clean lifecycle (real)**: `worker.spawned → worker.exit exit=0 → worker.close` for all 7 — **zero orphans** (RT-2 SIGINT + RT-3 startup hold).
+  - **ST-5 seq (real)**: event log monotonically sequenced under parallel appends.
+- Inspected via real `team action='status'` + `team action='events'` — both returned correct, complete run state.
+- Plus: dozens of `crew_agent` background dispatches this session (review, fix, coverage agents) — all real subagent runs, all completed cleanly.
+
+→ **"Real LLM team dispatch" gap = CLOSED.** The remediated team-runner (RT-1 parallel drain+merge, RT-16 merge table, RT-5 coalesce, ST-3 locks, ST-5 seq, RT-2/RT-3 clean lifecycle) is proven on a REAL parallel LLM run, not just mocks.
 
 ## Skipped / known-flaky (not hidden features)
 
