@@ -56,7 +56,12 @@ export function removeTrackedTempDir(dir: string): void {
 }
 
 // Global cleanup: runs after ALL tests in the process, even on timeout.
-test.after(() => {
+// NOTE: under the full concurrent suite (`--test-concurrency` + `--test-force-exit`),
+// this root `test.after()` hook does not always complete before the runner force-exits,
+// leaking every createTrackedTempDir dir (the bulk of /tmp/pi-crew-* zombies).
+// The `process.on('exit')` backstop below fires synchronously on process.exit()
+// (which --test-force-exit triggers), guaranteeing cleanup. rmSync is sync-safe in 'exit'.
+const _cleanupTracked = () => {
 	for (const dir of tracked) {
 		try {
 			fs.rmSync(dir, { recursive: true, force: true });
@@ -65,7 +70,9 @@ test.after(() => {
 		}
 	}
 	tracked.clear();
-});
+};
+test.after(_cleanupTracked);
+process.on("exit", _cleanupTracked);
 
 /** Resolve a temp directory to its canonical long-name path.
  *  Handles macOS /var → /private/var symlink and Windows
