@@ -10,8 +10,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BoundedTail } from "../../src/runtime/compact-stages/bounded-tail.ts";
-import { TailCaptureStage } from "../../src/runtime/compact-stages/tail-capture-stage.ts";
+import { BoundedTail } from "../../src/runtime/compaction/compact-stages/bounded-tail.ts";
+import { TailCaptureStage } from "../../src/runtime/compaction/compact-stages/tail-capture-stage.ts";
 
 const MAX = 512 * 1024; // DEFAULT_CHILD_PI.maxCaptureBytes
 

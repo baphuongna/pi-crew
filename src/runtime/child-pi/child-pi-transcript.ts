@@ -23,8 +23,8 @@ import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactJsonLine } from "../../utils/redaction.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import { applyCompactPipeline } from "../compact-pipeline.ts";
-import { TruncationStage } from "../compact-stages/truncation-stage.ts";
+import { applyCompactPipeline } from "../compaction/compact-pipeline.ts";
+import { TruncationStage } from "../compaction/compact-stages/truncation-stage.ts";
 import type { ChildPiRunInput } from "./child-pi.ts";
 
 // ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────

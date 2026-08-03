@@ -1,8 +1,8 @@
 /**
  * Barrel re-exports for the compact-stages module.
  *
- * Callers import from `../../runtime/compact-stages/index.ts` (or just
- * `../../runtime/compact-stages/`) rather than reaching into individual
+ * Callers import from `../../runtime/compaction/compact-stages/index.ts` (or just
+ * `../../runtime/compaction/compact-stages/`) rather than reaching into individual
  * stage files, so internal refactors do not break the public surface.
  */
 export { ANSI_STRIP_STAGE, AnsiStripStage } from "./ansi-strip-stage.ts";

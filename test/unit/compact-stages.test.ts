@@ -29,7 +29,7 @@ import {
 	TAIL_CAPTURE_STREAM_STAGE,
 	TailCaptureStage,
 	TruncationStage,
-} from "../../src/runtime/compact-stages/index.ts";
+} from "../../src/runtime/compaction/compact-stages/index.ts";
 
 // --- AnsiStripStage ---
 

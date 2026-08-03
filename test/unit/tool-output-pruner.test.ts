@@ -16,7 +16,7 @@ import {
 	pruneToolOutputs,
 	resultDigest,
 	type ToolResultEntry,
-} from "../../src/runtime/tool-output-pruner.ts";
+} from "../../src/runtime/compaction/tool-output-pruner.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

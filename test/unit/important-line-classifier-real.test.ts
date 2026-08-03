@@ -19,7 +19,7 @@ import {
 	IMPORTANT_LINE_PATTERNS,
 	isImportantLine,
 	splitWithImportantLines,
-} from "../../src/runtime/important-line-classifier.ts";
+} from "../../src/runtime/compaction/important-line-classifier.ts";
 import { readIfSmall } from "../../src/runtime/task-output-context.ts";
 
 // --- isImportantLine unit tests (each pattern) ---

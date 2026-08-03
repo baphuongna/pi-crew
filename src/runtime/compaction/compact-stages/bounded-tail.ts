@@ -18,7 +18,7 @@
  * verbatim; over cap → `[pi-crew captured output truncated to last X KiB]\n` + the last
  * ≤maxBytes bytes snapped to a UTF-8 char boundary.
  */
-import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
+import { DEFAULT_CHILD_PI } from "../../../config/defaults.ts";
 
 const DEFAULT_MAX_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
 

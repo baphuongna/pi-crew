@@ -23,7 +23,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HeadSnapStage, TAIL_CAPTURE_STREAM_STAGE, TailCaptureStage } from "../../src/runtime/compact-stages/index.ts";
+import { HeadSnapStage, TAIL_CAPTURE_STREAM_STAGE, TailCaptureStage } from "../../src/runtime/compaction/compact-stages/index.ts";
 
 // --- TailCaptureStage: char cap mode ---
 

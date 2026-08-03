@@ -24,7 +24,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { compactString } from "../../src/runtime/child-pi/child-pi.ts";
-import { applyCompactPipeline, type ICompactStage, type PipelineResult } from "../../src/runtime/compact-pipeline.ts";
+import { applyCompactPipeline, type ICompactStage, type PipelineResult } from "../../src/runtime/compaction/compact-pipeline.ts";
 import {
 	ANSI_STRIP_STAGE,
 	AnsiStripStage,
@@ -32,7 +32,7 @@ import {
 	BlankCollapseStage,
 	DEDUPLICATE_STAGE,
 	TruncationStage,
-} from "../../src/runtime/compact-stages/index.ts";
+} from "../../src/runtime/compaction/compact-stages/index.ts";
 import { readIfSmall } from "../../src/runtime/task-output-context.ts";
 
 // --- Pipeline core: monotonic-shrink gate (CRITICAL SAFETY PROPERTY) ---

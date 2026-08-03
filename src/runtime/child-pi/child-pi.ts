@@ -10,7 +10,7 @@ import type { WorkerExitStatus } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
 import { getActiveBrokerIssuer } from "../broker/broker-issuer.ts";
-import { BoundedTail } from "../compact-stages/bounded-tail.ts";
+import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";

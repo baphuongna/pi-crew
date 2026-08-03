@@ -6,9 +6,9 @@ import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
-import { applyCompactPipeline } from "./compact-pipeline.ts";
-import { ANSI_STRIP_STAGE, BLANK_COLLAPSE_STAGE, TruncationStage } from "./compact-stages/index.ts";
-import { DEFAULT_PRUNE_CONFIG, type FileEditEvent, pruneToolOutputs, type ToolResultEntry } from "./tool-output-pruner.ts";
+import { applyCompactPipeline } from "./compaction/compact-pipeline.ts";
+import { ANSI_STRIP_STAGE, BLANK_COLLAPSE_STAGE, TruncationStage } from "./compaction/compact-stages/index.ts";
+import { DEFAULT_PRUNE_CONFIG, type FileEditEvent, pruneToolOutputs, type ToolResultEntry } from "./compaction/tool-output-pruner.ts";
 
 export interface DependencyContextEntry {
 	taskId: string;
