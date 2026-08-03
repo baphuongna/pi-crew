@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createWorkerHeartbeat, isWorkerHeartbeatStale, touchWorkerHeartbeat } from "../../src/runtime/heartbeat/worker-heartbeat.ts";
+import { createWorkerHeartbeat, isWorkerHeartbeatStale, touchWorkerHeartbeat } from "../../../../src/runtime/heartbeat/worker-heartbeat.ts";
 
 describe("createWorkerHeartbeat", () => {
 	it("creates heartbeat with required fields", () => {

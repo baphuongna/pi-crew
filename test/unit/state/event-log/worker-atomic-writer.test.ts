@@ -14,7 +14,7 @@ import {
 	atomicWriteFileViaWorker,
 	isWorkerAtomicWriterEnabled,
 	terminateWorkerAtomicWriter,
-} from "../../src/state/event-log/worker-atomic-writer.ts";
+} from "../../../../src/state/event-log/worker-atomic-writer.ts";
 
 // Keep worker ref'd for the WHOLE suite so the test runner doesn't exit before
 // promises resolve. Production code keeps worker unref'd.

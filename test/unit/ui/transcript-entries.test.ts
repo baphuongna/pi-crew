@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseTranscriptEntries, renderEntries, toggleEntry } from "../../src/ui/transcript-entries.ts";
+import { parseTranscriptEntries, renderEntries, toggleEntry } from "../../../src/ui/transcript-entries.ts";
 
 test("parseTranscriptEntries parses message and tool events from JSONL", () => {
 	const lines = [

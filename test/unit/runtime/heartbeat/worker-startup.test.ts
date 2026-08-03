@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyStartupFailure, createStartupEvidence, detectTrustPrompt } from "../../src/runtime/heartbeat/worker-startup.ts";
+import { classifyStartupFailure, createStartupEvidence, detectTrustPrompt } from "../../../../src/runtime/heartbeat/worker-startup.ts";
 
 test("worker startup evidence detects trust prompt and classifies failures", () => {
 	assert.equal(detectTrustPrompt("Do you trust this workspace?"), true);
