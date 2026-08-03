@@ -37,7 +37,7 @@ import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tem
 
 const TEST_FILE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PI_CREW_ROOT = path.resolve(TEST_FILE_DIR, "..", "..");
-const MAILBOX_SRC = path.join(PI_CREW_ROOT, "src", "state", "mailbox.ts").replace(/\\/g, "/");
+const MAILBOX_SRC = path.join(PI_CREW_ROOT, "src", "state", "coordination", "mailbox.ts").replace(/\\/g, "/");
 
 function makeManifest(stateRoot: string, runId: string): TeamRunManifest {
 	return {
