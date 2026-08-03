@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { runTeamTask } from "../../src/runtime/task-runner.ts";
-import { createRunManifest, loadRunManifestById } from "../../src/state/stores/state-store.ts";
-import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { runTeamTask } from "../../../../src/runtime/task-runner.ts";
+import { createRunManifest, loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
+import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const team = {
 	name: "t",

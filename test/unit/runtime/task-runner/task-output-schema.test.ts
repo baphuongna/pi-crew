@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderOutputSchemaBlock } from "../../src/runtime/task-runner/prompt-builder.ts";
-import type { TaskOutputSchema, TaskPacket } from "../../src/state/types.ts";
+import { renderOutputSchemaBlock } from "../../../../src/runtime/task-runner/prompt-builder.ts";
+import type { TaskOutputSchema, TaskPacket } from "../../../../src/state/types.ts";
 
 test("renderOutputSchemaBlock includes format instruction", () => {
 	const schema: TaskOutputSchema = { format: "text" };

@@ -28,9 +28,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 
-import { TEAM_EVENT_TYPES } from "../../src/state/contracts.ts";
-import { allWorkflows, discoverWorkflows, invalidateWorkflowDiscoveryCache } from "../../src/workflows/discover-workflows.ts";
-import type { WorkflowStep } from "../../src/workflows/workflow-config.ts";
+import { TEAM_EVENT_TYPES } from "../../../../src/state/contracts.ts";
+import { allWorkflows, discoverWorkflows, invalidateWorkflowDiscoveryCache } from "../../../../src/workflows/discover-workflows.ts";
+import type { WorkflowStep } from "../../../../src/workflows/workflow-config.ts";
 
 // ─── (a) Guard predicate logic ────────────────────────────────────────────
 
