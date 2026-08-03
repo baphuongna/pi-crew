@@ -34,7 +34,7 @@ import { appendEventAsync, appendEventBuffered } from "../../state/event-log.ts"
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../cancellation.ts";
+import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../process/cancellation.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
 import {
 	appendCrewAgentEvent,

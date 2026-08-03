@@ -7,7 +7,7 @@ import {
 	cancellationReasonFromSignal,
 	cancellationReasonFromUnknown,
 	throwIfCancelled,
-} from "../../src/runtime/cancellation.ts";
+} from "../../src/runtime/process/cancellation.ts";
 
 describe("cancellation", () => {
 	// buildSyntheticTerminalEvidence

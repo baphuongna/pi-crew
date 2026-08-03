@@ -7,7 +7,7 @@ import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { type DriftReport, detectDrift, formatDriftReport } from "../../config/drift-detector.ts";
 import { getPiSpawnCommand } from "../../runtime/pi-spawn.ts";
 import { getRuntimeWarmupStatus } from "../../runtime/model/runtime-warmup.ts";
-import { formatZombieReport, scanZombieSubagents } from "../../runtime/zombie-scanner.ts";
+import { formatZombieReport, scanZombieSubagents } from "../../runtime/process/zombie-scanner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { TeamToolParams } from "../../schema/team-tool-schema.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CrewCancellationError } from "../../src/runtime/cancellation.ts";
-import { CancellationToken, createCancellationToken } from "../../src/runtime/cancellation-token.ts";
+import { CrewCancellationError } from "../../src/runtime/process/cancellation.ts";
+import { CancellationToken, createCancellationToken } from "../../src/runtime/process/cancellation-token.ts";
 
 test("CancellationToken records heartbeat stage and emits state", () => {
 	const states: unknown[] = [];

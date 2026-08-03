@@ -1,7 +1,7 @@
 /**
  * Owned-process lifecycle abstraction (P0 item #3).
  *
- * Distilled and adapted from gajae-code's `runtime/process-lifecycle.ts`.
+ * Distilled and adapted from gajae-code's `runtime/process/process-lifecycle.ts`.
  *
  * Two complementary primitives:
  *
@@ -30,7 +30,7 @@
  * See `.crew/knowledge.md` gotchas: BSD/Windows signal handling differs.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 
 // ── tunables ──────────────────────────────────────────────────────────────────
 

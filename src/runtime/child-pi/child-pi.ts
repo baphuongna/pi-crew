@@ -36,7 +36,7 @@ export { ChildPiLineObserver } from "./child-pi-streams.ts";
 import { classifyProcessCrash } from "../recovery/crash-classification.ts";
 import { checkCrewDepth, cleanupTempDir } from "../model/pi-args.ts";
 
-import { attachPostExitStdioGuard, trySignalChild } from "../post-exit-stdio-guard.ts";
+import { attachPostExitStdioGuard, trySignalChild } from "../process/post-exit-stdio-guard.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth

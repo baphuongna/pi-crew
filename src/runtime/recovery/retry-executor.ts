@@ -1,5 +1,5 @@
 import { sleep } from "../../utils/sleep.ts";
-import { throwIfCancelled } from "../cancellation.ts";
+import { throwIfCancelled } from "../process/cancellation.ts";
 
 export interface RetryPolicy {
 	maxAttempts: number;

@@ -22,7 +22,7 @@ import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";
 import { prepareTaskWorkspaceAsync } from "../../worktree/worktree-manager.ts";
 import { reserveControlChannel } from "../agent-control.ts";
-import { cancellationReasonFromSignal } from "../cancellation.ts";
+import { cancellationReasonFromSignal } from "../process/cancellation.ts";
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
 import type { registerStreamBridge } from "../event-stream-bridge.ts";

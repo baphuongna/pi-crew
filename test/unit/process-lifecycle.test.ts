@@ -8,7 +8,7 @@ import {
 	registerResourceOwner,
 	resourceOwnerCount,
 	spawnOwnedProcess,
-} from "../../src/runtime/process-lifecycle.ts";
+} from "../../src/runtime/process/process-lifecycle.ts";
 
 const isPosix = process.platform !== "win32";
 

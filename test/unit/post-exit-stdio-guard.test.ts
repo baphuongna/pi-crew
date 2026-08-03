@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { attachPostExitStdioGuard, trySignalChild } from "../../src/runtime/post-exit-stdio-guard.ts";
+import { attachPostExitStdioGuard, trySignalChild } from "../../src/runtime/process/post-exit-stdio-guard.ts";
 
 class MockPipedChild extends EventEmitter {
 	readonly stdout: PassThrough;

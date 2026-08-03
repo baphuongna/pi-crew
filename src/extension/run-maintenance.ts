@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
-import { createCancellationToken } from "../runtime/cancellation-token.ts";
+import { createCancellationToken } from "../runtime/process/cancellation-token.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";

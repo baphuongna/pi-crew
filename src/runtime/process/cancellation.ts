@@ -1,4 +1,4 @@
-import type { OperationTerminalEvidence } from "../state/types.ts";
+import type { OperationTerminalEvidence } from "../../state/types.ts";
 
 export type CancellationReasonCode =
 	| "caller_cancelled"

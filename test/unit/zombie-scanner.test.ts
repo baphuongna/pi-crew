@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { buildPiWorkerArgs } from "../../src/runtime/model/pi-args.ts";
-import { formatZombieReport, scanZombieSubagents } from "../../src/runtime/zombie-scanner.ts";
+import { formatZombieReport, scanZombieSubagents } from "../../src/runtime/process/zombie-scanner.ts";
 
 function fakeAgent(): AgentConfig {
 	return {

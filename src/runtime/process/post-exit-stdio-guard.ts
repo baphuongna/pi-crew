@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 
 interface PostExitStdioGuardOptions {
 	idleMs: number;

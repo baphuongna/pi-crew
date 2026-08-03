@@ -5,7 +5,7 @@ import {
 	cancellationErrorFromSignal,
 	cancellationReasonFromSignal,
 	throwIfCancelled,
-} from "../../src/runtime/cancellation.ts";
+} from "../../src/runtime/process/cancellation.ts";
 
 test("cancellationReasonFromSignal preserves structured abort reason", () => {
 	const controller = new AbortController();
