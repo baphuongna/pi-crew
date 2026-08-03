@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createSafeBash, isDangerous, validateCommand } from "../../src/tools/safe-bash.ts";
+import { createSafeBash, isDangerous, validateCommand } from "../../../src/tools/safe-bash.ts";
 
 /**
  * safe-bash-extension.ts delegates to isDangerous() from safe-bash.ts.

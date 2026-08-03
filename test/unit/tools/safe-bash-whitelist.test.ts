@@ -8,7 +8,7 @@
 
 import assert from "node:assert";
 import test from "node:test";
-import { getSafeBashMode, isAllowedWhitelist } from "../../src/tools/safe-bash.ts";
+import { getSafeBashMode, isAllowedWhitelist } from "../../../src/tools/safe-bash.ts";
 
 // --- isAllowedWhitelist: allowed commands ---
 

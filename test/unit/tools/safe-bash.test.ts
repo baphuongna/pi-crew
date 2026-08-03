@@ -4,7 +4,7 @@
 
 import assert from "node:assert";
 import test from "node:test";
-import { createSafeBash, isDangerous, SAFE_BASH_PRESETS, validateCommand } from "../../src/tools/safe-bash.ts";
+import { createSafeBash, isDangerous, SAFE_BASH_PRESETS, validateCommand } from "../../../src/tools/safe-bash.ts";
 
 test("blocks rm -rf /", () => {
 	assert.ok(isDangerous("rm -rf /"));
