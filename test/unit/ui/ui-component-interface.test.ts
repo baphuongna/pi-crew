@@ -12,14 +12,14 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { CrewComponent, InteractiveComponent } from "../../src/ui/component.ts";
-import type { RenderableComponent } from "../../src/ui/layout-primitives.ts";
-import { Box, Container, Spacer, Text } from "../../src/ui/layout-primitives.ts";
-import { ConfirmOverlay } from "../../src/ui/overlays/confirm-overlay.ts";
-import type { RunDashboard } from "../../src/ui/run-dashboard.ts";
-import type { Component as ToolRendererComponent } from "../../src/ui/tool-renderers/index.ts";
-import type { DurableTranscriptViewer } from "../../src/ui/transcript-viewer.ts";
-import { DurableTextViewer } from "../../src/ui/transcript-viewer.ts";
+import type { CrewComponent, InteractiveComponent } from "../../../src/ui/component.ts";
+import type { RenderableComponent } from "../../../src/ui/layout-primitives.ts";
+import { Box, Container, Spacer, Text } from "../../../src/ui/layout-primitives.ts";
+import { ConfirmOverlay } from "../../../src/ui/overlays/confirm-overlay.ts";
+import type { RunDashboard } from "../../../src/ui/run-dashboard.ts";
+import type { Component as ToolRendererComponent } from "../../../src/ui/tool-renderers/index.ts";
+import type { DurableTranscriptViewer } from "../../../src/ui/transcript-viewer.ts";
+import { DurableTextViewer } from "../../../src/ui/transcript-viewer.ts";
 
 // ── Compile-time structural checks ──────────────────────────────────────
 // Each of the 5 Component-ish types must be assignable to the shared

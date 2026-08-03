@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderAgentsPane } from "../../src/ui/dashboard-panes/agents-pane.ts";
-import type { RunUiSnapshot } from "../../src/ui/snapshot-types.ts";
+import { renderAgentsPane } from "../../../src/ui/dashboard-panes/agents-pane.ts";
+import type { RunUiSnapshot } from "../../../src/ui/snapshot-types.ts";
 
 /**
  * Round 17 BS-1: per-agent cost must surface in the dashboard agents pane.

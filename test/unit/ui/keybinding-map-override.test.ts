@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { __test__resetKeybindingCache, dashboardActionForKey, getKeybindingOverrideWarnings } from "../../src/ui/keybinding-map.ts";
+import { __test__resetKeybindingCache, dashboardActionForKey, getKeybindingOverrideWarnings } from "../../../src/ui/keybinding-map.ts";
 
 describe("keybinding-map override (UI-2)", () => {
 	const origEnv = process.env.PI_CREW_KEYBINDINGS;

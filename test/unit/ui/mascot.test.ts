@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AnimatedMascot } from "../../src/ui/mascot.ts";
+import { AnimatedMascot } from "../../../src/ui/mascot.ts";
 
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));

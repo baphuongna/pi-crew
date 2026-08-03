@@ -3,7 +3,7 @@ import test from "node:test";
 import {
 	installResizeListener,
 	uninstallResizeListener,
-} from "../../src/ui/widget/index.ts";
+} from "../../../src/ui/widget/index.ts";
 
 const RESIZE = "resize";
 

@@ -24,7 +24,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type ActivePane, DASHBOARD_KEYS, dashboardActionForKey, KEY_RESERVED } from "../../src/ui/keybinding-map.ts";
+import { type ActivePane, DASHBOARD_KEYS, dashboardActionForKey, KEY_RESERVED } from "../../../src/ui/keybinding-map.ts";
 
 // Golden snapshot from the pre-L2 implementation. DO NOT edit by hand —
 // regenerate with the snippet above if the dispatch contract intentionally

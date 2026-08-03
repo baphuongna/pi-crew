@@ -4,8 +4,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { InteractiveComponent } from "../../src/ui/component.ts";
-import { OverlayStack } from "../../src/ui/overlay-stack.ts";
+import type { InteractiveComponent } from "../../../src/ui/component.ts";
+import { OverlayStack } from "../../../src/ui/overlay-stack.ts";
 
 /** Minimal recording overlay implementing InteractiveComponent. */
 interface RecordingOverlay extends InteractiveComponent {

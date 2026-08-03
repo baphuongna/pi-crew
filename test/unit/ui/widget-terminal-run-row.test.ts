@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildWidgetLines } from "../../src/ui/widget/widget-renderer.ts";
-import type { WidgetRun } from "../../src/ui/widget/widget-types.ts";
+import { buildWidgetLines } from "../../../src/ui/widget/widget-renderer.ts";
+import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
 
 /**
  * Bug 022 — terminal-run widget row: timer freezes + status label shown.

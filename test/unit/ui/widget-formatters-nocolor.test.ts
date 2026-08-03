@@ -9,14 +9,14 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import type { CrewAgentRecord } from "../../src/runtime/crew-agent-runtime.ts";
+import type { CrewAgentRecord } from "../../../src/runtime/crew-agent-runtime.ts";
 import {
 	__resetColorMode,
 	__setColorModeForTest,
 	agentActivity,
 	notificationBadge,
 	stripAnsi,
-} from "../../src/ui/widget/widget-formatters.ts";
+} from "../../../src/ui/widget/widget-formatters.ts";
 
 // Any SGR escape: "\x1b[ ... m"
 const ANSI_RE = /\u001b\[[0-9;]*m/;

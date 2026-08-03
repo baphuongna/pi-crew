@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SUBAGENT_SPINNER_FRAME_MS, SUBAGENT_SPINNER_FRAMES, spinnerBucket, spinnerFrame } from "../../src/ui/spinner.ts";
+import { SUBAGENT_SPINNER_FRAME_MS, SUBAGENT_SPINNER_FRAMES, spinnerBucket, spinnerFrame } from "../../../src/ui/spinner.ts";
 
 test("spinnerBucket advances at the configured frame interval", () => {
 	assert.equal(spinnerBucket(0), 0);

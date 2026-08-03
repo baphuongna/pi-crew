@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TeamRunManifest } from "../../src/state/types.ts";
-import { RunDashboard, type RunDashboardSelection } from "../../src/ui/run-dashboard.ts";
+import type { TeamRunManifest } from "../../../src/state/types.ts";
+import { RunDashboard, type RunDashboardSelection } from "../../../src/ui/run-dashboard.ts";
 
 function makeRun(id: string, status: TeamRunManifest["status"] = "running", overrides: Partial<TeamRunManifest> = {}): TeamRunManifest {
 	return {

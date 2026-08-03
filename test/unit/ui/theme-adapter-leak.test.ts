@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import * as themeAdapter from "../../src/ui/theme-adapter.ts";
-import { asCrewTheme, subscribeThemeChange } from "../../src/ui/theme-adapter.ts";
+import * as themeAdapter from "../../../src/ui/theme-adapter.ts";
+import { asCrewTheme, subscribeThemeChange } from "../../../src/ui/theme-adapter.ts";
 
 /**
  * PR-F1 regression: theme-adapter must not leak event listeners or polling

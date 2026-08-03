@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NOTIFICATION_BADGE_CAP, notificationBadge, widgetHeader } from "../../src/ui/widget/index.ts";
+import { NOTIFICATION_BADGE_CAP, notificationBadge, widgetHeader } from "../../../src/ui/widget/index.ts";
 
 test("notificationBadge hides zero and renders alerts label (not a bell)", () => {
 	assert.equal(notificationBadge(0), "");

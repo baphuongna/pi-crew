@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RenderCoalescer } from "../../src/ui/render-coalescer.ts";
+import { RenderCoalescer } from "../../../src/ui/render-coalescer.ts";
 
 test("RenderCoalescer — initial state", () => {
 	let calls = 0;

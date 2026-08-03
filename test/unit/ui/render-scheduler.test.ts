@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RenderScheduler } from "../../src/ui/render-scheduler.ts";
+import { RenderScheduler } from "../../../src/ui/render-scheduler.ts";
 
 class FakeEvents {
 	private handlers = new Map<string, Set<(payload: unknown) => void>>();

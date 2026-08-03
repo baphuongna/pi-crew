@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { RenderScheduler } from "../../src/ui/render-scheduler.ts";
+import { RenderScheduler } from "../../../src/ui/render-scheduler.ts";
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));

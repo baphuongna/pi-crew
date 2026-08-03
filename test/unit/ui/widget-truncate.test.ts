@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildWidgetLines } from "../../src/ui/widget/widget-renderer.ts";
-import type { WidgetRun } from "../../src/ui/widget/widget-types.ts";
+import { buildWidgetLines } from "../../../src/ui/widget/widget-renderer.ts";
+import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
 
 const FAKE_CWD = "/tmp/pi-crew-widget-truncate-test";
 
@@ -103,7 +103,7 @@ test("buildWidgetLines: missing width param still works (default fallback)", () 
 	}
 });
 
-import { DEFAULT_WIDGET_WIDTH, getRenderWidth } from "../../src/ui/widget/index.ts";
+import { DEFAULT_WIDGET_WIDTH, getRenderWidth } from "../../../src/ui/widget/index.ts";
 
 test("getRenderWidth: explicit positive width wins over everything", () => {
 	assert.equal(getRenderWidth(80), 80);

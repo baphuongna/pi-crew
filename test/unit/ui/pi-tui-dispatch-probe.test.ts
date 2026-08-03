@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import * as piTui from "@earendil-works/pi-tui";
 
-import { RunDashboard } from "../../src/ui/run-dashboard.ts";
+import { RunDashboard } from "../../../src/ui/run-dashboard.ts";
 
 describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 	it("isFocusable accepts a RunDashboard instance now that we declare `focused`", () => {

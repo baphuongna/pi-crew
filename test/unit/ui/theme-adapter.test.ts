@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { asCrewTheme, subscribeThemeChange } from "../../src/ui/theme-adapter.ts";
+import { asCrewTheme, subscribeThemeChange } from "../../../src/ui/theme-adapter.ts";
 
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));

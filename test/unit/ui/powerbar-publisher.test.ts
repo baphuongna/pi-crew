@@ -3,15 +3,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
-import type { TeamTaskState } from "../../src/state/types.ts";
+import { saveCrewAgents } from "../../../src/runtime/crew-agent-records.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../src/state/stores/state-store.ts";
+import type { TeamTaskState } from "../../../src/state/types.ts";
 import {
 	compactTokens,
 	registerPiCrewPowerbarSegments,
 	resetPowerbarDedupState,
 	updatePiCrewPowerbar,
-} from "../../src/ui/powerbar-publisher.ts";
+} from "../../../src/ui/powerbar-publisher.ts";
 
 test("powerbar publisher registers and updates active crew segments", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-"));
