@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Semaphore } from "../../src/runtime/semaphore.ts";
+import { Semaphore } from "../../src/runtime/scheduling/semaphore.ts";
 
 test("Semaphore rejects acquire when queue is full", async () => {
 	// Create a small semaphore and fill its queue.

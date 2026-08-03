@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { __test_resetCap } from "../../src/runtime/global-worker-cap.ts";
+import { __test_resetCap } from "../../src/runtime/scheduling/global-worker-cap.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
 import { readEvents } from "../../src/state/event-log.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildExecutionPlan, detectCycles, getReadyTasks, type TaskNode } from "../../src/runtime/task-graph.ts";
+import { buildExecutionPlan, detectCycles, getReadyTasks, type TaskNode } from "../../src/runtime/scheduling/task-graph.ts";
 
 // Helper factories
 function node(id: string, dependsOn: string[] = [], phase?: string): TaskNode {

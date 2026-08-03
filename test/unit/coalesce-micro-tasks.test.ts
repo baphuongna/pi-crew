@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { flattenGroupIds, planCoalescedGroups } from "../../src/runtime/coalesce-tasks.ts";
+import { flattenGroupIds, planCoalescedGroups } from "../../src/runtime/scheduling/coalesce-tasks.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { WorkflowConfig, WorkflowStep } from "../../src/workflows/workflow-config.ts";
 

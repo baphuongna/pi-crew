@@ -504,7 +504,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	if (analysisParam.error) return result(analysisParam.error, { action: "run", status: "error" }, true);
 
 	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { expandParallelResearchWorkflow }` above (issue #28, RFC 17). At call time the module body has fully evaluated, so the dynamic import returns a live binding. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
-	const { expandParallelResearchWorkflow: expandParallelResearch } = await import("../../runtime/parallel-research.ts");
+	const { expandParallelResearchWorkflow: expandParallelResearch } = await import("../../runtime/scheduling/parallel-research.ts");
 	const workflow = directAgent ? baseWorkflow : expandParallelResearch(baseWorkflow, resolvedCtx.cwd);
 	const isDynamicWorkflow =
 		!directAgent && (workflow as import("../../workflows/workflow-config.ts").WorkflowConfig).runtime === "dynamic";

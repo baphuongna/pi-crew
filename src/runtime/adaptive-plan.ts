@@ -22,7 +22,7 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { getPlanTemplate, renderPlanTemplate } from "./plan-templates.ts";
-import { refreshTaskGraphQueues } from "./task-graph-scheduler.ts";
+import { refreshTaskGraphQueues } from "./scheduling/task-graph-scheduler.ts";
 
 export interface AdaptivePlanTask {
 	role: string;

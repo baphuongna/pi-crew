@@ -19,7 +19,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
-import type { BatchMember } from "../../runtime/batch-barrier.ts";
+import type { BatchMember } from "../../runtime/scheduling/batch-barrier.ts";
 import { readPersistedSubagentRecord, SubagentManager } from "../../runtime/subagent-manager.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 import { sendAgentWakeUp } from "./subagent-helpers.ts";

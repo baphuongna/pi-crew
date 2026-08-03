@@ -48,9 +48,9 @@ import { writeAsyncStartMarker } from "./async-marker.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
-import { expandParallelResearchWorkflow } from "./parallel-research.ts";
 import { startParentGuard, stopParentGuard } from "./parent-guard.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "./runtime-resolver.ts";
+import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.ts";
 
 /**
  * Debug logger gated behind PI_CREW_DEBUG env var. Writes to background.log

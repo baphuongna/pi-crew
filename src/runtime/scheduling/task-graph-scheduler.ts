@@ -1,4 +1,4 @@
-import type { TeamTaskState } from "../state/types.ts";
+import type { TeamTaskState } from "../../state/types.ts";
 
 export interface TaskGraphSchedulerSnapshot {
 	ready: string[];

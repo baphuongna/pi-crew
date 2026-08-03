@@ -22,8 +22,6 @@ import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./cancellation.ts";
-import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./coalesce-tasks.ts";
-import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./concurrency.ts";
 import { readCrewAgents, saveCrewAgents, saveCrewAgentsCoalesced } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
@@ -37,19 +35,21 @@ import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts
 import { buildRecoveryLedger, shouldRerunFailedTask } from "./recovery/recovery-recipes.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry, type RetryPolicy } from "./recovery/retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
-import { runCoalescedTaskGroup } from "./run-coalesced-task-group.ts";
 import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-tracker.ts";
 import { resolveTaskRuntimeKind } from "./runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
-import { recordsForMaterializedTasks } from "./task-display.ts";
-import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./task-graph.ts";
+import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./scheduling/coalesce-tasks.ts";
+import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./scheduling/concurrency.ts";
+import { runCoalescedTaskGroup } from "./scheduling/run-coalesced-task-group.ts";
+import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./scheduling/task-graph.ts";
 import {
 	buildTaskGraphIndex,
 	refreshTaskGraphQueues,
 	type TaskGraphIndex,
 	type TaskGraphSchedulerSnapshot,
 	taskGraphSnapshot,
-} from "./task-graph-scheduler.ts";
+} from "./scheduling/task-graph-scheduler.ts";
+import { recordsForMaterializedTasks } from "./task-display.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
 import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask, type SpawnBudget } from "./task-runner.ts";

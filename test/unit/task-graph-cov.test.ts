@@ -8,7 +8,7 @@ import {
 	getReadyTasks,
 	type TaskNode,
 	topologicalSort,
-} from "../../src/runtime/task-graph.ts";
+} from "../../src/runtime/scheduling/task-graph.ts";
 
 // ── buildExecutionPlan ─────────────────────────────────────────────────
 

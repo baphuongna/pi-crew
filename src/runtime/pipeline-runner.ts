@@ -2,7 +2,7 @@ import { errors } from "../errors.ts";
 import { appendEventAsync, flushEventLogBuffer } from "../state/event-log.ts";
 import { errorMessage } from "../utils/guards.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
-import { mapConcurrent } from "./parallel-utils.ts";
+import { mapConcurrent } from "./scheduling/parallel-utils.ts";
 
 /**
  * Pipeline stage configuration.

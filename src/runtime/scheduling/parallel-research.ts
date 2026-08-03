@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
+import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";
 
 export function sourcePiProjects(cwd: string): string[] {
 	const sourceDir = path.join(cwd, "Source");

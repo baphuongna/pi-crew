@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduler.ts";
+import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduling/scheduler.ts";
 import { type CrewSettings, updateCrewSettings } from "../../runtime/settings-store.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -10,13 +10,13 @@ import { paramRequired } from "./param-error.ts";
 // Previously this lived on `globalThis[Symbol.for("pi-crew:scheduler")]`, which
 // was fragile (cross-realm, no lifecycle, peer extensions could overwrite it).
 type SchedulerRef = {
-	add(job: import("../../runtime/scheduler.ts").ScheduledJob): void;
-	list(): import("../../runtime/scheduler.ts").ScheduledJob[];
+	add(job: import("../../runtime/scheduling/scheduler.ts").ScheduledJob): void;
+	list(): import("../../runtime/scheduling/scheduler.ts").ScheduledJob[];
 	remove(id: string): boolean;
 	update(
 		id: string,
-		patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob>,
-	): import("../../runtime/scheduler.ts").ScheduledJob | undefined;
+		patch: Partial<import("../../runtime/scheduling/scheduler.ts").ScheduledJob>,
+	): import("../../runtime/scheduling/scheduler.ts").ScheduledJob | undefined;
 };
 
 // Module-scoped scheduler instance — one per extension load (EXT-9).
@@ -46,9 +46,9 @@ interface ScheduleParams {
 }
 
 function buildScheduleSpec(params: ScheduleParams): {
-	spec: import("../../runtime/scheduler.ts").ScheduleSpec;
+	spec: import("../../runtime/scheduling/scheduler.ts").ScheduleSpec;
 	schedule: string;
-	scheduleType: import("../../runtime/scheduler.ts").ScheduleType;
+	scheduleType: import("../../runtime/scheduling/scheduler.ts").ScheduleType;
 	intervalMs?: number;
 } {
 	// Priority: cron > interval > once
@@ -137,7 +137,7 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 	if ("error" in next) return result(next.error, { action: "schedule", status: "error" }, true);
 
 	// Build the ScheduledJob
-	const job: import("../../runtime/scheduler.ts").ScheduledJob = {
+	const job: import("../../runtime/scheduling/scheduler.ts").ScheduledJob = {
 		id: crypto.randomUUID(),
 		name: `${team}: ${goal.slice(0, 60)}`,
 		description: `Scheduled run for team '${team}'`,
@@ -206,11 +206,11 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 	);
 }
 
-function scheduledJobsOf(settings: CrewSettings): import("../../runtime/scheduler.ts").ScheduledJob[] {
-	return Array.isArray(settings.scheduledJobs) ? (settings.scheduledJobs as import("../../runtime/scheduler.ts").ScheduledJob[]) : [];
+function scheduledJobsOf(settings: CrewSettings): import("../../runtime/scheduling/scheduler.ts").ScheduledJob[] {
+	return Array.isArray(settings.scheduledJobs) ? (settings.scheduledJobs as import("../../runtime/scheduling/scheduler.ts").ScheduledJob[]) : [];
 }
 
-function persistScheduledJob(cwd: string, job: import("../../runtime/scheduler.ts").ScheduledJob): void {
+function persistScheduledJob(cwd: string, job: import("../../runtime/scheduling/scheduler.ts").ScheduledJob): void {
 	try {
 		updateCrewSettings(cwd, (settings) => ({
 			...settings,
@@ -222,7 +222,7 @@ function persistScheduledJob(cwd: string, job: import("../../runtime/scheduler.t
 }
 
 /** Update an existing scheduled job in persistent settings. */
-export function persistScheduledJobUpdate(cwd: string, job: import("../../runtime/scheduler.ts").ScheduledJob): void {
+export function persistScheduledJobUpdate(cwd: string, job: import("../../runtime/scheduling/scheduler.ts").ScheduledJob): void {
 	try {
 		updateCrewSettings(cwd, (settings) => ({
 			...settings,
@@ -325,7 +325,7 @@ export function handleUpdateScheduled(params: TeamToolParamsValue, ctx: TeamCont
 		return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
 	}
 
-	const patch: Partial<import("../../runtime/scheduler.ts").ScheduledJob> = {};
+	const patch: Partial<import("../../runtime/scheduling/scheduler.ts").ScheduledJob> = {};
 	if (subAction === "disable") patch.enabled = false;
 	if (subAction === "enable") patch.enabled = true;
 	// For generic "update", allow patch of cron / interval / goal.

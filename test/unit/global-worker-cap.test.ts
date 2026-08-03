@@ -12,7 +12,7 @@ import {
 	getWorkerCapCapacity,
 	releaseWorkerSlot,
 	withWorkerSlot,
-} from "../../src/runtime/global-worker-cap.ts";
+} from "../../src/runtime/scheduling/global-worker-cap.ts";
 
 describe("global-worker-cap capacity resolution", () => {
 	it("getWorkerCapCapacity returns the resolved capacity", () => {

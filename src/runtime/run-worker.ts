@@ -28,7 +28,7 @@
 
 import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi/child-pi.ts";
 import { runChildPi } from "./child-pi/child-pi.ts";
-import { withWorkerSlot } from "./global-worker-cap.ts";
+import { withWorkerSlot } from "./scheduling/global-worker-cap.ts";
 
 /**
  * Input for {@link runWorker}. Extends {@link ChildPiRunInput} with the `cap`

@@ -13,9 +13,9 @@
  * orchestrator and its extracted modules.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { BatchBarrier } from "../../runtime/batch-barrier.ts";
+import type { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
-import type { CrewScheduler } from "../../runtime/scheduler.ts";
+import type { CrewScheduler } from "../../runtime/scheduling/scheduler.ts";
 import type { SubagentManager } from "../../runtime/subagent-manager.ts";
 import type { RenderScheduler } from "../../ui/render-scheduler.ts";
 import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";

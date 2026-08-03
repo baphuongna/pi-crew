@@ -63,7 +63,7 @@ export interface WorkflowConfig {
 	 *  multiple ready tasks sharing role + cwd are grouped into a single
 	 *  multi-task worker prompt to reduce per-task cold-start cost. Disabled
 	 *  in v0.9.17 unless the workflow author opts in. See
-	 *  src/runtime/coalesce-tasks.ts. */
+	 *  src/runtime/scheduling/coalesce-tasks.ts. */
 	coalesceMicroTasks?: boolean;
 }
 

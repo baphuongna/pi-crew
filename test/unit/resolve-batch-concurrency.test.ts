@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveBatchConcurrency } from "../../src/runtime/concurrency.ts";
+import { resolveBatchConcurrency } from "../../src/runtime/scheduling/concurrency.ts";
 
 test("resolveBatchConcurrency: clamps to the worker cap when it is the binding constraint", () => {
 	// Workflow requests 4, hardCap 8, worker cap 2 → must be 2 (was 4 before).

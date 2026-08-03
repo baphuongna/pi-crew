@@ -9,7 +9,7 @@ import {
 	markTaskRunning,
 	refreshTaskGraphQueues,
 	taskGraphSnapshot,
-} from "../../src/runtime/task-graph-scheduler.ts";
+} from "../../src/runtime/scheduling/task-graph-scheduler.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 
 function task(id: string, stepId: string, dependsOn: string[] = [], children: string[] = []): TeamTaskState {

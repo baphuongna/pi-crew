@@ -9,7 +9,7 @@ import {
 	type ParallelStepGroup,
 	type RunnerStep,
 	type RunnerSubagentStep,
-} from "../../src/runtime/parallel-utils.ts";
+} from "../../src/runtime/scheduling/parallel-utils.ts";
 
 test("isParallelGroup identifies parallel step groups", () => {
 	const parallel: ParallelStepGroup = {

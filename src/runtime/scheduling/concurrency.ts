@@ -1,4 +1,4 @@
-import { DEFAULT_CONCURRENCY } from "../config/defaults.ts";
+import { DEFAULT_CONCURRENCY } from "../../config/defaults.ts";
 import { getWorkerCapCapacity } from "./global-worker-cap.ts";
 
 export interface ResolveBatchConcurrencyInput {

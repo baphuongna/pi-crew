@@ -28,7 +28,7 @@ import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/pi-args.ts";
-import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduler.ts";
+import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";

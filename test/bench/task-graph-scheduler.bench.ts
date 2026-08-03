@@ -18,7 +18,7 @@ import {
 	markTaskDone,
 	markTaskRunning,
 	refreshTaskGraphQueues,
-} from "../../src/runtime/task-graph-scheduler.ts";
+} from "../../src/runtime/scheduling/task-graph-scheduler.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 
 const ITERS = Number(process.env.BENCH_ITERS ?? 50);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BatchBarrier, isTerminalStatus } from "../../src/runtime/batch-barrier.ts";
+import { BatchBarrier, isTerminalStatus } from "../../src/runtime/scheduling/batch-barrier.ts";
 
 test("BatchBarrier: empty batch snapshot is undefined", () => {
 	const b = new BatchBarrier();

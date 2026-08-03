@@ -27,9 +27,9 @@
  *     grouping many micro-tasks into one worker prompt.
  */
 
-import type { TeamTaskState } from "../state/types.ts";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
-import { permissionForRole } from "./role-permission.ts";
+import type { TeamTaskState } from "../../state/types.ts";
+import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";
+import { permissionForRole } from "../role-permission.ts";
 
 /** Default cap on group size to prevent context-budget overflow. */
 export const DEFAULT_MAX_GROUP_SIZE = 5;

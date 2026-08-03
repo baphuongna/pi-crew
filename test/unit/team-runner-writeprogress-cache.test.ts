@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/global-worker-cap.ts";
+import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/scheduling/global-worker-cap.ts";
 import {
 	__test__cancelPlanTasks,
 	__test__lastProgressContentHash,
