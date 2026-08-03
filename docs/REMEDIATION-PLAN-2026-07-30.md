@@ -1,5 +1,7 @@
 # pi-crew v0.9.56 — Remediation Plan
 
+> **Note (2026-08-02)**: post-remediation source reorganization moved `src/runtime/child-pi-*.ts` → `src/runtime/child-pi/` and `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`, and removed 4 dead-code modules. Paths in this plan are pre-reorg. See `docs/COVERAGE-ASSESSMENT-2026-08-01.md` § Source reorganization + `src/runtime/README.md` (cluster map).
+
 **Date:** 2026-07-30
 **Source audit:** `AUDIT-2026-07-30.md` (corrected, 3 verify rounds)
 **Baseline:** 6489 unit tests (6486 pass, 3 skip, 0 fail, 839 suites), typecheck 0 errors, 2.4 MB tarball

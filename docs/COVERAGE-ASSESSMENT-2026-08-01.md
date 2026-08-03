@@ -89,3 +89,19 @@ PI_CREW_LIVE_MODEL=<model> PI_CREW_SMOKE=1 PI_AUTH_JSON=<auth> \
   npx tsx --test test/functional/pi-crew-live*.test.ts test/smoke/agent-*.smoke.ts
 ```
 Neither is in the default or CI gate today. Until then, the defensible claim is: **"all unit/integration-testable logic is green; real-LLM/TUI/provider-fallback/scheduling paths are covered only by mock/scaffold + 1 manual confirmation."**
+
+## Source reorganization (post-assessment, 2026-08-02)
+
+Followed the structural assessment (runtime/ had 156 flat files — the "mess"). Executed Option A + B Phase 1-2 (commits `356e42e`, `105a8e1`, + fixes):
+
+- **Phase A — dead-code removal**: deleted 4 modules with zero production importers (~700 lines): `code-summary`, `hidden-handoff`, `prose-compressor` (unimplemented, "awaits SDK support"), `runtime/cross-extension-rpc` (superseded by `extension/cross-extension-rpc`). Removed 6 dead tests + 1 false-confirm test (replicated regex). Fixed a stale comment.
+- **Phase B-1 — `src/runtime/child-pi/`** extracted (8 files: spawn/kill/steering/streams/transcript/pool/constants + main).
+- **Phase B-2 — `src/runtime/broker/`** extracted (5 files: crew-broker server/client/child/tokens + issuer).
+- **Import codemod**: dir-only moves (filenames kept to minimize churn); 3 patterns (absolute `runtime/X` + relative `../X` from subdirs + moved-files-internal sibling/src-level fixups). Verified per-phase via typecheck + test:critical.
+- **Post-reorg fixes**: organizeImports (codemod changed import sort order) + a structural test (`child-pi-spawn-registration`) that read source by path.
+
+`src/runtime/` flat files: 156 → 143. See [`src/runtime/README.md`](../src/runtime/README.md) for the cluster map. Naming stays 100% kebab-case (no rename chaos). Deferred: Phase 3-8 (live-session/, recovery/, scheduling/, ... clusters) — future work.
+
+**Verification (post-reorg)**: unit 6700/6697/0 fail · integration 208/0 · typecheck 0 · lint 0 errors · bundle rebuilt. Real-LLM E2E still green (6 workflows).
+
+**Note on older docs**: `AUDIT-2026-07-30.md`, `REMEDIATION-PLAN-2026-07-30.md`, and `docs/perf/*` reference pre-reorg paths (e.g. `src/runtime/child-pi-spawn.ts` → now `src/runtime/child-pi/child-pi-spawn.ts`; `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`). These are historical snapshots; the cluster map above is authoritative for current structure.
