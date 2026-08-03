@@ -38,7 +38,7 @@ import { type OutputValidationResult, validateWorkerOutput } from "../output/out
 import type { ParsedPiJsonOutput } from "../output/pi-json-output.ts";
 import { writeTaskSharedOutput } from "../task-output-context.ts";
 import { computeGreenLevelFromResults, executeVerificationCommands } from "../verification/verification-gates.ts";
-import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
+import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
 import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } from "../yield-handler.ts";
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";
 import type { TaskExecutionContext } from "./pre-execution.ts";
@@ -64,7 +64,7 @@ export interface TaskExecutionResult {
 	finalStdout: string;
 	transcriptPath: string | undefined;
 	terminalEvidence: OperationTerminalEvidence[];
-	startupEvidence: import("../worker-startup.ts").WorkerStartupEvidence;
+	startupEvidence: import("../heartbeat/worker-startup.ts").WorkerStartupEvidence;
 }
 
 /** Final persisted task state returned by finalizeTaskResult. */

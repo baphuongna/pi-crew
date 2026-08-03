@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createWorkerHeartbeat, isWorkerHeartbeatStale, touchWorkerHeartbeat } from "../../src/runtime/worker-heartbeat.ts";
+import { createWorkerHeartbeat, isWorkerHeartbeatStale, touchWorkerHeartbeat } from "../../src/runtime/heartbeat/worker-heartbeat.ts";
 import { claimTask, isTaskClaimExpired, releaseTaskClaim } from "../../src/state/task-claims.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createWorkerHeartbeat, type WorkerHeartbeatState } from "../../src/runtime/worker-heartbeat.ts";
+import { createWorkerHeartbeat, type WorkerHeartbeatState } from "../../src/runtime/heartbeat/worker-heartbeat.ts";
 
 test("EventBus on returns unsubscribe and no off method is required", () => {
 	const handlers = new Map<string, Set<(data: unknown) => void>>();

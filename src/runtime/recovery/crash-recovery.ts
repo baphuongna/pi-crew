@@ -17,7 +17,7 @@ import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
 import { isPlanApprovalPending, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
-import { isWorkerHeartbeatStale } from "../worker-heartbeat.ts";
+import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 
 export interface RecoveryPlan {
 	runId: string;

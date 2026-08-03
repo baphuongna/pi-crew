@@ -33,8 +33,8 @@ import { buildTaskPacket } from "../task-packet.ts";
 // Type-only import avoids runtime circular dependency (task-runner.ts imports
 // this module at runtime; we only need the TaskRunnerInput type here).
 import type { TaskRunnerInput } from "../task-runner.ts";
-import { createWorkerHeartbeat } from "../worker-heartbeat.ts";
-import { createStartupEvidence, type WorkerStartupEvidence } from "../worker-startup.ts";
+import { createWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
+import { createStartupEvidence, type WorkerStartupEvidence } from "../heartbeat/worker-startup.ts";
 import { DEFAULT_YIELD_CONFIG } from "../yield-handler.ts";
 import { coordinationBridgeInstructions, renderTaskPrompt } from "./prompt-builder.ts";
 import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";

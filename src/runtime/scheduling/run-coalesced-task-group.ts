@@ -13,7 +13,7 @@ import type { CrewRuntimeMode } from "../model/runtime-resolver.ts";
 import { sanitizeTaskText } from "../task-packet.ts";
 import { splitCoalescedOutput } from "../task-runner/output-splitter.ts";
 import { mergeArtifacts } from "../team-runner-artifacts.ts";
-import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
+import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
 import { buildWorkspaceTree } from "../workspace-tree.ts";
 
 export interface CoalescedTaskGroupInput {

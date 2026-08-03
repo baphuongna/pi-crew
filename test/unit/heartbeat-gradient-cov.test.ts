@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS, heartbeatAgeMs } from "../../src/runtime/heartbeat-gradient.ts";
-import type { WorkerHeartbeatState } from "../../src/runtime/worker-heartbeat.ts";
+import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS, heartbeatAgeMs } from "../../src/runtime/heartbeat/heartbeat-gradient.ts";
+import type { WorkerHeartbeatState } from "../../src/runtime/heartbeat/worker-heartbeat.ts";
 
 describe("heartbeatAgeMs", () => {
 	it("returns Infinity for undefined heartbeat", () => {

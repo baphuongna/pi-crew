@@ -1,5 +1,5 @@
 import type { MetricRegistry } from "../observability/metric-registry.ts";
-import { classifyHeartbeat, heartbeatAgeMs } from "../runtime/heartbeat-gradient.ts";
+import { classifyHeartbeat, heartbeatAgeMs } from "../runtime/heartbeat/heartbeat-gradient.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 

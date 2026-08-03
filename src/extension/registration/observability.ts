@@ -23,7 +23,7 @@ import { loadConfig } from "../../config/config.ts";
 import type { EventToMetricSubscription } from "../../observability/event-to-metric.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import type { MetricSink } from "../../observability/metric-sink.ts";
-import type { HeartbeatWatcher } from "../../runtime/heartbeat-watcher.ts";
+import type { HeartbeatWatcher } from "../../runtime/heartbeat/heartbeat-watcher.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot } from "../../utils/paths.ts";
 import type { NotificationDescriptor } from "../notification-router.ts";
@@ -145,7 +145,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 	}
 
 	// LAZY: heartbeat watcher — polled per-session, wires deadletter + metric events.
-	const { HeartbeatWatcher } = await import("../../runtime/heartbeat-watcher.ts");
+	const { HeartbeatWatcher } = await import("../../runtime/heartbeat/heartbeat-watcher.ts");
 	state.heartbeatWatcher = new HeartbeatWatcher({
 		cwd: ctx.cwd,
 		pollIntervalMs: config.observability?.pollIntervalMs ?? 5000,

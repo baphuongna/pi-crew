@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MetricRegistry } from "../../src/observability/metric-registry.ts";
-import { HeartbeatWatcher } from "../../src/runtime/heartbeat-watcher.ts";
+import { HeartbeatWatcher } from "../../src/runtime/heartbeat/heartbeat-watcher.ts";
 import type { ManifestCache } from "../../src/runtime/manifest-cache.ts";
 
 /** Minimal mock metric registry for testing. */

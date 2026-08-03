@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyHeartbeat, heartbeatAgeMs } from "../../src/runtime/heartbeat-gradient.ts";
+import { classifyHeartbeat, heartbeatAgeMs } from "../../src/runtime/heartbeat/heartbeat-gradient.ts";
 
 const now = Date.parse("2026-01-01T00:10:00.000Z");
 const hb = (ageMs: number) => ({
