@@ -2,7 +2,7 @@
  * ndjson.ts — Canonical broker NDJSON framing primitives (encoder + decoder
  *              + typed errors). Newline-delimited JSON, one frame per `\\n`.
  *
- * Moved out of the parallel-work stub `src/runtime/crew-broker-deps.ts`.
+ * Moved out of the parallel-work stub `src/runtime/broker/crew-broker-deps.ts`.
  * The public surface (MAX_BROKER_FRAME_BYTES, BrokerError, BrokerErrorCode,
  * encodeBrokerFrame, NdjsonDecoder) is preserved verbatim so importers
  * can be updated with a single import-path change.
@@ -112,4 +112,4 @@ export class NdjsonDecoder {
 // External re-exports
 // ============================================================================
 // Re-exported here for callers that import all broker primitives from ndjson.ts.
-export { newBrokerToken } from "../runtime/crew-broker-tokens.ts";
+export { newBrokerToken } from "../runtime/broker/crew-broker-tokens.ts";

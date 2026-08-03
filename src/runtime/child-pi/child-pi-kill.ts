@@ -19,8 +19,8 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { HARD_KILL_MS } from "./child-pi-constants.ts";
 import { TailCaptureStage } from "../compact-stages/tail-capture-stage.ts";
+import { HARD_KILL_MS } from "./child-pi-constants.ts";
 
 const MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
 

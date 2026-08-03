@@ -23,9 +23,9 @@ import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactJsonLine } from "../../utils/redaction.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import type { ChildPiRunInput } from "./child-pi.ts";
 import { applyCompactPipeline } from "../compact-pipeline.ts";
 import { TruncationStage } from "../compact-stages/truncation-stage.ts";
+import type { ChildPiRunInput } from "./child-pi.ts";
 
 // ── Transcript batch buffer (OPT-PHASE3) ────────────────────────────────
 // Instead of open/write/close per line (3 syscalls × N), accumulate lines

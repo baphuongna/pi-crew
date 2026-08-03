@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { startChildBrokerClient } from "../runtime/crew-broker-child.ts";
+import { startChildBrokerClient } from "../runtime/broker/crew-broker-child.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 

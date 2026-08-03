@@ -1,7 +1,7 @@
 /**
  * socket-path.ts — Canonical broker Unix-socket / named-pipe path utilities.
  *
- * Moved out of the parallel-work stub `src/runtime/crew-broker-deps.ts`.
+ * Moved out of the parallel-work stub `src/runtime/broker/crew-broker-deps.ts`.
  * The public surface (hashSessionId, getBrokerSocketPath,
  * prepareBrokerSocketDir, removeStaleBrokerSocket) is preserved verbatim
  * so importers can be updated with a single import-path change.

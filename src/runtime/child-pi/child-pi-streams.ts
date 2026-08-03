@@ -9,10 +9,10 @@
  */
 
 import { logInternalError } from "../../utils/internal-error.ts";
+import { extractText } from "../pi-json-output.ts";
 import type { ChildPiRunInput } from "./child-pi.ts";
 import { MAX_ASSISTANT_TEXT_CHARS, MAX_LINE_BUFFER_BYTES, MAX_TOOL_INPUT_CHARS, MAX_TOOL_RESULT_CHARS } from "./child-pi-constants.ts";
 import { appendTranscript, compactString, compactValue, flushPendingTranscriptWrites } from "./child-pi-transcript.ts";
-import { extractText } from "../pi-json-output.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;

@@ -22,9 +22,9 @@ import * as path from "node:path";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
 import { buildPiWorkerArgs } from "../pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
+import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
 
 // ── Env allowlist (base set always passed to children) ──────────────────
 // Provider API keys are injected dynamically via buildScopedAllowList() only
