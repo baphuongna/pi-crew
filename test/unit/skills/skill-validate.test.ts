@@ -20,7 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { ALLOWED_SKILL_PROPS, parseSkillFrontmatter, validateSkillFrontmatter } from "../../src/skills/validate.ts";
+import { ALLOWED_SKILL_PROPS, parseSkillFrontmatter, validateSkillFrontmatter } from "../../../src/skills/validate.ts";
 
 const tempDirs: string[] = [];
 

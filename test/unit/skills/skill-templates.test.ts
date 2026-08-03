@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findTemplate, getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../src/skills/skill-templates.ts";
+import { findTemplate, getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../../src/skills/skill-templates.ts";
 
 describe("skill-templates", () => {
 	describe("getBuiltinTemplates", () => {

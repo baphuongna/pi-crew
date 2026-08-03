@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rewriteTeamWorkerPrompt } from "../../src/prompt/prompt-runtime.ts";
+import { rewriteTeamWorkerPrompt } from "../../../src/prompt/prompt-runtime.ts";
 
 test("rewriteTeamWorkerPrompt strips project context and skills", () => {
 	const prompt = [

@@ -1,9 +1,9 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { definePlugin } from "../../src/plugins/plugin-define.ts";
-import { PluginRegistry } from "../../src/plugins/plugin-registry.ts";
-import { NextJsPlugin } from "../../src/plugins/plugins/nextjs.ts";
-import { VitestPlugin } from "../../src/plugins/plugins/vitest.ts";
+import { definePlugin } from "../../../src/plugins/plugin-define.ts";
+import { PluginRegistry } from "../../../src/plugins/plugin-registry.ts";
+import { NextJsPlugin } from "../../../src/plugins/plugins/nextjs.ts";
+import { VitestPlugin } from "../../../src/plugins/plugins/vitest.ts";
 
 describe("PluginRegistry", () => {
 	test("activates plugin by exact package name", () => {
