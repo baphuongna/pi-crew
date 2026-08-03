@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_EVENT_LOG } from "../config/defaults.ts";
-import { errors } from "../errors.ts";
-import { emitFromTeamEvent } from "../ui/run-event-bus.ts";
-import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../utils/incremental-reader.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactSecrets } from "../utils/redaction.ts";
-import { sleep, sleepSync } from "../utils/sleep.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
+import { DEFAULT_EVENT_LOG } from "../../config/defaults.ts";
+import { errors } from "../../errors.ts";
+import { emitFromTeamEvent } from "../../ui/run-event-bus.ts";
+import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../../utils/incremental-reader.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { redactSecrets } from "../../utils/redaction.ts";
+import { sleep, sleepSync } from "../../utils/sleep.ts";
+import { atomicWriteFile } from "../atomic-write.ts";
 import {
 	applyCompactionUnlocked,
 	currentGeneration,

@@ -1,6 +1,6 @@
 import { readCrewAgents, recordFromTask, saveCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import { withRunLockSync } from "../../state/locks.ts";
 import { appendMailboxMessage, updateMailboxMessageReply } from "../../state/mailbox.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";

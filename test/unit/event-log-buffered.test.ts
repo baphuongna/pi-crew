@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, appendEventBuffered, flushEventLogBuffer, readEvents } from "../../src/state/event-log.ts";
+import { appendEvent, appendEventBuffered, flushEventLogBuffer, readEvents } from "../../src/state/event-log/event-log.ts";
 
 test("appendEventBuffered batches into single lock acquire and preserves seq order (2.2)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-buffer-"));

@@ -1,4 +1,4 @@
-import { appendEvent } from "../state/event-log.ts";
+import { appendEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
 import type { HookContext, HookDefinition, HookExecutionReport, HookName, HookResult } from "./types.ts";

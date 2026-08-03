@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../src/config/config.ts";
 import { type NotificationDescriptor, NotificationRouter } from "../../src/extension/notification-router.ts";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { appendMailboxMessage, readDeliveryState, readMailbox } from "../../src/state/mailbox.ts";
 import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";

@@ -9,7 +9,7 @@ import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { writeArtifact } from "../state/artifact-store.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
-import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
+import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { withRunLock } from "../state/locks.ts";
 import { replayPendingMailboxMessages } from "../state/mailbox.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";

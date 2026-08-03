@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { __test__mergeTaskUpdates, executeTeamRun } from "../../src/runtime/team-runner.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { logInternalError } from "../utils/internal-error.ts";
 import { sleepSync } from "../utils/sleep.ts";
-import { atomicWriteFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
+import { atomicWriteFileViaWorker, isWorkerAtomicWriterEnabled } from "./event-log/worker-atomic-writer.ts";
 
 function hashContent(content: string): string {
 	return crypto.createHash("sha256").update(content, "utf-8").digest("hex");

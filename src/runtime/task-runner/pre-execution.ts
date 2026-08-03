@@ -15,7 +15,7 @@
  */
 import { errors } from "../../errors.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { createTaskClaim } from "../../state/task-claims.ts";
 import type { ArtifactDescriptor, TaskPacket, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

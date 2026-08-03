@@ -8,8 +8,8 @@ import { configPath, loadConfig, projectConfigPath } from "../../src/config/conf
 import { appendCrewAgentEvent, appendCrewAgentOutput, writeCrewAgentStatus } from "../../src/runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../src/runtime/crew-agent-runtime.ts";
 import { writeArtifact } from "../../src/state/artifact-store.ts";
-import { appendEvent } from "../../src/state/event-log.ts";
-import { createJsonlWriter } from "../../src/state/jsonl-writer.ts";
+import { appendEvent } from "../../src/state/event-log/event-log.ts";
+import { createJsonlWriter } from "../../src/state/event-log/jsonl-writer.ts";
 import { appendMailboxMessage } from "../../src/state/mailbox.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { allTeams } from "../../src/teams/discover-teams.ts";

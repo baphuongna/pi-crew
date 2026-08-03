@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { atomicWriteFile } from "../state/atomic-write.ts";
-import { appendEvent } from "../state/event-log.ts";
+import { appendEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { sleepSync } from "../utils/sleep.ts";

@@ -21,7 +21,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, type TeamEvent } from "../../src/state/event-log.ts";
+import { appendEvent, type TeamEvent } from "../../src/state/event-log/event-log.ts";
 import { runEventBus } from "../../src/ui/run-event-bus.ts";
 
 const tempDirs: string[] = [];

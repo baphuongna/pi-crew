@@ -15,7 +15,7 @@ class GiantLineFallbackError extends Error {
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readJsonFile } from "../../state/atomic-write.ts";
-import type { TeamEvent } from "../../state/event-log.ts";
+import type { TeamEvent } from "../../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 /** Maximum number of events to read from the tail of events.jsonl. */

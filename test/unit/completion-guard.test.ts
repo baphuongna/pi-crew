@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { appendTaskAttentionEvent } from "../../src/runtime/attention-events.ts";
 import { evaluateCompletionMutationGuard, expectsImplementationMutation } from "../../src/runtime/verification/completion-guard.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

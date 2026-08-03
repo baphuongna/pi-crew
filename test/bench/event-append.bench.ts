@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
-import { appendEvent } from "../../src/state/event-log.ts";
+import { appendEvent } from "../../src/state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 const ITERS = Number(process.env.BENCH_ITERS ?? 200);

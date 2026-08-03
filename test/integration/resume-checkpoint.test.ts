@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../src/state/state-store.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {

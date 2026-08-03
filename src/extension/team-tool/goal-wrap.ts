@@ -24,7 +24,7 @@ import { GoalStore } from "../../runtime/goal-workflow/goal-state-store.ts";
 import { snapshotManifests } from "../../runtime/verification/verification-integrity.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
 import type { GoalLoopState, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

@@ -7,7 +7,7 @@ import { handleCancel } from "../../src/extension/team-tool/cancel.ts";
 import { handleCleanup, handleForget } from "../../src/extension/team-tool/lifecycle-actions.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import { clearHooks, registerHook } from "../../src/hooks/registry.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
 
 function createRun(ownerSessionId = "session-a"): {

@@ -21,7 +21,7 @@ import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
 import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../state/contracts.ts";
-import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log.ts";
+import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { withRunLock, withRunLockSync } from "../../state/locks.ts";
 import {
 	acknowledgeMailboxMessage,

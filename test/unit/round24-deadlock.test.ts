@@ -23,14 +23,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { withEventLogLockSync } from "../../src/state/event-log.ts";
+import { withEventLogLockSync } from "../../src/state/event-log/event-log.ts";
 import {
 	applyCompactionUnlocked,
 	compactEventLog,
 	prepareCompaction,
 	rotateEventLog,
 	rotateEventLogUnlocked,
-} from "../../src/state/event-log-rotation.ts";
+} from "../../src/state/event-log/event-log-rotation.ts";
 
 function tmpDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-r24-deadlock-"));

@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readCrewAgents, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
-import { appendEvent, readEvents, type TeamEvent } from "../state/event-log.ts";
+import { appendEvent, readEvents, type TeamEvent } from "../state/event-log/event-log.ts";
 import { withRunLockSync } from "../state/locks.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";

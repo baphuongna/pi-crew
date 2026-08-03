@@ -236,8 +236,8 @@ export class ChainRunner {
 
 				// Emit progress event if eventsPath provided
 				if (eventsPath) {
-					// LAZY: defer dynamic import of ../state/event-log.ts to its call site.
-					const { appendEventAsync } = await import("../state/event-log.ts");
+					// LAZY: defer dynamic import of ../state/event-log/event-log.ts to its call site.
+					const { appendEventAsync } = await import("../state/event-log/event-log.ts");
 					await appendEventAsync(eventsPath, {
 						type: "chain.step_completed",
 						runId: "chain",

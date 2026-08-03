@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { tickAppendCounter } from "../../src/state/event-log.ts";
+import { tickAppendCounter } from "../../src/state/event-log/event-log.ts";
 
 test("tickAppendCounter: returns true only at 100-boundaries (inc=1)", () => {
 	const path = `/tmp/test-events-${Math.random()}.jsonl`;

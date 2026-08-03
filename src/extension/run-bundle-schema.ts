@@ -1,5 +1,5 @@
 import { isTeamRunStatus, isTeamTaskStatus } from "../state/contracts.ts";
-import type { TeamEvent } from "../state/event-log.ts";
+import type { TeamEvent } from "../state/event-log/event-log.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { ExportedRunBundle } from "./run-export.ts";
 

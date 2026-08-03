@@ -8,7 +8,7 @@ import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import type { PiTeamsToolResult } from "../../src/extension/tool-result.ts";
 import { __test__parseAdaptivePlan, __test__repairAdaptivePlan, executeTeamRun } from "../../src/runtime/team-runner.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
 import { allTeams, discoverTeams } from "../../src/teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../src/workflows/discover-workflows.ts";

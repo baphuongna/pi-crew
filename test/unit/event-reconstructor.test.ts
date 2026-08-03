@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TeamEvent } from "../../src/state/event-log.ts";
-import { reconstructTasksFromEvents, reconstructTasksFromLines } from "../../src/state/event-reconstructor.ts";
+import type { TeamEvent } from "../../src/state/event-log/event-log.ts";
+import { reconstructTasksFromEvents, reconstructTasksFromLines } from "../../src/state/event-log/event-reconstructor.ts";
 
 /** Helper to create a minimal TeamEvent with required fields. */
 function makeEvent(overrides: Partial<TeamEvent> & Pick<TeamEvent, "type" | "runId">): TeamEvent {

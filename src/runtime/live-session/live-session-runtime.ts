@@ -5,7 +5,7 @@ import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_LIVE_SESSION } from "../../config/defaults.ts";
-import { appendEvent, appendEventFireAndForget } from "../../state/event-log.ts";
+import { appendEvent, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";

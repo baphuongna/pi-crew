@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { abortOwned, handleCancel } from "../../src/extension/team-tool/cancel.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
 
 function createOwnedRun(ownerSessionId: string): {

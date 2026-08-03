@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createJsonlWriter, type DrainableSource, type JsonlWriterDeps, type JsonlWriteStream } from "../../src/state/jsonl-writer.ts";
+import { createJsonlWriter, type DrainableSource, type JsonlWriterDeps, type JsonlWriteStream } from "../../src/state/event-log/jsonl-writer.ts";
 
 class MockSource implements DrainableSource {
 	pauseCount = 0;

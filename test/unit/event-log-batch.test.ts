@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, appendEventAsync, appendEventBuffered, readEvents, resetEventLogMode } from "../../src/state/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, readEvents, resetEventLogMode } from "../../src/state/event-log/event-log.ts";
 
 test.beforeEach(() => {
 	resetEventLogMode();
@@ -149,7 +149,7 @@ test("appendEventFireAndForget routes non-terminal events through buffer", async
 	const eventsPath = path.join(dir, "events.jsonl");
 	try {
 		// Fire-and-forget for non-terminal event (goes through appendEventAsync → buffer)
-		const { appendEventFireAndForget } = await import("../../src/state/event-log.ts");
+		const { appendEventFireAndForget } = await import("../../src/state/event-log/event-log.ts");
 		appendEventFireAndForget(eventsPath, { type: "task.progress", runId: "r1", taskId: "t1", data: { x: 1 } });
 
 		// Wait for buffer to flush (20ms default + margin)

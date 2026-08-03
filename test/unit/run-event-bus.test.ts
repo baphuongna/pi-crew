@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamEvent } from "../../src/state/event-log.ts";
+import type { TeamEvent } from "../../src/state/event-log/event-log.ts";
 import { classifyEventChannel, runEventBus, teamEventToRunEventType } from "../../src/ui/run-event-bus.ts";
 
 test("runEventBus on/off delivers events to subscribed listeners", async () => {

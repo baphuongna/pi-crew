@@ -1,5 +1,5 @@
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
-import type { TeamEvent } from "../state/event-log.ts";
+import type { TeamEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { DwfPhaseState } from "./dwf-phase-display.ts";
 

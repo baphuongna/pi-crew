@@ -6,7 +6,7 @@ import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { __test_resetCap } from "../../src/runtime/scheduling/global-worker-cap.ts";
 import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
-import { readEvents } from "../../src/state/event-log.ts";
+import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../src/state/state-store.ts";
 import { allTeams, discoverTeams } from "../../src/teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../src/workflows/discover-workflows.ts";

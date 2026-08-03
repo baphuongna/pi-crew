@@ -16,7 +16,7 @@
  */
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEventAsync } from "../../state/event-log.ts";
+import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { withRunLock } from "../../state/locks.ts";
 import { saveRunManifestAsync } from "../../state/state-store.ts";
 import type {

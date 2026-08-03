@@ -1,5 +1,5 @@
-import type { TeamEvent } from "../state/event-log.ts";
-import { readEventsCursor } from "../state/event-log.ts";
+import type { TeamEvent } from "../state/event-log/event-log.ts";
+import { readEventsCursor } from "../state/event-log/event-log.ts";
 import type { RenderSchedulerEventBus } from "./render-scheduler.ts";
 
 export type RunEventType =

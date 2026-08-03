@@ -11,7 +11,7 @@ import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/artifact-store.ts";
 import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write.ts";
 import { canTransitionRunStatus, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../state/contracts.ts";
-import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, appendEventFireAndForget, flushEventLogBuffer } from "../state/event-log/event-log.ts";
 import { HealthStore } from "../state/health-store.ts";
 import { withRunLock } from "../state/locks.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/state-store.ts";

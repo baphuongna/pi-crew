@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { logInternalError } from "../utils/internal-error.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { atomicWriteFile } from "../atomic-write.ts";
 import { type TeamEvent, withEventLogLockSync } from "./event-log.ts";
 
 /**

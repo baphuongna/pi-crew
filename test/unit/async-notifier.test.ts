@@ -10,7 +10,7 @@ import {
 	stopAsyncRunNotifier,
 } from "../../src/extension/async-notifier.ts";
 import { readCrewAgents, recordFromTask, saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { appendEvent, readEvents } from "../../src/state/event-log.ts";
+import { appendEvent, readEvents } from "../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

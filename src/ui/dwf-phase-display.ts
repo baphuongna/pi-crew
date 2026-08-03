@@ -8,7 +8,7 @@
  * tailed by `run-snapshot-cache.ts`. Non-DWF runs (no `dwf.phase_*` events)
  * yield `null`, so the progress pane stays unchanged for them.
  */
-import type { TeamEvent } from "../state/event-log.ts";
+import type { TeamEvent } from "../state/event-log/event-log.ts";
 
 // ---------------------------------------------------------------------------
 // Types

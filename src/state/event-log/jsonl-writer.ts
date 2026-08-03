@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactJsonLine } from "../utils/redaction.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { redactJsonLine } from "../../utils/redaction.ts";
 
 export interface DrainableSource {
 	pause(): void;

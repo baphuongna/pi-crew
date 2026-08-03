@@ -16,7 +16,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import type { GoalLoopState, GoalLoopStatus } from "../../state/types.ts";
 import { createRunId } from "../../utils/ids.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

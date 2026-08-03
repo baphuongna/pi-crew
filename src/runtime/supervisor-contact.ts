@@ -1,4 +1,4 @@
-import { appendEvent } from "../state/event-log.ts";
+import { appendEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 

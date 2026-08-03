@@ -1,4 +1,4 @@
-import { appendEvent, type TeamEvent } from "../state/event-log.ts";
+import { appendEvent, type TeamEvent } from "../state/event-log/event-log.ts";
 import type { CrewAttentionEventData, TeamRunManifest } from "../state/types.ts";
 import { readJsonlTail } from "../utils/incremental-reader.ts";
 

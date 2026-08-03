@@ -4,7 +4,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/active-run-registry.ts";
-import { appendEvent, scanSequence } from "../../state/event-log.ts";
+import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { withRunLockSync } from "../../state/locks.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
 import type { TeamTaskState } from "../../state/types.ts";

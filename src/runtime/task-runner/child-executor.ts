@@ -30,7 +30,7 @@ import * as path from "node:path";
 import { loadConfig } from "../../config/config.ts";
 import { errors } from "../../errors.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEventAsync, appendEventBuffered } from "../../state/event-log.ts";
+import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

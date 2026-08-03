@@ -24,7 +24,7 @@
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
 
-import { readEventsCursor } from "../../state/event-log.ts";
+import { readEventsCursor } from "../../state/event-log/event-log.ts";
 import {
 	appendMailboxMessageAsync,
 	type MailboxMessage,

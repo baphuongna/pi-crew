@@ -21,7 +21,7 @@ import type { AgentConfig } from "../../agents/agent-config.ts";
 import { loadConfig } from "../../config/config.ts";
 import { effectiveRunConfig } from "../../extension/team-tool/config-patch.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/active-run-registry.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import { collectRunMetrics } from "../../state/run-metrics.ts";
 import { createRunManifest, saveRunTasks } from "../../state/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, GoalVerdict, TeamRunManifest, TeamTaskState } from "../../state/types.ts";

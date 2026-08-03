@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { transformSync } from "esbuild";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { packageRoot, projectCrewRoot, userPiRoot } from "../../utils/paths.ts";

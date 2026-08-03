@@ -1,4 +1,4 @@
-import type { appendEvent } from "../../state/event-log.ts";
+import type { appendEvent } from "../../state/event-log/event-log.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { CrewAgentRecord } from "../crew-agent-runtime.ts";
 import { checkProcessLiveness } from "../process-status.ts";

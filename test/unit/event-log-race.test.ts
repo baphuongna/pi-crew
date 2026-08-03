@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { appendEvent, appendEventAsync, resetEventLogMode } from "../../src/state/event-log.ts";
+import { appendEvent, appendEventAsync, resetEventLogMode } from "../../src/state/event-log/event-log.ts";
 
 describe("H2: Event log sync/async coordination", () => {
 	let tmpDir: string;

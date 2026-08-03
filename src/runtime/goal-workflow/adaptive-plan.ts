@@ -16,7 +16,7 @@
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { saveRunManifestAsync } from "../../state/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";

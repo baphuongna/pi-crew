@@ -27,7 +27,7 @@ import type { TSchema } from "@sinclair/typebox";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { writeArtifact } from "../../state/artifact-store.ts";
-import { appendEvent } from "../../state/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import { appendMailboxMessage, readMailbox } from "../../state/mailbox.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
