@@ -14,6 +14,8 @@
  * Usage: node scripts/test-runner.mjs [tsx test args...]
  */
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 
 const args = process.argv.slice(2);
@@ -27,6 +29,38 @@ if (args.length === 0) {
 // Always inject --test-force-exit to guarantee child exits (prevents pi hang).
 const hasForceExit = args.includes("--test-force-exit");
 let finalArgs = hasForceExit ? args : ["--test-force-exit", ...args];
+
+// Expand recursive globs (`**`) into an explicit file list. Node v22's --test does
+// NOT expand `**` itself (only single-level `*`), so without this, tests in
+// subdirectories (e.g. test/unit/security/) are INVISIBLE to `npm test`. The runner
+// expands `<base>/**/*.test.ts` → recursive file walk, matching the BASENAME against
+// the file pattern (so `**` = any depth).
+function expandRecursiveGlob(arg) {
+	if (!arg.includes("**")) return [arg];
+	const idx = arg.indexOf("**");
+	const base = arg.slice(0, idx).replace(/\/+$/, "");
+	const filePattern = arg.slice(idx + 2).replace(/^\/+/, ""); // e.g. "*.test.ts"
+	if (!base || !filePattern) return [arg];
+	const re = new RegExp(
+		"^" +
+			filePattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") +
+			"$",
+	);
+	const out = [];
+	try {
+		(function walk(dir) {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, e.name);
+				if (e.isDirectory()) walk(full);
+				else if (re.test(e.name)) out.push(full); // match BASENAME (** = any depth)
+			}
+		})(base);
+	} catch {
+		/* base dir missing — fall through to literal */
+	}
+	return out.length ? out : [arg];
+}
+finalArgs = finalArgs.flatMap(expandRecursiveGlob);
 
 // CI reliability: node:test runs test FILES concurrently in one process
 // (--test-concurrency=N). On shared CI runners (GitHub Actions), high
