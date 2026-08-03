@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decomposeGoal, recommendTeam } from "../../src/extension/team-recommendation.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import { decomposeGoal, recommendTeam } from "../../../src/extension/team-recommendation.ts";
+import { handleTeamTool } from "../../../src/extension/team-tool.ts";
+import { firstText } from "../../fixtures/tool-result-helpers.ts";
 
 test("recommendTeam maps goals to teams", () => {
 	assert.equal(recommendTeam("security review this diff").team, "review");

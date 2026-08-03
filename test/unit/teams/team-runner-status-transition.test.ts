@@ -19,9 +19,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { setRunStatusRunning } from "../../src/runtime/team-runner.ts";
-import { canTransitionRunStatus } from "../../src/state/contracts.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
+import { setRunStatusRunning } from "../../../src/runtime/team-runner.ts";
+import { canTransitionRunStatus } from "../../../src/state/contracts.ts";
+import type { TeamRunManifest } from "../../../src/state/types.ts";
 
 // ─── RT-13: setRunStatusRunning unit tests ─────────────────────────
 
@@ -116,7 +116,7 @@ test("[RT-13] all manifest statuses can legally transition to running (validatio
 // ─── RT-13: structural pin — the raw spread hack must be GONE ──────
 
 test("[RT-13] raw spread hack `manifest = { ...manifest, status: \"running\" }` is absent from source", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// The EXACT hack pattern that was removed: an assignment of a spread literal
@@ -139,7 +139,7 @@ test("[RT-13] raw spread hack `manifest = { ...manifest, status: \"running\" }` 
 });
 
 test("[RT-13] setRunStatusRunning helper is defined and exported", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// The helper function must exist.
@@ -157,7 +157,7 @@ test("[RT-13] setRunStatusRunning helper is defined and exported", () => {
 });
 
 test("[RT-13] setRunStatusRunning is called in the cancellation path (not dead code)", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// The cancellation path must call setRunStatusRunning instead of the raw spread.
@@ -171,7 +171,7 @@ test("[RT-13] setRunStatusRunning is called in the cancellation path (not dead c
 // ─── RT-15: structural pin — redundant forward-syncs removed ───────
 
 test("[RT-15] ctx.tasks forward-sync count in loop body is reduced to 1 (top-of-loop only)", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// Extract the executeTeamRunCore loop body. The loop starts after the ctx
@@ -196,7 +196,7 @@ test("[RT-15] ctx.tasks forward-sync count in loop body is reduced to 1 (top-of-
 });
 
 test("[RT-15] ctx.manifest forward-sync count in loop body is reduced to 1 (top-of-loop only)", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	const loopStart = src.indexOf("while (tasks.some((task) => task.status === \"queued\")");

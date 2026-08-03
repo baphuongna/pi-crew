@@ -24,9 +24,9 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { __test__shouldMergeTaskUpdate } from "../../src/runtime/team-runner.ts";
-import { TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../../src/state/contracts.ts";
-import type { TeamTaskState } from "../../src/state/types.ts";
+import { __test__shouldMergeTaskUpdate } from "../../../src/runtime/team-runner.ts";
+import { TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../../../src/state/contracts.ts";
+import type { TeamTaskState } from "../../../src/state/types.ts";
 
 const NON_TERMINAL: ReadonlySet<TeamTaskStatus> = new Set(TEAM_TASK_STATUSES.filter((s) => !TEAM_TERMINAL_TASK_STATUSES.has(s)));
 

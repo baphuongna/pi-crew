@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { drainPendingUnits } from "../../src/runtime/team-runner.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { drainPendingUnits } from "../../../src/runtime/team-runner.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 
 /**
  * Unit tests for drainPendingUnits (CORE-1 fix).

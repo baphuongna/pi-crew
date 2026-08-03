@@ -16,7 +16,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { batchSummarySlug } from "../../src/runtime/team-runner.ts";
+import { batchSummarySlug } from "../../../src/runtime/team-runner.ts";
 
 // ─── Tests ────────────────────────────────────────────────────────
 

@@ -18,15 +18,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/scheduling/global-worker-cap.ts";
+import { __test_resetCap, getWorkerCapCapacity } from "../../../src/runtime/scheduling/global-worker-cap.ts";
 import {
 	__test__cancelPlanTasks,
 	__test__lastProgressContentHash,
 	__test__writeProgress,
 	executeTeamRun,
-} from "../../src/runtime/team-runner.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+} from "../../../src/runtime/team-runner.ts";
+import { createRunManifest, saveRunTasks } from "../../../src/state/stores/state-store.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -380,7 +380,7 @@ test("[RT-14] cancelPlanTasks cancels only non-terminal tasks and preserves grap
 });
 
 test("[RT-14] both inline cancel sites delegate to cancelNonTerminalTasks (structural pin)", () => {
-	const srcPath = path.resolve(import.meta.dirname, "../../src/runtime/team-runner.ts");
+	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// cancelPlanTasks now routes through the shared helper.

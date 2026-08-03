@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { buildTaskExplainContext, formatTaskExplain, handleExplain } from "../../src/extension/team-tool/explain.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { buildTaskExplainContext, formatTaskExplain, handleExplain } from "../../../src/extension/team-tool/explain.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 
 test("buildTaskExplainContext: builds context for task", () => {
 	const manifest = {
