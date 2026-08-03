@@ -1,5 +1,5 @@
 /**
- * Tests for src/runtime/overflow-recovery.ts
+ * Tests for src/runtime/recovery/overflow-recovery.ts
  * Coverage:
  * - feedEvent phase transitions
  * - getState/getPhase lookup
@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OverflowRecoveryTracker } from "../../src/runtime/overflow-recovery.ts";
+import { OverflowRecoveryTracker } from "../../src/runtime/recovery/overflow-recovery.ts";
 
 test("OverflowRecoveryTracker.feedEvent initial state is 'none'", () => {
 	const tracker = new OverflowRecoveryTracker();

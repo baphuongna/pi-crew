@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CrewCancellationError } from "../../src/runtime/cancellation.ts";
-import { calculateRetryDelay, executeWithRetry } from "../../src/runtime/retry-executor.ts";
+import { calculateRetryDelay, executeWithRetry } from "../../src/runtime/recovery/retry-executor.ts";
 
 test("executeWithRetry succeeds on first try", async () => {
 	let attempts = 0;

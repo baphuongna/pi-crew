@@ -2,7 +2,7 @@
  * Crash-recovery lazy import + sync purge helper.
  *
  * The session_start handler needs `cancelOrphanedRuns` and
- * `purgeStaleActiveRunIndex` from runtime/crash-recovery.ts, but that
+ * `purgeStaleActiveRunIndex` from runtime/recovery/crash-recovery.ts, but that
  * module is ~14 KB and only relevant on the orphan-cleanup path.
  *
  * `importCrashRecovery` defers the actual `import()` until first use,
@@ -18,7 +18,7 @@ import type {
 	cancelOrphanedRuns as CancelOrphanedRunsFn,
 	detectInterruptedRuns as DetectInterruptedRunsFn,
 	purgeStaleActiveRunIndex as PurgeStaleActiveRunIndexFn,
-} from "../../runtime/crash-recovery.ts";
+} from "../../runtime/recovery/crash-recovery.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 
 export type CrashRecoveryCache = {
@@ -33,7 +33,7 @@ let _cachedCrashRecovery: CrashRecoveryCache | undefined;
 export async function importCrashRecovery(): Promise<CrashRecoveryCache> {
 	if (!_cachedCrashRecovery) {
 		// LAZY: defer crash-recovery (~14 KB) until session_start cleanup runs.
-		const mod = await import("../../runtime/crash-recovery.ts");
+		const mod = await import("../../runtime/recovery/crash-recovery.ts");
 		_cachedCrashRecovery = {
 			cancelOrphanedRuns: mod.cancelOrphanedRuns,
 			detectInterruptedRuns: mod.detectInterruptedRuns,

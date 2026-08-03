@@ -1,4 +1,4 @@
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 
 export type OverflowPhase = "none" | "compaction" | "retrying" | "recovered" | "failed";
 

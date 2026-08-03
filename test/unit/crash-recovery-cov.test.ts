@@ -6,7 +6,7 @@ import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tem
 // We test the pure helper logic: isTerminalTask (inlined) and shouldRecoverTask (inlined).
 // The exported functions require extensive mocking so we test their contracts minimally.
 
-import { detectInterruptedRuns } from "../../src/runtime/crash-recovery.ts";
+import { detectInterruptedRuns } from "../../src/runtime/recovery/crash-recovery.ts";
 
 // ── detectInterruptedRuns ──
 // Needs a ManifestCache with list(). We provide a minimal stub.

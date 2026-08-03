@@ -5,7 +5,7 @@
  */
 
 import { listRecentRuns } from "../../extension/run-index.ts";
-import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
+import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { evictStaleLiveAgentHandles } from "../../runtime/live-session/live-agent-manager.ts";

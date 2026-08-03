@@ -11,7 +11,7 @@
  *  2. src/runtime/background-runner.ts:139 (log redirect)
  *  3. src/runtime/background-runner.ts:172 (exit code)
  *  4-5. src/runtime/skill-effectiveness.ts:115, 125 (skill metrics/activations)
- *  6-10. src/runtime/checkpoint.ts:166, 177, 188, 199, 209 (5 checkpoint functions)
+ *  6-10. src/runtime/recovery/checkpoint.ts:166, 177, 188, 199, 209 (5 checkpoint functions)
  *  11. src/state/decision-ledger.ts:29 (ledger path fallback)
  *
  * Plus the defense-in-depth fix in src/runtime/subagent-manager.ts:start()
@@ -158,7 +158,7 @@ test("issue #29 — run-tracker waitForRun error message points at .crew/ in a .
 test("issue #29 — checkpoint save/load round-trips through .pi/teams/state/runs/ in a .pi project", async () => {
 	const dir = makePiProject();
 	try {
-		const ck = await import("../../src/runtime/checkpoint.ts");
+		const ck = await import("../../src/runtime/recovery/checkpoint.ts");
 		const runId = "ck_pi_round_trip";
 		const taskId = "task-1";
 		ck.saveCheckpoint(runId, taskId, 1, "ctx", "progress", "agent-1", "model-x", dir);

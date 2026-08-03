@@ -6,7 +6,7 @@ import {
 	FileCheckpointStore,
 	formatCheckpoint,
 	getCheckpointStore,
-} from "../../src/runtime/checkpoint.ts";
+} from "../../src/runtime/recovery/checkpoint.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 function makeCheckpoint(overrides: Partial<Checkpoint> = {}): Checkpoint {

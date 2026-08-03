@@ -54,7 +54,7 @@ import {
 import { readEnabledModelsPatterns } from "../model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
-import { DEFAULT_RETRY_POLICY } from "../retry-executor.ts";
+import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
 import { recordSupervisorContact, supervisorContactFromEvent } from "../supervisor-contact.ts";

@@ -11,7 +11,7 @@
  * @see docs/pi-boomerang-integration-plan.md
  */
 
-import type { HandoffManager, HandoffSummary, TaskPacket, TaskResult } from "./handoff-manager.ts";
+import type { HandoffManager, HandoffSummary, TaskPacket, TaskResult } from "../handoff-manager.ts";
 
 /**
  * Retry configuration.

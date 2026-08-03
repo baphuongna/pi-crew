@@ -1,4 +1,4 @@
-import type { CrashClass } from "../runtime/crash-classification.ts";
+import type { CrashClass } from "../runtime/recovery/crash-classification.ts";
 import type { CrewAgentProgress } from "../runtime/crew-agent-runtime.ts";
 import type { WorkerHeartbeatState } from "../runtime/worker-heartbeat.ts";
 import type { TeamRunStatus, TeamTaskStatus } from "./contracts.ts";

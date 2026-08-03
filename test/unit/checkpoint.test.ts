@@ -14,7 +14,7 @@ import {
 	listCheckpoints,
 	loadCheckpoint,
 	saveCheckpoint,
-} from "../../src/runtime/checkpoint.ts";
+} from "../../src/runtime/recovery/checkpoint.ts";
 
 const tmp = path.join(os.tmpdir(), `cp-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 fs.mkdirSync(tmp, { recursive: true });

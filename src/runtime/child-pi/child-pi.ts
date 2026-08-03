@@ -33,7 +33,7 @@ export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
-import { classifyProcessCrash } from "../crash-classification.ts";
+import { classifyProcessCrash } from "../recovery/crash-classification.ts";
 import { checkCrewDepth, cleanupTempDir } from "../pi-args.ts";
 
 import { attachPostExitStdioGuard, trySignalChild } from "../post-exit-stdio-guard.ts";

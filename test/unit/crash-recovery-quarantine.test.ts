@@ -21,7 +21,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { purgeStaleActiveRunIndex } from "../../src/runtime/crash-recovery.ts";
+import { purgeStaleActiveRunIndex } from "../../src/runtime/recovery/crash-recovery.ts";
 import { registerActiveRun } from "../../src/state/active-run-registry.ts";
 import { createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";

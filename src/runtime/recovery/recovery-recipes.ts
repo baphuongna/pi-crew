@@ -1,4 +1,4 @@
-import type { PolicyDecision, PolicyDecisionReason } from "../state/types.ts";
+import type { PolicyDecision, PolicyDecisionReason } from "../../state/types.ts";
 
 export type FailureScenario =
 	| "trust_prompt_unresolved"

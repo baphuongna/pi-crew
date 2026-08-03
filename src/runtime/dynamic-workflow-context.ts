@@ -37,8 +37,8 @@ import type { DwfCheckpointState } from "./dwf-state-store.ts";
 import { mapConcurrent } from "./parallel-utils.ts";
 import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
+import { executeWithRetry } from "./recovery/retry-executor.ts";
 import { extractStructuredResult } from "./result-extractor.ts";
-import { executeWithRetry } from "./retry-executor.ts";
 import { runWorker } from "./run-worker.ts";
 import { Semaphore } from "./semaphore.ts";
 

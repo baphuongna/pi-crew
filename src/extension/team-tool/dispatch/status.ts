@@ -10,7 +10,7 @@
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../../../agents/discover-agents.ts";
 import { loadConfig } from "../../../config/config.ts";
-import { FileCheckpointStore } from "../../../runtime/checkpoint.ts";
+import { FileCheckpointStore } from "../../../runtime/recovery/checkpoint.ts";
 import { getSkillCacheStats } from "../../../runtime/skill-instructions.ts";
 import type { TeamToolParamsValue } from "../../../schema/team-tool-schema.ts";
 import { computeRunCacheKey, getCachedRun, getCacheStats } from "../../../state/run-cache.ts";

@@ -33,7 +33,7 @@ export interface LifecycleState {
 	notificationSink: NotificationSink | undefined;
 	notificationRouter: NotificationRouter | undefined;
 	deliveryCoordinator: import("../../runtime/delivery-coordinator.ts").DeliveryCoordinator | undefined;
-	overflowTracker: import("../../runtime/overflow-recovery.ts").OverflowRecoveryTracker | undefined;
+	overflowTracker: import("../../runtime/recovery/overflow-recovery.ts").OverflowRecoveryTracker | undefined;
 }
 
 /** Dependencies passed in by register.ts so this module stays decoupled. */
@@ -208,7 +208,7 @@ export async function configureDeliveryCoordinator(state: LifecycleState, deps: 
 	// LAZY: delivery coordinator — batches notification fan-out
 	const { DeliveryCoordinator } = await import("../../runtime/delivery-coordinator.ts");
 	// LAZY: overflow tracker — recovers from backlog overflow
-	const { OverflowRecoveryTracker } = await import("../../runtime/overflow-recovery.ts");
+	const { OverflowRecoveryTracker } = await import("../../runtime/recovery/overflow-recovery.ts");
 	state.deliveryCoordinator = new DeliveryCoordinator({
 		emit: (event, data) => {
 			deps.pi.events?.emit?.(event, data);

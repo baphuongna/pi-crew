@@ -12,7 +12,7 @@ import type { RunUiSnapshot } from "../ui/snapshot-types.ts";
 import { readJsonlTail } from "../utils/incremental-reader.ts";
 import { isSecretKey, redactSecrets } from "../utils/redaction.ts";
 import { readCrewAgents } from "./crew-agent-records.ts";
-import { buildRecoveryLedger, type RecoveryLedgerEntry } from "./recovery-recipes.ts";
+import { buildRecoveryLedger, type RecoveryLedgerEntry } from "./recovery/recovery-recipes.ts";
 
 export { isSecretKey, redactSecrets } from "../utils/redaction.ts";
 

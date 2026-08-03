@@ -18,7 +18,7 @@
  * `lifecycle-handlers.ts`.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
+import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { appendDeadletter } from "../../runtime/deadletter.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs } from "../../runtime/pi-args.ts";
 import { reconcileOrphanedTempWorkspaces } from "../../runtime/stale-reconciler.ts";

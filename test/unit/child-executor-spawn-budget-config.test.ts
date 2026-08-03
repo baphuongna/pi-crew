@@ -23,7 +23,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { invalidateConfigCache, loadConfig } from "../../src/config/config.ts";
-import { DEFAULT_RETRY_POLICY } from "../../src/runtime/retry-executor.ts";
+import { DEFAULT_RETRY_POLICY } from "../../src/runtime/recovery/retry-executor.ts";
 import { computeSpawnBudgetMax, resolveConfiguredMaxAttempts } from "../../src/runtime/task-runner/child-executor.ts";
 import { runTeamTask, type SpawnBudget } from "../../src/runtime/task-runner.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";

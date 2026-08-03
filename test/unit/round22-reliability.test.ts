@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { parseChainDSL } from "../../src/runtime/chain-parser.ts";
-import { type Checkpoint, FileCheckpointStore } from "../../src/runtime/checkpoint.ts";
+import { type Checkpoint, FileCheckpointStore } from "../../src/runtime/recovery/checkpoint.ts";
 
 // ---------------------------------------------------------------------------
 // BUG 1: unique temp file per concurrent checkpoint save

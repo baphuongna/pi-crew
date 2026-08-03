@@ -28,7 +28,7 @@ import {
 	_setReadManifestFileSyncForTest,
 	purgeStaleActiveRunIndex,
 	readManifestWithTransientRetry,
-} from "../../src/runtime/crash-recovery.ts";
+} from "../../src/runtime/recovery/crash-recovery.ts";
 import { registerActiveRun } from "../../src/state/active-run-registry.ts";
 import { createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";

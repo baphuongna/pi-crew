@@ -1,6 +1,6 @@
 /**
  * Unit tests for RetryRunner.
- * @see src/runtime/retry-runner.ts
+ * @see src/runtime/recovery/retry-runner.ts
  */
 
 import assert from "node:assert/strict";
@@ -13,7 +13,7 @@ import {
 	RetryRunner,
 	type TaskRunnerLike,
 	TRANSIENT_FAILURE_RETRY_CONFIG,
-} from "../../src/runtime/retry-runner.ts";
+} from "../../src/runtime/recovery/retry-runner.ts";
 
 // Test helpers
 function createTaskPacket(overrides: Partial<TaskPacket> = {}): TaskPacket {
