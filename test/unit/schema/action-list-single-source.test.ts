@@ -14,9 +14,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KNOWN_TEAM_ACTIONS } from "../../src/extension/action-suggestions.ts";
-import { domainForAction } from "../../src/extension/team-tool/dispatch/index.ts";
-import { allActionLiterals } from "../../src/schema/team-tool-schema.ts";
+import { KNOWN_TEAM_ACTIONS } from "../../../src/extension/action-suggestions.ts";
+import { domainForAction } from "../../../src/extension/team-tool/dispatch/index.ts";
+import { allActionLiterals } from "../../../src/schema/team-tool-schema.ts";
 
 /** Extract raw action strings from the schema's allActionLiterals. */
 const schemaActions = new Set(allActionLiterals.map((l) => (l as { const: string }).const));

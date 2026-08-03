@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateConfig } from "../../src/schema/config-schema.ts";
-import { validateWithSeverity } from "../../src/schema/validation-types.ts";
+import { validateConfig } from "../../../src/schema/config-schema.ts";
+import { validateWithSeverity } from "../../../src/schema/validation-types.ts";
 
 // ---------------------------------------------------------------------------
 // validateWithSeverity

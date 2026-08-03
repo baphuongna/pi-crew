@@ -3,10 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleCleanup } from "../../src/extension/team-tool/lifecycle-actions.ts";
-import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
+import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
+import { handleCleanup } from "../../../src/extension/team-tool/lifecycle-actions.ts";
+import { textFromToolResult } from "../../../src/extension/tool-result.ts";
+import type { TeamToolParamsValue } from "../../../src/schema/team-tool-schema.ts";
 
 /**
  * Issue #35 comment: "pi-crew leaves behind user-level junk". This test pins

@@ -3,11 +3,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { injectGuidance, MARKER_END, MARKER_START, standardGuidanceBlocks } from "../../src/config/markers.ts";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleCleanup } from "../../src/extension/team-tool/lifecycle-actions.ts";
-import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
+import { injectGuidance, MARKER_END, MARKER_START, standardGuidanceBlocks } from "../../../src/config/markers.ts";
+import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
+import { handleCleanup } from "../../../src/extension/team-tool/lifecycle-actions.ts";
+import { textFromToolResult } from "../../../src/extension/tool-result.ts";
+import type { TeamToolParamsValue } from "../../../src/schema/team-tool-schema.ts";
 
 /**
  * Issue #35: pi-crew's `team action=init` injects a guidance block into

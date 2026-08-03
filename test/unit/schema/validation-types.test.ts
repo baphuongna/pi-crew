@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ValidationSeverity } from "../../src/schema/validation-types.ts";
-import { validateWithSeverity } from "../../src/schema/validation-types.ts";
+import type { ValidationSeverity } from "../../../src/schema/validation-types.ts";
+import { validateWithSeverity } from "../../../src/schema/validation-types.ts";
 
 /**
  * Round 27 (test coverage gaps): `validation-types.ts` provides config
