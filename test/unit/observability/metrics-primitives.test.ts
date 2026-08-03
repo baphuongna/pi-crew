@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Counter, Gauge, Histogram, labelKey } from "../../src/observability/metrics-primitives.ts";
+import { Counter, Gauge, Histogram, labelKey } from "../../../src/observability/metrics-primitives.ts";
 
 test("metric labels are stable regardless of insertion order", () => {
 	assert.equal(labelKey({ b: 2, a: "x" }), labelKey({ a: "x", b: 2 }));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { wireEventToMetrics } from "../../src/observability/event-to-metric.ts";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { wireEventToMetrics } from "../../../src/observability/event-to-metric.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 function eventBus() {
 	const handlers = new Map<string, Set<(data: unknown) => void>>();

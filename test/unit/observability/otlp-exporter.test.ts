@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { convertToOTLP, OTLPExporter } from "../../src/observability/exporters/otlp-exporter.ts";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { convertToOTLP, OTLPExporter } from "../../../src/observability/exporters/otlp-exporter.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 test("convertToOTLP produces resource metrics", () => {
 	const registry = createMetricRegistry();

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
-import { renderMetricsPane } from "../../src/ui/dashboard-panes/metrics-pane.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
+import { renderMetricsPane } from "../../../src/ui/dashboard-panes/metrics-pane.ts";
 
 test("renderMetricsPane reports unavailable or empty registry", () => {
 	assert.match(renderMetricsPane(undefined)[0]!, /unavailable/);

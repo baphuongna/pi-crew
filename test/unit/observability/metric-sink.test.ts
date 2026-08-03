@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
-import { createMetricFileSink } from "../../src/observability/metric-sink.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
+import { createMetricFileSink } from "../../../src/observability/metric-sink.ts";
 
 test("metric file sink writes redacted daily JSONL snapshots", async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-metric-sink-"));

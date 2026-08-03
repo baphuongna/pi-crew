@@ -9,9 +9,9 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type CorrelationContext, getCurrentContext, withCorrelation } from "../../src/observability/correlation.ts";
-import { convertToOTLP } from "../../src/observability/exporters/otlp-exporter.ts";
-import { MetricRegistry } from "../../src/observability/metric-registry.ts";
+import { type CorrelationContext, getCurrentContext, withCorrelation } from "../../../src/observability/correlation.ts";
+import { convertToOTLP } from "../../../src/observability/exporters/otlp-exporter.ts";
+import { MetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 test("MetricRegistry registers a counter and increments it", () => {
 	const registry = new MetricRegistry();

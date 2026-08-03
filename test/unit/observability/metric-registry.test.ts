@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 test("MetricRegistry registers, snapshots, and disposes metrics", () => {
 	const registry = createMetricRegistry();

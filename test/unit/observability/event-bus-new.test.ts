@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { type CrewEvent, type CrewEventType, crewEventBus } from "../../src/observability/event-bus.ts";
+import { type CrewEvent, type CrewEventType, crewEventBus } from "../../../src/observability/event-bus.ts";
 
 function makeEvent(overrides: Partial<CrewEvent> = {}): CrewEvent {
 	return {

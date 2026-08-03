@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TimeWindowedCounter } from "../../src/observability/metric-retention.ts";
+import { TimeWindowedCounter } from "../../../src/observability/metric-retention.ts";
 
 test("TimeWindowedCounter retains within window and prunes outside", () => {
 	let now = 0;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatPrometheus } from "../../src/observability/exporters/prometheus-exporter.ts";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { formatPrometheus } from "../../../src/observability/exporters/prometheus-exporter.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 test("formatPrometheus renders counter, gauge, histogram and escaped labels", () => {
 	const registry = createMetricRegistry();

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
-import { createMetricFileSink } from "../../src/observability/metric-sink.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
+import { createMetricFileSink } from "../../../src/observability/metric-sink.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 describe("createMetricFileSink", () => {
 	it("writes a snapshot to a JSONL file", async () => {

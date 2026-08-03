@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { createMetricRegistry } from "../../../src/observability/metric-registry.ts";
 
 describe("MetricRegistry registerCounter", () => {
 	it("registers a counter and retrieves it via get", () => {
