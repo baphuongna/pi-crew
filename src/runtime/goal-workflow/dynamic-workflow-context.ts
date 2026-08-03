@@ -24,23 +24,23 @@
 
 import { randomBytes } from "node:crypto";
 import type { TSchema } from "@sinclair/typebox";
-import type { AgentConfig } from "../agents/agent-config.ts";
-import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent } from "../state/event-log.ts";
-import { appendMailboxMessage, readMailbox } from "../state/mailbox.ts";
-import type { TeamRunManifest } from "../state/types.ts";
-import type { TeamConfig } from "../teams/team-config.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { cleanupAgentWorktreeAsync, prepareAgentWorktreeAsync } from "../worktree/worktree-manager.ts";
-import type { DwfCheckpointState } from "./dwf-state-store.ts";
-import { parsePiJsonOutput } from "./output/pi-json-output.ts";
-import { extractStructuredResult } from "./output/result-extractor.ts";
+import type { AgentConfig } from "../../agents/agent-config.ts";
+import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
+import { writeArtifact } from "../../state/artifact-store.ts";
+import { appendEvent } from "../../state/event-log.ts";
+import { appendMailboxMessage, readMailbox } from "../../state/mailbox.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
+import type { TeamConfig } from "../../teams/team-config.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { cleanupAgentWorktreeAsync, prepareAgentWorktreeAsync } from "../../worktree/worktree-manager.ts";
+import type { DwfCheckpointState } from "../dwf-state-store.ts";
+import { parsePiJsonOutput } from "../output/pi-json-output.ts";
+import { extractStructuredResult } from "../output/result-extractor.ts";
+import { executeWithRetry } from "../recovery/retry-executor.ts";
+import { runWorker } from "../run-worker.ts";
+import { mapConcurrent } from "../scheduling/parallel-utils.ts";
+import { Semaphore } from "../scheduling/semaphore.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
-import { executeWithRetry } from "./recovery/retry-executor.ts";
-import { runWorker } from "./run-worker.ts";
-import { mapConcurrent } from "./scheduling/parallel-utils.ts";
-import { Semaphore } from "./scheduling/semaphore.ts";
 
 export interface AgentCallOpts {
 	prompt: string;

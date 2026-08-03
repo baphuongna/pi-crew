@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
 import { handleGoal } from "../../src/extension/team-tool/goal.ts";
-import { GoalStore } from "../../src/runtime/goal-state-store.ts";
+import { GoalStore } from "../../src/runtime/goal-workflow/goal-state-store.ts";
 
 function fakeCtx(cwd: string): { cwd: string; sessionId: string } {
 	return { cwd, sessionId: "rt-test-session" };

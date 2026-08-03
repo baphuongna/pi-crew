@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
  * `src/` isn't shipped → "Cannot find module './src/extension/register.ts'".
  *
  * v0.9.52/53 broke because `esbuild` (imported at runtime by
- * `src/runtime/dynamic-workflow-runner.ts` for `transformSync`) was declared
+ * `src/runtime/goal-workflow/dynamic-workflow-runner.ts` for `transformSync`) was declared
  * as a devDependency. It was masked pre-0.9.52 because `src/` was shipped
  * (strip-types loaded register.ts without eagerly pulling in the
  * dynamic-workflow runner's esbuild import). PKG-2 removed `src/`, surfacing

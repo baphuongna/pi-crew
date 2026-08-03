@@ -18,9 +18,9 @@
  *     without breaking a legitimately-no-op run.
  */
 import { spawnSync } from "node:child_process";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { findRepoRoot } from "../utils/paths.ts";
-import type { WorkflowConfig } from "../workflows/workflow-config.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { findRepoRoot } from "../../utils/paths.ts";
+import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
 
 /**
  * Roles whose job is to EDIT project source/test files (changes that appear in

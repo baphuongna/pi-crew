@@ -23,7 +23,7 @@ test("runDynamicWorkflow: dwf calling ctx.setResult(path) is recognized", async 
 	const jitiMod = require(path.join(repoRoot, "node_modules/jiti/lib/jiti.cjs"));
 	const createJiti = jitiMod.default ?? jitiMod;
 	const jiti = createJiti(thisFile);
-	const dwfMod = await jiti.import(path.join(repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string);
+	const dwfMod = await jiti.import(path.join(repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string);
 	const { runDynamicWorkflow } = dwfMod.default ?? dwfMod;
 	assert.equal(typeof runDynamicWorkflow, "function");
 
@@ -189,7 +189,7 @@ function makeRound13DetFixture(name: string): Round13DetFixture {
 
 async function runDwf(fx: Round13DetFixture): Promise<{ status: string; summary: string }> {
 	const jiti = fx.createJiti(fx.thisFile);
-	const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+	const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 		default?: {
 			runDynamicWorkflow: (...args: unknown[]) => Promise<unknown>;
 		};
@@ -223,7 +223,7 @@ test("round-13 integration: dwf calling Date.now() is rejected with clear error"
 		);
 		fs.writeFileSync(fx.artifactPath, "ok");
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 			default?: {
 				runDynamicWorkflow: (...args: unknown[]) => Promise<unknown>;
 			};
@@ -264,7 +264,7 @@ test("round-13 integration: dwf calling Math.random() is rejected with clear err
 		);
 		fs.writeFileSync(fx.artifactPath, "ok");
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 			default?: {
 				runDynamicWorkflow: (...args: unknown[]) => Promise<unknown>;
 			};
@@ -305,7 +305,7 @@ test("round-13 integration: dwf with new Date() is rejected with clear error", a
 		);
 		fs.writeFileSync(fx.artifactPath, "ok");
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 			default?: {
 				runDynamicWorkflow: (...args: unknown[]) => Promise<unknown>;
 			};
@@ -481,7 +481,7 @@ test("round-12 integration: dwf calling ctx.phase() emits correct events; runner
 		fs.writeFileSync(fx.artifactPath, "scan + audit done\n");
 
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 			default?: {
 				runDynamicWorkflow: (...args: unknown[]) => Promise<unknown>;
 			};
@@ -631,7 +631,7 @@ test("round-14 integration: dwf calling ctx.log() produces dwf.log events", asyn
 		fs.writeFileSync(fx.artifactPath, "logged\n");
 
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts"))) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts"))) as {
 			default?: {
 				runDynamicWorkflow: (...a: unknown[]) => Promise<unknown>;
 			};
@@ -685,7 +685,7 @@ test("round-14 integration: dwf calling ctx.args<T>() reads typed args from mani
 		fs.writeFileSync(fx.artifactPath, "args-test\n");
 
 		const jiti = fx.createJiti(fx.thisFile);
-		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts"))) as {
+		const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts"))) as {
 			default?: {
 				runDynamicWorkflow: (...a: unknown[]) => Promise<unknown>;
 			};
@@ -813,7 +813,7 @@ function makeRound18Fixture(name: string): Round18Fx {
 
 async function runRound18(fx: Round18Fx): Promise<{ status: string; summary: string }> {
 	const jiti = fx.createJiti(fx.thisFile);
-	const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/dynamic-workflow-runner.ts"))) as {
+	const dwfMod = (await jiti.import(path.join(fx.repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts"))) as {
 		default?: { runDynamicWorkflow: (...a: unknown[]) => Promise<unknown> };
 	};
 	const { runDynamicWorkflow } =

@@ -20,22 +20,22 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { transformSync } from "esbuild";
-import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEvent } from "../state/event-log.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import type { DynamicWorkflowConfig } from "../workflows/workflow-config.ts";
-import { assertDeterministicScript, isDeterminismCheckEnabled } from "./deterministic-ast.ts";
-import { DwfStore } from "./dwf-state-store.ts";
+import { writeArtifact } from "../../state/artifact-store.ts";
+import { appendEvent } from "../../state/event-log.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { packageRoot, projectCrewRoot, userPiRoot } from "../../utils/paths.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import type { DynamicWorkflowConfig } from "../../workflows/workflow-config.ts";
+import { assertDeterministicScript, isDeterminismCheckEnabled } from "../deterministic-ast.ts";
+import { DwfStore } from "../dwf-state-store.ts";
 import { getWorkflowFinalResult, getWorkflowPhaseState, makeWorkflowCtx } from "./dynamic-workflow-context.ts";
 
 export interface RunDynamicWorkflowInput {
 	manifest: TeamRunManifest;
 	workflow: DynamicWorkflowConfig;
 	/** Optional team for role resolution (G4 tier 2). */
-	team?: import("../teams/team-config.ts").TeamConfig;
+	team?: import("../../teams/team-config.ts").TeamConfig;
 	signal: AbortSignal;
 	concurrency?: number;
 	modelOverride?: string;

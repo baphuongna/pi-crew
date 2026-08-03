@@ -17,23 +17,23 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import type { AgentConfig } from "../agents/agent-config.ts";
-import { loadConfig } from "../config/config.ts";
-import { effectiveRunConfig } from "../extension/team-tool/config-patch.ts";
-import { registerActiveRun, unregisterActiveRun } from "../state/active-run-registry.ts";
-import { appendEvent } from "../state/event-log.ts";
-import { collectRunMetrics } from "../state/run-metrics.ts";
-import { createRunManifest, saveRunTasks } from "../state/state-store.ts";
-import type { GoalLoopState, GoalLoopStatus, GoalVerdict, TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import type { TeamConfig } from "../teams/team-config.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import type { WorkflowConfig } from "../workflows/workflow-config.ts";
+import type { AgentConfig } from "../../agents/agent-config.ts";
+import { loadConfig } from "../../config/config.ts";
+import { effectiveRunConfig } from "../../extension/team-tool/config-patch.ts";
+import { registerActiveRun, unregisterActiveRun } from "../../state/active-run-registry.ts";
+import { appendEvent } from "../../state/event-log.ts";
+import { collectRunMetrics } from "../../state/run-metrics.ts";
+import { createRunManifest, saveRunTasks } from "../../state/state-store.ts";
+import type { GoalLoopState, GoalLoopStatus, GoalVerdict, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import type { TeamConfig } from "../../teams/team-config.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+import { resolveCrewRuntime } from "../model/runtime-resolver.ts";
+import { executeTeamRun } from "../team-runner.ts";
+import { compareSnapshot, snapshotManifests } from "../verification/verification-integrity.ts";
+import { acquireWorkspaceLock, type WorkspaceLockHandle } from "../workspace-lock.ts";
 import { bundleEvidence, evaluateGoal } from "./goal-evaluator.ts";
 import { GoalStore } from "./goal-state-store.ts";
-import { resolveCrewRuntime } from "./model/runtime-resolver.ts";
-import { executeTeamRun } from "./team-runner.ts";
-import { compareSnapshot, snapshotManifests } from "./verification/verification-integrity.ts";
-import { acquireWorkspaceLock, type WorkspaceLockHandle } from "./workspace-lock.ts";
 
 /** Required minimal shape for the worker + agents discovery (P0 uses the goal's workerAgent). */
 export interface GoalLoopRuntimeDeps {
@@ -62,8 +62,8 @@ export interface RunGoalLoopResult {
 export const stubGoalEvaluator = async (
 	goal: GoalLoopState,
 	_turnRunId: string,
-	_m?: import("../state/types.ts").TeamRunManifest,
-	_t?: import("../state/types.ts").TeamTaskState[],
+	_m?: import("../../state/types.ts").TeamRunManifest,
+	_t?: import("../../state/types.ts").TeamTaskState[],
 	_s?: AbortSignal,
 ): Promise<GoalEvaluatorResult> => ({
 	verdict: {
@@ -84,8 +84,8 @@ export type GoalEvaluatorResult = {
 export type GoalEvaluatorFn = (
 	goal: GoalLoopState,
 	turnRunId: string,
-	turnManifest: import("../state/types.ts").TeamRunManifest,
-	turnTasks: import("../state/types.ts").TeamTaskState[],
+	turnManifest: import("../../state/types.ts").TeamRunManifest,
+	turnTasks: import("../../state/types.ts").TeamTaskState[],
 	signal: AbortSignal,
 ) => Promise<GoalEvaluatorResult>;
 
@@ -98,8 +98,8 @@ export type GoalEvaluatorFn = (
 export const realGoalEvaluator = async (
 	goal: GoalLoopState,
 	turnRunId: string,
-	turnManifest: import("../state/types.ts").TeamRunManifest,
-	turnTasks: import("../state/types.ts").TeamTaskState[],
+	turnManifest: import("../../state/types.ts").TeamRunManifest,
+	turnTasks: import("../../state/types.ts").TeamTaskState[],
 	signal: AbortSignal,
 ): Promise<GoalEvaluatorResult> => {
 	const transcriptPath = deriveTranscriptPath(turnManifest.artifactsRoot, turnTasks);
@@ -138,7 +138,7 @@ export const realGoalEvaluator = async (
 		if (!verificationCompromised) {
 			try {
 				// LAZY: defer dynamic import of ./verification-gates.ts to its call site.
-				const { executeVerificationCommands } = await import("./verification/verification-gates.ts");
+				const { executeVerificationCommands } = await import("../verification/verification-gates.ts");
 				const contract = {
 					requiredGreenLevel: "none" as const,
 					commands: goal.verification.commands,
@@ -154,7 +154,7 @@ export const realGoalEvaluator = async (
 				try {
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site.
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
-					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("./verification/verification-worktree.ts");
+					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("../verification/verification-worktree.ts");
 					const availability = checkWorktreeSandboxAvailable(goal.cwd);
 					if (availability.available) {
 						const wt = prepareVerificationWorktree(goal.cwd, availability.commitSha);
@@ -272,7 +272,7 @@ function resolveGoalTurnWorkflow(goal: GoalLoopState): WorkflowConfig {
 		const requireFromHere = createRequire(import.meta.url);
 		const { discoverWorkflows, allWorkflows } = requireFromHere(
 			"../workflows/discover-workflows.ts",
-		) as typeof import("../workflows/discover-workflows.ts");
+		) as typeof import("../../workflows/discover-workflows.ts");
 		const found = allWorkflows(discoverWorkflows(goal.cwd)).find((w) => w.name === wrapName && w.source === "builtin");
 		if (found) return found;
 		logInternalError(
@@ -474,7 +474,7 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 
 /** Derive the worker transcript path from the turn's tasks (Fix P0-2). Falls back to dir scan.
  *  Exported for unit testing the path-derivation fix. */
-export function deriveTranscriptPath(artifactsRoot: string, tasks: import("../state/types.ts").TeamTaskState[]): string | undefined {
+export function deriveTranscriptPath(artifactsRoot: string, tasks: import("../../state/types.ts").TeamTaskState[]): string | undefined {
 	const transcriptsDir = `${artifactsRoot}/transcripts`;
 	// Primary: use the first task's id + attempt-0 (task-runner writes ${task.id}.attempt-${i}.jsonl).
 	const firstTask = tasks[0];

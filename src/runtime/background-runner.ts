@@ -650,9 +650,9 @@ async function main(): Promise<void> {
 			debugLog(`[background-runner] short-circuiting ${manifest.runKind} (synthetic team/workflow)`);
 			if (manifest.runKind === "goal-loop") {
 				// LAZY: defer dynamic import of ./goal-loop-runner.ts to its call site.
-				const { runGoalLoop } = await import("./goal-loop-runner.ts");
+				const { runGoalLoop } = await import("./goal-workflow/goal-loop-runner.ts");
 				// LAZY: defer dynamic import of ./goal-state-store.ts to its call site.
-				const { GoalStore } = await import("./goal-state-store.ts");
+				const { GoalStore } = await import("./goal-workflow/goal-state-store.ts");
 				// LAZY: defer dynamic import of ../agents/discover-agents.ts to its call site.
 				const { discoverAgents, allAgents } = await import("../agents/discover-agents.ts");
 				const store = new GoalStore(manifest.cwd);
@@ -691,7 +691,7 @@ async function main(): Promise<void> {
 				};
 			} else {
 				// LAZY: defer dynamic import of ./dynamic-workflow-runner.ts to its call site.
-				const { runDynamicWorkflow } = await import("./dynamic-workflow-runner.ts");
+				const { runDynamicWorkflow } = await import("./goal-workflow/dynamic-workflow-runner.ts");
 				// LAZY: defer dynamic import of ../workflows/discover-workflows.ts to its call site.
 				const { allWorkflows, discoverWorkflows } = await import("../workflows/discover-workflows.ts");
 				const wf = allWorkflows(discoverWorkflows(manifest.cwd)).find((w) => w.name === manifest.workflow);

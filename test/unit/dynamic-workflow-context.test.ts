@@ -13,7 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
-import type { AgentCallOpts } from "../../src/runtime/dynamic-workflow-context.ts";
+import type { AgentCallOpts } from "../../src/runtime/goal-workflow/dynamic-workflow-context.ts";
 import {
 	classifyReviewOutcome,
 	getWorkflowCheckpoint,
@@ -23,7 +23,7 @@ import {
 	makeWorkflowCtx,
 	resolveAgentForRole,
 	synthesizeAgentConfig,
-} from "../../src/runtime/dynamic-workflow-context.ts";
+} from "../../src/runtime/goal-workflow/dynamic-workflow-context.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { cleanupAgentWorktree, prepareAgentWorktree } from "../../src/worktree/worktree-manager.ts";
 

@@ -7,7 +7,7 @@ import {
 	parseAdaptivePlan,
 	repairAdaptivePlan,
 	slug,
-} from "../../src/runtime/adaptive-plan.ts";
+} from "../../src/runtime/goal-workflow/adaptive-plan.ts";
 
 /**
  * Round 25 (test coverage gaps): `adaptive-plan.ts` provides the adaptive

@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { bundleEvidence, evaluateGoal, synthesizeJudgeAgentConfig } from "../../src/runtime/goal-evaluator.ts";
+import { bundleEvidence, evaluateGoal, synthesizeJudgeAgentConfig } from "../../src/runtime/goal-workflow/goal-evaluator.ts";
 
 test("synthesizeJudgeAgentConfig applies full C6 lockdown (NOT just tools:[])", () => {
 	const cfg = synthesizeJudgeAgentConfig();

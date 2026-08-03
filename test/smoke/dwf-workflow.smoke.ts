@@ -76,7 +76,7 @@ test("smoke: full DWF workflow (phase/log/args/budget/pipeline/agent/setResult) 
 	const jitiMod = require(path.join(repoRoot, "node_modules/jiti/lib/jiti.cjs"));
 	const createJiti = jitiMod.default ?? jitiMod;
 	const jiti = createJiti(thisFile);
-	const dwfMod = (await jiti.import(path.join(repoRoot, "src/runtime/dynamic-workflow-runner.ts") as string)) as {
+	const dwfMod = (await jiti.import(path.join(repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts") as string)) as {
 		default?: {
 			runDynamicWorkflow: (input: unknown) => Promise<{ manifest: { status: string; summary: string } }>;
 		};

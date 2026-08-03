@@ -9,7 +9,7 @@
  * deterministic scaffolding + LLM refinement.
  */
 
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

@@ -16,8 +16,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { allAgents, discoverAgents } from "../../src/agents/discover-agents.ts";
-import { deriveTranscriptPath, runGoalLoop, stubGoalEvaluator } from "../../src/runtime/goal-loop-runner.ts";
-import { GoalStore } from "../../src/runtime/goal-state-store.ts";
+import { deriveTranscriptPath, runGoalLoop, stubGoalEvaluator } from "../../src/runtime/goal-workflow/goal-loop-runner.ts";
+import { GoalStore } from "../../src/runtime/goal-workflow/goal-state-store.ts";
 import { createRunManifest } from "../../src/state/state-store.ts";
 import type { GoalLoopState } from "../../src/state/types.ts";
 

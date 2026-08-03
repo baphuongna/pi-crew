@@ -633,8 +633,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		console.warn(
 			`[pi-crew SECURITY] Dynamic workflow '${workflow.name}' executes as trusted Node.js code with full process/require/import access; run only reviewed .dwf.ts files.`,
 		);
-		// LAZY: defer dynamic import of ../../runtime/dynamic-workflow-runner.ts to its call site.
-		const { runDynamicWorkflow } = await import("../../runtime/dynamic-workflow-runner.ts");
+		// LAZY: defer dynamic import of ../../runtime/goal-workflow/dynamic-workflow-runner.ts to its call site.
+		const { runDynamicWorkflow } = await import("../../runtime/goal-workflow/dynamic-workflow-runner.ts");
 		// Re-synthesize a dynamic-team (§0c C9) for role resolution.
 		const dwfTeam: import("../../teams/team-config.ts").TeamConfig = {
 			name: `dwf-${manifest.runId.slice(-12)}`,
@@ -653,7 +653,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// CORE-8: unified deadline — resolve params > config > 1h default.
 		const dwfDeadline = resolveRunDeadline(ctx, params);
 		try {
-			let dwfResult: import("../../runtime/dynamic-workflow-runner.ts").RunDynamicWorkflowResult | undefined;
+			let dwfResult: import("../../runtime/goal-workflow/dynamic-workflow-runner.ts").RunDynamicWorkflowResult | undefined;
 			try {
 				dwfResult = await runDynamicWorkflow({
 					manifest: dwfManifest,

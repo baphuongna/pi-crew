@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { runDynamicWorkflow } from "../../src/runtime/dynamic-workflow-runner.ts";
+import { runDynamicWorkflow } from "../../src/runtime/goal-workflow/dynamic-workflow-runner.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import type { DynamicWorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

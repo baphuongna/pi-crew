@@ -15,14 +15,14 @@
 // `__test__parseAdaptivePlan` and `__test__repairAdaptivePlan` are re-exported
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
-import { writeArtifact } from "../state/artifact-store.ts";
-import { appendEventAsync, appendEventFireAndForget } from "../state/event-log.ts";
-import { saveRunManifestAsync } from "../state/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import type { TeamConfig } from "../teams/team-config.ts";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
+import { writeArtifact } from "../../state/artifact-store.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log.ts";
+import { saveRunManifestAsync } from "../../state/state-store.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import type { TeamConfig } from "../../teams/team-config.ts";
+import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";
+import { refreshTaskGraphQueues } from "../scheduling/task-graph-scheduler.ts";
 import { getPlanTemplate, renderPlanTemplate } from "./plan-templates.ts";
-import { refreshTaskGraphQueues } from "./scheduling/task-graph-scheduler.ts";
 
 export interface AdaptivePlanTask {
 	role: string;
@@ -557,7 +557,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 
 // Test compatibility: original team-runner.ts exposed these names. Keep
 // matching exports here; team-runner.ts re-exports them so existing test
-// imports (`import { __test__parseAdaptivePlan } from "../../src/runtime/team-runner.ts"`)
+// imports (`import { __test__parseAdaptivePlan } from "../../../src/runtime/team-runner.ts"`)
 // keep working without churn.
 export const __test__parseAdaptivePlan = parseAdaptivePlan;
 export const __test__repairAdaptivePlan = repairAdaptivePlan;

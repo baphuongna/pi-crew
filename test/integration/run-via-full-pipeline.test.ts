@@ -127,7 +127,7 @@ test("team-tool via full pi pipeline: handleRun reaches dwf dispatch (RFC 17 fix
 	// local `deps`. To exercise this path we'd need a full pi harness. For
 	// this regression test we just confirm handleRun is reachable without
 	// TDZ by calling it through a simpler entry: handleRun via dynamic import.
-	const { runDynamicWorkflow } = await import(pathToFileURL(path.join(repoRoot, "src/runtime/dynamic-workflow-runner.ts")).href).catch(
+	const { runDynamicWorkflow } = await import(pathToFileURL(path.join(repoRoot, "src/runtime/goal-workflow/dynamic-workflow-runner.ts")).href).catch(
 		async () => {
 			// Fallback: run handleRun directly to surface any TDZ in its module graph.
 			const runModule = await import(pathToFileURL(path.join(repoRoot, "src/extension/team-tool/run.ts")).href);

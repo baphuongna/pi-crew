@@ -15,7 +15,7 @@
  */
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
-import { GoalStore } from "../../runtime/goal-state-store.ts";
+import { GoalStore } from "../../runtime/goal-workflow/goal-state-store.ts";
 import { snapshotManifests } from "../../runtime/verification/verification-integrity.ts";
 import { isWorkspaceBusy } from "../../runtime/workspace-lock.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";

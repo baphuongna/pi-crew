@@ -26,7 +26,7 @@ import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
 import { appendDeadletter } from "./deadletter.ts";
 import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffectivenessLines } from "./effectiveness.ts";
-import { applyGoalAchievement, assessGoalAchievement } from "./goal-achievement.ts";
+import { applyGoalAchievement, assessGoalAchievement } from "./goal-workflow/goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
@@ -462,14 +462,14 @@ export function mergeTaskUpdatesPreservingTerminal(base: TeamTaskState[], result
 /** @deprecated Use mergeTaskUpdatesPreservingTerminal. Kept for backward test import compat. */
 export const __test__mergeTaskUpdates = mergeTaskUpdatesPreservingTerminal;
 
-// 2.8: adaptive-plan parsing/repair/injection moved to src/runtime/adaptive-plan.ts.
+// 2.8: adaptive-plan parsing/repair/injection moved to src/runtime/goal-workflow/adaptive-plan.ts.
 // Re-export the test-only helpers so existing test imports still resolve.
 export {
 	__test__parseAdaptivePlan,
 	__test__repairAdaptivePlan,
-} from "./adaptive-plan.ts";
+} from "./goal-workflow/adaptive-plan.ts";
 
-import { injectAdaptivePlanIfReady } from "./adaptive-plan.ts";
+import { injectAdaptivePlanIfReady } from "./goal-workflow/adaptive-plan.ts";
 
 function formatTaskProgress(task: TeamTaskState): string {
 	return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
