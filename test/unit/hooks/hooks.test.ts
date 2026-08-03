@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearHooks, executeHook, getHooks, registerHook } from "../../src/hooks/registry.ts";
-import type { HookDefinition, HookResult } from "../../src/hooks/types.ts";
+import { clearHooks, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
+import type { HookDefinition, HookResult } from "../../../src/hooks/types.ts";
 
 test("blocking hook can allow execution", async () => {
 	try {

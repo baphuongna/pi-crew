@@ -7,7 +7,7 @@ import {
 	HookRegistry,
 	isHookEvent,
 	isValidEventType,
-} from "../../src/runtime/crew-hooks.ts";
+} from "../../../src/runtime/crew-hooks.ts";
 
 describe("isValidEventType", () => {
 	it("returns true for all valid event types", () => {

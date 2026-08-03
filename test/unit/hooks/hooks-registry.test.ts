@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { clearHooks, executeHook, getHooks, registerHook } from "../../src/hooks/registry.ts";
-import type { HookContext, HookDefinition } from "../../src/hooks/types.ts";
+import { clearHooks, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
+import type { HookContext, HookDefinition } from "../../../src/hooks/types.ts";
 
 function makeCtx(overrides?: Partial<HookContext>): HookContext {
 	return {

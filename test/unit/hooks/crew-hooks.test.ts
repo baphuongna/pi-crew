@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type CrewHookEvent, type CrewHookEventType, crewHooks } from "../../src/runtime/crew-hooks.ts";
+import { type CrewHookEvent, type CrewHookEventType, crewHooks } from "../../../src/runtime/crew-hooks.ts";
 
 const makeEvent = (type: CrewHookEventType): CrewHookEvent => ({
 	type,
