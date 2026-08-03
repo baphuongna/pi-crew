@@ -45,6 +45,18 @@ export interface CrewRuntimeConfig {
 	maxTurns?: number;
 	graceTurns?: number;
 	/**
+	 * Global extension allowlist (default: none). Paths (file paths or npm
+	 * extension entry points) to load in EVERY spawned child-pi worker, on top
+	 * of pi-crew's own prompt-runtime extension. Despite `--no-extensions`
+	 * being set for child spawns (to prevent untrusted user extensions from
+	 * auto-loading), Pi loads explicitly-passed `--extension <path>` entries.
+	 * This is the sanctioned channel for provider extensions that register
+	 * models (e.g. `pi-commandcode-provider`) so those models stay resolvable
+	 * inside subagents. Applies to all agents; agent-level `extensions:`
+	 * frontmatter (user sources) can still add per-agent extensions.
+	 */
+	agentExtensions?: string[];
+	/**
 	 * W2 fix — wall-clock timeout per task in milliseconds. When the task
 	 * exceeds this limit, input.signal is aborted which triggers the existing
 	 * SIGTERM → SIGKILL escalation in child-pi.ts. Default 0 (no timeout).

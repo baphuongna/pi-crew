@@ -427,13 +427,12 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 			// code. Bypass only when PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1 is
 			// explicitly set. buildPiWorkerArgs also enforces this as
 			// defense-in-depth.
-			...((source === "project" || source === "project-pi")
-				&& process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
+			...((source === "project" || source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
 				? { extensions: [], excludeExtensions: [] }
 				: {
 						extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
 						excludeExtensions: parseCsv(frontmatter.excludeExtensions ?? frontmatter.exclude_extensions),
-				}),
+					}),
 			skills: parseCsv(frontmatter.skills ?? frontmatter.skill),
 			systemPromptMode: frontmatter.systemPromptMode === "append" ? "append" : "replace",
 			inheritProjectContext: frontmatter.inheritProjectContext === "true",
@@ -480,9 +479,7 @@ function readAgentDir(dir: string, source: ResourceSource): AgentConfig[] {
 			try {
 				const stat = fs.statSync(fullPath);
 				if (stat.size > MAX_AGENT_FILE_BYTES) {
-					console.warn(
-						`[pi-crew] Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`,
-					);
+					console.warn(`[pi-crew] Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`);
 					return undefined;
 				}
 			} catch {
@@ -507,13 +504,36 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string, loadedConfig?: 
 	const loaded = loadedConfig ?? loadConfig(cwd);
 	const agentsConfig = loaded.config.agents;
 	const overrides = agentsConfig?.overrides ?? {};
+	// Global extension allowlist (`runtime.agentExtensions`): every agent
+	// additionally loads these extension entry points in its spawned child
+	// (alongside pi-crew's prompt-runtime). This is the sanctioned channel for
+	// provider extensions that register models (e.g. pi-commandcode-provider)
+	// so provider models stay resolvable inside subagents despite
+	// `--no-extensions`. Agent-level `extensions:` frontmatter (user sources)
+	// is preserved and merged AFTER the global list; SEC-1 stripping for
+	// project/project-pi sources still applies below.
+	const globalExtensions = loaded.config.runtime?.agentExtensions ?? [];
+	// SEC-1 (defense-in-depth): do NOT merge the global extension allowlist into
+	// untrusted project / project-pi agents. Those agents already had their
+	// `extensions` stripped at parse time unless PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1;
+	// re-adding global extensions would bypass that gate. The global list is a
+	// user-trusted config knob (provider extensions like pi-commandcode-provider)
+	// and applies to builtin / user agents only.
+	const isUntrustedProject = (agent: AgentConfig) =>
+		(agent.source === "project" || agent.source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1";
+	const withGlobalExtensions = (agent: AgentConfig): AgentConfig => {
+		if (isUntrustedProject(agent)) return agent;
+		return globalExtensions.length > 0 || agent.extensions !== undefined
+			? { ...agent, extensions: [...globalExtensions, ...(agent.extensions ?? [])] }
+			: agent;
+	};
 	return agents
 		.filter((agent) => !(agentsConfig?.disableBuiltins && agent.source === "builtin"))
 		.map((agent) => {
 			const overrideEntry = Object.entries(overrides).find(([name]) => name.toLowerCase() === agent.name.toLowerCase());
-			if (!overrideEntry) return agent;
+			if (!overrideEntry) return withGlobalExtensions(agent);
 			const [, override] = overrideEntry;
-			return {
+			return withGlobalExtensions({
 				...agent,
 				disabled: override.disabled ?? agent.disabled,
 				model: override.model === false ? undefined : (override.model ?? agent.model),
@@ -522,7 +542,7 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string, loadedConfig?: 
 				tools: override.tools === false ? undefined : (override.tools ?? agent.tools),
 				skills: override.skills === false ? undefined : (override.skills ?? agent.skills),
 				override: { source: "config", path: loaded.path },
-			};
+			});
 		});
 }
 

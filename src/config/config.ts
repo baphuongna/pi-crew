@@ -732,6 +732,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 			return Object.values(parsed).some((v) => v !== undefined) ? parsed : undefined;
 		})(),
 		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
+		agentExtensions: parseStringList(obj.agentExtensions),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;

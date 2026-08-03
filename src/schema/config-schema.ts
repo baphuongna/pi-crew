@@ -72,6 +72,7 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 			),
 		),
 		excludeContextBash: Type.Optional(Type.Boolean()),
+		agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 		isolationPolicy: Type.Optional(
 			Type.Object(
 				{

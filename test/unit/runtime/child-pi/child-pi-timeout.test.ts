@@ -5,7 +5,13 @@ import test from "node:test";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../../../../src/config/defaults.ts";
 import { ChildPiLineObserver } from "../../../../src/runtime/child-pi/child-pi.ts";
-import { applyThinkingSuffix, buildPiWorkerArgs, checkCrewDepth, cleanupTempDir, currentCrewDepth } from "../../../../src/runtime/model/pi-args.ts";
+import {
+	applyThinkingSuffix,
+	buildPiWorkerArgs,
+	checkCrewDepth,
+	cleanupTempDir,
+	currentCrewDepth,
+} from "../../../../src/runtime/model/pi-args.ts";
 
 const minimalAgent: AgentConfig = {
 	name: "test-agent",
@@ -176,4 +182,30 @@ test("ChildPiLineObserver recognizes final assistant turn end", () => {
 	assert.ok(events.length >= 1, "expected at least one event from message_end");
 	const endEvent = events[events.length - 1] as Record<string, unknown>;
 	assert.equal(endEvent.type, "message_end");
+});
+
+// ─── runtime.agentExtensions → --extension emission ─────────────────────────
+
+test("buildPiWorkerArgs emits --extension for every agent extension (global allowlist)", () => {
+	const agentWithExt: AgentConfig = {
+		...minimalAgent,
+		extensions: ["/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts", "/tmp/another-ext.ts"],
+	};
+	const result = buildPiWorkerArgs({ task: "test", agent: agentWithExt });
+	const extFlags = result.args.filter((a) => a === "--extension").length;
+	// prompt-runtime + 2 agent extensions
+	assert.equal(extFlags, 3, `expected 3 --extension flags (prompt-runtime + 2), got ${extFlags}`);
+	assert.ok(
+		result.args.includes("/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts"),
+		"provider extension path must be passed via --extension",
+	);
+	assert.ok(result.args.includes("/tmp/another-ext.ts"), "second extension path must be passed");
+	// --no-extensions still present (security posture preserved)
+	assert.ok(result.args.includes("--no-extensions"), "--no-extensions must still be present");
+});
+
+test("buildPiWorkerArgs without agent extensions emits only prompt-runtime", () => {
+	const result = buildPiWorkerArgs({ task: "test", agent: minimalAgent });
+	const extFlags = result.args.filter((a) => a === "--extension").length;
+	assert.equal(extFlags, 1, `expected exactly 1 --extension (prompt-runtime only), got ${extFlags}`);
 });
