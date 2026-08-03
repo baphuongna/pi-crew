@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
+import { smokeSkipReason } from "./_helpers.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
@@ -71,7 +71,7 @@ function readEvents(eventsPath: string): DwfEvent[] {
 }
 
 test("smoke: full DWF workflow (phase/log/args/budget/pipeline/agent/setResult) end-to-end", {
-	skip: SMOKE_ENABLED ? false : SKIP_REASON,
+	skip: smokeSkipReason(),
 }, async () => {
 	const jitiMod = require(path.join(repoRoot, "node_modules/jiti/lib/jiti.cjs"));
 	const createJiti = jitiMod.default ?? jitiMod;

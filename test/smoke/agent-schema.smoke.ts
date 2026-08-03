@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
 import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
-import { fakeExecutorAgent, makeTmpCwd, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
+import { fakeExecutorAgent, makeTmpCwd, smokeSkipReason } from "./_helpers.ts";
 
 const VerdictSchema = Type.Object({
 	ok: Type.Boolean(),
@@ -22,7 +22,7 @@ const VerdictSchema = Type.Object({
 });
 
 test("smoke: ctx.agent({schema, systemPrompt}) returns structured JSON matching schema", {
-	skip: SMOKE_ENABLED ? false : SKIP_REASON,
+	skip: smokeSkipReason(),
 }, async () => {
 	const { cwd, cleanup } = makeTmpCwd("agent-schema");
 	try {

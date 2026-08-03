@@ -10,10 +10,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
-import { assertHasAnswer, fakeExecutorAgent, makeTmpCwd, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
+import { assertHasAnswer, fakeExecutorAgent, makeTmpCwd, smokeSkipReason } from "./_helpers.ts";
 
 test("smoke: ctx.agent() plain returns exit 0 + answer", {
-	skip: SMOKE_ENABLED ? false : SKIP_REASON,
+	skip: smokeSkipReason(),
 }, async () => {
 	const { cwd, cleanup } = makeTmpCwd("agent-plain");
 	try {

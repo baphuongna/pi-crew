@@ -21,10 +21,10 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { buildPiWorkerArgs } from "../../src/runtime/model/pi-args.ts";
 import { getPiSpawnCommand } from "../../src/runtime/pi-spawn.ts";
-import { fakeExecutorAgent, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
+import { fakeExecutorAgent, smokeSkipReason } from "./_helpers.ts";
 
 test("smoke: buildPiWorkerArgs emits NO unknown argv flag (pi --version still works)", {
-	skip: SMOKE_ENABLED ? false : SKIP_REASON,
+	skip: smokeSkipReason(),
 }, () => {
 	// Build the args the way child-pi.ts would, then verify pi doesn't choke on
 	// any of them by running pi --version with the same leading flags. We can't

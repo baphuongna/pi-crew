@@ -23,6 +23,34 @@ export const SMOKE_ENABLED = process.env.PI_CREW_SMOKE === "1";
 /** Reason shown in the skip output when smoke is disabled. */
 export const SKIP_REASON = "set PI_CREW_SMOKE=1 to run real-binary smoke tests (bills tokens)";
 
+/**
+ * Smoke tests spawn the REAL `pi` binary, which needs a resolvable model +
+ * API key. On a fresh CI runner with neither PI_AUTH_JSON nor a
+ * ~/.pi/agent/auth.json, `pi` exits 1 ("No API key found for the selected
+ * model"). Detect that and skip gracefully so a token-free weekly canary
+ * (weekly-smoke.yml) can still pass: it validates build/install/bundle, and
+ * the model-billing smoke only runs where auth is actually configured.
+ */
+function hasModelAuth(): boolean {
+	if (process.env.PI_AUTH_JSON) return true;
+	const home = process.env.HOME || process.env.USERPROFILE || "";
+	try {
+		return fs.existsSync(path.join(home, ".pi", "agent", "auth.json"));
+	} catch {
+		return false;
+	}
+}
+export const MODEL_AUTH_AVAILABLE = hasModelAuth();
+export const SMOKE_SKIP_NO_AUTH =
+	"smoke tests require a real model/API key — set PI_AUTH_JSON (repo secret) or run `pi /login`; skipped on token-free canaries";
+
+/** Unified skip gate: run only when smoke is enabled AND a model is resolvable. */
+export function smokeSkipReason(): string | false {
+	if (!SMOKE_ENABLED) return SKIP_REASON;
+	if (!MODEL_AUTH_AVAILABLE) return SMOKE_SKIP_NO_AUTH;
+	return false;
+}
+
 /** Create a unique temp cwd and return it + a cleanup fn. */
 export function makeTmpCwd(prefix: string): {
 	cwd: string;
