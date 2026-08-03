@@ -2260,6 +2260,14 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 		// runnable). This is NOT a completed run — mark it blocked rather than
 		// false-green "completed".
 		manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
+	} else if (manifest.status === "failed" || manifest.status === "cancelled") {
+		// The run was already marked failed/cancelled mid-run (e.g. handleFailedTask
+		// on a coalesced-group race where the failing task's status was later
+		// mutated by the group-drain, or a cancel). Preserve that terminal status —
+		// do NOT force "completed" here: failed -> completed is not in
+		// TEAM_RUN_STATUS_TRANSITIONS and would throw an invalid-transition error.
+		// (No updateRunStatus call: from===to is a no-op, but the intent here is
+		// explicitly "leave the earlier decision intact".)
 	} else {
 		manifest = updateRunStatus(
 			manifest,
