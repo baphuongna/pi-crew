@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { configPath, loadConfig } from "../../src/config/config.ts";
+import { configPath, loadConfig } from "../../../src/config/config.ts";
 
 test("loadConfig drops runtime and limit values above sanity ceilings", () => {
 	const previousHome = process.env.PI_TEAMS_HOME;

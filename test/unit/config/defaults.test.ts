@@ -18,7 +18,7 @@ import {
 	DEFAULT_PATHS,
 	DEFAULT_SUBAGENT,
 	DEFAULT_UI,
-} from "../../src/config/defaults.ts";
+} from "../../../src/config/defaults.ts";
 
 describe("DEFAULT_CHILD_PI", () => {
 	it("has all expected timeout fields with positive numeric values", () => {

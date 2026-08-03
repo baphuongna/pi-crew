@@ -3,9 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { configPath } from "../../src/config/config.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import { configPath } from "../../../src/config/config.ts";
+import { handleTeamTool } from "../../../src/extension/team-tool.ts";
+import { firstText } from "../../fixtures/tool-result-helpers.ts";
 
 test("autonomy action shows and toggles autonomous config", async () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-autonomy-"));

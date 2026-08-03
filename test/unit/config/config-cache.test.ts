@@ -15,7 +15,7 @@ import {
 	projectConfigPath,
 	projectPiCrewJsonPath,
 	updateConfig,
-} from "../../src/config/config.ts";
+} from "../../../src/config/config.ts";
 
 // Each test isolates PI_TEAMS_HOME to a tmp dir so we don't touch the
 // developer's real user config (regression — early versions of this file

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { PiTeamsOtlpConfigSchema } from "../../src/schema/config-schema.ts";
+import { PiTeamsOtlpConfigSchema } from "../../../src/schema/config-schema.ts";
 
 test("H8: OTLP endpoint accepts http://", () => {
 	const result = Value.Parse(PiTeamsOtlpConfigSchema, {

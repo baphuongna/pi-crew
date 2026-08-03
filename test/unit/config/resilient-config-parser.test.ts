@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseConfigResilient } from "../../src/config/resilient-parser.ts";
+import { parseConfigResilient } from "../../../src/config/resilient-parser.ts";
 
 test("parseConfigResilient: returns valid for empty object", () => {
 	const result = parseConfigResilient({});

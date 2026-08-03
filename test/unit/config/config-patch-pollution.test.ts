@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeObject } from "../../src/extension/team-tool/config-patch.ts";
-import { __test__resetI18n, addTranslations } from "../../src/i18n.ts";
+import { sanitizeObject } from "../../../src/extension/team-tool/config-patch.ts";
+import { __test__resetI18n, addTranslations } from "../../../src/i18n.ts";
 
 /**
  * Tests for prototype-pollution prevention (MEDIUM #1 and MEDIUM #2 fixes).

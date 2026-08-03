@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { PiTeamsConfigSchema } from "../../src/schema/config-schema.ts";
+import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 
 // All known top-level keys from the PiTeamsConfig interface.
 // If you add a new key to the interface, add it here too.

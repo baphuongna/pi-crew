@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { loadConfig } from "../../src/config/config.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import { loadConfig } from "../../../src/config/config.ts";
+import { handleTeamTool } from "../../../src/extension/team-tool.ts";
 
 test("config action can unset nested config keys", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-config-unset-"));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseConfigResilient } from "../../src/config/resilient-parser.ts";
+import { parseConfigResilient } from "../../../src/config/resilient-parser.ts";
 
 describe("parseConfigResilient", () => {
 	it("returns valid=true and empty config for null input", () => {

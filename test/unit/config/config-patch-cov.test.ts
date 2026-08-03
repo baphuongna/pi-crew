@@ -6,7 +6,7 @@ import {
 	effectiveRunConfig,
 	formatAutonomyStatus,
 	sanitizeObject,
-} from "../../src/extension/team-tool/config-patch.ts";
+} from "../../../src/extension/team-tool/config-patch.ts";
 
 describe("sanitizeObject", () => {
 	it("strips __proto__ keys from null-prototype objects", () => {

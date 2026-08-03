@@ -4,9 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { configPath, loadConfig, parseConfig } from "../../src/config/config.ts";
-import { configPatchFromConfig } from "../../src/extension/team-tool/config-patch.ts";
-import { PiTeamsConfigSchema } from "../../src/schema/config-schema.ts";
+import { configPath, loadConfig, parseConfig } from "../../../src/config/config.ts";
+import { configPatchFromConfig } from "../../../src/extension/team-tool/config-patch.ts";
+import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 
 test("parseConfig accepts valid values and drops invalid siblings using TypeBox validation", () => {
 	const parsed = parseConfig({

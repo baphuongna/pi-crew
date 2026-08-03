@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseConfig } from "../../src/config/config.ts";
+import { parseConfig } from "../../../src/config/config.ts";
 
 /**
  * Regression for CFG-1 (config type↔parser↔schema drift).

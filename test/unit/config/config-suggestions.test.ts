@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findClosestKey, levenshtein, suggestConfigKey } from "../../src/config/suggestions.ts";
+import { findClosestKey, levenshtein, suggestConfigKey } from "../../../src/config/suggestions.ts";
 
 // ---------------------------------------------------------------------------
 // levenshtein
