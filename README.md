@@ -912,7 +912,7 @@ Stats: **477 source files** (108K lines) · **682 test files** (~6,500 tests) ·
 | [docs/dynamic-workflows.md](docs/dynamic-workflows.md) | **v0.9.0** `.dwf.ts` script runtime + trust model |
 | [docs/live-mailbox-runtime.md](docs/live-mailbox-runtime.md) | Mailbox + live-session runtime |
 | [docs/publishing.md](docs/publishing.md) | Release & publish process |
-| [docs/next-upgrade-roadmap.md](docs/next-upgrade-roadmap.md) | Future upgrade roadmap |
+| [docs/archive/next-upgrade-roadmap.md](docs/archive/next-upgrade-roadmap.md) | Future upgrade roadmap |
 | [schema.json](schema.json) | Config JSON schema |
 
 Research docs (not in package): [`docs/pi-crew-research/`](https://github.com/baphuongna/pi-crew/tree/main/docs) — audits, deep research, distillation notes.

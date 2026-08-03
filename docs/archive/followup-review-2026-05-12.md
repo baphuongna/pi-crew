@@ -1,6 +1,6 @@
 # Follow-up Review — pi-crew (2026-05-12, round 2)
 
-Author: Droid (Factory) | Related: `docs/followup-plan-2026-05-12.md`, commit `926e6ee`.
+Author: Droid (Factory) | Related: `docs/archive/followup-plan-2026-05-12.md`, commit `926e6ee`.
 
 Review after commit `926e6ee` applied the B1–B9 + A1–A2 fixes from `followup-plan-2026-05-12.md`.
 

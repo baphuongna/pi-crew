@@ -8,7 +8,7 @@ Tổng hợp review toàn bộ project và các cơ hội nâng cấp/cải thi�
 - Quy ước mức độ: 🔴 Cao · 🟡 Trung bình · ⚪ Thấp/Hygiene
 - Quy ước effort: S (<0.5 ngày) · M (0.5–2 ngày) · L (>2 ngày)
 
-> **Review bộ core** (scheduler, child-process lifecycle, state durability/concurrency, worktree, conflict detection): xem `docs/REVIEW-FINDINGS-2026-07-CORE.md` — 9 finding đã verify trực tiếp + 12 finding cần repro.
+> **Review bộ core** (scheduler, child-process lifecycle, state durability/concurrency, worktree, conflict detection): xem `docs/archive/REVIEW-FINDINGS-2026-07-CORE.md` — 9 finding đã verify trực tiếp + 12 finding cần repro.
 
 ## Baseline health (đã verify)
 

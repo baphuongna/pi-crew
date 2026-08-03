@@ -2,7 +2,7 @@
 
 - **Lane:** normal (Dependency) — có thể tách thành 2 patch độc lập
 - **Status:** planned
-- **Nguồn:** `docs/REVIEW-FINDINGS-2026-07.md` (F6)
+- **Nguồn:** `docs/archive/REVIEW-FINDINGS-2026-07.md` (F6)
 - **Ngày tạo:** 2026-07-09
 
 ## Overview

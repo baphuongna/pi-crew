@@ -121,7 +121,7 @@ Each item: ADR + kill switch + dual-ship migration if needed.
 
 - `docs/perf/sprint-<n>-report.md` at the end of each sprint.
 - `docs/perf/final-report-2026-05.md` comparing baseline vs final.
-- Update `docs/next-upgrade-roadmap.md` to mark completed items.
+- Update `docs/archive/next-upgrade-roadmap.md` to mark completed items.
 
 ## Risk register
 

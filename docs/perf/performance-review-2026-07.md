@@ -2,7 +2,7 @@
 
 > Deep-dive review toàn bộ codebase (~434 file TS, ~82.7k dòng) tập trung vào hiệu năng.
 > Mọi phát hiện đều có file:line cụ thể và đã được xác minh trực tiếp trên source.
-> Bổ sung cho `docs/perf/final-report-2026-05.md` và `docs/optimization-plan.md` (các vòng tối ưu trước).
+> Bổ sung cho `docs/perf/final-report-2026-05.md` và `docs/archive/optimization-plan.md` (các vòng tối ưu trước).
 >
 > **Cập nhật sau pull v0.9.17**: ban đầu review trên v0.9.16, sau đó user pull 40 commits mới
 > (`1418fa7..22a8e72`, ~20k dòng thay đổi trong `src/`). Mọi phát hiện đã được re-verify trên

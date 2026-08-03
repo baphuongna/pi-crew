@@ -1,6 +1,6 @@
 # Follow-up Plan — pi-crew (2026-05-12)
 
-Author: Droid (Factory) | Related: `docs/code-review-2026-05-11.md`, commits `2aebf33`, `7c5b3c2`.
+Author: Droid (Factory) | Related: `docs/archive/code-review-2026-05-11.md`, commits `2aebf33`, `7c5b3c2`.
 
 This document consolidates the outstanding items AFTER fixing BUG-001..BUG-007 + NIT-001..NIT-004, comprising:
 1. **Minor concerns** arising from the fixes just applied.

@@ -1,6 +1,6 @@
 # pi-crew — Core Engine Review (2026-07)
 
-Review **bộ core** (scheduler, vòng đời child process, state durability/concurrency, worktree isolation, conflict detection) — KHÔNG phải lớp ngoài (lint/deps/hygiene, xem `docs/REVIEW-FINDINGS-2026-07.md`).
+Review **bộ core** (scheduler, vòng đời child process, state durability/concurrency, worktree isolation, conflict detection) — KHÔNG phải lớp ngoài (lint/deps/hygiene, xem `docs/archive/REVIEW-FINDINGS-2026-07.md`).
 
 - Phiên bản: **v0.9.28** · Node **v22.14.0** · Windows (win32 10.0.22631)
 - Phạm vi đọc sâu (~9K dòng core): `runtime/team-runner.ts`, `runtime/task-runner.ts`, `runtime/child-pi.ts`, `runtime/live-session-runtime.ts`, `runtime/background-runner.ts`, `runtime/goal-loop-runner.ts`, `runtime/stale-reconciler.ts`, `state/state-store.ts`, `state/event-log.ts`, `state/atomic-write.ts`, `state/mailbox.ts`, `worktree/worktree-manager.ts`, `worktree/cleanup.ts`, `utils/conflict-detect.ts`, `config/config.ts`.
