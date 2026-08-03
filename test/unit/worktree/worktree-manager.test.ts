@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
-import { cleanupRunWorktrees } from "../../src/worktree/cleanup.ts";
-import { assertCleanLeader, prepareTaskWorkspace } from "../../src/worktree/worktree-manager.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
+import { cleanupRunWorktrees } from "../../../src/worktree/cleanup.ts";
+import { assertCleanLeader, prepareTaskWorkspace } from "../../../src/worktree/worktree-manager.ts";
 
 function makeRepoTemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -139,7 +139,7 @@ test("setupHook never uses shell:true regardless of platform (C3 security fix)",
 	// Regression guard: verify the source code never sets useShell to a truthy value.
 	// Since ESM module exports are frozen and cannot be mocked at runtime,
 	// we verify the security invariant by inspecting the source directly.
-	const source = fs.readFileSync(path.resolve(import.meta.dirname, "../../src/worktree/worktree-manager.ts"), "utf-8");
+	const source = fs.readFileSync(path.resolve(import.meta.dirname, "../../../src/worktree/worktree-manager.ts"), "utf-8");
 
 	// Verify useShell is hardcoded to false
 	const useShellMatch = source.match(/const useShell\s*=\s*([^;]+);/);

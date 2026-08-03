@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeEnvSecrets } from "../../src/utils/env-filter.ts";
+import { sanitizeEnvSecrets } from "../../../src/utils/env-filter.ts";
 
 test("sanitizeEnvSecrets strips secret env vars", () => {
 	const env = {

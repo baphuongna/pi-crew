@@ -4,13 +4,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import {
 	clearCleanLeaderCache,
 	clearGitRootCache,
 	findGitRootAsync,
 	prepareTaskWorkspaceAsync,
-} from "../../src/worktree/worktree-manager.ts";
+} from "../../../src/worktree/worktree-manager.ts";
 
 function makeRepoTemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

@@ -26,8 +26,8 @@ import {
 	findGitRoot,
 	normalizeSeedPaths,
 	overlaySeedPaths,
-} from "../../src/worktree/worktree-manager.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+} from "../../../src/worktree/worktree-manager.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 function initGitRepo(dir: string) {
 	try {
