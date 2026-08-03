@@ -42,6 +42,21 @@ test("allow-list only passes through matched keys", () => {
 	assert.equal(result.SECRET, undefined);
 });
 
+test("PI_CREW_* allow-list strips secret-looking keys within the namespace", () => {
+	// PI_CREW_* is a controlled namespace, so the glob itself is allowed.
+	// But secret-looking keys (e.g. PI_CREW_SECRET_TOKEN) must still be stripped
+	// as a secondary guard, while benign keys (e.g. PI_CREW_DEPTH) are kept.
+	const result = sanitizeEnvSecrets(
+		{
+			PI_CREW_DEPTH: "5",
+			PI_CREW_SECRET_TOKEN: "tok-hidden",
+		},
+		{ allowList: ["PI_CREW_*"] },
+	);
+	assert.equal(result.PI_CREW_DEPTH, "5");
+	assert.equal(result.PI_CREW_SECRET_TOKEN, undefined);
+});
+
 test("allow-list glob PI_CREW_* does not match PIPELINE", () => {
 	const result = sanitizeEnvSecrets(
 		{

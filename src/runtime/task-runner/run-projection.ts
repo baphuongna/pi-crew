@@ -66,7 +66,10 @@ export function transformRunContextBeforeWorkerStart(input: {
 		lines.push(`Pending messages (${messages.length}/${input.pendingMailbox.length}):`);
 		for (const msg of messages) {
 			const safeBody = sanitizeTaskText(msg.body.slice(0, 100));
-			lines.push(`- ${msg.kind ?? "message"}: ${safeBody}`);
+			// VULN-3: mailbox bodies are cross-worker controllable — give the model a
+			// structural signal that this is untrusted content (sanitizeTaskText catches
+			// directive injection; the demarcation frames natural-language injection).
+			lines.push(`- ${msg.kind ?? "message"}: <untrusted_data source="mailbox">${safeBody}</untrusted_data>`);
 		}
 	}
 

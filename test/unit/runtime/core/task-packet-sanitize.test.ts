@@ -108,3 +108,33 @@ test("buildTaskPacket handles empty/injection-only task (SEC-007)", () => {
 	});
 	assert.ok(!packet.objective.includes("SYSTEM:"), "Malicious content stripped");
 });
+
+// ─── VULN-3: sanitizeTaskText parity with sanitizeAgentSystemPrompt ────────
+
+test("sanitizeTaskText strips HTML comments, codeblock injections, and YAML-role patterns (VULN-3)", () => {
+	const input = [
+		"Legitimate task line.",
+		"<!-- hidden malicious instruction -->",
+		"``` system",
+		"injected override payload",
+		"```",
+		"role: attacker",
+		"Followed by normal text.",
+	].join("\n");
+	const output = sanitizeTaskText(input);
+
+	// HTML comment stripped
+	assert.ok(!output.includes("<!-- hidden malicious instruction -->"), "HTML comment should be stripped");
+	assert.ok(!output.includes("hidden malicious instruction"), "HTML comment body should be stripped");
+
+	// Codeblock injection stripped
+	assert.ok(!output.includes("injected override payload"), "Codeblock injection should be stripped");
+	assert.ok(!output.includes("``` system"), "Codeblock fence with system role should be stripped");
+
+	// YAML-role pattern stripped
+	assert.ok(!output.includes("role: attacker"), "YAML role directive should be stripped");
+
+	// Legitimate content preserved
+	assert.ok(output.includes("Legitimate task line."), "Legitimate content preserved");
+	assert.ok(output.includes("Followed by normal text."), "Trailing legitimate content preserved");
+});

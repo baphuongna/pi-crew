@@ -86,7 +86,10 @@ test("transformRunContextBeforeWorkerStart projects mailbox messages", () => {
 		],
 		artifacts: [],
 	});
-	assert.ok(result.summary.includes("follow-up: Please check the results"));
+	assert.ok(
+		result.summary.includes("follow-up: <untrusted_data source=\"mailbox\">Please check the results</untrusted_data>"),
+		"mailbox body must be wrapped in <untrusted_data source=\"mailbox\"> demarcation (VULN-3)",
+	);
 	assert.ok(result.summary.includes("Pending messages"));
 });
 

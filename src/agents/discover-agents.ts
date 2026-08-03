@@ -317,6 +317,12 @@ export function sanitizeAgentSystemPrompt(content: string, source: ResourceSourc
 	// 1. Strip zero-width and invisible Unicode characters (all trust levels)
 	sanitized = sanitized.replace(/[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]/g, "");
 
+	// 1b. Strip untrusted-data wrapper tags — all trust levels (VULN-2).
+	// knowledge-injection.ts wraps project knowledge in <untrusted-project-data>
+	// tags; a malicious .crew/knowledge.md could contain a closing tag to
+	// break out of the framing early and inject unsanctioned content.
+	sanitized = sanitized.replace(/<\/?(?:untrusted-project-data|untrusted_data)>/gi, "");
+
 	// 2. Strip HTML/JS comments (instruction hiding) — all trust levels
 	// SEC-4: bounded quantifier {0,8192} prevents polynomial O(n²) backtracking
 	// DoS on pathological inputs (e.g. an unclosed `<!--` with no matching `-->`).

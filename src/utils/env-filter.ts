@@ -131,20 +131,37 @@ export function sanitizeEnvSecrets(env: NodeJS.ProcessEnv, options?: SanitizeEnv
 				throw new Error(`Allowlist entry "${pattern}" looks like a secret key. Use a more specific pattern.`);
 			}
 		}
-		const matchers = options.allowList.map((p) => {
+		// Separate exact entries (explicitly trusted) from glob patterns.
+		// Exact entries (e.g. provider API keys) are deliberately listed by the
+		// caller and validated above; they must pass through unchanged.
+		const exact = new Set<string>();
+		const globPrefixes: string[] = [];
+		for (const p of options.allowList) {
 			if (p.endsWith("*")) {
-				// Glob pattern: matches keys that start with the prefix AND have
-				// at least one additional character (distinguishes "PI_CREW_*" from "PI_CREW_").
-				// For example, "PI_CREW_*" matches "PI_CREW_DEPTH" but not "PI_CREW_".
-				// This ensures trailing glob patterns require extra chars, not exact-prefix-only matches.
-				const prefix = p.slice(0, -1);
-				return (k: string) => k.startsWith(prefix) && k.length > prefix.length;
+				// Trailing glob: match keys that start with the prefix AND have at
+				// least one additional character (distinguishes "PI_CREW_*" from "PI_CREW_").
+				globPrefixes.push(p.slice(0, -1));
+			} else {
+				exact.add(p);
 			}
-			// Exact match is case-sensitive; Unix env vars are uppercase by convention.
-			return (k: string) => k === p;
-		});
+		}
 		for (const [key, value] of Object.entries(env)) {
-			if (value !== undefined && matchers.some((fn) => fn(key))) filtered[key] = value;
+			if (value === undefined) continue;
+			// Exact allow-list entries are explicitly trusted (e.g. ANTHROPIC_API_KEY
+			// scoped to a model). No secondary secret check — the caller vouches for them.
+			if (exact.has(key)) {
+				filtered[key] = value;
+				continue;
+			}
+			// Glob-matched keys (e.g. PI_CREW_*): NEW-S1 secondary guard — a broad glob
+			// must not forward secret-named keys (PI_CREW_OPENAI_API_KEY,
+			// PI_CREW_SECRET_TOKEN, ...) to spawned hook scripts with process access.
+			if (
+				globPrefixes.some((prefix) => key.startsWith(prefix) && key.length > prefix.length) &&
+				!isSecretKey(key)
+			) {
+				filtered[key] = value;
+			}
 		}
 		return filtered;
 	}

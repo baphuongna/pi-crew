@@ -29,19 +29,41 @@ export function sanitizeTaskText(task: string): string {
 	// 1. Strip zero-width and invisible Unicode characters
 	sanitized = sanitized.replace(/[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]/g, "");
 
+	// 1b. Strip HTML/JS comments and script tags (instruction hiding).
+	// SEC-4: bounded quantifier {0,8192} prevents polynomial O(n²) backtracking
+	// DoS on pathological inputs (e.g. an unclosed `<!--` with no matching `-->`).
+	sanitized = sanitized.replace(/<!--[\s\S]{0,8192}?-->|<\/?script[^>]*>/gi, "");
+
 	// 2. Strip known prompt injection directive patterns
 	sanitized = sanitized.replace(
-		/^\s*(?:SYSTEM|INSTRUCTION|IGNORE(?:\s+ALL)?\s+INSTRUCTIONS|OVERRIDE|YOUR\s+ROLE\s+IS|MALICIOUS)\s*:.*$/gim,
+		/^\s*(?:SYSTEM|INSTRUCTION|IGNORE(?:\s+ALL)?\s+(?:PREVIOUS|INSTRUCTIONS)?|OVERRIDE|YOUR\s+ROLE\s+IS|MALICIOUS)\s*:.*$/gim,
 		"",
 	);
 
 	// 3. Strip base64/hex encoded command payloads
 	sanitized = sanitized.replace(/\b(?:base64|base32|hex)\s*['":]\s*([A-Za-z0-9+\/=]{16,})/gi, "[encoded-redacted]");
 
-	// 4. Strip embedded instruction patterns in brackets
-	sanitized = sanitized.replace(/\[(?:SYSTEM|INSTRUCTION|OVERRIDE)\s*:[^\]]*\]/gi, "");
+	// 4. Strip embedded instruction patterns in brackets (incl. MALICIOUS to match agent sanitizer)
+	sanitized = sanitized.replace(/\[(?:SYSTEM|INSTRUCTION|OVERRIDE|MALICIOUS)\s*:[^\]]*\]/gi, "");
 
-	// 5. Collapse multiple blank lines
+	// 5. Strip eval/exec patterns with encoded content
+	sanitized = sanitized.replace(/\b(?:eval|exec|spawn|subprocess)\s*\(\s*(?:base64|Buffer\.from)\s*\(/gi, "[suspicious-call-redacted]");
+
+	// 6. Strip markdown codeblocks that attempt to hide instructions.
+	// SEC-4: bounded quantifier {0,8192} prevents polynomial backtracking DoS.
+	sanitized = sanitized.replace(/```\s*(?:system|instruction|prompt)\n[\s\S]{0,8192}?```/gi, "");
+
+	// 7. Strip YAML-like assignment patterns that could override behavior.
+	// Applied unconditionally — task text is always untrusted.
+	sanitized = sanitized.replace(/^\s*(?:role|persona|behavior|directive)\s*[=:].*$/gim, "");
+
+	// 8. Strip potential exfiltration patterns
+	sanitized = sanitized.replace(/\b(?:write|append)\s+.*(?:secrets?|keys?|token|credential)/gi, "[suspicious-write-redacted]");
+
+	// 9. Strip network exfiltration patterns
+	sanitized = sanitized.replace(/\b(?:fetch|curl|wget|axios)\s+.*(?:exfil|steal|leak|send)/gi, "[suspicious-network-redacted]");
+
+	// 10. Collapse multiple blank lines (cleanup after removals)
 	sanitized = sanitized.replace(/\n{3,}/g, "\n\n");
 
 	return sanitized.trim();
