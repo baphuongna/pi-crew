@@ -16,10 +16,11 @@ test("metric file sink writes redacted daily JSONL snapshots", async () => {
 			registry,
 			intervalMs: 60_000,
 		});
-		sink.writeSnapshot(registry.snapshot());
 		// OBS-2: writeSnapshot returns a Promise that resolves when the async
-		// fs.write callback fires. Await to ensure the file is on disk.
-		await new Promise<void>((resolve) => setImmediate(resolve));
+		// fs.write callback fires. Await it DIRECTLY to ensure the file is on
+		// disk — a bare setImmediate is not enough on slower fs / macOS runners
+		// (the fs.write libuv callback may not complete within one cycle).
+		await sink.writeSnapshot(registry.snapshot());
 		sink.dispose();
 		const dir = path.join(root, "state", "metrics");
 		const files = fs.readdirSync(dir);
