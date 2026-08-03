@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type LoadedPiTeamsConfig, loadConfig } from "../config/config.ts";
+import { discoverProviderExtensionPaths } from "../runtime/model/provider-extensions.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { findRepoRoot, packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
@@ -504,15 +505,16 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string, loadedConfig?: 
 	const loaded = loadedConfig ?? loadConfig(cwd);
 	const agentsConfig = loaded.config.agents;
 	const overrides = agentsConfig?.overrides ?? {};
-	// Global extension allowlist (`runtime.agentExtensions`): every agent
-	// additionally loads these extension entry points in its spawned child
-	// (alongside pi-crew's prompt-runtime). This is the sanctioned channel for
-	// provider extensions that register models (e.g. pi-commandcode-provider)
-	// so provider models stay resolvable inside subagents despite
-	// `--no-extensions`. Agent-level `extensions:` frontmatter (user sources)
-	// is preserved and merged AFTER the global list; SEC-1 stripping for
-	// project/project-pi sources still applies below.
-	const globalExtensions = loaded.config.runtime?.agentExtensions ?? [];
+	// Provider extension allowlist (v0.9.57): auto-discovered from Pi's
+	// installed package registry (settings.json `packages` with `npm:` specs —
+	// e.g. pi-commandcode-provider). These are the sanctioned channels for
+	// provider extensions that register models, so provider models stay
+	// resolvable inside subagents despite `--no-extensions`. The explicit
+	// `runtime.agentExtensions` config list is merged on top for operators who
+	// want extra paths beyond installed packages. SEC-1 preserved: project /
+	// project-pi agents never receive any of these (env-gate unchanged).
+	const globalExtensions = [...discoverProviderExtensionPaths(), ...(loaded.config.runtime?.agentExtensions ?? [])];
+	const deduped = [...new Set(globalExtensions.map((p) => path.resolve(p)))];
 	// SEC-1 (defense-in-depth): do NOT merge the global extension allowlist into
 	// untrusted project / project-pi agents. Those agents already had their
 	// `extensions` stripped at parse time unless PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1;
@@ -523,8 +525,8 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string, loadedConfig?: 
 		(agent.source === "project" || agent.source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1";
 	const withGlobalExtensions = (agent: AgentConfig): AgentConfig => {
 		if (isUntrustedProject(agent)) return agent;
-		return globalExtensions.length > 0 || agent.extensions !== undefined
-			? { ...agent, extensions: [...globalExtensions, ...(agent.extensions ?? [])] }
+		return deduped.length > 0 || agent.extensions !== undefined
+			? { ...agent, extensions: [...deduped, ...(agent.extensions ?? [])] }
 			: agent;
 	};
 	return agents
