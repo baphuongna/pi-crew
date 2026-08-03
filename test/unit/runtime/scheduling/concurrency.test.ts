@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultWorkflowConcurrency, resolveBatchConcurrency } from "../../src/runtime/scheduling/concurrency.ts";
+import { defaultWorkflowConcurrency, resolveBatchConcurrency } from "../../../../src/runtime/scheduling/concurrency.ts";
 
 test("default workflow concurrency preserves existing workflow defaults", () => {
 	assert.equal(defaultWorkflowConcurrency("parallel-research"), 4);

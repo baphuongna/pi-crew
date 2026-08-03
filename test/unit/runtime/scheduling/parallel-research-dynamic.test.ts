@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
 
 test("parallel-research dynamically fans out Source/pi-* projects into shard tasks", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dynamic-fanout-"));
