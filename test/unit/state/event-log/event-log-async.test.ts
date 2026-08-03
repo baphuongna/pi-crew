@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, appendEventAsync, appendEventFireAndForget, readEvents } from "../../src/state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventFireAndForget, readEvents } from "../../../../src/state/event-log/event-log.ts";
 
 test("appendEventAsync writes events correctly", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-async-"));

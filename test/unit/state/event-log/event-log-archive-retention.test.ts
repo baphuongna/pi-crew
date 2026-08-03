@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, test } from "node:test";
-import { rotateEventLogUnlocked } from "../../src/state/event-log/event-log-rotation.ts";
+import { rotateEventLogUnlocked } from "../../../../src/state/event-log/event-log-rotation.ts";
 
 const createdTmpDirs: string[] = [];
 after(() => {

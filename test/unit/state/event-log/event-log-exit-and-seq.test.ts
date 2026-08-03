@@ -13,7 +13,7 @@ import {
 	readEvents,
 	scanSequence,
 	sequencePath,
-} from "../../src/state/event-log/event-log.ts";
+} from "../../../../src/state/event-log/event-log.ts";
 
 test("flushBufferedQueuesSync writes buffered events synchronously and persists the sidecar (EL-2 regression)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el2-sync-"));

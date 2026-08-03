@@ -12,7 +12,7 @@ import {
 	__test__seedSequenceCache,
 	__test__sequenceCacheSize,
 	MAX_SEQUENCE_CACHE_ENTRIES_VALUE,
-} from "../../src/state/event-log/event-log.ts";
+} from "../../../../src/state/event-log/event-log.ts";
 
 test("MAX_SEQUENCE_CACHE_ENTRIES is 256", () => {
 	assert.equal(MAX_SEQUENCE_CACHE_ENTRIES_VALUE, 256);

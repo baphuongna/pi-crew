@@ -24,8 +24,8 @@ import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { readEventsCursor, type TeamEvent } from "../../src/state/event-log/event-log.ts";
-import { readJsonlTail } from "../../src/utils/incremental-reader.ts";
+import { readEventsCursor, type TeamEvent } from "../../../../src/state/event-log/event-log.ts";
+import { readJsonlTail } from "../../../../src/utils/incremental-reader.ts";
 
 /**
  * Spy on fs.readFileSync + fs.readSync to verify the tail path was used.

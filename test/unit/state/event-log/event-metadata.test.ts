@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test, { after } from "node:test";
-import { appendEvent, computeEventFingerprint, dedupeTerminalEvents, readEvents } from "../../src/state/event-log/event-log.ts";
+import { appendEvent, computeEventFingerprint, dedupeTerminalEvents, readEvents } from "../../../../src/state/event-log/event-log.ts";
 
 const createdTmpDirs: string[] = [];
 after(() => {

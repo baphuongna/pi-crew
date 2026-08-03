@@ -17,8 +17,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { readEventsCursor } from "../../src/state/event-log/event-log.ts";
-import { currentGeneration, generationPath, rotateEventLog } from "../../src/state/event-log/event-log-rotation.ts";
+import { readEventsCursor } from "../../../../src/state/event-log/event-log.ts";
+import { currentGeneration, generationPath, rotateEventLog } from "../../../../src/state/event-log/event-log-rotation.ts";
 
 function tmpDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gen-"));

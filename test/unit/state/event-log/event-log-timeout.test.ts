@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { withEventLogLockSync } from "../../src/state/event-log/event-log.ts";
+import { withEventLogLockSync } from "../../../../src/state/event-log/event-log.ts";
 
 describe("event-log lock timeout is capped", () => {
 	it("should throw quickly when lock is contended (injectable timeout)", () => {

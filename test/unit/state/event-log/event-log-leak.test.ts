@@ -9,8 +9,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { TeamEvent } from "../../src/state/event-log/event-log.ts";
-import { appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../../src/state/event-log/event-log.ts";
+import type { TeamEvent } from "../../../../src/state/event-log/event-log.ts";
+import { appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
 
 async function makeTmp(): Promise<string> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "event-log-leak-"));

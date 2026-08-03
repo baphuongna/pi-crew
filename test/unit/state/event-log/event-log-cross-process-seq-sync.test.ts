@@ -44,7 +44,7 @@ import {
 	resetEventLogMode,
 	scanSequence,
 	sequencePath,
-} from "../../src/state/event-log/event-log.ts";
+} from "../../../../src/state/event-log/event-log.ts";
 
 const RUN_ID = "st5-cross-process";
 
