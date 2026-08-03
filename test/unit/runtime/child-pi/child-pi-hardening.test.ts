@@ -11,8 +11,8 @@
 
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { ChildPiLineObserver, killProcessPid } from "../../src/runtime/child-pi/child-pi.ts";
+import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
+import { ChildPiLineObserver, killProcessPid } from "../../../../src/runtime/child-pi/child-pi.ts";
 
 // --- Test helpers ---
 

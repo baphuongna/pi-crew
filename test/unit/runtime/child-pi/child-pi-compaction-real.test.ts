@@ -9,8 +9,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compactString, compactValue } from "../../src/runtime/child-pi/child-pi.ts";
-import { redactSecretString } from "../../src/utils/redaction.ts";
+import { compactString, compactValue } from "../../../../src/runtime/child-pi/child-pi.ts";
+import { redactSecretString } from "../../../../src/utils/redaction.ts";
 
 test("BUG-3: compactString must NOT expand input just over threshold (monotonic shrink)", () => {
 	const input = "x".repeat(8193);

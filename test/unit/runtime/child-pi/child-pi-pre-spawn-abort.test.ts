@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
+import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
+import { runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
 
 const agent: AgentConfig = {
 	name: "executor",

@@ -15,9 +15,9 @@
 
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { MAX_LINE_BUFFER_BYTES } from "../../src/runtime/child-pi/child-pi-constants.ts";
-import { ChildPiLineObserver } from "../../src/runtime/child-pi/child-pi-streams.ts";
+import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
+import { MAX_LINE_BUFFER_BYTES } from "../../../../src/runtime/child-pi/child-pi-constants.ts";
+import { ChildPiLineObserver } from "../../../../src/runtime/child-pi/child-pi-streams.ts";
 
 const MINIMAL_AGENT: AgentConfig = {
 	name: "test",

@@ -23,7 +23,7 @@ import * as path from "node:path";
 import test from "node:test";
 
 const childPiSrc = fs.readFileSync(
-	path.join(import.meta.dirname, "..", "..", "src", "runtime", "child-pi", "child-pi.ts"),
+	path.join(import.meta.dirname, "..", "..", "..", "..", "src", "runtime", "child-pi", "child-pi.ts"),
 	"utf-8",
 );
 

@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { redactStderrExcerpt } from "../../src/runtime/child-pi/child-pi.ts";
+import { redactStderrExcerpt } from "../../../../src/runtime/child-pi/child-pi.ts";
 
 // Real-shaped secrets matching the anchored patterns in redaction.ts.
 const GITHUB_PAT = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"; // 36 chars after prefix
