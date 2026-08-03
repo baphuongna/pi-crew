@@ -5,7 +5,13 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChainRunner, type ChainSpec, type ChainTaskRunner, createChainRunner, parseChainString } from "../../../src/runtime/chain-runner.ts";
+import {
+	ChainRunner,
+	type ChainSpec,
+	type ChainTaskRunner,
+	createChainRunner,
+	parseChainString,
+} from "../../../src/runtime/chain-runner.ts";
 import { HandoffManager, type TaskPacket, type TaskResult } from "../../../src/runtime/handoff-manager.ts";
 
 // Test helpers
@@ -113,6 +119,16 @@ test("ChainRunner - parseChain handles inline goals", () => {
 	assert.strictEqual(spec.steps[1].inlineGoal, "Analyze findings");
 });
 
+test("ChainRunner - parseChain handles inline goals containing arrow", () => {
+	const runner = new ChainRunner(createMockTaskRunner(), createMockHandoffManager());
+
+	const spec = runner.parseChain('"Change A -> B" -> "Analyze result"');
+
+	assert.strictEqual(spec.steps.length, 2);
+	assert.strictEqual(spec.steps[0].inlineGoal, "Change A -> B");
+	assert.strictEqual(spec.steps[1].inlineGoal, "Analyze result");
+});
+
 test("ChainRunner - parseChain extracts per-step model override", () => {
 	const runner = new ChainRunner(createMockTaskRunner(), createMockHandoffManager());
 
@@ -120,6 +136,17 @@ test("ChainRunner - parseChain extracts per-step model override", () => {
 
 	assert.strictEqual(spec.steps[0].model, "claude-opus-3");
 	assert.strictEqual(spec.steps[1].model, undefined);
+});
+
+test("ChainRunner - parseChain handles team ref with arrow in inline goal", () => {
+	const runner = new ChainRunner(createMockTaskRunner(), createMockHandoffManager());
+
+	const spec = runner.parseChain('@team "Convert X -> Y" -> @review');
+
+	assert.strictEqual(spec.steps.length, 2);
+	assert.strictEqual(spec.steps[0].team, "team");
+	assert.strictEqual(spec.steps[0].inlineGoal, "Convert X -> Y");
+	assert.strictEqual(spec.steps[1].team, "review");
 });
 
 test("ChainRunner - parseChain extracts per-step skill override", () => {

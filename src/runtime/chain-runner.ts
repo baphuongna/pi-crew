@@ -146,7 +146,7 @@ export class ChainRunner {
 			}
 		}
 
-		const stepStrings = chainString.split("->").map((s) => s.trim());
+		const stepStrings = this.splitChainSteps(chainString).map((s) => s.trim());
 
 		const steps: ChainStep[] = stepStrings.map((step, index) => {
 			return this.parseStep(step, index);
@@ -273,6 +273,53 @@ export class ChainRunner {
 			totalTokens: totalTokens > 0 ? totalTokens : undefined,
 			totalHandoffs: allHandoffs,
 		};
+	}
+
+	/**
+	 * Split a chain string on top-level `->` arrows, ignoring arrows inside
+	 * quotes.  Prevents inline goals containing `->` (e.g. "Change A -> B")
+	 * from being incorrectly split into separate steps.
+	 */
+	private splitChainSteps(chainString: string): string[] {
+		const parts: string[] = [];
+		let current = "";
+		let inQuote = false;
+		let quoteChar = "";
+
+		for (let i = 0; i < chainString.length; i++) {
+			const ch = chainString[i]!;
+
+			// Handle escape sequences inside quotes (e.g. \" or \')
+			if (inQuote && ch === "\\" && i + 1 < chainString.length) {
+				current += ch + (chainString[i + 1] ?? "");
+				i++;
+				continue;
+			}
+
+			// Toggle quote state on unescaped quote characters
+			if (ch === '"' || ch === "'") {
+				if (!inQuote) {
+					inQuote = true;
+					quoteChar = ch;
+				} else if (ch === quoteChar) {
+					inQuote = false;
+				}
+				current += ch;
+				continue;
+			}
+
+			// Split on -> only when not inside quotes
+			if (!inQuote && ch === "-" && chainString[i + 1] === ">") {
+				parts.push(current);
+				current = "";
+				i++; // skip the '>'
+				continue;
+			}
+
+			current += ch;
+		}
+		parts.push(current);
+		return parts;
 	}
 
 	/**
