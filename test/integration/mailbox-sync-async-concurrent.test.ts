@@ -26,8 +26,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { withFileLockAsync } from "../../src/state/locks.ts";
-import { appendMailboxMessage, appendMailboxMessageAsync, readMailbox, updateMailboxMessageReply } from "../../src/state/mailbox.ts";
+import { withFileLockAsync } from "../../src/state/coordination/locks.ts";
+import { appendMailboxMessage, appendMailboxMessageAsync, readMailbox, updateMailboxMessageReply } from "../../src/state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 

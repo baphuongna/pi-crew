@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { flushPendingAtomicWrites } from "../../state/atomic-write.ts";
-import { withRunLockSync } from "../../state/locks.ts";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { loadRunManifestById, saveRunTasksCoalesced } from "../../state/stores/state-store.ts";
 import type { TaskCheckpointState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

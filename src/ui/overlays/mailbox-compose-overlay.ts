@@ -1,4 +1,4 @@
-import type { MailboxDirection } from "../../state/mailbox.ts";
+import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
 import { pad, truncate } from "../../utils/visual.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { ConfirmOverlay } from "./confirm-overlay.ts";

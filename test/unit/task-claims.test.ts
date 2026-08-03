@@ -7,7 +7,7 @@ import {
 	isTaskClaimExpired,
 	releaseTaskClaim,
 	transitionClaimedTaskStatus,
-} from "../../src/state/task-claims.ts";
+} from "../../src/state/coordination/task-claims.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 
 /**

@@ -8,8 +8,8 @@ import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-s
 import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.ts";
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { appendEvent, readEvents } from "../../state/event-log/event-log.ts";
-import { readDeliveryState, readMailbox } from "../../state/mailbox.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";

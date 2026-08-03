@@ -15,8 +15,8 @@
  * exactly (char scenarios 5-7, 9, 10 cover them).
  */
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
+import { withRunLock } from "../../state/coordination/locks.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
-import { withRunLock } from "../../state/locks.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type {

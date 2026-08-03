@@ -5,7 +5,7 @@ import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { PiTeamsAutonomyProfileSchema, PiTeamsConfigSchema } from "../schema/config-schema.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
-import { withFileLockSync } from "../state/locks.ts";
+import { withFileLockSync } from "../state/coordination/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, projectPiRoot } from "../utils/paths.ts";
 import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "./defaults.ts";

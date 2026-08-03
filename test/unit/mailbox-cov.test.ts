@@ -1,5 +1,5 @@
 /**
- * Tests for src/state/mailbox.ts
+ * Tests for src/state/coordination/mailbox.ts
  *
  * Mailbox operations require a proper stateRoot directory structure.
  * These tests exercise the core public API: readMailbox, appendMailboxMessage,
@@ -25,7 +25,7 @@ import {
 	replayPendingMailboxMessages,
 	updateMailboxMessageReply,
 	validateMailbox,
-} from "../../src/state/mailbox.ts";
+} from "../../src/state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 

@@ -25,7 +25,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { withRunLock, withRunLockSync } from "../../src/state/locks.ts";
+import { withRunLock, withRunLockSync } from "../../src/state/coordination/locks.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 function mkTmp(): string {

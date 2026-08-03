@@ -1,5 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { TeamTaskState } from "./types.ts";
+import type { TeamTaskState } from "../types.ts";
 
 export interface TaskClaimState {
 	owner: string;

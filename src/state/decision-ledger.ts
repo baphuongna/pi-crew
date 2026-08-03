@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from "node:path";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
-import { withFileLockSync } from "./locks.ts";
+import { withFileLockSync } from "./coordination/locks.ts";
 
 export interface CoherenceMark {
 	matchesPrior: boolean;

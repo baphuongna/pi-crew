@@ -5,8 +5,8 @@ import { writeForegroundInterruptRequest } from "../../runtime/foreground-contro
 import { terminateLiveAgentsForRun } from "../../runtime/live-session/live-agent-manager.ts";
 import { buildSyntheticTerminalEvidence, type CancellationReason, cancellationReasonFromUnknown } from "../../runtime/process/cancellation.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
-import { withRunLockSync } from "../../state/locks.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";

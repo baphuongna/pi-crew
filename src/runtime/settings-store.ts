@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { atomicWriteJson } from "../state/atomic-write.ts";
-import { withFileLockSync } from "../state/locks.ts";
+import { withFileLockSync } from "../state/coordination/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { JoinMode } from "./group-join.ts";
 

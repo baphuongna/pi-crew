@@ -23,8 +23,6 @@
 
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
-
-import { readEventsCursor } from "../../state/event-log/event-log.ts";
 import {
 	appendMailboxMessageAsync,
 	type MailboxMessage,
@@ -32,7 +30,8 @@ import {
 	type MailboxMessagePriority,
 	readMailbox,
 	registerMailboxAppendObserver,
-} from "../../state/mailbox.ts";
+} from "../../state/coordination/mailbox.ts";
+import { readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

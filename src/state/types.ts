@@ -2,8 +2,8 @@ import type { CrewAgentProgress } from "../runtime/crew-agent-runtime.ts";
 import type { WorkerHeartbeatState } from "../runtime/heartbeat/worker-heartbeat.ts";
 import type { CrashClass } from "../runtime/recovery/crash-classification.ts";
 import type { TeamRunStatus, TeamTaskStatus } from "./contracts.ts";
+import type { TaskClaimState } from "./coordination/task-claims.ts";
 import type { CoherenceMark, RolloutEntry } from "./decision-ledger.ts";
-import type { TaskClaimState } from "./task-claims.ts";
 
 export type { TeamRunStatus, TeamTaskStatus } from "./contracts.ts";
 export type { CoherenceMark, CrewAgentProgress, RolloutEntry };

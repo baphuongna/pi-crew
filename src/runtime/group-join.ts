@@ -1,6 +1,6 @@
 import type { CrewRuntimeConfig } from "../config/config.ts";
+import { appendMailboxMessage, findMailboxMessageByRequestId, readDeliveryState } from "../state/coordination/mailbox.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
-import { appendMailboxMessage, findMailboxMessageByRequestId, readDeliveryState } from "../state/mailbox.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";

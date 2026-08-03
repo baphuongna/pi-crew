@@ -14,9 +14,9 @@
  * Extracted verbatim from `runTeamTask` — no behavioral changes.
  */
 import { errors } from "../../errors.ts";
+import { createTaskClaim } from "../../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
-import { createTaskClaim } from "../../state/task-claims.ts";
 import type { ArtifactDescriptor, TaskPacket, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";

@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { withFileLockSync } from "../../src/state/locks.ts";
+import { withFileLockSync } from "../../src/state/coordination/locks.ts";
 
 function tmpDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-r26-filelock-"));

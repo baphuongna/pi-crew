@@ -19,8 +19,8 @@ async function handleTeamTool(
 import { isToolError, textFromToolResult } from "../extension/tool-result.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { exportDiagnostic } from "../runtime/diagnostic-export.ts";
+import type { MailboxDirection, MailboxMessage } from "../state/coordination/mailbox.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
-import type { MailboxDirection, MailboxMessage } from "../state/mailbox.ts";
 import { loadRunManifestById, saveRunTasks } from "../state/stores/state-store.ts";
 
 export interface RunActionResult {

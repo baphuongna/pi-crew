@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { withFileLockSync, withRunLock, withRunLockSync } from "../../src/state/locks.ts";
+import { withFileLockSync, withRunLock, withRunLockSync } from "../../src/state/coordination/locks.ts";
 import { createRunManifest } from "../../src/state/stores/state-store.ts";
 
 function sleep(ms: number): Promise<void> {

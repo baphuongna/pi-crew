@@ -1,4 +1,4 @@
-import { type MailboxMessage, readDeliveryState, readMailbox } from "../../state/mailbox.ts";
+import { type MailboxMessage, readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
 import { keyOf } from "../key-utils.ts";

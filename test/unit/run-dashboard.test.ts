@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { appendMailboxMessage } from "../../src/state/mailbox.ts";
+import { appendMailboxMessage } from "../../src/state/coordination/mailbox.ts";
 import { createRunManifest, saveRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { RunDashboard, type RunDashboardSelection } from "../../src/ui/run-dashboard.ts";

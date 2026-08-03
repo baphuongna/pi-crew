@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_MAILBOX } from "../config/defaults.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactSecrets } from "../utils/redaction.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
+import { DEFAULT_MAILBOX } from "../../config/defaults.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { redactSecrets } from "../../utils/redaction.ts";
+import { atomicWriteFile } from "../atomic-write.ts";
+import type { TeamRunManifest } from "../types.ts";
 import { withFileLockAsync, withFileLockSync } from "./locks.ts";
-import type { TeamRunManifest } from "./types.ts";
 
 export type MailboxDirection = "inbox" | "outbox";
 export type MailboxMessageStatus = "queued" | "delivered" | "acknowledged";

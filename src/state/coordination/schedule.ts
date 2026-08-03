@@ -9,10 +9,10 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { logInternalError } from "../utils/internal-error.ts";
-import { atomicWriteJson } from "./atomic-write.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { atomicWriteJson } from "../atomic-write.ts";
 
-import type { ScheduledTask, ScheduleStoreData } from "./types.ts";
+import type { ScheduledTask, ScheduleStoreData } from "../types.ts";
 
 export type DetectedSchedule =
 	| { type: "cron"; normalized: string }

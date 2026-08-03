@@ -21,8 +21,7 @@ import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
 import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../state/contracts.ts";
-import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log/event-log.ts";
-import { withRunLock, withRunLockSync } from "../../state/locks.ts";
+import { withRunLock, withRunLockSync } from "../../state/coordination/locks.ts";
 import {
 	acknowledgeMailboxMessage,
 	appendFollowUpMessage,
@@ -36,9 +35,10 @@ import {
 	readMailbox,
 	readMailboxMessage,
 	validateMailbox,
-} from "../../state/mailbox.ts";
+} from "../../state/coordination/mailbox.ts";
+import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/coordination/task-claims.ts";
+import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
-import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { locateRunCwd } from "../team-tool.ts";

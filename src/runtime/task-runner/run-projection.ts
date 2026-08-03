@@ -1,4 +1,4 @@
-import type { MailboxMessage } from "../../state/mailbox.ts";
+import type { MailboxMessage } from "../../state/coordination/mailbox.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { sanitizeTaskText } from "../task-packet.ts";
 

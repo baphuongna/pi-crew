@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { canUseTaskClaim, createTaskClaim, timingSafeTokenMatch } from "../../src/state/task-claims.ts";
+import { canUseTaskClaim, createTaskClaim, timingSafeTokenMatch } from "../../src/state/coordination/task-claims.ts";
 
 describe("timing-safe claim token comparison", () => {
 	it("accepts matching claim token", () => {

@@ -6,7 +6,7 @@
  * goal loop owns OUTER state) + §0c C10 (hardening: assertSafePathId + UUID goalId).
  *
  * Stores GoalLoopState as atomic JSON at <crewRoot>/state/goals/<goalId>.json.
- * Modeled on ScheduleStore (state/schedule.ts:86) but with atomicWriteJson +
+ * Modeled on ScheduleStore (state/coordination/schedule.ts:86) but with atomicWriteJson +
  * path-traversal defense (assertSafePathId on every public method).
  *
  * Per §0c C2: budget lives here (budgetUsed accumulates collectRunMetrics across turns);

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { withFileLockAsync } from "../../src/state/locks.ts";
+import { withFileLockAsync } from "../../src/state/coordination/locks.ts";
 
 /**
  * ST-3-FIX regression test.

@@ -9,7 +9,7 @@ import {
 	appendMailboxMessage,
 	readDeliveryState,
 	replayPendingMailboxMessages,
-} from "../../src/state/mailbox.ts";
+} from "../../src/state/coordination/mailbox.ts";
 import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 function firstText(result: Awaited<ReturnType<typeof handleTeamTool>>): string {
