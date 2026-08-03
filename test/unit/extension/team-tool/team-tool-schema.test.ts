@@ -35,12 +35,14 @@ test("team tool flexible fields use explicit schema shapes", () => {
 	const skill = properties.skill as { anyOf?: unknown[] };
 	const config = properties.config as {
 		type?: string;
-		additionalProperties?: boolean;
+		patternProperties?: Record<string, unknown>;
 	};
 	assert.equal(Array.isArray(skill.anyOf), true);
 	assert.equal(skill.anyOf?.length, 3);
+	// FreeformConfig is Type.Record (patternProperties) — TypeBox-native so
+	// Value.Check can walk it without throwing "Unknown type".
 	assert.equal(config.type, "object");
-	assert.equal(config.additionalProperties, true);
+	assert.ok(config.patternProperties && typeof config.patternProperties === "object");
 });
 
 test("schema accepts action: retry", () => {

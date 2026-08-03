@@ -15,7 +15,10 @@ TypeRegistry.Set("StringEnum", (schema, value) => {
 });
 const KIND = Symbol.for("TypeBox.Kind");
 function stringEnum(values: readonly string[], description: string): TSchema {
-	return Type.Unsafe({ [KIND]: "StringEnum", type: "string", enum: [...values], description });
+	// Empty string accepted: calling models emit "" for unset action; the handler
+	// treats it as omitted (defaults to "list"). Must be a plain enum member so
+	// JSON-Schema consumers (pi-ai validation) accept it without coercion.
+	return Type.Unsafe({ [KIND]: "StringEnum", type: "string", enum: ["", ...values], description });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -26,24 +29,22 @@ function stringEnum(values: readonly string[], description: string): TSchema {
 // `TeamToolParams` is re-exported as a TypeBox Union for backward compat.
 // ───────────────────────────────────────────────────────────────────────────
 
-const SkillOverride = Type.Unsafe({
-	description:
-		"Skill name(s) to add to role/default skills, an array of skill names, or false to disable all injected skills for this run.",
-	anyOf: [
-		{ type: "string", maxLength: 2048 },
-		{
-			type: "array",
-			maxItems: 32,
-			items: { type: "string", maxLength: 80 },
-		},
-		{ type: "boolean" },
+const SkillOverride = Type.Union(
+	[
+		Type.String({ maxLength: 2048 }),
+		Type.Array(Type.String({ maxLength: 80 }), { maxItems: 32 }),
+		Type.Boolean(),
 	],
-});
+	{
+		description:
+			"Skill name(s) to add to role/default skills, an array of skill names, or false to disable all injected skills for this run.",
+	},
+);
 
-const FreeformConfig = Type.Unsafe({
+// Freeform object: Type.Record + Any is TypeBox-native (no custom Unsafe kind),
+// so Value.Check/Compile can walk it without throwing "Unknown type".
+const FreeformConfig = Type.Record(Type.String(), Type.Any(), {
 	description: "Resource config for management actions.",
-	type: "object",
-	additionalProperties: true,
 });
 
 /**
@@ -56,7 +57,7 @@ const FreeformConfig = Type.Unsafe({
  */
 const sharedFields = {
 	resource: Type.Optional(
-		Type.Union([Type.Literal("agent"), Type.Literal("team"), Type.Literal("workflow")], {
+		Type.Union([Type.Literal(""), Type.Literal("agent"), Type.Literal("team"), Type.Literal("workflow")], {
 			description: "Resource kind for get/create/update/delete/list. Defaults to all for list.",
 		}),
 	),
@@ -93,7 +94,9 @@ const sharedFields = {
 	runId: Type.Optional(
 		Type.String({
 			description: "Run ID for status, cancel, or resume.",
-			pattern: "^[A-Za-z0-9_-]+$",
+			// Empty string allowed: calling models emit "" for unset keys; the handler
+			// treats it as omitted (see normalizeTeamParams in team-tool.ts).
+			pattern: "^$|^[A-Za-z0-9_-]+$",
 		}),
 	),
 	taskId: Type.Optional(Type.String({ description: "Task ID for respond action." })),
@@ -111,12 +114,12 @@ const sharedFields = {
 		}),
 	),
 	workspaceMode: Type.Optional(
-		Type.Union([Type.Literal("single"), Type.Literal("worktree")], {
+		Type.Union([Type.Literal(""), Type.Literal("single"), Type.Literal("worktree")], {
 			description: "Workspace isolation mode. Worktree mode is planned after MVP.",
 		}),
 	),
 	context: Type.Optional(
-		Type.Union([Type.Literal("fresh"), Type.Literal("fork")], {
+		Type.Union([Type.Literal(""), Type.Literal("fresh"), Type.Literal("fork")], {
 			description: "Child context mode for workers.",
 		}),
 	),
@@ -124,7 +127,7 @@ const sharedFields = {
 	model: Type.Optional(Type.String({ description: "Model override for direct runs." })),
 	skill: Type.Optional(SkillOverride),
 	scope: Type.Optional(
-		Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], {
+		Type.Union([Type.Literal(""), Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], {
 			description: "Resource scope for discovery or management.",
 		}),
 	),
@@ -145,8 +148,8 @@ const sharedFields = {
 		}),
 	),
 	keep: Type.Optional(
-		Type.Integer({
-			minimum: 0,
+		// Boolean false accepted: calling models emit false for unset; treated as omitted.
+		Type.Union([Type.Boolean(), Type.Integer({ minimum: 0 })], {
 			description: "Number of finished runs to keep for prune.",
 		}),
 	),
@@ -180,7 +183,8 @@ const sharedFields = {
 		}),
 	),
 	once: Type.Optional(
-		Type.Union([Type.String(), Type.Number()], {
+		// Boolean false accepted: calling models emit false for unset; treated as omitted.
+		Type.Union([Type.Boolean(), Type.String(), Type.Number()], {
 			description: "ISO timestamp or epoch ms for a one-time scheduled run.",
 		}),
 	),
@@ -190,11 +194,20 @@ const sharedFields = {
 		}),
 	),
 	budgetTotal: Type.Optional(
-		Type.Number({
-			description:
-				"Total token budget for the run. When set, enables budget tracking with default 80% warning and 95% abort thresholds. Minimum 1000 — this is a MISCONFIGURATION GUARD (catches typos / silent-abort configs like budgetTotal:1, which would abort on turn 1), NOT a usefulness guarantee; a productive multi-turn goal needs far more than 1000 tokens.",
-			minimum: 1000,
-		}),
+		// 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
+		// as the MISCONFIGURATION GUARD against typo'd silent-abort configs.
+		Type.Union(
+			[
+				Type.Literal(0),
+				Type.Number({
+					minimum: 1000,
+				}),
+			],
+			{
+				description:
+					"Total token budget for the run. When set, enables budget tracking with default 80% warning and 95% abort thresholds. Minimum 1000 — this is a MISCONFIGURATION GUARD (catches typos / silent-abort configs like budgetTotal:1, which would abort on turn 1), NOT a usefulness guarantee; a productive multi-turn goal needs far more than 1000 tokens. 0 = unset.",
+			},
+		),
 	),
 	budgetUnlimited: Type.Optional(
 		Type.Boolean({
@@ -219,7 +232,7 @@ const sharedFields = {
 		}),
 	),
 	runKind: Type.Optional(
-		Type.Union([Type.Literal("team-run"), Type.Literal("goal-loop"), Type.Literal("dynamic-workflow")], {
+		Type.Union([Type.Literal(""), Type.Literal("team-run"), Type.Literal("goal-loop"), Type.Literal("dynamic-workflow")], {
 			description:
 				'Background dispatch discriminator. Default "team-run" runs the normal executeTeamRun workflow; "goal-loop" (P0/P1) and "dynamic-workflow" (P2/P3) dispatch to their respective background runners. Absent = "team-run" for backward compatibility.',
 		}),
@@ -302,10 +315,15 @@ export const AutomateDomainParams = Type.Object({ action: automateActions, ...sh
  * (RunDomainParams etc.) are kept for the facade dispatch + backward compat.
  */
 export const allActionLiterals = ([runActions, statusActions, controlActions, manageActions, automateActions] as TSchema[]).flatMap(
-	(set) =>
-		(set.anyOf as { const: string }[] | undefined) ??
-		(Array.isArray(set.enum) ? set.enum.map((v: unknown) => ({ const: v })) : []) ??
-		[],
+	(set) => {
+		const literals =
+			(set.anyOf as { const: string }[] | undefined) ??
+			(Array.isArray(set.enum) ? set.enum.map((v: unknown) => ({ const: v })) : []) ??
+			[];
+		// stringEnum accepts "" as an unset marker for model callers; it is NOT an
+		// action, so exclude it from the literal/type/suggestion derivations.
+		return literals.filter((l) => l.const !== "");
+	},
 );
 
 /**

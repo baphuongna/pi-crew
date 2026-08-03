@@ -39,6 +39,31 @@ import { withSessionId } from "../team-tool/context.ts";
 import { formatTeamToolParamError } from "../team-tool/param-error.ts";
 import { toolResult } from "../tool-result.ts";
 
+/**
+ * Normalize model-generated tool params before schema validation.
+ *
+ * Calling models (esp. Claude-style tool callers, incl. deepseek-via-commandcode)
+ * routinely emit EVERY schema key with a default/empty value ("", 0, false)
+ * rather than omitting it. Strict TypeBox unions/patterns then reject the call
+ * even though the intent was "unset": e.g. `runId: ""` fails the
+ * `^[A-Za-z0-9_-]+$` pattern, `workspaceMode: ""` fails the
+ * Literal("single"|"worktree") union, `context: ""` / `scope: ""` likewise.
+ *
+ * Only EMPTY string values are dropped — non-empty strings, booleans, numbers,
+ * arrays, objects are preserved verbatim so genuine invalid values still fail
+ * validation with a helpful message.
+ */
+export function normalizeTeamParams(params: unknown): unknown {
+	if (typeof params !== "object" || params === null || Array.isArray(params)) return params;
+	const p = params as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(p)) {
+		if (typeof value === "string" && value.trim() === "") continue; // drop empty-string "unset" values
+		out[key] = value;
+	}
+	return out;
+}
+
 const TEAM_TOOL_PROGRESS_TICK_MS = 1000;
 
 type OnUpdate = (chunk: { content: { type: "text"; text: string }[] }) => void;
@@ -153,18 +178,21 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			signal?.addEventListener("abort", abort, { once: true });
 			const stopProgress = startTeamToolProgressBinder(onUpdate as OnUpdate | undefined);
 			try {
+				// Models emit empty-string defaults for unset keys; drop them BEFORE
+				// validation so strict unions/patterns accept "unset" as omitted.
+				const normalized = normalizeTeamParams(params);
 				// Defense-in-depth: validate params at runtime even though Pi framework already does
-				if (!Value.Check(TeamToolParams, params)) {
-					return toolResult(formatTeamToolParamError(TeamToolParams, params), { action: "list", status: "error" }, true);
+				if (!Value.Check(TeamToolParams, normalized)) {
+					return toolResult(formatTeamToolParamError(TeamToolParams, normalized), { action: "list", status: "error" }, true);
 				}
 				// EXT-1: additionalProperties:true lets unknown (typo'd) keys slip past
 				// Value.Check. Catch them here and suggest the closest known field so
 				// the caller gets an actionable hint instead of a generic handler error.
-				const typoError = detectUnrecognizedParams(TeamToolParams, params);
+				const typoError = detectUnrecognizedParams(TeamToolParams, normalized);
 				if (typoError) {
 					return toolResult(typoError, { action: "list", status: "error" }, true);
 				}
-				const resolved = params as TeamToolParamsValue;
+				const resolved = normalized as TeamToolParamsValue;
 				const cwdOverride = resolveCwdOverride(ctx.cwd, resolved.cwd);
 				if (!cwdOverride.ok) return toolResult(cwdOverride.error, { action: resolved.action ?? "list", status: "error" }, true);
 				const toolCtx = withSessionId({ ...ctx, cwd: cwdOverride.cwd });
