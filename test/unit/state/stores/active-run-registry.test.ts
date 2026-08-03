@@ -3,10 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { activeRunRoots, readActiveRunRegistry, registerActiveRun, unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
-import { createRunManifest, updateRunStatus } from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+import { activeRunRoots, readActiveRunRegistry, registerActiveRun, unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
+import { createRunManifest, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 // Use realpath to resolve symlinks (macOS /var/folders → /private/var/folders).
 // Several pi-crew code paths refuse to write through untrusted symlink paths.

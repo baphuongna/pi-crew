@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { buildAndSaveRunGraph, buildRunGraph, listRunGraphs, loadRunGraph, saveRunGraph } from "../../src/state/stores/run-graph.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { buildAndSaveRunGraph, buildRunGraph, listRunGraphs, loadRunGraph, saveRunGraph } from "../../../../src/state/stores/run-graph.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
 function makeManifest(runId: string): TeamRunManifest {
 	return {

@@ -9,10 +9,10 @@ import {
 	readActiveRunRegistry,
 	registerActiveRun,
 	unregisterActiveRun,
-} from "../../src/state/stores/active-run-registry.ts";
-import { createRunManifest } from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+} from "../../../../src/state/stores/active-run-registry.ts";
+import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 const team: TeamConfig = {
 	name: "test-team",

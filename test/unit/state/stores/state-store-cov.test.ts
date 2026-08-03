@@ -10,10 +10,10 @@ import {
 	saveRunManifest,
 	saveRunTasks,
 	updateRunStatus,
-} from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+} from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "test-team",

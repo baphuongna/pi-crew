@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { type CompressedObservation, type Observation, ObservationStore, stripPrivacyTags } from "../../src/state/stores/observation-store.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { type CompressedObservation, type Observation, ObservationStore, stripPrivacyTags } from "../../../../src/state/stores/observation-store.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeObservation(overrides: Partial<Observation> = {}): Observation {
 	return {

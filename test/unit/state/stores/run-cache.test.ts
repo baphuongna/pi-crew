@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import * as os from "node:os";
 import test from "node:test";
-import { clearCache, computeRunCacheKey, getCachedRun, getCacheStats, saveRunToCache } from "../../src/state/stores/run-cache.ts";
-import type { TeamTaskState } from "../../src/state/types.ts";
+import { clearCache, computeRunCacheKey, getCachedRun, getCacheStats, saveRunToCache } from "../../../../src/state/stores/run-cache.ts";
+import type { TeamTaskState } from "../../../../src/state/types.ts";
 
 test("computeRunCacheKey: deterministic", () => {
 	const key1 = computeRunCacheKey("fix bug", "default", "default", "/tmp");

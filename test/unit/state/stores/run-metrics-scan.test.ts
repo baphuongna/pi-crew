@@ -24,8 +24,8 @@ import * as fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import * as path from "node:path";
 import test from "node:test";
-import { getRunMetricsSummary, type RunMetrics, saveRunMetrics } from "../../src/state/stores/run-metrics.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { getRunMetricsSummary, type RunMetrics, saveRunMetrics } from "../../../../src/state/stores/run-metrics.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 /**
  * Count fs.readFileSync calls that target a metric file

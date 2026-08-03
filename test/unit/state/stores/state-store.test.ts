@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { DEFAULT_CACHE } from "../../src/config/defaults.ts";
-import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
+import { DEFAULT_CACHE } from "../../../../src/config/defaults.ts";
+import { createManifestCache } from "../../../../src/runtime/manifest-cache.ts";
 import {
 	__test__clearManifestCache,
 	__test__getManifestCacheEntry,
@@ -22,9 +22,9 @@ import {
 	saveRunTasksAsync,
 	unloadRun,
 	updateRunStatus,
-} from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+} from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 /** Resolve temp dir through realpath to handle macOS /var → /private/var symlink. */
 function makeResolvedTempDir(prefix: string): string {
@@ -803,7 +803,7 @@ test("unloadRun flushes pending coalesced writes to disk", async () => {
 	try {
 		__test__clearManifestCache();
 		const created = createRunManifest({ cwd, team, workflow, goal: "flush coalesced" });
-		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import("../../src/state/atomic-write.ts");
+		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import("../../../../src/state/atomic-write.ts");
 
 		// Enqueue a coalesced write to tasks.json — without unloadRun, this would
 		// sit in the in-memory coalescer buffer for ~50ms before landing on disk.
