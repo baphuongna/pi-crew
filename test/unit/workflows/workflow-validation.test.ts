@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import { validateWorkflowForTeam } from "../../src/workflows/validate-workflow.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+import type { TeamConfig } from "../../../src/teams/team-config.ts";
+import { validateWorkflowForTeam } from "../../../src/workflows/validate-workflow.ts";
+import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
 
 const team: TeamConfig = {
 	name: "test",

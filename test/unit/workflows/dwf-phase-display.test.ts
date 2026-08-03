@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamEvent } from "../../src/state/event-log/event-log.ts";
-import { renderProgressPane } from "../../src/ui/dashboard-panes/progress-pane.ts";
-import { extractDwfPhaseState, renderDwfPhaseLines } from "../../src/ui/dwf-phase-display.ts";
-import type { RunUiSnapshot } from "../../src/ui/snapshot-types.ts";
+import type { TeamEvent } from "../../../src/state/event-log/event-log.ts";
+import { renderProgressPane } from "../../../src/ui/dashboard-panes/progress-pane.ts";
+import { extractDwfPhaseState, renderDwfPhaseLines } from "../../../src/ui/dwf-phase-display.ts";
+import type { RunUiSnapshot } from "../../../src/ui/snapshot-types.ts";
 
 // ---------------------------------------------------------------------------
 // Event builders

@@ -5,8 +5,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChainRunner, type ChainSpec, type ChainTaskRunner, createChainRunner, parseChainString } from "../../src/runtime/chain-runner.ts";
-import { HandoffManager, type TaskPacket, type TaskResult } from "../../src/runtime/handoff-manager.ts";
+import { ChainRunner, type ChainSpec, type ChainTaskRunner, createChainRunner, parseChainString } from "../../../src/runtime/chain-runner.ts";
+import { HandoffManager, type TaskPacket, type TaskResult } from "../../../src/runtime/handoff-manager.ts";
 
 // Test helpers
 function createTaskResult(overrides: Partial<TaskResult> = {}): TaskResult {

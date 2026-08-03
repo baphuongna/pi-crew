@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { TEAM_EVENT_TYPES } from "../../src/state/contracts.ts";
+import { TEAM_EVENT_TYPES } from "../../../src/state/contracts.ts";
 
 test("pre-step audit events are registered without exposing script output", () => {
 	assert.ok(TEAM_EVENT_TYPES.includes("hook.pre_step_started"));

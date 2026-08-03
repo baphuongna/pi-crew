@@ -9,7 +9,7 @@ import {
 	transitionPhase,
 	validatePhasePreconditions,
 	type WorkflowStateMachine,
-} from "../../src/runtime/workflow-state.ts";
+} from "../../../src/runtime/workflow-state.ts";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

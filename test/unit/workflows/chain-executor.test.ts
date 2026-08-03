@@ -30,7 +30,7 @@ const WIN32_SKIP = {
 	skip: isWindows ? "bug-023: Windows path resolution — see docs/bugs/bug-023-chain-windows-path-resolution.md" : false,
 } as const;
 
-import { handleChainRun } from "../../src/extension/team-tool/chain-dispatch.ts";
+import { handleChainRun } from "../../../src/extension/team-tool/chain-dispatch.ts";
 import {
 	ChainTeamRunExecutor,
 	formatChainHistory,
@@ -38,13 +38,13 @@ import {
 	mapRunToTaskResult,
 	readChainStepOutput,
 	writeRunFixture,
-} from "../../src/extension/team-tool/chain-executor.ts";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import type { PiTeamsToolResult } from "../../src/extension/tool-result.ts";
-import { ChainRunner, parseChainString } from "../../src/runtime/chain-runner.ts";
-import { HandoffManager } from "../../src/runtime/handoff-manager.ts";
-import { __test__clearManifestCache, loadRunManifestById } from "../../src/state/stores/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+} from "../../../src/extension/team-tool/chain-executor.ts";
+import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
+import type { PiTeamsToolResult } from "../../../src/extension/tool-result.ts";
+import { ChainRunner, parseChainString } from "../../../src/runtime/chain-runner.ts";
+import { HandoffManager } from "../../../src/runtime/handoff-manager.ts";
+import { __test__clearManifestCache, loadRunManifestById } from "../../../src/state/stores/state-store.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 
 // ─── fixtures / helpers ──────────────────────────────────────────────────
 

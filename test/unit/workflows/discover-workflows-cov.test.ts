@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { allWorkflows, discoverWorkflows } from "../../src/workflows/discover-workflows.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { allWorkflows, discoverWorkflows } from "../../../src/workflows/discover-workflows.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 describe("discoverWorkflows", () => {
 	it("returns empty result for empty string cwd", () => {

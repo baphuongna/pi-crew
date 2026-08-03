@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseChainDSL } from "../../src/runtime/chain-parser.ts";
+import { parseChainDSL } from "../../../src/runtime/chain-parser.ts";
 
 describe("chain-parser: parseChainDSL", () => {
 	it("parses a simple single-step chain", () => {

@@ -16,7 +16,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const typesFile = path.join(repoRoot, "types", "dwf.d.ts");
 
 /** The sample .dwf.ts used for the compile check — exercises budget/log/args/phase/agent/setResult. */

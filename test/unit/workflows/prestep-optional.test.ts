@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { allWorkflows, discoverWorkflows } from "../../src/workflows/discover-workflows.ts";
+import { allWorkflows, discoverWorkflows } from "../../../src/workflows/discover-workflows.ts";
 
 function writeProjectWorkflow(cwd: string, body: string): void {
 	const dir = path.join(cwd, ".crew", "workflows");

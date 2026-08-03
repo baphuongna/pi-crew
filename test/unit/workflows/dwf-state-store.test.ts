@@ -11,8 +11,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { DwfCheckpointState } from "../../src/runtime/dwf-state-store.ts";
-import { DwfStore } from "../../src/runtime/dwf-state-store.ts";
+import type { DwfCheckpointState } from "../../../src/runtime/dwf-state-store.ts";
+import { DwfStore } from "../../../src/runtime/dwf-state-store.ts";
 
 function makeTmpStateRoot(): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dwf-store-"));

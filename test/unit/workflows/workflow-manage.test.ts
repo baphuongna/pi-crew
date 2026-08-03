@@ -16,7 +16,7 @@ import {
 	handleWorkflowGet,
 	handleWorkflowList,
 	handleWorkflowSave,
-} from "../../src/extension/team-tool/workflow-manage.ts";
+} from "../../../src/extension/team-tool/workflow-manage.ts";
 
 function tmpCwd(): string {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wf-manage-"));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { WorkflowConfig, WorkflowStep } from "../../src/workflows/workflow-config.ts";
+import type { WorkflowConfig, WorkflowStep } from "../../../src/workflows/workflow-config.ts";
 
 describe("WorkflowStep type", () => {
 	it("accepts a minimal step with required fields", () => {
