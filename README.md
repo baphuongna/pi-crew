@@ -26,7 +26,7 @@
 >   a footgun, or a sharp edge, please open an issue or send a note — your
 >   feedback is genuinely appreciated. Thanks. ✌️
 >
-> See also: [SECURITY-ISSUES.md](SECURITY-ISSUES.md),
+> See also: [SECURITY-ISSUES.md](docs/bugs/SECURITY-ISSUES.md),
 > [docs/dynamic-workflows.md](docs/dynamic-workflows.md#security-model-important)
 > (trust model), and the [Known limitations](#known-limitations) section below.
 
@@ -70,6 +70,7 @@ repo: https://github.com/baphuongna/pi-crew
 - **Lossless-by-default output handling** (L4, v0.9.8) — worker output thresholds sized from measured data (100% of real outputs fit without compaction); when compaction is unavoidable it keeps head+tail (preserves closing code fences/headings) instead of head-only truncation. No more `[pi-crew compacted N chars]` markers eating the end of a worker's result.
 - **Inter-pi broker** (v0.9.47, default-on) — a Unix-domain-socket message bus that lets concurrently-running Pi sessions pass messages, steering notes, and task-status events to each other. **On by default** on Linux + macOS; auto-disabled on native Windows (no unix socket). Three independent kill switches: `broker.enabled: false` (config), `PI_CREW_BROKER=0` (env, always wins), Windows auto-disable. See [docs/decisions/2026-07-22-broker-phase4-gated-on.md](docs/decisions/2026-07-22-broker-phase4-gated-on.md).
 - **`test:critical` + `real-test-pi-crew` skill** (v0.9.47) — a curated 14-file / 97-test subset (`npm run test:critical`, ~20s) for fast in-loop verification, plus a bundled skill distilling the full 8-tier end-to-end verification discipline (unit → 3-path kill-switch proof → typecheck/bundle → live TUI probing → smoke team run). Prevents the verifier-worker hang that full `npm test` (>4 min) caused against the 300s worker timeout.
+- **Provider extensions in subagents** (v0.9.57) — pi-crew spawns child-pi workers with `--no-extensions` (security posture), which made extension-registered providers (e.g. `pi-commandcode-provider`) unresolvable inside subagents. pi-crew now **auto-discovers provider packages** from `~/.pi/agent/settings.json` `packages` (npm: specs) and loads them via `--extension` in every builtin/user subagent — so **all provider models work in subagents**. An explicit `runtime.agentExtensions: string[]` config is an optional extra allowlist on top of auto-discovery. **SEC-1 preserved:** project/project-pi agents never receive these (env-gate unchanged).
 
 ---
 
@@ -286,6 +287,15 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ## Recent changes
 
+### v0.9.57 (in progress): post-reorg repo-layout consolidation + provider-extension auto-discovery
+
+- **Source reorg finalised (~90 commits)**: `src/` is now cluster-organised — `src/runtime/` (15 subdirs + ~77 flat files) and `src/state/` (3 subdirs + 12 root files), with the other top-level dirs (`extension/`, `ui/`, `config/`, `utils/`, `agents/`, …) cluster-honed too. See [Repository layout](#repository-layout) and the cluster maps [`src/runtime/README.md`](src/runtime/README.md) / [`src/state/README.md`](src/state/README.md).
+- **Tests mirrored into subdirs**: 566 flat `.test.ts` files now live in 35 leaf subdirectories mirroring `src/` (`test/unit/runtime/`, `test/unit/state/`, `test/unit/extension/`, …). 151 cross-cutting tests (`round*`, `v0*`, `package-*`, errors, i18n, bundle-*) stay at `test/unit/` root by design. See [`test/unit/README.md`](test/unit/README.md).
+- **Recursive-glob test-runner fix**: `scripts/test-runner.mjs` now expands `**` globs itself — Node v22's `--test` only expands single-level `*`, so subdir tests (e.g. `test/unit/security/`) were **invisible** to `npm test` before.
+- **Docs consolidated**: 47 flat docs at `docs/` root → 20 living docs kept at root, 27 historical moved to `docs/archive/` (flat); 11 stray root `.md` files moved to `docs/archive/` + `docs/bugs/`. New [`docs/README.md`](docs/README.md) indexes the living docs + subdirs.
+- **Provider extensions in subagents** (see [Features](#features)): auto-discovery of provider packages from `~/.pi/agent/settings.json` `packages` (npm: specs) + explicit `runtime.agentExtensions` allowlist. Implementation: `src/runtime/model/provider-extensions.ts` + merge in `src/agents/discover-agents.ts`. SEC-1 preserved (project/project-pi agents never receive these).
+- See [CHANGELOG.md](CHANGELOG.md) for the full reorg + feature log.
+
 ### v0.9.47 (2026-07-22): Inter-pi broker Phase 4 (default-on) + verifier-hang fix + verification skill
 
 - **Broker default-on**: `broker.enabled` flipped `false` → `true` on Linux + macOS. The inter-pi broker lets concurrent Pi sessions exchange messages, steering notes, and task-status events over a Unix-domain socket. Three kill switches remain: config `broker.enabled: false`, env `PI_CREW_BROKER=0` (always wins), Windows auto-disable.
@@ -315,7 +325,7 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ### v0.9.42 – v0.9.44: 4-wave audit + flaky-CI fixes
 
-A 4-wave audit + fix pass was completed (see `UPGRADE_REVIEW.md` for the full 647-line report and `CHANGELOG.md` for the diff):
+A 4-wave audit + fix pass was completed (see `docs/archive/UPGRADE_REVIEW.md` for the full 647-line report and `CHANGELOG.md` for the diff):
 
 - **−481 KB** bundle size (externalized `acorn` + fixed `@sinclair/typebox` name).
 - **−31.1%** in `child-pi.ts` (1842 → 1270 lines via 6 decomposition steps).
@@ -481,6 +491,7 @@ For machine-readable validation, see [schema.json](schema.json).
 | `runtime.effectivenessGuard` | `off \| warn \| block \| fail` | `off` | Pre-flight topology validator enforcement mode. |
 | `runtime.isolationPolicy` 🔒 | `{ isolatedRoles?, defaultRuntime? }` | _(unset)_ | Per-role runtime selection for crash isolation. |
 | `runtime.excludeContextBash` | `boolean` | `false` | Exclude certain bash results from worker context. |
+| `runtime.agentExtensions` | `string[]` | _(unset)_ | Extra extension paths (file paths or npm entry points) loaded in **every** child-pi worker on top of auto-discovered provider packages (see [Features](#features)). Optional allowlist — auto-discovery already loads provider packages from `~/.pi/agent/settings.json` `packages`. Project/project-pi agents never receive these (SEC-1). |
 
 ² `requirePlanApproval` is sensitive only when set to `false` in project config
 (the sanitizer blocks *disabling* the gate from untrusted project config).
@@ -893,7 +904,39 @@ npm run ci           # full CI-equivalent check
 npm pack --dry-run   # package verification
 ```
 
-Stats: **477 source files** (108K lines) · **682 test files** (~6,500 tests) · **CI: Ubuntu ✅ macOS ✅ Windows ✅**
+Stats: **476 source files** (112K lines) · **762 test files** (717 unit + 34 integration + 5 smoke + 3 functional + 2 platform + 1 manual) · **CI: Ubuntu ✅ macOS ✅ Windows ✅**
+
+---
+
+## Repository layout
+
+After the v0.9.x reorg (~90 commits) the repo is cluster-organised so related
+files live together — source, tests, and docs mirror each other.
+
+```
+src/                         # ~476 TS files
+├── runtime/                 # team-run execution machinery — 15 subdirs + ~77 flat files
+├── state/                   # persistent state layer — 3 subdirs + 12 root files
+├── extension/               # Pi extension surface (register, team-tool, ui glue)
+├── ui/                      # TUI, dashboard, overlays
+├── config/ · utils/ · agents/ · workflows/ · …   # supporting clusters
+test/
+└── unit/                    # mirrors src/ — 35 leaf subdirs + 151 cross-cutting tests at root
+    ├── runtime/ · state/ · extension/ · ui/ · config/ · …
+docs/                        # living docs at root; history in docs/archive/
+```
+
+- **`src/`** — each top-level dir has a cluster map; the two largest are
+  [`src/runtime/README.md`](src/runtime/README.md) (15 subdirs: child-pi,
+  broker, live-session, recovery, scheduling, verification, model, output,
+  heartbeat, process, goal-workflow, compaction, task-runner, custom-tools,
+  errors) and [`src/state/README.md`](src/state/README.md) (event-log,
+  stores, coordination).
+- **`test/unit/`** — mirrors `src/` 1:1; cross-cutting tests (`round*`,
+  `v0*`, `package-*`, errors, i18n, bundle-*) stay at the root by design.
+  See [`test/unit/README.md`](test/unit/README.md).
+- **`docs/`** — 20 living docs at the root; 27 historical docs moved to
+  `docs/archive/`. See [`docs/README.md`](docs/README.md).
 
 ---
 
@@ -912,6 +955,10 @@ Stats: **477 source files** (108K lines) · **682 test files** (~6,500 tests) ·
 | [docs/dynamic-workflows.md](docs/dynamic-workflows.md) | **v0.9.0** `.dwf.ts` script runtime + trust model |
 | [docs/live-mailbox-runtime.md](docs/live-mailbox-runtime.md) | Mailbox + live-session runtime |
 | [docs/publishing.md](docs/publishing.md) | Release & publish process |
+| [docs/README.md](docs/README.md) | Index of all docs/ (living + subdirs) |
+| [src/runtime/README.md](src/runtime/README.md) | Runtime source cluster map (15 subdirs) |
+| [src/state/README.md](src/state/README.md) | State source cluster map (3 subdirs) |
+| [test/unit/README.md](test/unit/README.md) | Unit-test cluster map (mirrors src/) |
 | [docs/archive/next-upgrade-roadmap.md](docs/archive/next-upgrade-roadmap.md) | Future upgrade roadmap |
 | [schema.json](schema.json) | Config JSON schema |
 
@@ -929,7 +976,7 @@ sharp edges I'm aware of — there are almost certainly others I'm not.
   event-loop race that kills the background process with no signal, no core,
   and no V8 diagnostic report (8 investigation attempts: gdb, strace, perf,
   `--report-on-fatalerror`, sync-fs workarounds, worker-thread atomic writer —
-  see `research-findings/goal-workflow/17-PHASE1.5-CRASH-INVESTIGATION-RFC.md`).
+  see [CHANGELOG.md](CHANGELOG.md) § v0.9.0 "Phase 1.5 #3").
   **Mitigation:** multi-step workflows silently auto-downgrade to a normal
   team-run (no goal-wrap layer); single-step workflows (`implementation`)
   goal-wrap end-to-end.
