@@ -34,7 +34,6 @@ import { appendEventAsync, appendEventBuffered } from "../../state/event-log.ts"
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../process/cancellation.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
 import {
 	appendCrewAgentEvent,
@@ -45,6 +44,8 @@ import {
 } from "../crew-agent-records.ts";
 import { crewHooks } from "../crew-hooks.ts";
 import { bridgeEventFromJsonEvent } from "../event-stream-bridge.ts";
+import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
+import { createStartupEvidence } from "../heartbeat/worker-startup.ts";
 import {
 	buildConfiguredModelRouting,
 	formatModelAttemptNote,
@@ -54,12 +55,11 @@ import {
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../output/pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../output/progress-event-coalescer.ts";
+import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../process/cancellation.ts";
 import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
 import { recordSupervisorContact, supervisorContactFromEvent } from "../supervisor-contact.ts";
-import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
-import { createStartupEvidence } from "../heartbeat/worker-startup.ts";
 import type { TaskExecutionResult } from "./post-execution.ts";
 import type { StreamBridgeHandle, TaskExecutionContext } from "./pre-execution.ts";
 import { applyAgentProgressEvent, applyUsageToProgress, progressEventSummary, shouldFlushProgressEvent } from "./progress.ts";

@@ -22,7 +22,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { __test_setRegistryPath, cleanupOrphanWorkers, registerWorker } from "../../src/runtime/orphan-worker-registry.ts";
 import {
 	__test_getTrackedTempDirs,
 	__test_resetTrackedTempDirs,
@@ -30,6 +29,7 @@ import {
 	cleanupOrphanTempDirs,
 	createSafeTempDir,
 } from "../../src/runtime/model/pi-args.ts";
+import { __test_setRegistryPath, cleanupOrphanWorkers, registerWorker } from "../../src/runtime/orphan-worker-registry.ts";
 
 function mkdtemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

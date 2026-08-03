@@ -18,9 +18,9 @@
  * `lifecycle-handlers.ts`.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { appendDeadletter } from "../../runtime/deadletter.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs } from "../../runtime/model/pi-args.ts";
+import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { reconcileOrphanedTempWorkspaces } from "../../runtime/stale-reconciler.ts";
 import { requestPowerbarUpdate } from "../../ui/powerbar-publisher.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

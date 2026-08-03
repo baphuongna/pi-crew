@@ -1,12 +1,12 @@
 import { loadConfig } from "../../config/config.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../../runtime/agent-control.ts";
 import { extractCommandTrace } from "../../runtime/command-trace.ts";
-import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { evaluateRunEffectiveness } from "../../runtime/effectiveness.ts";
 import { computePhaseProgress } from "../../runtime/phase-progress.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
 import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.ts";
+import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent, readEvents } from "../../state/event-log.ts";
 import { readDeliveryState, readMailbox } from "../../state/mailbox.ts";

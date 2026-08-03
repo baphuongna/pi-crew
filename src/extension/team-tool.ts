@@ -32,8 +32,8 @@ async function executeTeamRun(...args: Parameters<ExecuteTeamRunFn>): Promise<Aw
 }
 
 import { directTeamAndWorkflowFromRun } from "../runtime/direct-run.ts";
-import { parsePiJsonOutput } from "../runtime/output/pi-json-output.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../runtime/model/runtime-resolver.ts";
+import { parsePiJsonOutput } from "../runtime/output/pi-json-output.ts";
 import { effectiveRunConfig } from "./team-tool/config-patch.ts";
 import { buildParentContext, formatScoped, result, type TeamContext } from "./team-tool/context.ts";
 // Lazy-loaded: run.ts pulls in spawnBackgroundTeamRun, resolveCrewRuntime, etc.

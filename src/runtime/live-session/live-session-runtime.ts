@@ -17,7 +17,6 @@ import { buildConfiguredModelRouting } from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
-import { buildSensitivePathConstraint } from "../sensitive-paths.ts";
 import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../output/sidechain-output.ts";
 // NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
 // block is injected via renderTaskPrompt().full (the USER prompt), which is
@@ -26,6 +25,7 @@ import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "
 // block (up to 200 lines) in both the user and system prompts. Keep memory
 // in a single place: the shared user prompt. See G3 fix.
 import { createStreamingOutput, type StreamingOutputHandle } from "../output/streaming-output.ts";
+import { buildSensitivePathConstraint } from "../sensitive-paths.ts";
 import { trackTaskUsage } from "../usage-tracker.ts";
 import {
 	buildYieldReminder,

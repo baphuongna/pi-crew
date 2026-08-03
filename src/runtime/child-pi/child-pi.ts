@@ -33,10 +33,9 @@ export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
-import { classifyProcessCrash } from "../recovery/crash-classification.ts";
 import { checkCrewDepth, cleanupTempDir } from "../model/pi-args.ts";
-
 import { attachPostExitStdioGuard, trySignalChild } from "../process/post-exit-stdio-guard.ts";
+import { classifyProcessCrash } from "../recovery/crash-classification.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth

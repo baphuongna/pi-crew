@@ -22,10 +22,12 @@ import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";
 import { prepareTaskWorkspaceAsync } from "../../worktree/worktree-manager.ts";
 import { reserveControlChannel } from "../agent-control.ts";
-import { cancellationReasonFromSignal } from "../process/cancellation.ts";
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
 import type { registerStreamBridge } from "../event-stream-bridge.ts";
+import { createWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
+import { createStartupEvidence, type WorkerStartupEvidence } from "../heartbeat/worker-startup.ts";
+import { cancellationReasonFromSignal } from "../process/cancellation.ts";
 import { permissionForRole, type RolePermissionMode } from "../role-permission.ts";
 import { renderSkillInstructions } from "../skill-instructions.ts";
 import { collectDependencyOutputContext, renderDependencyOutputContext, writeTaskInputsArtifact } from "../task-output-context.ts";
@@ -33,8 +35,6 @@ import { buildTaskPacket } from "../task-packet.ts";
 // Type-only import avoids runtime circular dependency (task-runner.ts imports
 // this module at runtime; we only need the TaskRunnerInput type here).
 import type { TaskRunnerInput } from "../task-runner.ts";
-import { createWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
-import { createStartupEvidence, type WorkerStartupEvidence } from "../heartbeat/worker-startup.ts";
 import { DEFAULT_YIELD_CONFIG } from "../yield-handler.ts";
 import { coordinationBridgeInstructions, renderTaskPrompt } from "./prompt-builder.ts";
 import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateGreenContract } from "../../src/runtime/verification/green-contract.ts";
 import { evaluateCrewPolicy } from "../../src/runtime/policy-engine.ts";
 import { buildTaskPacket, validateTaskPacket } from "../../src/runtime/task-packet.ts";
+import { evaluateGreenContract } from "../../src/runtime/verification/green-contract.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import type { WorkflowStep } from "../../src/workflows/workflow-config.ts";
 

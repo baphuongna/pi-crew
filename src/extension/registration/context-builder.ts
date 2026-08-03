@@ -10,8 +10,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { initI18n } from "../../i18n.ts";
-import { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import { createManifestCache } from "../../runtime/manifest-cache.ts";
+import { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
 import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";

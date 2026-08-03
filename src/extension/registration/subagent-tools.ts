@@ -21,10 +21,10 @@ async function handleTeamTool(
 import { Text } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../config/config.ts";
 import { t } from "../../i18n.ts";
-import type { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { checkSubagentSpawnPermission, currentCrewRole } from "../../runtime/role-permission.ts";
+import type { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import {
 	readPersistedSubagentRecord,
 	type SubagentManager,

@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { expandParallelResearchWorkflow } from "../../src/runtime/scheduling/parallel-research.ts";
 import { getPiSpawnCommand } from "../../src/runtime/pi-spawn.ts";
+import { expandParallelResearchWorkflow } from "../../src/runtime/scheduling/parallel-research.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 
 const parallelResearchWorkflow: WorkflowConfig = {

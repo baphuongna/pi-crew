@@ -18,8 +18,8 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config/config.ts";
-import { primePeerDep } from "../runtime/peer-dep.ts";
 import { startRuntimeWarmup } from "../runtime/model/runtime-warmup.ts";
+import { primePeerDep } from "../runtime/peer-dep.ts";
 import { deployBundledThemes } from "../ui/deploy-bundled-themes.ts";
 import { resetTimings, time } from "../utils/timings.ts";
 import { registerAutonomousPolicy } from "./autonomous-policy.ts";

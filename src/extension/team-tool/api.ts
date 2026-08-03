@@ -4,6 +4,7 @@ import { buildAgentDashboard, readAgentOutput } from "../../runtime/agent-observ
 import { buildCapabilityInventory } from "../../runtime/capability-inventory.ts";
 import { agentOutputPath, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { readForegroundControlStatus, writeForegroundInterruptRequest } from "../../runtime/foreground-control.ts";
+import { touchWorkerHeartbeat } from "../../runtime/heartbeat/worker-heartbeat.ts";
 import { appendLiveAgentControlRequest } from "../../runtime/live-session/live-agent-control.ts";
 import {
 	followUpLiveAgent,
@@ -16,9 +17,8 @@ import {
 } from "../../runtime/live-session/live-agent-manager.ts";
 import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-session/live-control-realtime.ts";
 import { probeLiveSessionRuntime } from "../../runtime/live-session/live-session-runtime.ts";
-import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
-import { touchWorkerHeartbeat } from "../../runtime/heartbeat/worker-heartbeat.ts";
+import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../state/contracts.ts";
 import { appendEvent, readEvents, readEventsCursor } from "../../state/event-log.ts";

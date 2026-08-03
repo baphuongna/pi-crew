@@ -13,11 +13,11 @@ import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { sleepSync } from "../../utils/sleep.ts";
 import { recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
+import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
 import { isPlanApprovalPending, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
-import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 
 export interface RecoveryPlan {
 	runId: string;
