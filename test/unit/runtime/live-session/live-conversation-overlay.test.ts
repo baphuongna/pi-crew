@@ -13,9 +13,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LiveAgentHandle } from "../../src/runtime/live-session/live-agent-manager.ts";
-import { LiveConversationOverlay } from "../../src/ui/live-conversation-overlay.ts";
-import type { CrewTheme } from "../../src/ui/theme-adapter.ts";
+import type { LiveAgentHandle } from "../../../../src/runtime/live-session/live-agent-manager.ts";
+import { LiveConversationOverlay } from "../../../../src/ui/live-conversation-overlay.ts";
+import type { CrewTheme } from "../../../../src/ui/theme-adapter.ts";
 
 // No-op theme keeps render output plain and deterministic.
 const theme: CrewTheme = {

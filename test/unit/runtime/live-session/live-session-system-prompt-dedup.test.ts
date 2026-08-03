@@ -15,8 +15,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { LiveSessionSpawnInput } from "../../src/runtime/live-session/live-session-runtime.ts";
-import { liveSystemPrompt } from "../../src/runtime/live-session/live-session-runtime.ts";
+import type { LiveSessionSpawnInput } from "../../../../src/runtime/live-session/live-session-runtime.ts";
+import { liveSystemPrompt } from "../../../../src/runtime/live-session/live-session-runtime.ts";
 
 function makeTmpDir(prefix: string): { dir: string; cleanup: () => void } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

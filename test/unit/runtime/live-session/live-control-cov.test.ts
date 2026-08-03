@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import type { LiveAgentControlRequest } from "../../src/runtime/live-session/live-agent-control.ts";
+import type { LiveAgentControlRequest } from "../../../../src/runtime/live-session/live-agent-control.ts";
 import {
 	appendLiveAgentControlRequest,
 	applyLiveAgentControlRequest,
 	liveAgentControlPath,
 	readLiveAgentControlRequests,
-} from "../../src/runtime/live-session/live-agent-control.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+} from "../../../../src/runtime/live-session/live-agent-control.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeManifest(tmp: string): TeamRunManifest {
 	return {

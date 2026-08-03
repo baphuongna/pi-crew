@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
+import { firstText } from "../../../fixtures/tool-result-helpers.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];

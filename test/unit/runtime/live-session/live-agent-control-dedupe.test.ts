@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyLiveAgentControlRequest } from "../../src/runtime/live-session/live-agent-control.ts";
+import { applyLiveAgentControlRequest } from "../../../../src/runtime/live-session/live-agent-control.ts";
 
 test("live agent control dedupes realtime and durable delivery by request id", async () => {
 	const seenRequestIds = new Set<string>();

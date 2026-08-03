@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test, { describe, it } from "node:test";
-import type { LiveAgentControlRequest } from "../../src/runtime/live-session/live-agent-control.ts";
+import type { LiveAgentControlRequest } from "../../../../src/runtime/live-session/live-agent-control.ts";
 import {
 	clearLiveControlRealtimeForTest,
 	liveControlRealtimeMessage,
 	parseLiveControlRealtimeMessage,
 	publishLiveControlRealtime,
 	subscribeLiveControlRealtime,
-} from "../../src/runtime/live-session/live-control-realtime.ts";
+} from "../../../../src/runtime/live-session/live-control-realtime.ts";
 
 function makeRequest(overrides: Partial<LiveAgentControlRequest> = {}): LiveAgentControlRequest {
 	return {

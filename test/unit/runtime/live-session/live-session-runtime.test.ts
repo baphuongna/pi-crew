@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { clearLiveAgentsForTest, listLiveAgents } from "../../src/runtime/live-session/live-agent-manager.ts";
-import { runLiveSessionTask } from "../../src/runtime/live-session/live-session-runtime.ts";
-import { runLiveTask } from "../../src/runtime/task-runner/live-executor.ts";
-import { createRunManifest } from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { clearLiveAgentsForTest, listLiveAgents } from "../../../../src/runtime/live-session/live-agent-manager.ts";
+import { runLiveSessionTask } from "../../../../src/runtime/live-session/live-session-runtime.ts";
+import { runLiveTask } from "../../../../src/runtime/task-runner/live-executor.ts";
+import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
+import { firstText } from "../../../fixtures/tool-result-helpers.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];

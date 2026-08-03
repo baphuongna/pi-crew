@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeLiveDurationMs, formatLiveDuration, type LiveActivity } from "../../src/ui/live-duration.ts";
+import { computeLiveDurationMs, formatLiveDuration, type LiveActivity } from "../../../../src/ui/live-duration.ts";
 
 const NOW = 1_780_000_000_000; // fixed "now" for determinism
 

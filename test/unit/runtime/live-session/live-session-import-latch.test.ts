@@ -37,7 +37,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // (test/unit/ → ../../src/runtime/...). fileURLToPath(new URL(rel, base))
 // resolves `rel` against the test file's URL without the dirname-of-
 // trailing-slash pitfall that path.dirname() introduces.
-const SRC = fileURLToPath(new URL("../../src/runtime/live-session/live-session-runtime.ts", import.meta.url));
+const SRC = fileURLToPath(new URL("../../../../src/runtime/live-session/live-session-runtime.ts", import.meta.url));
 // dynamic import() requires a file:// URL on Windows (a bare D:\ path is
 // rejected as ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL handles that
 // cross-platform; on POSIX it round-trips to the same path.

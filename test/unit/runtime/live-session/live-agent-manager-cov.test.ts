@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CrewAgentStatus } from "../../src/runtime/crew-agent-runtime.ts";
+import type { CrewAgentStatus } from "../../../../src/runtime/crew-agent-runtime.ts";
 import {
 	broadcastIrcMessage,
 	clearLiveAgentsForTest,
@@ -20,7 +20,7 @@ import {
 	trackLiveAgentToolStart,
 	trackLiveAgentTurnEnd,
 	updateLiveAgentStatus,
-} from "../../src/runtime/live-session/live-agent-manager.ts";
+} from "../../../../src/runtime/live-session/live-agent-manager.ts";
 
 function makeHandle(
 	overrides: {
