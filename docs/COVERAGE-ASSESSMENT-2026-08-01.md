@@ -105,3 +105,14 @@ Followed the structural assessment (runtime/ had 156 flat files — the "mess").
 **Verification (post-reorg)**: unit 6700/6697/0 fail · integration 208/0 · typecheck 0 · lint 0 errors · bundle rebuilt. Real-LLM E2E still green (6 workflows).
 
 **Note on older docs**: `AUDIT-2026-07-30.md`, `REMEDIATION-PLAN-2026-07-30.md`, and `docs/perf/*` reference pre-reorg paths (e.g. `src/runtime/child-pi-spawn.ts` → now `src/runtime/child-pi/child-pi-spawn.ts`; `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`). These are historical snapshots; the cluster map above is authoritative for current structure.
+
+### Update (2026-08-03): Phase 3-7 complete — full source reorg done
+
+Extended the reorg through all remaining clusters (per maintainer request). Final structure:
+
+- **src/runtime/**: 156 flat → **~77 flat + 15 subdirs** (child-pi/, broker/, live-session/, recovery/, scheduling/, verification/, model/, output/, heartbeat/, process/, goal-workflow/, compaction/+compact-stages/, + pre-existing task-runner/, custom-tools/, errors/). See [`src/runtime/README.md`](../src/runtime/README.md).
+- **src/state/**: 31 flat → **12 root + 3 subdirs** (event-log/, stores/, coordination/). See [`src/state/README.md`](../src/state/README.md).
+
+Methodology held: dir-only moves (filenames kept) + 3-pattern import codemod + typecheck-driven fix + biome organizeImports + structural-test/string-literal-specifier fixes (the latter two were the recurring edge cases — runtime-warmup HOT_MODULE_SPECIFIERS, mailbox worker MAILBOX_SRC, child-pi-spawn-registration readFileSync). Each phase verified typecheck 0 + test:critical 98/0; leader ran full suite at the end.
+
+**Final verification (all reorg phases A-7)**: unit 6700/0 fail · integration 209/208/0 · typecheck 0 · lint 0 errors/warnings · bundle rebuilt. Real-LLM E2E unaffected (reorg is import-path-only, zero logic change).
