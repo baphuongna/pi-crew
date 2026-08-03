@@ -15,7 +15,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGoalTeam } from "../../src/runtime/goal-workflow/goal-loop-runner.ts";
+import { buildGoalTeam } from "../../../../src/runtime/goal-workflow/goal-loop-runner.ts";
 
 function fakeGoal(workerAgent: string): Parameters<typeof buildGoalTeam>[0] {
 	return {

@@ -19,7 +19,7 @@ import {
 	isGoalWrapEnabled,
 	persistAsyncOnGoalLoopManifest,
 	validateGoalWrapConfig,
-} from "../../src/extension/team-tool/goal-wrap.ts";
+} from "../../../../src/extension/team-tool/goal-wrap.ts";
 
 function tmpCwd(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goalwrap-"));
@@ -129,7 +129,7 @@ test("FIX: persistAsyncOnGoalLoopManifest writes async.pid on the goal-loop mani
 	const cwd = tmpCwd();
 	try {
 		const manifestPath = path.join(cwd, "manifest.json");
-		const fakeManifest: import("../../src/state/types.ts").TeamRunManifest = {
+		const fakeManifest: import("../../../../src/state/types.ts").TeamRunManifest = {
 			schemaVersion: 1 as const,
 			runId: "goal_test",
 			team: "goal-wrap-test",
@@ -171,7 +171,7 @@ test("FIX: startGoalWrappedRun calls persistAsyncOnGoalLoopManifest after spawn"
 	// a real runner). Instead we assert the helper exists and was called from
 	// startGoalWrappedRun's source via grep. This catches accidental removal
 	// during future refactors.
-	const source = fs.readFileSync(new URL("../../src/extension/team-tool/goal-wrap.ts", import.meta.url), "utf-8");
+	const source = fs.readFileSync(new URL("../../../../src/extension/team-tool/goal-wrap.ts", import.meta.url), "utf-8");
 	assert.match(source, /persistAsyncOnGoalLoopManifest\(/, "startGoalWrappedRun must call persistAsyncOnGoalLoopManifest");
 	assert.match(source, /async:\s*\{\s*pid:\s*spawned\.pid/, "manifest.async.pid must come from spawn result");
 });
@@ -196,7 +196,7 @@ test("SAFETY: shouldGoalWrap returns {enabled:false, reason:'multi-step'} for mu
 		});
 
 		// Load the real fast-fix workflow (3 steps: explore, execute, verify).
-		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
 		if (!wf) {
@@ -205,7 +205,7 @@ test("SAFETY: shouldGoalWrap returns {enabled:false, reason:'multi-step'} for mu
 		}
 		assert.ok(wf.steps.length > 1, `fast-fix must be multi-step for this test; got ${wf.steps.length} steps`);
 
-		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gwMod: any = await import("../../../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
 		const decision = gw.shouldGoalWrap(cwd, wf);
 		assert.equal(decision.enabled, false, "multi-step goal-wrap must be bypassed (enabled=false)");
@@ -231,7 +231,7 @@ test("SAFETY: shouldGoalWrap returns {enabled:true} for single-step workflows (i
 			},
 		});
 
-		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "implementation");
 		if (!wf) {
@@ -239,7 +239,7 @@ test("SAFETY: shouldGoalWrap returns {enabled:true} for single-step workflows (i
 		}
 		assert.equal(wf.steps.length, 1, `implementation must be 1-step (adaptive assess); got ${wf.steps.length}`);
 
-		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gwMod: any = await import("../../../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
 		const decision = gw.shouldGoalWrap(cwd, wf);
 		assert.equal(decision.enabled, true, "single-step goal-wrap must be accepted");
@@ -252,11 +252,11 @@ test("shouldGoalWrap returns {enabled:false, reason:'config-off'} when goal-wrap
 	const cwd = tmpCwd();
 	try {
 		// No config.json — goal-wrap is OFF by default.
-		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
 		if (!wf) return;
-		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gwMod: any = await import("../../../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
 		const decision = gw.shouldGoalWrap(cwd, wf);
 		assert.equal(decision.enabled, false);
@@ -273,11 +273,11 @@ test("shouldGoalWrap returns {enabled:false, reason:'invalid-config'} for malfor
 		writeConfig(cwd, {
 			goalWrap: { "fast-fix": { enabled: true } },
 		});
-		const dwMod: any = await import("../../src/workflows/discover-workflows.ts");
+		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
 		if (!wf) return;
-		const gwMod: any = await import("../../src/extension/team-tool/goal-wrap.ts");
+		const gwMod: any = await import("../../../../src/extension/team-tool/goal-wrap.ts");
 		const gw = gwMod.default ?? gwMod;
 		const decision = gw.shouldGoalWrap(cwd, wf);
 		assert.equal(decision.enabled, false);

@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 // dynamic import to get at non-exported helpers via the exported wrappers
-import { detectOscillation } from "../../src/runtime/goal-workflow/goal-loop-runner.ts";
-import type { GoalLoopState, GoalVerdict } from "../../src/state/types.ts";
+import { detectOscillation } from "../../../../src/runtime/goal-workflow/goal-loop-runner.ts";
+import type { GoalLoopState, GoalVerdict } from "../../../../src/state/types.ts";
 
 function verdict(turn: number, reason: string, achieved = false): GoalVerdict {
 	return {

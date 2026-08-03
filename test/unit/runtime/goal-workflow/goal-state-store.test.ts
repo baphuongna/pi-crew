@@ -3,9 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { GoalStore } from "../../src/runtime/goal-workflow/goal-state-store.ts";
-import type { GoalLoopState } from "../../src/state/types.ts";
-import { clearProjectRootCache } from "../../src/utils/paths.ts";
+import { GoalStore } from "../../../../src/runtime/goal-workflow/goal-state-store.ts";
+import type { GoalLoopState } from "../../../../src/state/types.ts";
+import { clearProjectRootCache } from "../../../../src/utils/paths.ts";
 
 function makeTmpCwd(): string {
 	clearProjectRootCache(); // findRepoRoot has a global cache (paths.ts:71) — clear it so each tmpdir resolves correctly.

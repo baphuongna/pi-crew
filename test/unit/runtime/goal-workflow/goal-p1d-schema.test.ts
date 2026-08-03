@@ -18,7 +18,7 @@
 
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
-import { TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
 // Hoist ajv (a pi-ai hoisted dependency; used by src/runtime/yield-handler.ts).
 // Pattern copied verbatim from yield-handler.ts: cast the dynamic import to a
