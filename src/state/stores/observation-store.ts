@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { logInternalError } from "../utils/internal-error.ts";
-import { atomicWriteJson } from "./atomic-write.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { atomicWriteJson } from "../atomic-write.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

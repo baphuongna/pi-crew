@@ -6,7 +6,7 @@ import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { buildWorkerCapabilityInventory, type WorkerCapabilityInventory } from "../../src/runtime/task-runner/capabilities.ts";
 import { runTeamTask } from "../../src/runtime/task-runner.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

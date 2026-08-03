@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
+import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";

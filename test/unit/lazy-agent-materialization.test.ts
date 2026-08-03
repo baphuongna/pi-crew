@@ -5,8 +5,8 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 function restore(name: string, value: string | undefined): void {

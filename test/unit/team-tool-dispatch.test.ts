@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 // ---------------------------------------------------------------------------

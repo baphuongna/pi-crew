@@ -15,9 +15,9 @@
 // `__test__parseAdaptivePlan` and `__test__repairAdaptivePlan` are re-exported
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
-import { writeArtifact } from "../../state/artifact-store.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
-import { saveRunManifestAsync } from "../../state/state-store.ts";
+import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";

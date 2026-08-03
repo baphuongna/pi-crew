@@ -16,7 +16,7 @@ import test from "node:test";
 import { handleCancel } from "../../src/extension/team-tool/cancel.ts";
 import { handleStatus } from "../../src/extension/team-tool/status.ts";
 import { handleSteer, handleTeamTool } from "../../src/extension/team-tool.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

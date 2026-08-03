@@ -23,7 +23,7 @@ import { test } from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../src/runtime/crew-agent-runtime.ts";
 import { startForegroundWatchdog, stopWatchdog } from "../../src/runtime/foreground-watchdog.ts";
-import { createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 // Minimal team/workflow fixtures (cast as never — matches heartbeat-watcher.test.ts).

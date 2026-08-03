@@ -31,7 +31,7 @@ import {
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
 } from "../../runtime/subagent-manager.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { agentToolRenderer, type ToolRenderContext } from "../../ui/tool-renderers/index.ts";

@@ -19,7 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, test } from "node:test";
 import { appendEventAsync, readEvents } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 
 const createdTmpDirs: string[] = [];
 after(() => {

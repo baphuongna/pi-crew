@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_OUTPUT_CONTEXT } from "../config/defaults.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
+import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";

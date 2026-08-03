@@ -15,7 +15,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
-import { loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
+import { loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
 import { setWorkingIndicator } from "../../ui/pi-ui-compat.ts";
 import { requestPowerbarUpdate } from "../../ui/powerbar-publisher.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";

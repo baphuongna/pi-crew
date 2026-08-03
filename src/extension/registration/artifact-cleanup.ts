@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_ARTIFACT_CLEANUP, DEFAULT_PATHS } from "../../config/defaults.ts";
-import { CLEANUP_MARKER_FILE, cleanupOldArtifacts, pruneExpiredArtifacts } from "../../state/artifact-store.ts";
+import { CLEANUP_MARKER_FILE, cleanupOldArtifacts, pruneExpiredArtifacts } from "../../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";

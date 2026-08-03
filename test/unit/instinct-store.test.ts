@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { InstinctStore, type NewInstinct } from "../../src/state/instinct-store.ts";
+import { InstinctStore, type NewInstinct } from "../../src/state/stores/instinct-store.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 const BASE_INSTINCT: NewInstinct = {

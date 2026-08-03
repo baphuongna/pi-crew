@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { getToolConfig, hasToolRestrictions } from "../../src/config/role-tools.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
+import { unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("fast-fix team uses explorer role with tool restrictions", async () => {

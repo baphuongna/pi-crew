@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { loadConfig } from "../config/config.ts";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
+import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";

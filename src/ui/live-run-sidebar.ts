@@ -3,7 +3,7 @@ import type { CrewUiConfig } from "../config/config.ts";
 import { applyAttentionState, resolveCrewControlConfig } from "../runtime/agent-control.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { formatTaskGraphLines, waitingReason } from "../runtime/task-display.ts";
-import { loadRunManifestById } from "../state/state-store.ts";
+import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";

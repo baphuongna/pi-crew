@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { projectCrewRoot } from "../utils/paths.ts";
-import { assertSafePathId } from "../utils/safe-paths.ts";
-import { atomicWriteJson, readJsonFile } from "./atomic-write.ts";
+import { projectCrewRoot } from "../../utils/paths.ts";
+import { assertSafePathId } from "../../utils/safe-paths.ts";
+import { atomicWriteJson, readJsonFile } from "../atomic-write.ts";
 import { loadRunManifestById } from "./state-store.ts";
 
 /**

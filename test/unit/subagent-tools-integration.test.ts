@@ -12,7 +12,7 @@ import {
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
 } from "../../src/runtime/subagent-manager.ts";
-import { createRunManifest, updateRunStatus } from "../../src/state/state-store.ts";
+import { createRunManifest, updateRunStatus } from "../../src/state/stores/state-store.ts";
 
 /** Retry rmSync on Windows EBUSY — child processes may hold file handles briefly. */
 function rmSyncRetry(

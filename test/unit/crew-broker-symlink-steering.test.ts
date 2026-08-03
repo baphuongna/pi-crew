@@ -6,7 +6,7 @@ import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
 import { CrewBrokerClient } from "../../src/runtime/broker/crew-broker-client.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 function isSymlinkTestUnsupportedOn(): boolean {
 	return process.platform === "win32" || process.platform === "darwin";

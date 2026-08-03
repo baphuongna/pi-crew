@@ -16,7 +16,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { listRuns } from "../../src/extension/run-index.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

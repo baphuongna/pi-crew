@@ -31,7 +31,7 @@ import type { Decision, TaskPacket, TaskResult } from "../../runtime/handoff-man
 import { readIfSmallWithTee } from "../../runtime/task-output-context.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
-import { createRunPaths, loadRunManifestById } from "../../state/state-store.ts";
+import { createRunPaths, loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { textFromToolResult } from "../tool-result.ts";

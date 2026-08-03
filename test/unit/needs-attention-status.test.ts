@@ -16,7 +16,7 @@ import {
 	TEAM_TERMINAL_TASK_STATUSES,
 } from "../../src/state/contracts.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";

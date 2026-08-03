@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import { AgentPickerOverlay, type AgentPickerSelection } from "../../src/ui/overlays/agent-picker-overlay.ts";
 
 test("AgentPickerOverlay renders agents and selects current row", () => {

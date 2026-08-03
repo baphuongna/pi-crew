@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { isArtifactExpired, pruneExpiredArtifacts, TEMPORARY_RETENTION_TTL_MS } from "../../src/state/artifact-store.ts";
+import { isArtifactExpired, pruneExpiredArtifacts, TEMPORARY_RETENTION_TTL_MS } from "../../src/state/stores/artifact-store.ts";
 import type { ArtifactDescriptor } from "../../src/state/types.ts";
 
 /**

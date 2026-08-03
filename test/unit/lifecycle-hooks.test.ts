@@ -8,7 +8,7 @@ import { handleCleanup, handleForget } from "../../src/extension/team-tool/lifec
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import { clearHooks, registerHook } from "../../src/hooks/registry.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 
 function createRun(ownerSessionId = "session-a"): {
 	cwd: string;

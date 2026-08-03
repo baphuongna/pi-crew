@@ -31,7 +31,7 @@ import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { listRecentDiagnostic } from "../../runtime/diagnostic-export.ts";
 import type { TeamAction } from "../../schema/team-tool-schema.ts";
 import { getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../skills/skill-templates.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import type { AnimatedMascot as AnimatedMascotType } from "../../ui/mascot.ts";
 import type { AgentPickerOverlay as AgentPickerOverlayType } from "../../ui/overlays/agent-picker-overlay.ts";

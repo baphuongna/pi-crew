@@ -6,7 +6,7 @@ import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { clearLiveAgentsForTest } from "../../src/runtime/live-session/live-agent-manager.ts";
-import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../src/state/stores/state-store.ts";
 import { buildCrewWidgetLines, type CrewWidgetState, updateCrewWidget } from "../../src/ui/widget/index.ts";
 
 test("crew widget renders installed-style run and agent summary lines", async () => {

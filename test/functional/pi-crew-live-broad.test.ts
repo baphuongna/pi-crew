@@ -14,7 +14,7 @@ import * as path from "node:path";
 import test from "node:test";
 
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 function mkTmp(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-live-broad-"));

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
-import { activeRunEntries } from "../state/active-run-registry.ts";
+import { activeRunEntries } from "../state/stores/active-run-registry.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { closeWatcher, watchWithErrorHandler } from "../utils/fs-watch.ts";
 import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";

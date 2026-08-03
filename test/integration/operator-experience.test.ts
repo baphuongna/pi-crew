@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type NotificationDescriptor, NotificationRouter } from "../../src/extension/notification-router.ts";
 import { createJsonlSink } from "../../src/extension/notification-sink.ts";
 import { appendMailboxMessage, readDeliveryState } from "../../src/state/mailbox.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import {
 	dispatchDiagnosticExport,
 	dispatchMailboxAck,

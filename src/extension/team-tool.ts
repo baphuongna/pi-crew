@@ -7,12 +7,12 @@ import { loadConfig } from "../config/config.ts";
 // executeTeamRun is only called when a team run actually executes.
 import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
-import { writeArtifact } from "../state/artifact-store.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { withRunLock } from "../state/locks.ts";
 import { replayPendingMailboxMessages } from "../state/mailbox.ts";
-import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/state-store.ts";
+import { writeArtifact } from "../state/stores/artifact-store.ts";
+import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";

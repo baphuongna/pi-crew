@@ -12,7 +12,7 @@ import { discoverAgents, allAgents } from "./src/agents/discover-agents.ts";
 import { discoverTeams, allTeams } from "./src/teams/discover-teams.ts";
 import { discoverWorkflows, allWorkflows } from "./src/workflows/discover-workflows.ts";
 import { handleTeamTool } from "./src/extension/team-tool.ts";
-import { loadRunManifestById } from "./src/state/state-store.ts";
+import { loadRunManifestById } from "./src/state/stores/state-store.ts";
 
 const pkgRoot = path.resolve(import.meta.dirname ?? ".");
 

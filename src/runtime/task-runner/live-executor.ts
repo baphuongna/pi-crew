@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
-import { writeArtifact } from "../../state/artifact-store.ts";
 import { appendEventFireAndForget } from "../../state/event-log/event-log.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import {

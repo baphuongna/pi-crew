@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { NotificationDescriptor } from "../../extension/notification-router.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { ManifestCache } from "../manifest-cache.ts";

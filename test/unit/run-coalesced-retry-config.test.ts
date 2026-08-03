@@ -24,7 +24,7 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { runCoalescedTaskGroup } from "../../src/runtime/scheduling/run-coalesced-task-group.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

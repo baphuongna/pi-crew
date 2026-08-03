@@ -6,8 +6,8 @@ import test from "node:test";
 import { buildChildPiSpawnOptions, runChildPi } from "../../src/runtime/child-pi/child-pi.ts";
 import { readCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { collectDependencyOutputContext, renderDependencyOutputContext } from "../../src/runtime/task-output-context.ts";
-import { writeArtifact } from "../../src/state/artifact-store.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { writeArtifact } from "../../src/state/stores/artifact-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

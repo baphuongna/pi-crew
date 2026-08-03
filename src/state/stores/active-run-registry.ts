@@ -1,13 +1,13 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
-import { userCrewRoot } from "../utils/paths.ts";
-import { isSafePathId } from "../utils/safe-paths.ts";
-import { sharedScanCache } from "../utils/scan-cache.ts";
-import { sleepSync } from "../utils/sleep.ts";
-import { atomicWriteJson, isSymlinkSafePath, renameWithRetry } from "./atomic-write.ts";
-import type { TeamRunManifest } from "./types.ts";
+import { DEFAULT_CACHE, DEFAULT_PATHS } from "../../config/defaults.ts";
+import { userCrewRoot } from "../../utils/paths.ts";
+import { isSafePathId } from "../../utils/safe-paths.ts";
+import { sharedScanCache } from "../../utils/scan-cache.ts";
+import { sleepSync } from "../../utils/sleep.ts";
+import { atomicWriteJson, isSymlinkSafePath, renameWithRetry } from "../atomic-write.ts";
+import type { TeamRunManifest } from "../types.ts";
 
 /** Magic bytes prefix for binary registry to prevent deserialization of hostile files. */
 const BINARY_MAGIC = Buffer.from("PICREW2BIN", "utf-8");

@@ -6,7 +6,7 @@ import test from "node:test";
 import { allAgents, discoverAgents } from "../../src/agents/discover-agents.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { directTeamAndWorkflowFromRun } from "../../src/runtime/direct-run.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];

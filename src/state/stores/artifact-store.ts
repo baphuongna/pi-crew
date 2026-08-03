@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { redactSecretString, redactSecrets } from "../utils/redaction.ts";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
-import type { ArtifactDescriptor } from "./types.ts";
+import { redactSecretString, redactSecrets } from "../../utils/redaction.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { atomicWriteFile } from "../atomic-write.ts";
+import type { ArtifactDescriptor } from "../types.ts";
 
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");

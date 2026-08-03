@@ -5,7 +5,7 @@ import { loadConfig } from "../config/config.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { withRunLockSync } from "../state/locks.ts";
-import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/state-store.ts";
+import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { errorMessage } from "../utils/guards.ts";

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { CLEANUP_MARKER_FILE, cleanupOldArtifacts, writeCleanupMarker } from "../../src/state/artifact-store.ts";
+import { CLEANUP_MARKER_FILE, cleanupOldArtifacts, writeCleanupMarker } from "../../src/state/stores/artifact-store.ts";
 
 function makeDir(): string {
 	// Use realpath to resolve symlinks (macOS /var/folders → /private/var/folders).

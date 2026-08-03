@@ -25,7 +25,7 @@ import { snapshotManifests } from "../../runtime/verification/verification-integ
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
-import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
+import { createRunPaths, saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { GoalLoopState, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";

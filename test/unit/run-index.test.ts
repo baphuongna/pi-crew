@@ -5,8 +5,8 @@ import * as path from "node:path";
 import test from "node:test";
 import { listRecentRuns } from "../../src/extension/run-index.ts";
 import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
-import { activeRunRoots, registerActiveRun, unregisterActiveRun } from "../../src/state/active-run-registry.ts";
-import { createRunManifest, updateRunStatus } from "../../src/state/state-store.ts";
+import { activeRunRoots, registerActiveRun, unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
+import { createRunManifest, updateRunStatus } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

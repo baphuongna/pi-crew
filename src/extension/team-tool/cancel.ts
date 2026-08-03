@@ -7,7 +7,7 @@ import { buildSyntheticTerminalEvidence, type CancellationReason, cancellationRe
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
 import { withRunLockSync } from "../../state/locks.ts";
-import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
+import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";

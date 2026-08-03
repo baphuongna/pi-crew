@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest, saveRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifest } from "../../src/state/stores/state-store.ts";
 import { RunDashboard } from "../../src/ui/run-dashboard.ts";
 import { createRunSnapshotCache } from "../../src/ui/run-snapshot-cache.ts";
 import { clearTranscriptCache, getTranscriptCacheEntry, readTranscriptLinesCached } from "../../src/ui/transcript-cache.ts";

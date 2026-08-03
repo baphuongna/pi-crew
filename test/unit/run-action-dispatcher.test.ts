@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendMailboxMessage } from "../../src/state/mailbox.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import {
 	dispatchDiagnosticExport,
 	dispatchKillStaleWorkers,

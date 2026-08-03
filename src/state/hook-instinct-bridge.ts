@@ -6,13 +6,13 @@
 import { crewHooks } from "../runtime/crew-hooks.ts";
 
 // Lazy-initialized store and paths
-let storeInstance: import("./instinct-store.js").InstinctStore | null = null;
+let storeInstance: import("./stores/instinct-store.js").InstinctStore | null = null;
 let pathsInstance: typeof import("../utils/paths.js") | null = null;
 
 async function getStore() {
 	if (!storeInstance) {
 		// LAZY: defer dynamic import of ./instinct-store.js to its call site.
-		const { InstinctStore } = await import("./instinct-store.js");
+		const { InstinctStore } = await import("./stores/instinct-store.js");
 		// LAZY: defer dynamic import of ../utils/paths.js to its call site.
 		const paths = await import("../utils/paths.js");
 		storeInstance = new InstinctStore(paths.projectCrewRoot(process.cwd()));

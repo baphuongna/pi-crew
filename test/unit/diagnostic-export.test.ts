@@ -6,7 +6,7 @@ import test from "node:test";
 import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
 import { exportDiagnostic, listRecentDiagnostic, redactSecrets } from "../../src/runtime/diagnostic-export.ts";
 import { appendEvent } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 
 test("redactSecrets masks sensitive keys recursively", () => {
 	assert.deepEqual(redactSecrets({ apiKey: "abc", nested: { password: "pw", ok: "yes" } }), {

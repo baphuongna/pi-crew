@@ -7,7 +7,7 @@
  *
  * Extracted verbatim from the `else` (scaffold) branch of `runTeamTask`.
  */
-import { writeArtifact } from "../../state/artifact-store.ts";
+import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 export function runScaffoldTask(manifest: TeamRunManifest, task: TeamTaskState): ArtifactDescriptor {

@@ -6,7 +6,7 @@ import { killProcessPid } from "../../runtime/child-pi/child-pi.ts";
 import { terminateLiveAgentsForRun } from "../../runtime/live-session/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot, userPiRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

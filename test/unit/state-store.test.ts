@@ -22,7 +22,7 @@ import {
 	saveRunTasksAsync,
 	unloadRun,
 	updateRunStatus,
-} from "../../src/state/state-store.ts";
+} from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

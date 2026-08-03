@@ -4,10 +4,10 @@ import { sanitizeTaskText } from "../../runtime/task-packet.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { registerActiveRun, unregisterActiveRun } from "../../state/active-run-registry.ts";
-import { writeArtifact } from "../../state/artifact-store.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
-import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/state-store.ts";
+import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
+import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktree-manager.ts";
@@ -33,7 +33,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/model/runtime-resolver.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log/event-log.ts";
-import type { RunMetrics } from "../../state/run-metrics.ts";
+import type { RunMetrics } from "../../state/stores/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 /**
@@ -77,7 +77,7 @@ import { t } from "../../i18n.ts";
 import { hasAsyncStartMarker } from "../../runtime/async-marker.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
 import { waitForRun } from "../../runtime/run-tracker.ts";
-import { collectRunMetrics } from "../../state/run-metrics.ts";
+import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";

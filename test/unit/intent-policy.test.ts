@@ -7,7 +7,7 @@ import { parseConfig } from "../../src/config/config.ts";
 import { handleCancel } from "../../src/extension/team-tool/cancel.ts";
 import { handleCleanup } from "../../src/extension/team-tool/lifecycle-actions.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 
 const policy = { policy: { requireIntentForDestructiveActions: true } };
 

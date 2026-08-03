@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { atomicWriteFile, renameWithRetry } from "./atomic-write.ts";
-import { withFileLockSync } from "./locks.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { atomicWriteFile, renameWithRetry } from "../atomic-write.ts";
+import { withFileLockSync } from "../locks.ts";
 
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 

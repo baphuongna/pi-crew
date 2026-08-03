@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { loadRunManifestById } from "../../src/state/state-store.ts";
+import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
 
 /**
  * Round 16 F4: config errors must be surfaced (not silently swallowed) on the

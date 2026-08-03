@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ManifestSummary } from "../runtime/task-health.ts";
-import { computeRunHealth } from "../runtime/task-health.ts";
-import { atomicWriteFile } from "./atomic-write.ts";
+import type { ManifestSummary } from "../../runtime/task-health.ts";
+import { computeRunHealth } from "../../runtime/task-health.ts";
+import { atomicWriteFile } from "../atomic-write.ts";
 
 // Relative to the crew root (`<cwd>/.crew`). BUG A fix (pts/2 hang
 // investigation 2026-06-16): this was `.crew/state/health`, which double-joined

@@ -7,14 +7,14 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ManifestCacheEntry } from "../../src/state/state-store.ts";
+import type { ManifestCacheEntry } from "../../src/state/stores/state-store.ts";
 import {
 	__test__clearManifestCache,
 	__test__getManifestCacheEntry,
 	__test__manifestCacheSize,
 	__test__setManifestCache,
 	MANIFEST_CACHE_TTL_MS_VALUE,
-} from "../../src/state/state-store.ts";
+} from "../../src/state/stores/state-store.ts";
 
 function makeEntry(cachedAt: number): ManifestCacheEntry {
 	return {

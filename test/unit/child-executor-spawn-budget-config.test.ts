@@ -26,7 +26,7 @@ import { invalidateConfigCache, loadConfig } from "../../src/config/config.ts";
 import { DEFAULT_RETRY_POLICY } from "../../src/runtime/recovery/retry-executor.ts";
 import { computeSpawnBudgetMax, resolveConfiguredMaxAttempts } from "../../src/runtime/task-runner/child-executor.ts";
 import { runTeamTask, type SpawnBudget } from "../../src/runtime/task-runner.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

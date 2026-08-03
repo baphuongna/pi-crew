@@ -6,7 +6,7 @@ import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { clearLiveAgentsForTest, listLiveAgents } from "../../src/runtime/live-session/live-agent-manager.ts";
 import { runLiveSessionTask } from "../../src/runtime/live-session/live-session-runtime.ts";
 import { runLiveTask } from "../../src/runtime/task-runner/live-executor.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";

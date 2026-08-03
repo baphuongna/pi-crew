@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
 import { recordFromTask, saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import { LiveRunSidebar } from "../../src/ui/live-run-sidebar.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

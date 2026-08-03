@@ -33,7 +33,7 @@ import {
 	readMailbox,
 	registerMailboxAppendObserver,
 } from "../../state/mailbox.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";

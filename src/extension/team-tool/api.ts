@@ -37,7 +37,7 @@ import {
 	readMailboxMessage,
 	validateMailbox,
 } from "../../state/mailbox.ts";
-import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/state-store.ts";
+import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../state/task-claims.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";

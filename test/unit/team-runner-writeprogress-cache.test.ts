@@ -25,7 +25,7 @@ import {
 	__test__writeProgress,
 	executeTeamRun,
 } from "../../src/runtime/team-runner.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { appendMailboxMessage } from "../../src/state/mailbox.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import { type MailboxAction, MailboxDetailOverlay } from "../../src/ui/overlays/mailbox-detail-overlay.ts";
 
 function createRun(): { cwd: string; runId: string } {

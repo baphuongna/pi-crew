@@ -18,7 +18,7 @@ import test from "node:test";
 import { allAgents, discoverAgents } from "../../src/agents/discover-agents.ts";
 import { deriveTranscriptPath, runGoalLoop, stubGoalEvaluator } from "../../src/runtime/goal-workflow/goal-loop-runner.ts";
 import { GoalStore } from "../../src/runtime/goal-workflow/goal-state-store.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { GoalLoopState } from "../../src/state/types.ts";
 
 test("runGoalLoop (P1 real evaluator) exits blocked when judge is unreachable or worker unavailable", async () => {

@@ -32,7 +32,7 @@ import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/sched
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";

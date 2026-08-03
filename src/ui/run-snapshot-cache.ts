@@ -7,7 +7,7 @@ import { isActiveRunStatus } from "../runtime/process-status.ts";
 import type { TeamEvent } from "../state/event-log/event-log.ts";
 import { sequencePath } from "../state/event-log/event-log.ts";
 import type { MailboxMessageStatus } from "../state/mailbox.ts";
-import { loadRunManifestById, loadRunManifestByIdAsync } from "../state/state-store.ts";
+import { loadRunManifestById, loadRunManifestByIdAsync } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { extractDwfPhaseState } from "./dwf-phase-display.ts";
 import { runEventBus } from "./run-event-bus.ts";

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import {
 	compactTokens,

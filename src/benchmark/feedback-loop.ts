@@ -2,7 +2,7 @@
  * Feedback loop - continuous improvement cycle: evaluate → learn → apply → re-evaluate
  */
 
-import type { RunMetrics } from "../state/run-metrics.ts";
+import type { RunMetrics } from "../state/stores/run-metrics.ts";
 
 /** @internal */
 interface FeedbackLoopStats {

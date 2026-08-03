@@ -20,7 +20,7 @@ import { snapshotManifests } from "../../runtime/verification/verification-integ
 import { isWorkspaceBusy } from "../../runtime/workspace-lock.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
-import { createRunPaths, saveRunManifestAsync } from "../../state/state-store.ts";
+import { createRunPaths, saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { result, type TeamContext } from "./context.ts";

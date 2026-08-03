@@ -6,7 +6,7 @@ import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { appendEvent } from "../../src/state/event-log/event-log.ts";
 import { appendMailboxMessage } from "../../src/state/mailbox.ts";
-import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import { createRunSnapshotCache } from "../../src/ui/run-snapshot-cache.ts";
 

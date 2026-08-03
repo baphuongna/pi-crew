@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
-import { saveRunManifest } from "../state/state-store.ts";
+import { saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { checkProcessLiveness } from "./process-status.ts";

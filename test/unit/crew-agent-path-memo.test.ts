@@ -19,7 +19,7 @@ import {
 	appendCrewAgentEvent,
 	appendCrewAgentOutput,
 } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 
 const createdTmpDirs: string[] = [];
 after(() => {

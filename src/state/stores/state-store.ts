@@ -1,23 +1,23 @@
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
-import { DEFAULT_CACHE, DEFAULT_PATHS } from "../config/defaults.ts";
-import { errors } from "../errors.ts";
-import type { TeamConfig } from "../teams/team-config.ts";
-import { createRunId, createTaskId } from "../utils/ids.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
-import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { toPiSessionId } from "../utils/session-utils.ts";
-import type { WorkflowConfig } from "../workflows/workflow-config.ts";
+import { DEFAULT_CACHE, DEFAULT_PATHS } from "../../config/defaults.ts";
+import { errors } from "../../errors.ts";
+import type { TeamConfig } from "../../teams/team-config.ts";
+import { createRunId, createTaskId } from "../../utils/ids.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
+import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { toPiSessionId } from "../../utils/session-utils.ts";
+import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "../atomic-write.ts";
+import { canTransitionRunStatus, isTeamTaskStatus } from "../contracts.ts";
+import { appendEvent } from "../event-log/event-log.ts";
+import { reconstructTasksFromEvents } from "../event-log/event-reconstructor.ts";
+import { withRunLock, withRunLockSync } from "../locks.ts";
+import type { TeamRunManifest, TeamTaskState } from "../types.ts";
+import { CURRENT_SCHEMA_VERSION, CURRENT_TASKS_SCHEMA_VERSION } from "../types.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
-import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "./atomic-write.ts";
-import { canTransitionRunStatus, isTeamTaskStatus } from "./contracts.ts";
-import { appendEvent } from "./event-log/event-log.ts";
-import { reconstructTasksFromEvents } from "./event-log/event-reconstructor.ts";
-import { withRunLock, withRunLockSync } from "./locks.ts";
-import type { TeamRunManifest, TeamTaskState } from "./types.ts";
-import { CURRENT_SCHEMA_VERSION, CURRENT_TASKS_SCHEMA_VERSION } from "./types.ts";
 
 /**
  * stat() the manifest with a brief retry on Windows for the AV-scan window.

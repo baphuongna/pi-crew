@@ -6,7 +6,7 @@ import test from "node:test";
 import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
 import { HeartbeatWatcher } from "../../src/runtime/heartbeat/heartbeat-watcher.ts";
 import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
-import { createRunManifest, saveRunTasks, updateRunStatus } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks, updateRunStatus } from "../../src/state/stores/state-store.ts";
 
 const team = {
 	name: "t",

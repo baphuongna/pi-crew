@@ -9,7 +9,7 @@ import { type NotificationDescriptor, NotificationRouter } from "../../src/exten
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { appendMailboxMessage, readDeliveryState, readMailbox } from "../../src/state/mailbox.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import { renderHealthPane } from "../../src/ui/dashboard-panes/health-pane.ts";
 import { MailboxComposeOverlay, type MailboxComposeResult } from "../../src/ui/overlays/mailbox-compose-overlay.ts";

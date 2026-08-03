@@ -4,8 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { sharedPath, writeTaskSharedOutput } from "../../src/runtime/task-output-context.ts";
-import { writeArtifact } from "../../src/state/artifact-store.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { writeArtifact } from "../../src/state/stores/artifact-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 

@@ -1,8 +1,8 @@
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import type { CrewReliabilityConfig, CrewRuntimeConfig } from "../../config/types.ts";
-import { writeArtifact } from "../../state/artifact-store.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
-import { saveRunTasksAsync, updateRunStatus } from "../../state/state-store.ts";
+import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { saveRunTasksAsync, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";

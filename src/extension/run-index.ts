@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { createCancellationToken } from "../runtime/process/cancellation-token.ts";
-import { activeRunEntries } from "../state/active-run-registry.ts";
+import { activeRunEntries } from "../state/stores/active-run-registry.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";

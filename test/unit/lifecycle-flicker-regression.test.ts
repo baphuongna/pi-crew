@@ -22,7 +22,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
-import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { RenderScheduler } from "../../src/ui/render-scheduler.ts";
 import { createRunSnapshotCache } from "../../src/ui/run-snapshot-cache.ts";

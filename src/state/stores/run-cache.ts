@@ -1,10 +1,10 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { projectCrewRoot } from "../utils/paths.ts";
-import { atomicWriteJson } from "./atomic-write.ts";
-import { withFileLockSync } from "./locks.ts";
-import type { TeamTaskState } from "./types.ts";
+import { projectCrewRoot } from "../../utils/paths.ts";
+import { atomicWriteJson } from "../atomic-write.ts";
+import { withFileLockSync } from "../locks.ts";
+import type { TeamTaskState } from "../types.ts";
 
 const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 

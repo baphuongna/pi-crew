@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { readBlob, readBlobMetadata, writeBlob } from "../../src/state/blob-store.ts";
+import { readBlob, readBlobMetadata, writeBlob } from "../../src/state/stores/blob-store.ts";
 
 test("writeBlob writes content-addressed blob and metadata", () => {
 	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-blob-"));

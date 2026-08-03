@@ -32,7 +32,7 @@ async function handleTeamTool(
 
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import { loadRunManifestById } from "../../state/state-store.ts";
+import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { withSessionId } from "../team-tool/context.ts";

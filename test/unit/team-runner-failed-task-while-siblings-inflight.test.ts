@@ -30,7 +30,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { __test_resetCap, getWorkerCapCapacity } from "../../src/runtime/scheduling/global-worker-cap.ts";
 import { executeTeamRun } from "../../src/runtime/team-runner.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 
 // ─── Mock env helpers ──────────────────────────────────────────────

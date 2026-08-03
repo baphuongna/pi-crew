@@ -4,7 +4,7 @@
  * The deterministic race test (asserting terminal state survives a >5s
  * heartbeat save that clobbers the final write) is **deferred** because:
  *   1. `node:test`'s `mock.module` cannot reliably replace the ESM-named
- *      export `saveRunTasksAsync` in `../../src/state/state-store.ts` for
+ *      export `saveRunTasksAsync` in `../../src/state/stores/state-store.ts` for
  *      the already-bound import inside `run-coalesced-task-group.ts` (ESM
  *      live-binding semantics make the replacement non-deterministic).
  *   2. Driving the heartbeat path requires `executeWorkers: true` + a mocked
@@ -31,7 +31,7 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { runCoalescedTaskGroup } from "../../src/runtime/scheduling/run-coalesced-task-group.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

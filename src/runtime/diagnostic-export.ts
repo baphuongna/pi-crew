@@ -5,7 +5,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import type { MetricSnapshot } from "../observability/metrics-primitives.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import type { TeamEvent } from "../state/event-log/event-log.ts";
-import { loadRunManifestById } from "../state/state-store.ts";
+import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { type HeartbeatSummary, summarizeHeartbeats } from "../ui/heartbeat-aggregator.ts";
 import type { RunUiSnapshot } from "../ui/snapshot-types.ts";

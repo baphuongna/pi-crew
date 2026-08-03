@@ -34,7 +34,7 @@ import { saveCrewAgents } from "../../src/runtime/crew-agent-records.ts";
 import { readLiveAgentControlRequests } from "../../src/runtime/live-session/live-agent-control.ts";
 import { clearLiveAgentsForTest, registerLiveAgent } from "../../src/runtime/live-session/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
-import { createRunManifest, saveRunManifestAsync, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunManifestAsync, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";

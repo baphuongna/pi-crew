@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { unregisterActiveRun } from "../../src/state/active-run-registry.ts";
+import { unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("child-process runs maintain per-agent status, events, and output files", async () => {

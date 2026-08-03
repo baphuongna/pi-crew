@@ -9,14 +9,14 @@ import {
 	handleHealthMonitor,
 	scanZombieTempWorkspaces,
 } from "../../src/extension/team-tool/health-monitor.ts";
-import { registerActiveRun, unregisterActiveRun } from "../../src/state/active-run-registry.ts";
+import { registerActiveRun, unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
 import {
 	__test__clearManifestCache,
 	createRunManifest,
 	saveRunManifest,
 	saveRunTasks,
 	updateRunStatus,
-} from "../../src/state/state-store.ts";
+} from "../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import { clearProjectRootCache } from "../../src/utils/paths.ts";

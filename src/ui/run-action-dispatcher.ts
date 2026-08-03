@@ -21,7 +21,7 @@ import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { exportDiagnostic } from "../runtime/diagnostic-export.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
 import type { MailboxDirection, MailboxMessage } from "../state/mailbox.ts";
-import { loadRunManifestById, saveRunTasks } from "../state/state-store.ts";
+import { loadRunManifestById, saveRunTasks } from "../state/stores/state-store.ts";
 
 export interface RunActionResult {
 	ok: boolean;

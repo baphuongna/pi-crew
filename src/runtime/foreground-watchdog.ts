@@ -12,7 +12,7 @@
  * 3. Cleans up after itself when the run completes or the session ends.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadRunManifestById } from "../state/state-store.ts";
+import { loadRunManifestById } from "../state/stores/state-store.ts";
 import { readCrewAgents } from "./crew-agent-records.ts";
 import { isActiveRunStatus, isLikelyOrphanedActiveRun } from "./process-status.ts";
 

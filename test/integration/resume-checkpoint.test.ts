@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../src/state/state-store.ts";
+import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../src/state/stores/state-store.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];

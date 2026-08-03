@@ -22,7 +22,7 @@ import { handleRun } from "../../src/extension/team-tool/run.ts";
 import { handleStatus } from "../../src/extension/team-tool/status.ts";
 import { textFromToolResult } from "../../src/extension/tool-result.ts";
 import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
-import { createRunManifest, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 function makeCtx(cwd: string): TeamContext {

@@ -2,8 +2,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { writeArtifact } from "../state/artifact-store.ts";
 import { readEvents, type TeamEvent } from "../state/event-log/event-log.ts";
+import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 

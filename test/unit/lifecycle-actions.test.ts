@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleCleanup } from "../../src/extension/team-tool/lifecycle-actions.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 
 function createRun(): { cwd: string; runId: string; eventsPath: string } {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lifecycle-"));

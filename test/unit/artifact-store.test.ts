@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { writeArtifact } from "../../src/state/artifact-store.ts";
+import { writeArtifact } from "../../src/state/stores/artifact-store.ts";
 
 // Use realpath to resolve symlinks (macOS /var/folders → /private/var/folders).
 // atomicWriteFile refuses to write through untrusted symlink paths.

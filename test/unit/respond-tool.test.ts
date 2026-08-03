@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleRespond } from "../../src/extension/team-tool/respond.ts";
 import { readMailbox } from "../../src/state/mailbox.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 
 function createRun(ownerSessionId?: string): {
 	cwd: string;

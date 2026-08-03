@@ -6,7 +6,7 @@ import test from "node:test";
 import { applyAttentionState, resolveCrewControlConfig } from "../../src/runtime/agent-control.ts";
 import { readCrewAgents, upsertCrewAgent } from "../../src/runtime/crew-agent-records.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
-import { createRunManifest } from "../../src/state/state-store.ts";
+import { createRunManifest } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
 

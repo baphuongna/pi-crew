@@ -16,7 +16,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { persistSingleTaskUpdate } from "../../src/runtime/task-runner/state-helpers.ts";
 import { flushPendingAtomicWrites } from "../../src/state/atomic-write.ts";
-import { __test__clearManifestCache, createRunManifest, loadRunManifestById } from "../../src/state/state-store.ts";
+import { __test__clearManifestCache, createRunManifest, loadRunManifestById } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
