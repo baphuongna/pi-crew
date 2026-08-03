@@ -110,7 +110,12 @@ function findCorruptFiles(dir: string): string[] {
 	return fs.readdirSync(dir).filter((f) => f.includes(".corrupt-"));
 }
 
-test("ST-4: malformed tasks.json (SyntaxError) → reconstruct from events, NOT []", { skip: process.platform === "win32" ? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant." : undefined }, () => {
+test("ST-4: malformed tasks.json (SyntaxError) → reconstruct from events, NOT []", {
+	skip:
+		process.platform === "win32"
+			? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant."
+			: undefined,
+}, () => {
 	const { tmpRoot, manifest, tasksPath } = setupRun();
 	try {
 		// Corrupt tasks.json with a syntax error.
@@ -155,7 +160,12 @@ test("ST-4: malformed tasks.json (SyntaxError) → reconstruct from events, NOT 
 	}
 });
 
-test("ST-4: non-array JSON ({}) in tasks.json → treated as corrupt, quarantined + reconstructed", { skip: process.platform === "win32" ? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant." : undefined }, () => {
+test("ST-4: non-array JSON ({}) in tasks.json → treated as corrupt, quarantined + reconstructed", {
+	skip:
+		process.platform === "win32"
+			? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant."
+			: undefined,
+}, () => {
 	const { tmpRoot, manifest, tasksPath } = setupRun();
 	try {
 		// Write non-array JSON.
@@ -180,7 +190,12 @@ test("ST-4: non-array JSON ({}) in tasks.json → treated as corrupt, quarantine
 	}
 });
 
-test("ST-4: ENOENT (no tasks.json) → [] is legitimate, NOT quarantined", { skip: process.platform === "win32" ? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant." : undefined }, () => {
+test("ST-4: ENOENT (no tasks.json) → [] is legitimate, NOT quarantined", {
+	skip:
+		process.platform === "win32"
+			? "Windows file-quarantine rename + reload timing flakes ('manifest must reload'). Follow up: make the reload assertion wait-free / Windows-tolerant."
+			: undefined,
+}, () => {
 	const { tmpRoot, manifest, tasksPath } = setupRun();
 	try {
 		// Delete tasks.json entirely.

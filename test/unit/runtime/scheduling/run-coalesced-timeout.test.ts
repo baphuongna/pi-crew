@@ -118,7 +118,12 @@ test("RT-5 #4 structural: source arms wall-clock timeout from taskTimeoutMs", ()
 	assert.match(src, /clearTimeout\(timeoutHandle\)/, "finally must clearTimeout to prevent leak");
 });
 
-test("RT-5 #4 behavioral: hung worker → taskTimeoutMs FIRES → task 'cancelled' (not completed/failed)", { skip: process.platform === "darwin" ? "macOS runner CPU scheduling makes the 300ms taskTimeoutMs vs 2000ms response-timeout race resolve differently (task lands 'failed' instead of 'cancelled'). Passes on Linux. Follow up: widen the timeout gap or assert on the terminal-family rather than the exact status." : undefined }, async () => {
+test("RT-5 #4 behavioral: hung worker → taskTimeoutMs FIRES → task 'cancelled' (not completed/failed)", {
+	skip:
+		process.platform === "darwin"
+			? "macOS runner CPU scheduling makes the 300ms taskTimeoutMs vs 2000ms response-timeout race resolve differently (task lands 'failed' instead of 'cancelled'). Passes on Linux. Follow up: widen the timeout gap or assert on the terminal-family rather than the exact status."
+			: undefined,
+}, async () => {
 	// ── Setup: fake-pi that STARTS (emits one message) then HANGS ──
 	//
 	// Emulates a worker that begins responding but never completes. The

@@ -127,7 +127,12 @@ try {
 }
 `;
 
-test("RT-2: REAL SIGINT handler sets exitCode (not process.exit) — finally runs cleanup, child terminated", { skip: process.platform === "win32" ? "SIGINT-based cleanup is a POSIX signal contract; Windows has no equivalent signal delivery for spawned subprocesses. Follow up: add a Windows-native (CTRL_BREAK_EVENT / job-object) path." : undefined }, async () => {
+test("RT-2: REAL SIGINT handler sets exitCode (not process.exit) — finally runs cleanup, child terminated", {
+	skip:
+		process.platform === "win32"
+			? "SIGINT-based cleanup is a POSIX signal contract; Windows has no equivalent signal delivery for spawned subprocesses. Follow up: add a Windows-native (CTRL_BREAK_EVENT / job-object) path."
+			: undefined,
+}, async () => {
 	const projectRoot = resolveProjectRoot();
 	const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rt2-"));
 	const childPidFile = path.join(markerDir, "child-pid.txt");
