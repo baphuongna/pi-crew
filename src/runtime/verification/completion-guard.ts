@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
 // ============================================================================
 // Phase 1.2: Completion Mutation Guard — detects tasks that claim success but

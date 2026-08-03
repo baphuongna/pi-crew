@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import type { PostCheckConfig } from "../../src/runtime/post-checks.ts";
-import { runPostCheck } from "../../src/runtime/post-checks.ts";
+import type { PostCheckConfig } from "../../src/runtime/verification/post-checks.ts";
+import { runPostCheck } from "../../src/runtime/verification/post-checks.ts";
 
 describe("runPostCheck", () => {
 	it("passes and skips when no script path is configured", async () => {

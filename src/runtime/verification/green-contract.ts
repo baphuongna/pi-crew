@@ -1,4 +1,4 @@
-import type { GreenLevel, VerificationContract, VerificationEvidence } from "../state/types.ts";
+import type { GreenLevel, VerificationContract, VerificationEvidence } from "../../state/types.ts";
 
 const GREEN_ORDER: Record<GreenLevel, number> = {
 	none: 0,

@@ -12,11 +12,11 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { writeArtifact } from "../state/artifact-store.ts";
-import type { GreenLevel, VerificationCommandResult, VerificationContract } from "../state/types.ts";
-import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
-import { redactSecretString } from "../utils/redaction.ts";
+import { writeArtifact } from "../../state/artifact-store.ts";
+import type { GreenLevel, VerificationCommandResult, VerificationContract } from "../../state/types.ts";
+import { WINDOWS_ESSENTIAL_ENV_VARS } from "../../utils/env-allowlist.ts";
+import { sanitizeEnvSecrets } from "../../utils/env-filter.ts";
+import { redactSecretString } from "../../utils/redaction.ts";
 
 /**
  * Phase 1.5 #1 (RFC 13 §6 info-disclosure mitigation): sanitize the env passed

@@ -5,7 +5,7 @@ import {
 	evaluateGreenContract,
 	greenLevelSatisfies,
 	inferGreenLevelFromTask,
-} from "../../src/runtime/green-contract.ts";
+} from "../../src/runtime/verification/green-contract.ts";
 import type { VerificationContract } from "../../src/state/types.ts";
 
 /**

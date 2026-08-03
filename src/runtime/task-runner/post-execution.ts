@@ -29,15 +29,15 @@ import type {
 import { captureWorktreeDiffAsync, captureWorktreeDiffStatAsync } from "../../worktree/worktree-manager.ts";
 import { appendTaskAttentionEvent } from "../attention-events.ts";
 import { extractCommandTrace } from "../command-trace.ts";
-import { evaluateCompletionMutationGuard } from "../completion-guard.ts";
+import { evaluateCompletionMutationGuard } from "../verification/completion-guard.ts";
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import { crewHooks } from "../crew-hooks.ts";
-import { createVerificationEvidence } from "../green-contract.ts";
+import { createVerificationEvidence } from "../verification/green-contract.ts";
 import type { ModelAttemptSummary } from "../model-fallback.ts";
 import { type OutputValidationResult, validateWorkerOutput } from "../output-validator.ts";
 import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
 import { writeTaskSharedOutput } from "../task-output-context.ts";
-import { computeGreenLevelFromResults, executeVerificationCommands } from "../verification-gates.ts";
+import { computeGreenLevelFromResults, executeVerificationCommands } from "../verification/verification-gates.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
 import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } from "../yield-handler.ts";
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";

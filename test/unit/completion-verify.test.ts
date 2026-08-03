@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { formatOutputPreview, verifyTaskCompletion } from "../../src/runtime/completion-guard.ts";
+import { formatOutputPreview, verifyTaskCompletion } from "../../src/runtime/verification/completion-guard.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 
 const makeArtifact = (

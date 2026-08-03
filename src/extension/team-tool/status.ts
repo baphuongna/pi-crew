@@ -1,7 +1,7 @@
 import { loadConfig } from "../../config/config.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../../runtime/agent-control.ts";
 import { extractCommandTrace } from "../../runtime/command-trace.ts";
-import { verifyTaskCompletion } from "../../runtime/completion-guard.ts";
+import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { evaluateRunEffectiveness } from "../../runtime/effectiveness.ts";
 import { computePhaseProgress } from "../../runtime/phase-progress.ts";

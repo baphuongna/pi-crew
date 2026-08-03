@@ -1,6 +1,6 @@
 import type { CrewLimitsConfig } from "../config/config.ts";
 import type { PolicyDecision, PolicyDecisionAction, PolicyDecisionReason, TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { evaluateGreenContract } from "./green-contract.ts";
+import { evaluateGreenContract } from "./verification/green-contract.ts";
 import { isWorkerHeartbeatStale } from "./worker-heartbeat.ts";
 
 export interface PolicyEngineInput {

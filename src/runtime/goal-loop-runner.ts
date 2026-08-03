@@ -32,7 +32,7 @@ import { bundleEvidence, evaluateGoal } from "./goal-evaluator.ts";
 import { GoalStore } from "./goal-state-store.ts";
 import { resolveCrewRuntime } from "./runtime-resolver.ts";
 import { executeTeamRun } from "./team-runner.ts";
-import { compareSnapshot, snapshotManifests } from "./verification-integrity.ts";
+import { compareSnapshot, snapshotManifests } from "./verification/verification-integrity.ts";
 import { acquireWorkspaceLock, type WorkspaceLockHandle } from "./workspace-lock.ts";
 
 /** Required minimal shape for the worker + agents discovery (P0 uses the goal's workerAgent). */
@@ -138,7 +138,7 @@ export const realGoalEvaluator = async (
 		if (!verificationCompromised) {
 			try {
 				// LAZY: defer dynamic import of ./verification-gates.ts to its call site.
-				const { executeVerificationCommands } = await import("./verification-gates.ts");
+				const { executeVerificationCommands } = await import("./verification/verification-gates.ts");
 				const contract = {
 					requiredGreenLevel: "none" as const,
 					commands: goal.verification.commands,
@@ -154,7 +154,7 @@ export const realGoalEvaluator = async (
 				try {
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site.
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
-					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("./verification-worktree.ts");
+					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("./verification/verification-worktree.ts");
 					const availability = checkWorktreeSandboxAvailable(goal.cwd);
 					if (availability.available) {
 						const wt = prepareVerificationWorktree(goal.cwd, availability.commitSha);

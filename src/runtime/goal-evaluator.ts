@@ -28,10 +28,10 @@ import type { AgentConfig } from "../agents/agent-config.ts";
 import type { GoalVerdict } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
-import { collectToolCallsFromEvent } from "./completion-guard.ts";
 import { parsePiJsonOutput } from "./pi-json-output.ts";
 import { extractStructuredResult } from "./result-extractor.ts";
 import { runWorker } from "./run-worker.ts";
+import { collectToolCallsFromEvent } from "./verification/completion-guard.ts";
 
 export interface GoalEvidence {
 	/** Tail slice of the turn's worker transcript (bounded ~8 KiB). */

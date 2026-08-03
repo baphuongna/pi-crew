@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { compareSnapshot, MANIFEST_FILES, snapshotManifests } from "../../src/runtime/verification-integrity.ts";
+import { compareSnapshot, MANIFEST_FILES, snapshotManifests } from "../../src/runtime/verification/verification-integrity.ts";
 
 let tmpDir = "";
 

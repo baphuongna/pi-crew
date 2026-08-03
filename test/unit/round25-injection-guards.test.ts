@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { __test__validateGateCommand, CARGO_RUST_GATES, NPM_TYPESCRIPT_GATES } from "../../src/runtime/verification-gates.ts";
+import { __test__validateGateCommand, CARGO_RUST_GATES, NPM_TYPESCRIPT_GATES } from "../../src/runtime/verification/verification-gates.ts";
 
 const reject = (cmd: string) => assert.throws(() => __test__validateGateCommand(cmd), /Security/i, `expected rejection: ${cmd}`);
 const accept = (cmd: string) => {

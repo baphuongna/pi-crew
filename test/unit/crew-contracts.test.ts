@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateGreenContract } from "../../src/runtime/green-contract.ts";
+import { evaluateGreenContract } from "../../src/runtime/verification/green-contract.ts";
 import { evaluateCrewPolicy } from "../../src/runtime/policy-engine.ts";
 import { buildTaskPacket, validateTaskPacket } from "../../src/runtime/task-packet.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";

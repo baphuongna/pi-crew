@@ -28,7 +28,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { logInternalError } from "../utils/internal-error.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 
 /**
  * Fixed set of project-manifest files considered by {@link snapshotManifests}.
