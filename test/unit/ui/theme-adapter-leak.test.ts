@@ -95,8 +95,12 @@ describe("theme-adapter listener/interval leak (UI-6, UI-11, UI-14)", () => {
 
 	it("UI-11: event-driven theme does NOT spawn a polling interval", () => {
 		const theme = {
-			addEventListener(): void { /* no-op */ },
-			removeEventListener(): void { /* no-op */ },
+			addEventListener(): void {
+				/* no-op */
+			},
+			removeEventListener(): void {
+				/* no-op */
+			},
 			getColorMode(): string {
 				return "dark";
 			},

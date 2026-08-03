@@ -96,7 +96,9 @@ export class RetryRunner {
 	 * Clear accumulated handoffs to free memory.
 	 * Useful when you want to reset state without disposing.
 	 */
-	clearHandoffs(): void { /* no-op: _handoffs field removed (was never read) */ }
+	clearHandoffs(): void {
+		/* no-op: _handoffs field removed (was never read) */
+	}
 
 	/**
 	 * Get the effective max handoffs limit from config or default.

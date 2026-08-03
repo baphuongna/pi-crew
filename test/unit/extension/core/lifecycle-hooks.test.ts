@@ -166,7 +166,10 @@ describe("before_cleanup hook", () => {
 				mode: "blocking",
 				handler: async () => ({ outcome: "allow" as const }),
 			});
-			const out = await handleCleanup({ action: "cleanup", runId: run.runId, confirm: true }, { cwd: run.cwd, sessionId: "session-a" });
+			const out = await handleCleanup(
+				{ action: "cleanup", runId: run.runId, confirm: true },
+				{ cwd: run.cwd, sessionId: "session-a" },
+			);
 			assert.equal(out.isError, false);
 			const events = readEvents(run.manifest.eventsPath);
 			assert.ok(
@@ -188,7 +191,10 @@ describe("before_cleanup hook", () => {
 					reason: "Active worktrees",
 				}),
 			});
-			const out = await handleCleanup({ action: "cleanup", runId: run.runId, confirm: true }, { cwd: run.cwd, sessionId: "session-a" });
+			const out = await handleCleanup(
+				{ action: "cleanup", runId: run.runId, confirm: true },
+				{ cwd: run.cwd, sessionId: "session-a" },
+			);
 			assert.equal(out.isError, true);
 			assert.match(textFromToolResult(out), /Active worktrees/);
 		} finally {

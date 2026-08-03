@@ -318,10 +318,11 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// untrusted sources. Only the trusted PROMPT_RUNTIME_EXTENSION_PATH is
 		// allowed through.
 		const extEnv = input.env ?? process.env;
-		if ((input.agent.source === "project" || input.agent.source === "project-pi") && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
-			allowed = allowed.filter(
-				(ext) => path.resolve(ext) === path.resolve(PROMPT_RUNTIME_EXTENSION_PATH),
-			);
+		if (
+			(input.agent.source === "project" || input.agent.source === "project-pi") &&
+			extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
+		) {
+			allowed = allowed.filter((ext) => path.resolve(ext) === path.resolve(PROMPT_RUNTIME_EXTENSION_PATH));
 		}
 		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
 	} else {

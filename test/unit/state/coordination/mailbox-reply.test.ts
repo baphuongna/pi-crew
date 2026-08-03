@@ -3,7 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendMailboxMessage, readAllMailboxMessages, readMailbox, updateMailboxMessageReply } from "../../../../src/state/coordination/mailbox.ts";
+import {
+	appendMailboxMessage,
+	readAllMailboxMessages,
+	readMailbox,
+	updateMailboxMessageReply,
+} from "../../../../src/state/coordination/mailbox.ts";
 import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";

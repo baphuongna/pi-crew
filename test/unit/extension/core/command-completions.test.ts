@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { suggestAgents, suggestRunIds, suggestTaskIds, suggestTeams, suggestWorkflows } from "../../../../src/extension/command-completions.ts";
+import {
+	suggestAgents,
+	suggestRunIds,
+	suggestTaskIds,
+	suggestTeams,
+	suggestWorkflows,
+} from "../../../../src/extension/command-completions.ts";
 import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";

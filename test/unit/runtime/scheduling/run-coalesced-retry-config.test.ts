@@ -70,11 +70,7 @@ test("RT-5 #5 structural: source gates retry with autoRetry and uses config poli
 	const src = fs.readFileSync(SRC_PATH, "utf-8");
 
 	// Must check autoRetry to decide whether to use executeWithRetry.
-	assert.match(
-		src,
-		/autoRetry/,
-		"source must reference reliability.autoRetry for retry gating",
-	);
+	assert.match(src, /autoRetry/, "source must reference reliability.autoRetry for retry gating");
 
 	// Must build the policy from config, not pass DEFAULT_RETRY_POLICY directly
 	// to executeWithRetry.
@@ -85,11 +81,7 @@ test("RT-5 #5 structural: source gates retry with autoRetry and uses config poli
 	);
 
 	// Must have a useRetry gate that conditionally calls executeWithRetry.
-	assert.match(
-		src,
-		/useRetry/,
-		"source must have a useRetry gate for conditional retry",
-	);
+	assert.match(src, /useRetry/, "source must have a useRetry gate for conditional retry");
 });
 
 test("RT-5 #5 behavioral: autoRetry===false → dispatch completes (mock mode, single-shot)", async () => {

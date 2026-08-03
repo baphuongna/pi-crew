@@ -65,14 +65,7 @@ function restoreMockEnv(state: MockEnvState): void {
 
 // ─── Task fixture helpers ──────────────────────────────────────────
 
-function makeTask(
-	id: string,
-	stepId: string,
-	role: string,
-	agent: string,
-	runId: string,
-	cwd: string,
-): TeamTaskState {
+function makeTask(id: string, stepId: string, role: string, agent: string, runId: string, cwd: string): TeamTaskState {
 	return {
 		id,
 		runId,
@@ -181,11 +174,7 @@ test("[RT-1] in-flight siblings are NOT skipped when one task fails (drain+merge
 		assert.ok(diskState, "run should be loadable from disk");
 		const diskSm = statusMap(diskState.tasks);
 		const diskSkipped = diskState.tasks.filter((t) => t.status === "skipped");
-		assert.equal(
-			diskSkipped.length,
-			0,
-			`no task should be skipped on disk. Got: ${JSON.stringify(diskSm)}`,
-		);
+		assert.equal(diskSkipped.length, 0, `no task should be skipped on disk. Got: ${JSON.stringify(diskSm)}`);
 
 		// Run should be marked failed.
 		assert.equal(result.manifest.status, "failed", "run should be failed");
@@ -270,8 +259,7 @@ test("[RT-1] in-flight sibling's settled result is merged (not lost)", async () 
 		// should be drained/cancelled, not markBlocked→skipped.
 		assert.ok(
 			!result.tasks.some((t) => t.status === "skipped"),
-			`no task should be skipped — all in-flight results should be drained/merged. ` +
-				`Got: ${JSON.stringify(sm)}`,
+			`no task should be skipped — all in-flight results should be drained/merged. ` + `Got: ${JSON.stringify(sm)}`,
 		);
 	} finally {
 		__test_resetCap(prevCap);
@@ -472,11 +460,7 @@ test("[RT-1] in-flight sibling's SUCCESSFUL result is preserved when another tas
 		// failed). Other tasks may be completed/cancelled (abort race) but are
 		// never the model-error failure.
 		const modelFailed = result.tasks.filter((t) => /provider[_ ]?error/i.test(t.error ?? ""));
-		assert.equal(
-			modelFailed.length,
-			1,
-			`exactly one task should fail with the mock model error. Got: ${JSON.stringify(sm)}`,
-		);
+		assert.equal(modelFailed.length, 1, `exactly one task should fail with the mock model error. Got: ${JSON.stringify(sm)}`);
 		assert.ok(modelFailed[0]!.error, `failed task ${modelFailed[0]!.id} must carry an error`);
 
 		// INVARIANT 3: all tasks reach a terminal, accounted-for state — none is
@@ -513,11 +497,7 @@ test("[RT-1] in-flight sibling's SUCCESSFUL result is preserved when another tas
 		const diskState = loadRunManifestById(cwd, created.manifest.runId);
 		assert.ok(diskState, "run should be loadable from disk");
 		const diskSkipped = diskState!.tasks.filter((t) => t.status === "skipped");
-		assert.equal(
-			diskSkipped.length,
-			0,
-			`no task should be skipped on disk. Got: ${JSON.stringify(statusMap(diskState!.tasks))}`,
-		);
+		assert.equal(diskSkipped.length, 0, `no task should be skipped on disk. Got: ${JSON.stringify(statusMap(diskState!.tasks))}`);
 	} finally {
 		__test_resetCap(prevCap);
 		restoreMockEnv(prevEnv);

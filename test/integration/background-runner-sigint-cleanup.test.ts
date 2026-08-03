@@ -139,15 +139,11 @@ test("RT-2: REAL SIGINT handler sets exitCode (not process.exit) — finally run
 		fs.writeFileSync(harnessPath, HARNESS_CODE);
 
 		// Spawn the harness subprocess.
-		const child = spawn(
-			process.execPath,
-			["--experimental-strip-types", harnessPath, markerDir, projectRoot],
-			{
-				cwd: projectRoot,
-				stdio: ["ignore", "pipe", "pipe"],
-				detached: false,
-			},
-		);
+		const child = spawn(process.execPath, ["--experimental-strip-types", harnessPath, markerDir, projectRoot], {
+			cwd: projectRoot,
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: false,
+		});
 
 		// Collect stderr for diagnostics.
 		const stderrChunks: Buffer[] = [];
@@ -206,8 +202,7 @@ test("RT-2: REAL SIGINT handler sets exitCode (not process.exit) — finally run
 		assert.equal(
 			exitCode,
 			130,
-			`Expected exit code 130 but got ${exitCode}. ` +
-				`Stderr: ${Buffer.concat(stderrChunks).toString("utf-8").slice(0, 512)}`,
+			`Expected exit code 130 but got ${exitCode}. ` + `Stderr: ${Buffer.concat(stderrChunks).toString("utf-8").slice(0, 512)}`,
 		);
 
 		// Assertion 2: cleanup marker exists (proves finally block ran).
@@ -229,8 +224,7 @@ test("RT-2: REAL SIGINT handler sets exitCode (not process.exit) — finally run
 		);
 
 		console.log(
-			`[RT-2] ✓ REAL SIGINT handler → exitCode=130, finally ran cleanup, ` +
-				`child pid=${grandchildPid} terminated (not orphaned)`,
+			`[RT-2] ✓ REAL SIGINT handler → exitCode=130, finally ran cleanup, ` + `child pid=${grandchildPid} terminated (not orphaned)`,
 		);
 	} finally {
 		// Clean up temp dir.

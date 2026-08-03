@@ -548,8 +548,7 @@ export async function withFileLockAsync<T>(filePath: string, fn: () => Promise<T
 			// concurrent process (sync append, reply-rewrite) cannot interleave.
 			// acquireLockWithRetryAsync uses `await sleep` (timer), NOT sleepSync,
 			// so the event loop is not blocked during contention.
-			if (!isSymlinkSafePath(path.dirname(lockFile)))
-				throw new Error("Refusing: parent of lock directory is a symlink");
+			if (!isSymlinkSafePath(path.dirname(lockFile))) throw new Error("Refusing: parent of lock directory is a symlink");
 			fs.mkdirSync(path.dirname(lockFile), { recursive: true });
 			const token = await acquireLockWithRetryAsync(lockFile, DEFAULT_STALE_MS, "file");
 			// Register in fileLockHeldByUs so a concurrent withFileLockSync in

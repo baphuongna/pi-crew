@@ -442,7 +442,9 @@ class SelectSubmenu {
 		this.scrollOffset = Math.max(0, this.selectedIndex - Math.floor(this.maxVisible / 2));
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	private ensureVisible(): void {
 		if (this.selectedIndex < this.scrollOffset) {
@@ -535,7 +537,9 @@ class TextinputSubmenu {
 		this.onCancel = onCancel;
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	render(width: number): string[] {
 		const lines: string[] = [];
@@ -614,7 +618,9 @@ class AgentOverridesSubmenu {
 		];
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	render(width: number): string[] {
 		if (this.editField) return this.renderEdit(width);

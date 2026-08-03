@@ -154,7 +154,9 @@ export const realGoalEvaluator = async (
 				try {
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site.
 					// LAZY: defer dynamic import of ./verification-worktree.ts to its call site. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
-					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import("../verification/verification-worktree.ts");
+					const { checkWorktreeSandboxAvailable, prepareVerificationWorktree } = await import(
+						"../verification/verification-worktree.ts"
+					);
 					const availability = checkWorktreeSandboxAvailable(goal.cwd);
 					if (availability.available) {
 						const wt = prepareVerificationWorktree(goal.cwd, availability.commitSha);

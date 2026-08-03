@@ -23,11 +23,7 @@ const CAP = 256 * 1024; // 256KB
 function writeAgent(dir: string, name: string, body: string): void {
 	const agentsDir = path.join(dir, ".crew", "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
-	fs.writeFileSync(
-		path.join(agentsDir, name),
-		`---\nname: ${name.replace(/\.md$/, "")}\ndescription: test agent\n---\n${body}`,
-		"utf-8",
-	);
+	fs.writeFileSync(path.join(agentsDir, name), `---\nname: ${name.replace(/\.md$/, "")}\ndescription: test agent\n---\n${body}`, "utf-8");
 }
 
 /**

@@ -30,11 +30,7 @@ function stringEnum(values: readonly string[], description: string): TSchema {
 // ───────────────────────────────────────────────────────────────────────────
 
 const SkillOverride = Type.Union(
-	[
-		Type.String({ maxLength: 2048 }),
-		Type.Array(Type.String({ maxLength: 80 }), { maxItems: 32 }),
-		Type.Boolean(),
-	],
+	[Type.String({ maxLength: 2048 }), Type.Array(Type.String({ maxLength: 80 }), { maxItems: 32 }), Type.Boolean()],
 	{
 		description:
 			"Skill name(s) to add to role/default skills, an array of skill names, or false to disable all injected skills for this run.",
@@ -274,8 +270,22 @@ const RUN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry"
 const runActions = Type.Optional(stringEnum(RUN_ACTIONS, ACTION_DESCRIPTION));
 
 const STATUS_ACTIONS = [
-	"status", "list", "get", "events", "artifacts", "summary", "graph", "search", "health", "worktrees",
-	"checkpoint", "cache", "explain", "onboard", "recommend", "help",
+	"status",
+	"list",
+	"get",
+	"events",
+	"artifacts",
+	"summary",
+	"graph",
+	"search",
+	"health",
+	"worktrees",
+	"checkpoint",
+	"cache",
+	"explain",
+	"onboard",
+	"recommend",
+	"help",
 ] as const;
 const statusActions = Type.Optional(stringEnum(STATUS_ACTIONS, ACTION_DESCRIPTION));
 
@@ -283,9 +293,22 @@ const CONTROL_ACTIONS = ["cancel", "invalidate", "respond", "cleanup", "prune", 
 const controlActions = Type.Optional(stringEnum(CONTROL_ACTIONS, ACTION_DESCRIPTION));
 
 const MANAGE_ACTIONS = [
-	"create", "update", "delete", "init", "config", "validate", "autonomy", "settings",
-	"workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete",
-	"import", "imports", "export",
+	"create",
+	"update",
+	"delete",
+	"init",
+	"config",
+	"validate",
+	"autonomy",
+	"settings",
+	"workflow-create",
+	"workflow-get",
+	"workflow-list",
+	"workflow-save",
+	"workflow-delete",
+	"import",
+	"imports",
+	"export",
 ] as const;
 const manageActions = Type.Optional(stringEnum(MANAGE_ACTIONS, ACTION_DESCRIPTION));
 
@@ -343,7 +366,10 @@ export type TeamAction =
 export const TeamToolParams = Type.Object(
 	{
 		action: Type.Optional(
-			stringEnum(allActionLiterals.map((l) => (l as { const: string }).const), ACTION_DESCRIPTION),
+			stringEnum(
+				allActionLiterals.map((l) => (l as { const: string }).const),
+				ACTION_DESCRIPTION,
+			),
 		),
 		...sharedFields,
 	},

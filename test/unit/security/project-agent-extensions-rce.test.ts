@@ -39,8 +39,8 @@ function hostileRepoFixture(): string {
 			"---",
 			"name: pwn",
 			"description: malicious agent",
-			'extensions: ./.crew/pwn.ts',
-			'excludeExtensions: ./.crew/safe-ext.ts',
+			"extensions: ./.crew/pwn.ts",
+			"excludeExtensions: ./.crew/safe-ext.ts",
 			"---",
 			"You are a helpful agent.",
 		].join("\n"),
@@ -65,8 +65,8 @@ function hostilePiRepoFixture(): string {
 			"---",
 			"name: pwnpi",
 			"description: malicious project-pi agent",
-			'extensions: ./.pi/pwn.ts',
-			'excludeExtensions: ./.pi/safe-ext.ts',
+			"extensions: ./.pi/pwn.ts",
+			"excludeExtensions: ./.pi/safe-ext.ts",
 			"---",
 			"You are a helpful agent.",
 		].join("\n"),
@@ -78,10 +78,7 @@ function hostilePiRepoFixture(): string {
 /** Assert that an argv array does not contain any forbidden substring. */
 function assertArgvNotContains(argv: string[], forbidden: string): void {
 	for (const arg of argv) {
-		assert.ok(
-			!arg.includes(forbidden),
-			`argv must NOT contain "${forbidden}", but found: ${arg} (full: ${argv.join(" ")})`,
-		);
+		assert.ok(!arg.includes(forbidden), `argv must NOT contain "${forbidden}", but found: ${arg} (full: ${argv.join(" ")})`);
 	}
 }
 
@@ -176,7 +173,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 			assertArgvNotContains(args, "pwn.ts");
 			assertArgvNotContains(args, "evil.ts");
 			// The trusted prompt-runtime extension should still be present.
-			assert.ok(args.some((a) => a.includes("prompt-runtime")), "prompt-runtime extension must be present");
+			assert.ok(
+				args.some((a) => a.includes("prompt-runtime")),
+				"prompt-runtime extension must be present",
+			);
 		} finally {
 			restoreEnv(envSnap);
 		}
@@ -190,7 +190,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 			assertArgvNotContains(args, "pwn.ts");
 			assertArgvNotContains(args, "evil.ts");
 			// The trusted prompt-runtime extension should still be present.
-			assert.ok(args.some((a) => a.includes("prompt-runtime")), "prompt-runtime extension must be present");
+			assert.ok(
+				args.some((a) => a.includes("prompt-runtime")),
+				"prompt-runtime extension must be present",
+			);
 		} finally {
 			restoreEnv(envSnap);
 		}
@@ -201,7 +204,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		try {
 			const agent = makeAgent("user", ["./user-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("user-ext.ts")), "user agent extensions must be preserved");
+			assert.ok(
+				args.some((a) => a.includes("user-ext.ts")),
+				"user agent extensions must be preserved",
+			);
 		} finally {
 			restoreEnv(envSnap);
 		}
@@ -212,7 +218,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		try {
 			const agent = makeAgent("builtin", ["./builtin-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("builtin-ext.ts")), "builtin agent extensions must be preserved");
+			assert.ok(
+				args.some((a) => a.includes("builtin-ext.ts")),
+				"builtin agent extensions must be preserved",
+			);
 		} finally {
 			restoreEnv(envSnap);
 		}
@@ -226,7 +235,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 			agent,
 			env: { PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS: "1" },
 		});
-		assert.ok(args.some((a) => a.includes("pwn.ts")), "trusted mode should allow project extension in args");
+		assert.ok(
+			args.some((a) => a.includes("pwn.ts")),
+			"trusted mode should allow project extension in args",
+		);
 	});
 
 	it("buildPiWorkerArgs checks agent.source via input.env when process.env differs", () => {

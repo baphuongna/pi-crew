@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffectivenessLines } from "../../../../src/runtime/effectiveness.ts";
+import {
+	effectivenessPolicyDecision,
+	evaluateRunEffectiveness,
+	formatRunEffectivenessLines,
+} from "../../../../src/runtime/effectiveness.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
 function manifest(safety: NonNullable<TeamRunManifest["runtimeResolution"]>["safety"] = "trusted"): TeamRunManifest {

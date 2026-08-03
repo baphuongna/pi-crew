@@ -12,7 +12,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { acquireWorkspaceLock, reclaimStaleLocks, type StartTimeResolver, workspaceLockPath } from "../../../../src/runtime/workspace-lock.ts";
+import {
+	acquireWorkspaceLock,
+	reclaimStaleLocks,
+	type StartTimeResolver,
+	workspaceLockPath,
+} from "../../../../src/runtime/workspace-lock.ts";
 import { clearProjectRootCache } from "../../../../src/utils/paths.ts";
 
 function makeTmpCwd(): string {

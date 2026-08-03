@@ -130,7 +130,9 @@ class CrewVibesFooter implements FooterComponent {
 		this.unsubscribeBranch = this.footerData ? this.footerData.onBranchChange(() => requestRenderTarget(this.tui)) : () => undefined;
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	dispose(): void {
 		this.unsubscribeBranch();

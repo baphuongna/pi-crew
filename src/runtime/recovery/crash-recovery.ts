@@ -75,11 +75,7 @@ export function _setReadManifestFileSyncForTest(fn: ((filePath: string) => strin
  *   failing, rethrown so the caller can skip WITHOUT quarantining
  * - Other ErrnoException (ENOENT, etc.) → rethrown immediately
  */
-export function readManifestWithTransientRetry(
-	manifestPath: string,
-	maxRetries = 3,
-	baseDelayMs = 100,
-): Record<string, unknown> {
+export function readManifestWithTransientRetry(manifestPath: string, maxRetries = 3, baseDelayMs = 100): Record<string, unknown> {
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {
 			return JSON.parse(_readManifestFileSync(manifestPath)) as Record<string, unknown>;

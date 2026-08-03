@@ -17,7 +17,9 @@ export function sourcePiProjects(cwd: string): string[] {
 
 export function chunkProjects(projects: string[], target = 6): string[][] {
 	const chunks = Array.from({ length: Math.min(Math.max(1, target), Math.max(1, projects.length)) }, () => [] as string[]);
-	projects.forEach((project, index) => { chunks[index % chunks.length]!.push(project); });
+	projects.forEach((project, index) => {
+		chunks[index % chunks.length]!.push(project);
+	});
 	return chunks.filter((chunk) => chunk.length > 0);
 }
 

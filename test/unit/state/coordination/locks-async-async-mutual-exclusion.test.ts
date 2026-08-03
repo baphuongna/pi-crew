@@ -78,17 +78,10 @@ test("ST-3-FIX: two concurrent withFileLockAsync callers for the SAME file are m
 	assert.equal(a, "a");
 	assert.equal(b, "b");
 	// Core assertion: the two critical sections never overlapped.
-	assert.equal(
-		maxConcurrent,
-		1,
-		`async↔async mutual exclusion must hold — maxConcurrent should be 1, got ${maxConcurrent}`,
-	);
+	assert.equal(maxConcurrent, 1, `async↔async mutual exclusion must hold — maxConcurrent should be 1, got ${maxConcurrent}`);
 	// Sanity: enter/exit pairs are contiguous (no interleaving).
 	const joined = order.join(",");
-	assert.ok(
-		joined === "a-enter,a-exit,b-enter,b-exit",
-		`critical sections must not interleave, got: ${joined}`,
-	);
+	assert.ok(joined === "a-enter,a-exit,b-enter,b-exit", `critical sections must not interleave, got: ${joined}`);
 
 	fs.rmSync(cwd, { recursive: true, force: true });
 });

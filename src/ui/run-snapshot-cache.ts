@@ -631,20 +631,14 @@ async function mailboxFromAsync(manifest: TeamRunManifest, agents: CrewAgentReco
 	try {
 		// PR-F2 / UI-5 — batch the O(tasks) per-task inbox/outbox reads in
 		// parallel instead of sequential awaits on the async render path.
-		const taskDirs = (await fs.promises.readdir(tasksRoot, {
-			withFileTypes: true,
-		})).filter((entry) => entry.isDirectory());
+		const taskDirs = (
+			await fs.promises.readdir(tasksRoot, {
+				withFileTypes: true,
+			})
+		).filter((entry) => entry.isDirectory());
 		const [taskInboxes, taskOutboxes] = await Promise.all([
-			Promise.all(
-				taskDirs.map((entry) =>
-					readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery),
-				),
-			),
-			Promise.all(
-				taskDirs.map((entry) =>
-					readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery),
-				),
-			),
+			Promise.all(taskDirs.map((entry) => readMailboxCountsAsync(path.join(tasksRoot, entry.name, "inbox.jsonl"), delivery))),
+			Promise.all(taskDirs.map((entry) => readMailboxCountsAsync(path.join(tasksRoot, entry.name, "outbox.jsonl"), delivery))),
 		]);
 		for (const ti of taskInboxes) inbox = mergeKindCounts(inbox, ti);
 		for (const to of taskOutboxes) outbox = mergeKindCounts(outbox, to);

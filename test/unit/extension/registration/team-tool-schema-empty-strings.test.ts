@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { Compile } from "typebox/compile";
 import { TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
@@ -84,7 +84,7 @@ describe("team-tool schema accepts empty-string model defaults", () => {
 		}
 	});
 
-	it("action=\"\" defaults to list (accepted, handler treats as omitted)", () => {
+	it('action="" defaults to list (accepted, handler treats as omitted)', () => {
 		assert.equal(validator.Check({ action: "", goal: "x" }), true);
 	});
 

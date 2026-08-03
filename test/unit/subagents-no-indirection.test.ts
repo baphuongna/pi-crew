@@ -34,10 +34,7 @@ function listTsFiles(dir: string, prefix = ""): string[] {
 }
 
 describe("EXT-10 subagents-no-indirection", () => {
-	const files =
-		existsSync(SUBAGENTS_DIR) && statSync(SUBAGENTS_DIR).isDirectory()
-			? listTsFiles(SUBAGENTS_DIR)
-			: [];
+	const files = existsSync(SUBAGENTS_DIR) && statSync(SUBAGENTS_DIR).isDirectory() ? listTsFiles(SUBAGENTS_DIR) : [];
 
 	for (const file of files) {
 		it(`${file} is not a pure-indirection re-export shim`, () => {
@@ -56,10 +53,6 @@ describe("EXT-10 subagents-no-indirection", () => {
 			const trimmed = content.replace(/^#!.*$/m, "").trim();
 			return PURE_REEXPORT.test(trimmed);
 		});
-		assert.deepEqual(
-			shims,
-			[],
-			`Pure-indirection shims found: ${shims.join(", ")}`,
-		);
+		assert.deepEqual(shims, [], `Pure-indirection shims found: ${shims.join(", ")}`);
 	});
 });

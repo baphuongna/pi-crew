@@ -5,7 +5,12 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { handleAnchorAccumulate, handleAnchorClear, handleAnchorSet, handleAnchorStatus } from "../../../../src/extension/team-tool/anchor.ts";
+import {
+	handleAnchorAccumulate,
+	handleAnchorClear,
+	handleAnchorSet,
+	handleAnchorStatus,
+} from "../../../../src/extension/team-tool/anchor.ts";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
 import type { TeamToolParamsValue } from "../../../../src/schema/team-tool-schema.ts";

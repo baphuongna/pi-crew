@@ -39,13 +39,21 @@ function createFakePi(events: ReturnType<typeof createEventBus>) {
 		emitLifecycle(event: string, ctx: unknown) {
 			for (const handler of lifecycle.get(event) ?? []) handler({}, ctx);
 		},
-		registerCommand() { /* no-op */ },
-		registerTool() { /* no-op */ },
-		appendEntry() { /* no-op */ },
+		registerCommand() {
+			/* no-op */
+		},
+		registerTool() {
+			/* no-op */
+		},
+		appendEntry() {
+			/* no-op */
+		},
 		getSessionName() {
 			return undefined;
 		},
-		setSessionName() { /* no-op */ },
+		setSessionName() {
+			/* no-op */
+		},
 	};
 }
 
@@ -59,7 +67,14 @@ test("registerPiTeams leaves no observability event subscriptions after repeated
 		const ctx = {
 			cwd,
 			hasUI: false,
-			ui: { notify() { /* no-op */ }, setWorkingMessage() { /* no-op */ } },
+			ui: {
+				notify() {
+					/* no-op */
+				},
+				setWorkingMessage() {
+					/* no-op */
+				},
+			},
 		};
 		for (let index = 0; index < 3; index += 1) {
 			pi.emitLifecycle("session_start", ctx);

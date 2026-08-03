@@ -244,7 +244,11 @@ describe("ST-11: applyCompactionUnlocked streaming recovery", () => {
 			// external truncation. The recovery path should detect missing
 			// events (by seq) and re-append them.
 			// Write only the first 10 of the kept events to the file.
-			const partial = prepared.kept.slice(0, 10).map((e) => JSON.stringify(e)).join("\n") + "\n";
+			const partial =
+				prepared.kept
+					.slice(0, 10)
+					.map((e) => JSON.stringify(e))
+					.join("\n") + "\n";
 			fs.writeFileSync(filePath, partial);
 
 			// Now call applyCompactionUnlocked — it will atomicWriteFile the

@@ -283,7 +283,9 @@ export class DurableTextViewer implements Component {
 		this.unsubscribeTheme = subscribeThemeChange(theme, () => this.invalidate());
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	dispose(): void {
 		this.unsubscribeTheme();
@@ -374,7 +376,9 @@ export class DurableTranscriptViewer implements Component {
 		});
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 
 	dispose(): void {
 		this.unsubscribeTheme();

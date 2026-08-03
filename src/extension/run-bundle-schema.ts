@@ -52,7 +52,10 @@ function validateManifest(value: unknown, errors: string[]): value is TeamRunMan
 	if (value.workspaceMode !== "single" && value.workspaceMode !== "worktree")
 		errors.push("manifest.workspaceMode must be single or worktree.");
 	if (!Array.isArray(value.artifacts)) errors.push("manifest.artifacts must be an array.");
-	else value.artifacts.forEach((artifact, index) => { validateArtifact(artifact, index, errors); });
+	else
+		value.artifacts.forEach((artifact, index) => {
+			validateArtifact(artifact, index, errors);
+		});
 	return errors.length === before;
 }
 
@@ -89,9 +92,15 @@ export function validateRunBundle(value: unknown): BundleValidationResult {
 	if (typeof value.exportedAt !== "string") errors.push("exportedAt must be a string.");
 	validateManifest(value.manifest, errors);
 	if (!Array.isArray(value.tasks)) errors.push("tasks must be an array.");
-	else value.tasks.forEach((task, index) => { validateTask(task, index, errors); });
+	else
+		value.tasks.forEach((task, index) => {
+			validateTask(task, index, errors);
+		});
 	if (!Array.isArray(value.events)) errors.push("events must be an array.");
-	else value.events.forEach((event, index) => { validateEvent(event, index, errors); });
+	else
+		value.events.forEach((event, index) => {
+			validateEvent(event, index, errors);
+		});
 	if (!Array.isArray(value.artifactPaths) || !value.artifactPaths.every((item) => typeof item === "string"))
 		errors.push("artifactPaths must be an array of strings.");
 	return { ok: errors.length === 0, errors };

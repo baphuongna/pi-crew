@@ -94,20 +94,9 @@ test("[RT-13] setRunStatusRunning does not emit events or persist (no side effec
 test("[RT-13] all manifest statuses can legally transition to running (validation never rejects)", () => {
 	// This documents WHY setRunStatusRunning always succeeds: every status in
 	// TEAM_RUN_STATUS_TRANSITIONS can reach "running".
-	const statuses: TeamRunManifest["status"][] = [
-		"queued",
-		"planning",
-		"running",
-		"blocked",
-		"completed",
-		"failed",
-		"cancelled",
-	];
+	const statuses: TeamRunManifest["status"][] = ["queued", "planning", "running", "blocked", "completed", "failed", "cancelled"];
 	for (const s of statuses) {
-		assert.ok(
-			canTransitionRunStatus(s, "running"),
-			`status "${s}" must be able to transition to "running"`,
-		);
+		assert.ok(canTransitionRunStatus(s, "running"), `status "${s}" must be able to transition to "running"`);
 		const result = setRunStatusRunning(manifestWithStatus(s));
 		assert.equal(result.status, "running", `"${s}" → running via helper`);
 	}
@@ -115,7 +104,7 @@ test("[RT-13] all manifest statuses can legally transition to running (validatio
 
 // ─── RT-13: structural pin — the raw spread hack must be GONE ──────
 
-test("[RT-13] raw spread hack `manifest = { ...manifest, status: \"running\" }` is absent from source", () => {
+test('[RT-13] raw spread hack `manifest = { ...manifest, status: "running" }` is absent from source', () => {
 	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
@@ -125,9 +114,7 @@ test("[RT-13] raw spread hack `manifest = { ...manifest, status: \"running\" }` 
 	// The `setRunStatusRunning` helper uses `return { ...manifest, status:
 	// "running" }` which does NOT match because it's a return, not an
 	// assignment to a bare identifier.
-	const codeLines = src
-		.split("\n")
-		.filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"));
+	const codeLines = src.split("\n").filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"));
 	const code = codeLines.join("\n");
 
 	const hackPattern = /=\s*\{\s*\.\.\.manifest,\s*status:\s*"running"\s*\}/;
@@ -143,11 +130,7 @@ test("[RT-13] setRunStatusRunning helper is defined and exported", () => {
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// The helper function must exist.
-	assert.match(
-		src,
-		/export function setRunStatusRunning/,
-		"setRunStatusRunning must be exported from team-runner.ts",
-	);
+	assert.match(src, /export function setRunStatusRunning/, "setRunStatusRunning must be exported from team-runner.ts");
 	// It must use canTransitionRunStatus for validation.
 	assert.match(
 		src,
@@ -161,11 +144,7 @@ test("[RT-13] setRunStatusRunning is called in the cancellation path (not dead c
 	const src = fs.readFileSync(srcPath, "utf-8");
 
 	// The cancellation path must call setRunStatusRunning instead of the raw spread.
-	assert.match(
-		src,
-		/manifest = setRunStatusRunning\(manifest\)/,
-		"cancellation path must call setRunStatusRunning(manifest)",
-	);
+	assert.match(src, /manifest = setRunStatusRunning\(manifest\)/, "cancellation path must call setRunStatusRunning(manifest)");
 });
 
 // ─── RT-15: structural pin — redundant forward-syncs removed ───────
@@ -176,7 +155,7 @@ test("[RT-15] ctx.tasks forward-sync count in loop body is reduced to 1 (top-of-
 
 	// Extract the executeTeamRunCore loop body. The loop starts after the ctx
 	// initialization block and the `try {` statement.
-	const loopStart = src.indexOf("while (tasks.some((task) => task.status === \"queued\")");
+	const loopStart = src.indexOf('while (tasks.some((task) => task.status === "queued")');
 	assert.ok(loopStart > 0, "could not find the scheduler while-loop");
 
 	// Find the matching end of the while body (the finalizeRun call after the loop).
@@ -199,7 +178,7 @@ test("[RT-15] ctx.manifest forward-sync count in loop body is reduced to 1 (top-
 	const srcPath = path.resolve(import.meta.dirname, "../../../src/runtime/team-runner.ts");
 	const src = fs.readFileSync(srcPath, "utf-8");
 
-	const loopStart = src.indexOf("while (tasks.some((task) => task.status === \"queued\")");
+	const loopStart = src.indexOf('while (tasks.some((task) => task.status === "queued")');
 	const finalizeIdx = src.indexOf("const finalResult = await finalizeRun(ctx);", loopStart);
 	const loopBody = src.slice(loopStart, finalizeIdx);
 

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PlanTemplate } from "../../src/runtime/goal-workflow/plan-templates.ts";
-import { getPlanTemplate, listPlanTemplates, registerPlanTemplate, renderPlanTemplate } from "../../src/runtime/goal-workflow/plan-templates.ts";
+import {
+	getPlanTemplate,
+	listPlanTemplates,
+	registerPlanTemplate,
+	renderPlanTemplate,
+} from "../../src/runtime/goal-workflow/plan-templates.ts";
 
 describe("plan-templates: registerPlanTemplate + getPlanTemplate", () => {
 	it("retrieves a built-in template", () => {

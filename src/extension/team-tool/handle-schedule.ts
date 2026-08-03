@@ -207,7 +207,9 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 }
 
 function scheduledJobsOf(settings: CrewSettings): import("../../runtime/scheduling/scheduler.ts").ScheduledJob[] {
-	return Array.isArray(settings.scheduledJobs) ? (settings.scheduledJobs as import("../../runtime/scheduling/scheduler.ts").ScheduledJob[]) : [];
+	return Array.isArray(settings.scheduledJobs)
+		? (settings.scheduledJobs as import("../../runtime/scheduling/scheduler.ts").ScheduledJob[])
+		: [];
 }
 
 function persistScheduledJob(cwd: string, job: import("../../runtime/scheduling/scheduler.ts").ScheduledJob): void {

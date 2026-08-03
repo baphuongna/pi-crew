@@ -26,9 +26,9 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 	if (!params.message && !params.taskId)
 		return result(
 			paramRequired(
-			"respond",
-			"taskId and/or message",
-			"{ action: 'respond', runId: 'team_...', taskId: '01_agent', message: '...' }",
+				"respond",
+				"taskId and/or message",
+				"{ action: 'respond', runId: 'team_...', taskId: '01_agent', message: '...' }",
 			),
 			{ action: "respond", status: "error" },
 			true,

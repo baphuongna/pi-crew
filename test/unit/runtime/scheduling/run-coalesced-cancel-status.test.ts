@@ -91,11 +91,7 @@ test("RT-5 #1: already-aborted signal → tasks get 'cancelled' status (not 'fai
 		// Every group task must be "cancelled" — NOT "failed".
 		for (const taskId of result.taskIds) {
 			const task = result.tasks.find((t) => t.id === taskId)!;
-			assert.equal(
-				task.status,
-				"cancelled",
-				`task ${taskId} must be 'cancelled' (got '${task.status}')`,
-			);
+			assert.equal(task.status, "cancelled", `task ${taskId} must be 'cancelled' (got '${task.status}')`);
 		}
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });

@@ -36,8 +36,10 @@ test("RT-11: every spawn() call site is followed by registerChildProcess", () =>
 
 	// registerChildProcess must be called at least once per spawn site.
 	const regMatches = childPiSrc.match(/registerChildProcess\s*\(/g);
-	assert.ok(regMatches && regMatches.length >= spawnMatches.length,
-		`expected ≥${spawnMatches.length} registerChildProcess() calls (one per spawn site), found ${regMatches?.length ?? 0}`);
+	assert.ok(
+		regMatches && regMatches.length >= spawnMatches.length,
+		`expected ≥${spawnMatches.length} registerChildProcess() calls (one per spawn site), found ${regMatches?.length ?? 0}`,
+	);
 });
 
 test("RT-11: registerChildProcess is NOT guarded by runId/agentId condition", () => {
@@ -45,9 +47,12 @@ test("RT-11: registerChildProcess is NOT guarded by runId/agentId condition", ()
 	// spawn children that are invisible to cleanup. After RT-11, registration
 	// must be unconditional (with synthetic fallback IDs for untracked runs).
 	const hasRunIdAgentGuard = /if\s*\(\s*input\.runId\s*&&\s*input\.agentId\s*\)/.test(childPiSrc);
-	assert.equal(hasRunIdAgentGuard, false,
-		"registerChildProcess must NOT be guarded by input.runId && input.agentId — "
-		+ "every spawned child must be registered for host-SIGTERM cleanup (RT-11)");
+	assert.equal(
+		hasRunIdAgentGuard,
+		false,
+		"registerChildProcess must NOT be guarded by input.runId && input.agentId — " +
+			"every spawned child must be registered for host-SIGTERM cleanup (RT-11)",
+	);
 });
 
 test("RT-11: registerChildProcess provides fallback IDs when runId/agentId are absent", () => {

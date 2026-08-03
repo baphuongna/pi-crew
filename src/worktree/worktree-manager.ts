@@ -630,13 +630,7 @@ export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskS
 				if (isUtf8) {
 					parts.push(`## Untracked file: ${rel}${note}`, "```", data.toString("utf-8"), "```", "");
 				} else {
-					parts.push(
-						`## Untracked file: ${rel}${note} (base64-encoded binary)`,
-						"```base64",
-						data.toString("base64"),
-						"```",
-						"",
-					);
+					parts.push(`## Untracked file: ${rel}${note} (base64-encoded binary)`, "```base64", data.toString("base64"), "```", "");
 				}
 			} catch {
 				/* skip unreadable/unstat-able entry */

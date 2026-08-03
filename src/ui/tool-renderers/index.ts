@@ -37,11 +37,7 @@ export type Component = Container | Text;
 // implements the library `Component` interface (render + invalidate). The
 // assertion below makes the relationship compiler-enforced without changing
 // the exported union type or any behavior.
-type _AssertComponentIsCrewComponent = Container extends CrewComponent
-	? Text extends CrewComponent
-		? true
-		: never
-	: never;
+type _AssertComponentIsCrewComponent = Container extends CrewComponent ? (Text extends CrewComponent ? true : never) : never;
 
 // ── ANSI-aware padding ─────────────────────────────────────────────────
 

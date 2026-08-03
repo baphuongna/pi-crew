@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { applyCrewSettingsToConfig, type CrewSettings, loadCrewSettings, saveCrewSettings } from "../../../../src/runtime/settings-store.ts";
+import {
+	applyCrewSettingsToConfig,
+	type CrewSettings,
+	loadCrewSettings,
+	saveCrewSettings,
+} from "../../../../src/runtime/settings-store.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 describe("saveCrewSettings / loadCrewSettings", () => {

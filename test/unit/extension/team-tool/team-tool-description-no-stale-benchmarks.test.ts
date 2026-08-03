@@ -16,16 +16,7 @@ import { registerTeamTool } from "../../../../src/extension/registration/team-to
 // ---------------------------------------------------------------------------
 
 // Stale benchmark tokens that must NOT appear in the tool description.
-const STALE_BENCHMARK_TOKENS = [
-	"Run #3",
-	"30×",
-	"~30×",
-	"~5×",
-	"5.7×",
-	"30x faster",
-	"5x faster",
-	"5x cheaper",
-] as const;
+const STALE_BENCHMARK_TOKENS = ["Run #3", "30×", "~30×", "~5×", "5.7×", "30x faster", "5x faster", "5x cheaper"] as const;
 
 /** Capture the tool definition that registerTeamTool hands to pi.registerTool. */
 function captureRegisteredTool(): Record<string, unknown> {
@@ -48,10 +39,7 @@ test("EXT-11: team tool description contains no stale benchmark tokens", () => {
 	assert.equal(typeof description, "string", "description must be a string");
 	const text = description as string;
 	for (const token of STALE_BENCHMARK_TOKENS) {
-		assert.ok(
-			!text.includes(token),
-			`description must not contain stale benchmark token '${token}'.\n--- description ---\n${text}`,
-		);
+		assert.ok(!text.includes(token), `description must not contain stale benchmark token '${token}'.\n--- description ---\n${text}`);
 	}
 });
 

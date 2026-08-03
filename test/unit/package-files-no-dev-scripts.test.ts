@@ -82,10 +82,7 @@ test("npm pack --dry-run excludes dev-only scripts and root dev .ts (QA-2)", () 
 		"scripts/clean-strip-types.mjs", // prepack lifecycle runs this
 	];
 	for (const rel of mustShip) {
-		assert.ok(
-			output.includes(rel),
-			`regression: runtime-needed file "${rel}" must remain in npm pack --dry-run output`,
-		);
+		assert.ok(output.includes(rel), `regression: runtime-needed file "${rel}" must remain in npm pack --dry-run output`);
 	}
 });
 
@@ -95,9 +92,7 @@ test("package.json files[] no longer uses recursive *.ts / *.mjs globs (QA-2 str
 	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
 		files?: string[];
 	};
-	const globs = (pkg.files ?? []).filter(
-		(f) => f === "*.ts" || f === "*.mjs" || f === "*.js",
-	);
+	const globs = (pkg.files ?? []).filter((f) => f === "*.ts" || f === "*.mjs" || f === "*.js");
 	assert.deepEqual(
 		globs,
 		[],

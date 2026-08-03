@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import test from "node:test";
-import {
-	__test__clearManifestCache,
-	createRunManifest,
-	loadRunManifestById,
-	saveRunTasks,
-} from "../../src/state/stores/state-store.ts";
+import { __test__clearManifestCache, createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import { CURRENT_TASKS_SCHEMA_VERSION } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
@@ -36,9 +31,7 @@ const singleStepWorkflow: WorkflowConfig = {
 	description: "Test workflow",
 	source: "builtin",
 	filePath: "test.workflow.md",
-	steps: [
-		{ id: "step1", role: "executor", task: "Do thing" },
-	],
+	steps: [{ id: "step1", role: "executor", task: "Do thing" }],
 };
 
 /** Overwrite tasks.json on disk with arbitrary content, then clear cache. */

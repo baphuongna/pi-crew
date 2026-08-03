@@ -76,7 +76,9 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 			render() {
 				return [];
 			},
-			invalidate() { /* no-op */ },
+			invalidate() {
+				/* no-op */
+			},
 		};
 		assert.equal(piTui.isFocusable(obj), false);
 	});

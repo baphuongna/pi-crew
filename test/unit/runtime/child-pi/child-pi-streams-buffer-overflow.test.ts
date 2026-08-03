@@ -65,11 +65,10 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 		// Several complete, individually-parseable JSON events followed by a
 		// partial line (no terminating newline). The total chunk exceeds the
 		// overflow threshold so the overflow branch runs.
-		const pad = Math.ceil((MAX_LINE_BUFFER_BYTES / 4) + 4096); // ~4 events → > 1MB
+		const pad = Math.ceil(MAX_LINE_BUFFER_BYTES / 4 + 4096); // ~4 events → > 1MB
 		const types = ["usage", "turn", "transcript", "metric"];
 		const partial = '{"type":"partial-malformed';
-		const chunk =
-			types.map((t) => paddedEvent(t, pad) + "\n").join("") + partial;
+		const chunk = types.map((t) => paddedEvent(t, pad) + "\n").join("") + partial;
 
 		// Sanity: the single chunk must exceed the threshold to reach the overflow path.
 		assert.ok(
@@ -89,11 +88,7 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 			types.length,
 			`expected ${types.length} compacted events (one per complete line), got ${captured.events.length}`,
 		);
-		assert.deepEqual(
-			captured.events.map(eventType),
-			types,
-			"complete events must be emitted IN ORDER with per-line identity",
-		);
+		assert.deepEqual(captured.events.map(eventType), types, "complete events must be emitted IN ORDER with per-line identity");
 
 		// The trailing partial (non-JSON) is the only non-JSON line: it has no
 		// displayLine for the compacted events, so onStdoutLine fires exactly
@@ -124,7 +119,7 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 		const captured: Captured = { events: [], stdout: [] };
 		const observer = new ChildPiLineObserver(makeInput(captured));
 
-		const pad = Math.ceil((MAX_LINE_BUFFER_BYTES / 3) + 4096);
+		const pad = Math.ceil(MAX_LINE_BUFFER_BYTES / 3 + 4096);
 		// Chunk ends WITH a newline → split produces a trailing "" element.
 		const types = ["usage", "turn", "transcript"];
 		const chunk = types.map((t) => paddedEvent(t, pad) + "\n").join("");
@@ -140,7 +135,7 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 
 	test("property/fuzz: random newline placement — all complete events emitted, remainder is the last partial", () => {
 		// Deterministic PRNG so the run is reproducible.
-		let seed = 0xC0FFEE;
+		let seed = 0xc0ffee;
 		const rand = () => {
 			// xorshift32
 			seed ^= seed << 13;
@@ -155,7 +150,7 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 
 			// Between 3 and 9 complete events; pad so the whole chunk exceeds the threshold.
 			const n = 3 + Math.floor(rand() * 7);
-			const pad = Math.ceil((MAX_LINE_BUFFER_BYTES / n) + 4096);
+			const pad = Math.ceil(MAX_LINE_BUFFER_BYTES / n + 4096);
 			const types: string[] = [];
 			for (let i = 0; i < n; i++) types.push(`evt_${iter}_${i}`);
 
@@ -175,16 +170,8 @@ describe("RT-9: buffer-overflow splits complete lines (no merge)", () => {
 
 			observer.observe(chunk);
 
-			assert.equal(
-				captured.events.length,
-				n,
-				`iter=${iter} expected ${n} events, got ${captured.events.length}`,
-			);
-			assert.deepEqual(
-				captured.events.map(eventType),
-				types,
-				`iter=${iter} event types must match in order`,
-			);
+			assert.equal(captured.events.length, n, `iter=${iter} expected ${n} events, got ${captured.events.length}`);
+			assert.deepEqual(captured.events.map(eventType), types, `iter=${iter} event types must match in order`);
 			// The overflow remainder: the trailing partial (if present) reaches
 			// onStdoutLine; a trailing-newline-only tail emits nothing.
 			if (withPartial) {

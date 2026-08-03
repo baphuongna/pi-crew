@@ -40,10 +40,7 @@ test("team.run.allCompleted: resolves success message", () => {
 
 test("team.run.tasksFailed: resolves failure message with count + ids", () => {
 	__test__resetI18n();
-	assert.equal(
-		t("team.run.tasksFailed", { count: 2, ids: "01_a, 02_b" }),
-		"2 task(s) failed: 01_a, 02_b. Consider retrying.",
-	);
+	assert.equal(t("team.run.tasksFailed", { count: 2, ids: "01_a, 02_b" }), "2 task(s) failed: 01_a, 02_b. Consider retrying.");
 });
 
 test("team.unknownAction: resolves unknown-action error label", () => {
@@ -55,10 +52,7 @@ test("team.unknownAction: resolves unknown-action error label", () => {
 
 test("team.run.tasksFailed: numeric count is stringified", () => {
 	__test__resetI18n();
-	assert.equal(
-		t("team.run.tasksFailed", { count: 0, ids: "" }),
-		"0 task(s) failed: . Consider retrying.",
-	);
+	assert.equal(t("team.run.tasksFailed", { count: 0, ids: "" }), "0 task(s) failed: . Consider retrying.");
 });
 
 test("team.run.created: unsubstituted param preserved when omitted", () => {

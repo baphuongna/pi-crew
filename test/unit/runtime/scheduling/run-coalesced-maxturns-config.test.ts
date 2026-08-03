@@ -63,18 +63,10 @@ test("RT-5 #3 structural: source passes runtimeConfig.maxTurns (not hardcoded 5)
 	const src = fs.readFileSync(SRC_PATH, "utf-8");
 
 	// Must pass config-derived maxTurns.
-	assert.match(
-		src,
-		/maxTurns:\s*input\.runtimeConfig\?\.maxTurns/,
-		"runWorker must receive maxTurns from runtimeConfig.maxTurns",
-	);
+	assert.match(src, /maxTurns:\s*input\.runtimeConfig\?\.maxTurns/, "runWorker must receive maxTurns from runtimeConfig.maxTurns");
 
 	// Must NOT contain the old hardcoded value.
-	assert.doesNotMatch(
-		src,
-		/maxTurns:\s*5\b/,
-		"hardcoded maxTurns:5 must be removed",
-	);
+	assert.doesNotMatch(src, /maxTurns:\s*5\b/, "hardcoded maxTurns:5 must be removed");
 });
 
 test("RT-5 #3 behavioral: maxTurns from config does not crash dispatch (mock mode)", async () => {

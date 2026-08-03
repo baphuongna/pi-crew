@@ -110,7 +110,9 @@ describe("EXT-9 CrewScheduler singleton (handle-schedule.ts)", () => {
 		update(): undefined;
 	} {
 		return {
-			add() { /* no-op */ },
+			add() {
+				/* no-op */
+			},
 			list() {
 				return [];
 			},

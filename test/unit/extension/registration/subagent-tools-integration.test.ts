@@ -92,9 +92,15 @@ function fakeCtx(cwd: string) {
 		cwd,
 		hasUI: false,
 		ui: {
-			notify() { /* no-op */ },
-			setWidget() { /* no-op */ },
-			setStatus() { /* no-op */ },
+			notify() {
+				/* no-op */
+			},
+			setWidget() {
+				/* no-op */
+			},
+			setStatus() {
+				/* no-op */
+			},
 		},
 	};
 }

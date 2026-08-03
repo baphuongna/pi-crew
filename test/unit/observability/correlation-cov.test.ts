@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { childCorrelation, correlatedEvent, getCurrentContext, newSpanId, withCorrelation } from "../../../src/observability/correlation.ts";
+import {
+	childCorrelation,
+	correlatedEvent,
+	getCurrentContext,
+	newSpanId,
+	withCorrelation,
+} from "../../../src/observability/correlation.ts";
 
 describe("withCorrelation", () => {
 	it("sets context within callback", () => {

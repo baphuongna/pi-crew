@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { childCorrelation, correlatedEvent, getCurrentContext, newSpanId, withCorrelation } from "../../../src/observability/correlation.ts";
+import {
+	childCorrelation,
+	correlatedEvent,
+	getCurrentContext,
+	newSpanId,
+	withCorrelation,
+} from "../../../src/observability/correlation.ts";
 
 test("correlation context propagates through async boundaries", async () => {
 	const spanId = newSpanId("run-a");

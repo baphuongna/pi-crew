@@ -10,7 +10,13 @@ import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../../utils/paths.t
 import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { toPiSessionId } from "../../utils/session-utils.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
-import { atomicWriteJson, atomicWriteJsonAsync, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "../atomic-write.ts";
+import {
+	atomicWriteJson,
+	atomicWriteJsonAsync,
+	atomicWriteJsonCoalesced,
+	flushPendingAtomicWrites,
+	readJsonFile,
+} from "../atomic-write.ts";
 import { canTransitionRunStatus, isTeamTaskStatus } from "../contracts.ts";
 import { withRunLock, withRunLockSync } from "../coordination/locks.ts";
 import { appendEvent } from "../event-log/event-log.ts";
@@ -1142,7 +1148,11 @@ export async function loadRunManifestByIdAsync(
 		const freshStat = await fs.promises.stat(manifestPath);
 		manifest = await readJsonFileAsync<TeamRunManifest>(manifestPath);
 		const freshTasksStat = await fs.promises.stat(tasksPath).catch(() => undefined);
-		tasks = await loadTasksWithRecoveryAsync(tasksPath, manifest?.eventsPath ?? path.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
+		tasks = await loadTasksWithRecoveryAsync(
+			tasksPath,
+			manifest?.eventsPath ?? path.join(stateRoot, "events.jsonl"),
+			manifest?.runId ?? runId,
+		);
 		// If size/mtime didn't change between stat and read, we're consistent.
 		if (
 			freshStat.mtimeMs === manifestStat.mtimeMs &&

@@ -18,12 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { appendEvent } from "../../src/state/event-log/event-log.ts";
-import {
-	__test__clearManifestCache,
-	createRunManifest,
-	loadRunManifestById,
-	saveRunTasks,
-} from "../../src/state/stores/state-store.ts";
+import { __test__clearManifestCache, createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
@@ -64,7 +59,12 @@ function writeTaskEvents(eventsPath: string, runId: string): void {
  * matches what loadRunManifestById expects), write events + valid tasks.
  * Returns the paths needed by the test.
  */
-function setupRun(): { tmpRoot: string; manifest: ReturnType<typeof createRunManifest>["manifest"]; eventsPath: string; tasksPath: string } {
+function setupRun(): {
+	tmpRoot: string;
+	manifest: ReturnType<typeof createRunManifest>["manifest"];
+	eventsPath: string;
+	tasksPath: string;
+} {
 	const tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-st4-")));
 	fs.writeFileSync(path.join(tmpRoot, "package.json"), "{}\n", "utf-8");
 	fs.mkdirSync(path.join(tmpRoot, ".git"), { recursive: true });
@@ -140,7 +140,10 @@ test("ST-4: malformed tasks.json (SyntaxError) → reconstruct from events, NOT 
 		// Corrupt file must be quarantined.
 		const corrupt = findCorruptFiles(path.dirname(tasksPath));
 		assert.ok(corrupt.length >= 1, `corrupt file quarantined: ${corrupt.join(", ")}`);
-		assert.ok(corrupt.some((f) => f.startsWith("tasks.json.corrupt-")), "quarantine file has correct prefix");
+		assert.ok(
+			corrupt.some((f) => f.startsWith("tasks.json.corrupt-")),
+			"quarantine file has correct prefix",
+		);
 
 		// Original tasks.json should now contain valid reconstructed data (persisted).
 		assert.ok(fs.existsSync(tasksPath), "tasks.json was rewritten with reconstructed data");
@@ -168,7 +171,10 @@ test("ST-4: non-array JSON ({}) in tasks.json → treated as corrupt, quarantine
 
 		// Corrupt file quarantined.
 		const corrupt = findCorruptFiles(path.dirname(tasksPath));
-		assert.ok(corrupt.some((f) => f.startsWith("tasks.json.corrupt-")), "non-array file quarantined");
+		assert.ok(
+			corrupt.some((f) => f.startsWith("tasks.json.corrupt-")),
+			"non-array file quarantined",
+		);
 	} finally {
 		fs.rmSync(tmpRoot, { recursive: true, force: true });
 	}

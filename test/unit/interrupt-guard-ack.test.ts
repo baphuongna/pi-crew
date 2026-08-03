@@ -159,15 +159,11 @@ async function runHarness(
 	try {
 		fs.writeFileSync(harnessPath, HARNESS_CODE);
 
-		const child = spawn(
-			process.execPath,
-			["--experimental-strip-types", harnessPath, stateRoot, projectRoot, mode],
-			{
-				cwd: projectRoot,
-				stdio: ["ignore", "pipe", "pipe"],
-				detached: false,
-			},
-		);
+		const child = spawn(process.execPath, ["--experimental-strip-types", harnessPath, stateRoot, projectRoot, mode], {
+			cwd: projectRoot,
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: false,
+		});
 
 		const stderrChunks: Buffer[] = [];
 		child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));

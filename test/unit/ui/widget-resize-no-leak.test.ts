@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	installResizeListener,
-	uninstallResizeListener,
-} from "../../../src/ui/widget/index.ts";
+import { installResizeListener, uninstallResizeListener } from "../../../src/ui/widget/index.ts";
 
 const RESIZE = "resize";
 
@@ -25,18 +22,10 @@ test("UI-7: resize listener is added on install and removed on uninstall when re
 	const before = resizeListenerCount();
 
 	installResizeListener();
-	assert.equal(
-		resizeListenerCount(),
-		before + 1,
-		"installResizeListener() should add exactly one stdout 'resize' listener",
-	);
+	assert.equal(resizeListenerCount(), before + 1, "installResizeListener() should add exactly one stdout 'resize' listener");
 
 	uninstallResizeListener();
-	assert.equal(
-		resizeListenerCount(),
-		before,
-		"uninstallResizeListener() should remove the stdout 'resize' listener",
-	);
+	assert.equal(resizeListenerCount(), before, "uninstallResizeListener() should remove the stdout 'resize' listener");
 
 	// A second cycle must not accumulate an extra listener (the original leak).
 	installResizeListener();
@@ -68,11 +57,7 @@ test("UI-7: resize listener is NOT added when off()/removeListener() are unavail
 
 		const before = resizeListenerCount();
 		installResizeListener();
-		assert.equal(
-			resizeListenerCount(),
-			before,
-			"must NOT add a 'resize' listener when removal is impossible (would leak)",
-		);
+		assert.equal(resizeListenerCount(), before, "must NOT add a 'resize' listener when removal is impossible (would leak)");
 	} finally {
 		// Remove our own shadows so the inherited prototype methods show again.
 		delete stdout.off;

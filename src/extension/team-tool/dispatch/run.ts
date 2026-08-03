@@ -27,17 +27,7 @@ import { handlePlan } from "../plan.ts";
  * the `default` branch errors if a RunDomainAction is added here without a
  * matching `case`.
  */
-export const RUN_DOMAIN_ACTIONS = [
-	"run",
-	"parallel",
-	"plan",
-	"orchestrate",
-	"resume",
-	"retry",
-	"wait",
-	"steer",
-	"goal",
-] as const;
+export const RUN_DOMAIN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
 type RunDomainAction = (typeof RUN_DOMAIN_ACTIONS)[number];
 
 export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {

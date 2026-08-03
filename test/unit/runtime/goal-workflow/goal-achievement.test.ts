@@ -4,7 +4,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { applyGoalAchievement, assessGoalAchievement, MUTATING_ROLES, workflowIsMutating } from "../../../../src/runtime/goal-workflow/goal-achievement.ts";
+import {
+	applyGoalAchievement,
+	assessGoalAchievement,
+	MUTATING_ROLES,
+	workflowIsMutating,
+} from "../../../../src/runtime/goal-workflow/goal-achievement.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 

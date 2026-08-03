@@ -104,5 +104,7 @@ export class Spacer implements RenderableComponent {
 		return Array.from({ length: Math.max(0, this.rows) }, () => pad("", width));
 	}
 
-	invalidate(): void { /* no-op */ }
+	invalidate(): void {
+		/* no-op */
+	}
 }

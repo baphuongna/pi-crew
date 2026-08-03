@@ -39,13 +39,7 @@ const noopTheme = {
 
 test("DurableTranscriptViewer reads the transcript once on open, not on every keypress (UI-9)", () => {
 	const spy = makeSpy(lines(40));
-	const viewer = new DurableTranscriptViewer(
-		manifest,
-		noopTheme,
-		() => undefined,
-		undefined,
-		{ readTranscript: spy.fn },
-	);
+	const viewer = new DurableTranscriptViewer(manifest, noopTheme, () => undefined, undefined, { readTranscript: spy.fn });
 	// Read exactly once when the viewer opens.
 	assert.equal(spy.state.calls, 1);
 
@@ -66,13 +60,7 @@ test("DurableTranscriptViewer reads the transcript once on open, not on every ke
 
 test("DurableTranscriptViewer refreshes the cache only on the explicit full/tail toggle", () => {
 	const spy = makeSpy(lines(40));
-	const viewer = new DurableTranscriptViewer(
-		manifest,
-		noopTheme,
-		() => undefined,
-		undefined,
-		{ readTranscript: spy.fn },
-	);
+	const viewer = new DurableTranscriptViewer(manifest, noopTheme, () => undefined, undefined, { readTranscript: spy.fn });
 	assert.equal(spy.state.calls, 1);
 
 	viewer.handleInput("j");
@@ -91,13 +79,7 @@ test("DurableTranscriptViewer refreshes the cache only on the explicit full/tail
 
 test("DurableTranscriptViewer scroll math stays correct without per-keypress reads", () => {
 	const spy = makeSpy(lines(40));
-	const viewer = new DurableTranscriptViewer(
-		manifest,
-		noopTheme,
-		() => undefined,
-		undefined,
-		{ readTranscript: spy.fn },
-	);
+	const viewer = new DurableTranscriptViewer(manifest, noopTheme, () => undefined, undefined, { readTranscript: spy.fn });
 	// lastHeight defaults to 16 → maxScroll = 40 - 16 = 24.
 	viewer.handleInput("G"); // jump to bottom
 

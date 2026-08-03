@@ -184,11 +184,10 @@ export class CrewBroker {
 		}
 		if (this.server) return Promise.resolve();
 		if (this.startingPromise) return this.startingPromise;
-		this.startingPromise = this.doStart()
-			.catch((err) => {
-				this.startingPromise = null;
-				throw err;
-			});
+		this.startingPromise = this.doStart().catch((err) => {
+			this.startingPromise = null;
+			throw err;
+		});
 		return this.startingPromise;
 	}
 

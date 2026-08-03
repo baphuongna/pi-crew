@@ -75,11 +75,7 @@ function makeErrnoError(code: string, message: string): NodeJS.ErrnoException {
  * for a specific target path, delegating all other paths to the real readFileSync.
  * Returns a restore function.
  */
-function mockReadForPath(
-	targetPath: string,
-	errorFn: () => Error,
-	maxFails = Infinity,
-): { restore: () => void; failCount: number } {
+function mockReadForPath(targetPath: string, errorFn: () => Error, maxFails = Infinity): { restore: () => void; failCount: number } {
 	const state = { failCount: 0, restore: () => _setReadManifestFileSyncForTest(null) };
 	const impl = (filePath: string): string => {
 		if (filePath === targetPath && state.failCount < maxFails) {

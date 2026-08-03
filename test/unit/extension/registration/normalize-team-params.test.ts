@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { Value } from "@sinclair/typebox/value";
 import { normalizeTeamParams } from "../../../../src/extension/registration/team-tool.ts";
 import { TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";

@@ -67,7 +67,11 @@ export function handleImport(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const bundlePath = typeof cfg.path === "string" ? cfg.path : typeof cfg.bundlePath === "string" ? cfg.bundlePath : undefined;
 	if (!bundlePath)
 		return result(
-			paramRequired("import", "config.path pointing at run-export.json", "{ action: 'import', config: { path: '/path/to/run-export.json' } }"),
+			paramRequired(
+				"import",
+				"config.path pointing at run-export.json",
+				"{ action: 'import', config: { path: '/path/to/run-export.json' } }",
+			),
 			{ action: "import", status: "error" },
 			true,
 		);

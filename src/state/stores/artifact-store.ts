@@ -119,11 +119,7 @@ export const TEMPORARY_RETENTION_TTL_MS = 60 * 60 * 1000;
  *   ("run" and "project" retentions are handled by run-level prune and the
  *   age-based {@link cleanupOldArtifacts}, not by this per-descriptor check.)
  */
-export function isArtifactExpired(
-	desc: ArtifactDescriptor,
-	nowMs: number,
-	temporaryTtlMs: number = TEMPORARY_RETENTION_TTL_MS,
-): boolean {
+export function isArtifactExpired(desc: ArtifactDescriptor, nowMs: number, temporaryTtlMs: number = TEMPORARY_RETENTION_TTL_MS): boolean {
 	// Explicit expiresAt takes precedence.
 	if (desc.expiresAt) {
 		const expiryMs = Date.parse(desc.expiresAt);
@@ -147,10 +143,7 @@ export function isArtifactExpired(
  * files), this operates on artifact *metadata* from the manifest's `artifacts[]`
  * and deletes specific expired files via their descriptor `path`.
  */
-export function pruneExpiredArtifacts(
-	descriptors: ArtifactDescriptor[],
-	options?: { now?: number; temporaryTtlMs?: number },
-): number {
+export function pruneExpiredArtifacts(descriptors: ArtifactDescriptor[], options?: { now?: number; temporaryTtlMs?: number }): number {
 	const nowMs = options?.now ?? Date.now();
 	const temporaryTtlMs = options?.temporaryTtlMs ?? TEMPORARY_RETENTION_TTL_MS;
 	let deleted = 0;

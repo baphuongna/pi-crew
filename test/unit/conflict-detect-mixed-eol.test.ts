@@ -21,15 +21,24 @@ describe("spliceConflict mixed-EOL preservation (ST-13)", () => {
 	it("preserves original EOL of non-conflicting lines (CRLF before, LF after)", () => {
 		// Mixed-EOL file: CRLF/LF lines flank a conflict region.
 		const original =
-			"const a = 1;" + CRLF + // line 1 — CRLF (non-conflict)
-			"const b = 2;" + LF + // line 2 — LF (non-conflict)
-			"<<<<<<< HEAD" + LF + // line 3 — conflict start
-			"our line" + LF + // ours
-			"=======" + LF + // separator
-			"their line" + LF + // theirs
-			">>>>>>> feature" + LF + // line 7 — conflict end
-			"const c = 3;" + CRLF + // line 8 — CRLF (non-conflict)
-			"const d = 4;" + LF; // line 9 — LF (non-conflict)
+			"const a = 1;" +
+			CRLF + // line 1 — CRLF (non-conflict)
+			"const b = 2;" +
+			LF + // line 2 — LF (non-conflict)
+			"<<<<<<< HEAD" +
+			LF + // line 3 — conflict start
+			"our line" +
+			LF + // ours
+			"=======" +
+			LF + // separator
+			"their line" +
+			LF + // theirs
+			">>>>>>> feature" +
+			LF + // line 7 — conflict end
+			"const c = 3;" +
+			CRLF + // line 8 — CRLF (non-conflict)
+			"const d = 4;" +
+			LF; // line 9 — LF (non-conflict)
 
 		const entry = {
 			id: 1,
@@ -49,11 +58,16 @@ describe("spliceConflict mixed-EOL preservation (ST-13)", () => {
 		// Exact expected output: conflict region replaced, EOL of every
 		// other line unchanged.
 		const expected =
-			"const a = 1;" + CRLF +
-			"const b = 2;" + LF +
-			"merged" + LF + // boundary EOL taken from conflict region (LF)
-			"const c = 3;" + CRLF +
-			"const d = 4;" + LF;
+			"const a = 1;" +
+			CRLF +
+			"const b = 2;" +
+			LF +
+			"merged" +
+			LF + // boundary EOL taken from conflict region (LF)
+			"const c = 3;" +
+			CRLF +
+			"const d = 4;" +
+			LF;
 		assert.strictEqual(result, expected);
 
 		// Direct EOL-byte assertions on the non-conflicting lines.
@@ -73,14 +87,22 @@ describe("spliceConflict mixed-EOL preservation (ST-13)", () => {
 	it("leaves non-conflicting lines byte-for-byte identical (round-trip check)", () => {
 		// LF-dominant file with a single stray CRLF conflict region.
 		const original =
-			"keepLF1" + LF +
-			"keepLF2" + LF +
-			"<<<<<<< H" + CRLF + // conflict start — CRLF (minority style)
-			"ours" + CRLF +
-			"=======" + CRLF +
-			"theirs" + CRLF +
-			">>>>>>> T" + LF + // conflict end — back to LF
-			"keepLF3" + LF +
+			"keepLF1" +
+			LF +
+			"keepLF2" +
+			LF +
+			"<<<<<<< H" +
+			CRLF + // conflict start — CRLF (minority style)
+			"ours" +
+			CRLF +
+			"=======" +
+			CRLF +
+			"theirs" +
+			CRLF +
+			">>>>>>> T" +
+			LF + // conflict end — back to LF
+			"keepLF3" +
+			LF +
 			"keepLF4";
 
 		const entry = {
@@ -110,13 +132,7 @@ describe("spliceConflict mixed-EOL preservation (ST-13)", () => {
 		// End-to-end: scan a mixed-EOL buffer, build the entry, splice, and
 		// confirm only the conflict lines changed.
 		const original =
-			"topCRLF" + CRLF +
-			"<<<<<<< HEAD" + LF +
-			"x" + LF +
-			"=======" + LF +
-			"y" + LF +
-			">>>>>>> feat" + CRLF +
-			"bottomLF" + LF;
+			"topCRLF" + CRLF + "<<<<<<< HEAD" + LF + "x" + LF + "=======" + LF + "y" + LF + ">>>>>>> feat" + CRLF + "bottomLF" + LF;
 
 		// split how scanConflictLines expects (mirrors read path on a CRLF file)
 		const lines = original.split("\n");

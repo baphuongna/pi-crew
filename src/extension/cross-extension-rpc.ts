@@ -346,5 +346,10 @@ export function registerPiCrewRpc(
 			}, "pi-crew:rpc:live-control"),
 		),
 	];
-	return { unsubscribe: () => unsubs.forEach((unsub) => { unsub(); }) };
+	return {
+		unsubscribe: () =>
+			unsubs.forEach((unsub) => {
+				unsub();
+			}),
+	};
 }

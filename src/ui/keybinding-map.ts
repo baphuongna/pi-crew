@@ -233,9 +233,7 @@ export type KeybindingOverride = Partial<Record<DashboardKeyAction, readonly str
 const KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
 
 /** Every dispatched action is a valid override target. */
-const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set(
-	DEFAULT_BINDINGS.map((b) => b.action),
-);
+const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set(DEFAULT_BINDINGS.map((b) => b.action));
 
 /** Coerce an unknown parsed value into a safe {@link KeybindingOverride}. */
 function parseKeybindingOverride(raw: unknown): KeybindingOverride {
@@ -275,10 +273,7 @@ function computeEffectiveBindings(overrides: KeybindingOverride): EffectiveBindi
 	const applied = new Map<DashboardKeyAction, KeyBinding>();
 	for (const def of DEFAULT_BINDINGS) {
 		const ov = overrides[def.action];
-		applied.set(
-			def.action,
-			ov && ov.length > 0 ? { keys: [...ov], action: def.action, pane: def.pane } : def,
-		);
+		applied.set(def.action, ov && ov.length > 0 ? { keys: [...ov], action: def.action, pane: def.pane } : def);
 	}
 	const effective = [...applied.values()];
 	const reverted = new Set<DashboardKeyAction>();
@@ -298,9 +293,7 @@ function computeEffectiveBindings(overrides: KeybindingOverride): EffectiveBindi
 	}
 	const bindings =
 		reverted.size > 0
-			? effective.map((b) =>
-					reverted.has(b.action) ? (DEFAULT_BINDINGS.find((d) => d.action === b.action) ?? b) : b,
-				)
+			? effective.map((b) => (reverted.has(b.action) ? (DEFAULT_BINDINGS.find((d) => d.action === b.action) ?? b) : b))
 			: effective;
 	return { bindings, reverted: [...reverted] };
 }
@@ -353,19 +346,12 @@ let _overrideWarnings: readonly string[] = [];
 function getEffectiveBindings(cwd: string = process.cwd()): readonly KeyBinding[] {
 	const envRaw = process.env[KEYBINDINGS_ENV];
 	const configMtime = configKeybindingsMtime(cwd);
-	if (
-		_effectiveCache &&
-		_effectiveCache.env === envRaw &&
-		_effectiveCache.configMtime === configMtime &&
-		_effectiveCache.cwd === cwd
-	) {
+	if (_effectiveCache && _effectiveCache.env === envRaw && _effectiveCache.configMtime === configMtime && _effectiveCache.cwd === cwd) {
 		return _effectiveCache.bindings;
 	}
 	const merged: KeybindingOverride = { ...readConfigKeybindings(cwd), ...readEnvKeybindings() };
 	const { bindings, reverted } = computeEffectiveBindings(merged);
-	_overrideWarnings = reverted.map(
-		(a) => `keybinding override for '${a}' collides with another binding — reverting to default`,
-	);
+	_overrideWarnings = reverted.map((a) => `keybinding override for '${a}' collides with another binding — reverting to default`);
 	_effectiveCache = { env: envRaw, configMtime, cwd, bindings };
 	return bindings;
 }

@@ -3,7 +3,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, appendEventAsync, appendEventBuffered, readEvents, resetEventLogMode } from "../../../../src/state/event-log/event-log.ts";
+import {
+	appendEvent,
+	appendEventAsync,
+	appendEventBuffered,
+	readEvents,
+	resetEventLogMode,
+} from "../../../../src/state/event-log/event-log.ts";
 
 test.beforeEach(() => {
 	resetEventLogMode();

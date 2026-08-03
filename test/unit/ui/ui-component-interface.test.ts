@@ -28,9 +28,13 @@ import { DurableTextViewer } from "../../../src/ui/transcript-viewer.ts";
 // assertions below double as compile-time guards.
 
 /** Asserts T is assignable to CrewComponent (render + invalidate). */
-function assertCrewComponent<T extends CrewComponent>(): void { /* no-op */ }
+function assertCrewComponent<T extends CrewComponent>(): void {
+	/* no-op */
+}
 /** Asserts T is assignable to InteractiveComponent (render + invalidate + handleInput). */
-function assertInteractive<T extends InteractiveComponent>(): void { /* no-op */ }
+function assertInteractive<T extends InteractiveComponent>(): void {
+	/* no-op */
+}
 
 // 1. RenderableComponent (layout-primitives.ts) — exported, extends CrewComponent.
 assertCrewComponent<RenderableComponent>();
@@ -51,7 +55,9 @@ const _widgetShapeCheck: CrewComponent = {
 	render(_width: number): string[] {
 		return [];
 	},
-	invalidate(): void { /* no-op */ },
+	invalidate(): void {
+		/* no-op */
+	},
 };
 void _widgetShapeCheck;
 
@@ -76,7 +82,9 @@ test("UI-3: a widget-shaped object satisfies CrewComponent polymorphically", () 
 		render(width: number): string[] {
 			return [`widget@${width}`];
 		},
-		invalidate(): void { /* no-op */ },
+		invalidate(): void {
+			/* no-op */
+		},
 	};
 	const lines = widget.render(80);
 	assert.deepEqual(lines, ["widget@80"]);

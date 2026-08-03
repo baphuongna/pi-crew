@@ -7,7 +7,12 @@ import { saveCrewAgents } from "../../../../src/runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import type { CrewTheme } from "../../../../src/ui/theme-adapter.ts";
 import { clearTranscriptCache, getTranscriptCacheEntry, readTranscriptLinesCached } from "../../../../src/ui/transcript-cache.ts";
-import { DurableTextViewer, DurableTranscriptViewer, formatTranscriptText, readRunTranscript } from "../../../../src/ui/transcript-viewer.ts";
+import {
+	DurableTextViewer,
+	DurableTranscriptViewer,
+	formatTranscriptText,
+	readRunTranscript,
+} from "../../../../src/ui/transcript-viewer.ts";
 
 function manifest(tmp: string): TeamRunManifest {
 	return {

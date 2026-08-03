@@ -113,7 +113,8 @@ const translations: Record<string, Partial<Record<Key, string>>> = {
 		"team.run.completed": "Execução do pi-crew {status}: {runId} ({team})",
 		"team.run.allCompleted": "Todas as tarefas foram concluídas com sucesso.",
 		"team.run.tasksFailed": "{count} tarefa(s) falharam: {ids}. Considere tentar novamente.",
-		"team.unknownAction": "Ação desconhecida: {action}",	},
+		"team.unknownAction": "Ação desconhecida: {action}",
+	},
 };
 
 // --- Runtime state ---
