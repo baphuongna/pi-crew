@@ -34,7 +34,14 @@ jobs:
           node -p "JSON.stringify({ platform: process.platform, arch: process.arch, node: process.version, cwd: process.cwd() }, null, 2)"
           npm --version
       - name: Install dependencies
-        run: npm install
+        # `npm ci` (not `npm install`): install the exact locked dependency tree
+        # and FAIL FAST if package.json and package-lock.json disagree. This is
+        # what caught nothing for 3 weeks (2026-07-20..08-03) because npm install
+        # silently tolerates lockfile drift — only weekly-smoke.yml (npm ci)
+        # surfaced it. Keeping push CI on the same strict contract removes that
+        # blind spot. NOTE: the tarball-install step below stays `npm install
+        # <tarball>` — npm ci can only install from a lockfile, not a tarball.
+        run: npm ci
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
@@ -105,7 +112,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Run fallow audit (changed-code, JSON)
         run: |
           # `audit` diffs changed files against the base ref and returns a
