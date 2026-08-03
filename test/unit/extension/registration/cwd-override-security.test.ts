@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { resolveCwdOverride } from "../../src/extension/registration/team-tool.ts";
+import { resolveCwdOverride } from "../../../../src/extension/registration/team-tool.ts";
 
 test("resolveCwdOverride rejects directories outside the base cwd", () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-cwd-"));

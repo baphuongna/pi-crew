@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { registerPiTeams } from "../../src/extension/register.ts";
+import { registerPiTeams } from "../../../../src/extension/register.ts";
 
 function createEventBus() {
 	const handlers = new Map<string, Set<(payload: unknown) => void>>();

@@ -33,7 +33,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerPiTeams } from "../../src/extension/register.ts";
+import { registerPiTeams } from "../../../../src/extension/register.ts";
 
 /**
  * Minimal fake of the ExtensionAPI surface that register.ts touches. Counts

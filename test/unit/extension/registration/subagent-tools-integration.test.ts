@@ -3,16 +3,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { registerPiTeams } from "../../src/extension/register.ts";
-import { registerSubagentTools } from "../../src/extension/registration/subagent-tools.ts";
-import { toolResult } from "../../src/extension/tool-result.ts";
+import { registerPiTeams } from "../../../../src/extension/register.ts";
+import { registerSubagentTools } from "../../../../src/extension/registration/subagent-tools.ts";
+import { toolResult } from "../../../../src/extension/tool-result.ts";
 import {
 	readPersistedSubagentRecord,
 	SubagentManager,
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
-} from "../../src/runtime/subagent-manager.ts";
-import { createRunManifest, updateRunStatus } from "../../src/state/stores/state-store.ts";
+} from "../../../../src/runtime/subagent-manager.ts";
+import { createRunManifest, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
 
 /** Retry rmSync on Windows EBUSY — child processes may hold file handles briefly. */
 function rmSyncRetry(
@@ -38,8 +38,8 @@ function rmSyncRetry(
 	}
 }
 
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import { firstText } from "../../../fixtures/tool-result-helpers.ts";
 
 function createFakePi(options: { throwForTools?: string[] } = {}) {
 	const tools = new Map<string, any>();

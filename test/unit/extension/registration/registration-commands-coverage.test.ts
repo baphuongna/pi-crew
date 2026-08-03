@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerTeamCommands } from "../../src/extension/registration/commands.ts";
+import { registerTeamCommands } from "../../../../src/extension/registration/commands.ts";
 
 function fakePi(names: string[]): {
 	registerCommand: (name: string, def: unknown) => void;

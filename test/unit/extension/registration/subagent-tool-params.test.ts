@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { __test__subagentSpawnParams } from "../../src/extension/register.ts";
+import { __test__subagentSpawnParams } from "../../../../src/extension/register.ts";
 
 test("subagent spawn params default to an existing pi-crew executor agent", () => {
 	const params = __test__subagentSpawnParams({ prompt: "Do it", description: "Run task" }, { cwd: process.cwd() });
