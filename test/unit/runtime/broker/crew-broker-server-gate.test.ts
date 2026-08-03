@@ -15,8 +15,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { installCrewBrokerLifecycleController } from "../../src/extension/registration/lifecycle-handlers.ts";
-import type { RegistrationContext } from "../../src/extension/registration/registration-types.ts";
+import { installCrewBrokerLifecycleController } from "../../../../src/extension/registration/lifecycle-handlers.ts";
+import type { RegistrationContext } from "../../../../src/extension/registration/registration-types.ts";
 
 // ----------------------------------------------------------------------------
 // Minimal RegistrationContext stub

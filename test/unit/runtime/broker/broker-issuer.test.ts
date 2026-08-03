@@ -27,8 +27,8 @@ import {
 	type BrokerSpawnCredentials,
 	getActiveBrokerIssuer,
 	setActiveBrokerIssuer,
-} from "../../src/runtime/broker/broker-issuer.ts";
-import { BrokerTokenRegistry } from "../../src/runtime/broker/crew-broker-tokens.ts";
+} from "../../../../src/runtime/broker/broker-issuer.ts";
+import { BrokerTokenRegistry } from "../../../../src/runtime/broker/crew-broker-tokens.ts";
 
 // ---------------------------------------------------------------------------
 // Singleton state hygiene — restore whatever was registered before this suite.

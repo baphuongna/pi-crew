@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { type BrokerToken, BrokerTokenRegistry, newBrokerToken } from "../../src/runtime/broker/crew-broker-tokens.ts";
+import { type BrokerToken, BrokerTokenRegistry, newBrokerToken } from "../../../../src/runtime/broker/crew-broker-tokens.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

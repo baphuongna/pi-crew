@@ -16,8 +16,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
 
-import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "../../src/config/defaults.ts";
-import { CrewBrokerConfigSchema } from "../../src/schema/config-schema.ts";
+import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "../../../../src/config/defaults.ts";
+import { CrewBrokerConfigSchema } from "../../../../src/schema/config-schema.ts";
 
 /** TypeBox-backed boolean check helper for the broker schema only. */
 function isValidBrokerConfig(value: unknown): boolean {

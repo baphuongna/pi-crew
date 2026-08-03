@@ -12,9 +12,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { appendMailboxMessageAsync, registerMailboxAppendObserver } from "../../src/state/coordination/mailbox.ts";
-import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { appendMailboxMessageAsync, registerMailboxAppendObserver } from "../../../../src/state/coordination/mailbox.ts";
+import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
 
 // ----------------------------------------------------------------------------
 // 1.3: mailbox append observer

@@ -27,8 +27,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 
-import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
-import { encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../src/utils/ndjson.ts";
+import { CrewBroker } from "../../../../src/runtime/broker/crew-broker.ts";
+import { encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../../../src/utils/ndjson.ts";
 
 // ----------------------------------------------------------------------------
 // Helpers

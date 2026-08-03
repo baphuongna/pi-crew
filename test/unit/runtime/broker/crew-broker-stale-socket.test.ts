@@ -25,7 +25,7 @@ import { test as _test } from "node:test";
 // disables on native Windows anyway. Skip the whole file there.
 const test = process.platform === "win32" ? _test.skip : _test;
 
-import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
+import { CrewBroker } from "../../../../src/runtime/broker/crew-broker.ts";
 
 function tempSocketPath(suffix: string): string {
 	// Keep the path short: macOS sun_path budget is 104 bytes (vs 108 on Linux),
