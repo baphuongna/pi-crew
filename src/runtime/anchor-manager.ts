@@ -16,8 +16,6 @@ const MAX_HANDOFFS_PER_ANCHOR = 100;
  * - accumulateHandoff() adds handoffs to the anchor
  * - clearAnchor() finalizes and returns accumulated summaries
  * - getAnchorHandoff() retrieves accumulated summary without clearing
- *
- * @see docs/pi-boomerang-integration-plan.md
  */
 
 import type { HandoffSummary } from "./handoff-manager.ts";

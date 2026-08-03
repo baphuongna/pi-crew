@@ -6,7 +6,7 @@ topology: dynamic
 
 # Chain Workflow - Sequential execution with context passing
 
-**Source:** `docs/pi-boomerang-integration-plan.md`  
+**Source:** pi-boomerang integration plan  
 **Syntax:** `step1 -> step2 -> step3`  
 **Version:** 1.0.0
 
@@ -255,4 +255,4 @@ pi team run --chain "@step1 -> @step2" --continue-on-error
 
 ---
 
-*Generated from pi-boomerang integration plan. See `docs/pi-boomerang-integration-plan.md` for full specification.*
+*Generated from pi-boomerang integration plan.*

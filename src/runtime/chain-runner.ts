@@ -6,8 +6,6 @@
  * - Supports per-step overrides for model, skill, thinking
  * - Accumulates handoffs between steps
  * - Executes steps sequentially with context passing
- *
- * @see docs/pi-boomerang-integration-plan.md
  */
 
 import { errorMessage } from "../utils/guards.ts";

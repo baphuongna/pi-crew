@@ -49,7 +49,7 @@ Agents read in this order:
 2. `docs/HARNESS.md` — this file, the collaboration model
 3. `docs/FEATURE_INTAKE.md` — before turning a request into work
 4. `docs/product/` — current product contract
-5. `docs/ARCHITECTURE.md` — implementation shape
+5. `docs/architecture.md` — implementation shape
 6. `docs/stories/` — active and completed stories
 7. `docs/TEST_MATRIX.md` — proof status
 8. `docs/decisions/` — why important choices were made

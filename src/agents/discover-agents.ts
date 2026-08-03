@@ -404,7 +404,7 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 		// logInternalError below).
 		if (contextMode === "fork" && !warnedForkAgents.has(filePath)) {
 			console.warn(
-				"contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-modes.md.",
+				"contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-flow.md.",
 			);
 			warnedForkAgents.add(filePath);
 		}

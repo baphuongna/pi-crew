@@ -50,8 +50,6 @@ export function isValidHandoffSummary(value: unknown): value is HandoffSummary {
  * - Detects task completion via agent_end hook
  * - Generates structured summaries with token metrics, artifacts, decisions
  * - Optionally collapses context to reduce token usage
- *
- * @see docs/pi-boomerang-integration-plan.md
  */
 
 /**

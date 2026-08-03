@@ -5,8 +5,6 @@
  * - toggle() enables/disables auto-summarization
  * - shouldAutoSummarize() checks if task should auto-summarize
  * - Token and tool thresholds control when summarization triggers
- *
- * @see docs/pi-boomerang-integration-plan.md
  */
 
 import type { TaskPacket, TaskResult } from "./handoff-manager.ts";

@@ -1303,7 +1303,7 @@ function assertAgentRegistrationAllowed(name: string): void {
 
 ## v0.5.5 — Round-13 Review Findings (2026-06-01)
 
-The original SEC-001 → SEC-007 set remained fixed through 13 rounds of code review. The round-13 audit (see `docs/pi-crew-v0.5.5-audit-fix-plan.md`) added 8 new findings, all closed in v0.5.5:
+The original SEC-001 → SEC-007 set remained fixed through 13 rounds of code review. The round-13 audit (see `docs/archive/pi-crew-v0.5.5-audit-fix-plan.md`) added 8 new findings, all closed in v0.5.5:
 
 | ID | Title | Severity | File | Status |
 |----|-------|----------|------|--------|

@@ -7,8 +7,6 @@
  * - Accumulates context from previous attempts
  * - Supports exponential backoff
  * - Limits handoff accumulation to prevent memory leaks
- *
- * @see docs/pi-boomerang-integration-plan.md
  */
 
 import type { HandoffManager, HandoffSummary, TaskPacket, TaskResult } from "../handoff-manager.ts";

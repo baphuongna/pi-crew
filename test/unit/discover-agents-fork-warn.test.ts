@@ -64,7 +64,7 @@ describe("M4: contextMode=fork warn-only on child-process runtime", () => {
 				`expected fork warning in: ${JSON.stringify(recorder.calls)}`,
 			);
 			assert.ok(
-				recorder.calls.some((c) => c.includes("See docs/runtime-modes.md")),
+				recorder.calls.some((c) => c.includes("See docs/runtime-flow.md")),
 				`expected docs hint in: ${JSON.stringify(recorder.calls)}`,
 			);
 		} finally {
