@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRecoveryLedger, recipeFor, scenarioForPolicyReason } from "../../src/runtime/recovery/recovery-recipes.ts";
-import type { PolicyDecision } from "../../src/state/types.ts";
+import { buildRecoveryLedger, recipeFor, scenarioForPolicyReason } from "../../../../src/runtime/recovery/recovery-recipes.ts";
+import type { PolicyDecision } from "../../../../src/state/types.ts";
 
 test("recovery recipes map policy reasons to deterministic steps", () => {
 	assert.equal(scenarioForPolicyReason("branch_stale"), "stale_branch");

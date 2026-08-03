@@ -23,8 +23,8 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 	// v0.9.42 register.ts decomposition: the autoRecoveryLast cap moved to
 	// `src/extension/registration/lifecycle-handlers.ts` (the cap constant lives
 	// in `context-builder.ts`; the eviction loop lives in `lifecycle-handlers.ts`).
-	const ctxPath = path.resolve(here, "..", "..", "src", "extension", "registration", "context-builder.ts");
-	const lifecyclePath = path.resolve(here, "..", "..", "src", "extension", "registration", "lifecycle-handlers.ts");
+	const ctxPath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "context-builder.ts");
+	const lifecyclePath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "lifecycle-handlers.ts");
 	const ctxSource = fs.readFileSync(ctxPath, "utf-8");
 	const lifecycleSource = fs.readFileSync(lifecyclePath, "utf-8");
 
@@ -43,7 +43,7 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 
 test("crew-agent-records.ts implements an agentEventSeqCache defensive cap (Round 22)", () => {
 	const here = path.dirname(fileURLToPath(import.meta.url));
-	const recordsPath = path.resolve(here, "..", "..", "src", "runtime", "crew-agent-records.ts");
+	const recordsPath = path.resolve(here, "..", "..", "..", "..", "src", "runtime", "crew-agent-records.ts");
 	const source = fs.readFileSync(recordsPath, "utf-8");
 
 	assert.match(

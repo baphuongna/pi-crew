@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { reconcileStaleRun } from "../../src/runtime/stale-reconciler.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { reconcileStaleRun } from "../../../../src/runtime/stale-reconciler.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
 const baseManifest: TeamRunManifest = {
 	schemaVersion: 1,

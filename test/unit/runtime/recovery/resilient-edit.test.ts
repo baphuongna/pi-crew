@@ -22,7 +22,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { wrapEditWithResilientReplace } from "../../src/runtime/resilient-edit.ts";
+import { wrapEditWithResilientReplace } from "../../../../src/runtime/resilient-edit.ts";
 
 /** Minimal structural type for the stub edit tool accepted by the module. */
 interface StubEdit {

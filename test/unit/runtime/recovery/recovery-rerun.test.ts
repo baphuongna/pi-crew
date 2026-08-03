@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldRerunFailedTask } from "../../src/runtime/recovery/recovery-recipes.ts";
+import { shouldRerunFailedTask } from "../../../../src/runtime/recovery/recovery-recipes.ts";
 
 /**
  * #4 (assessment): make recovery-recipes actually EXECUTE rerun_task.
