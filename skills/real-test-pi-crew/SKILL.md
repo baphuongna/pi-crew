@@ -1,6 +1,6 @@
 ---
 name: real-test-pi-crew
-description: "End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, and smoke team runs."
+description: "End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, and a live feature-action battery (team tool + subagent tools)."
 origin: pi-crew
 triggers:
   - "test the change"
@@ -17,14 +17,20 @@ triggers:
   - "worker timeout"
   - "verifier hangs"
   - "rebuild and retry"
-  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7 / tier 8"
+  - "unknown type" tool error
+  - "validation failed for tool"
+  - "team tool broken"
+  - "schema fix"
+  - "feature battery"
+  - "full features of pi-crew"
+  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7 / tier 8 / tier 9"
 ---
 
 # real-test-pi-crew
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
 
-**When to use**: after any change to `src/runtime/crew-broker*.ts`, `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi-spawn.ts`, `src/runtime/plan-templates.ts`, `workflows/*.workflow.md`, or before any commit touching these paths.
+**When to use**: after any change to `src/runtime/crew-broker*.ts`, `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi-spawn.ts`, `src/runtime/plan-templates.ts`, `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently.
 
 ## Core principle: disk ≠ live Pi
 
@@ -407,12 +413,82 @@ readlink ../node_modules/pi-crew/dist/index.mjs 2>/dev/null \
 
 If the two md5s match → session is on the latest code. If not → user must `/quit` + reopen Pi.
 
+> **Agent-inside-session caveat**: when the agent *doing the testing* runs inside the very Pi session under test, the agent **cannot restart its own session** — only the user can. Pattern that works: (1) edit source + rebuild bundle, (2) ask the user to `/quit` + reopen, (3) on resume, re-check `md5sum dist/index.mjs` then issue a probe tool call (e.g. `team action='list'`). If the probe returns the *old* error (e.g. `Unknown type`, `Validation failed for tool team`), the session did NOT reload — there may be multiple `pi` PIDs and the user reopened a different one. Verify with `ps -eo pid,lstart,tty,args | grep pi` which PID is yours (the one whose session log is being appended to right now).
+
 **References**:
 
 | What | Where |
 |---|---|
 | Symlink path | `index.ts:5-22` — **the symlink lives in the CONSUMING project** (parent dir or global prefix), not inside pi-crew itself. From the repo: `readlink ../node_modules/pi-crew` (dev) or `readlink "$(npm root -g)"/pi-crew` (global). Verify with `readlink` + `npm root -g`. |
 | Session load model | Same file: "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
+
+---
+
+## Tier 9 — Feature battery (live action coverage)
+
+**What**: drive the team tool + subagent tools through a spread of actions from the parent Pi session to prove the full surface works end-to-end, not just one smoke run.
+
+**Why this exists**: Tier 7 proves one team run completes. But pi-crew has ~50 `team` actions plus 4 subagent tools (`Agent`, `crew_agent`, `get_subagent_result`, `crew_agent_steer`), dispatched through several code paths (sync run, async run, chain, parallel, direct subagent). A schema or registration regression can break *some* paths while others still pass. The battery catches path-specific breakage.
+
+**When required**: any change to `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, `src/extension/team-tool/*.ts` (handler dispatch), or the subagent-tool registration. Optional but cheap for any change — the read-only actions are free.
+
+**How** (run from the parent Pi session — these are tool calls, not shell):
+
+1. **9a. Read-only actions** (free, no subagent spawn — run these first as a fast battery):
+   - `team action='list'` — teams/workflows/agents
+   - `team action='recommend' goal='...'` — planner routing
+   - `team action='health'` — run-state scan
+   - `team action='doctor' focus='zombies'` — orphan subagent scan (read-only)
+   - `team action='status' runId='<recent>' details=false` — compact
+   - `team action='events' runId='<recent>'` — full event lifecycle
+   - `team action='summary' runId='<recent>'` — cost/by-role report
+   - `team action='get' resource='workflow' team='implementation'` — resource inspect
+   - `team action='explain' runId='<recent>'` — markdown render
+   - `team action='worktrees' runId='<recent>'` — workspace listing
+2. **9b. Spawn paths** (cost tokens — one probe each is enough):
+   - `team action='run'` sync (fast-fix, trivial goal) — proves sync run + child-pi spawn + provider-extension loading
+   - `team action='run' async=true` — proves background dispatch
+   - `team action='run' chain='"A" -> "B"'` — proves sequential handoff (chain runner)
+   - `Agent` direct subagent — proves the direct-subagent tool
+   - `crew_agent` `run_in_background=true` then `get_subagent_result` — proves background subagent lifecycle
+3. **Acceptance**: every action returns without `Unknown type` / `Validation failed for tool team` / empty error text; every spawn path completes with `consistency=1` and the expected probe token in the agent output.
+
+**Real measured outcome** (this session, after the v0.9.57 schema fix): 9a (15 team actions) + 9b (4 subagent tools / 3 run paths) exercised; all green; the two silent-failure modes that motivated this tier (`Unknown type` from `Type.Unsafe` without Kind, and `Validation failed for tool team` from empty-string-strict schema) were caught ONLY by this battery — Tier 1-8 all passed while the team tool was broken live. The session also surfaced the unauthorized-agent-edit anti-pattern (a chain-run agent edited `chain-runner.ts` mid-smoke) — see Anti-patterns.
+
+**Not covered by the cheap battery above** — the actions below need extra setup, cost, or user confirmation. Run them only when the change touches their code path, and prefer a throwaway cwd / config so you don't mutate the user's real state. Organised by cost/safety:
+
+**9c. Lifecycle / recovery** (needs a *running* run — start an async run, then exercise these against its runId):
+- `team action='wait' runId='...'` — block until completion
+- `team action='steer' runId='...' message='...'` — inject a steering note mid-run
+- `team action='status' runId='...' details=true` — full dump mid-run
+- `team action='cache' subAction='...' runId='...'` — snapshot cache ops
+- `team action='checkpoint' runId='...'` — state checkpoint
+- `team action='cancel' runId='...'` — ⚠️ destructive (kills the run); use a throwaway run
+- `team action='invalidate' runId='...'` — cache invalidation
+- `team action='resume' runId='...'` / `retry` — resume a completed/failed run
+- `team action='respond' taskId='...' message='...'` — mailbox reply (needs a waiting task)
+- subagent steering: `crew_agent run_in_background=true` a long task (e.g. `sleep 60`), then `crew_agent_steer` while it runs, then `get_subagent_result` — proves the steer arrived (timing-sensitive; assert the agent's output reflects the steer)
+
+**9d. Destructive** (⚠️ **requires explicit user confirmation** per the delegation policy — never run unprompted):
+- `team action='prune' keep=<N>` — delete old finished runs
+- `team action='cleanup'` — sweep stale workspaces/state
+- `team action='forget' runId='...'` — delete one run's state
+- `team action='doctor' focus='zombies'` is READ-ONLY (safe) but the follow-up `kill <PID>` it suggests is destructive — confirm with the user before killing
+
+**9e. Admin / mutation** (mutates config or workflow files — use a scratch project cwd or back up first):
+- `team action='create' resource='team' ...` / `update` / `delete` — manage teams/agents/workflows
+- `team action='init'` / `config` / `validate` / `autonomy` / `settings` — project setup
+- `team action='workflow-create'` / `workflow-save` / `workflow-delete` / `workflow-get` / `workflow-list` — workflow CRUD
+- `team action='import'` / `imports` / `export` — run data portability
+- `team action='parallel' tasks=[...]` — parallel dispatch (spawn path, costs tokens per task)
+
+**9f. Background / scheduled** (expensive or niche):
+- `team action='run' runKind='goal-loop'` — the goal loop runs many turns judging an objective; smoke with a trivial objective + low `maxTurns` (e.g. 2) to prove dispatch without burning budget
+- `team action='schedule' cron='...' ...` / `scheduled` / `subAction='remove'` — cron; assert the job registers then remove it (cleanup)
+- `team action='auto-summarize'` / `anchor` / `auto_boomerang` — background features; assert no-throw on a completed run
+- `team action='api'` — programmatic surface
+
+**Acceptance for 9c–9f**: the action returns a structured result (not `Unknown type` / not an empty error), and for spawn/lifecycle paths the run reaches the expected terminal status. For 9d/9e, the mutation is reversible or confined to scratch state.
 
 ---
 
@@ -432,6 +508,9 @@ If the two md5s match → session is on the latest code. If not → user must `/
 | Test by reading code | Proves nothing about runtime | n/a (permanent) | All tiers above |
 | `makeFakeCtx({ flagOn: false })` without `brokerEnv: "0"` | `makeFakeCtx` deletes `PI_CREW_BROKER` env if `brokerEnv` is undefined | `612e18b` (test fix) | `test/unit/crew-broker-server-gate.test.ts:78` — pass `brokerEnv: "0"` to preserve env |
 | Trust green CI on one OS | macOS/Windows regressions slip through | n/a (permanent) | `.crew/knowledge.md` — "CI runs 3 OSes ... A flake on one OS IS a real bug" |
+| Trusting a team-run agent not to edit the repo under test | Agents spawned by `team`/`Agent`/`crew_agent` inherit the session cwd and have `edit`/`write` tools — a proactive LLM (observed with deepseek) will make **unauthorized source edits** to pi-crew during a trivial smoke run (e.g. "improving" `chain-runner.ts` while parsing a chain string). The edit can be correct + green-tested yet still be unintended scope creep that silently lands in your commit. | n/a (permanent) | After EVERY team/subagent run: `git status` and verify each changed file was authored by you. Diff + review any surprise change before staging. Consider `workspaceMode: 'worktree'` for parallel/risky runs to isolate mutations. |
+| `Type.Unsafe({ anyOf/type })` schema field **without** `[TypeBox.Kind]` symbol | `Value.Check` throws `Unknown type` the first time a model emits that field (e.g. `skill`, `config`) — every team action returns `isError:true` text `"Unknown type"`. Tier 1-8 stay green because unit tests never send the offending field. | v0.9.57 | `src/schema/team-tool-schema.ts` — `SkillOverride`/`FreeformConfig` switched from `Type.Unsafe` to TypeBox-native `Type.Union`/`Type.Record`. See Tier 9. |
+| Schema too strict for model-emitted empty strings (`runId:""`, `workspaceMode:""`, `budgetTotal:0`) | pi-ai `validateToolArguments` runs BEFORE the pi-crew handler and rejects `""` against Literal unions / patterns → `Validation failed for tool team` → model loops. | v0.9.57 | `src/schema/team-tool-schema.ts` — added `Literal("")` to unions, `^$|` pattern for runId, `""` to action enum, `0`/Boolean allowances. Handler-side `normalizeTeamParams` drops the empties. |
 
 ---
 
@@ -452,6 +531,9 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | Smoke team: worker times out at 300s | Either verifier command slow OR LLM thinking cap | Check `RESPONSE_TIMEOUT_MS` (300s); bump only if you verified the command itself finishes <300s |
 | `stale-ctx` error in worker output | Extension ctx is stale after session replacement | This is runtime noise, not a regression; ignore. (Source: `.crew/knowledge.md` "Process Safety" notes) |
 | Bundle md5 not changing after rebuild | Stale `dist/` cache or esbuild no-op | `rm -rf dist/ && npm run build:bundle`; verify new md5 |
+| Team tool returns `Unknown type` (isError:true, short text) | `Value.Check` in the handler hit a `Type.Unsafe({...})` schema node with **no `[TypeBox.Kind]` symbol** — only triggered when the model actually sends that field. Tier 1-8 pass; only Tier 9 (feature battery) catches it. | Replace the `Type.Unsafe` with a TypeBox-native constructor (`Type.Union`, `Type.Record`, `Type.Any`). Reproduce with `node --input-type=module -e "import {Value} from '@sinclair/typebox/value'; import {TeamToolParams} from './src/schema/team-tool-schema.ts'; Value.Check(TeamToolParams, {action:'list', skill:'', config:{}})"` — a throw = the bug. |
+| `Validation failed for tool "team": ... must be equal to constant` | pi-ai `validateToolArguments` (`@earendil-works/pi-ai/dist/utils/validation.js`) rejects model-emitted `""`/`0`/`false` defaults against Literal unions / patterns / minimums — it runs BEFORE the pi-crew handler, so handler-side normalization is too late. | Loosen the schema to accept the unset marker (`Literal("")`, pattern `^$|...`, `Literal(0)`, add `Boolean()` to unions). Verify with the pi-ai validator directly: `import {validateToolArguments} from '@earendil-works/pi-ai'; validateToolArguments({name:'team',parameters:TeamToolParams},{name:'team',arguments:{...fullModelBlob}})`. |
+| User says "restarted" but the probe still shows the OLD error | Multiple `pi` PIDs open; the user reopened a different terminal than the one the agent runs in; the agent's session never reloaded the bundle. | `ps -eo pid,lstart,tty,args \| grep pi` to list PIDs; match the agent's session log (the `.jsonl` being appended right now) to its PID; have the user reopen THAT session, or move the work into the freshly-opened one. |
 
 ## Performance budget (per-tier soft limits)
 
@@ -465,6 +547,7 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | 6 (pty probe) | 5s | 15s | `pi` not in PATH |
 | 7 (smoke team) | 60s (verifier only) | 300s (worker hard limit) | Worker killed by `RESPONSE_TIMEOUT_MS` |
 | 8 (final md5 sync) | <1s | 5s | Disk/symlink issue |
+| 9 (feature battery) | 30s (read-only batch) + ~120s per spawn probe | 300s per spawn probe (worker hard limit) | Spawn probe hung or returned `Unknown type`/`Validation failed` — a schema or registration regression; see Tier 9 + Failure symptoms |
 
 If a tier runs over the hard limit, **stop and investigate** — don't bump the budget silently. The budget exists precisely so regressions in test runtime (which usually means a regression in test setup/teardown) are caught early.
 
@@ -589,6 +672,12 @@ python3 scripts/pty_probe.py 2>&1 | tee /tmp/diag.log
 md5sum dist/index.mjs
 md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
   || md5sum ../node_modules/pi-crew/dist/index.mjs
+# Tier 9 (feature battery — from parent Pi session, tool calls not shell)
+#   read-only: team action=list / recommend / health / doctor / status / events / summary / get / explain / worktrees
+#   spawn:     team action=run (sync) ; team action=run async=true ; team action=run chain='"A" -> "B"'
+#              Agent (direct) ; crew_agent run_in_background=true + get_subagent_result
+#   reproduce the two silent schema failures:
+#   node --input-type=module -e "import {Value} from '@sinclair/typebox/value'; import {TeamToolParams} from './src/schema/team-tool-schema.ts'; Value.Check(TeamToolParams, {action:'list', skill:'', config:{}})"  # throws 'Unknown type' = Type.Unsafe-without-Kind bug
 ```
 
 ---
@@ -604,6 +693,7 @@ Before claiming "tested":
 - [ ] Tier 5/6: live TUI smoke for any `src/ui/` change — keystroke reached `handleInput`
 - [ ] Tier 7: smoke team run for any `src/runtime/plan-templates.ts` or `workflows/*.workflow.md` change — completed, no hang, verifier output under 60s
 - [ ] Tier 8: final md5 sync check passed
+- [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, or any `Type.Unsafe({...})` schema**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
 
 If any required item is unchecked, the answer to "is it tested?" is **no**.
 

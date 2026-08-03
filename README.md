@@ -287,8 +287,9 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ## Recent changes
 
-### v0.9.57 (in progress): post-reorg repo-layout consolidation + provider-extension auto-discovery
+### v0.9.57: team-tool schema repair + provider-extension auto-discovery + post-reorg repo-layout consolidation
 
+- **Team tool repaired (was broken live while tests stayed green)**: calling models emit empty-string/boolean defaults for every schema key, which pi-ai's pre-handler `validateToolArguments` rejected (`Validation failed for tool team`) and `Type.Unsafe` schema fields without `[TypeBox.Kind]` made `Value.Check` throw (`Unknown type`). Schema now accepts unset markers natively; `SkillOverride`/`FreeformConfig` switched to TypeBox-native constructors; `normalizeTeamParams` drops empties in the handler. Chain-runner also fixed (quote-aware step splitting). Caught by a new **Tier 9 feature battery** in the [`real-test-pi-crew`](skills/real-test-pi-crew/SKILL.md) skill (live team-tool action coverage).
 - **Source reorg finalised (~90 commits)**: `src/` is now cluster-organised — `src/runtime/` (15 subdirs + ~77 flat files) and `src/state/` (3 subdirs + 12 root files), with the other top-level dirs (`extension/`, `ui/`, `config/`, `utils/`, `agents/`, …) cluster-honed too. See [Repository layout](#repository-layout) and the cluster maps [`src/runtime/README.md`](src/runtime/README.md) / [`src/state/README.md`](src/state/README.md).
 - **Tests mirrored into subdirs**: 566 flat `.test.ts` files now live in 35 leaf subdirectories mirroring `src/` (`test/unit/runtime/`, `test/unit/state/`, `test/unit/extension/`, …). 151 cross-cutting tests (`round*`, `v0*`, `package-*`, errors, i18n, bundle-*) stay at `test/unit/` root by design. See [`test/unit/README.md`](test/unit/README.md).
 - **Recursive-glob test-runner fix**: `scripts/test-runner.mjs` now expands `**` globs itself — Node v22's `--test` only expands single-level `*`, so subdir tests (e.g. `test/unit/security/`) were **invisible** to `npm test` before.

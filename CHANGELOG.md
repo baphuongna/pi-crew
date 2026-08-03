@@ -3,6 +3,35 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.57] — provider-extension auto-discovery + team-tool schema repair + whole-project reorganization (2026-08-03)
+
+### New: provider extensions work in subagents (no hardcoding)
+- pi-crew spawns child-pi workers with `--no-extensions` (security posture from SEC-1), which made extension-registered providers (e.g. `pi-commandcode-provider`) unresolvable in subagents → their models fell back to a secondary provider (429 rate-limit deaths, 0 tool uses).
+- **Auto-discovery**: pi-crew now reads `~/.pi/agent/settings.json` `packages` (npm: specs only), resolves each to its extension entry point (`pi.extensions` → `index.ts` → `index.mjs` → `index.js` → `src/index.ts`), and merges the discovered paths into every builtin/user agent (`src/runtime/model/provider-extensions.ts` + `src/agents/discover-agents.ts`).
+- Result: **any provider package installed via `pi install npm:<pkg>` works automatically in subagents** — no manual per-extension config.
+- Optional explicit allowlist `runtime.agentExtensions: string[]` config added on top of auto-discovery.
+- SEC-1 preserved: project/project-pi agents never receive these extensions.
+- Verified end-to-end: `deepseek/deepseek-v4-flash` resolves to `commandcode/deepseek/deepseek-v4-flash` in a real subagent spawn and completes.
+
+### Bug fixes (team tool was broken live while tests stayed green)
+- **"Validation failed for tool team"**: pi-ai `validateToolArguments` validates tool args BEFORE the pi-crew handler runs, and rejected model-emitted empty-string defaults (`runId:""`, `workspaceMode:""`, `context:""`, `scope:""`, `budgetTotal:0`, `once:false`, `keep:false`) against Literal unions / patterns / minimums. Schema now accepts the unset markers (`Literal("")`, runId pattern `^$|^...`, `Literal(0)`, `Boolean` in unions); `allActionLiterals` filters the `""`.
+- **"Unknown type"**: `SkillOverride`/`FreeformConfig` used `Type.Unsafe({...})` WITHOUT a `[TypeBox.Kind]` symbol, so `Value.Check` threw "Unknown type" the first time a model sent `skill`/`config`. Switched to TypeBox-native `Type.Union`/`Type.Record`. Handler-side `normalizeTeamParams` drops empty strings before validation (defense-in-depth).
+- **chain-runner mis-split on arrows inside inline goals**: `parseChain` used `split("->")`, incorrectly splitting `"Change A -> B" -> "Analyze"` into 3 steps. New quote-aware `splitChainSteps()` splits only on top-level arrows (backward compatible).
+- These were caught by a new Tier 9 feature battery in the `real-test-pi-crew` skill (live team-tool action coverage), which is now documented there alongside the agent-unauthorized-edit anti-pattern surfaced during testing.
+
+### Whole-project reorganization (~92 commits)
+- `src/` clustered: `src/runtime/` → 15 subdirs (child-pi/, broker/, live-session/, recovery/, scheduling/, verification/, model/, output/, heartbeat/, process/, goal-workflow/, compaction/, task-runner/, custom-tools/, errors/), `src/state/` → 3 subdirs (event-log/, stores/, coordination/), plus ui/, config/, utils/, agents/, extension/ clusters. Cluster maps in `src/runtime/README.md`, `src/state/README.md`.
+- `test/unit/` mirrored: 561 of 712 flat `.test.ts` files moved into 35 subdirs matching `src/` (243 runtime/, 53 state/, 110 extension/, plus ui/, config/, utils/, etc.). 151 cross-cutting tests (round*, v0*, package-*, errors, i18n, bundle-*) stay at root by design. Map in `test/unit/README.md`.
+- **REAL bug fixed**: test runner now expands `**` globs — `test/unit/security/` (3 files, 36 tests) were invisible before. All 715 files now discovered (6732 tests, 0 fail).
+- `docs/` consolidated: 27 historical docs → `docs/archive/`; 20 living docs stay at root; new `docs/README.md` index; 5 categories of broken refs fixed (dead links in src/agents/discover-agents.ts, src/runtime/{chain-runner,anchor-manager,handoff-manager,auto-summarize}.ts, recovery/retry-runner.ts, SECURITY-ISSUES.md, ARCHITECTURE.md refs).
+- Root cleanup: 11 stray `.md` files at repo root → `docs/archive/` + `docs/bugs/`.
+- README updated: Repository layout section, provider-extension feature, `runtime.agentExtensions` config row, v0.9.57 Recent-changes entry, 3 broken doc links fixed.
+- Stale worktrees + 4 merged local branches cleaned; `git worktree list` main-only.
+
+### Verification
+- Full final gate: typecheck 0 · lint 0 err/warn · format:check clean · unit 6763/6760/0 · integration 200/199/0 · `test:critical` 98/0 · bundle-load + smoke(real-binary) green · bundle 2.70 MB (budget 3.5 MB) · conflict-markers/lazy-imports/bundle-staleness all OK.
+- Live feature battery (Tier 9): `team` action=list/run(sync)/run(async)/chain + `Agent`/`crew_agent`/`get_subagent_result` all green with `deepseek/deepseek-v4-flash` over commandcode; read-only actions (recommend/health/doctor/status/events/summary/get/explain/worktrees) all return clean.
+
 ## [0.9.56] — performance remediation + team-tool schema fix (2026-07-30)
 
 Follows the verified `performance-audit-2026-07-29.md` (16 findings addressed). Independently deep-reviewed by a 4-agent review team (explore/code-review/security-review/verify — no P0/P1), full unit 6486/0 + integration 190/0, CI green on ubuntu/macos/windows.
