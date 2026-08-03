@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
+import type { AgentConfig } from "../../../src/agents/agent-config.ts";
 import {
 	agentToEntry,
 	createAgentOverlayState,
 	moveSelection,
 	renderAgentOverlay,
 	toggleExpand,
-} from "../../src/ui/agent-management-overlay.ts";
+} from "../../../src/ui/agent-management-overlay.ts";
 
 function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 	return {

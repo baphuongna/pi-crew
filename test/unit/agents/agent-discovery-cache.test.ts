@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
+import type { AgentConfig } from "../../../src/agents/agent-config.ts";
 import {
 	allAgents,
 	clearSecurityEventLog,
@@ -13,7 +13,7 @@ import {
 	registerDynamicAgent,
 	sanitizeAgentSystemPrompt,
 	unregisterDynamicAgent,
-} from "../../src/agents/discover-agents.ts";
+} from "../../../src/agents/discover-agents.ts";
 
 function makeTestAgent(name: string, overrides?: Partial<AgentConfig>): AgentConfig {
 	return {

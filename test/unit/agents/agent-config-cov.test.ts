@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getAgentSessionOptions } from "../../src/agents/agent-config.ts";
+import { getAgentSessionOptions } from "../../../src/agents/agent-config.ts";
 
 describe("getAgentSessionOptions", () => {
 	it("returns tools restriction for explorer role", () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { buildAgentSearchIndex, searchAgents } from "../../src/agents/agent-search.ts";
+import type { AgentConfig } from "../../../src/agents/agent-config.ts";
+import { buildAgentSearchIndex, searchAgents } from "../../../src/agents/agent-search.ts";
 
 function makeAgent(overrides: Partial<AgentConfig> & { name: string }): AgentConfig {
 	return {

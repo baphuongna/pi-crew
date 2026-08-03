@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AgentConfig } from "../../src/agents/agent-config.ts";
-import { serializeAgent } from "../../src/agents/agent-serializer.ts";
+import type { AgentConfig } from "../../../src/agents/agent-config.ts";
+import { serializeAgent } from "../../../src/agents/agent-serializer.ts";
 
 function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 	return {
