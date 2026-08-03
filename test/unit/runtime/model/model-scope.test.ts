@@ -13,9 +13,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { CrewError, ErrorCode } from "../../src/errors.ts";
-import { buildConfiguredModelRouting } from "../../src/runtime/model/model-fallback.ts";
-import { checkModelScope, isModelInScope, matchesModelPattern, patternToRegExp } from "../../src/runtime/model/model-scope.ts";
+import { CrewError, ErrorCode } from "../../../../src/errors.ts";
+import { buildConfiguredModelRouting } from "../../../../src/runtime/model/model-fallback.ts";
+import { checkModelScope, isModelInScope, matchesModelPattern, patternToRegExp } from "../../../../src/runtime/model/model-scope.ts";
 
 // Use a fresh temp cwd per test so configuredModelInfosFromPiConfig doesn't
 // leak the host project's pi settings into the routing candidates (otherwise

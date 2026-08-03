@@ -20,15 +20,15 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { handleContextEvent } from "../../src/extension/context-status-injection.ts";
-import { buildContinuationPrompt, collectInFlightRuns } from "../../src/extension/registration/compaction-guard.ts";
-import { registerActiveRun, unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
-import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../src/teams/team-config.ts";
-import { findRepoRoot } from "../../src/utils/paths.ts";
-import { extractSessionId } from "../../src/utils/session-utils.ts";
-import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
-import { createTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { handleContextEvent } from "../../../../src/extension/context-status-injection.ts";
+import { buildContinuationPrompt, collectInFlightRuns } from "../../../../src/extension/registration/compaction-guard.ts";
+import { registerActiveRun, unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
+import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import { findRepoRoot } from "../../../../src/utils/paths.ts";
+import { extractSessionId } from "../../../../src/utils/session-utils.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "default",

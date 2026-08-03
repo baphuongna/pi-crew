@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { splitCoalescedOutput } from "../../src/runtime/task-runner/output-splitter.ts";
+import { splitCoalescedOutput } from "../../../../src/runtime/task-runner/output-splitter.ts";
 
 describe("splitCoalescedOutput", () => {
 	describe("strategy 1: delimiter parse", () => {

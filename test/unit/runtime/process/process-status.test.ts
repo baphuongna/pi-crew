@@ -6,8 +6,8 @@ import {
 	isActiveRunStatus,
 	isFinishedRunStatus,
 	isLikelyOrphanedActiveRun,
-} from "../../src/runtime/process-status.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
+} from "../../../../src/runtime/process-status.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 /**
  * Round 29 (test coverage gaps): `process-status.ts` provides process liveness

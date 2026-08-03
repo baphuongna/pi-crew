@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fuzzyResolveModelId, type SimpleModelEntry } from "../../src/runtime/model/model-resolver.ts";
+import { fuzzyResolveModelId, type SimpleModelEntry } from "../../../../src/runtime/model/model-resolver.ts";
 
 const sampleModels: SimpleModelEntry[] = [
 	{ id: "gpt-4", provider: "openai" },

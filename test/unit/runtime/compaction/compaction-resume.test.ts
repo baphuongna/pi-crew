@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildContinuationPrompt, triggerContinuation } from "../../src/extension/registration/compaction-guard.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
+import { buildContinuationPrompt, triggerContinuation } from "../../../../src/extension/registration/compaction-guard.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 function makeRun(overrides: Partial<TeamRunManifest> = {}): TeamRunManifest {
 	return {

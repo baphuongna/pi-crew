@@ -7,8 +7,8 @@ import {
 	isDisplayActiveRun,
 	isFinishedRunStatus,
 	isLikelyOrphanedActiveRun,
-} from "../../src/runtime/process-status.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
+} from "../../../../src/runtime/process-status.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 function makeManifest(overrides: Partial<TeamRunManifest> = {}): TeamRunManifest {
 	return {

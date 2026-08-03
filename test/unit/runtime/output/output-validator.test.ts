@@ -5,7 +5,7 @@ import {
 	parseReviewerFindings,
 	validateCompressionPreservation,
 	validateWorkerOutput,
-} from "../../src/runtime/output/output-validator.ts";
+} from "../../../../src/runtime/output/output-validator.ts";
 
 describe("output-validator", () => {
 	describe("validateWorkerOutput", () => {

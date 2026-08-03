@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { DEFAULT_CHILD_PI } from "../../src/config/defaults.ts";
+import { DEFAULT_CHILD_PI } from "../../../../src/config/defaults.ts";
 
 // compactString is private in child-pi.ts; we assert via DEFAULT_CHILD_PI that
 // the configured thresholds are the L4 values, and exercise the head/tail

@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { buildCompactionSummary, summaryPathsFor } from "../../src/runtime/compaction/compaction-summary.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
+import { buildCompactionSummary, summaryPathsFor } from "../../../../src/runtime/compaction/compaction-summary.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
 /** Create a temporary directory with run state files for testing. */
 function createTestStateDir(files: { manifest?: Partial<TeamRunManifest>; tasks?: Partial<TeamTaskState>[]; events?: string[] }): string {
