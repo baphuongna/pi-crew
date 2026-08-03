@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { clearLiveAgentsForTest } from "../../src/runtime/live-agent-manager.ts";
+import { clearLiveAgentsForTest } from "../../src/runtime/live-session/live-agent-manager.ts";
 import {
 	buildCrewTitleSegment,
 	buildIdleTitle,

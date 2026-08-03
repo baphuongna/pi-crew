@@ -14,8 +14,8 @@
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { broadcastIrcMessage, listLiveAgents, respondAsBackground, sendIrcMessage } from "../live-agent-manager.ts";
-import type { IrcMessage } from "../live-irc.ts";
+import { broadcastIrcMessage, listLiveAgents, respondAsBackground, sendIrcMessage } from "../live-session/live-agent-manager.ts";
+import type { IrcMessage } from "../live-session/live-irc.ts";
 
 const IrcParams = Type.Object({
 	op: Type.Union(

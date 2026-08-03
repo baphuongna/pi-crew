@@ -22,7 +22,7 @@ import { TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 
 import { CREW_SHORTCUT_KEYS } from "../../src/extension/crew-shortcuts.ts";
 import type { CrewAgentRecord } from "../../src/runtime/crew-agent-runtime.ts";
-import type { LiveAgentHandle } from "../../src/runtime/live-agent-manager.ts";
+import type { LiveAgentHandle } from "../../src/runtime/live-session/live-agent-manager.ts";
 import { isDisplayActiveRun } from "../../src/runtime/process-status.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { DASHBOARD_KEYS } from "../../src/ui/keybinding-map.ts";

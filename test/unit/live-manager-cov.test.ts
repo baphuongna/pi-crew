@@ -19,7 +19,7 @@ import {
 	trackLiveAgentToolStart,
 	trackLiveAgentTurnEnd,
 	updateLiveAgentStatus,
-} from "../../src/runtime/live-agent-manager.ts";
+} from "../../src/runtime/live-session/live-agent-manager.ts";
 
 function makeSession() {
 	return {

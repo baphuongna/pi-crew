@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import type { CrewUiConfig } from "../config/config.ts";
 import { listRecentRuns } from "../extension/run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
-import { listLiveAgents } from "../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../runtime/live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../runtime/manifest-cache.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";

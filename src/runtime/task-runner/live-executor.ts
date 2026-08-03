@@ -13,7 +13,7 @@ import {
 	recordFromTask,
 	upsertCrewAgent,
 } from "../crew-agent-records.ts";
-import { runLiveSessionTask } from "../live-session-runtime.ts";
+import { runLiveSessionTask } from "../live-session/live-session-runtime.ts";
 import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";

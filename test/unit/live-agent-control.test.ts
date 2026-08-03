@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { clearLiveAgentsForTest, registerLiveAgent } from "../../src/runtime/live-agent-manager.ts";
+import { clearLiveAgentsForTest, registerLiveAgent } from "../../src/runtime/live-session/live-agent-manager.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
 
 test("api rejects direct live-agent control for a different run", async () => {

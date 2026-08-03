@@ -826,7 +826,7 @@ async function main(): Promise<void> {
 			const manifestToUse = loaded?.manifest ?? manifest;
 			if (manifestToUse) {
 				// LAZY: live-agent-manager only needed on failure cleanup path; avoid module load at hot path.
-				const { terminateLiveAgentsForRun } = await import("./live-agent-manager.ts");
+				const { terminateLiveAgentsForRun } = await import("./live-session/live-agent-manager.ts");
 				void terminateLiveAgentsForRun(manifestToUse.runId, "failed", appendEvent, manifestToUse.eventsPath).catch((error) =>
 					logInternalError("background-runner.terminate", error, `runId=${manifestToUse.runId}`),
 				);

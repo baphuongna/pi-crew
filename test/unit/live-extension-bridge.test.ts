@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildExtensionBridge } from "../../src/runtime/live-extension-bridge.ts";
+import { buildExtensionBridge } from "../../src/runtime/live-session/live-extension-bridge.ts";
 
 /**
  * Round 27 (test coverage gaps): `live-extension-bridge.ts` bridges pi-crew's

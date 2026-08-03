@@ -4,7 +4,7 @@
  * R8: Subscribes to session events for real-time streaming updates.
  * Falls back to polling LiveAgentHandle.activity when subscribe is unavailable.
  */
-import type { LiveAgentHandle } from "../runtime/live-agent-manager.ts";
+import type { LiveAgentHandle } from "../runtime/live-session/live-agent-manager.ts";
 import { pad, truncate } from "../utils/visual.ts";
 import { computeLiveDurationMs } from "./live-duration.ts";
 import { spinnerFrame } from "./spinner.ts";

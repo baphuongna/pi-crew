@@ -8,9 +8,9 @@ import {
 	trackLiveAgentToolEnd,
 	trackLiveAgentToolStart,
 	trackLiveAgentTurnEnd,
-} from "../../src/runtime/live-agent-manager.ts";
-import { clearLiveControlRealtimeForTest } from "../../src/runtime/live-control-realtime.ts";
-import { probeLiveSessionRuntime } from "../../src/runtime/live-session-runtime.ts";
+} from "../../src/runtime/live-session/live-agent-manager.ts";
+import { clearLiveControlRealtimeForTest } from "../../src/runtime/live-session/live-control-realtime.ts";
+import { probeLiveSessionRuntime } from "../../src/runtime/live-session/live-session-runtime.ts";
 
 test.afterEach(() => {
 	clearLiveAgentsForTest();

@@ -31,7 +31,7 @@ import { appendDeadletter } from "./deadletter.ts";
 import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffectivenessLines } from "./effectiveness.ts";
 import { applyGoalAchievement, assessGoalAchievement } from "./goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
-import { terminateLiveAgentsForRun } from "./live-agent-manager.ts";
+import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
 import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
 import { buildRecoveryLedger, shouldRerunFailedTask } from "./recovery-recipes.ts";

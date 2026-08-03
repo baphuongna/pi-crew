@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { collectLiveSessionHealth, formatLiveSessionDiagnostics, type LiveSessionHealth } from "../../src/runtime/live-session-health.ts";
+import { collectLiveSessionHealth, formatLiveSessionDiagnostics, type LiveSessionHealth } from "../../src/runtime/live-session/live-session-health.ts";
 
 describe("collectLiveSessionHealth", () => {
 	it("returns zero counts for empty agents list", () => {

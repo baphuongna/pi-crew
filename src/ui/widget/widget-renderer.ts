@@ -4,7 +4,7 @@
  * Extracted from crew-widget.ts.
  */
 
-import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";

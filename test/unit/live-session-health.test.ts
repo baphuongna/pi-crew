@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LiveSessionHealth } from "../../src/runtime/live-session-health.ts";
-import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "../../src/runtime/live-session-health.ts";
+import type { LiveSessionHealth } from "../../src/runtime/live-session/live-session-health.ts";
+import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "../../src/runtime/live-session/live-session-health.ts";
 
 /**
  * Round 28 (test coverage gaps): `live-session-health.ts` provides health

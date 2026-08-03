@@ -5,7 +5,7 @@
  */
 
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import type { LiveAgentHandle } from "../../runtime/live-agent-manager.ts";
+import type { LiveAgentHandle } from "../../runtime/live-session/live-agent-manager.ts";
 import { getTaskUsage } from "../../runtime/usage-tracker.ts";
 import { visibleWidth } from "../../utils/visual.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";

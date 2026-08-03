@@ -5,7 +5,7 @@ import {
 	clearLiveControlRealtimeForTest,
 	liveControlRealtimeMessage,
 	subscribeLiveControlRealtime,
-} from "../../src/runtime/live-control-realtime.ts";
+} from "../../src/runtime/live-session/live-control-realtime.ts";
 
 class Bus implements EventBusLike {
 	handlers = new Map<string, Array<(data: unknown) => void>>();

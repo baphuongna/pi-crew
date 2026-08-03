@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveParentModelFromRegistry } from "../../src/runtime/live-session-runtime.ts";
+import { resolveParentModelFromRegistry } from "../../src/runtime/live-session/live-session-runtime.ts";
 
 describe("resolveParentModelFromRegistry (round 18 — stale parentModel)", () => {
 	const buildRegistry = (available: Array<{ provider: string; id: string; fullId: string }>) => ({

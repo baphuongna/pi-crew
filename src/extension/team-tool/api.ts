@@ -4,7 +4,7 @@ import { buildAgentDashboard, readAgentOutput } from "../../runtime/agent-observ
 import { buildCapabilityInventory } from "../../runtime/capability-inventory.ts";
 import { agentOutputPath, readCrewAgentEventsCursor, readCrewAgentStatus, readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { readForegroundControlStatus, writeForegroundInterruptRequest } from "../../runtime/foreground-control.ts";
-import { appendLiveAgentControlRequest } from "../../runtime/live-agent-control.ts";
+import { appendLiveAgentControlRequest } from "../../runtime/live-session/live-agent-control.ts";
 import {
 	followUpLiveAgent,
 	getLiveAgent,
@@ -13,9 +13,9 @@ import {
 	steerLiveAgent,
 	stopLiveAgent,
 	terminateLiveAgentsForRun,
-} from "../../runtime/live-agent-manager.ts";
-import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-control-realtime.ts";
-import { probeLiveSessionRuntime } from "../../runtime/live-session-runtime.ts";
+} from "../../runtime/live-session/live-agent-manager.ts";
+import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../runtime/live-session/live-control-realtime.ts";
+import { probeLiveSessionRuntime } from "../../runtime/live-session/live-session-runtime.ts";
 import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
 import { touchWorkerHeartbeat } from "../../runtime/worker-heartbeat.ts";

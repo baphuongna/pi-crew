@@ -1,17 +1,41 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentConfig } from "../agents/agent-config.ts";
-import { resolveToolPolicy } from "../agents/agent-config.ts";
-import type { CrewRuntimeConfig } from "../config/config.ts";
-import { loadConfig } from "../config/config.ts";
-import { DEFAULT_LIVE_SESSION } from "../config/defaults.ts";
-import { appendEvent, appendEventFireAndForget } from "../state/event-log.ts";
-import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
-import { logInternalError } from "../utils/internal-error.ts";
-import { redactSecrets } from "../utils/redaction.ts";
-import type { WorkflowStep } from "../workflows/workflow-config.ts";
-import { createIrcTool } from "./custom-tools/irc-tool.ts";
-import { createSubmitResultTool } from "./custom-tools/submit-result-tool.ts";
+import type { AgentConfig } from "../../agents/agent-config.ts";
+import { resolveToolPolicy } from "../../agents/agent-config.ts";
+import type { CrewRuntimeConfig } from "../../config/config.ts";
+import { loadConfig } from "../../config/config.ts";
+import { DEFAULT_LIVE_SESSION } from "../../config/defaults.ts";
+import { appendEvent, appendEventFireAndForget } from "../../state/event-log.ts";
+import type { TeamRunManifest, TeamTaskState, UsageState } from "../../state/types.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { redactSecrets } from "../../utils/redaction.ts";
+import type { WorkflowStep } from "../../workflows/workflow-config.ts";
+import { createIrcTool } from "../custom-tools/irc-tool.ts";
+import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
+import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
+import { buildConfiguredModelRouting } from "../model-fallback.ts";
+import { readEnabledModelsPatterns } from "../model-scope.ts";
+import { isLiveSessionRuntimeAvailable } from "../runtime-resolver.ts";
+import { awaitRuntimeWarmup } from "../runtime-warmup.ts";
+import { buildSensitivePathConstraint } from "../sensitive-paths.ts";
+import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../sidechain-output.ts";
+// NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
+// block is injected via renderTaskPrompt().full (the USER prompt), which is
+// shared by both the child-pi path (no system prompt) and the live-session
+// path. Adding it to liveSystemPrompt() too duplicated the entire memory
+// block (up to 200 lines) in both the user and system prompts. Keep memory
+// in a single place: the shared user prompt. See G3 fix.
+import { createStreamingOutput, type StreamingOutputHandle } from "../streaming-output.ts";
+import { trackTaskUsage } from "../usage-tracker.ts";
+import {
+	buildYieldReminder,
+	DEFAULT_YIELD_CONFIG,
+	extractYieldResult,
+	hasYieldInOutput,
+	isYieldEvent,
+	validateYieldData,
+	type YieldResult,
+} from "../yield-handler.ts";
 import { applyLiveAgentControlRequest, applyLiveAgentControlRequests, type LiveAgentControlCursor } from "./live-agent-control.ts";
 import {
 	disposeLiveAgentSession,
@@ -28,30 +52,6 @@ import {
 import { subscribeLiveControlRealtime } from "./live-control-realtime.ts";
 import { buildExtensionBridge } from "./live-extension-bridge.ts";
 import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "./live-session-health.ts";
-import { buildMcpProxyFromSession } from "./mcp-proxy.ts";
-import { buildConfiguredModelRouting } from "./model-fallback.ts";
-import { readEnabledModelsPatterns } from "./model-scope.ts";
-import { isLiveSessionRuntimeAvailable } from "./runtime-resolver.ts";
-import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
-import { buildSensitivePathConstraint } from "./sensitive-paths.ts";
-import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "./sidechain-output.ts";
-// NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
-// block is injected via renderTaskPrompt().full (the USER prompt), which is
-// shared by both the child-pi path (no system prompt) and the live-session
-// path. Adding it to liveSystemPrompt() too duplicated the entire memory
-// block (up to 200 lines) in both the user and system prompts. Keep memory
-// in a single place: the shared user prompt. See G3 fix.
-import { createStreamingOutput, type StreamingOutputHandle } from "./streaming-output.ts";
-import { trackTaskUsage } from "./usage-tracker.ts";
-import {
-	buildYieldReminder,
-	DEFAULT_YIELD_CONFIG,
-	extractYieldResult,
-	hasYieldInOutput,
-	isYieldEvent,
-	validateYieldData,
-	type YieldResult,
-} from "./yield-handler.ts";
 
 /**
  * Module-scoped latch for the optional peer dependency import. When N

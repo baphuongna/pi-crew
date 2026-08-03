@@ -1,5 +1,5 @@
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from "../../runtime/live-agent-manager.ts";
+import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from "../../runtime/live-session/live-agent-manager.ts";
 import { formatCost } from "../../state/usage.ts";
 import { visibleWidth } from "../../utils/visual.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";

@@ -6,7 +6,7 @@ import {
 	parseLiveControlRealtimeMessage,
 	publishLiveControlRealtime,
 	subscribeLiveControlRealtime,
-} from "../../src/runtime/live-control-realtime.ts";
+} from "../../src/runtime/live-session/live-control-realtime.ts";
 
 const request = {
 	id: "ctrl_test",

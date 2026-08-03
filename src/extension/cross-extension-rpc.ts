@@ -18,7 +18,7 @@ async function handleTeamTool(
 	return _cachedHandleTeamTool(params, ctx);
 }
 
-import { parseLiveControlRealtimeMessage, publishLiveControlRealtime } from "../runtime/live-control-realtime.ts";
+import { parseLiveControlRealtimeMessage, publishLiveControlRealtime } from "../runtime/live-session/live-control-realtime.ts";
 
 export interface EventBusLike {
 	on(event: string, handler: (data: unknown) => void): (() => void) | undefined;

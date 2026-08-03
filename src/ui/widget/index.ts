@@ -325,7 +325,7 @@ class CrewWidgetComponent implements WidgetComponent {
 
 // ── Re-export listLiveAgents for buildSignature ───────────────────────
 
-import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 
 // ── Public API ────────────────────────────────────────────────────────
 

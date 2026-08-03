@@ -30,7 +30,7 @@
  */
 
 import { writeFileSync } from "node:fs";
-import { listLiveAgents } from "../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../runtime/live-session/live-agent-manager.ts";
 
 /**
  * Minimal UI surface this module needs. Deliberately narrower than

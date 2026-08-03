@@ -24,7 +24,7 @@ import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtim
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { reconcileAllStaleRuns } from "../../runtime/crash-recovery.ts";
-import { listLiveAgents } from "../../runtime/live-agent-manager.ts";
+import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/pi-args.ts";

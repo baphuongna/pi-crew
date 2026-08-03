@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { TeamRunManifest } from "../state/types.ts";
-import { agentStateFile, ensureAgentStateDir } from "./crew-agent-records.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
+import { agentStateFile, ensureAgentStateDir } from "../crew-agent-records.ts";
 
 export type LiveAgentControlOperation = "steer" | "follow-up" | "stop" | "resume";
 

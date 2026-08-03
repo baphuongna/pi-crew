@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
-import { getLiveAgentContextPercent } from "../runtime/live-agent-manager.ts";
+import { getLiveAgentContextPercent } from "../runtime/live-session/live-agent-manager.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
