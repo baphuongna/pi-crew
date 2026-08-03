@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamTaskState } from "../../src/state/types.ts";
-import { summarizeHeartbeats } from "../../src/ui/heartbeat-aggregator.ts";
-import type { RunUiSnapshot } from "../../src/ui/snapshot-types.ts";
+import type { TeamTaskState } from "../../../../src/state/types.ts";
+import { summarizeHeartbeats } from "../../../../src/ui/heartbeat-aggregator.ts";
+import type { RunUiSnapshot } from "../../../../src/ui/snapshot-types.ts";
 
 function task(id: string, status: TeamTaskState["status"], lastSeenAt?: string, alive = true): TeamTaskState {
 	return {

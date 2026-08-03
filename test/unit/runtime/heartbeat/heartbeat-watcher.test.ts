@@ -3,10 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
-import { HeartbeatWatcher } from "../../src/runtime/heartbeat/heartbeat-watcher.ts";
-import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
-import { createRunManifest, saveRunTasks, updateRunStatus } from "../../src/state/stores/state-store.ts";
+import { createMetricRegistry } from "../../../../src/observability/metric-registry.ts";
+import { HeartbeatWatcher } from "../../../../src/runtime/heartbeat/heartbeat-watcher.ts";
+import { createManifestCache } from "../../../../src/runtime/manifest-cache.ts";
+import { createRunManifest, saveRunTasks, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
 
 const team = {
 	name: "t",
