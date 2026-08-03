@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { probeLiveSessionRuntime } from "../../src/runtime/live-session/live-session-runtime.ts";
-import { resolveCrewRuntime } from "../../src/runtime/runtime-resolver.ts";
+import { resolveCrewRuntime } from "../../src/runtime/model/runtime-resolver.ts";
 
 test("runtime resolver defaults auto to live-session when available", async () => {
 	const runtime = await resolveCrewRuntime({}, {

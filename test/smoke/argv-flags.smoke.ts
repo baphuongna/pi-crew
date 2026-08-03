@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { buildPiWorkerArgs } from "../../src/runtime/pi-args.ts";
+import { buildPiWorkerArgs } from "../../src/runtime/model/pi-args.ts";
 import { getPiSpawnCommand } from "../../src/runtime/pi-spawn.ts";
 import { fakeExecutorAgent, SKIP_REASON, SMOKE_ENABLED } from "./_helpers.ts";
 

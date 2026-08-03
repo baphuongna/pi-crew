@@ -9,7 +9,7 @@
 import { discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
-import { resolveCrewRuntime } from "../../runtime/runtime-resolver.ts";
+import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent } from "../../state/event-log.ts";
 import { createRunManifest } from "../../state/state-store.ts";

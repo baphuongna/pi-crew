@@ -1,6 +1,6 @@
-import type { PiTeamsConfig } from "../config/config.ts";
-import type { RuntimeResolutionState } from "../state/types.ts";
-import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
+import type { PiTeamsConfig } from "../../config/config.ts";
+import type { RuntimeResolutionState } from "../../state/types.ts";
+import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
 
 export type CrewRuntimeMode = "auto" | "scaffold" | "child-process" | "live-session";
 

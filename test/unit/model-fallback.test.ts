@@ -11,7 +11,7 @@ import {
 	isRetryableModelFailure,
 	resolveModelCandidate,
 	splitThinkingSuffix,
-} from "../../src/runtime/model-fallback.ts";
+} from "../../src/runtime/model/model-fallback.ts";
 
 test("splitThinkingSuffix preserves model suffix", () => {
 	assert.deepEqual(splitThinkingSuffix("claude-sonnet:high"), {

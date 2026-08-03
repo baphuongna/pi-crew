@@ -5,7 +5,7 @@ import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../../src/config/defaults.ts";
 import { ChildPiLineObserver } from "../../src/runtime/child-pi/child-pi.ts";
-import { applyThinkingSuffix, buildPiWorkerArgs, checkCrewDepth, cleanupTempDir, currentCrewDepth } from "../../src/runtime/pi-args.ts";
+import { applyThinkingSuffix, buildPiWorkerArgs, checkCrewDepth, cleanupTempDir, currentCrewDepth } from "../../src/runtime/model/pi-args.ts";
 
 const minimalAgent: AgentConfig = {
 	name: "test-agent",

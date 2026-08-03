@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentConfig } from "../agents/agent-config.ts";
-import { resolveToolPolicy } from "../agents/agent-config.ts";
-import { atomicWriteFile } from "../state/atomic-write.ts";
-import { packageRoot, userPiRoot } from "../utils/paths.ts";
+import type { AgentConfig } from "../../agents/agent-config.ts";
+import { resolveToolPolicy } from "../../agents/agent-config.ts";
+import { atomicWriteFile } from "../../state/atomic-write.ts";
+import { packageRoot, userPiRoot } from "../../utils/paths.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 // FIX (2026-07-02): use packageRoot() instead of import.meta.url-relative path.

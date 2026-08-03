@@ -13,10 +13,10 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
 import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
-import { buildConfiguredModelRouting } from "../model-fallback.ts";
-import { readEnabledModelsPatterns } from "../model-scope.ts";
-import { isLiveSessionRuntimeAvailable } from "../runtime-resolver.ts";
-import { awaitRuntimeWarmup } from "../runtime-warmup.ts";
+import { buildConfiguredModelRouting } from "../model/model-fallback.ts";
+import { readEnabledModelsPatterns } from "../model/model-scope.ts";
+import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
+import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
 import { buildSensitivePathConstraint } from "../sensitive-paths.ts";
 import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../sidechain-output.ts";
 // NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory

@@ -34,7 +34,7 @@ export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
 import { classifyProcessCrash } from "../recovery/crash-classification.ts";
-import { checkCrewDepth, cleanupTempDir } from "../pi-args.ts";
+import { checkCrewDepth, cleanupTempDir } from "../model/pi-args.ts";
 
 import { attachPostExitStdioGuard, trySignalChild } from "../post-exit-stdio-guard.ts";
 

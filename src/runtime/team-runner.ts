@@ -30,14 +30,14 @@ import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffecti
 import { applyGoalAchievement, assessGoalAchievement } from "./goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts";
+import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
+import type { CrewRuntimeCapabilities } from "./model/runtime-resolver.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
 import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts";
 import { buildRecoveryLedger, shouldRerunFailedTask } from "./recovery/recovery-recipes.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry, type RetryPolicy } from "./recovery/retry-executor.ts";
 import { permissionForRole } from "./role-permission.ts";
 import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-tracker.ts";
-import { resolveTaskRuntimeKind } from "./runtime-policy.ts";
-import type { CrewRuntimeCapabilities } from "./runtime-resolver.ts";
 import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./scheduling/coalesce-tasks.ts";
 import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./scheduling/concurrency.ts";
 import { runCoalescedTaskGroup } from "./scheduling/run-coalesced-task-group.ts";

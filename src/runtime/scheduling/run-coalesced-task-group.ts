@@ -9,7 +9,7 @@ import type { RetryPolicy } from "../recovery/retry-executor.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry } from "../recovery/retry-executor.ts";
 import { permissionForRole } from "../role-permission.ts";
 import { runWorker } from "../run-worker.ts";
-import type { CrewRuntimeMode } from "../runtime-resolver.ts";
+import type { CrewRuntimeMode } from "../model/runtime-resolver.ts";
 import { sanitizeTaskText } from "../task-packet.ts";
 import { splitCoalescedOutput } from "../task-runner/output-splitter.ts";
 import { mergeArtifacts } from "../team-runner-artifacts.ts";

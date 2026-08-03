@@ -29,7 +29,7 @@ import {
 	cleanupLegacyOrphanTempDirs,
 	cleanupOrphanTempDirs,
 	createSafeTempDir,
-} from "../../src/runtime/pi-args.ts";
+} from "../../src/runtime/model/pi-args.ts";
 
 function mkdtemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

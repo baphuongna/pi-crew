@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { cleanupAllTrackedTempDirs } from "../runtime/pi-args.ts";
+import { cleanupAllTrackedTempDirs } from "../runtime/model/pi-args.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 // NOTE: globalProgressTracker import kept for documentation but not directly used

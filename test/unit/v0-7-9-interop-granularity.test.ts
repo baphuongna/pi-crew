@@ -28,7 +28,7 @@ import * as path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { BUILTIN_TOOL_NAMES, parseToolsField } from "../../src/agents/agent-config.ts";
-import { buildPiWorkerArgs } from "../../src/runtime/pi-args.ts";
+import { buildPiWorkerArgs } from "../../src/runtime/model/pi-args.ts";
 import { renderSkillInstructions } from "../../src/runtime/skill-instructions.ts";
 import { discoverSkills } from "../../src/skills/discover-skills.ts";
 

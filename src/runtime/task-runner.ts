@@ -5,9 +5,9 @@ import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest, Te
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { registerStreamBridge } from "./event-stream-bridge.ts";
-import type { ModelAttemptSummary } from "./model-fallback.ts";
+import type { ModelAttemptSummary } from "./model/model-fallback.ts";
+import { awaitRuntimeWarmup } from "./model/runtime-warmup.ts";
 import type { ParsedPiJsonOutput } from "./pi-json-output.ts";
-import { awaitRuntimeWarmup } from "./runtime-warmup.ts";
 import { runChildProcessTask } from "./task-runner/child-executor.ts";
 import { finalizeTaskResult, type TaskExecutionResult } from "./task-runner/post-execution.ts";
 import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";

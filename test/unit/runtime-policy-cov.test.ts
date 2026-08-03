@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveTaskRuntimeKind } from "../../src/runtime/runtime-policy.ts";
+import { resolveTaskRuntimeKind } from "../../src/runtime/model/runtime-policy.ts";
 
 describe("runtime-policy", () => {
 	describe("resolveTaskRuntimeKind", () => {

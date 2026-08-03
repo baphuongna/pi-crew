@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyThinkingSuffix, checkCrewDepth, currentCrewDepth, resolveCrewMaxDepth } from "../../src/runtime/pi-args.ts";
+import { applyThinkingSuffix, checkCrewDepth, currentCrewDepth, resolveCrewMaxDepth } from "../../src/runtime/model/pi-args.ts";
 
 /**
  * Round 26 (test coverage gaps): `pi-args.ts` provides depth tracking,

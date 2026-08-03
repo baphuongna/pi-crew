@@ -33,7 +33,7 @@ import { evaluateCompletionMutationGuard } from "../verification/completion-guar
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import { crewHooks } from "../crew-hooks.ts";
 import { createVerificationEvidence } from "../verification/green-contract.ts";
-import type { ModelAttemptSummary } from "../model-fallback.ts";
+import type { ModelAttemptSummary } from "../model/model-fallback.ts";
 import { type OutputValidationResult, validateWorkerOutput } from "../output-validator.ts";
 import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
 import { writeTaskSharedOutput } from "../task-output-context.ts";

@@ -31,7 +31,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 }
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
-import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/runtime-resolver.ts";
+import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/model/runtime-resolver.ts";
 import { appendEventAsync, readEvents } from "../../state/event-log.ts";
 import type { RunMetrics } from "../../state/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";

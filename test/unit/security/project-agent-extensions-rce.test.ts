@@ -15,7 +15,7 @@ import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { AgentConfig } from "../../../src/agents/agent-config.ts";
 import { discoverAgents, invalidateAgentDiscoveryCache } from "../../../src/agents/discover-agents.ts";
-import { buildPiWorkerArgs } from "../../../src/runtime/pi-args.ts";
+import { buildPiWorkerArgs } from "../../../src/runtime/model/pi-args.ts";
 import { restoreEnv, snapshotEnv } from "../../fixtures/test-env-helpers.ts";
 import { createTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 

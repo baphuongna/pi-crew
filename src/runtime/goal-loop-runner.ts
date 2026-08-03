@@ -30,7 +30,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { bundleEvidence, evaluateGoal } from "./goal-evaluator.ts";
 import { GoalStore } from "./goal-state-store.ts";
-import { resolveCrewRuntime } from "./runtime-resolver.ts";
+import { resolveCrewRuntime } from "./model/runtime-resolver.ts";
 import { executeTeamRun } from "./team-runner.ts";
 import { compareSnapshot, snapshotManifests } from "./verification/verification-integrity.ts";
 import { acquireWorkspaceLock, type WorkspaceLockHandle } from "./workspace-lock.ts";

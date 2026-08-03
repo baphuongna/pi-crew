@@ -50,8 +50,8 @@ import {
 	formatModelAttemptNote,
 	isRetryableModelFailure,
 	type ModelAttemptSummary,
-} from "../model-fallback.ts";
-import { readEnabledModelsPatterns } from "../model-scope.ts";
+} from "../model/model-fallback.ts";
+import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
 import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";

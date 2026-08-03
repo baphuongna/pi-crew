@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveTaskRuntimeKind } from "../../src/runtime/runtime-policy.ts";
+import { resolveTaskRuntimeKind } from "../../src/runtime/model/runtime-policy.ts";
 
 test("isolation policy defaults non-isolated roles to configured runtime", () => {
 	assert.equal(

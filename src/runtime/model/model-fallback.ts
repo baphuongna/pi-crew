@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { errors } from "../errors.ts";
+import { errors } from "../../errors.ts";
 import { fuzzyResolveModelId } from "./model-resolver.ts";
 import { checkModelScope } from "./model-scope.ts";
 

@@ -1,5 +1,5 @@
-import type { CrewRuntimeConfig } from "../config/config.ts";
-import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
+import type { CrewRuntimeConfig } from "../../config/config.ts";
+import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
 import { currentCrewDepth } from "./pi-args.ts";
 
 /**
