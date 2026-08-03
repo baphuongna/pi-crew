@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderComposePreview, tokenizeMarkdown } from "../../src/ui/overlays/mailbox-compose-preview.ts";
+import { renderComposePreview, tokenizeMarkdown } from "../../../../src/ui/overlays/mailbox-compose-preview.ts";
 
 test("compose preview renders empty body", () => {
 	assert.ok(renderComposePreview("", 80).some((line) => line.includes("empty")));

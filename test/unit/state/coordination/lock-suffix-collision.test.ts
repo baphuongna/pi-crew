@@ -16,8 +16,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { withFileLockSync } from "../../src/state/coordination/locks.ts";
-import { appendEvent, readEvents, withEventLogLockSync } from "../../src/state/event-log/event-log.ts";
+import { withFileLockSync } from "../../../../src/state/coordination/locks.ts";
+import { appendEvent, readEvents, withEventLogLockSync } from "../../../../src/state/event-log/event-log.ts";
 
 function tmpDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lock-suffix-"));

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { withFileLockSync, withRunLock, withRunLockSync } from "../../src/state/coordination/locks.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import { withFileLockSync, withRunLock, withRunLockSync } from "../../../../src/state/coordination/locks.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeManifest(stateRoot: string): TeamRunManifest {
 	return {

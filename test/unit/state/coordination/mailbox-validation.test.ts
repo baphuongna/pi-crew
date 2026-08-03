@@ -3,9 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
-import { firstText } from "../fixtures/tool-result-helpers.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
+import { firstText } from "../../../fixtures/tool-result-helpers.ts";
 
 test("mailbox supports task-scoped messages and validation repair", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-mailbox-validation-"));

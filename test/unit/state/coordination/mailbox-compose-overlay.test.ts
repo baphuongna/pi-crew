@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MailboxComposeOverlay, type MailboxComposeResult } from "../../src/ui/overlays/mailbox-compose-overlay.ts";
+import { MailboxComposeOverlay, type MailboxComposeResult } from "../../../../src/ui/overlays/mailbox-compose-overlay.ts";
 
 test("MailboxComposeOverlay validates body and submits payload", () => {
 	const results: MailboxComposeResult[] = [];

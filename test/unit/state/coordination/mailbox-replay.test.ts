@@ -3,14 +3,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
 import {
 	acknowledgeMailboxMessage,
 	appendMailboxMessage,
 	readDeliveryState,
 	replayPendingMailboxMessages,
-} from "../../src/state/coordination/mailbox.ts";
-import { loadRunManifestById } from "../../src/state/stores/state-store.ts";
+} from "../../../../src/state/coordination/mailbox.ts";
+import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
 
 function firstText(result: Awaited<ReturnType<typeof handleTeamTool>>): string {
 	const first = result.content?.[0];

@@ -25,9 +25,9 @@ import {
 	replayPendingMailboxMessages,
 	updateMailboxMessageReply,
 	validateMailbox,
-} from "../../src/state/coordination/mailbox.ts";
-import type { TeamRunManifest } from "../../src/state/types.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+} from "../../../../src/state/coordination/mailbox.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeManifest(stateRoot: string): TeamRunManifest {
 	return {
