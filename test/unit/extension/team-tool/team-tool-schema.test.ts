@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { RunDomainParams, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { RunDomainParams, TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
 function walkSchema(node: unknown, visit: (node: Record<string, unknown>) => void): void {
 	if (!node || typeof node !== "object" || Array.isArray(node)) return;

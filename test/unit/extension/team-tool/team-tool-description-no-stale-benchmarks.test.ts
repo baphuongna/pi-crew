@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerTeamTool } from "../../src/extension/registration/team-tool.ts";
+import { registerTeamTool } from "../../../../src/extension/registration/team-tool.ts";
 
 // ---------------------------------------------------------------------------
 // EXT-11: the `team` tool description must NOT embed one-off performance

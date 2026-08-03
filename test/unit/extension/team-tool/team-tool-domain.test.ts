@@ -14,9 +14,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { domainForAction } from "../../src/extension/team-tool/dispatch/index.ts";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { type TeamDomain, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { domainForAction } from "../../../../src/extension/team-tool/dispatch/index.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { type TeamDomain, TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
 // ─── 54-action → domain mapping table ────────────────────────────────────────
 

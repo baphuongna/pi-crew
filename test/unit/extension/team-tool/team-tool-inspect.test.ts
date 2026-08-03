@@ -9,10 +9,10 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleArtifacts, handleEvents, handleSummary } from "../../src/extension/team-tool/inspect.ts";
-import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
+import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
+import { handleArtifacts, handleEvents, handleSummary } from "../../../../src/extension/team-tool/inspect.ts";
+import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
+import type { TeamToolParamsValue } from "../../../../src/schema/team-tool-schema.ts";
 
 function makeCtx(overrides: Partial<TeamContext> = {}): TeamContext {
 	return { cwd: "/tmp/inspect-test", ...overrides };

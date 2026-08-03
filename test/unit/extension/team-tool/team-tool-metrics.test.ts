@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleTeamTool } from "../../src/extension/team-tool.ts";
-import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import { createMetricRegistry } from "../../src/observability/metric-registry.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
+import { createMetricRegistry } from "../../../../src/observability/metric-registry.ts";
 
 test("team api metrics-snapshot returns current registry without runId", async () => {
 	const registry = createMetricRegistry();

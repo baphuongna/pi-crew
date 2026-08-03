@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "@sinclair/typebox/value";
-import { allActionLiterals, TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { allActionLiterals, TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
 const NEW_ACTIONS = ["goal", "workflow-create", "workflow-get", "workflow-list", "workflow-save", "workflow-delete"] as const;
 const EXISTING_ACTIONS = ["run", "list", "status", "plan"] as const;

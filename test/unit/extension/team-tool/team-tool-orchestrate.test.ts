@@ -7,11 +7,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import type { TeamContext } from "../../src/extension/team-tool/context.ts";
-import { handleOrchestrate } from "../../src/extension/team-tool/orchestrate.ts";
-import { textFromToolResult } from "../../src/extension/tool-result.ts";
-import type { TeamToolParamsValue } from "../../src/schema/team-tool-schema.ts";
-import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
+import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
+import { handleOrchestrate } from "../../../../src/extension/team-tool/orchestrate.ts";
+import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
+import type { TeamToolParamsValue } from "../../../../src/schema/team-tool-schema.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeCtx(cwd: string): TeamContext {
 	return { cwd };

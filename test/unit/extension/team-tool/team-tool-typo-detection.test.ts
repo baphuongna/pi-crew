@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detectUnrecognizedParams } from "../../src/extension/registration/team-tool.ts";
-import { TeamToolParams } from "../../src/schema/team-tool-schema.ts";
+import { detectUnrecognizedParams } from "../../../../src/extension/registration/team-tool.ts";
+import { TeamToolParams } from "../../../../src/schema/team-tool-schema.ts";
 
 // ---------------------------------------------------------------------------
 // EXT-1: additionalProperties:true on TeamToolParams means Value.Check does NOT
