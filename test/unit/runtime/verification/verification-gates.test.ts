@@ -6,8 +6,8 @@ import {
 	executeVerificationCommands,
 	NPM_TYPESCRIPT_GATES,
 	runPhaseGates,
-} from "../../src/runtime/verification/verification-gates.ts";
-import type { VerificationCommandResult } from "../../src/state/types.ts";
+} from "../../../../src/runtime/verification/verification-gates.ts";
+import type { VerificationCommandResult } from "../../../../src/state/types.ts";
 
 test("verification-gates: NPM_TYPESCRIPT_GATES has expected phases", () => {
 	assert.equal(NPM_TYPESCRIPT_GATES.length, 4);

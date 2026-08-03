@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import test from "node:test";
-import { executeVerificationCommands, isVerificationEnvSanitizeEnabled } from "../../src/runtime/verification/verification-gates.ts";
+import { executeVerificationCommands, isVerificationEnvSanitizeEnabled } from "../../../../src/runtime/verification/verification-gates.ts";
 
 /** Verification commands always run through `sh`, so use its portable `printenv` utility. */
 function pickPrintenv(name: string): string {

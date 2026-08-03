@@ -10,7 +10,7 @@ import test from "node:test";
 // Since validateGateCommand is not exported, we test via the exported NPM_TYPESCRIPT_GATES
 // which contain 2>&1 and should be valid.
 
-import { CARGO_RUST_GATES, NPM_TYPESCRIPT_GATES } from "../../src/runtime/verification/verification-gates.ts";
+import { CARGO_RUST_GATES, NPM_TYPESCRIPT_GATES } from "../../../../src/runtime/verification/verification-gates.ts";
 
 test("NPM_TYPESCRIPT_GATES commands contain 2>&1 and are valid", () => {
 	// All built-in gates should use 2>&1 which should NOT be blocked

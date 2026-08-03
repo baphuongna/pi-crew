@@ -14,7 +14,7 @@ import {
 	isWorktreeSandboxEnabled,
 	prepareVerificationWorktree,
 	withVerificationWorktree,
-} from "../../src/runtime/verification/verification-worktree.ts";
+} from "../../../../src/runtime/verification/verification-worktree.ts";
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
 	const saved: Record<string, string | undefined> = {};

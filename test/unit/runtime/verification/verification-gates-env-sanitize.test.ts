@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // Resolve the source module path relative to THIS test file's location so the
 // test works on any machine (CI runners, different checkouts, Windows).
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TARGET = pathToFileURL(resolve(HERE, "../../src/runtime/verification/verification-gates.ts")).href;
+const TARGET = pathToFileURL(resolve(HERE, "../../../../src/runtime/verification/verification-gates.ts")).href;
 
 function runWithEnv(overrides: Record<string, string | undefined>): boolean {
 	// 1) Start from a copy of the parent env, but strip any existing
