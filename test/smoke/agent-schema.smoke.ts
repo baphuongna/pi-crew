@@ -51,7 +51,7 @@ test("smoke: ctx.agent({schema, systemPrompt}) returns structured JSON matching 
 
 		// The agent should return parseable JSON. extractStructuredResult is the
 		// production parser — exercise it directly to mirror the ctx.agent path.
-		const { extractStructuredResult } = await import("../../src/runtime/result-extractor.ts");
+		const { extractStructuredResult } = await import("../../src/runtime/output/result-extractor.ts");
 		const extracted = extractStructuredResult(r.stdout, VerdictSchema);
 		assert.equal(
 			extracted.structured,

@@ -5,7 +5,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 // NOTE: globalProgressTracker import kept for documentation but not directly used
 // since we don't have agent IDs to untrack. Actual progress clearing should be
 // handled by the progress tracker itself on shutdown.
-// import { globalProgressTracker } from "../runtime/progress-tracker.ts";
+// import { globalProgressTracker } from "../runtime/output/progress-tracker.ts";
 
 /**
  * Registers cleanup handlers for graceful shutdown.

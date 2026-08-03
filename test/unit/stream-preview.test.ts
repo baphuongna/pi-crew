@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createStreamPreview, feedJsonEvent, finishStreamPreview, renderPreviewStatus } from "../../src/runtime/stream-preview.ts";
+import { createStreamPreview, feedJsonEvent, finishStreamPreview, renderPreviewStatus } from "../../src/runtime/output/stream-preview.ts";
 
 describe("stream-preview", () => {
 	it("creates a preview with correct defaults", () => {

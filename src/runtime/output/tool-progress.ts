@@ -10,7 +10,7 @@
  * 4. This module provides structured types and utilities for the event system
  */
 
-import type { CrewAgentProgress } from "../state/types.ts";
+import type { CrewAgentProgress } from "../../state/types.ts";
 
 // ── Event Types ─────────────────────────────────────────────────────────
 

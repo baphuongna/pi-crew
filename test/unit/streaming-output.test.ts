@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { createStreamingOutput, readStreamingOutput } from "../../src/runtime/streaming-output.ts";
+import { createStreamingOutput, readStreamingOutput } from "../../src/runtime/output/streaming-output.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 
 function tmpManifest(): { dir: string; manifest: TeamRunManifest } {

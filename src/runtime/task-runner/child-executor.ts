@@ -52,8 +52,8 @@ import {
 	type ModelAttemptSummary,
 } from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
-import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../pi-json-output.ts";
-import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
+import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../output/pi-json-output.ts";
+import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../output/progress-event-coalescer.ts";
 import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";

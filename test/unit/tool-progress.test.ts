@@ -5,7 +5,7 @@
 import assert from "node:assert";
 import test from "node:test";
 import type { CrewAgentProgress } from "../../src/runtime/crew-agent-runtime.ts";
-import type { ToolProgressEvent } from "../../src/runtime/tool-progress.ts";
+import type { ToolProgressEvent } from "../../src/runtime/output/tool-progress.ts";
 import {
 	filterToolEvents,
 	formatCurrentToolLine,
@@ -19,7 +19,7 @@ import {
 	isToolError,
 	isToolRunning,
 	renderProgressBar,
-} from "../../src/runtime/tool-progress.ts";
+} from "../../src/runtime/output/tool-progress.ts";
 
 const mockProgress = (overrides: Partial<CrewAgentProgress> = {}): CrewAgentProgress =>
 	({

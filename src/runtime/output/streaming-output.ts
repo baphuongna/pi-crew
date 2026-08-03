@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { TeamRunManifest } from "../state/types.ts";
-import { isSafePathId } from "../utils/safe-paths.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
+import { isSafePathId } from "../../utils/safe-paths.ts";
 
 export interface StreamingOutputHandle {
 	write(text: string): void;

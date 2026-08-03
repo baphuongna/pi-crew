@@ -1,7 +1,7 @@
 import type { TeamTaskState, UsageState } from "../../state/types.ts";
 import { emptyCrewAgentProgress } from "../crew-agent-records.ts";
 import type { CrewAgentProgress } from "../crew-agent-runtime.ts";
-import type { ProgressEventSummary } from "../progress-event-coalescer.ts";
+import type { ProgressEventSummary } from "../output/progress-event-coalescer.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;

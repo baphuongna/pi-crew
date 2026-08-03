@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
-import { extractStructuredResult } from "../../src/runtime/result-extractor.ts";
+import { extractStructuredResult } from "../../src/runtime/output/result-extractor.ts";
 
 test("empty string returns unstructured", () => {
 	const result = extractStructuredResult("");

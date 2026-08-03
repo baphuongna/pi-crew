@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { crewEventBus } from "../observability/event-bus.ts";
+import { crewEventBus } from "../../observability/event-bus.ts";
 
 export interface AgentProgress {
 	toolCalls: number;

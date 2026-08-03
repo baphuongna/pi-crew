@@ -14,8 +14,8 @@ import {
 	upsertCrewAgent,
 } from "../crew-agent-records.ts";
 import { runLiveSessionTask } from "../live-session/live-session-runtime.ts";
-import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
-import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../progress-event-coalescer.ts";
+import type { ParsedPiJsonOutput } from "../output/pi-json-output.ts";
+import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../output/progress-event-coalescer.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";
 import { createStartupEvidence, type WorkerStartupEvidence } from "../worker-startup.ts";
 import { applyAgentProgressEvent, applyUsageToProgress, progressEventSummary, shouldFlushProgressEvent } from "./progress.ts";

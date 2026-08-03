@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { describe, it } from "node:test";
-import { createStreamingOutput, readStreamingOutput } from "../../src/runtime/streaming-output.ts";
+import { createStreamingOutput, readStreamingOutput } from "../../src/runtime/output/streaming-output.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 

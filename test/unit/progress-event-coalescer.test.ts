@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../../src/runtime/progress-event-coalescer.ts";
+import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../../src/runtime/output/progress-event-coalescer.ts";
 
 const base: ProgressEventSummary = {
 	eventType: "message_end",

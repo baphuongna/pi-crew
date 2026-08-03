@@ -7,7 +7,7 @@ import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { registerStreamBridge } from "./event-stream-bridge.ts";
 import type { ModelAttemptSummary } from "./model/model-fallback.ts";
 import { awaitRuntimeWarmup } from "./model/runtime-warmup.ts";
-import type { ParsedPiJsonOutput } from "./pi-json-output.ts";
+import type { ParsedPiJsonOutput } from "./output/pi-json-output.ts";
 import { runChildProcessTask } from "./task-runner/child-executor.ts";
 import { finalizeTaskResult, type TaskExecutionResult } from "./task-runner/post-execution.ts";
 import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";

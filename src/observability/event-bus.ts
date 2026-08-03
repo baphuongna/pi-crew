@@ -1,4 +1,4 @@
-import type { AgentProgress } from "../runtime/progress-tracker.ts";
+import type { AgentProgress } from "../runtime/output/progress-tracker.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 export type CrewEventType = "agent:progress" | "agent:complete" | "agent:error" | "run:start" | "run:complete";

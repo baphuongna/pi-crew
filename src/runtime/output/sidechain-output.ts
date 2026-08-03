@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { redactSecrets } from "../utils/redaction.ts";
-import { isSafePathId } from "../utils/safe-paths.ts";
+import { redactSecrets } from "../../utils/redaction.ts";
+import { isSafePathId } from "../../utils/safe-paths.ts";
 
 export interface SidechainEntry {
 	isSidechain: true;

@@ -9,14 +9,14 @@
  * unchanged); only the authoritative result becomes raw.
  *
  * @see src/runtime/child-pi/child-pi.ts ChildPiLineObserver
- * @see src/runtime/pi-json-output.ts extractText
+ * @see src/runtime/output/pi-json-output.ts extractText
  * @see research-findings/output-handling-deep-dive.md §A
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ChildPiLineObserver, type ChildPiRunInput } from "../../src/runtime/child-pi/child-pi.ts";
-import { extractText } from "../../src/runtime/pi-json-output.ts";
+import { extractText } from "../../src/runtime/output/pi-json-output.ts";
 
 /** Build an observer with a minimal input — emitLine only touches
  *  onJsonEvent/onStdoutLine/transcriptPath, all optional-chained or guarded,

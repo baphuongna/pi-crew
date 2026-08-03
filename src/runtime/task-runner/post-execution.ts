@@ -34,8 +34,8 @@ import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew
 import { crewHooks } from "../crew-hooks.ts";
 import { createVerificationEvidence } from "../verification/green-contract.ts";
 import type { ModelAttemptSummary } from "../model/model-fallback.ts";
-import { type OutputValidationResult, validateWorkerOutput } from "../output-validator.ts";
-import type { ParsedPiJsonOutput } from "../pi-json-output.ts";
+import { type OutputValidationResult, validateWorkerOutput } from "../output/output-validator.ts";
+import type { ParsedPiJsonOutput } from "../output/pi-json-output.ts";
 import { writeTaskSharedOutput } from "../task-output-context.ts";
 import { computeGreenLevelFromResults, executeVerificationCommands } from "../verification/verification-gates.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../worker-heartbeat.ts";

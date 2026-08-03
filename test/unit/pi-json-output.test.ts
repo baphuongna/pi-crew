@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { parsePiJsonOutput } from "../../src/runtime/pi-json-output.ts";
+import { parsePiJsonOutput } from "../../src/runtime/output/pi-json-output.ts";
 
 test("parsePiJsonOutput extracts final text and usage", () => {
 	const stdout = [

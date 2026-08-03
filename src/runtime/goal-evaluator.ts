@@ -28,8 +28,8 @@ import type { AgentConfig } from "../agents/agent-config.ts";
 import type { GoalVerdict } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString } from "../utils/redaction.ts";
-import { parsePiJsonOutput } from "./pi-json-output.ts";
-import { extractStructuredResult } from "./result-extractor.ts";
+import { parsePiJsonOutput } from "./output/pi-json-output.ts";
+import { extractStructuredResult } from "./output/result-extractor.ts";
 import { runWorker } from "./run-worker.ts";
 import { collectToolCallsFromEvent } from "./verification/completion-guard.ts";
 

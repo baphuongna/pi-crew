@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../../src/runtime/pi-json-output.ts";
+import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../../src/runtime/output/pi-json-output.ts";
 import { detectRetryableModelFailureFromOutput } from "../../src/runtime/task-runner.ts";
 
 /**

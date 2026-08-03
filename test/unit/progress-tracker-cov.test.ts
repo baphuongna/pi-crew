@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ProgressTracker } from "../../src/runtime/progress-tracker.ts";
+import { ProgressTracker } from "../../src/runtime/output/progress-tracker.ts";
 
 function makeSession() {
 	const listeners: Array<(event: any) => void> = [];

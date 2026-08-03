@@ -2,7 +2,7 @@
 // Captures incremental worker output during task execution for live preview.
 // Used by the UI layer to show partial results before task completion.
 
-import { TAIL_CAPTURE_STREAM_STAGE } from "./compact-stages/index.ts";
+import { TAIL_CAPTURE_STREAM_STAGE } from "../compact-stages/index.ts";
 import type { ParsedPiUsage } from "./pi-json-output.ts";
 
 export interface ToolCallPreview {
