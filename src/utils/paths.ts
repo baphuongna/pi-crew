@@ -47,10 +47,9 @@ export function packageRoot(): string {
 	return cachedPackageRoot;
 }
 
-let cachedUserPiRoot: string | undefined;
+let cachedUserPiRoot: { home: string; value: string } | undefined;
 
 export function userPiRoot(): string {
-	if (cachedUserPiRoot !== undefined) return cachedUserPiRoot;
 	// F4: a misconfigured PI_TEAMS_HOME can be the literal string "undefined"
 	// (e.g. PI_TEAMS_HOME=$UNSET_VAR in a shell), which would build paths like
 	// "undefined/.pi/agent" relative to cwd and silently create a junk "undefined/"
@@ -58,6 +57,12 @@ export function userPiRoot(): string {
 	// os.homedir().
 	const rawHome = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
 	const home = rawHome && rawHome !== "undefined" ? rawHome : os.homedir();
+	// NEW-P2: memoize but KEY ON HOME. Tests (withIsolatedHome / isolateHome)
+	// change PI_TEAMS_HOME mid-process; an unkeyed cache would leak the first
+	// test's root across the suite (broken isolation — surfaced by active-run-
+	// registry / health-monitor run counts). In production home is stable, so
+	// this still collapses ~15 lstatSync call sites to one stat per distinct home.
+	if (cachedUserPiRoot?.home === home) return cachedUserPiRoot.value;
 	const resolved = path.join(home, ".pi", "agent");
 
 	// Reject symlinks to prevent confusion attacks where PI_TEAMS_HOME points to
@@ -71,7 +76,7 @@ export function userPiRoot(): string {
 	} catch (err: unknown) {
 		if (err instanceof Error && "code" in err && err.code !== "ENOENT") throw err;
 		// Path doesn't exist yet — caller will create it. Skip further validation.
-		cachedUserPiRoot = resolved;
+		cachedUserPiRoot = { home, value: resolved };
 		return resolved;
 	}
 	if (isSymlink) {
@@ -101,7 +106,7 @@ export function userPiRoot(): string {
 		// (race condition). This is acceptable — caller will handle.
 	}
 
-	cachedUserPiRoot = resolved;
+	cachedUserPiRoot = { home, value: resolved };
 	return resolved;
 }
 
