@@ -111,6 +111,38 @@ function argValue(name: string): string | undefined {
 }
 
 /**
+ * Signals the catch-all loop registers that do NOT terminate the background
+ * runner (SIGWINCH = terminal resize, SIGPIPE = closed pipe, SIGCONT etc.).
+ * Logging these as fatal `async.failed` poisons dead-run detection:
+ * async-notifier's isAsyncTerminalEvent treats async.failed as terminal, so a
+ * single benign signal (e.g. a terminal resize) would permanently disable
+ * markDeadAsyncRunIfNeeded for the run. Benign signals are logged as
+ * non-terminal `async.signal` instead.
+ */
+export const BENIGN_SIGNALS = new Set([
+	"SIGWINCH",
+	"SIGPIPE",
+	"SIGCONT",
+	"SIGTSTP",
+	"SIGTTIN",
+	"SIGTTOU",
+	"SIGURG",
+	"SIGPROF",
+	"SIGVTALRM",
+	"SIGALRM",
+	"SIGIO",
+	"SIGPWR",
+]);
+
+/**
+ * Classify a caught signal as terminal (`async.failed` — the process is
+ * dying) or benign (`async.signal` — the process keeps running).
+ */
+export function signalEventType(sig: string): "async.signal" | "async.failed" {
+	return BENIGN_SIGNALS.has(sig) ? "async.signal" : "async.failed";
+}
+
+/**
  * Fire-and-forget event log for signal handlers. Extracted to module level
  * (from inside main()) so the exported SIGINT handler installer (test seam)
  * and the inline signal-handler loop inside main() can both use it.
@@ -119,10 +151,12 @@ function argValue(name: string): string | undefined {
 function signalLog(sig: string, eventsPath: string): void {
 	const runId = argValue("--run-id");
 	if (runId && eventsPath) {
+		const type = signalEventType(sig);
 		appendEventFireAndForget(eventsPath, {
-			type: "async.failed",
+			type,
 			runId,
-			message: `Background runner received ${sig} — exiting.`,
+			// Benign signals don't exit the runner — don't claim they do.
+			message: type === "async.failed" ? `Background runner received ${sig} — exiting.` : `Background runner received ${sig}.`,
 			data: { signal: sig, pid: process.pid },
 		});
 	}

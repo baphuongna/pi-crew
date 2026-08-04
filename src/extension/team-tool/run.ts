@@ -32,7 +32,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/model/runtime-resolver.ts";
-import { appendEventAsync, readEvents } from "../../state/event-log/event-log.ts";
+import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
 import type { RunMetrics } from "../../state/stores/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 
@@ -110,7 +110,7 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 		if (!loaded || !isActiveRunStatus(loaded.manifest.status)) return;
 		if (hasAsyncStartMarker(loaded.manifest)) return;
 		if (
-			readEvents(loaded.manifest.eventsPath).some(
+			readEventsCursor(loaded.manifest.eventsPath).events.some(
 				(event) => event.type === "async.started" || event.type === "async.completed" || event.type === "async.failed",
 			)
 		)

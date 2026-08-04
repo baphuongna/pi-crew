@@ -1245,6 +1245,81 @@ async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDeci
  * @param ctx  The scheduler context; `ctx.tasks` and `ctx.manifest` are
  *             mutated in-place to reflect the rerun or abort.
  */
+/**
+ * RT-NEW-2: terminalise a run as "failed" while draining in-flight dispatch
+ * units FIRST and merging their settled results under the run lock.
+ *
+ * Extracted verbatim from handleFailedTask (the FIXED reference) so every
+ * abort path behaves identically: drain pendingUnits (abort controller +
+ * await allSettled + clear), merge fulfilled outcomes into manifest/tasks
+ * under withRunLock (flushPendingAtomicWrites + loadRunManifestById +
+ * mergeArtifacts + mergeTaskUpdatesPreservingTerminal + save both), cancel
+ * (not skip) non-settled in-flight tasks so team resume can re-queue them,
+ * then markBlocked the remaining never-dispatched queued tasks.
+ *
+ * Previously enforceRunBudget skipped the drain+merge and called
+ * markBlocked directly — in-flight tasks (still "queued" in ctx.tasks since
+ * streaming dispatch never sets "running") were clobbered to "skipped",
+ * which team resume never re-queues → permanent work loss.
+ */
+async function terminaliseRunWithDrain(
+	ctx: SchedulerContext,
+	opts: { cancelMessage: string; blockedMessage: string; failedReason: string },
+): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	const inflightTaskIds = new Set<string>();
+	for (const unit of ctx.pendingUnits.values()) {
+		for (const id of unit.taskIds) inflightTaskIds.add(id);
+	}
+	const outcomes = await drainPendingUnits(ctx.pendingUnits, ctx.runController);
+	const validResults: { manifest: TeamRunManifest; tasks: TeamTaskState[] }[] = [];
+	for (const outcome of outcomes) {
+		if (outcome.status === "fulfilled") validResults.push(outcome.value);
+	}
+	if (validResults.length > 0) {
+		// Merge under the run lock — same pattern as mergeUnitResult:
+		// flush pending writes, load disk state, merge artifacts + tasks,
+		// save atomically.
+		const mergeResult = await withRunLock(ctx.manifest, async () => {
+			flushPendingAtomicWrites();
+			const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+			const diskManifest = disk?.manifest ?? ctx.manifest;
+			const reconciledArtifacts = mergeArtifacts([
+				...diskManifest.artifacts,
+				...validResults.flatMap((item) => item.manifest.artifacts),
+			]);
+			const resultManifest = updateRunStatus(
+				{ ...diskManifest, artifacts: reconciledArtifacts },
+				"running",
+				"Merged in-flight results during failed-task abort.",
+			);
+			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+			await saveRunManifestAsync(resultManifest);
+			await saveRunTasksAsync(resultManifest, resultTasks);
+			return { resultManifest, resultTasks };
+		});
+		ctx.manifest = mergeResult.resultManifest;
+		ctx.tasks = mergeResult.resultTasks;
+	}
+	// Cancel in-flight tasks that did NOT settle (e.g. rejected promises)
+	// so team resume CAN re-queue them. markBlocked maps queued→skipped,
+	// which resume never re-queues — work would be lost permanently. Only
+	// cancel tasks that are both in-flight AND still non-terminal (settled
+	// tasks with a terminal status are preserved).
+	ctx.tasks = cancelNonTerminalTasks(
+		ctx.tasks,
+		"cancelled",
+		opts.cancelMessage,
+		(task) => inflightTaskIds.has(task.id) && isNonTerminalTaskStatus(task.status),
+	);
+	// Remaining queued tasks (never dispatched) → skipped (original behavior
+	// preserved for downstream tasks not yet in-flight).
+	ctx.tasks = markBlocked(ctx.tasks, opts.blockedMessage);
+	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
+	saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
+	ctx.manifest = updateRunStatus(ctx.manifest, "failed", opts.failedReason);
+	return { manifest: ctx.manifest, tasks: ctx.tasks };
+}
+
 async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
 	const failed = ctx.tasks.find((task) => task.status === "failed");
 	if (!failed) return null;
@@ -1284,72 +1359,15 @@ async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecisio
 		});
 		return { kind: "continue" }; // loop re-processes the re-queued task
 	}
-	// RT-1: drain in-flight units and merge settled results BEFORE terminalising
-	// tasks. The streaming-dispatch path only adds to ctx.pendingUnits — it
-	// never updates ctx.tasks to "running" — so ctx.tasks is stale ("queued")
-	// for in-flight tasks. A direct saveRunTasksAsync would overwrite disk
-	// "running" with the stale "queued" status, then markBlocked maps that to
-	// "skipped". team resume never re-queues skipped tasks → permanent work
-	// loss. Draining first preserves settled results and gives non-settled
-	// in-flight tasks a re-queueable terminal status (cancelled, not skipped).
-	//
-	// #3 refactor: drainPendingUnits now RETURNS the settled outcomes directly,
-	// so we collect inflightTaskIds before draining (it clears the map), then
-	// consume the returned outcomes — no redundant re-await of the same promises.
-	// After drain, ctx.pendingUnits is empty, so the finally-block
-	// drainPendingUnits call (~:2419) is a no-op (idempotent — no double-drain).
-	const inflightTaskIds = new Set<string>();
-	for (const unit of ctx.pendingUnits.values()) {
-		for (const id of unit.taskIds) inflightTaskIds.add(id);
-	}
-	const outcomes = await drainPendingUnits(ctx.pendingUnits, ctx.runController);
-	const validResults: { manifest: TeamRunManifest; tasks: TeamTaskState[] }[] = [];
-	for (const outcome of outcomes) {
-		if (outcome.status === "fulfilled") validResults.push(outcome.value);
-	}
-	if (validResults.length > 0) {
-		// Merge under the run lock — same pattern as mergeUnitResult:
-		// flush pending writes, load disk state, merge artifacts + tasks,
-		// save atomically.
-		const mergeResult = await withRunLock(ctx.manifest, async () => {
-			flushPendingAtomicWrites();
-			const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
-			const diskManifest = disk?.manifest ?? ctx.manifest;
-			const reconciledArtifacts = mergeArtifacts([
-				...diskManifest.artifacts,
-				...validResults.flatMap((item) => item.manifest.artifacts),
-			]);
-			const resultManifest = updateRunStatus(
-				{ ...diskManifest, artifacts: reconciledArtifacts },
-				"running",
-				"Merged in-flight results during failed-task abort.",
-			);
-			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
-			await saveRunManifestAsync(resultManifest);
-			await saveRunTasksAsync(resultManifest, resultTasks);
-			return { resultManifest, resultTasks };
-		});
-		ctx.manifest = mergeResult.resultManifest;
-		ctx.tasks = mergeResult.resultTasks;
-	}
-	// RT-1: cancel in-flight tasks that did NOT settle (e.g. rejected promises)
-	// so team resume CAN re-queue them. markBlocked maps queued→skipped, which
-	// resume never re-queues — work would be lost permanently. Only cancel
-	// tasks that are both in-flight AND still non-terminal (settled tasks with
-	// a terminal status are preserved).
-	ctx.tasks = cancelNonTerminalTasks(
-		ctx.tasks,
-		"cancelled",
-		`Cancelled by failed task '${failed.id}'.`,
-		(task) => inflightTaskIds.has(task.id) && isNonTerminalTaskStatus(task.status),
-	);
-	// RT-1: remaining queued tasks (never dispatched) → skipped (original
-	// behavior preserved for downstream tasks not yet in-flight).
-	ctx.tasks = markBlocked(ctx.tasks, `Blocked by failed task '${failed.id}'.`);
-	await saveRunTasksAsync(ctx.manifest, ctx.tasks);
-	saveCrewAgents(ctx.manifest, recordsForMaterializedTasks(ctx.manifest, ctx.tasks, ctx.runtimeKind));
-	ctx.manifest = updateRunStatus(ctx.manifest, "failed", `Failed at task '${failed.id}'.`);
-	return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+	// RT-NEW-2: drain in-flight units + merge settled results, then cancel
+	// non-settled in-flight tasks and markBlocked the rest — via the shared
+	// terminaliseRunWithDrain helper (extracted from this function verbatim).
+	const result = await terminaliseRunWithDrain(ctx, {
+		cancelMessage: `Cancelled by failed task '${failed.id}'.`,
+		blockedMessage: `Blocked by failed task '${failed.id}'.`,
+		failedReason: `Failed at task '${failed.id}'.`,
+	});
+	return { kind: "return", result };
 }
 
 /**
@@ -2121,12 +2139,16 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 					threshold: "abort",
 				},
 			});
-			tasks = markBlocked(tasks, `Budget abort threshold exceeded: ${message}`);
-			await saveRunTasksAsync(manifest, tasks);
-			manifest = updateRunStatus(manifest, "failed", message);
-			ctx.tasks = tasks;
-			ctx.manifest = manifest;
-			return { kind: "return", result: { manifest, tasks } };
+			// RT-NEW-2: drain in-flight units + merge settled results before
+			// terminalising, so in-flight tasks become completed/cancelled (not
+			// skipped). Same shared helper handleFailedTask uses. Run-failed
+			// reason stays the budget message.
+			const result = await terminaliseRunWithDrain(ctx, {
+				cancelMessage: `Cancelled by budget abort: ${message}`,
+				blockedMessage: `Budget abort threshold exceeded: ${message}`,
+				failedReason: message,
+			});
+			return { kind: "return", result };
 		}
 
 		if (budgetCheck.warning) {

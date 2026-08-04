@@ -9,7 +9,7 @@ import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEvent, readEvents } from "../../state/event-log/event-log.ts";
+import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";
@@ -64,7 +64,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const counts = new Map<string, number>();
 	for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
 	const phaseProgress = computePhaseProgress(tasks);
-	const allEvents = readEvents(manifest.eventsPath);
+	const { events: allEvents } = readEventsCursor(manifest.eventsPath);
 	const events = allEvents.slice(-8);
 	// P1-8: pre-build the ack-timeout requestId set once (was O(events × messages)
 	// via allEvents.some() inside the mailbox loop).

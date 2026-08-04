@@ -81,6 +81,7 @@ export const TEAM_EVENT_TYPES = [
 	"worktree.dirty",
 	"async.spawned",
 	"async.started",
+	"async.signal",
 	"async.completed",
 	"async.failed",
 	"async.stale",

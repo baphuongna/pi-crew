@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readCrewAgents, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
-import { appendEvent, readEvents, type TeamEvent } from "../state/event-log/event-log.ts";
+import { appendEvent, readEventsCursor, type TeamEvent } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -25,7 +25,7 @@ function isFinished(status: string): boolean {
 	return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
 }
 
-function isAsyncTerminalEvent(event: TeamEvent): boolean {
+export function isAsyncTerminalEvent(event: TeamEvent): boolean {
 	return event.type === "async.completed" || event.type === "async.failed" || event.type === "async.died";
 }
 
@@ -87,7 +87,7 @@ export function markDeadAsyncRunIfNeeded(run: TeamRunManifest, now = Date.now(),
 	if (!run.async || !isActiveRunStatus(run.status)) return undefined;
 	const liveness = checkProcessLiveness(run.async.pid);
 	if (liveness.alive) return undefined;
-	const events = readEvents(run.eventsPath);
+	const events = readEventsCursor(run.eventsPath).events;
 	if (events.some(isAsyncTerminalEvent)) return undefined;
 	if (latestEventAgeMs(events, now) < quietMs) return undefined;
 	const asyncPid = run.async.pid;
