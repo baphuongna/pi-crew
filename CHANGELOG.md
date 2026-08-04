@@ -17,6 +17,10 @@
 
 - **Round-1 security hardening** (`ea03dd88`): strip `runtime.agentExtensions` from untrusted project config, harden untrusted-data fence injection (no `</untrusted-…>` escape), filter `PI_CREW_*` secrets from child-Pi env.
 - **Round-2 locking fixes** (`6a5d8d16`): PID-guarded `releaseOwnLock` (LOCK-1 — no longer deletes a stolen lock in the `finally`), and `handleResume` releases the resume `withRunLock` before the minutes-long `executeTeamRun` (LOCK-2).
+- **Round-3 correctness** (`ae36cd2a`): `taskTimeoutMs` no longer capped at 10s by the wrong `runtimeMaxTurns` ceiling (RT-NEW-1 — 5-minute timeouts silently disabled before); worktree dirty-snapshots pass `-c core.quotePath=false` so non-ASCII filenames are no longer silently dropped before `git clean -fd` (STATE-8 data-loss fix).
+- **Round-4 state recovery** (`7b7968d5`): corrupt `manifest.json`/`tasks.json` are now quarantined (`.corrupt-<ts>`) + logged instead of silently making a run invisible (STATE-3); the stale-reconciler and health-monitor use the recovery loaders instead of bare `JSON.parse` that silently skipped corrupt runs (NEW-R1/R2).
+- **Round-5 batch** (`59505265`, `26d07b76`, `a0fa1cb2`, `135dfc8b`): state/atomic (async `mode` option, compact `tasks.json`, hash-on-memory, atomic mailbox/subagent/gitignore writes, async-twin manifest quarantine), defense-in-depth (DI-1..DI-4, lazy yaml, bundle-mode warmup skip), TOCTOU `existsSync`+`readFileSync` fixes (NEW-P4), budget-abort drains in-flight units via shared `terminaliseRunWithDrain` (RT-NEW-2), benign signals no longer write terminal `async.failed` (RT-NEW-3), event-log tail-read for notifier/status (STATE-5), lazy `cli-highlight` + lazy `npm root -g` probe + provider-extension cache (PERF-1/2/3), themes mtime fast-path (PERF-7), `userPiRoot` cache keyed on home (NEW-P2 isolation fix).
+- **Bundle rebuild note**: `dist/index.mjs` was rebuilt after R3–R5 — the earlier 13:35 build contained only R1/R2 + the typebox vendoring. Verify the shipped bundle includes the R3+ markers before publishing.
 
 ### Note on postinstall "bundle build FAILED" message
 
