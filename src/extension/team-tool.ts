@@ -185,6 +185,51 @@ function artifactKey(artifact: ArtifactDescriptor): string {
 	return `${artifact.kind}:${artifact.path}`;
 }
 
+/** Optional numeric params that accept the empty-string unset marker AND
+ *  stringified numbers in their schema (Union with Literal("") + a numeric-string
+ *  pattern branch). pi-ai's tool-argument coercion sometimes stringifies a
+ *  numeric value (e.g. interval:0 → "0") when the schema Union has a
+ *  string-literal branch, so the schema accepts the string form (Value.Check
+ *  passes) but handlers expect real numbers (TeamToolParamsValue types them as
+ *  number). This converts the string form back to a number — and treats "" as
+ *  unset (deleted) — before any domain router reads the param. */
+const LOOSE_NUMERIC_PARAM_KEYS = ["interval", "budgetWarning", "budgetAbort", "tokenBudget", "replyDeadline"] as const;
+
+function normalizeLooseNumericFields(params: TeamToolParamsValue): TeamToolParamsValue {
+	let mutated = false;
+	const out: Record<string, unknown> = { ...params };
+	for (const key of LOOSE_NUMERIC_PARAM_KEYS) {
+		const v = out[key];
+		if (v === undefined || v === null) continue;
+		if (v === "") {
+			delete out[key];
+			mutated = true;
+			continue;
+		}
+		if (typeof v === "string") {
+			const n = Number(v);
+			if (Number.isFinite(n)) {
+				out[key] = n;
+				mutated = true;
+			} else {
+				delete out[key];
+				mutated = true;
+			}
+		}
+	}
+	// `once` is Union([Boolean, String, Number]); normalize its string form too.
+	if (typeof out.once === "string") {
+		if (out.once === "false") out.once = false;
+		else if (out.once === "true") out.once = true;
+		else {
+			const n = Number(out.once);
+			if (Number.isFinite(n)) out.once = n;
+		}
+		mutated = true;
+	}
+	return mutated ? (out as TeamToolParamsValue) : params;
+}
+
 async function recoverCheckpointedTasks(
 	manifest: TeamRunManifest,
 	tasks: TeamTaskState[],
@@ -653,6 +698,9 @@ export async function handleTeamTool(params: TeamToolParamsValue, ctx: TeamConte
 	// a missing action defaulted to "list" at the facade but the router read
 	// params.action=undefined → "Unhandled status-domain action: undefined".
 	params = { ...params, action: params.action ?? "list" };
+	// Coerce stringified-numeric params (pi-ai coercion artifact) back to real
+	// numbers before domain routers read them. See normalizeLooseNumericFields.
+	params = normalizeLooseNumericFields(params);
 	const action = params.action ?? "list";
 	const domain = domainForAction(action);
 	switch (domain) {

@@ -100,4 +100,29 @@ describe("team-tool schema accepts empty-string model defaults", () => {
 		assert.equal(validator.Check({ action: "explode" }), false);
 		assert.equal(validator.Check({ action: 42 }), false);
 	});
+
+	// pi-ai coercion stringifies numeric values when a Union has a string-literal
+	// branch (Literal("")) — e.g. interval:0 arrives as "0". The schema accepts
+	// these stringified forms (numeric-string pattern branch) so validateToolArguments
+	// passes; handleTeamTool coerces them back to numbers before handlers run.
+	it("accepts stringified numbers for numeric-union fields (pi-ai coercion)", () => {
+		assert.equal(validator.Check({ action: "prune", interval: "0" }), true);
+		assert.equal(validator.Check({ action: "prune", interval: "5000" }), true);
+		assert.equal(validator.Check({ action: "run", goal: "x", budgetWarning: "0.8" }), true);
+		assert.equal(validator.Check({ action: "run", goal: "x", budgetAbort: "0.95" }), true);
+		assert.equal(validator.Check({ action: "run", goal: "x", tokenBudget: "5000" }), true);
+		assert.equal(validator.Check({ action: "respond", replyDeadline: "1234567890" }), true);
+	});
+
+	it("rejects non-numeric strings for numeric-union fields", () => {
+		assert.equal(validator.Check({ action: "prune", interval: "abc" }), false);
+		assert.equal(validator.Check({ action: "run", goal: "x", budgetWarning: "high" }), false);
+		assert.equal(validator.Check({ action: "respond", replyDeadline: "soon" }), false);
+	});
+
+	it("accepts a chain-only payload (chain set, goal omitted)", () => {
+		// Real calling models emit chain-only payloads (no goal) for chain runs.
+		// Regression: chain dispatch lives at run.ts before goal validation.
+		assert.equal(validator.Check({ action: "run", chain: '"Echo" -> "Read"' }), true);
+	});
 });

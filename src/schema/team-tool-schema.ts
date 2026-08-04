@@ -31,6 +31,15 @@ const KIND = Symbol.for("TypeBox.Kind");
 export const HAS_TYPE_REGISTRY =
 	typeof TypeRegistry === "object" && TypeRegistry !== null && typeof (TypeRegistry as { Set?: unknown }).Set === "function";
 
+/** Numeric-string regex: optional sign, integer part, optional decimal.
+ *  Accepts "0", "0.8", "5000", "-1", "42". Used by the optional numeric
+ *  fields below to accept the stringified forms pi-ai's tool-argument
+ *  coercion emits when a Union has a string-literal branch (Literal("")).
+ *  handleTeamTool coerces the string form back to a number before handlers
+ *  run, so the TeamToolParamsValue interface (which types these as number)
+ *  still holds at runtime. */
+const NUMERIC_STRING_RE = "^-?\\d+(\\.\\d+)?$";
+
 if (HAS_TYPE_REGISTRY) {
 	TypeRegistry.Set("StringEnum", (schema, value) => {
 		const s = schema as { enum?: unknown[] };
@@ -207,9 +216,15 @@ const sharedFields = {
 		// Allow the empty-string unset marker (models emit "" when no deadline is
 		// set; pi-ai validateToolArguments runs BEFORE the handler and rejects a
 		// bare Integer for ""). Mirror the other falsy-allowances (budgetTotal:0).
-		Type.Union([Type.Literal(""), Type.Integer({ description: "Ms epoch deadline for a reply." })], {
-			description: "Ms epoch deadline for a reply.",
-		}),
+		// Also accept stringified numbers ("123456") — pi-ai coercion stringifies
+		// numeric values when a Union has a string-literal branch. handleTeamTool
+		// coerces strings back to numbers before handlers run.
+		Type.Union(
+			[Type.Literal(""), Type.Integer({ description: "Ms epoch deadline for a reply." }), Type.String({ pattern: NUMERIC_STRING_RE })],
+			{
+				description: "Ms epoch deadline for a reply.",
+			},
+		),
 	),
 	planPath: Type.Optional(
 		Type.String({
@@ -226,9 +241,12 @@ const sharedFields = {
 	interval: Type.Optional(
 		// Empty-string unset marker accepted (models emit "" when no interval; pi-ai
 		// validateToolArguments rejects bare Number for "" before the handler runs).
-		Type.Union([Type.Literal(""), Type.Number({ description: "Interval in milliseconds between recurring scheduled runs." })], {
-			description: "Interval in milliseconds between recurring scheduled runs.",
-		}),
+		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces
+		// back to number.
+		Type.Union(
+			[Type.Literal(""), Type.Number({ description: "Interval in milliseconds between recurring scheduled runs." }), Type.String({ pattern: NUMERIC_STRING_RE })],
+			{ description: "Interval in milliseconds between recurring scheduled runs." },
+		),
 	),
 	once: Type.Optional(
 		// Boolean false accepted: calling models emit false for unset; treated as omitted.
@@ -265,6 +283,7 @@ const sharedFields = {
 	),
 	budgetWarning: Type.Optional(
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
+		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces.
 		Type.Union(
 			[
 				Type.Literal(""),
@@ -274,6 +293,7 @@ const sharedFields = {
 					minimum: 0,
 					maximum: 1,
 				}),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
 			],
 			{
 				description:
@@ -283,6 +303,7 @@ const sharedFields = {
 	),
 	budgetAbort: Type.Optional(
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
+		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces.
 		Type.Union(
 			[
 				Type.Literal(""),
@@ -292,6 +313,7 @@ const sharedFields = {
 					minimum: 0,
 					maximum: 1,
 				}),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
 			],
 			{
 				description:
@@ -307,7 +329,8 @@ const sharedFields = {
 	),
 	tokenBudget: Type.Optional(
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
-		Type.Union([Type.Literal(""), Type.Number({ description: "Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.", minimum: 0 })], {
+		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces.
+		Type.Union([Type.Literal(""), Type.Number({ description: "Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.", minimum: 0 }), Type.String({ pattern: NUMERIC_STRING_RE })], {
 			description:
 				"Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.",
 		}),
