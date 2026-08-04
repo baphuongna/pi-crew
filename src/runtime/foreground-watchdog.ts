@@ -41,8 +41,8 @@ export function stopWatchdog(runId: string): void {
 	}
 }
 
-/** @internal Stop all active watchdogs. Called on session shutdown. */
-function stopAllWatchdogs(): void {
+/** @internal Stop all active watchdogs. Called on session shutdown (RC-01). */
+export function stopAllWatchdogs(): void {
 	for (const [runId, timer] of activeWatchdogs) {
 		clearTimeout(timer);
 	}

@@ -704,6 +704,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			);
 		} finally {
 			unregisterActiveRun(dwfManifest.runId);
+			clearTimeout(dwfDeadline.timer); // RC-02
 		}
 	}
 
@@ -863,6 +864,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// Wait for the async run to complete and return actual results.
 		try {
 			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: asyncDeadline.deadlineMs });
+			clearTimeout(asyncDeadline.timer); // RC-02
 			return formatRunResult(completed.manifest, {
 				tasks: completed.tasks,
 				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -943,12 +945,22 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// CORE-8: unified deadline — resolves params > config > 1h default.
 		const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
 		ctx.onRunStarted?.(updatedManifest.runId);
+		const fgSignal = fgDeadline.signal;
+		let fgAbortListener: (() => void) | undefined;
+		let fgCallbackSignal: AbortSignal | undefined;
 		ctx.startForegroundRun(async (signal) => {
 			// Link the foreground-run callback signal to the deadline controller
 			// so cancel-via-abortForegroundRun propagates to executeTeamRun.
-			if (signal && signal !== fgDeadline.signal) {
+			fgCallbackSignal = signal;
+			if (signal && signal !== fgSignal) {
 				if (signal.aborted) fgDeadline.controller.abort();
-				else signal.addEventListener("abort", () => fgDeadline.controller.abort(), { once: true });
+				else {
+					// RC-03: keep the ref so we can removeEventListener on completion (the
+					// {once:true} alone leaks on the success path — the listener stays
+					// attached to the long-lived callback signal if the deadline never fires).
+					fgAbortListener = () => fgDeadline.controller.abort();
+					signal.addEventListener("abort", fgAbortListener, { once: true });
+				}
 			}
 			try {
 				await executeTeamRun({
@@ -979,6 +991,11 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				});
 			} finally {
 				unregisterActiveRun(updatedManifest.runId);
+				// RC-02/03: stop the deadline timer once the run's executeTeamRun completes
+				// (success or error). clearTimeout is idempotent — safe if already fired.
+				clearTimeout(fgDeadline.timer);
+				// Detach the abort listener from the callback signal (RC-03).
+				if (fgCallbackSignal && fgAbortListener) fgCallbackSignal.removeEventListener("abort", fgAbortListener);
 			}
 		}, updatedManifest.runId);
 
@@ -1047,6 +1064,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		});
 	} finally {
 		unregisterActiveRun(updatedManifest.runId);
+		// RC-02: clear the inline-path deadline timer (idempotent).
+		clearTimeout(inlineDeadline.timer);
 	}
 	return formatRunResult(executed.manifest, {
 		tasks: executed.tasks,

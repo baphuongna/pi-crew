@@ -21,6 +21,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { clearHooksScoped } from "../../hooks/registry.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
+import { stopAllWatchdogs } from "../../runtime/foreground-watchdog.ts";
 import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar-publisher.ts";
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -133,6 +134,10 @@ function buildCleanupRuntime(ctx: RegistrationContext): () => void {
 		// This is the only place where foreground team run controllers should be aborted.
 		for (const controller of ctx.foregroundTeamRunControllers.values()) controller.abort();
 		ctx.foregroundTeamRunControllers.clear();
+		// RC-01: stop the foreground-run watchdog timers on full shutdown — they were
+		// never cleared, so an active (non-terminal) foreground run left its watchdog
+		// setTimeout firing every 5 min (up to 2 h), retaining pi/cwd/runId in closure.
+		stopAllWatchdogs();
 		ctx.crewScheduler?.stop();
 		stopAsyncRunNotifier(ctx.notifierState);
 

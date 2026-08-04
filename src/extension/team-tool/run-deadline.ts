@@ -13,6 +13,8 @@ export interface RunDeadline {
 	deadlineMs: number;
 	/** Underlying controller — callers may link additional parent signals. */
 	controller: AbortController;
+	/** RC-02: the deadline timer handle — callers clear it on normal completion. */
+	timer: NodeJS.Timeout | undefined;
 }
 
 /** Fallback deadline when no config or param override is available: 1 hour. */
@@ -58,9 +60,12 @@ export function resolveRunDeadline<T extends object>(
 		else ctx.signal.addEventListener("abort", () => controller.abort(), { once: true });
 	}
 	// Arm the deadline timer (unref'd so it never blocks process exit).
+	// RC-02: expose the timer so callers can clearTimeout on normal completion —
+	// otherwise every run leaves a dangling 1h timer retaining ctx/params in closure.
+	let timer: NodeJS.Timeout | undefined;
 	if (deadlineMs > 0) {
-		const timer = setTimeout(() => controller.abort(), deadlineMs);
+		timer = setTimeout(() => controller.abort(), deadlineMs);
 		timer.unref?.();
 	}
-	return { signal: controller.signal, deadlineMs, controller };
+	return { signal: controller.signal, deadlineMs, controller, timer };
 }
