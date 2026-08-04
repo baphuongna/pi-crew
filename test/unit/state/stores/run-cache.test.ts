@@ -5,6 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { clearCache, computeRunCacheKey, getCachedRun, getCacheStats, saveRunToCache } from "../../../../src/state/stores/run-cache.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
+import { projectCrewRoot } from "../../../../src/utils/paths.ts";
 
 test("computeRunCacheKey: deterministic", () => {
 	const key1 = computeRunCacheKey("fix bug", "default", "default", "/tmp");
@@ -175,8 +176,12 @@ test("saveRunToCache: corrupt index.json still throws (NEW-P4 parse-error semant
 	try {
 		const key = computeRunCacheKey("nop4 corrupt index", "default", "default", cwd);
 		saveRunToCache(cwd, key, "run_nop4_corrupt", "completed", [], "nop4 corrupt index", "default");
-		// Corrupt the index — a SyntaxError must propagate (only ENOENT is swallowed).
-		fs.writeFileSync(path.join(cwd, ".crew", "cache", "index.json"), "{ not valid json", "utf-8");
+		// Corrupt the index at the SAME path saveRunToCache uses (cacheDir resolves via
+		// projectCrewRoot, which may diverge from cwd/.crew on symlinked tmpdirs like
+		// macOS /var/folders -> /private/var/folders). A SyntaxError must propagate
+		// (only ENOENT is swallowed).
+		const indexPath = path.join(projectCrewRoot(cwd), "cache", "index.json");
+		fs.writeFileSync(indexPath, "{ not valid json", "utf-8");
 		assert.throws(() => saveRunToCache(cwd, key, "run_nop4_corrupt2", "completed", [], "nop4 corrupt index", "default"));
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
