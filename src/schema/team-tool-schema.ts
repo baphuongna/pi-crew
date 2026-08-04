@@ -220,7 +220,11 @@ const sharedFields = {
 		// numeric values when a Union has a string-literal branch. handleTeamTool
 		// coerces strings back to numbers before handlers run.
 		Type.Union(
-			[Type.Literal(""), Type.Integer({ description: "Ms epoch deadline for a reply." }), Type.String({ pattern: NUMERIC_STRING_RE })],
+			[
+				Type.Literal(""),
+				Type.Integer({ description: "Ms epoch deadline for a reply." }),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
+			],
 			{
 				description: "Ms epoch deadline for a reply.",
 			},
@@ -244,7 +248,11 @@ const sharedFields = {
 		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces
 		// back to number.
 		Type.Union(
-			[Type.Literal(""), Type.Number({ description: "Interval in milliseconds between recurring scheduled runs." }), Type.String({ pattern: NUMERIC_STRING_RE })],
+			[
+				Type.Literal(""),
+				Type.Number({ description: "Interval in milliseconds between recurring scheduled runs." }),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
+			],
 			{ description: "Interval in milliseconds between recurring scheduled runs." },
 		),
 	),
@@ -330,10 +338,21 @@ const sharedFields = {
 	tokenBudget: Type.Optional(
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
 		// Also accept stringified numbers (pi-ai coercion); handleTeamTool coerces.
-		Type.Union([Type.Literal(""), Type.Number({ description: "Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.", minimum: 0 }), Type.String({ pattern: NUMERIC_STRING_RE })], {
-			description:
-				"Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.",
-		}),
+		Type.Union(
+			[
+				Type.Literal(""),
+				Type.Number({
+					description:
+						"Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.",
+					minimum: 0,
+				}),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
+			],
+			{
+				description:
+					"Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.",
+			},
+		),
 	),
 	args: Type.Optional(Type.Any()),
 	analysis: Type.Optional(

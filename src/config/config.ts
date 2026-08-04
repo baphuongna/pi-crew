@@ -282,7 +282,14 @@ function sanitizeProjectConfig(projectPath: string, userConfig: PiTeamsConfig, c
 	dropTopLevel("requireCleanWorktreeLeader");
 	if (config.runtime) {
 		const runtime = { ...config.runtime };
-		for (const key of ["mode", "preferLiveSession", "allowChildProcessFallback", "inheritContext", "isolationPolicy", "agentExtensions"] as const) {
+		for (const key of [
+			"mode",
+			"preferLiveSession",
+			"allowChildProcessFallback",
+			"inheritContext",
+			"isolationPolicy",
+			"agentExtensions",
+		] as const) {
 			if (runtime[key] !== undefined) {
 				delete runtime[key];
 				warnings.push(projectOverrideWarning(projectPath, `runtime.${key}`));

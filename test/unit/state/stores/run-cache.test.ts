@@ -146,9 +146,7 @@ test("saveRunToCache: missing index.json falls back to empty index without throw
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
 	try {
 		const key = computeRunCacheKey("nop4 missing index", "default", "default", cwd);
-		assert.doesNotThrow(() =>
-			saveRunToCache(cwd, key, "run_nop4_missing", "completed", [], "nop4 missing index", "default"),
-		);
+		assert.doesNotThrow(() => saveRunToCache(cwd, key, "run_nop4_missing", "completed", [], "nop4 missing index", "default"));
 		const cached = getCachedRun(cwd, key);
 		assert.ok(cached !== null);
 		assert.equal(cached!.runId, "run_nop4_missing");
@@ -164,9 +162,7 @@ test("saveRunToCache: present index.json is parsed and merged (NEW-P4)", () => {
 		const key2 = computeRunCacheKey("nop4 index present 2", "default", "default", cwd);
 		saveRunToCache(cwd, key1, "run_nop4_1", "completed", [], "nop4 index present 1", "default");
 		// index.json exists now; second save must read + merge, not clobber
-		assert.doesNotThrow(() =>
-			saveRunToCache(cwd, key2, "run_nop4_2", "completed", [], "nop4 index present 2", "default"),
-		);
+		assert.doesNotThrow(() => saveRunToCache(cwd, key2, "run_nop4_2", "completed", [], "nop4 index present 2", "default"));
 		assert.equal(getCachedRun(cwd, key1)?.runId, "run_nop4_1");
 		assert.equal(getCachedRun(cwd, key2)?.runId, "run_nop4_2");
 	} finally {
@@ -181,9 +177,7 @@ test("saveRunToCache: corrupt index.json still throws (NEW-P4 parse-error semant
 		saveRunToCache(cwd, key, "run_nop4_corrupt", "completed", [], "nop4 corrupt index", "default");
 		// Corrupt the index — a SyntaxError must propagate (only ENOENT is swallowed).
 		fs.writeFileSync(path.join(cwd, ".crew", "cache", "index.json"), "{ not valid json", "utf-8");
-		assert.throws(() =>
-			saveRunToCache(cwd, key, "run_nop4_corrupt2", "completed", [], "nop4 corrupt index", "default"),
-		);
+		assert.throws(() => saveRunToCache(cwd, key, "run_nop4_corrupt2", "completed", [], "nop4 corrupt index", "default"));
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

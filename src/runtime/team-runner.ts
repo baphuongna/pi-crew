@@ -2116,8 +2116,8 @@ async function advanceWorkflowPhases(ctx: SchedulerContext): Promise<void> {
  */
 async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
 	const input = ctx.input;
-	let tasks = ctx.tasks;
-	let manifest = ctx.manifest;
+	const tasks = ctx.tasks;
+	const manifest = ctx.manifest;
 	// Per-task budget enforcement: check cumulative usage after each batch merge.
 	// This prevents a single task from consuming 100% of the budget before
 	// abort triggers (the goal-loop only checks at turn boundaries).

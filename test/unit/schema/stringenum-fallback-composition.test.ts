@@ -66,9 +66,11 @@ test("fallback branch produces the `anyOf` shape that allActionLiterals depends 
 	assert.equal(Array.isArray(fallbackSet.enum), false, "fallback action set must NOT use compact `enum`");
 
 	// Mirror allActionLiterals' extraction over the fallback shape:
-	const extracted = ((fallbackSet.anyOf as { const: string }[] | undefined) ??
+	const extracted = (
+		(fallbackSet.anyOf as { const: string }[] | undefined) ??
 		(Array.isArray(fallbackSet.enum) ? fallbackSet.enum.map((v) => ({ const: v })) : []) ??
-		[])
+		[]
+	)
 		.map((l) => l.const)
 		.filter((c) => c !== "");
 	assert.deepEqual(extracted, [...ACTIONS], "all actions extracted, '' unset marker excluded");

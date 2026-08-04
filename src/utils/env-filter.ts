@@ -156,10 +156,7 @@ export function sanitizeEnvSecrets(env: NodeJS.ProcessEnv, options?: SanitizeEnv
 			// Glob-matched keys (e.g. PI_CREW_*): NEW-S1 secondary guard — a broad glob
 			// must not forward secret-named keys (PI_CREW_OPENAI_API_KEY,
 			// PI_CREW_SECRET_TOKEN, ...) to spawned hook scripts with process access.
-			if (
-				globPrefixes.some((prefix) => key.startsWith(prefix) && key.length > prefix.length) &&
-				!isSecretKey(key)
-			) {
+			if (globPrefixes.some((prefix) => key.startsWith(prefix) && key.length > prefix.length) && !isSecretKey(key)) {
 				filtered[key] = value;
 			}
 		}

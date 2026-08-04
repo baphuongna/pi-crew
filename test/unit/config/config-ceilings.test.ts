@@ -55,11 +55,7 @@ test("loadConfig accepts taskTimeoutMs up to 24h and drops beyond (RT-NEW-1)", (
 		// runtimeMaxTurns (10_000) ceiling, so 300_000ms > 10_000 silently returned
 		// undefined → NO timeout enforced (runaway task). Now bounded by
 		// runtimeTaskTimeoutMs (24h), so it must parse successfully.
-		fs.writeFileSync(
-			filePath,
-			JSON.stringify({ runtime: { taskTimeoutMs: 300_000 } }, null, 2),
-			"utf-8",
-		);
+		fs.writeFileSync(filePath, JSON.stringify({ runtime: { taskTimeoutMs: 300_000 } }, null, 2), "utf-8");
 		const loaded = loadConfig();
 		assert.equal(loaded.config.runtime?.taskTimeoutMs, 300_000, "5-minute taskTimeoutMs must parse (RT-NEW-1)");
 

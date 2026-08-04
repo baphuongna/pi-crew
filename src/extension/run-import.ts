@@ -64,9 +64,7 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 	// twice, exhausting memory.
 	const bundleStat = fs.statSync(resolvedPath);
 	if (bundleStat.size > MAX_IMPORT_BUNDLE_BYTES) {
-		throw new Error(
-			`Import bundle exceeds size limit: ${bundleStat.size} bytes > ${MAX_IMPORT_BUNDLE_BYTES} bytes (${resolvedPath})`,
-		);
+		throw new Error(`Import bundle exceeds size limit: ${bundleStat.size} bytes > ${MAX_IMPORT_BUNDLE_BYTES} bytes (${resolvedPath})`);
 	}
 	// DI-1: read the file ONCE and parse the same string twice (raw + hash).
 	// Previously the file was read twice (double I/O); a large bundle could be

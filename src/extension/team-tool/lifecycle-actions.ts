@@ -187,7 +187,9 @@ export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext)
 			`Kept: ${pruned.kept.length}`,
 			`${dryRun ? "Would remove" : "Removed"}: ${pruned.removed.length}`,
 			...(pruned.auditPath ? [`Audit: ${pruned.auditPath}`] : []),
-			...(pruned.removed.length ? [`${dryRun ? "Would remove" : "Removed"} runs:`, ...pruned.removed.map((runId) => `- ${runId}`)] : []),
+			...(pruned.removed.length
+				? [`${dryRun ? "Would remove" : "Removed"} runs:`, ...pruned.removed.map((runId) => `- ${runId}`)]
+				: []),
 		].join("\n"),
 		{ action: "prune", status: "ok", intent },
 	);

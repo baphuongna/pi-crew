@@ -77,10 +77,7 @@ test("ST-1b: snapshotDirtyWorktree captures non-ASCII filenames when caller pass
 		// The non-ASCII file must be captured (not silently skipped). This is the
 		// STATE-8 regression guard: with core.quotePath=false the raw UTF-8 path
 		// survives path-join + existsSync and is backed up.
-		assert.ok(
-			snapshot.includes(nonAsciiName),
-			`non-ASCII file '${nonAsciiName}' must appear in snapshot (STATE-8); got:\n${snapshot}`,
-		);
+		assert.ok(snapshot.includes(nonAsciiName), `non-ASCII file '${nonAsciiName}' must appear in snapshot (STATE-8); got:\n${snapshot}`);
 		assert.ok(snapshot.includes(nonAsciiContent.trim()), "non-ASCII file content must be captured");
 	} finally {
 		try {
