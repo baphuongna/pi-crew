@@ -10,6 +10,7 @@ import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot, userPiRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { sleep } from "../../utils/sleep.ts";
 import { cleanupRunWorktrees } from "../../worktree/cleanup.ts";
 import { listImportedRuns } from "../import-index.ts";
 import { exportRunBundle } from "../run-export.ts";
@@ -282,6 +283,20 @@ export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext
 	const resolvedArtifactsRoot = resolveRealContainedPath(crewRoot, loaded.manifest.artifactsRoot);
 	fs.rmSync(resolvedStateRoot, { recursive: true, force: true });
 	fs.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
+	// FORGET-RESURRECT (observed 2026-08-04): the SIGTERM above is fire-and-forget
+	// (killProcessPid returns void; no await on process-group exit). A still-alive
+	// background runner/worker can land one final heartbeat write (15s interval)
+	// AFTER the first rmSync — atomicWriteFile mkdirSync(recursive) RE-CREATES the
+	// state dir, resurrecting heartbeat.json in a dir we just forgot. Drain briefly
+	// (grace period for in-flight writes) then re-remove any resurrected residue.
+	// A 250ms window catches the common in-flight write race; a still-running
+	// (un-killable) process could resurrect later, but that is a separate leak
+	// (zombie process) that the stale-reconciler re-prunes.
+	if (fs.existsSync(resolvedStateRoot) || fs.existsSync(resolvedArtifactsRoot)) {
+		await sleep(250);
+		fs.rmSync(resolvedStateRoot, { recursive: true, force: true });
+		fs.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
+	}
 	return result(
 		[
 			`Forgot run ${loaded.manifest.runId}.`,

@@ -183,6 +183,30 @@ test("handleTeamTool 'forget' returns error without confirm", async () => {
 	}
 });
 
+// FORGET-RESURRECT (observed 2026-08-04): a still-alive background runner can
+// land one final heartbeat write after the first rmSync — atomicWriteFile
+// mkdirSync(recursive) RE-CREATES the state dir. handleForget now drains briefly
+// and re-removes resurrected residue. Verify the success path still fully
+// removes state + artifacts without regressions.
+test("handleTeamTool 'forget' success removes state + artifacts", async () => {
+	const cwd = makeTmpCwd();
+	try {
+		const { runId } = seedRun(cwd);
+		const stateRoot = path.join(cwd, ".crew", "state", "runs", runId);
+		const artifactsRoot = path.join(cwd, ".crew", "artifacts", runId);
+		// Precondition: state exists (seedRun created it), artifacts dir absent.
+		assert.equal(fs.existsSync(stateRoot), true);
+		const out = await handleTeamTool({ action: "forget", runId, confirm: true }, { cwd });
+		assert.equal(out.isError, false);
+		assert.match(firstText(out), /Forgot run/);
+		// State dir fully removed by the success path.
+		assert.equal(fs.existsSync(stateRoot), false);
+		assert.equal(fs.existsSync(artifactsRoot), false);
+	} finally {
+		cleanupCwd(cwd);
+	}
+});
+
 // ---------------------------------------------------------------------------
 // 6. "cleanup" action delegates to handleCleanup
 // ---------------------------------------------------------------------------
