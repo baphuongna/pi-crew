@@ -40,6 +40,17 @@ export function deployBundledThemes(): number {
 
 		if (!fs.existsSync(srcDir)) return 0;
 
+		// PERF-7: mtime fast-path. If the destination dir is at least as new as the
+		// source dir, the deployed themes are already current — skip the per-file
+		// read+compare loop entirely (~22 sync fs ops -> 2 statSync on the steady
+		// path). Falls through to the per-file deploy if either stat is missing or
+		// the source is newer (e.g. a new pi-crew version shipped updated themes).
+		try {
+			if (fs.statSync(srcDir).mtimeMs <= fs.statSync(dstDir).mtimeMs) return 0;
+		} catch {
+			/* dst missing or stat failed -> fall through to per-file deploy */
+		}
+
 		const files = (fs.readdirSync(srcDir) as string[]).filter((f) => f.endsWith(".json"));
 		if (files.length === 0) return 0;
 
