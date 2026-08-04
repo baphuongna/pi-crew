@@ -224,7 +224,9 @@ const sharedFields = {
 		}),
 	),
 	interval: Type.Optional(
-		Type.Number({
+		// Empty-string unset marker accepted (models emit "" when no interval; pi-ai
+		// validateToolArguments rejects bare Number for "" before the handler runs).
+		Type.Union([Type.Literal(""), Type.Number({ description: "Interval in milliseconds between recurring scheduled runs." })], {
 			description: "Interval in milliseconds between recurring scheduled runs.",
 		}),
 	),
@@ -262,20 +264,40 @@ const sharedFields = {
 		}),
 	),
 	budgetWarning: Type.Optional(
-		Type.Number({
-			description:
-				"Budget warning threshold as a fraction (0-1). Default: 0.8 (80%). Emits warning event when this threshold is crossed.",
-			minimum: 0,
-			maximum: 1,
-		}),
+		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
+		Type.Union(
+			[
+				Type.Literal(""),
+				Type.Number({
+					description:
+						"Budget warning threshold as a fraction (0-1). Default: 0.8 (80%). Emits warning event when this threshold is crossed.",
+					minimum: 0,
+					maximum: 1,
+				}),
+			],
+			{
+				description:
+					"Budget warning threshold as a fraction (0-1). Default: 0.8 (80%). Emits warning event when this threshold is crossed.",
+			},
+		),
 	),
 	budgetAbort: Type.Optional(
-		Type.Number({
-			description:
-				"Budget abort threshold as a fraction (0-1). Default: 0.95 (95%). Aborts further execution when this threshold is crossed.",
-			minimum: 0,
-			maximum: 1,
-		}),
+		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
+		Type.Union(
+			[
+				Type.Literal(""),
+				Type.Number({
+					description:
+						"Budget abort threshold as a fraction (0-1). Default: 0.95 (95%). Aborts further execution when this threshold is crossed.",
+					minimum: 0,
+					maximum: 1,
+				}),
+			],
+			{
+				description:
+					"Budget abort threshold as a fraction (0-1). Default: 0.95 (95%). Aborts further execution when this threshold is crossed.",
+			},
+		),
 	),
 	runKind: Type.Optional(
 		Type.Union([Type.Literal(""), Type.Literal("team-run"), Type.Literal("goal-loop"), Type.Literal("dynamic-workflow")], {
@@ -284,10 +306,10 @@ const sharedFields = {
 		}),
 	),
 	tokenBudget: Type.Optional(
-		Type.Number({
+		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
+		Type.Union([Type.Literal(""), Type.Number({ description: "Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.", minimum: 0 })], {
 			description:
 				"Per-workflow token budget for dynamic-workflow runs. When set, ctx.agent() auto-rejects with ok:false once exhausted. Accumulated from each agent run's reported usage. Overrides workflow.maxTokenBudget.",
-			minimum: 0,
 		}),
 	),
 	args: Type.Optional(Type.Any()),
