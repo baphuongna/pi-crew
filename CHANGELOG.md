@@ -3,6 +3,24 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.58] — fix load crash on stale hoisted @sinclair/typebox (loadability) + bundle round-1/round-2 fixes (2026-08-04)
+
+### Bug fixes
+
+- **CRITICAL — extension failed to load after 0.9.57 update (`Cannot read properties of undefined (reading 'Set')`)**. `src/schema/team-tool-schema.ts` called `TypeRegistry.Set("StringEnum", …)` at module top-level. `TypeRegistry` only exists in `@sinclair/typebox@0.34.50+`, but pi-crew declared `^0.34.50`. Pi installs **all** extensions into **one** shared npm store with hoisted deps, and on update it only re-checks the extension's own `package.json` version — if pi-crew is already latest, it does **not** re-resolve transitive deps. So an install could land pi-crew@0.9.57 (needs `TypeRegistry`) over a stale hoisted `@sinclair/typebox@0.34.49` (no `TypeRegistry`). Under ESM↔CJS interop, `import { TypeRegistry }` then resolved to `undefined`, and the unguarded top-level `TypeRegistry.Set(…)` crashed extension load (the bundle path swallowed it and fell through to strip-types, where it was uncaught). `--force` only applies to self-update, not extensions, so the dirty dep tree was never healed.
+  - **Fix**: feature-detect `TypeRegistry` (`HAS_TYPE_REGISTRY`) and skip registration when absent. `buildStringEnum()` (renamed from the internal `stringEnum`, now exported) takes an injectable `hasRegistry` flag and falls back to a verbose-but-validating `Type.Union` of `Type.Literal`s when `TypeRegistry` is missing — so the extension **always** loads regardless of the store's typebox version, on both the bundle and strip-types paths. `Value.Check` works natively in both branches. The fallback is ~3× larger JSON for the LLM but functionally correct.
+  - Verified: `test/unit/schema/stringenum-typebox-guard.test.ts` exercises both branches against real typebox `Value.Check`; all 95 `test/unit/schema/**` tests green; `tsc --noEmit` clean.
+  - User remedy on an already-broken machine (until 0.9.58 is installed): `rm -rf ~/.pi/agent/npm/node_modules/@sinclair/typebox ~/.pi/agent/npm/node_modules/.package-lock.json` then `pi install npm:pi-crew@0.9.58` (forces a clean dep resolution); or start with `pi -ne`.
+
+### Also bundled in 0.9.58 (already on main, unreleased)
+
+- **Round-1 security hardening** (`ea03dd88`): strip `runtime.agentExtensions` from untrusted project config, harden untrusted-data fence injection (no `</untrusted-…>` escape), filter `PI_CREW_*` secrets from child-Pi env.
+- **Round-2 locking fixes** (`6a5d8d16`): PID-guarded `releaseOwnLock` (LOCK-1 — no longer deletes a stolen lock in the `finally`), and `handleResume` releases the resume `withRunLock` before the minutes-long `executeTeamRun` (LOCK-2).
+
+### Note on postinstall "bundle build FAILED" message
+
+- Harmless and expected on published installs: `scripts/build-bundle.mjs` is intentionally omitted from the npm tarball (`files` list) so the committed `dist/index.mjs` is used as-is. `postinstall.mjs` reports the script's absence as a red FAILED line; the install succeeds via the committed bundle. (No code change — documenting so the red line is not mistaken for the load crash.)
+
 ## [0.9.57] — provider-extension auto-discovery + team-tool schema repair + whole-project reorganization (2026-08-03)
 
 ### New: provider extensions work in subagents (no hardcoding)

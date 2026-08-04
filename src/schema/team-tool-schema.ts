@@ -8,17 +8,60 @@ import { type TSchema, Type, TypeRegistry } from "@sinclair/typebox";
 // LLM tool definition) see the compact `{ type: "string", enum: [...] }`
 // (~600 chars vs ~1890 for anyOf+const), and Value.Check validates via
 // the registered predicate.
+//
+// GUARD (v0.9.58 — load-crash fix): TypeRegistry was added in
+// @sinclair/typebox@0.34.50. Pi installs ALL extensions into ONE shared
+// npm store with hoisted deps, and on update it only checks the extension's
+// own package.json version — if pi-crew is already latest, it does NOT re-
+// resolve transitive deps. So an install could land pi-crew@0.9.57 (which
+// needs TypeRegistry) over a stale hoisted @sinclair/typebox@0.34.49 (which
+// lacks it). Under ESM↔CJS interop, `import { TypeRegistry }` then resolves
+// to `undefined`, and the unguarded top-level `TypeRegistry.Set(...)` crashed
+// extension load: "Cannot read properties of undefined (reading 'Set')".
+//
+// We now feature-detect TypeRegistry and skip registration when it is absent;
+// buildStringEnum() falls back to a verbose-but-validating anyOf-of-literals
+// in that case, so the extension ALWAYS loads regardless of the store's
+// typebox. buildStringEnum() is exported so unit tests cover BOTH branches.
 // ─────────────────────────────────────────────────────────────────────────
-TypeRegistry.Set("StringEnum", (schema, value) => {
-	const s = schema as { enum?: unknown[] };
-	return typeof value === "string" && Array.isArray(s.enum) && s.enum.includes(value);
-});
 const KIND = Symbol.for("TypeBox.Kind");
-function stringEnum(values: readonly string[], description: string): TSchema {
-	// Empty string accepted: calling models emit "" for unset action; the handler
-	// treats it as omitted (defaults to "list"). Must be a plain enum member so
-	// JSON-Schema consumers (pi-ai validation) accept it without coercion.
-	return Type.Unsafe({ [KIND]: "StringEnum", type: "string", enum: ["", ...values], description });
+
+// Feature-detect TypeRegistry.Set (typebox >= 0.34.50). Guarded so a stale
+// hoisted typebox (e.g. 0.34.49 in a shared npm store) cannot crash load.
+export const HAS_TYPE_REGISTRY =
+	typeof TypeRegistry === "object" && TypeRegistry !== null && typeof (TypeRegistry as { Set?: unknown }).Set === "function";
+
+if (HAS_TYPE_REGISTRY) {
+	TypeRegistry.Set("StringEnum", (schema, value) => {
+		const s = schema as { enum?: unknown[] };
+		return typeof value === "string" && Array.isArray(s.enum) && s.enum.includes(value);
+	});
+}
+
+/**
+ * Build a compact `{ type: "string", enum: [...] }` action-enum schema that
+ * Value.Check can validate.
+ *
+ * - Registry branch (typebox >= 0.34.50): registered "StringEnum" kind →
+ *   compact enum (EXT-7 optimization, ~600 chars).
+ * - Fallback branch (stale hoisted typebox < 0.34.50): `anyOf` of
+ * `Type.Literal`s → ~3x larger JSON but natively validating with no custom
+ *   kind, so Value.Check still works. This is what keeps pi-crew loadable on
+ *   installs whose shared store still carries an older @sinclair/typebox.
+ *
+ * `hasRegistry` is injectable so unit tests exercise BOTH branches against the
+ * real typebox Type/Value (test/unit/schema/stringenum-typebox-guard.test.ts).
+ *
+ * Empty string is the unset marker (calling models emit "" for an omitted
+ * action; the handler treats it as "list"). It must be a plain member so
+ * JSON-Schema consumers (pi-ai validation) accept it without coercion.
+ */
+export function buildStringEnum(values: readonly string[], description: string, opts: { hasRegistry?: boolean } = {}): TSchema {
+	const hasRegistry = opts.hasRegistry ?? HAS_TYPE_REGISTRY;
+	if (hasRegistry) {
+		return Type.Unsafe({ [KIND]: "StringEnum", type: "string", enum: ["", ...values], description });
+	}
+	return Type.Union([Type.Literal(""), ...values.map((v) => Type.Literal(v))], { description });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -267,7 +310,7 @@ const sharedFields = {
 const ACTION_DESCRIPTION = "Team action. Defaults to 'list' when omitted.";
 
 const RUN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
-const runActions = Type.Optional(stringEnum(RUN_ACTIONS, ACTION_DESCRIPTION));
+const runActions = Type.Optional(buildStringEnum(RUN_ACTIONS, ACTION_DESCRIPTION));
 
 const STATUS_ACTIONS = [
 	"status",
@@ -287,10 +330,10 @@ const STATUS_ACTIONS = [
 	"recommend",
 	"help",
 ] as const;
-const statusActions = Type.Optional(stringEnum(STATUS_ACTIONS, ACTION_DESCRIPTION));
+const statusActions = Type.Optional(buildStringEnum(STATUS_ACTIONS, ACTION_DESCRIPTION));
 
 const CONTROL_ACTIONS = ["cancel", "invalidate", "respond", "cleanup", "prune", "forget", "doctor"] as const;
-const controlActions = Type.Optional(stringEnum(CONTROL_ACTIONS, ACTION_DESCRIPTION));
+const controlActions = Type.Optional(buildStringEnum(CONTROL_ACTIONS, ACTION_DESCRIPTION));
 
 const MANAGE_ACTIONS = [
 	"create",
@@ -310,10 +353,10 @@ const MANAGE_ACTIONS = [
 	"imports",
 	"export",
 ] as const;
-const manageActions = Type.Optional(stringEnum(MANAGE_ACTIONS, ACTION_DESCRIPTION));
+const manageActions = Type.Optional(buildStringEnum(MANAGE_ACTIONS, ACTION_DESCRIPTION));
 
 const AUTOMATE_ACTIONS = ["schedule", "scheduled", "anchor", "auto-summarize", "auto_boomerang", "api"] as const;
-const automateActions = Type.Optional(stringEnum(AUTOMATE_ACTIONS, ACTION_DESCRIPTION));
+const automateActions = Type.Optional(buildStringEnum(AUTOMATE_ACTIONS, ACTION_DESCRIPTION));
 
 // ─── Domain schemas (additionalProperties: true — Phase 1, not tightened) ────
 
@@ -343,8 +386,8 @@ export const allActionLiterals = ([runActions, statusActions, controlActions, ma
 			(set.anyOf as { const: string }[] | undefined) ??
 			(Array.isArray(set.enum) ? set.enum.map((v: unknown) => ({ const: v })) : []) ??
 			[];
-		// stringEnum accepts "" as an unset marker for model callers; it is NOT an
-		// action, so exclude it from the literal/type/suggestion derivations.
+		// buildStringEnum accepts "" as an unset marker for model callers; it is NOT
+		// an action, so exclude it from the literal/type/suggestion derivations.
 		return literals.filter((l) => l.const !== "");
 	},
 );
@@ -366,7 +409,7 @@ export type TeamAction =
 export const TeamToolParams = Type.Object(
 	{
 		action: Type.Optional(
-			stringEnum(
+			buildStringEnum(
 				allActionLiterals.map((l) => (l as { const: string }).const),
 				ACTION_DESCRIPTION,
 			),

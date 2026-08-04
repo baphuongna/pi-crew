@@ -20,7 +20,7 @@ import { allActionLiterals } from "../schema/team-tool-schema.ts";
  * The complete set of valid top-level `team` actions. EXT-4/EXT-8: derived from
  * `allActionLiterals` (the schema's single source of truth), not hand-maintained.
  * Each `allActionLiterals` entry is a `{ const: string }` produced by the domain
- * `stringEnum` schemas; we map to the raw string for use with the fuzzy matcher.
+ * `buildStringEnum` schemas; we map to the raw string for use with the fuzzy matcher.
  *
  * Sorted by (length desc, then alphabetical) so `findClosestKey` tie-breaking
  * is deterministic and prefers longer (more specific) matches on equal
