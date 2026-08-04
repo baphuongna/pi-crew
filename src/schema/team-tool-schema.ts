@@ -203,7 +203,14 @@ const sharedFields = {
 		}),
 	),
 	replyFrom: Type.Optional(Type.String({ description: "Task ID sending the reply." })),
-	replyDeadline: Type.Optional(Type.Integer({ description: "Ms epoch deadline for a reply." })),
+	replyDeadline: Type.Optional(
+		// Allow the empty-string unset marker (models emit "" when no deadline is
+		// set; pi-ai validateToolArguments runs BEFORE the handler and rejects a
+		// bare Integer for ""). Mirror the other falsy-allowances (budgetTotal:0).
+		Type.Union([Type.Literal(""), Type.Integer({ description: "Ms epoch deadline for a reply." })], {
+			description: "Ms epoch deadline for a reply.",
+		}),
+	),
 	planPath: Type.Optional(
 		Type.String({
 			description: "Path to a markdown plan document for orchestration.",
