@@ -26,6 +26,15 @@
 
 - Harmless and expected on published installs: `scripts/build-bundle.mjs` is intentionally omitted from the npm tarball (`files` list) so the committed `dist/index.mjs` is used as-is. `postinstall.mjs` reports the script's absence as a red FAILED line; the install succeeds via the committed bundle. (No code change — documenting so the red line is not mistaken for the load crash.)
 
+### Late-0.9.58 additions — schema validation repair, prune dryRun, cleanup (post round-6)
+
+- **Schema — empty-string unset markers** (`9173c6c4`, `bb47191e`): `replyDeadline`, `interval`, `budgetWarning`, `budgetAbort`, `tokenBudget` now accept `""`. Calling models emit `""` for unset optional fields, and pi-ai `validateToolArguments` runs BEFORE the pi-crew handler — a bare `Type.Integer`/`Type.Number` rejected `""` → every team action returned `Validation failed for tool team` and the model looped. Added `Type.Literal("")` to each union.
+- **Schema — stringified numbers** (`9064343b`): pi-ai's tool-argument coercion stringifies a numeric value when the schema `Union` has a string-literal branch (e.g. `interval:0` arrived as `"0"`). Broadened the 5 numeric-union fields to also accept a numeric-string pattern branch, and added `normalizeLooseNumericFields()` in `handleTeamTool` to coerce the string form back to a real number (and treat `""` as unset) before domain routers read params. Without this, `team prune` and any call sending these optional numeric fields with value `0` failed validation.
+- **prune dryRun now a true non-destructive preview** (`85f657c6`, `d5d42032`): `handlePrune` ignored `params.dryRun` entirely — it only checked `confirm`, then deleted. A caller requesting a preview (`dryRun:true`) with `confirm:true` got runs DELETED instead of listed (data-safety bug). `pruneFinishedRuns` now takes a `dryRun` option (stops after the read-only safety check — no deletion, no worktree cleanup, no audit); `handlePrune` lets `dryRun` bypass `confirm`; the `tool_call` destructive gate now allows `prune dryRun=true` (previously only `cleanup` was exempt).
+- **forget resurrect fix** (`672a3d4d`): a still-alive background runner could land one final heartbeat write after the first `rmSync` in `handleForget` — `atomicWriteFile`'s `mkdirSync(recursive)` re-created the state dir, resurrecting `heartbeat.json` in a dir we just forgot. Now drains briefly (250ms) and re-removes any resurrected residue.
+- **Round-6 resource cleanup** (`9f81a081`): `stopAllWatchdogs()` exported + called in `cleanupRuntime`; `RunDeadline.timer` cleared in all 4 run paths (dwf/async/fg/inline); foreground-abort `removeEventListener`.
+- **CI green**: lint + format:check + full `npm test` pass on ubuntu/windows/macos (3 OSes). `2db4c6bc` fixed biome lint/format gaps; `9808f3b0` fixed a macOS-only path-divergence bug in the corrupt-index test.
+
 ## [0.9.57] — provider-extension auto-discovery + team-tool schema repair + whole-project reorganization (2026-08-03)
 
 ### New: provider extensions work in subagents (no hardcoding)
