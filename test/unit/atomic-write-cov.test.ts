@@ -66,6 +66,27 @@ describe("atomicWriteJson", () => {
 		removeTrackedTempDir(dir);
 	});
 
+	// PERF-6: compact option must serialize WITHOUT indentation for
+	// machine-only state files (tasks.json). Default stays pretty.
+	it("writes compact JSON when compact: true (PERF-6)", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "compact.json");
+		atomicWriteJson(filePath, { a: 1, b: [1, 2] }, { compact: true });
+		const content = fs.readFileSync(filePath, "utf-8");
+		assert.equal(content, '{"a":1,"b":[1,2]}\n', "compact write must be single-line (PERF-6)");
+		assert.equal(JSON.parse(content).a, 1, "compact JSON still valid");
+		removeTrackedTempDir(dir);
+	});
+
+	it("writes compact JSON asynchronously when compact: true (PERF-6)", async () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "compact-async.json");
+		await atomicWriteJsonAsync(filePath, { a: 1, b: "two" }, { compact: true });
+		const content = fs.readFileSync(filePath, "utf-8");
+		assert.equal(content, '{"a":1,"b":"two"}\n', "compact async write must be single-line (PERF-6)");
+		removeTrackedTempDir(dir);
+	});
+
 	it("overwrites existing JSON file", () => {
 		const dir = tmpDir();
 		const filePath = path.join(dir, "data.json");
@@ -100,6 +121,19 @@ describe("atomicWriteFileAsync", () => {
 		const filePath = path.join(dir, "deep", "file.txt");
 		await atomicWriteFileAsync(filePath, "deep content");
 		assert.equal(fs.readFileSync(filePath, "utf-8"), "deep content");
+		removeTrackedTempDir(dir);
+	});
+
+	// STATE-7: atomicWriteFileAsync previously hardcoded 0o600 and ignored the
+	// `mode` option (the sync variant correctly used `mode ?? 0o600`). Now the
+	// async variant must honor an explicit mode like the sync one does.
+	it("honors the mode option (STATE-7)", async () => {
+		if (process.platform === "win32") return; // Windows ignores Unix permission bits
+		const dir = tmpDir();
+		const filePath = path.join(dir, "mode.txt");
+		await atomicWriteFileAsync(filePath, "content", { mode: 0o640 });
+		const stat = fs.statSync(filePath);
+		assert.equal(stat.mode & 0o777, 0o640, "async write must honor explicit mode (STATE-7)");
 		removeTrackedTempDir(dir);
 	});
 });
@@ -189,6 +223,18 @@ describe("atomicWriteJsonCoalesced + flushPendingAtomicWrites", () => {
 		flushPendingAtomicWrites();
 		const result = readJsonFile<{ v: number }>(filePath);
 		assert.equal(result?.v, 3);
+		removeTrackedTempDir(dir);
+	});
+
+	// PERF-6: coalesced writes must honor the compact option so the buffered
+	// content is serialized without indentation (machine-only state files).
+	it("honors compact in coalesced writes (PERF-6)", () => {
+		const dir = tmpDir();
+		const filePath = path.join(dir, "coalesced-compact.json");
+		atomicWriteJsonCoalesced(filePath, { a: 1, b: "two" }, 10, { compact: true });
+		flushPendingAtomicWrites();
+		const content = fs.readFileSync(filePath, "utf-8");
+		assert.equal(content, '{"a":1,"b":"two"}\n', "compact coalesced write must not be pretty-printed (PERF-6)");
 		removeTrackedTempDir(dir);
 	});
 });

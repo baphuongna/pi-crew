@@ -238,7 +238,9 @@ function ensureTaskMailbox(manifest: TeamRunManifest, taskId: string): void {
 	taskMailboxDir(manifest, taskId, true);
 	for (const direction of ["inbox", "outbox"] as const) {
 		const filePath = mailboxFile(manifest, direction, taskId, true);
-		if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, "", "utf-8");
+		// STATE-10: use atomicWriteFile for consistency with ensureRunMailbox —
+		// the old fs.writeFileSync was non-atomic (TOCTOU on concurrent reads).
+		if (!fs.existsSync(filePath)) atomicWriteFile(filePath, "");
 	}
 }
 
@@ -472,7 +474,23 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 		};
 		setDeliveryCacheEntry(filePath, { mtimeMs: stat.mtimeMs, state });
 		return state;
-	} catch {
+	} catch (error) {
+		// NEW-R4: a corrupt delivery.json was previously swallowed silently, returning
+		// empty → messages appear undelivered → re-delivery on every replay. Quarantine
+		// the corrupt file (preserve for diagnosis) + log prominently so the re-delivery
+		// risk is visible. Mirror the state-store quarantineCorruptFile pattern.
+		const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
+		try {
+			fs.renameSync(filePath, quarantinePath);
+		} catch (renameError) {
+			logInternalError("mailbox.readDeliveryState.quarantine", renameError, `filePath=${filePath}`);
+		}
+		// NEW-R4: prominent (ungated) error so corrupt-delivery re-delivery risk is
+		// visible even without PI_TEAMS_DEBUG — messages may be re-delivered.
+		console.error(
+			`[pi-crew:mailbox.readDeliveryState] corrupt delivery.json quarantined to ${quarantinePath} — delivery state reset to empty; messages may be re-delivered. Error: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		deliveryCache.delete(filePath);
 		return { messages: {}, updatedAt: new Date().toISOString() };
 	}
 }

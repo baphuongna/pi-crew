@@ -219,6 +219,26 @@ test("configuredModelInfosFromPiConfig reads provider and model from Pi settings
 	}
 });
 
+// NEW-P4 (TOCTOU): readJsonObject now uses readFileSync + catch instead of
+// existsSync+read. A corrupt-but-present JSON file must still resolve to
+// undefined without throwing (missing → undefined is covered by the
+// "keeps agent/fallback models without Pi registry" tests above).
+test("configuredModelInfosFromPiConfig: corrupt settings.json resolves to no models without throwing (NEW-P4)", () => {
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-models-corrupt-"));
+	process.env.PI_CODING_AGENT_DIR = tempDir;
+	try {
+		fs.writeFileSync(path.join(tempDir, "settings.json"), "{ not valid json", "utf-8");
+		fs.writeFileSync(path.join(tempDir, "models.json"), "{ also not valid", "utf-8");
+		assert.doesNotThrow(() => configuredModelInfosFromPiConfig());
+		assert.deepEqual(configuredModelInfosFromPiConfig(), []);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(tempDir, { recursive: true, force: true });
+	}
+});
+
 // Regression tests for isRetryableModelFailure — the pi-crew model-fallback
 // "should we try the next candidate?" gate. The pi-core provider-retry layer
 // (agent-session.ts) already retries transient 5xx, but when ALL 3 provider

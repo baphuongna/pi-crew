@@ -17,6 +17,12 @@ export interface ImportedRunBundleInfo {
 	conflictReport?: ConflictReport;
 }
 
+// DI-1: DoS guard — cap the size of an import bundle. Exported run bundles are
+// bounded in practice (JSON manifest + tasks + events for one run); an oversized
+// file is either corrupted or a hostile DoS attempt (memory exhaustion from
+// reading + JSON.parse). Stat BEFORE reading so we never buffer a huge file.
+export const MAX_IMPORT_BUNDLE_BYTES = 50 * 1024 * 1024;
+
 function importRoot(cwd: string, scope: "project" | "user"): string {
 	const base = scope === "project" ? projectCrewRoot(cwd) : userCrewRoot();
 	// SECURITY NOTE: `DEFAULT_PATHS.state.importsSubdir` is a constant (not user-controlled).
@@ -53,7 +59,21 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 		}
 	}
 	if (!isContained) throw new Error(`Import path must be within project directory or crew root: ${resolvedPath}`);
-	const raw = JSON.parse(fs.readFileSync(resolvedPath, "utf-8")) as unknown;
+	// DI-1: DoS guard — check size BEFORE reading/parsing. Without this cap a
+	// hostile (or corrupted) multi-GB file would be fully buffered + parsed
+	// twice, exhausting memory.
+	const bundleStat = fs.statSync(resolvedPath);
+	if (bundleStat.size > MAX_IMPORT_BUNDLE_BYTES) {
+		throw new Error(
+			`Import bundle exceeds size limit: ${bundleStat.size} bytes > ${MAX_IMPORT_BUNDLE_BYTES} bytes (${resolvedPath})`,
+		);
+	}
+	// DI-1: read the file ONCE and parse the same string twice (raw + hash).
+	// Previously the file was read twice (double I/O); a large bundle could be
+	// swapped between the two reads (TOCTOU on content). Single read also keeps
+	// the parsed content consistent between the validation and hash steps.
+	const bundleJson = fs.readFileSync(resolvedPath, "utf-8");
+	const raw = JSON.parse(bundleJson) as unknown;
 	assertRunBundle(raw);
 
 	// Integrity check: verify SHA-256 hash if present in manifest.
@@ -65,7 +85,6 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 	// external HMAC or detached signature would be needed (out of scope).
 	// Blast radius is bounded: imports write to imports/<runId>/ only, execute
 	// no code, and are validated by isContained + assertSafePathId.
-	const bundleJson = fs.readFileSync(resolvedPath, "utf-8");
 	const parsedForHash = JSON.parse(bundleJson) as {
 		manifest?: { sha256?: string };
 	};

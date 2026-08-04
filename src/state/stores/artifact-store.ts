@@ -216,11 +216,11 @@ export function writeArtifact(artifactsRoot: string, options: ArtifactWriteOptio
 	}
 	content = redactSecretString(content);
 	atomicWriteFile(filePath, content);
-	// Compute hash on written bytes for integrity verification.
-	// Read back the actual file content to handle atomicWrite fallback path
-	// where the written content might differ from the input (e.g., concurrent writes).
-	const writtenContent = fs.readFileSync(filePath, "utf-8");
-	const contentHash = hashContent(writtenContent);
+	// STATE-9: compute the hash on the in-memory content (post-redaction) instead of
+	// reading the file back. atomicWriteFile writes the exact content atomically, so
+	// the read-back was only ever "defense" for a concurrent-write case that cannot
+	// occur — the file is replaced via atomic rename, never partially written.
+	const contentHash = hashContent(content);
 	const stats = fs.statSync(filePath);
 	return {
 		kind: options.kind,

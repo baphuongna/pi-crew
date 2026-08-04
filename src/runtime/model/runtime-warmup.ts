@@ -32,6 +32,17 @@
  * I/O for local modules). The `await` at spawn boundaries is belt-and-
  * suspenders for pathological cases where a spawn races the warmup promise.
  *
+ * PERF-5: in bundle mode (the default — `dist/index.mjs`), the warmup is
+ * SKIPPED entirely. esbuild's `__esm` helper does not preserve per-module
+ * `import.meta.url`, so every module's URL resolves to the bundle file itself
+ * and `new URL(spec, import.meta.url)` lands on `dist/.../*.ts` paths that
+ * don't exist (dist/ contains only `index.mjs`) → every `import()` throws
+ * ENOENT (swallowed) and `getRuntimeWarmupStatus()` used to falsely report
+ * `completed: true`. In the bundle the full module graph is already inlined
+ * in the single file, so there is no per-module instantiation to race — the
+ * warmup is pointless. We detect bundle mode and report an accurate `skipped`
+ * reason instead of `completed`.
+ *
  * @module runtime-warmup
  */
 
@@ -68,6 +79,21 @@ let warmupStarted = false;
 let warmupCompleted = false;
 let warmupDurationMs: number | undefined;
 let warmupError: string | undefined;
+let warmupSkipped: string | undefined;
+
+/**
+ * PERF-5: detect bundle mode — a module URL that lives inside the esbuild
+ * bundle (`dist/index.mjs`, the default entry). In the bundle every module's
+ * `import.meta.url` resolves to the bundle file itself (esbuild's `__esm`
+ * helper does not preserve per-module URLs), so a URL ending in
+ * `/dist/index.mjs` means we are running inside the bundled extension.
+ *
+ * Exported (pure function) so tests can pin the detection against
+ * representative source vs bundle URLs.
+ */
+export function isBundleModeUrl(moduleUrl: string): boolean {
+	return moduleUrl.endsWith("/dist/index.mjs");
+}
 
 /**
  * Start the runtime warmup (idempotent). Fires eager `import()` of the hot
@@ -80,6 +106,17 @@ let warmupError: string | undefined;
  */
 export function startRuntimeWarmup(): void {
 	if (warmupStarted) return;
+	// PERF-5: bundle mode (default) — skip warmup entirely. The modules are
+	// already inlined in dist/index.mjs; importing dist/.../*.ts would ENOENT.
+	// Report an accurate `skipped` reason instead of the old false
+	// `completed: true`. `awaitRuntimeWarmup()` still resolves instantly
+	// (nothing to race in the bundle).
+	if (isBundleModeUrl(import.meta.url)) {
+		warmupSkipped =
+			"bundle mode: module graph is already inlined in dist/index.mjs; warmup skipped (per-module cold-start race does not exist in the bundle)";
+		warmupPromise = Promise.resolve();
+		return;
+	}
 	warmupStarted = true;
 	const startedAt = Date.now();
 	warmupPromise = (async (): Promise<void> => {
@@ -130,6 +167,7 @@ export function resetRuntimeWarmupForTest(): void {
 	warmupCompleted = false;
 	warmupDurationMs = undefined;
 	warmupError = undefined;
+	warmupSkipped = undefined;
 }
 
 /** Test seam: has startRuntimeWarmup() been called? */
@@ -148,6 +186,8 @@ export interface RuntimeWarmupStatus {
 	completed: boolean;
 	durationMs: number | undefined;
 	error: string | undefined;
+	/** PERF-5: reason warmup was skipped (bundle mode), if applicable. */
+	skipped: string | undefined;
 }
 
 export function getRuntimeWarmupStatus(): RuntimeWarmupStatus {
@@ -156,5 +196,6 @@ export function getRuntimeWarmupStatus(): RuntimeWarmupStatus {
 		completed: warmupCompleted,
 		durationMs: warmupDurationMs,
 		error: warmupError,
+		skipped: warmupSkipped,
 	};
 }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import test from "node:test";
 import { clearCache, computeRunCacheKey, getCachedRun, getCacheStats, saveRunToCache } from "../../../../src/state/stores/run-cache.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
@@ -132,4 +134,57 @@ test("getCacheStats: counts entries correctly", () => {
 	assert.ok(stats.sizeBytes > 0);
 
 	clearCache(tmp);
+});
+
+// NEW-P4 (TOCTOU): saveRunToCache now reads index.json via readFileSync + ENOENT
+// catch instead of existsSync+read. These tests pin the three behaviors:
+// 1) missing index.json → falls back to {} without throwing,
+// 2) present index.json → parsed and merged correctly,
+// 3) corrupt-but-present index.json → SyntaxError still propagates (only ENOENT
+//    is swallowed — parse-error semantics unchanged from the existsSync era).
+test("saveRunToCache: missing index.json falls back to empty index without throwing (NEW-P4)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
+	try {
+		const key = computeRunCacheKey("nop4 missing index", "default", "default", cwd);
+		assert.doesNotThrow(() =>
+			saveRunToCache(cwd, key, "run_nop4_missing", "completed", [], "nop4 missing index", "default"),
+		);
+		const cached = getCachedRun(cwd, key);
+		assert.ok(cached !== null);
+		assert.equal(cached!.runId, "run_nop4_missing");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("saveRunToCache: present index.json is parsed and merged (NEW-P4)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
+	try {
+		const key1 = computeRunCacheKey("nop4 index present 1", "default", "default", cwd);
+		const key2 = computeRunCacheKey("nop4 index present 2", "default", "default", cwd);
+		saveRunToCache(cwd, key1, "run_nop4_1", "completed", [], "nop4 index present 1", "default");
+		// index.json exists now; second save must read + merge, not clobber
+		assert.doesNotThrow(() =>
+			saveRunToCache(cwd, key2, "run_nop4_2", "completed", [], "nop4 index present 2", "default"),
+		);
+		assert.equal(getCachedRun(cwd, key1)?.runId, "run_nop4_1");
+		assert.equal(getCachedRun(cwd, key2)?.runId, "run_nop4_2");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("saveRunToCache: corrupt index.json still throws (NEW-P4 parse-error semantics preserved)", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
+	try {
+		const key = computeRunCacheKey("nop4 corrupt index", "default", "default", cwd);
+		saveRunToCache(cwd, key, "run_nop4_corrupt", "completed", [], "nop4 corrupt index", "default");
+		// Corrupt the index — a SyntaxError must propagate (only ENOENT is swallowed).
+		fs.writeFileSync(path.join(cwd, ".crew", "cache", "index.json"), "{ not valid json", "utf-8");
+		assert.throws(() =>
+			saveRunToCache(cwd, key, "run_nop4_corrupt2", "completed", [], "nop4 corrupt index", "default"),
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });

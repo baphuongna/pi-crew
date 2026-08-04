@@ -141,7 +141,15 @@ export function injectGuidance(filePath: string, blocks: GuidanceBlock[]): Injec
 		}
 	}
 
-	const original = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
+	// NEW-P4: TOCTOU fix — readFileSync + ENOENT catch instead of existsSync+read
+	// (1 syscall, no race). Only ENOENT falls back to ""; any other read error
+	// (e.g. EACCES) propagates as before.
+	let original = "";
+	try {
+		original = fs.readFileSync(filePath, "utf-8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
 
 	const startIdx = original.indexOf(MARKER_START);
 	const endIdx = original.indexOf(MARKER_END);

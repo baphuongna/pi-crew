@@ -31,6 +31,15 @@ export function enforceDestructiveIntent(
 	config: PiTeamsConfig | undefined,
 ): PiTeamsToolResult | undefined {
 	if (!shouldRequireIntent(config)) return undefined;
+	// DI-4: The cleanup bypass for non-forced cleanup is INTENTIONAL — do NOT
+	// "fix" this into a regression. Non-forced cleanup (`cleanup` without
+	// `force: true`) only removes STALE artifacts and preserves dirty worktrees
+	// (see cleanupRunWorktrees: dirty worktrees are snapshotted + preserved
+	// unless force=true, and project-level cleanup only removes the AGENTS.md
+	// guidance block without touching `.crew/`). The destructive path (forced
+	// cleanup) still requires intent. Requiring intent for the non-forced,
+	// stale-only path would break routine maintenance flows (e.g. periodic
+	// stale-artifact reaping) that must not need a per-call intent.
 	if (action === "cleanup" && params.force !== true) return undefined;
 	if (intentFromConfig(params.config)) return undefined;
 	const label = DESTRUCTIVE_ACTION_LABELS[action];

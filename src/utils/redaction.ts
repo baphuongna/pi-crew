@@ -63,6 +63,17 @@ export const SLACK_TOKEN_PATTERN = /(?<![A-Za-z0-9_-])xox[baprs]-[A-Za-z0-9-]{10
 export const GOOGLE_API_KEY_PATTERN = /(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g;
 export const STRIPE_KEY_PATTERN = /(?<![A-Za-z0-9_])sk_live_[0-9a-zA-Z]{24}(?![0-9a-zA-Z])/g;
 
+// DI-2: Anthropic + OpenAI API key value formats. These mirror the same
+// ReDoS-safe shape as the OQ13 set: a single bounded {20,} quantifier on a
+// plain char class, anchored by a negative lookbehind (no nested quantifiers,
+// no alternation). The lookbehind prevents matching inside a longer identifier
+// (e.g. "mysk-ant-api03..."), and the 20+ char tail keeps short "sk-"
+// prefixes (a common legit abbreviation) from being over-redacted. NOTE: the
+// lookbehind is a fixed-width zero-width assertion — linear, safe.
+export const ANTHROPIC_KEY_PATTERN = /(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}/g;
+export const OPENAI_PROJECT_KEY_PATTERN = /(?<![A-Za-z0-9_-])sk-proj-[A-Za-z0-9_-]{20,}/g;
+export const OPENAI_KEY_PATTERN = /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g;
+
 // Linear-time secret key detection
 // IMPORTANT: This function must maintain linear-time guarantees.
 // The fast-path regex uses simple string alternatives with anchors only (no quantifiers),
@@ -236,6 +247,12 @@ const SECRET_MARKERS_CASE_SENSITIVE = [
 	"AIza",
 	"sk_live_",
 	"xox",
+	// DI-2: Anthropic (sk-ant-) and OpenAI (sk-proj-) API key prefixes. The
+	// bare "sk-" prefix is NOT a marker (too common as a short word/abbrev and
+	// would defeat the pre-filter skip); OPENAI_KEY_PATTERN's {20,} tail still
+	// catches bare sk-... keys via the value-pattern pass.
+	"sk-ant-",
+	"sk-proj-",
 	// GitHub PAT prefixes (gh[pousr]_) — exact, not the over-broad "gh" which
 	// matched "though"/"highlight"/"might" and defeated the pre-filter skip.
 	"ghp_",
@@ -296,7 +313,11 @@ export function redactSecretString(value: string): string {
 		.replace(AWS_ACCESS_KEY_PATTERN, "***")
 		.replace(SLACK_TOKEN_PATTERN, "***")
 		.replace(GOOGLE_API_KEY_PATTERN, "***")
-		.replace(STRIPE_KEY_PATTERN, "***");
+		.replace(STRIPE_KEY_PATTERN, "***")
+		// DI-2: Anthropic + OpenAI API keys (value-based formats).
+		.replace(ANTHROPIC_KEY_PATTERN, "***")
+		.replace(OPENAI_PROJECT_KEY_PATTERN, "***")
+		.replace(OPENAI_KEY_PATTERN, "***");
 
 	// Replace inline secrets: key=value or key:value patterns
 	result = redactInlineSecrets(result);

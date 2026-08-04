@@ -280,6 +280,37 @@ describe("readDeliveryState returns initial state", () => {
 			removeTrackedTempDir(dir);
 		}
 	});
+
+	// NEW-R4: a corrupt delivery.json was previously swallowed silently (returning
+	// empty → messages appear undelivered → re-delivery on every replay). Now the
+	// corrupt file must be quarantined to `.corrupt-*` + the original renamed away.
+	it("quarantines corrupt delivery.json instead of silently returning empty (NEW-R4)", () => {
+		const { dir, manifest } = setupMailboxWorkspace();
+		try {
+			// Trigger mailbox creation so delivery.json exists.
+			appendMailboxMessage(manifest, {
+				direction: "inbox",
+				from: "a",
+				to: "b",
+				body: "init",
+			});
+			const deliveryPath = path.join(manifest.stateRoot, "mailbox", "delivery.json");
+			assert.ok(fs.existsSync(deliveryPath), "precondition: delivery.json exists");
+
+			// Corrupt it with a syntax error.
+			fs.writeFileSync(deliveryPath, "{not valid json", "utf-8");
+
+			const state = readDeliveryState(manifest);
+			assert.deepEqual(state.messages, {}, "behavior preserved: returns empty on corrupt");
+
+			// The corrupt file must be quarantined (renamed away), not left in place.
+			assert.ok(!fs.existsSync(deliveryPath), "corrupt delivery.json renamed away");
+			const quarantined = fs.readdirSync(path.dirname(deliveryPath)).filter((f) => f.startsWith("delivery.json.corrupt-"));
+			assert.ok(quarantined.length >= 1, `corrupt delivery.json quarantined: ${quarantined.join(", ")}`);
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
 });
 
 // ─── acknowledgeMailboxMessage ────────────────────────────────────────────
@@ -515,6 +546,38 @@ describe("appendMailboxMessage with taskId creates task mailbox", () => {
 			const taskMessages = readMailbox(manifest, "inbox", "01_task");
 			assert.equal(taskMessages.length, 1);
 			assert.equal(taskMessages[0].body, "Task-specific message");
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
+
+	// STATE-10: ensureTaskMailbox previously created task mailbox files with
+	// non-atomic fs.writeFileSync (TOCTOU window). Now it uses atomicWriteFile
+	// (like ensureRunMailbox) — which also creates files with 0o600. Assert the
+	// file is created atomically-style (mode 0600, i.e. owner-only, not umask
+	// default 0644) and contains no partial/temp leftovers.
+	it("creates task mailbox files with restrictive owner-only mode (STATE-10)", () => {
+		if (process.platform === "win32") return; // Windows ignores Unix permission bits
+		const { dir, manifest } = setupMailboxWorkspace();
+		try {
+			appendMailboxMessage(manifest, {
+				direction: "inbox",
+				from: "leader",
+				to: "01_task",
+				body: "Task-specific message",
+				taskId: "01_task",
+			});
+
+			const taskMailboxDir = path.join(manifest.stateRoot, "mailbox", "tasks", "01_task");
+			for (const direction of ["inbox", "outbox"]) {
+				const filePath = path.join(taskMailboxDir, `${direction}.jsonl`);
+				assert.ok(fs.existsSync(filePath), `${direction}.jsonl exists`);
+				const mode = fs.statSync(filePath).mode & 0o777;
+				assert.equal(mode, 0o600, `${direction}.jsonl must be owner-only (0o600) — atomicWriteFile default`);
+			}
+			// No leftover temp files.
+			const leftovers = fs.readdirSync(taskMailboxDir).filter((f) => f.endsWith(".tmp"));
+			assert.deepEqual(leftovers, [], "no temp files should remain");
 		} finally {
 			removeTrackedTempDir(dir);
 		}

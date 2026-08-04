@@ -177,6 +177,47 @@ test("completion guard warns for implementation without mutation but not read-on
 	);
 });
 
+// NEW-P4 (TOCTOU): transcriptText now reads via readFileSync + ENOENT catch
+// instead of existsSync+read. A missing transcriptPath must fall back to stdout
+// without throwing; a present transcript still takes precedence.
+test("completion guard falls back to stdout when transcript file is missing (NEW-P4)", () => {
+	const missingPath = path.join(os.tmpdir(), "pi-crew-nonexistent-transcript-" + Date.now() + ".jsonl");
+	const result = evaluateCompletionMutationGuard({
+		role: "executor",
+		taskText: "Implement fix",
+		transcriptPath: missingPath,
+		stdout: JSON.stringify({
+			type: "tool_execution_start",
+			toolName: "bash",
+			args: { command: "git add src/file.ts" },
+		}),
+	});
+	assert.equal(result.expectedMutation, true);
+	assert.equal(result.observedMutation, true);
+});
+
+test("completion guard reads transcript file when present (NEW-P4)", () => {
+	withTranscript(
+		[
+			{
+				type: "tool_execution_start",
+				toolName: "bash",
+				args: { command: "git add src/file.ts" },
+			},
+		],
+		(transcriptPath) => {
+			// stdout contains no mutation; the transcript (present) must win.
+			const result = evaluateCompletionMutationGuard({
+				role: "executor",
+				taskText: "Implement fix",
+				transcriptPath,
+				stdout: "no events here",
+			});
+			assert.equal(result.observedMutation, true);
+		},
+	);
+});
+
 test("task attention events dedupe by task and reason", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-attention-dedupe-"));
 	try {

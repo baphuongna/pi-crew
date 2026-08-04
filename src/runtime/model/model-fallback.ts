@@ -80,8 +80,10 @@ function uniqueModelInfos(models: AvailableModelInfo[]): AvailableModelInfo[] {
 }
 
 function readJsonObject(filePath: string): Record<string, unknown> | undefined {
+	// NEW-P4: TOCTOU fix — readFileSync + catch instead of existsSync+read (1 syscall,
+	// no race). The catch returns undefined for both ENOENT and parse errors, exactly
+	// matching the previous existsSync-gated behavior (missing → undefined, corrupt → undefined).
 	try {
-		if (!fs.existsSync(filePath)) return undefined;
 		const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
 		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
 	} catch {

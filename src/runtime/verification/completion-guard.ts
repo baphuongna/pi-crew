@@ -94,7 +94,16 @@ export function collectToolCallsFromEvent(event: unknown): Array<{ tool: string;
 }
 
 function transcriptText(input: CompletionMutationGuardInput): string {
-	if (input.transcriptPath && fs.existsSync(input.transcriptPath)) return fs.readFileSync(input.transcriptPath, "utf-8");
+	if (input.transcriptPath) {
+		try {
+			return fs.readFileSync(input.transcriptPath, "utf-8");
+		} catch (error) {
+			// NEW-P4: TOCTOU fix — only ENOENT (transcript deleted between check and read)
+			// falls back to stdout; any other read error propagates as before.
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return input.stdout ?? "";
+			throw error;
+		}
+	}
 	return input.stdout ?? "";
 }
 

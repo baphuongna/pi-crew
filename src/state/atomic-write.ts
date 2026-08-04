@@ -537,16 +537,16 @@ export type WriteDurability = "full" | "best-effort";
 /** Options accepted by atomicWriteFile (forward-compatible string | object form). */
 export type AtomicWriteOptions =
 	| string // legacy: expectedHash
-	| { expectedHash?: string; durability?: WriteDurability; mode?: number };
+	| { expectedHash?: string; durability?: WriteDurability; mode?: number; compact?: boolean };
 
-function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability; mode?: number } {
-	if (typeof arg === "string") return { expectedHash: arg, durability: "full", mode: undefined };
+function normalizeOptions(arg: unknown): { expectedHash?: string; durability: WriteDurability; mode?: number; compact?: boolean } {
+	if (typeof arg === "string") return { expectedHash: arg, durability: "full", mode: undefined, compact: undefined };
 	if (arg && typeof arg === "object") {
-		const o = arg as { expectedHash?: string; durability?: WriteDurability; mode?: number };
+		const o = arg as { expectedHash?: string; durability?: WriteDurability; mode?: number; compact?: boolean };
 		const durability: WriteDurability = o.durability === "best-effort" ? "best-effort" : "full";
-		return { expectedHash: o.expectedHash, durability, mode: o.mode };
+		return { expectedHash: o.expectedHash, durability, mode: o.mode, compact: o.compact };
 	}
-	return { durability: "full", mode: undefined };
+	return { durability: "full", mode: undefined, compact: undefined };
 }
 
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
@@ -720,7 +720,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 
 export async function atomicWriteFileAsync(filePath: string, content: string, options?: AtomicWriteOptions): Promise<void> {
 	cancelPendingCoalescedWrite(filePath);
-	const { durability } = normalizeOptions(options);
+	const { durability, mode } = normalizeOptions(options);
 	// Phase 1.5 (RFC 15): when the worker-thread atomic writer is enabled
 	// (PI_CREW_WORKER_ATOMIC_WRITER=1), dispatch to a dedicated worker thread
 	// that performs SYNC fs ops with no internal yields. Mitigates the
@@ -736,7 +736,11 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 	let fd: fs.promises.FileHandle | undefined;
 	try {
 		const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
-		fd = await fs.promises.open(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, 0o600);
+		fd = await fs.promises.open(
+			tempPath,
+			fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
+			mode ?? 0o600,
+		);
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = await fd.stat();
 		if (!openedStat.isFile()) {
@@ -802,11 +806,16 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 }
 
 export function atomicWriteJson<T>(filePath: string, value: T, options?: AtomicWriteOptions): void {
-	atomicWriteFile(filePath, `${JSON.stringify(value, null, 2)}\n`, options);
+	// PERF-6: compact (no indentation) for machine-only state files — pretty-printing
+	// inflates them ~30-40%. Default stays pretty for human-debuggable files.
+	const { compact } = normalizeOptions(options);
+	atomicWriteFile(filePath, `${compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`, options);
 }
 
 export async function atomicWriteJsonAsync<T>(filePath: string, value: T, options?: AtomicWriteOptions): Promise<void> {
-	await atomicWriteFileAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, options);
+	// PERF-6: mirror the sync variant's compact knob.
+	const { compact } = normalizeOptions(options);
+	await atomicWriteFileAsync(filePath, `${compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`, options);
 }
 
 // 2.1 — atomic-write coalescer. Buffer the latest payload per filePath and
@@ -871,14 +880,16 @@ export function atomicWriteJsonCoalesced<T>(
 		atomicWriteJson(filePath, value, options);
 		return;
 	}
-	const content = `${JSON.stringify(value, null, 2)}\n`;
+	// PERF-6: honor compact — normalize BEFORE serializing so the buffered content
+	// uses the caller's preferred formatting.
+	const normalized = normalizeOptions(options);
+	const content = `${normalized.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`;
 	const previous = pendingAtomicWrites.get(filePath);
 	if (previous) clearTimeout(previous.timer);
 	const timer = setTimeout(() => flushOnePendingAtomicWrite(filePath), coalesceMs);
 	timer.unref();
 	// Issue 2 fix: increment generation for each new entry
 	const generation = ++writeGeneration;
-	const normalized = normalizeOptions(options);
 	pendingAtomicWrites.set(filePath, {
 		content,
 		timer,

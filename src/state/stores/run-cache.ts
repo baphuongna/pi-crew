@@ -117,7 +117,15 @@ export function saveRunToCache(
 	// name collision the old manual temp+rename had).
 	const indexPath = path.join(dir, "index.json");
 	withFileLockSync(indexPath, () => {
-		const index: CacheIndex = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf-8")) : {};
+		// NEW-P4: TOCTOU fix — readFileSync + ENOENT catch instead of existsSync+read
+		// (1 syscall, no race). Only ENOENT falls back to {}; a corrupt-but-present
+		// index still throws, matching the old existsSync → JSON.parse behavior.
+		let index: CacheIndex = {};
+		try {
+			index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as CacheIndex;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
 		index[cacheKey] = entryPath;
 		atomicWriteJson(indexPath, index);
 	});

@@ -26,6 +26,32 @@ test("writeArtifact: contentHash matches sha256 of bytes on disk", () => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
+// STATE-9: the hash must be computed on the in-memory content (post-redaction)
+// WITHOUT a read-back of the file. The atomic write writes exact content, so
+// the hash of the in-memory string == the hash of the on-disk bytes. Verify
+// redaction happens BEFORE hashing (hash covers the redacted content, same as
+// the bytes that actually land on disk — behavior identical to the old read-back).
+test("writeArtifact: contentHash matches post-redaction in-memory content (STATE-9)", () => {
+	const root = fs.mkdtempSync(path.join(realTmp, "pi-crew-art-state9-"));
+	try {
+		const content = '{"api_key":"sk-abc123-not-a-real-key","keep":"visible"}';
+		const desc = writeArtifact(root, {
+			kind: "metadata",
+			relativePath: "state9.json",
+			content,
+			producer: "test",
+		});
+		// Hash must equal sha256 of the bytes actually on disk (which are the
+		// redacted in-memory content — atomic write writes exact bytes).
+		const onDisk = fs.readFileSync(desc.path, "utf-8");
+		const expected = createHash("sha256").update(onDisk).digest("hex");
+		assert.strictEqual(desc.contentHash, expected, "hash computed on in-memory content matches on-disk bytes");
+		assert.ok(!onDisk.includes("sk-abc123-not-a-real-key"), "secret redacted before hashing");
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("writeArtifact: rejects path traversal", () => {
 	const root = fs.mkdtempSync(path.join(realTmp, "pi-crew-art-"));
 	assert.throws(

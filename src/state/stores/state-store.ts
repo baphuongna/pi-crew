@@ -468,7 +468,7 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
 		return;
 	}
 
-	atomicWriteJson(manifest.tasksPath, tasks);
+	atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
 	// FIX: Re-populate cache with actual mtime/size for manifest and tasks.
 	// Note: We re-read manifest from disk to get its current mtime/size
 	// since we only wrote tasks here.
@@ -542,7 +542,7 @@ export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTask
 	} catch {
 		return;
 	}
-	atomicWriteJsonCoalesced(manifest.tasksPath, tasks, undefined, undefined, skipCoalesce);
+	atomicWriteJsonCoalesced(manifest.tasksPath, tasks, undefined, { compact: true }, skipCoalesce);
 }
 
 export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTaskState[]): Promise<void> {
@@ -555,7 +555,7 @@ export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTa
 	} catch {
 		return;
 	}
-	await atomicWriteJsonAsync(manifest.tasksPath, tasks);
+	await atomicWriteJsonAsync(manifest.tasksPath, tasks, { compact: true });
 }
 
 /**
@@ -589,7 +589,7 @@ async function saveManifestAndTasksAtomic(manifest: TeamRunManifest, tasks: Team
 			invalidateRunCache(manifest.stateRoot);
 			await atomicWriteJsonAsync(path.join(manifest.stateRoot, "manifest.json"), manifest);
 			manifestWritten = true;
-			await atomicWriteJsonAsync(manifest.tasksPath, tasks);
+			await atomicWriteJsonAsync(manifest.tasksPath, tasks, { compact: true });
 			tasksWritten = true;
 		});
 	} catch (err) {
@@ -615,7 +615,7 @@ function saveManifestAndTasksAtomicSync(manifest: TeamRunManifest, tasks: TeamTa
 			invalidateRunCache(manifest.stateRoot);
 			atomicWriteJson(path.join(manifest.stateRoot, "manifest.json"), manifest);
 			manifestWritten = true;
-			atomicWriteJson(manifest.tasksPath, tasks);
+			atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
 			tasksWritten = true;
 		});
 	} catch (err) {
@@ -907,14 +907,14 @@ export function loadTasksWithRecovery(tasksPath: string, eventsPath: string, run
 		// SyntaxError — corrupt file.
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
-		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
+		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	if (!isRecognizableTasksPayload(parsed)) {
 		// Neither v0 bare array nor v1+ envelope (e.g. `{}`) — corrupt.
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
-		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed);
+		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	return migrateTasksFile(parsed, runId);
@@ -966,13 +966,13 @@ async function loadTasksWithRecoveryAsync(tasksPath: string, eventsPath: string,
 	} catch {
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
-		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
+		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	if (!isRecognizableTasksPayload(parsed)) {
 		quarantineCorruptFile(tasksPath);
 		const reconstructed = reconstructTasksFromEventLog(eventsPath, runId);
-		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed);
+		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	return migrateTasksFile(parsed, runId);
@@ -1234,6 +1234,18 @@ export async function loadRunManifestByIdAsync(
 		console.warn(
 			`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
 		);
+	}
+	// STATE-3 (async twin): readJsonFileAsync returns undefined for BOTH missing (ENOENT)
+	// and corrupt (SyntaxError). Mirror the sync loadRunManifestById STATE-3 fix — if the
+	// file EXISTS but the read returned undefined, it is corrupt → quarantine (preserve for
+	// diagnosis) + log + bail. Manifest reconstruction from events is infeasible (run.created
+	// lacks manifest fields), so quarantine+log is the recovery.
+	if (!manifest && fs.existsSync(manifestPath)) {
+		quarantineCorruptFile(manifestPath);
+		console.error(
+			`[state-store] STATE-3 async: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`,
+		);
+		return undefined;
 	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {

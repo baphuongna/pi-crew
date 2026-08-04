@@ -3,7 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// NEW-P1/NEW-P2 (perf): packageRoot() and userPiRoot() are invariant for a
+// process lifetime but each call did statSync/readFileSync/lstatSync (10-15+
+// call sites, including at MODULE-LOAD time). Memoize both: compute on first
+// call, return the cached value thereafter. Resolution logic is unchanged.
+let cachedPackageRoot: string | undefined;
+
 export function packageRoot(): string {
+	if (cachedPackageRoot !== undefined) return cachedPackageRoot;
 	// Phase 5 H2 follow-up: this function is called from both src/ paths
 	// (e.g. src/utils/paths.ts) AND from dist/index.mjs after bundling.
 	// The original 2-level walk only worked for src/ paths:
@@ -22,6 +29,7 @@ export function packageRoot(): string {
 			try {
 				const pkg = JSON.parse(fs.readFileSync(candidate, "utf-8")) as { name?: string };
 				if (pkg.name === "pi-crew") {
+					cachedPackageRoot = dir;
 					return dir;
 				}
 			} catch {
@@ -35,10 +43,14 @@ export function packageRoot(): string {
 	// Fallback: 2-level walk (matches original src/ semantics). Bundles
 	// that don't ship a package.json (very unusual) will get a wrong path
 	// here, but that's a build-pipeline bug we want to surface, not hide.
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+	cachedPackageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+	return cachedPackageRoot;
 }
 
+let cachedUserPiRoot: string | undefined;
+
 export function userPiRoot(): string {
+	if (cachedUserPiRoot !== undefined) return cachedUserPiRoot;
 	// F4: a misconfigured PI_TEAMS_HOME can be the literal string "undefined"
 	// (e.g. PI_TEAMS_HOME=$UNSET_VAR in a shell), which would build paths like
 	// "undefined/.pi/agent" relative to cwd and silently create a junk "undefined/"
@@ -59,6 +71,7 @@ export function userPiRoot(): string {
 	} catch (err: unknown) {
 		if (err instanceof Error && "code" in err && err.code !== "ENOENT") throw err;
 		// Path doesn't exist yet — caller will create it. Skip further validation.
+		cachedUserPiRoot = resolved;
 		return resolved;
 	}
 	if (isSymlink) {
@@ -88,6 +101,7 @@ export function userPiRoot(): string {
 		// (race condition). This is acceptable — caller will handle.
 	}
 
+	cachedUserPiRoot = resolved;
 	return resolved;
 }
 

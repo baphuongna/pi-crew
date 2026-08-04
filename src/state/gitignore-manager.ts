@@ -41,6 +41,10 @@ export async function updateGitignore(gitignorePath: string): Promise<void> {
 	}
 
 	if (appended) {
-		fs.writeFileSync(gitignorePath, current + appended, "utf-8");
+		// NEW-R5: atomic read-modify-write of the user-visible .gitignore — the old
+		// writeFileSync left a truncate-then-write window (crash ⇒ empty/partial file)
+		// and a TOCTOU race with concurrent readers. atomicWriteFile (temp+rename)
+		// makes the final write atomic while preserving the read-append logic above.
+		atomicWriteFile(gitignorePath, current + appended);
 	}
 }

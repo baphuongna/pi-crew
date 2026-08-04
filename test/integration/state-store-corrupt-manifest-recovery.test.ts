@@ -26,6 +26,7 @@ import {
 	createRunManifest,
 	loadManifestWithRecovery,
 	loadRunManifestById,
+	loadRunManifestByIdAsync,
 	saveRunTasks,
 } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
@@ -150,24 +151,24 @@ test("STATE-3: loadManifestWithRecovery returns parsed manifest for valid file",
 	}
 });
 
-test("STATE-3: loadRunManifestById quarantines corrupt manifest + returns undefined (not silently invisible)", {
+test("STATE-3 async twin: loadRunManifestByIdAsync quarantines corrupt manifest + returns undefined (not silently invisible)", {
 	skip:
 		process.platform === "win32"
 			? "Windows file-quarantine rename + reload timing flakes. Follow up: make Windows-tolerant."
 			: undefined,
-}, () => {
+}, async () => {
 	const { tmpRoot, manifest, manifestPath } = setupRun();
 	try {
 		// Corrupt the manifest with a syntax error.
 		fs.writeFileSync(manifestPath, "{not valid json", "utf-8");
 		__test__clearManifestCache();
 
-		const loaded = loadRunManifestById(tmpRoot, manifest.runId);
-		assert.equal(loaded, undefined, "corrupt manifest must make loadRunManifestById return undefined");
+		const loaded = await loadRunManifestByIdAsync(tmpRoot, manifest.runId);
+		assert.equal(loaded, undefined, "corrupt manifest must make loadRunManifestByIdAsync return undefined");
 
 		// Manifest must be quarantined (STATE-3: visible, not silently swallowed).
 		const corrupt = findCorruptFiles(path.dirname(manifestPath));
-		assert.ok(corrupt.length >= 1, `corrupt manifest quarantined via loadRunManifestById: ${corrupt.join(", ")}`);
+		assert.ok(corrupt.length >= 1, `corrupt manifest quarantined via loadRunManifestByIdAsync: ${corrupt.join(", ")}`);
 		assert.ok(
 			corrupt.some((f) => f.startsWith("manifest.json.corrupt-")),
 			"quarantine file has correct prefix",

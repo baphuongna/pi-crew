@@ -20,11 +20,16 @@
  * The validator runs once per skill at discovery. Discovery is already cached
  * (`CACHE_TTL_MS = 30_000` in discover-skills.ts) so the validation cost is
  * bounded regardless of how many skills exist.
+ *
+ * NEW-P5: the `yaml` package is now LAZY-LOADED on first parse (see getYaml)
+ * instead of imported at module load, so its ~280KB CJS graph only enters the
+ * process when a skill frontmatter is actually validated. The public sync API
+ * is unchanged.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import yaml from "yaml";
+import { createRequire } from "node:module";
 
 /**
  * Properties allowed in SKILL.md frontmatter.
@@ -56,6 +61,27 @@ const NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NAME_MAX_LEN = 64;
 const DESCRIPTION_MAX_LEN = 1024;
 const VERSION_REGEX = /^\d+\.\d+(\.\d+)?(-[A-Za-z0-9.-]+)?$/;
+
+// NEW-P5: lazy-load the `yaml` package on FIRST USE instead of at module load.
+// Skill validation is rare (once per skill at discovery, and discovery is
+// cached for 30s), but the `yaml` parser is ~280KB — eagerly importing it at
+// module load would pull its whole CJS graph (stringify/schema/parse) into
+// every cold start even when no skill frontmatter is ever validated. The
+// synchronous lazy pattern via createRequire keeps the public (sync) API of
+// parseSkillFrontmatter/validateSkillFrontmatter unchanged. In the esbuild
+// bundle, yaml is a bundled CJS module resolved through the injected
+// createRequire shim (same mechanism as utils/git.ts's hosted-git-info).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let yamlModule: typeof import("yaml") | undefined;
+function getYaml(): typeof import("yaml") {
+	if (!yamlModule) {
+		// LAZY: defer dynamic import of node:module to its call site.
+		const require = createRequire(import.meta.url);
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		yamlModule = require("yaml") as typeof import("yaml");
+	}
+	return yamlModule;
+}
 
 /**
  * Structured error so callers (capability inventory, logs) can present
@@ -104,7 +130,7 @@ export function parseSkillFrontmatter(content: string): { ok: true; data: Record
 	const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
 	if (!match) return { ok: true, data: {} };
 	try {
-		const parsed = yaml.parse(match[1]);
+		const parsed = getYaml().parse(match[1]);
 		if (parsed === null || parsed === undefined) return { ok: true, data: {} };
 		if (typeof parsed !== "object" || Array.isArray(parsed)) {
 			return {

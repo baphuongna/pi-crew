@@ -179,6 +179,24 @@ test("updateGitignore preserves existing content", async () => {
 	}
 });
 
+// NEW-R5: the read-modify-write of .gitignore must go through atomicWriteFile
+// (temp+rename) — no leftover temp files, no non-atomic truncate window.
+test("updateGitignore writes atomically — no temp file leftovers (NEW-R5)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gitignore-atomic-"));
+	try {
+		const gitignorePath = path.join(dir, ".gitignore");
+		fs.writeFileSync(gitignorePath, "node_modules/\n", "utf-8");
+		await updateGitignore(gitignorePath);
+		const content = fs.readFileSync(gitignorePath, "utf-8");
+		assert.ok(content.includes("/.crew/"), "entries appended");
+		// Atomic write leaves no .tmp files in the directory.
+		const leftovers = fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"));
+		assert.deepEqual(leftovers, [], "no temp files should remain after atomic write");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("ensureCrewDirectory updates .gitignore in project root", async () => {
 	const dir = makeTempProject();
 	try {

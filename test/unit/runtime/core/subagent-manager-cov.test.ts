@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { PiTeamsToolResult } from "../../../../src/extension/tool-result.ts";
 import type { SubagentRecord, SubagentSpawnOptions } from "../../../../src/runtime/subagent-manager.ts";
@@ -68,6 +70,29 @@ describe("subagent-manager", () => {
 			assert.ok(loaded);
 			assert.equal((loaded as any).promise, undefined);
 			removeTrackedTempDir(tmpDir);
+		});
+
+		// NEW-R3: savePersistedSubagentRecord previously used non-atomic
+		// writeFileSync + separate chmodSync(0o600). A crash mid-write left a
+		// truncated JSON file → record silently lost on load. Now it uses
+		// atomicWriteFile (temp+rename, defaults to 0o600).
+		it("writes the persisted record with owner-only mode (0o600) via atomic write (NEW-R3)", () => {
+			if (process.platform === "win32") return; // Windows ignores Unix permission bits
+			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
+			try {
+				const record = makeRecord();
+				savePersistedSubagentRecord(tmpDir, record);
+				// Locate the persisted file under <tmpDir>/.crew/state/subagents/
+				const filePath = path.join(tmpDir, ".crew", "state", "subagents", `${record.id}.json`);
+				assert.ok(fs.existsSync(filePath), "persisted record file exists");
+				const mode = fs.statSync(filePath).mode & 0o777;
+				assert.equal(mode, 0o600, "persisted record must be owner-only (0o600)");
+				// No leftover temp files (atomic write cleanup).
+				const leftovers = fs.readdirSync(path.dirname(filePath)).filter((f: string) => f.endsWith(".tmp"));
+				assert.deepEqual(leftovers, [], "no temp files should remain after atomic write");
+			} finally {
+				removeTrackedTempDir(tmpDir);
+			}
 		});
 	});
 
