@@ -40,10 +40,18 @@ describe("shouldBlockDestructiveTeamAction — B1 dryRun cleanup gate", () => {
 		assert.equal(shouldBlockDestructiveTeamAction("forget", { confirm: true }), undefined);
 	});
 
-	it("dryRun does NOT bypass confirm for non-cleanup actions (only cleanup has a dry mode)", () => {
-		// prune/forget/delete have no dryRun semantics; dryRun must not leak.
-		assert.ok(shouldBlockDestructiveTeamAction("prune", { dryRun: true }), "prune still blocked even with dryRun");
+	it("allows prune dryRun=true WITHOUT confirm (preview writes nothing)", () => {
+		// prune now honors dryRun as a true non-destructive preview
+		// (pruneFinishedRuns skips deletion/worktree-cleanup/audit), so the gate
+		// must allow it without confirm — mirrors cleanup.
+		assert.equal(shouldBlockDestructiveTeamAction("prune", { dryRun: true }), undefined);
+	});
+
+	it("dryRun does NOT bypass confirm for actions with no dry mode (forget/delete)", () => {
+		// forget/delete have no dryRun semantics (they always mutate); dryRun must
+		// not leak into a bypass for them.
 		assert.ok(shouldBlockDestructiveTeamAction("forget", { dryRun: true }), "forget still blocked even with dryRun");
+		assert.ok(shouldBlockDestructiveTeamAction("delete", { dryRun: true }), "delete still blocked even with dryRun");
 	});
 
 	it("allows delete with force=true (force bypasses reference checks)", () => {

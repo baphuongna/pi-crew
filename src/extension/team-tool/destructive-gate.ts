@@ -11,10 +11,11 @@
  *
  * Rules (in order):
  *  1. Non-team / non-destructive actions → allowed (caller pre-filters, but safe).
- *  2. `cleanup` with `dryRun=true` → ALWAYS allowed (a preview writes nothing,
- *     so gating it would block users from previewing what cleanup would do —
- *     this was a UX bug: team action=cleanup dryRun=true returned "requires
- *     confirm=true" even though it changed no files).
+ *  2. `cleanup`/`prune` with `dryRun=true` → ALWAYS allowed (a preview writes
+ *     nothing, so gating it would block users from previewing what the action
+ *     would do — this was a UX bug: team action=cleanup dryRun=true returned
+ *     "requires confirm=true" even though it changed no files; prune gained a
+ *     true dryRun preview in the prune-honor-dryRun fix).
  *  3. `confirm=true` on the input → allowed (explicit user intent).
  *  4. `delete` with `force=true` → allowed (force bypasses reference checks).
  *  5. Otherwise → blocked with a reason telling the user what to pass.
@@ -43,8 +44,13 @@ export interface TeamToolInputLike {
  */
 export function shouldBlockDestructiveTeamAction(action: string | undefined, input: TeamToolInputLike): string | undefined {
 	if (!action || !DESTRUCTIVE_TEAM_ACTIONS.has(action)) return undefined;
-	// dryRun cleanup is a PREVIEW (no writes) — never needs confirm.
-	if (action === "cleanup" && input.dryRun === true) return undefined;
+	// dryRun is a PREVIEW (no writes) — never needs confirm. Only allow the
+	// bypass for actions whose handlers actually honor dryRun as non-destructive:
+	//   - cleanup (handleProjectCleanup/handleUserCleanup branch on dryRun)
+	//   - prune   (pruneFinishedRuns skips deletion/worktree-cleanup/audit when
+	//              dryRun; handlePrune bypasses confirm)
+	// forget/delete have no dryRun path (they always mutate), so they stay gated.
+	if ((action === "cleanup" || action === "prune") && input.dryRun === true) return undefined;
 	if (input.confirm === true) return undefined;
 	const forceBypassesReferenceChecks = action === "delete" && input.force === true;
 	if (forceBypassesReferenceChecks) return undefined;
