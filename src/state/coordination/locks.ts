@@ -239,12 +239,20 @@ function timingSafeTokenMatch(a: string, b: string): boolean {
 }
 
 /**
- * Release the lock we (this process) just acquired. Unlike releaseLock, this
- * unconditionally removes the file because we know we created it in the same
- * withRunLock* call — token matching is only needed for multi-process scenarios
- * (where a different holder's token must not be deleted). Within the same process
- * the new acquire uses a fresh randomUUID token, so token matching would falsely
- * fail and leak the file across releases.
+ * Release the lock we (this process) just acquired. Unlike releaseLock, this is
+ * used in the `finally` blocks of withRunLock and withRunLockSync so the file was
+ * created earlier in the SAME call. Within the same process the new acquire uses
+ * a fresh randomUUID token, so token matching would falsely fail and leak the
+ * file across releases.
+ *
+ * LOCK-1 (Round 2): PID-guarded release. Previously this deleted
+ * UNCONDITIONALLY — if our critical section exceeded staleMs, another process
+ * could steal our lock (overwrite the file with its own pid); our finally would
+ * then DELETE THE STEALER's lock, breaking mutual exclusion. We now verify the
+ * lock file still records OUR pid before removing; if it records a different pid
+ * the lock was stolen and the current holder owns it. Same-process re-acquire is
+ * preserved (pid matches → delete). Mirrors the proven pattern in event-log.ts
+ * (Round 26, BUG 5).
  *
  * Symlink guard is preserved: if a symlink appeared since our writeLockFile, we
  * don't rm it (defense against attacker-planted symlinks).
@@ -257,7 +265,12 @@ export function releaseOwnLock(filePath: string, _token: string): void {
 		/* ENOENT is fine */
 	}
 	try {
-		fs.rmSync(filePath, { force: true });
+		const raw = fs.readFileSync(filePath, "utf-8");
+		const holderPid = (JSON.parse(raw) as { pid?: unknown })?.pid;
+		if (holderPid === process.pid) {
+			fs.rmSync(filePath, { force: true });
+		}
+		// holderPid !== process.pid → lock stolen by another process; do NOT touch.
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code !== "ENOENT") {

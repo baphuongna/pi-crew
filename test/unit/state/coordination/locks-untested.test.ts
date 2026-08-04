@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { withFileLockSync, withRunLock, withRunLockSync } from "../../../../src/state/coordination/locks.ts";
+import { releaseOwnLock, withFileLockSync, withRunLock, withRunLockSync } from "../../../../src/state/coordination/locks.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
@@ -150,5 +150,46 @@ describe("withRunLock (async)", () => {
 			{ message: "async-fail" },
 		);
 		assert.equal(fs.existsSync(path.join(tmpDir, "run.lock")), false);
+	});
+});
+
+describe("releaseOwnLock (LOCK-1: PID-guarded release)", () => {
+	let tmpDir: string;
+	beforeEach(() => {
+		tmpDir = createTrackedTempDir("pi-crew-locks-release-own-");
+	});
+	afterEach(() => {
+		removeTrackedTempDir(tmpDir);
+	});
+
+	it("does NOT delete a lock file whose pid belongs to a different process (stolen lock)", () => {
+		const lockFile = path.join(tmpDir, "run.lock");
+		fs.writeFileSync(
+			lockFile,
+			JSON.stringify({
+				kind: "run",
+				pid: 999999, // a different (fake) process
+				createdAt: new Date().toISOString(),
+				token: "our-token",
+			}),
+		);
+		releaseOwnLock(lockFile, "our-token");
+		// File must STILL EXIST — the lock was stolen by pid 999999; we must not wipe it.
+		assert.equal(fs.existsSync(lockFile), true);
+	});
+
+	it("deletes a lock file whose pid matches the current process", () => {
+		const lockFile = path.join(tmpDir, "run.lock");
+		fs.writeFileSync(
+			lockFile,
+			JSON.stringify({
+				kind: "run",
+				pid: process.pid, // OUR process
+				createdAt: new Date().toISOString(),
+				token: "our-token",
+			}),
+		);
+		releaseOwnLock(lockFile, "our-token");
+		assert.equal(fs.existsSync(lockFile), false);
 	});
 });

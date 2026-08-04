@@ -296,7 +296,14 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 	const workflow =
 		direct?.workflow ?? allWorkflows(discoverWorkflows(ctx.cwd)).find((candidate) => candidate.name === loaded.manifest.workflow);
 	if (!workflow) return result(`Workflow '${loaded.manifest.workflow}' not found.`, { action: "resume", status: "error" }, true);
-	return await withRunLock(loaded.manifest, async () => {
+	// LOCK-2 (Round 2): Lock held only for recovery + reset (the read-modify-write
+	// critical section). executeTeamRun runs OUTSIDE the lock — it uses
+	// team-runner's own per-operation withRunLock calls (mergeUnitResult,
+	// handleFailedTask merge, finalizeRun), mirroring handleRun (which never wraps
+	// executeTeamRun in an outer lock). Holding the resume lock across the
+	// minutes-long executeTeamRun would let any process steal the lock after
+	// DEFAULT_LOCKS.staleMs (30s) — see defaults.ts.
+	const decision = await withRunLock(loaded.manifest, async () => {
 		// R2: re-read inside the lock so recovery + resetTasks reflect committed
 		// state, not the pre-lock snapshot. Between the pre-lock load and lock
 		// acquisition a task may have been cancelled (stale-reconciler) or
@@ -354,23 +361,26 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 				message: blocked.summary,
 				data: { runtime, action: "resume" },
 			});
-			return result(
-				[
-					`Blocked resume for pi-crew run ${blocked.runId}: real subagent workers are disabled.`,
-					`Runtime: ${runtime.kind} (requested ${runtime.requestedMode})`,
-					runtime.reason ?? "Child worker execution is disabled.",
-					"",
-					"To resume effective subagents, remove executeWorkers=false / PI_CREW_EXECUTE_WORKERS=0 / PI_TEAMS_EXECUTE_WORKERS=0 or set runtime.mode=child-process.",
-					"Use runtime.mode=scaffold only for explicit dry-run prompt/artifact generation.",
-				].join("\n"),
-				{
-					action: "resume",
-					status: "error",
-					runId: blocked.runId,
-					artifactsRoot: blocked.artifactsRoot,
-				},
-				true,
-			);
+			return {
+				kind: "blocked" as const,
+				payload: result(
+					[
+						`Blocked resume for pi-crew run ${blocked.runId}: real subagent workers are disabled.`,
+						`Runtime: ${runtime.kind} (requested ${runtime.requestedMode})`,
+						runtime.reason ?? "Child worker execution is disabled.",
+						"",
+						"To resume effective subagents, remove executeWorkers=false / PI_CREW_EXECUTE_WORKERS=0 / PI_TEAMS_EXECUTE_WORKERS=0 or set runtime.mode=child-process.",
+						"Use runtime.mode=scaffold only for explicit dry-run prompt/artifact generation.",
+					].join("\n"),
+					{
+						action: "resume",
+						status: "error",
+						runId: blocked.runId,
+						artifactsRoot: blocked.artifactsRoot,
+					},
+					true,
+				),
+			};
 		}
 		const resetTasks = recovered.tasks.map((task) =>
 			task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "running"
@@ -413,42 +423,59 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			});
 		const executeWorkers = runtime.kind !== "scaffold";
 		const resumeSkillOverride = normalizeSkillOverride(params.skill) ?? runtimeManifest.skillOverride;
-		const executed = await executeTeamRun({
-			manifest: runtimeManifest,
-			tasks: resetTasks,
-			team,
-			workflow,
-			agents,
+
+		return {
+			kind: "execute" as const,
+			runtimeManifest,
+			resetTasks,
 			executeWorkers,
-			limits: executedConfig.limits,
+			resumeSkillOverride,
 			runtime,
-			runtimeConfig: executedConfig.runtime,
-			parentContext: buildParentContext(ctx),
-			parentModel: ctx.model,
-			modelRegistry: ctx.modelRegistry,
-			modelOverride: params.model,
-			skillOverride: resumeSkillOverride,
-			signal: ctx.signal,
-			reliability: executedConfig.reliability,
-			metricRegistry: ctx.metricRegistry,
-			workspaceId: ctx.sessionId ?? ctx.cwd,
-		});
-		return result(
-			[
-				`Resumed run ${executed.manifest.runId}.`,
-				`Status: ${executed.manifest.status}`,
-				`Tasks: ${executed.tasks.length}`,
-				`Artifacts: ${executed.manifest.artifactsRoot}`,
-			].join("\n"),
-			{
-				action: "resume",
-				status: executed.manifest.status === "failed" ? "error" : "ok",
-				runId: executed.manifest.runId,
-				artifactsRoot: executed.manifest.artifactsRoot,
-			},
-			executed.manifest.status === "failed",
-		);
+			executedConfig,
+		};
 	});
+
+	// Lock is now RELEASED. executeTeamRun runs without holding the resume
+	// lock — it uses team-runner's own per-operation withRunLock calls
+	// (mergeUnitResult, handleFailedTask merge, finalizeRun), mirroring
+	// handleRun (which never wraps executeTeamRun in an outer lock).
+	if (decision.kind === "blocked") return decision.payload;
+
+	const executed = await executeTeamRun({
+		manifest: decision.runtimeManifest,
+		tasks: decision.resetTasks,
+		team,
+		workflow,
+		agents,
+		executeWorkers: decision.executeWorkers,
+		limits: decision.executedConfig.limits,
+		runtime: decision.runtime,
+		runtimeConfig: decision.executedConfig.runtime,
+		parentContext: buildParentContext(ctx),
+		parentModel: ctx.model,
+		modelRegistry: ctx.modelRegistry,
+		modelOverride: params.model,
+		skillOverride: decision.resumeSkillOverride,
+		signal: ctx.signal,
+		reliability: decision.executedConfig.reliability,
+		metricRegistry: ctx.metricRegistry,
+		workspaceId: ctx.sessionId ?? ctx.cwd,
+	});
+	return result(
+		[
+			`Resumed run ${executed.manifest.runId}.`,
+			`Status: ${executed.manifest.status}`,
+			`Tasks: ${executed.tasks.length}`,
+			`Artifacts: ${executed.manifest.artifactsRoot}`,
+		].join("\n"),
+		{
+			action: "resume",
+			status: executed.manifest.status === "failed" ? "error" : "ok",
+			runId: executed.manifest.runId,
+			artifactsRoot: executed.manifest.artifactsRoot,
+		},
+		executed.manifest.status === "failed",
+	);
 }
 
 export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
