@@ -8,6 +8,92 @@ import type { TeamRunManifest, TeamTaskState } from "../../src/state/types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../src/state/types.ts";
 import { snapshotDirtyWorktree } from "../../src/worktree/worktree-manager.ts";
 
+test("ST-1b: snapshotDirtyWorktree captures non-ASCII filenames when caller passes core.quotePath=false (STATE-8)", async (t) => {
+	if (!hasGit()) {
+		t.skip("git is not available");
+		return;
+	}
+
+	const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-st1b-snap-"));
+	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-st1b-art-"));
+	const worktreePath = path.join(path.dirname(repoRoot), `${path.basename(repoRoot)}-wt`);
+
+	try {
+		gitQuiet(repoRoot, ["init"]);
+		gitQuiet(repoRoot, ["config", "user.email", "pi-crew@example.invalid"]);
+		gitQuiet(repoRoot, ["config", "user.name", "pi Teams Test"]);
+		fs.writeFileSync(path.join(repoRoot, "README.md"), "hello\n", "utf-8");
+		gitQuiet(repoRoot, ["add", "."]);
+		gitQuiet(repoRoot, ["commit", "-m", "initial"]);
+		gitQuiet(repoRoot, ["worktree", "add", worktreePath, "HEAD"]);
+
+		// Untracked file with a non-ASCII (UTF-8) name. STATE-8 bug: the production
+		// git status caller omitted `-c core.quotePath=false`, so git octal-escaped
+		// the path (caf\303\251.txt); snapshotDirtyWorktree then failed existsSync
+		// and SILENTLY SKIPPED the file → lost on `git clean -fd`.
+		const nonAsciiName = "café-résumé-数据.txt";
+		const nonAsciiContent = "unicode content\n";
+		fs.writeFileSync(path.join(worktreePath, nonAsciiName), nonAsciiContent, "utf-8");
+
+		// Mirrors the FIXED production caller (prepareTaskWorkspace[Async]): pass
+		// `-c core.quotePath=false` so git emits raw UTF-8 paths.
+		const dirtyStatus = git(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
+
+		const manifest = {
+			schemaVersion: CURRENT_SCHEMA_VERSION,
+			runId: "test-st1b-run",
+			team: "test",
+			goal: "STATE-8 test",
+			status: "running" as const,
+			workspaceMode: "worktree" as const,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			cwd: repoRoot,
+			stateRoot: repoRoot,
+			artifactsRoot,
+			tasksPath: path.join(repoRoot, "tasks.json"),
+			eventsPath: path.join(repoRoot, "events.jsonl"),
+			artifacts: [],
+		} satisfies TeamRunManifest;
+		const task = {
+			id: "task-st1b",
+			runId: "test-st1b-run",
+			role: "agent",
+			agent: "default",
+			title: "STATE-8 snapshot test",
+			status: "running" as const,
+			dependsOn: [],
+			cwd: worktreePath,
+		} satisfies TeamTaskState;
+
+		const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+		assert.equal(snapshotOk, true, "snapshotDirtyWorktree must report success");
+
+		const recoveryDir = path.join(artifactsRoot, "worktree-recovery");
+		const files = fs.readdirSync(recoveryDir).filter((f) => f.endsWith(".md"));
+		assert.equal(files.length, 1, "exactly one recovery snapshot must be written");
+		const snapshot = fs.readFileSync(path.join(recoveryDir, files[0]), "utf-8");
+
+		// The non-ASCII file must be captured (not silently skipped). This is the
+		// STATE-8 regression guard: with core.quotePath=false the raw UTF-8 path
+		// survives path-join + existsSync and is backed up.
+		assert.ok(
+			snapshot.includes(nonAsciiName),
+			`non-ASCII file '${nonAsciiName}' must appear in snapshot (STATE-8); got:\n${snapshot}`,
+		);
+		assert.ok(snapshot.includes(nonAsciiContent.trim()), "non-ASCII file content must be captured");
+	} finally {
+		try {
+			gitQuiet(repoRoot, ["worktree", "remove", "--force", worktreePath]);
+		} catch {
+			/* best-effort */
+		}
+		fs.rmSync(repoRoot, { recursive: true, force: true });
+		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+		fs.rmSync(worktreePath, { recursive: true, force: true });
+	}
+});
+
 function hasGit(): boolean {
 	try {
 		execFileSync("git", ["--version"], { stdio: "ignore" });

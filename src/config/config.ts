@@ -502,6 +502,10 @@ const LIMIT_CEILINGS = {
 	heartbeatStaleMs: 24 * 60 * 60 * 1000,
 	runtimeMaxTurns: 10_000,
 	runtimeGraceTurns: 1_000,
+	// RT-NEW-1: taskTimeoutMs is in MILLISECONDS — it must NOT reuse runtimeMaxTurns
+	// (10_000 turns), which capped the effective timeout at 10s and silently disabled
+	// any larger value (e.g. 300_000 = 5min) via parsePositiveInteger returning undefined.
+	runtimeTaskTimeoutMs: 24 * 60 * 60 * 1000,
 } as const;
 
 /**
@@ -707,7 +711,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		allowChildProcessFallback: parseWithSchema(Type.Boolean(), obj.allowChildProcessFallback),
 		maxTurns: parsePositiveInteger(obj.maxTurns, LIMIT_CEILINGS.runtimeMaxTurns),
 		graceTurns: parsePositiveInteger(obj.graceTurns, LIMIT_CEILINGS.runtimeGraceTurns),
-		taskTimeoutMs: parsePositiveInteger(obj.taskTimeoutMs, LIMIT_CEILINGS.runtimeMaxTurns),
+		taskTimeoutMs: parsePositiveInteger(obj.taskTimeoutMs, LIMIT_CEILINGS.runtimeTaskTimeoutMs),
 		inheritContext: parseWithSchema(Type.Boolean(), obj.inheritContext) ?? true,
 		promptMode: parseWithSchema(Type.Union([Type.Literal("replace"), Type.Literal("append")]), obj.promptMode),
 		groupJoin: parseWithSchema(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")]), obj.groupJoin),

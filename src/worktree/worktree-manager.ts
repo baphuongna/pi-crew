@@ -767,7 +767,7 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 			throw new Error(`Existing worktree branch mismatch at ${worktreePath}: expected '${branch}', got '${currentBranch}'.`);
 		}
 		// ST-1: use -uall so untracked directories are expanded to individual files.
-		const dirtyStatus = git(worktreePath, ["status", "--porcelain", "-uall"]);
+		const dirtyStatus = git(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
 		if (dirtyStatus.trim()) {
 			// Snapshot uncommitted work to a recovery artifact BEFORE discarding, so the
 			// previous run's changes are never silently destroyed on reuse.
@@ -927,7 +927,7 @@ export async function prepareTaskWorkspaceAsync(
 			throw new Error(`Existing worktree branch mismatch at ${worktreePath}: expected '${branch}', got '${currentBranch}'.`);
 		}
 		// ST-1: use -uall so untracked directories are expanded to individual files.
-		const dirtyStatus = await gitAsync(worktreePath, ["status", "--porcelain", "-uall"]);
+		const dirtyStatus = await gitAsync(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
 		if (dirtyStatus.trim()) {
 			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
 			if (snapshotOk) {
