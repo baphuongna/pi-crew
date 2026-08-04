@@ -50,12 +50,24 @@ const result = await build({
 		"@earendil-works/pi-ai",
 		"@earendil-works/pi-agent-core",
 		"@earendil-works/pi-tui",
-		// Direct deps as well — bundling their full graph would inflate the
-		// output and override consumer-installed versions.
+		// Direct deps are kept external so we don't bundle their full graph —
+		// EXCEPT @sinclair/typebox, which is INTENTIONALLY VENDORED (bundled in)
+		// as of v0.9.58. Rationale: pi installs all extensions into one shared
+		// npm store with hoisted deps, and `pi update` does NOT re-resolve
+		// transitive deps when the extension version already matches latest.
+		// pi-crew's compact StringEnum schema needs TypeRegistry (typebox
+		// >= 0.34.50); a stale hoisted typebox (< 0.34.50) made `import
+		// { TypeRegistry }` resolve to undefined and crashed extension load.
+		// Bundling typebox makes pi-crew always run against the version it was
+		// built with, fully immune to the store's typebox state — so ANY update
+		// mechanism (`pi update --all|--extensions`, npm, manual) yields a
+		// working, compact-path pi-crew. SAFE to bundle: the host pi/pi-ai use
+		// the *unscoped* `typebox` package (not @sinclair/typebox) for their own
+		// validation, so pi-crew's vendored copy never overlaps with pi-ai's
+		// typebox instance — the two were already separate before this change.
 		"cli-highlight",
 		"diff",
 		"jiti",
-		"@sinclair/typebox",
 		"acorn",
 		// esbuild must stay external: its CJS source references __filename/__dirname
 		// (CJS globals) for self-location. Bundling it into the ESM .mjs makes those
