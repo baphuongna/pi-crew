@@ -147,7 +147,12 @@ export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext
 export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const intentError = enforceDestructiveIntent("prune", params, ctx.config);
 	if (intentError) return intentError;
-	if (!params.confirm)
+	// dryRun:true is a non-destructive preview (no deletion) and is always allowed
+	// without confirm — mirrors handleCleanup. Without this, a caller requesting a
+	// dry-run preview with confirm:false was forced to set confirm:true, and the
+	// handler then ignored dryRun entirely and DELETED runs (data-safety bug).
+	const dryRun = params.dryRun === true;
+	if (!params.confirm && !dryRun)
 		return result(
 			paramRequired("prune", "confirm: true", "{ action: 'prune', confirm: true }"),
 			{ action: "prune", status: "error" },
@@ -159,6 +164,7 @@ export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext)
 	const pruned = pruneFinishedRuns(ctx.cwd, keep, {
 		intent,
 		signal: ctx.signal,
+		dryRun,
 	});
 	// Fire hook once with all removed run IDs for batch visibility
 	if (pruned.removed.length > 0) {
@@ -177,11 +183,11 @@ export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext)
 	}
 	return result(
 		[
-			`Pruned finished pi-crew runs.`,
+			`${dryRun ? "Preview: " : ""}Pruned finished pi-crew runs.`,
 			`Kept: ${pruned.kept.length}`,
-			`Removed: ${pruned.removed.length}`,
+			`${dryRun ? "Would remove" : "Removed"}: ${pruned.removed.length}`,
 			...(pruned.auditPath ? [`Audit: ${pruned.auditPath}`] : []),
-			...(pruned.removed.length ? ["Removed runs:", ...pruned.removed.map((runId) => `- ${runId}`)] : []),
+			...(pruned.removed.length ? [`${dryRun ? "Would remove" : "Removed"} runs:`, ...pruned.removed.map((runId) => `- ${runId}`)] : []),
 		].join("\n"),
 		{ action: "prune", status: "ok", intent },
 	);

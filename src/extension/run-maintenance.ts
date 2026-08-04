@@ -19,6 +19,9 @@ export interface PruneRunsResult {
 export interface PruneRunsOptions {
 	intent?: string;
 	signal?: AbortSignal;
+	/** When true, compute the removal list WITHOUT deleting any state/artifacts,
+	 *  running worktree cleanup, or writing an audit. Non-destructive preview. */
+	dryRun?: boolean;
 }
 
 /**
@@ -124,6 +127,15 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 			);
 			continue;
 		}
+		// dryRun: stop after the read-only safety check. Do NOT run worktree
+		// cleanup (it writes diff artifacts for dirty worktrees), delete state,
+		// or write an audit — this is a non-destructive preview. Actual removal
+		// may additionally skip dirty-worktree runs (cleanupRunWorktrees preserves
+		// them for recovery), so the dryRun list is an upper bound.
+		if (options.dryRun) {
+			removed.push(run.runId);
+			continue;
+		}
 		// P2: clean up git worktrees BEFORE deleting state. Worktrees live at
 		// <crewRoot>/state/worktrees/<runId>/ — a separate path from stateRoot
 		// (<crewRoot>/state/runs/<runId>/) and artifactsRoot, so fs.rmSync below
@@ -149,15 +161,19 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		removed.push(run.runId);
 	}
 	// ST-6: Sweep stale .corrupt-* quarantine files to prevent unbounded growth.
-	sweepStaleCorruptFiles(path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
+	if (!options.dryRun) {
+		sweepStaleCorruptFiles(path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
+	}
 
-	const auditPath = appendPruneAudit(cwd, {
-		action: "prune",
-		keep,
-		intent: options.intent,
-		kept,
-		removed,
-	});
+	const auditPath = options.dryRun
+		? undefined
+		: appendPruneAudit(cwd, {
+				action: "prune",
+				keep,
+				intent: options.intent,
+				kept,
+				removed,
+			});
 	return { kept, removed, auditPath };
 }
 
