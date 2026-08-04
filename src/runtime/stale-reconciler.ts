@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
-import { saveRunManifest } from "../state/stores/state-store.ts";
+import { loadManifestWithRecovery, loadTasksWithRecovery, saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { checkProcessLiveness } from "./process-status.ts";
@@ -495,9 +495,10 @@ export function reconcileOrphanedTempWorkspaces(
 					const tasksPath = path.join(stateRunsDir, runDir, "tasks.json");
 					if (!fs.existsSync(manifestPath) || !fs.existsSync(tasksPath)) continue;
 					try {
-						const manifest: TeamRunManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+						const manifest = loadManifestWithRecovery(manifestPath, runDir);
+						if (!manifest) continue; // corrupt (now quarantined) or missing — skip
 						if (manifest.status !== "running") continue;
-						const tasks: TeamTaskState[] = JSON.parse(fs.readFileSync(tasksPath, "utf-8"));
+						const tasks = loadTasksWithRecovery(tasksPath, path.join(stateRunsDir, runDir, "events.jsonl"), runDir);
 						const result = reconcileStaleRun(manifest, tasks, now);
 						if (result.repaired && result.repairedTasks) {
 							// Persist repaired tasks (atomic — temp+rename to survive mid-write crash)
@@ -608,14 +609,8 @@ export function reconcileOrphanedTempWorkspaces(
 						for (const runDir of fs.readdirSync(stateRunsDir)) {
 							const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 							if (!fs.existsSync(manifestPath)) continue;
-							let manifest: TeamRunManifest | undefined;
-							try {
-								manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-							} catch (err) {
-								// Log warning when skipping a directory due to error
-								console.warn(`[stale-reconciler] Skipping manifest due to parse error: ${manifestPath}: ${err}`);
-								continue;
-							}
+							const manifest = loadManifestWithRecovery(manifestPath, runDir);
+							if (!manifest) continue; // corrupt (now quarantined) or missing — skip
 							if (manifest?.status === "running") {
 								canCleanup = false;
 								break;
@@ -635,14 +630,11 @@ export function reconcileOrphanedTempWorkspaces(
 							for (const runDir of fs.readdirSync(stateRunsDir)) {
 								const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 								if (!fs.existsSync(manifestPath)) continue;
-								try {
-									const manifest: TeamRunManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-									if (manifest.status === "running") {
-										stillClean = false;
-										break;
-									}
-								} catch {
-									/* skip on parse error */
+								const manifest = loadManifestWithRecovery(manifestPath, runDir);
+								if (!manifest) continue; // corrupt (now quarantined) or missing — skip
+								if (manifest.status === "running") {
+									stillClean = false;
+									break;
 								}
 							}
 						} catch {

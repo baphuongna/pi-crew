@@ -6,6 +6,7 @@ import test from "node:test";
 import {
 	buildHealthReport,
 	countStatuses,
+	detectStuckTasks,
 	handleHealthMonitor,
 	scanZombieTempWorkspaces,
 } from "../../../../src/extension/team-tool/health-monitor.ts";
@@ -1055,6 +1056,48 @@ test("should merge temp workspace runs with primary runs", () => {
 			assert.equal(counts.total, 2);
 			assert.equal(counts.completed, 1);
 			assert.equal(counts.running, 1);
+		} finally {
+			fs.rmSync(projectCwd, { recursive: true, force: true });
+			fs.rmSync(isolatedTmp, { recursive: true, force: true });
+		}
+	});
+});
+
+// ── 15. NEW-R2: corrupt tasks.json → detectStuckTasks returns [] + quarantines ──
+
+test("NEW-R2: corrupt tasks.json → detectStuckTasks returns [] gracefully and quarantines", {
+	skip: process.platform === "win32" ? "Windows file-quarantine rename timing flakes. Follow up: make Windows-tolerant." : undefined,
+}, () => {
+	withIsolatedHome(() => {
+		const isolatedTmp = createIsolatedTmpDir();
+		const projectCwd = createProjectCwd(isolatedTmp);
+
+		try {
+			const created = createRunManifest({
+				cwd: projectCwd,
+				team,
+				workflow,
+				goal: "corrupt tasks new-r2",
+			});
+			const running = updateRunStatus(created.manifest, "running", "started");
+
+			const tasksPath = path.join(running.stateRoot, "tasks.json");
+
+			// Corrupt tasks.json with a syntax error.
+			fs.writeFileSync(tasksPath, "{not valid json", "utf-8");
+
+			// detectStuckTasks calls readRunTasks → now uses loadTasksWithRecovery.
+			// Must NOT throw; corrupt tasks.json → [] (reconstruction yields [] with
+			// no events) and the file is quarantined.
+			const stuck = detectStuckTasks({ runId: running.runId, stateRoot: running.stateRoot }, Date.now());
+			assert.equal(stuck.length, 0, "corrupt tasks.json must yield [] stuck tasks (no throw)");
+
+			// tasks.json must be quarantined to a .corrupt-* file.
+			const corrupt = fs.readdirSync(running.stateRoot).filter((f) => f.includes(".corrupt-"));
+			assert.ok(
+				corrupt.some((f) => f.startsWith("tasks.json.corrupt-")),
+				`NEW-R2: tasks.json quarantined: ${corrupt.join(", ")}`,
+			);
 		} finally {
 			fs.rmSync(projectCwd, { recursive: true, force: true });
 			fs.rmSync(isolatedTmp, { recursive: true, force: true });

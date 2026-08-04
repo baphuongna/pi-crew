@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { hasStaleAsyncProcess, isActiveRunStatus, isLikelyOrphanedActiveRun } from "../../runtime/process-status.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { loadTasksWithRecovery } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { listRuns } from "../run-index.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -63,12 +64,13 @@ export const STUCK_TASK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
  * Read tasks.json for a given run's stateRoot. Returns empty array on error.
  */
 function readRunTasks(stateRoot: string): TeamTaskState[] {
+	// NEW-R2: use corruption recovery instead of bare JSON.parse. A corrupt
+	// tasks.json previously returned [] → stuck/crashed workers invisible to the
+	// health monitor. Now: corrupt → quarantine + reconstruct from events.jsonl.
 	const tasksPath = path.join(stateRoot, "tasks.json");
-	try {
-		return JSON.parse(fs.readFileSync(tasksPath, "utf-8")) as TeamTaskState[];
-	} catch {
-		return [];
-	}
+	const eventsPath = path.join(stateRoot, "events.jsonl");
+	const runId = path.basename(stateRoot);
+	return loadTasksWithRecovery(tasksPath, eventsPath, runId);
 }
 
 /**

@@ -891,7 +891,7 @@ function migrateTasksFile(parsed: unknown, runId: string): TeamTaskState[] {
 	}
 	return extractTaskArray(parsed);
 }
-function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: string): TeamTaskState[] {
+export function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: string): TeamTaskState[] {
 	let content: string;
 	try {
 		content = fs.readFileSync(tasksPath, "utf-8");
@@ -918,6 +918,36 @@ function loadTasksWithRecovery(tasksPath: string, eventsPath: string, runId: str
 		return reconstructed;
 	}
 	return migrateTasksFile(parsed, runId);
+}
+
+/**
+ * STATE-3: Load manifest.json with corruption quarantine (sync). Distinguishes:
+ * - ENOENT / read error → undefined (legitimate missing run — NOT quarantined).
+ * - SyntaxError (unparseable) → CORRUPT → quarantine `.corrupt-<ts>` + log + undefined.
+ *   Manifest CANNOT be reconstructed from events.jsonl (run.created only carries
+ *   {team, workflow}), so quarantine + visible log is the recovery — do NOT attempt
+ *   reconstruction (unlike loadTasksWithRecovery). This prevents a corrupt manifest
+ *   from silently making a run invisible (STATE-3).
+ */
+export function loadManifestWithRecovery(manifestPath: string, runId: string): TeamRunManifest | undefined {
+	let content: string;
+	try {
+		content = fs.readFileSync(manifestPath, "utf-8");
+	} catch {
+		// ENOENT / ENOTDIR / other read error → legitimate missing run.
+		return undefined;
+	}
+	try {
+		return JSON.parse(content) as TeamRunManifest;
+	} catch {
+		// SyntaxError → corrupt manifest. Quarantine (preserve for diagnosis) + log,
+		// then treat as missing. Do NOT reconstruct (infeasible from events).
+		quarantineCorruptFile(manifestPath);
+		console.error(
+			`[state-store] STATE-3: manifest.json for run ${runId} is corrupt (unparseable) — quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`,
+		);
+		return undefined;
+	}
 }
 
 /**
@@ -1067,6 +1097,18 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 		console.warn(
 			`[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
 		);
+	}
+	// STATE-3: readJsonFile returns undefined for BOTH missing (ENOENT) and corrupt
+	// (SyntaxError). A corrupt manifest currently makes the run silently invisible.
+	// If the file EXISTS but readJsonFile returned undefined, it is corrupt → quarantine
+	// it (preserve for diagnosis) + log + bail. Manifest reconstruction from events is
+	// infeasible (run.created lacks manifest fields), so quarantine+log is the recovery.
+	if (!manifest && fs.existsSync(manifestPath)) {
+		quarantineCorruptFile(manifestPath);
+		console.error(
+			`[state-store] STATE-3: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`,
+		);
+		return undefined;
 	}
 	if (!manifest || !validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath)) return undefined;
 	setManifestCache(stateRoot, {

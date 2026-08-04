@@ -561,4 +561,30 @@ describe("reconcileOrphanedTempWorkspaces", () => {
 		assert.ok(result.cleanedDirs >= 1, `expected cleanedDirs >= 1, got ${result.cleanedDirs}`);
 		assert.ok(!fs.existsSync(wsDir), "temp dir should be deleted (default cleanup)");
 	});
+
+	it("NEW-R1: skips + quarantines a corrupt-manifest run instead of throwing", () => {
+		const wsDir = createTempWorkspace({ manifestStatus: "running", old: false });
+
+		// Locate the single manifest.json written by createTempWorkspace and corrupt it.
+		const runsDir = path.join(wsDir, ".crew", "state", "runs");
+		const runDirName = fs.readdirSync(runsDir)[0]!;
+		const runDir = path.join(runsDir, runDirName);
+		const manifestPath = path.join(runDir, "manifest.json");
+		fs.writeFileSync(manifestPath, "{not valid json", "utf-8");
+
+		const now = Date.now();
+		// Must NOT throw — corrupt manifest is quarantined (via loadManifestWithRecovery)
+		// and the run is skipped rather than silently dropped.
+		const result = reconcileOrphanedTempWorkspaces(now, { tmpDir: isolatedTmp });
+
+		assert.equal(result.repaired, 0, "corrupt-manifest run must NOT be repaired (skipped)");
+		assert.ok(fs.existsSync(wsDir), "fresh workspace preserved (not cleaned)");
+
+		// The corrupt manifest must be quarantined to a .corrupt-* file.
+		const corrupt = fs.readdirSync(runDir).filter((f) => f.includes(".corrupt-"));
+		assert.ok(
+			corrupt.some((f) => f.startsWith("manifest.json.corrupt-")),
+			`NEW-R1: corrupt manifest quarantined: ${corrupt.join(", ")}`,
+		);
+	});
 });
