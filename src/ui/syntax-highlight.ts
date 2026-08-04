@@ -5,9 +5,24 @@
  * Falls back to plain text (theme.fg on every line) if the language is
  * unsupported or highlighting fails.
  */
-import { highlight, supportsLanguage } from "cli-highlight";
+import { createRequire } from "node:module";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme } from "./theme-adapter.ts";
+
+// PERF-1: cli-highlight loads highlight.js (~190 grammars) at require() time,
+// adding 50-150ms to every cold start if imported eagerly at bundle load.
+// highlight() is only called from SYNC render paths (highlightCode /
+// highlightJson), so it MUST stay sync — lazy-load via a synchronous
+// createRequire shim on first use instead (same mechanism as
+// skills/validate.ts's yaml / utils/git.ts's hosted-git-info). In the esbuild
+// bundle cli-highlight stays external and resolves through this same shim.
+const require = createRequire(import.meta.url);
+type CliHighlight = typeof import("cli-highlight");
+let cached: CliHighlight | undefined;
+function cliHighlight(): CliHighlight {
+	if (!cached) cached = require("cli-highlight") as CliHighlight;
+	return cached;
+}
 
 // ── cli-highlight theme bridge ──────────────────────────────────────────
 
@@ -39,11 +54,13 @@ function hlCliSync(code: string, language: string | undefined, theme: CrewTheme)
 			.join("\n");
 	}
 	try {
-		return highlight(code, {
-			language,
-			ignoreIllegals: true,
-			theme: buildCliTheme(theme),
-		}).trimEnd();
+		return cliHighlight()
+			.highlight(code, {
+				language,
+				ignoreIllegals: true,
+				theme: buildCliTheme(theme),
+			})
+			.trimEnd();
 	} catch {
 		return code
 			.split("\n")
@@ -105,18 +122,20 @@ function detectLanguageFromPath(filePath: string): string | undefined {
 
 export function highlightCode(code: string, language: string | undefined, themeLike: unknown = undefined): string {
 	const theme = asCrewTheme(themeLike);
-	const validLanguage = language && supportsLanguage(language) ? language : undefined;
+	const validLanguage = language && cliHighlight().supportsLanguage(language) ? language : undefined;
 	return hlCliSync(code, validLanguage, theme);
 }
 
 export function highlightJson(payload: string, themeLike: unknown = undefined): string {
 	const theme = asCrewTheme(themeLike);
 	try {
-		return highlight(payload, {
-			language: "json",
-			ignoreIllegals: true,
-			theme: buildCliTheme(theme),
-		}).trimEnd();
+		return cliHighlight()
+			.highlight(payload, {
+				language: "json",
+				ignoreIllegals: true,
+				theme: buildCliTheme(theme),
+			})
+			.trimEnd();
 	} catch {
 		try {
 			const parsed = JSON.parse(payload);

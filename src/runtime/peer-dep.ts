@@ -104,13 +104,12 @@ export function peerDepResolutionBases(): string[] {
 	}
 
 	// 4. `npm root -g` — the canonical cross-layout global root (memoized in
-	//    pi-spawn.ts, ~200ms once). Derive the scoped package dirs from it.
-	const npmRoot = resolveNpmGlobalRoot();
-	if (npmRoot) {
-		for (const pkgName of PEER_DEP_NAMES) {
-			bases.push(path.join(npmRoot, ...pkgName.split("/")));
-		}
-	}
+	//    pi-spawn.ts, ~200ms once). LAZY (PERF-2): this base is NOT computed
+	//    here because it would fire execSync("npm root -g") on EVERY resolution
+	//    attempt — even the common co-located install where base #1 already
+	//    resolves. peerDepNpmGlobalBases() below computes it only when the
+	//    cheaper bases fail, and resolveNpmGlobalRoot()'s own memo keeps
+	//    execSync at most once per process.
 
 	// 5. Windows %APPDATA%\npm static layout (legacy npm-global, pre-npm-root-g).
 	if (process.env.APPDATA) {
@@ -118,6 +117,18 @@ export function peerDepResolutionBases(): string[] {
 	}
 
 	return bases;
+}
+
+/**
+ * Derive the npm-global resolution bases from `npm root -g` (memoized in
+ * pi-spawn.ts). Kept separate from peerDepResolutionBases() so the ~200ms
+ * execSync probe only runs when the cheaper bases failed to resolve (PERF-2).
+ * Pure given the memoized root; exported for unit tests.
+ */
+export function peerDepNpmGlobalBases(): string[] {
+	const npmRoot = resolveNpmGlobalRoot();
+	if (!npmRoot) return [];
+	return PEER_DEP_NAMES.map((pkgName) => path.join(npmRoot, ...pkgName.split("/")));
 }
 
 /** Pull the ESM entry path out of package.json (exports import || main). */
@@ -203,7 +214,23 @@ function tryResolveFrom(base: string): ResolvedPeerDep | undefined {
 /** Resolve the peer dep install dir + ESM entry URL. Memoized (sync). */
 export function resolvePeerDep(): ResolvedPeerDep | undefined {
 	if (cachedResolve !== null) return cachedResolve ?? undefined;
-	for (const base of peerDepResolutionBases()) {
+
+	// PERF-2: evaluate the bases incrementally — the cheaper bases (env hint,
+	// this file's location, entry script, node's global node_modules) are tried
+	// FIRST. `npm root -g` (~200ms execSync, memoized in pi-spawn.ts) only runs
+	// if all of those fail, so the common co-located install (base #1 resolves)
+	// never pays the probe.
+	const bases = peerDepResolutionBases();
+	for (const base of bases) {
+		const found = tryResolveFrom(base);
+		if (found) {
+			cachedResolve = found;
+			return found;
+		}
+	}
+	// npm-root bases — computed lazily, only reached when the cheaper bases
+	// failed to resolve.
+	for (const base of peerDepNpmGlobalBases()) {
 		const found = tryResolveFrom(base);
 		if (found) {
 			cachedResolve = found;

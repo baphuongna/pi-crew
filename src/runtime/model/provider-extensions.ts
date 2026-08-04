@@ -32,6 +32,31 @@ export interface DiscoveredProviderExtension {
 }
 
 /**
+ * PERF-3: discoverProviderExtensions() reads settings.json + per-package
+ * existsSync/readFileSync on EVERY call (called 4x per discoverAgents cache
+ * miss). Cache the result keyed on the settings.json path + mtime: while the
+ * file is unchanged the result is returned without any fs reads beyond one
+ * statSync. If settings.json is missing (statSync throws) the cache entry is
+ * left untouched so a later call re-checks. Keyed by path so distinct settings
+ * files (e.g. per-test temp roots) never share entries; mtime invalidation
+ * covers the only mutation channel (settings.json edits) — the original has no
+ * TTL, and none is needed.
+ */
+const cache = new Map<string, { mtimeMs: number; result: DiscoveredProviderExtension[] }>();
+
+function cachedResult(settingsPath: string): { mtimeMs: number; result: DiscoveredProviderExtension[] } | undefined {
+	const entry = cache.get(settingsPath);
+	if (!entry) return undefined;
+	try {
+		if (fs.statSync(settingsPath).mtimeMs === entry.mtimeMs) return entry;
+	} catch {
+		// settings.json missing/unreadable — cannot confirm unchanged.
+	}
+	cache.delete(settingsPath);
+	return undefined;
+}
+
+/**
  * Resolve the extension entry point for an installed Pi package.
  * Order: package.json `pi.extensions` (array) → `index.ts` → `index.mjs` → `index.js` → `src/index.ts`.
  * Returns undefined when the package has no resolvable entry point.
@@ -80,6 +105,11 @@ function resolvePackageEntry(pkgDir: string): string | undefined {
 export function discoverProviderExtensions(settingsPath?: string): DiscoveredProviderExtension[] {
 	const root = userPiRoot();
 	const settingsFile = settingsPath ?? path.join(root, "settings.json");
+
+	// PERF-3: reuse the cached result while settings.json's mtime is unchanged.
+	const hit = cachedResult(settingsFile);
+	if (hit) return hit.result;
+
 	const out: DiscoveredProviderExtension[] = [];
 	if (!fs.existsSync(settingsFile)) return out;
 	let settings: { packages?: string[] };
@@ -104,6 +134,12 @@ export function discoverProviderExtensions(settingsPath?: string): DiscoveredPro
 		if (!fs.existsSync(pkgDir)) continue;
 		const entryPath = resolvePackageEntry(pkgDir);
 		if (entryPath) out.push({ spec, entryPath });
+	}
+	// Cache the resolved result keyed on the settings.json path + mtime.
+	try {
+		cache.set(settingsFile, { mtimeMs: fs.statSync(settingsFile).mtimeMs, result: out });
+	} catch {
+		cache.delete(settingsFile);
 	}
 	return out;
 }
