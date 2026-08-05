@@ -198,4 +198,24 @@ describe("discoverSkills", () => {
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	});
+
+	// Regression: real-test-pi-crew once shipped a corrupted YAML trigger
+	// item (`- "unknown type" tool error`) that broke frontmatter parsing and
+	// emitted a HARD diagnostic. Guard that this specific bundled skill always
+	// parses and registers cleanly.
+	it("real-test-pi-crew SKILL.md parses without HARD diagnostics", () => {
+		const skillDir = path.resolve(import.meta.dirname, "..", "..", "skills", "real-test-pi-crew");
+		const skillMd = path.join(skillDir, "SKILL.md");
+		assert.ok(fs.existsSync(skillMd), "real-test-pi-crew/SKILL.md must exist");
+		const skills = discoverSkills(path.dirname(skillDir));
+		const rtpc = skills.find((s) => s.name === "real-test-pi-crew");
+		assert.ok(rtpc, "real-test-pi-crew should be discovered as a bundled skill");
+		const diagnostics = getLastDiscoveryDiagnostics();
+		const hard = diagnostics.filter((d) => d.severity === "error" && d.path === skillDir);
+		assert.equal(
+			hard.length,
+			0,
+			`real-test-pi-crew must produce no HARD diagnostics; got: ${JSON.stringify(hard, null, 2)}`,
+		);
+	});
 });

@@ -17,7 +17,6 @@ triggers:
   - "worker timeout"
   - "verifier hangs"
   - "rebuild and retry"
-  - "unknown type" tool error
   - "validation failed for tool"
   - "team tool broken"
   - "schema fix"
