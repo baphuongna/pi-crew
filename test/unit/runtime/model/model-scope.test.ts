@@ -221,7 +221,9 @@ describe("buildConfiguredModelRouting — F7 scope gate", () => {
 			scopeModelsPatterns: ["claude-*"],
 		});
 		assert.equal(result.scopeVerdict?.inScope, false);
-		assert.equal(result.scopeVerdict?.source, "caller");
+		// F5: isFrontmatterOverride downgrades to "frontmatter" source so the
+		// call-site soft warning actually surfaces (warning fires when source !== "caller").
+		assert.equal(result.scopeVerdict?.source, "frontmatter");
 		// No throw.
 	});
 

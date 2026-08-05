@@ -36,6 +36,7 @@ export interface RunLiveTaskInput {
 	modelOverride?: string;
 	teamRoleModel?: string;
 	teamRoleFallbackModels?: string[];
+	teamRoleThinking?: string;
 	isCurrent?: () => boolean;
 	/** Workspace where this task run was initiated — used for session-scoped live-agent visibility. */
 	workspaceId: string;
@@ -136,6 +137,7 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 		modelOverride: input.modelOverride,
 		teamRoleModel: input.teamRoleModel,
 		teamRoleFallbackModels: input.teamRoleFallbackModels,
+		teamRoleThinking: input.teamRoleThinking,
 		isCurrent,
 		workspaceId: input.workspaceId,
 		// Phase 2: Pass output schema for yield validation

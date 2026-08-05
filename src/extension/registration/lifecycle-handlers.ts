@@ -25,10 +25,10 @@ import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
-import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
-import { noteProviderResponse } from "../../runtime/model/provider-quota.ts";
-import { currentSessionModel, noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
 import { providerOfModelRef } from "../../runtime/model/model-fallback.ts";
+import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
+import { clearProviderQuotaCache, noteProviderResponse } from "../../runtime/model/provider-quota.ts";
+import { currentSessionModel, noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
@@ -146,6 +146,7 @@ function installSessionBeforeSwitchHandler(pi: ExtensionAPI, ctx: RegistrationCo
 		ctx.lifecycleState.deliveryCoordinator?.deactivate();
 		resetPowerbarDedupState();
 		stopAsyncRunNotifier(ctx.notifierState);
+		clearProviderQuotaCache();
 		ctx.stopSessionBoundSubagents();
 	});
 }

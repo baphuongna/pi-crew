@@ -252,6 +252,7 @@ export function prepareSpawnContext(
 		maxDepth: input.maxDepth,
 		skillPaths: input.skillPaths,
 		role: input.role,
+		thinkingOverride: input.thinkingOverride,
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;

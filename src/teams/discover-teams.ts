@@ -37,14 +37,17 @@ function parseRoleLine(line: string): TeamRole | undefined {
 		metadata.skills = raw.replace(/\s*,\s*/g, ",").trim();
 		return "";
 	});
-	descriptionSource = descriptionSource.replace(/\bfallbackModels\s*=\s*([\w/.-]+(?:\s*,\s*[\w/.-]+)*)/g, (_match, raw: string) => {
+	descriptionSource = descriptionSource.replace(/\bfallbackModels\s*=\s*([\w/.:-]+(?:\s*,\s*[\w/.:-]+)*)/g, (_match, raw: string) => {
 		metadata.fallbackModels = raw.replace(/\s*,\s*/g, ",").trim();
 		return "";
 	});
-	descriptionSource = descriptionSource.replace(/\b(agent|model|thinking|maxConcurrency)\s*=\s*(\S+)/g, (_match, key: string, raw: string) => {
-		metadata[key] = raw.trim();
-		return "";
-	});
+	descriptionSource = descriptionSource.replace(
+		/\b(agent|model|thinking|maxConcurrency)\s*=\s*(\S+)/g,
+		(_match, key: string, raw: string) => {
+			metadata[key] = raw.trim();
+			return "";
+		},
+	);
 	const description = descriptionSource.replace(/\s+/g, " ").trim() || undefined;
 	const maxConcurrency = metadata.maxConcurrency
 		? (() => {
@@ -57,7 +60,12 @@ function parseRoleLine(line: string): TeamRole | undefined {
 		agent: metadata.agent ?? name,
 		description,
 		model: metadata.model,
-		fallbackModels: metadata.fallbackModels ? metadata.fallbackModels.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+		fallbackModels: metadata.fallbackModels
+			? metadata.fallbackModels
+					.split(",")
+					.map((s) => s.trim())
+					.filter(Boolean)
+			: undefined,
 		thinking: metadata.thinking?.trim() || undefined,
 		skills: parseRoleSkills(metadata.skills),
 		maxConcurrency: maxConcurrency && maxConcurrency > 0 ? maxConcurrency : undefined,

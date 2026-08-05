@@ -98,7 +98,7 @@ export interface CrewRuntimeConfig {
 export interface CrewModelFallbackConfig {
 	/** Cap on auto-appended models. undefined = keep all (legacy). */
 	maxAutoFallbacks?: number;
-	/** "parentFirst" (default) keeps the auto tail on the same provider as the running model. "asIs" = catalogue order. */
+	/** "parentFirst" keeps the auto tail on the same provider as the running model when a policy is configured or quota data enriches it. "asIs" = catalogue order. Without explicit configuration, auto tail stays catalogue order. */
 	order?: "parentFirst" | "asIs";
 	/** Drop pi-config models whose provider has no discoverable credential. Default: false. */
 	requireCredentials?: boolean;

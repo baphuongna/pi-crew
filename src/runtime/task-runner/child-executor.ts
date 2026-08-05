@@ -54,6 +54,7 @@ import {
 	type ModelFallbackPolicy,
 	resolveDefaultSubagentModel,
 	resolveModelFallbackPolicy,
+	warnOutOfScopeSoft,
 } from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../output/pi-json-output.ts";
@@ -309,8 +310,14 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				resolved: candidates[0],
 				fallbackChain: candidates,
 			},
-		}).catch(() => {});
+		}).catch(() => {
+			/* no-op: best-effort diagnostic append, ignore delivery errors */
+		});
 	}
+	// F2: surface a non-silent warning when the INITIAL routing resolved an
+	// out-of-scope soft-sourced model (mirrors live-session-runtime.ts). Caller
+	// sources already throw inside buildConfiguredModelRouting.
+	warnOutOfScopeSoft(modelRoutingPlan.scopeVerdict, "child-executor.initial-out-of-scope");
 	// Mutable: the one-shot re-resolve below appends a late-discovered model so
 	// the loop actually retries it (see FIX 1 at the end of the attempt loop).
 	const attemptModels: (string | undefined)[] = candidates.length > 0 ? [...candidates] : [undefined];
@@ -488,6 +495,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				excludeContextBash: input.runtimeConfig?.excludeContextBash,
 				sessionId: manifest.sessionId,
 				role: task.role,
+				thinkingOverride: input.teamRoleThinking,
 				runId: manifest.runId,
 				agentId: task.id,
 				artifactsRoot: manifest.artifactsRoot,
@@ -728,6 +736,11 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				policy: modelFallbackPolicy,
 				scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd),
 			});
+			// Sec-M1: surface a non-silent warning when a soft-sourced re-resolved
+			// model is out-of-scope. Only non-caller sources (frontmatter /
+			// resolved) reach here — caller sources already throw inside
+			// buildConfiguredModelRouting.
+			warnOutOfScopeSoft(reResolved.scopeVerdict, "child-executor.re-resolve-out-of-scope", "Re-resolved model");
 			// Must exclude EVERY model already tried, not just the last one —
 			// otherwise the "alternative" is one that already failed.
 			const tried = new Set(modelAttempts.map((a) => a.model));

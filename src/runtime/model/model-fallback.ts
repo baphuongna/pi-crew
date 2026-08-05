@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../../errors.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { fuzzyResolveModelId } from "./model-resolver.ts";
 import { checkModelScope } from "./model-scope.ts";
-import { deprioritizedProviders as quotaDeprioritizedProviders, providerRankFromQuota } from "./provider-quota.ts";
+import { providerRankFromQuota, deprioritizedProviders as quotaDeprioritizedProviders } from "./provider-quota.ts";
 
 export interface AvailableModelInfo {
 	provider: string;
@@ -247,6 +248,11 @@ export function configuredModelInfosFromPiConfig(cwd?: string, options?: Configu
 		(info) => info.fullId === defaultModel?.fullId || credentialedProviders.has(info.provider.toLowerCase()),
 	);
 	configuredModelCache.set(cacheKey, { signature, all, credentialed });
+	// LRU cap: prevent unbounded growth across many distinct agent-dir/cwd combos.
+	if (configuredModelCache.size > 32) {
+		const oldestKey = configuredModelCache.keys().next().value;
+		if (oldestKey !== undefined) configuredModelCache.delete(oldestKey);
+	}
 	return options?.requireCredentials ? credentialed : all;
 }
 
@@ -431,9 +437,11 @@ export interface ModelFallbackPolicy {
 	 */
 	maxAutoFallbacks?: number;
 	/**
-	 * `"parentFirst"` (default) keeps the auto tail on the same provider as the
-	 * model actually in use before crossing to another provider — same auth,
-	 * similar cost/latency profile. `"asIs"` preserves raw catalogue order.
+	 * `"parentFirst"` keeps the auto tail on the same provider as the model
+	 * actually in use before crossing to another provider when a policy is
+	 * configured or quota data enriches it — same auth, similar cost/latency
+	 * profile. `"asIs"` preserves raw catalogue order. Without explicit
+	 * configuration, auto tail stays catalogue order.
 	 */
 	order?: "parentFirst" | "asIs";
 	/** Lower rank = try earlier. Populated from provider quota when available. */
@@ -477,9 +485,7 @@ export function orderAutoFallbacks(candidates: string[], policy: ModelFallbackPo
 				rank: rankFor(provider),
 			};
 		})
-		.sort(
-			(a, b) => a.exhausted - b.exhausted || a.anchored - b.anchored || a.rank - b.rank || a.index - b.index,
-		)
+		.sort((a, b) => a.exhausted - b.exhausted || a.anchored - b.anchored || a.rank - b.rank || a.index - b.index)
 		.map((entry) => entry.model);
 }
 
@@ -490,28 +496,63 @@ export function orderAutoFallbacks(candidates: string[], policy: ModelFallbackPo
  *   PI_CREW_MODEL_FALLBACK_ORDER — "parentFirst" | "asIs"
  *   PI_CREW_MODEL_REQUIRE_CREDENTIALS — "1" to drop uncredentialed providers
  *
+ * `parentFirst` ordering applies only when a policy is explicitly configured or
+ * quota data enriches it; otherwise the auto tail stays catalogue order.
+ *
  * Returns undefined when nothing is configured, so callers that pass it to
  * `buildConfiguredModelRouting` get legacy (unbounded, unordered) behaviour.
  */
 export function resolveModelFallbackPolicy(
-	config: {
-		maxAutoFallbacks?: number;
-		order?: "parentFirst" | "asIs";
-		requireCredentials?: boolean;
-		quotaAwareOrdering?: boolean;
-	} | undefined,
+	config:
+		| {
+				maxAutoFallbacks?: number;
+				order?: "parentFirst" | "asIs";
+				requireCredentials?: boolean;
+				quotaAwareOrdering?: boolean;
+		  }
+		| undefined,
 	env: NodeJS.ProcessEnv = process.env,
 ): ModelFallbackPolicy | undefined {
-	const maxAutoFallbacks = env.PI_CREW_MAX_AUTO_FALLBACKS
-		? Number.parseInt(env.PI_CREW_MAX_AUTO_FALLBACKS, 10)
-		: config?.maxAutoFallbacks;
+	const envMaxAuto = env.PI_CREW_MAX_AUTO_FALLBACKS;
+	let maxAutoFallbacks: number | undefined;
+	if (envMaxAuto) {
+		const parsed = Number.parseInt(envMaxAuto, 10);
+		if (Number.isFinite(parsed) && parsed >= 0) {
+			maxAutoFallbacks = parsed;
+		} else if (Number.isFinite(parsed)) {
+			// Negative — clamp to 0 with warning.
+			logInternalError(
+				"model-fallback.max-auto-fallbacks-invalid",
+				undefined,
+				`PI_CREW_MAX_AUTO_FALLBACKS="${envMaxAuto}" is negative, clamped to 0`,
+				"warn",
+			);
+			maxAutoFallbacks = 0;
+		} else {
+			// NaN or non-finite — fall back to config.
+			logInternalError(
+				"model-fallback.max-auto-fallbacks-invalid",
+				undefined,
+				`PI_CREW_MAX_AUTO_FALLBACKS="${envMaxAuto}" is invalid, falling back to config`,
+				"warn",
+			);
+			maxAutoFallbacks = config?.maxAutoFallbacks;
+		}
+	} else {
+		maxAutoFallbacks = config?.maxAutoFallbacks;
+	}
 	const order = (env.PI_CREW_MODEL_FALLBACK_ORDER as "parentFirst" | "asIs" | undefined) ?? config?.order;
 	const requireCredentials =
-		env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "1" ? true : env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "0" ? false : config?.requireCredentials;
+		env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "1"
+			? true
+			: env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "0"
+				? false
+				: config?.requireCredentials;
 	// quotaAwareOrdering defaults to true (user preference: default-on with cache).
 	// When explicitly disabled, no deprioritization/rank data is attached.
 	const quotaAware = config?.quotaAwareOrdering !== false;
-	if (maxAutoFallbacks === undefined && !order && requireCredentials === undefined && config?.quotaAwareOrdering === undefined) return undefined;
+	if (maxAutoFallbacks === undefined && !order && requireCredentials === undefined && config?.quotaAwareOrdering === undefined)
+		return undefined;
 	return {
 		...(maxAutoFallbacks !== undefined && Number.isFinite(maxAutoFallbacks) ? { maxAutoFallbacks } : {}),
 		...(order ? { order } : {}),
@@ -547,10 +588,14 @@ export interface ConfiguredModelRouting {
 	/**
 	 * F7 scope gate verdict. Populated when the caller passed `scopeModelsPatterns`.
 	 * - `inScope: true` → the resolved model is inside the allowlist (or no allowlist).
-	 * - `inScope: false, source: "caller"` → caller override is out-of-scope; the
-	 *   function throws `errors.modelOutOfScope` (hard error before spawn) UNLESS
-	 *   the caller marked it as a frontmatter override (`isFrontmatterOverride: true`),
-	 *   in which case the verdict is returned for the caller to log as a warning.
+	 * - `inScope: false, source: "caller"` → caller override (override/step/team role)
+	 *   is out-of-scope; the function throws `errors.modelOutOfScope` (hard error
+	 *   before spawn) UNLESS the caller marked it as a frontmatter override
+	 *   (`isFrontmatterOverride: true`), in which case the verdict is returned for
+	 *   the caller to log as a warning.
+	 * - `inScope: false, source: "frontmatter" | "resolved"` → frontmatter-pinned,
+	 *   defaultSubagentModel, or parentModel-inherited model is out-of-scope;
+	 *   soft warn + run anyway (no throw).
 	 */
 	scopeVerdict?: import("./model-scope.ts").ModelScopeCheck;
 }
@@ -643,12 +688,7 @@ export function buildConfiguredModelRouting(input: {
 			if (parentModelFallback && model.trim() === parentModelFallback) return true;
 			return isAvailableModel(model.trim(), availableModels);
 		});
-	const declaredCandidates = buildModelCandidates(
-		declaredModels[0],
-		declaredModels.slice(1),
-		availableModels,
-		preferredProvider,
-	);
+	const declaredCandidates = buildModelCandidates(declaredModels[0], declaredModels.slice(1), availableModels, preferredProvider);
 	// Auto tail: everything the user did NOT declare. Without a registry the
 	// only auto candidate is the inherited parent model.
 	const autoRaw = availableModels ? availableModels.map((model) => model.fullId) : parentModel ? [parentModel] : [];
@@ -686,12 +726,29 @@ export function buildConfiguredModelRouting(input: {
 	// F7 scope gate: when `scopeModelsPatterns` is configured, check the
 	// resolved model. Caller-supplied (override/step/team role) out-of-scope
 	// is a HARD ERROR (we surface it via the verdict AND throw, so spawn aborts
-	// before any cost is incurred). Frontmatter-pinned out-of-scope is a
-	// WARNING returned on the verdict for the caller to log.
+	// before any cost is incurred). Frontmatter-pinned, defaultSubagentModel,
+	// and parentModel-inherited out-of-scope is a WARNING returned on the verdict
+	// for the caller to log.
 	let scopeVerdict: ConfiguredModelRouting["scopeVerdict"];
 	if (input.scopeModelsPatterns && input.scopeModelsPatterns.length > 0) {
 		const resolved = candidates[0] ?? requested;
-		const source = input.overrideModel ? "caller" : input.agentModel ? "frontmatter" : "resolved";
+		// Attribution by REAL precedence: override/step/team role are caller-level
+		// (hard-error when out-of-scope); agentModel is frontmatter (soft warn);
+		// defaultSubagentModel + parentModel are resolved (soft warn).
+		// F5: isFrontmatterOverride means the caller override equals the agent's
+		// frontmatter model (author authority) → treat as "frontmatter" so the
+		// soft warning surfaces instead of being silent (throw is also skipped).
+		const source = input.isFrontmatterOverride
+			? "frontmatter"
+			: input.overrideModel
+				? "caller"
+				: input.stepModel
+					? "caller"
+					: input.teamRoleModel
+						? "caller"
+						: input.agentModel?.trim()
+							? "frontmatter"
+							: "resolved";
 		scopeVerdict = checkModelScope(resolved, input.scopeModelsPatterns, source);
 		if (!scopeVerdict.inScope && source === "caller" && !input.isFrontmatterOverride) {
 			throw errors.modelOutOfScope(resolved ?? "", input.scopeModelsPatterns);
@@ -709,4 +766,22 @@ export function buildConfiguredModelRouting(input: {
 
 export function buildConfiguredModelCandidates(input: Parameters<typeof buildConfiguredModelRouting>[0]): string[] {
 	return buildConfiguredModelRouting(input).candidates;
+}
+
+/**
+ * Surface a non-silent warning when a soft-sourced (non-caller) model is
+ * out-of-scope and runs anyway. Centralises the `"warn"` severity so call
+ * sites cannot accidentally omit it — Round-2 F1 found two sites forgot it,
+ * making the warning debug-gated/silent and defeating the entire Sec-M1 fix.
+ * Caller-sourced out-of-scope already throws inside `buildConfiguredModelRouting`,
+ * so this is a no-op for `source === "caller"`.
+ */
+export function warnOutOfScopeSoft(verdict: import("./model-scope.ts").ModelScopeCheck | undefined, scope: string, prefix = "Model"): void {
+	if (!verdict || verdict.inScope || verdict.source === "caller") return;
+	logInternalError(
+		scope,
+		undefined,
+		`${prefix} "${verdict.model}" from source "${verdict.source}" is outside enabledModels scope: ${verdict.reason ?? "unknown"}. Running anyway (soft warn).`,
+		"warn",
+	);
 }

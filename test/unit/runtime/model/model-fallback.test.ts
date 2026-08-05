@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { CrewError, ErrorCode } from "../../../../src/errors.ts";
 import {
 	buildConfiguredModelCandidates,
 	buildConfiguredModelRouting,
@@ -14,6 +15,7 @@ import {
 	resolveModelCandidate,
 	resolveModelFallbackPolicy,
 	splitThinkingSuffix,
+	warnOutOfScopeSoft,
 } from "../../../../src/runtime/model/model-fallback.ts";
 
 test("splitThinkingSuffix preserves model suffix", () => {
@@ -509,4 +511,207 @@ test("buildConfiguredModelRouting: droppedRequested is set when requested model 
 	assert.equal(routing.droppedRequested, "nonexistent/model");
 	assert.equal(routing.requested, "nonexistent/model");
 	assert.equal(routing.candidates[0], "openai-codex/gpt-5.5");
+});
+
+// ── L3: PI_CREW_MAX_AUTO_FALLBACKS env guard ────────────────────────────────
+
+test("resolveModelFallbackPolicy: env PI_CREW_MAX_AUTO_FALLBACKS NaN value falls back, no crash", () => {
+	const env = { PI_CREW_MAX_AUTO_FALLBACKS: "abc" };
+	const policy = resolveModelFallbackPolicy(undefined, env as NodeJS.ProcessEnv);
+	// NaN is invalid -> fall back to config (undefined) -> maxAutoFallbacks absent.
+	assert.equal(policy?.maxAutoFallbacks, undefined);
+});
+
+test("resolveModelFallbackPolicy: env PI_CREW_MAX_AUTO_FALLBACKS NaN falls back to config when config is set", () => {
+	const env = { PI_CREW_MAX_AUTO_FALLBACKS: "abc" };
+	const policy = resolveModelFallbackPolicy({ maxAutoFallbacks: 7 }, env as NodeJS.ProcessEnv);
+	assert.equal(policy?.maxAutoFallbacks, 7);
+});
+
+test("resolveModelFallbackPolicy: env PI_CREW_MAX_AUTO_FALLBACKS negative clamped to 0", () => {
+	const env = { PI_CREW_MAX_AUTO_FALLBACKS: "-5" };
+	const policy = resolveModelFallbackPolicy(undefined, env as NodeJS.ProcessEnv);
+	assert.equal(policy?.maxAutoFallbacks, 0);
+});
+
+// ── Sec-M1: scope gate attribution tests ─────────────────────────────────────
+// Verifies the source attribution chain: override/step/teamRole -> "caller"
+// (hard-error when out-of-scope); agentModel -> "frontmatter" (soft warn);
+// defaultSubagentModel + parentModel -> "resolved" (soft warn).
+
+function mockScopeRegistry(models: string[]): { getAvailable(): unknown[] } {
+	return {
+		getAvailable: () =>
+			models.map((fullId) => ({
+				provider: fullId.split("/")[0],
+				id: fullId.split("/").slice(1).join("/"),
+				fullId,
+			})),
+	};
+}
+
+function scopeCwd(): string {
+	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-scope-"));
+}
+
+test("scope gate a: overrideModel out-of-scope -> throws CrewError (hard error)", () => {
+	const cwd = scopeCwd();
+	try {
+		assert.throws(
+			() =>
+				buildConfiguredModelRouting({
+					overrideModel: "openai/gpt-5",
+					modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+					scopeModelsPatterns: ["anthropic/*"],
+					cwd,
+				}),
+			(err: unknown) => {
+				assert.ok(err instanceof CrewError, "throws CrewError");
+				assert.equal((err as CrewError).code, ErrorCode.ModelOutOfScope);
+				return true;
+			},
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate a2: stepModel out-of-scope -> throws CrewError (hard error, F7 contract)", () => {
+	const cwd = scopeCwd();
+	try {
+		assert.throws(
+			() =>
+				buildConfiguredModelRouting({
+					stepModel: "openai/gpt-5",
+					modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+					scopeModelsPatterns: ["anthropic/*"],
+					cwd,
+				}),
+			(err: unknown) => {
+				assert.ok(err instanceof CrewError, "throws CrewError");
+				assert.equal((err as CrewError).code, ErrorCode.ModelOutOfScope);
+				return true;
+			},
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate a3: teamRoleModel out-of-scope -> throws CrewError (hard error, F7 contract)", () => {
+	const cwd = scopeCwd();
+	try {
+		assert.throws(
+			() =>
+				buildConfiguredModelRouting({
+					teamRoleModel: "openai/gpt-5",
+					modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+					scopeModelsPatterns: ["anthropic/*"],
+					cwd,
+				}),
+			(err: unknown) => {
+				assert.ok(err instanceof CrewError, "throws CrewError");
+				assert.equal((err as CrewError).code, ErrorCode.ModelOutOfScope);
+				return true;
+			},
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate b: defaultSubagentModel out-of-scope -> verdict inScope=false, NO throw", () => {
+	const cwd = scopeCwd();
+	try {
+		const routing = buildConfiguredModelRouting({
+			defaultSubagentModel: "openai/gpt-5",
+			modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+			scopeModelsPatterns: ["anthropic/*"],
+			cwd,
+		});
+		assert.equal(routing.scopeVerdict?.inScope, false);
+		assert.equal(routing.scopeVerdict?.source, "resolved");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate c: parentModel only (no agent/caller) out-of-scope -> verdict inScope=false, NO throw", () => {
+	const cwd = scopeCwd();
+	try {
+		const routing = buildConfiguredModelRouting({
+			parentModel: { provider: "openai", id: "gpt-5" },
+			modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+			scopeModelsPatterns: ["anthropic/*"],
+			cwd,
+		});
+		assert.equal(routing.scopeVerdict?.inScope, false);
+		assert.equal(routing.scopeVerdict?.source, "resolved");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate d: agentModel (frontmatter) out-of-scope -> verdict inScope=false, NO throw", () => {
+	const cwd = scopeCwd();
+	try {
+		const routing = buildConfiguredModelRouting({
+			agentModel: "openai/gpt-5",
+			modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+			scopeModelsPatterns: ["anthropic/*"],
+			cwd,
+		});
+		assert.equal(routing.scopeVerdict?.inScope, false);
+		assert.equal(routing.scopeVerdict?.source, "frontmatter");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scope gate e: model in-scope -> verdict inScope=true", () => {
+	const cwd = scopeCwd();
+	try {
+		const routing = buildConfiguredModelRouting({
+			agentModel: "anthropic/sonnet",
+			modelRegistry: mockScopeRegistry(["openai/gpt-5", "anthropic/sonnet"]),
+			scopeModelsPatterns: ["anthropic/*"],
+			cwd,
+		});
+		assert.equal(routing.scopeVerdict?.inScope, true);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// ── F1/Sec-M1: warnOutOfScopeSoft centralises the "warn" severity ──────────
+// Round-2 F1 found two call sites forgot the "warn" arg, making the warning
+// debug-gated/silent. This guards the helper that now centralises it: if the
+// "warn" severity is dropped, logInternalError becomes debug-gated and
+// console.error is never called -> this test fails.
+test("warnOutOfScopeSoft: emits for out-of-scope non-caller, silent otherwise", () => {
+	const original = console.error;
+	const calls: string[] = [];
+	console.error = (msg: string) => {
+		calls.push(msg);
+	};
+	try {
+		// out-of-scope + non-caller source -> emits (the soft-warn path)
+		warnOutOfScopeSoft({ inScope: false, source: "frontmatter", model: "openai/gpt-5", reason: "not allowed" }, "test.scope");
+		assert.equal(calls.length, 1);
+		assert.match(calls[0], /\[pi-crew:test\.scope\]/);
+		assert.match(calls[0], /openai\/gpt-5/);
+		assert.match(calls[0], /frontmatter/);
+		// in-scope -> silent
+		calls.length = 0;
+		warnOutOfScopeSoft({ inScope: true, source: "frontmatter", model: "anthropic/ok" }, "test.scope");
+		assert.equal(calls.length, 0);
+		// caller source -> silent (caller throws inside buildConfiguredModelRouting)
+		warnOutOfScopeSoft({ inScope: false, source: "caller", model: "openai/gpt-5" }, "test.scope");
+		assert.equal(calls.length, 0);
+		// undefined verdict -> silent
+		warnOutOfScopeSoft(undefined, "test.scope");
+		assert.equal(calls.length, 0);
+	} finally {
+		console.error = original;
+	}
 });

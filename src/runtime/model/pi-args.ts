@@ -45,6 +45,8 @@ export interface BuildPiWorkerArgsInput {
 	env?: NodeJS.ProcessEnv;
 	/** Role for tool restrictions (uses role-tools.ts config) */
 	role?: string;
+	/** Per-role thinking override (teamRole.thinking). Takes precedence over agent.thinking. */
+	thinkingOverride?: string;
 }
 
 export interface BuildPiWorkerArgsResult {
@@ -265,13 +267,15 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	if (input.sessionEnabled === false) args.push("--no-session");
 
 	const resolvedModel = input.model ?? input.agent.model;
+	// H1.a: teamRole.thinking (passed as thinkingOverride) takes precedence over agent.thinking.
+	const effectiveThinking = input.thinkingOverride ?? input.agent.thinking;
 	if (resolvedModel) {
-		const modelWithThinking = applyThinkingSuffix(resolvedModel, input.agent.thinking);
+		const modelWithThinking = applyThinkingSuffix(resolvedModel, effectiveThinking);
 		if (modelWithThinking) args.push("--model", modelWithThinking);
 	}
 	// When no model resolved, pass thinking separately so Pi can apply it to the inherited parent model.
-	if (!resolvedModel && input.agent.thinking && input.agent.thinking !== "off" && isValidThinkingLevel(input.agent.thinking)) {
-		args.push("--thinking", input.agent.thinking);
+	if (!resolvedModel && effectiveThinking && effectiveThinking !== "off" && isValidThinkingLevel(effectiveThinking)) {
+		args.push("--thinking", effectiveThinking);
 	}
 
 	// Apply role-based tool restrictions (from role-tools.ts)

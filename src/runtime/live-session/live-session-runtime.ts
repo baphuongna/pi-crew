@@ -16,11 +16,12 @@ import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
 import {
 	availableModelInfosFromRegistry,
 	buildConfiguredModelRouting,
+	type ModelFallbackPolicy,
 	modelRefToString,
 	providerOfModelRef,
 	resolveDefaultSubagentModel,
 	resolveModelFallbackPolicy,
-	type ModelFallbackPolicy,
+	warnOutOfScopeSoft,
 } from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
@@ -103,6 +104,7 @@ export interface LiveSessionSpawnInput {
 	modelOverride?: string;
 	teamRoleModel?: string;
 	teamRoleFallbackModels?: string[];
+	teamRoleThinking?: string;
 	isCurrent?: () => boolean;
 	/** Workspace where this run was initiated — used for session-scoped live-agent visibility. */
 	workspaceId: string;
@@ -717,6 +719,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				},
 			});
 		}
+		// Sec-M1: surface a non-silent warning when a soft-sourced model is out-of-scope.
+		// Only non-caller sources (frontmatter / resolved) get the soft warning —
+		// caller sources already throw inside buildConfiguredModelRouting.
+		warnOutOfScopeSoft(modelRouting.scopeVerdict, "live-session.model-out-of-scope");
+		// H1.a: teamRole.thinking takes precedence over agent.thinking.
+		const effectiveThinking = input.teamRoleThinking ?? input.agent.thinking;
 		// Phase 4: MCP proxy — will be determined after session creation
 		// (we check parent's MCP tools and share connections when available)
 		const mcpProxy = buildMcpProxyFromSession([], { shareMcp: true });
@@ -746,7 +754,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				: {}),
 			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
-			...(input.agent.thinking ? { thinkingLevel: input.agent.thinking } : {}),
+			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
 			...(mcpProxy.enableMcp ? {} : { enableMCP: false }),
 			customTools,
 		});
