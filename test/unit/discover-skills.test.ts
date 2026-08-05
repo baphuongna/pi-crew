@@ -212,10 +212,6 @@ describe("discoverSkills", () => {
 		assert.ok(rtpc, "real-test-pi-crew should be discovered as a bundled skill");
 		const diagnostics = getLastDiscoveryDiagnostics();
 		const hard = diagnostics.filter((d) => d.severity === "error" && d.path === skillDir);
-		assert.equal(
-			hard.length,
-			0,
-			`real-test-pi-crew must produce no HARD diagnostics; got: ${JSON.stringify(hard, null, 2)}`,
-		);
+		assert.equal(hard.length, 0, `real-test-pi-crew must produce no HARD diagnostics; got: ${JSON.stringify(hard, null, 2)}`);
 	});
 });
