@@ -3,6 +3,23 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.59] — cross-session isolation: stop leak of runs/subagents between concurrent pi sessions + stop false-reap of live sessions (2026-08-05)
+
+### Bug fixes
+
+- **Chạy 2 pi session trên cùng repo → thông tin run/subagent của session A rò rỉ sang B, và crash-recovery của B giết foreground work đang chạy của A.** Hai lỗi gốc: (1) `extractSessionId()` đọc `ctx.sessionId` (own property) — không tồn tại trên pi 0.83.0 `ExtensionContext` → trả `undefined` → mọi session filter vô hiệu thầm lặng; (2) crash-recovery + shared-state listings không có session component, nên session đang sống-but-bận không phân biệt được với session đã crash.
+  - **`extractSessionId` (`src/utils/session-utils.ts`)**: giờ dùng `ctx.sessionManager.getSessionId()` (WeakMap cache keyed bởi `sessionManager` ref ổn định — `ctx` được tạo mới mỗi event nên không thể làm cache key), giữ descriptor lookup làm fallback cho test mock/pi cũ.
+  - **Crash-recovery (`src/runtime/recovery/crash-recovery.ts`)**: `reconcileAllStaleRuns` / `purgeStaleActiveRunIndex` / `detectInterruptedRuns` nhận `currentSessionId?` và **skip run của chính session đang sống** (`===`, theo pattern `cancelOrphanedRuns`). Session chết vẫn được dọn; back-compat giữ nguyên khi `currentSessionId` undefined. Thread qua tất cả caller incl. path tần suất cao `observability` (`before_agent_start` + interval 5-min) và `lazy-configurers`.
+  - **Subagents (`src/runtime/subagent-manager.ts`, `subagent-tools.ts`, `subagent-manager-setup.ts`)**: `SubagentRecord` thêm `ownerSessionId`; `get_subagent_result` từ chối record của session khác (record cũ vẫn serve); `resultConsumed` không còn bị clobber chéo session; agent id thêm entropy tránh collision cross-process; `isOwnerSessionCurrent` check `ownerSessionId` cross-process (giữ generation cho in-process switch).
+  - **UI (`src/ui/run-dashboard.ts`, `widget/*`, `powerbar-publisher.ts`)**: dashboard `refreshRuns`, widget render, powerbar re-apply filter `workspaceId` mỗi frame. Powerbar self-derive `workspaceId` qua `extractSessionId(ctx)` nên mọi caller hiện tại đều được.
+  - **Notifier/session-summary (`src/extension/async-notifier.ts`, `session-summary.ts`)**: filter `listRuns` theo `ownerSessionId` trước notify — session B không còn toast về run của A.
+  - **Health filter (#3)**: `ctx.currentCtx?.sessionManager?.getSessionId()` + bỏ dead clause `ownerSessionGeneration` (field không tồn tại trên `TeamRunManifest`) — trước đó silently drop tất cả owned runs.
+  - Verified end-to-end theo skill `real-test-pi-crew`: `test:critical` 101/101, 3-path kill-switch green, typecheck + bundle + md5 sync OK, live TUI (tmux + pty) render không crash, smoke verifier 52s (<300s, no hang), full feature battery (team tool 9a–9f + subagent tools) clean — zero `Unknown type`/`Validation failed`. 6837 unit + 214 integration tests pass.
+- Lưu ý: `#12` (DeliveryCoordinator) infrastructure staged nhưng inert — `deliver*` không có production caller, nên queue không bao giờ được feed. Documented trong `docs/cross-session-leak-fix-plan.md`.
+
+### Docs
+- `docs/cross-session-leak-audit.md` (audit re-verify: 2/2 root cause CONFIRMED, 12/13 vector CONFIRMED, #3 REFUTED) + `docs/cross-session-leak-fix-plan.md` (phased plan, reviewed).
+
 ## [0.9.58] — fix load crash on stale hoisted typebox: defensive guard + bundle vendoring (survives `pi update`) + round-1/round-2 fixes (2026-08-04)
 
 ### Bug fixes
