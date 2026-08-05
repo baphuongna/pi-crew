@@ -476,6 +476,54 @@ export function orderAutoFallbacks(candidates: string[], policy: ModelFallbackPo
 		.map((entry) => entry.model);
 }
 
+/**
+ * Build a {@link ModelFallbackPolicy} from crew config + environment. Env vars
+ * override config (lowest friction for a quick experiment without editing JSON):
+ *   PI_CREW_MAX_AUTO_FALLBACKS — cap the auto tail
+ *   PI_CREW_MODEL_FALLBACK_ORDER — "parentFirst" | "asIs"
+ *   PI_CREW_MODEL_REQUIRE_CREDENTIALS — "1" to drop uncredentialed providers
+ *
+ * Returns undefined when nothing is configured, so callers that pass it to
+ * `buildConfiguredModelRouting` get legacy (unbounded, unordered) behaviour.
+ */
+export function resolveModelFallbackPolicy(
+	config: {
+		maxAutoFallbacks?: number;
+		order?: "parentFirst" | "asIs";
+		requireCredentials?: boolean;
+		quotaAwareOrdering?: boolean;
+	} | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+): ModelFallbackPolicy | undefined {
+	const maxAutoFallbacks = env.PI_CREW_MAX_AUTO_FALLBACKS
+		? Number.parseInt(env.PI_CREW_MAX_AUTO_FALLBACKS, 10)
+		: config?.maxAutoFallbacks;
+	const order = (env.PI_CREW_MODEL_FALLBACK_ORDER as "parentFirst" | "asIs" | undefined) ?? config?.order;
+	const requireCredentials =
+		env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "1" ? true : env.PI_CREW_MODEL_REQUIRE_CREDENTIALS === "0" ? false : config?.requireCredentials;
+	// quotaAwareOrdering defaults to true (user preference: default-on with cache).
+	// When explicitly disabled, no deprioritization/rank data is attached.
+	const quotaAware = config?.quotaAwareOrdering !== false;
+	if (maxAutoFallbacks === undefined && !order && requireCredentials === undefined && !quotaAware) return undefined;
+	return {
+		...(maxAutoFallbacks !== undefined && Number.isFinite(maxAutoFallbacks) ? { maxAutoFallbacks } : {}),
+		...(order ? { order } : {}),
+		...(requireCredentials !== undefined ? { requireCredentials } : {}),
+	};
+}
+
+/**
+ * Resolve the default subagent model from config or env. Precedence:
+ *   PI_CREW_MODEL env > config.runtime.modelFallback.defaultSubagentModel
+ * Returns undefined when neither is set.
+ */
+export function resolveDefaultSubagentModel(
+	config: { defaultSubagentModel?: string } | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	return env.PI_CREW_MODEL?.trim() || config?.defaultSubagentModel?.trim() || undefined;
+}
+
 export interface ConfiguredModelRouting {
 	requested?: string;
 	candidates: string[];
@@ -506,6 +554,13 @@ export function buildConfiguredModelRouting(input: {
 	/** Team-role declared fallbacks (`fallbackModels=a,b` on the role line). */
 	teamRoleFallbackModels?: string[];
 	agentModel?: string;
+	/**
+	 * Config-level default model for subagents. Sits between the agent model
+	 * and the inherited parent model in precedence: when the agent has
+	 * `model: false` (all builtins), this takes over before falling back to
+	 * the session's model. Ignored when the agent or caller already set one.
+	 */
+	defaultSubagentModel?: string;
 	fallbackModels?: string[];
 	parentModel?: unknown;
 	modelRegistry?: unknown;
@@ -536,7 +591,11 @@ export function buildConfiguredModelRouting(input: {
 	const preferredProvider = providerOfModelRef(parentModel) ?? availableModels?.[0]?.provider;
 	// B3: Parent model inheritance — when agent has no model specified,
 	// inherit from parent session model before falling back to defaults.
-	const effectiveAgentModel = input.agentModel?.trim() ? input.agentModel : parentModel;
+	// defaultSubagentModel (config/env) sits between agent and parent: when
+	// the agent has `model: false` but a default is configured, the default
+	// takes over and the parent model becomes the first fallback.
+	const defaultSubagent = input.defaultSubagentModel?.trim() || undefined;
+	const effectiveAgentModel = input.agentModel?.trim() ? input.agentModel : (defaultSubagent ?? parentModel);
 	const requested = [input.overrideModel, input.stepModel, input.teamRoleModel, effectiveAgentModel].find((model): model is string =>
 		Boolean(model?.trim()),
 	);
@@ -553,6 +612,9 @@ export function buildConfiguredModelRouting(input: {
 		input.stepModel,
 		input.teamRoleModel,
 		effectiveAgentModel,
+		// When defaultSubagentModel replaced parentModel as the effective agent
+		// model, keep parentModel as an explicit fallback before the auto tail.
+		...(defaultSubagent && !input.agentModel?.trim() ? [parentModel] : []),
 		...(input.teamRoleFallbackModels ?? []),
 		...(input.fallbackModels ?? []),
 	];

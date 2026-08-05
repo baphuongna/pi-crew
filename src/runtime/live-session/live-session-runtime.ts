@@ -13,7 +13,15 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
 import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
-import { buildConfiguredModelRouting } from "../model/model-fallback.ts";
+import {
+	availableModelInfosFromRegistry,
+	buildConfiguredModelRouting,
+	modelRefToString,
+	providerOfModelRef,
+	resolveDefaultSubagentModel,
+	resolveModelFallbackPolicy,
+	type ModelFallbackPolicy,
+} from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
@@ -263,6 +271,24 @@ async function resolveScopeModelsPatterns(cwd: string, agentDir?: string): Promi
 	return readEnabledModelsPatterns(cwd, agentDir);
 }
 
+/** Resolve model fallback policy from crew config + env (best-effort). */
+function resolveLiveModelFallbackPolicy(cwd: string): ModelFallbackPolicy | undefined {
+	try {
+		return resolveModelFallbackPolicy(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Resolve the default subagent model from crew config + env. */
+function resolveLiveDefaultSubagentModel(cwd: string): string | undefined {
+	try {
+		return resolveDefaultSubagentModel(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
+}
+
 function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined): unknown {
 	if (!modelId?.includes("/")) return undefined;
 	const registry = asRecord(modelRegistry);
@@ -292,7 +318,11 @@ function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined):
  * raw `parentModel` unchanged so the caller surfaces E008.
  */
 export function resolveParentModelFromRegistry(modelRegistry: unknown, rawParentModel: unknown): string | undefined {
-	const raw = typeof rawParentModel === "string" ? rawParentModel.trim() : undefined;
+	// `ctx.model` is a pi `Model` OBJECT, not a string. The old string-only
+	// guard silently discarded it, so every live-session subagent that inherited
+	// the parent model landed on `getAvailable()[0]` instead — i.e. the parent
+	// model was never actually honoured on this path.
+	const raw = modelRefToString(rawParentModel);
 	if (raw) {
 		const candidate = raw.includes("/")
 			? raw
@@ -305,19 +335,13 @@ export function resolveParentModelFromRegistry(modelRegistry: unknown, rawParent
 				})();
 		if (candidate && modelFromRegistry(modelRegistry, candidate)) return candidate;
 	}
-	const registry = modelRegistry as { getAvailable?: () => unknown[] } | undefined;
-	if (registry && typeof registry.getAvailable === "function") {
-		try {
-			const available = registry.getAvailable();
-			if (Array.isArray(available) && available.length > 0) {
-				const first = available[0] as { provider?: unknown; id?: unknown } | undefined;
-				if (first && typeof first.provider === "string" && typeof first.id === "string") {
-					return `${first.provider}/${first.id}`;
-				}
-			}
-		} catch {
-			// ignore — fall through to raw
-		}
+	const available = availableModelInfosFromRegistry(modelRegistry);
+	if (available && available.length > 0) {
+		// Staying on the parent's provider keeps the same auth + cost profile;
+		// only cross providers when the parent's provider has nothing available.
+		const parentProvider = providerOfModelRef(raw);
+		const sameProvider = parentProvider ? available.find((entry) => entry.provider === parentProvider) : undefined;
+		return (sameProvider ?? available[0]).fullId;
 	}
 	return raw;
 }
@@ -658,10 +682,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			stepModel: input.step.model,
 			teamRoleModel: input.teamRoleModel,
 			agentModel: input.agent.model,
+			defaultSubagentModel: resolveLiveDefaultSubagentModel(input.manifest.cwd),
 			fallbackModels: input.agent.fallbackModels,
 			parentModel: effectiveParentModel,
 			modelRegistry: input.modelRegistry,
 			cwd: input.manifest.cwd,
+			policy: resolveLiveModelFallbackPolicy(input.manifest.cwd),
 			scopeModelsPatterns: await resolveScopeModelsPatterns(input.manifest.cwd),
 		});
 		const resolvedModel =

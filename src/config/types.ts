@@ -85,6 +85,35 @@ export interface CrewRuntimeConfig {
 	};
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
 	excludeContextBash?: boolean;
+	/** Subagent model fallback policy: auto-tail ordering, cap, credential filtering, default model. */
+	modelFallback?: CrewModelFallbackConfig;
+}
+
+/**
+ * Model fallback policy for subagent model chains. Controls how the auto-tail
+ * (models appended from the registry/pi-config that nobody explicitly declared)
+ * is ordered, capped, and filtered. Explicit declarations (tool override, step
+ * model, team role, agent model, declared fallbackModels) are never affected.
+ */
+export interface CrewModelFallbackConfig {
+	/** Cap on auto-appended models. undefined = keep all (legacy). */
+	maxAutoFallbacks?: number;
+	/** "parentFirst" (default) keeps the auto tail on the same provider as the running model. "asIs" = catalogue order. */
+	order?: "parentFirst" | "asIs";
+	/** Drop pi-config models whose provider has no discoverable credential. Default: false. */
+	requireCredentials?: boolean;
+	/**
+	 * Opt-in quota-aware ordering. When true, provider quota data (when available)
+	 * influences the auto-tail order — providers near their quota limit are deprioritized.
+	 * Default: true (default-on with cache, per user preference).
+	 */
+	quotaAwareOrdering?: boolean;
+	/**
+	 * Default model for subagents when neither the caller (--model) nor the agent
+	 * frontmatter specifies one. Accepts "provider/id" or bare id. Overrides
+	 * parent-model inheritance; the inherited parent model becomes the first fallback.
+	 */
+	defaultSubagentModel?: string;
 }
 
 export interface CrewControlConfig {
