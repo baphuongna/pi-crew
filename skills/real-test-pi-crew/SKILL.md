@@ -447,7 +447,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 2. **9b. Spawn paths** (cost tokens — one probe each is enough):
    - `team action='run'` sync (fast-fix, trivial goal) — proves sync run + child-pi spawn + provider-extension loading
    - `team action='run' async=true` — proves background dispatch
-   - `team action='run' chain='"A" -> "B"'` — proves sequential handoff (chain runner)
+   - `team action='run' chain='"A" -> "B"'` — proves sequential handoff (chain runner). **Omit `workflow`** — passing `workflow:'chain'` forwards it to each step and fails fast (~58ms silent; issue #44).
    - `Agent` direct subagent — proves the direct-subagent tool
    - `crew_agent` `run_in_background=true` then `get_subagent_result` — proves background subagent lifecycle
 3. **Acceptance**: every action returns without `Unknown type` / `Validation failed for tool team` / empty error text; every spawn path completes with `consistency=1` and the expected probe token in the agent output.
@@ -510,6 +510,8 @@ If the two md5s match → session is on the latest code. If not → user must `/
 | Trusting a team-run agent not to edit the repo under test | Agents spawned by `team`/`Agent`/`crew_agent` inherit the session cwd and have `edit`/`write` tools — a proactive LLM (observed with deepseek) will make **unauthorized source edits** to pi-crew during a trivial smoke run (e.g. "improving" `chain-runner.ts` while parsing a chain string). The edit can be correct + green-tested yet still be unintended scope creep that silently lands in your commit. | n/a (permanent) | After EVERY team/subagent run: `git status` and verify each changed file was authored by you. Diff + review any surprise change before staging. Consider `workspaceMode: 'worktree'` for parallel/risky runs to isolate mutations. |
 | `Type.Unsafe({ anyOf/type })` schema field **without** `[TypeBox.Kind]` symbol | `Value.Check` throws `Unknown type` the first time a model emits that field (e.g. `skill`, `config`) — every team action returns `isError:true` text `"Unknown type"`. Tier 1-8 stay green because unit tests never send the offending field. | v0.9.57 | `src/schema/team-tool-schema.ts` — `SkillOverride`/`FreeformConfig` switched from `Type.Unsafe` to TypeBox-native `Type.Union`/`Type.Record`. See Tier 9. |
 | Schema too strict for model-emitted empty strings (`runId:""`, `workspaceMode:""`, `budgetTotal:0`) | pi-ai `validateToolArguments` runs BEFORE the pi-crew handler and rejects `""` against Literal unions / patterns → `Validation failed for tool team` → model loops. | v0.9.57 | `src/schema/team-tool-schema.ts` — added `Literal("")` to unions, `^$|` pattern for runId, `""` to action enum, `0`/Boolean allowances. Handler-side `normalizeTeamParams` drops the empties. |
+| Claiming "all 9 tiers pass" while 9c–9f were never run | Overclaim — once reported "9 tiers pass" when only 9a (8/10) + 9b (4/5) had actually run; 9c–9f were skipped. Past runs then become unverifiable ("did it really pass 9 tiers?"). | n/a (process) | Fill `REPORT-TEMPLATE.md` per-tier DURING the run. "Tier 9 pass" = 9a AND 9b AND the applicable 9c–9f, each with evidence. Round-up-to-pass is the anti-pattern this row exists to prevent. |
+| chain run with `workflow:"chain"` forwarded to steps | Every chain step fails in ~58ms with an EMPTY error string — looks like a parse failure but isn't. `chain-dispatch` forwards `params.workflow` ("chain") into executor overrides; each step then runs the "chain" workflow via the normal `executeTeamRun` path and fails fast + silently. | Open (issue #44) | Omit `workflow` when invoking `action:'run' chain=...` — chain then runs 2/2 success (~308s). See `docs/bugs/chain-workflow-forward-quirk.md`. |
 
 ---
 
@@ -685,7 +687,7 @@ md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
 
 Before claiming "tested":
 
-- [ ] Tier 1: `test:critical` fresh-run, 97/97 pass, ~21s
+- [ ] Tier 1: `test:critical` fresh-run, all pass (<25s). Count varies by release — was 97 at v0.9.46, 101 after the model-routing merge; record the actual count in the report.
 - [ ] Tier 2: 3-path proof all pass — **required if you touched `src/config/defaults.ts` or `src/extension/registration/lifecycle-handlers.ts`**
 - [ ] Tier 3: `npm run typecheck` exit 0, `npm run build:bundle` exit 0
 - [ ] Tier 4: bundle md5 matches what the session loaded (or user has `/quit`-ed + reopened)
@@ -693,8 +695,9 @@ Before claiming "tested":
 - [ ] Tier 7: smoke team run for any `src/runtime/plan-templates.ts` or `workflows/*.workflow.md` change — completed, no hang, verifier output under 60s
 - [ ] Tier 8: final md5 sync check passed
 - [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, or any `Type.Unsafe({...})` schema**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
+- [ ] **Output report**: save `docs/real-test/reports/real-test-<YYYY-MM-DD>-<slug>.md` from `skills/real-test-pi-crew/REPORT-TEMPLATE.md`, filled DURING the run with per-tier evidence (counts/md5/runId) — not reconstructed from memory afterward. This is what makes past runs verifiable instead of trust-the-summary.
 
-If any required item is unchecked, the answer to "is it tested?" is **no**.
+**"All 9 tiers pass" is a claim that needs per-row evidence.** Tier 9 means 9a **and** 9b **and** whichever of 9c–9f applies to the change — not "9a passed, therefore 9 passed". If any required item above is unchecked or lacks concrete evidence (a number, an md5, a runId), the answer to "is it tested?" is **no** — say so explicitly instead of rounding up to "pass".
 
 ---
 
