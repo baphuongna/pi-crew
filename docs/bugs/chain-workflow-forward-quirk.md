@@ -1,6 +1,6 @@
 # Bug: chain run via team tool fails fast when `workflow:"chain"` is forwarded to steps
 
-**Status**: Open
+**Status**: FIXED (2026-08-05, commit `5b43d556`) — see fix below
 **Severity**: Low (usability — easy workaround: omit `workflow`)
 **Found**: 2026-08-05, during `real-test-pi-crew` Tier 9b chain spawn probe
 **Discovered by**: iterative verification (post subagent-model-routing merge, commit `4148540e`)
@@ -99,6 +99,30 @@ so the workflow override should NOT be forwarded to steps. Pick one:
 
 Option 1 is cleanest (the workflow param is semantically irrelevant for a chain run). Option 3
 adds the best user feedback. Consider doing both 1 + 3.
+
+## Fix applied (2026-08-05, GitHub #44)
+
+All three options implemented + regression tests:
+
+1. **`chain-dispatch.ts`** no longer forwards `workflow` into the executor overrides (chain runner
+   owns step execution; steps use `team.defaultWorkflow`).
+2. **`chain-executor.ts`** defensively drops a `"chain"` workflow override in `runTask`
+   (`rawWorkflow === "chain" ? undefined : rawWorkflow`) — covers older callers that still forward it.
+3. **`run.ts`** falls back to `team.defaultWorkflow ?? "default"` when `workflow === "chain"` and
+   `params.chain` is unset, so a chain step calling back in never re-enters the un-runnable
+   `chain` workflow.
+4. **`chain-dispatch.ts`** rejects `workflow:"chain"` combined with a chain run with a clear
+   message ("cannot be combined with a chain run … omit `workflow`").
+
+Regression tests in `test/unit/workflows/chain-executor.test.ts`:
+- `(bug-44) chain with workflow='chain' is rejected with a clear message`
+- `(bug-44) executor drops a 'chain' workflow override and falls back to default team`
+- `(bug-44) handleRun with workflow='chain' (no chain param) falls back to team default workflow`
+
+Verified live: `handleRun({ team: 'fast-fix', workflow: 'chain' })` previously failed in ~116 ms
+with the workflow-validation error; after the fix it resolves to the `fast-fix` workflow and runs
+successfully (6:17 real run, status ok). `handleChainRun({ chain: '"a" -> "b"', workflow: 'chain' })`
+now returns a clear rejection instead of the silent fast-fail.
 
 ## Verification plan (after fix)
 
