@@ -40,7 +40,9 @@ import {
 	writeRunFixture,
 } from "../../../src/extension/team-tool/chain-executor.ts";
 import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
+import { handleRun } from "../../../src/extension/team-tool/run.ts";
 import type { PiTeamsToolResult } from "../../../src/extension/tool-result.ts";
+import { textFromToolResult } from "../../../src/extension/tool-result.ts";
 import { ChainRunner, parseChainString } from "../../../src/runtime/chain-runner.ts";
 import { HandoffManager } from "../../../src/runtime/handoff-manager.ts";
 import { __test__clearManifestCache, loadRunManifestById } from "../../../src/state/stores/state-store.ts";
@@ -425,6 +427,84 @@ test("handleChainRun errors on empty chain string", async () => {
 	const res = await handleChainRun({ chain: "   " }, ctx, noopHandle);
 	assert.equal(res.isError, true);
 	assert.equal(res.details.status, "error");
+});
+
+// ─── bug-44: workflow:"chain" must NOT be forwarded to chain steps ──────
+// github.com/baphuongna/pi-crew/issues/44 — a chain run with workflow:"chain"
+// previously forwarded "chain" into every step's runParams, making each step
+// execute the dispatcher-only `chain` workflow via executeTeamRun and fail fast
+// (~58 ms) with a confusing empty error. Fix: (1) chain-dispatch no longer
+// forwards workflow; (2) chain-executor drops a "chain" override defensively;
+// (3) run.ts falls back to the team default workflow for workflow="chain" with
+// no chain param.
+
+test("(bug-44) chain with workflow='chain' is rejected with a clear message", async () => {
+	const cwd = makeTempCwd();
+	const ctx: TeamContext = { cwd };
+	const noopHandle: HandleRunFn = async () => ({
+		content: [],
+		details: { action: "run", status: "ok" },
+	});
+
+	const res = await handleChainRun({ chain: '"a" -> "b"', workflow: "chain", team: "fast-fix" }, ctx, noopHandle);
+
+	assert.equal(res.isError, true);
+	assert.equal(res.details.status, "error");
+	const first = res.content?.[0];
+	const text = first && "text" in first ? first.text : "";
+	assert.match(text, /cannot be combined with a chain run/, "must explain the conflict");
+	assert.doesNotMatch(text, /58ms|failure/, "must not be the silent fast-fail");
+});
+
+test("(bug-44) executor drops a 'chain' workflow override and falls back to default team", WIN32_SKIP, async () => {
+	__test__clearManifestCache();
+	const cwd = makeTempCwd();
+	const mock = makeMockHandleRun({ cwd });
+	const ctx: TeamContext = { cwd };
+	// Simulate an OLD caller that still forwarded workflow:"chain" (defensive path).
+	const executor = new ChainTeamRunExecutor({
+		handleRun: mock.handleRun,
+		ctx,
+		overrides: { team: "fast-fix", workflow: "chain" },
+	});
+	const runner = new ChainRunner(executor, new HandoffManager());
+
+	const spec = parseChainString('"do thing"');
+	const chainResult = await runner.runChain(spec);
+
+	assert.equal(chainResult.steps.length, 1);
+	assert.equal(chainResult.success, true);
+	assert.equal(mock.receivedParams[0].workflow, undefined, "'chain' override must be dropped");
+	assert.equal(mock.receivedParams[0].team, "fast-fix");
+});
+
+test("(bug-44) handleRun with workflow='chain' (no chain param) falls back to team default workflow", async () => {
+	const cwd = makeTempCwd();
+	const ctx: TeamContext = { cwd };
+	// Use config.executeWorkers=false so the run resolves to the blocked/scaffold
+	// path (fast, no subagent spawn). The point is that it must NOT fail fast with
+	// a workflow-validation error about the `chain` workflow — it must resolve to
+	// the team's default workflow (fast-fix) instead, as seen in the run manifest.
+	const res = await handleRun(
+		{
+			action: "run",
+			goal: "verify bug-44 fallback",
+			team: "fast-fix",
+			workflow: "chain",
+			config: { executeWorkers: false },
+		},
+		ctx,
+	);
+	const text = textFromToolResult(res);
+	assert.doesNotMatch(
+		text,
+		/Workflow 'chain' is not valid for team|references unknown team role/,
+		"must not fail fast with the chain-workflow validation error",
+	);
+	if (res.details.runId) {
+		const loaded = loadRunManifestById(cwd, res.details.runId);
+		assert.equal(loaded?.manifest.workflow, "fast-fix", "manifest must record the team default workflow");
+	}
 });
 
 // ─── output text propagation (semantic gap fix) ───────────────────────────

@@ -36,6 +36,18 @@ export async function handleChainRun(params: TeamToolParamsValue, ctx: TeamConte
 		return result("Chain expression is empty.", { action: "run", status: "error" }, true);
 	}
 
+	// BUG-44 (github #44): reject an explicit `workflow: "chain"` on a chain run with a
+	// clear message. `chain` is a dispatcher-only workflow; forwarding it to steps made
+	// every step fail fast (~58 ms) with a confusing empty error. Chain runs have no
+	// per-step workflow — omit `workflow` (or rely on the step's @team ref) instead.
+	if (params.workflow === "chain") {
+		return result(
+			"Workflow 'chain' cannot be combined with a chain run: the chain runner owns step execution and has no per-step workflow. Omit `workflow` (steps use the team's defaultWorkflow) or use @team references in the chain expression.",
+			{ action: "run", status: "error" },
+			true,
+		);
+	}
+
 	const spec = parseChainString(chainString);
 	if (spec.steps.length === 0) {
 		return result(
@@ -47,13 +59,19 @@ export async function handleChainRun(params: TeamToolParamsValue, ctx: TeamConte
 
 	// Construct the concrete executor with per-step overrides forwarded from the
 	// chain invocation (overridden by any step that parsed to a @team reference).
+	//
+	// BUG-44 (github #44): `workflow` is INTENTIONALLY NOT forwarded. The chain
+	// runner owns step execution — a chain has no per-step workflow. Forwarding
+	// params.workflow (e.g. "chain") made every step execute the `chain` workflow
+	// via the normal executeTeamRun path, which fails fast (~58 ms) with a
+	// confusing empty error. Steps use the team's defaultWorkflow instead.
 	const executor = new ChainTeamRunExecutor({
 		handleRun,
 		ctx,
 		overrides: {
 			team: params.team,
-			workflow: params.workflow,
-			model: params.model,
+			// workflow intentionally omitted — chain runner owns step execution (bug-44)
+			...(params.model ? { model: params.model } : {}),
 		},
 	});
 

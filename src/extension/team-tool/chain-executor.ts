@@ -238,8 +238,13 @@ export class ChainTeamRunExecutor implements ChainTaskRunner {
 		const enrichedGoal = historyPrefix ? `${historyPrefix}\n\n---\n# Current Chain Step\n${packet.goal}` : packet.goal;
 
 		// 2. Resolve team/workflow/model: step config (set by executeStep) → overrides → default.
+		//    BUG-44 (github #44): a workflow override of "chain" is a dispatcher-only marker
+		//    (the chain runner owns step execution). If it leaks through here (e.g. an older
+		//    caller forwarded params.workflow), drop it so each step runs the team's
+		//    defaultWorkflow instead of re-entering the un-runnable `chain` workflow.
 		const stepTeam = (context.__chainStepTeam as string | undefined) ?? this.overrides.team ?? "default";
-		const stepWorkflow = (context.__chainStepWorkflow as string | undefined) ?? this.overrides.workflow;
+		const rawWorkflow = (context.__chainStepWorkflow as string | undefined) ?? this.overrides.workflow;
+		const stepWorkflow = rawWorkflow === "chain" ? undefined : rawWorkflow;
 		const stepModel = (context.__chainStepModel as string | undefined) ?? this.overrides.model;
 
 		// 3. Call handleRun for the heavy lifting. async:false forces each step to

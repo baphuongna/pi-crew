@@ -3,7 +3,7 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
-## [Unreleased] — subagent model routing: live-session model tracking, fallback policy, quota-aware ordering
+## [0.9.60] — subagent model routing: live-session model tracking, fallback policy, quota-aware ordering + iterative-audit hardening (2026-08-05)
 
 ### Bug fixes
 
@@ -25,6 +25,15 @@
 - **Quota-aware ordering** (`src/runtime/model/provider-quota.ts`). Tracks `x-ratelimit-remaining-*` and `retry-after` headers from `after_provider_response` events. Providers that are 429'd or near-zero remaining are pushed to the back of the auto tail. Process-local, 5-minute TTL, never blocks spawn.
 - **`task.model_dropped` warning event**. When the caller's requested model is not resolvable against the available catalogue, the chain silently runs something else. Now surfaced as an event + persisted to `task.modelRouting.droppedRequested` so users can see what happened.
 - **Doctor: "Model Routing" section**. Shows the live session model (from `model_select`), the active fallback policy, a sample chain for a generic agent, and the auto tail size.
+
+### Bug fixes
+
+- **Iterative-audit hardening (3 rounds, source-verified; 1 false positive rejected).** Round 1: provider-quota `headerResetMs` parsed `x-ratelimit-reset-requests` as epoch-seconds, but OpenAI sends Go-duration strings (`"6m0s"` → `parseInt`=6 → reset in 1970) so the low-remaining deprioritization heuristic never fired — now parses Go-duration / Anthropic RFC3339 / `retry-after` seconds. Scope-gate source attribution now tracks real precedence (override/step/teamRole → hard error; frontmatter/defaultSubagent/parent → soft warn). `quotaCache` cleared on `session_before_switch` (cross-session leak) + evicted past `2×QUOTA_TTL`. `PI_CREW_MAX_AUTO_FALLBACKS` NaN/negative now guarded with a warn (was silently unbounded / clamped to 0). Round 2 (re-audit caught regressions IN round 1): scope warnings were **silent** — the `logInternalError` calls forgot the `"warn"` severity, so they were debug-gated and the entire Sec-M1 fix was ineffective; now centralised in `warnOutOfScopeSoft()` (all 3 call sites) with a non-vacuous test. `parseResetValue` pure-seconds check moved before RFC3339 (`Date.parse("0")` returns Y2K, not NaN). Removed 2 vacuous re-resolve tests. `isFrontmatterOverride` source corrected to `"frontmatter"` so the soft warning surfaces. Round 3: verified Round-2 fixes; no new bugs (diminishing returns → stop).
+- **CI flake fixed — `[RT-NEW-2] budget abort drains in-flight tasks` (failed 3×: v0.9.59, `cfd68d06`, `12386af2`).** `terminaliseRunWithDrain` built `inflightTaskIds` as a SNAPSHOT of `ctx.pendingUnits`; a task whose dispatch unit settled + left `pendingUnits` before the abort — but whose task status wasn't terminal yet — was absent from the snapshot, fell through to `markBlocked`, and got clobbered to `"skipped"`. Now `SchedulerContext.dispatchedTaskIds` (monotonic Set populated at dispatch, never removed) drives the cancel-not-skip guard; `markBlocked` only catches genuinely never-dispatched queued tasks (semantics preserved). Verified 20/20 runs of the previously-flaky test + test:critical 101/101.
+
+### Docs / tooling
+- `skills/real-test-pi-crew/REPORT-TEMPLATE.md` + SKILL.md: per-run dated report artifact (evidence per tier) required for every real-test — fixes "all 9 tiers pass" overclaim where past runs were unverifiable memory. First report: `docs/real-test/reports/real-test-2026-08-05-model-routing.md`.
+- `docs/bugs/chain-workflow-forward-quirk.md` + GitHub issue #44: chain run via team tool fails ~58ms silent when `workflow:"chain"` is forwarded to steps (chain-dispatch passes it into each step's `handleRun`, which runs the "chain" workflow via `executeTeamRun`). Workaround: omit `workflow` (chain then runs 2/2 success).
 
 ### Technical details
 

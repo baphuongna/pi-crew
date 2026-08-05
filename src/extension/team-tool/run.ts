@@ -479,7 +479,18 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			}
 		: teams.find((item) => item.name === teamName);
 	if (!team) return result(`Team '${teamName}' not found.`, { action: "run", status: "error" }, true);
-	const workflowName = directAgent ? "direct-agent" : (params.workflow ?? team.defaultWorkflow ?? "default");
+	// BUG-44 (github #44): `chain` is a dispatcher-only workflow — the chain runner owns
+	// step execution, so it is never runnable via the normal executeTeamRun path (its
+	// .workflow.md parses to doc headings, and validation fails fast with a confusing
+	// error). If a caller (or a chain step forwarding params.workflow) asks for
+	// workflow='chain' WITHOUT a chain param, fall back to the team's default workflow
+	// instead of failing. Chain steps are the only realistic producers of this state;
+	// handleChainRun itself routes via params.chain before reaching here.
+	const workflowName = directAgent
+		? "direct-agent"
+		: params.workflow === "chain" && !params.chain
+			? (team.defaultWorkflow ?? "default")
+			: (params.workflow ?? team.defaultWorkflow ?? "default");
 	const baseWorkflow = directAgent
 		? {
 				name: "direct-agent",
