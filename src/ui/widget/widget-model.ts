@@ -42,7 +42,7 @@ export function activeWidgetRuns(
 	if (now - lastStaleReconcileAt > STALE_RECONCILE_INTERVAL_MS && manifestCache) {
 		lastStaleReconcileAt = now;
 		try {
-			reconcileAllStaleRuns(cwd, manifestCache);
+			reconcileAllStaleRuns(cwd, manifestCache, Date.now(), workspaceId);
 		} catch {
 			/* non-critical */
 		}

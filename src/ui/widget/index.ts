@@ -270,7 +270,13 @@ class CrewWidgetComponent implements WidgetComponent {
 	}
 
 	render(width: number): string[] {
-		const runs = activeWidgetRuns(this.model.cwd, this.model.manifestCache, this.model.snapshotCache, this.model.preloadManifests);
+		const runs = activeWidgetRuns(
+			this.model.cwd,
+			this.model.manifestCache,
+			this.model.snapshotCache,
+			this.model.preloadManifests,
+			this.model.workspaceId,
+		);
 		// C4: invalidate-on-write signature cache. buildSignature() is
 		// O(runs×agents) string work called on every ~160ms host-driven render
 		// tick. Within one state snapshot (no event arrived → cache not cleared
@@ -391,6 +397,7 @@ export function updateCrewWidget(
 			manifestCache,
 			snapshotCache,
 			preloadManifests: preloadedManifests,
+			workspaceId,
 		};
 	else {
 		state.model.cwd = ctx.cwd;
@@ -400,6 +407,7 @@ export function updateCrewWidget(
 		state.model.manifestCache = manifestCache;
 		state.model.snapshotCache = snapshotCache;
 		state.model.preloadManifests = preloadedManifests;
+		state.model.workspaceId = workspaceId;
 	}
 
 	if (needsWidgetInstall) {

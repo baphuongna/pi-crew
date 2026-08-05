@@ -245,3 +245,68 @@ test("async notifier still reports runs created after notifier start", async () 
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+/* Vector #11: the notifier must only toast runs owned by the CURRENT pi
+ * session (plus ownerless/legacy runs). Runs owned by a different session must
+ * be invisible — otherwise session B notifies about session A's completions. */
+test("async notifier skips toasts for runs owned by another session", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-xsession-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const notifications: Array<{ text: string; level?: string }> = [];
+	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "other session" });
+		// Run is owned by session-A, but this notifier runs as session-B.
+		saveRunManifest({ ...created.manifest, status: "completed", ownerSessionId: "session-A" });
+		startAsyncRunNotifier(
+			{
+				cwd,
+				sessionManager: { getSessionId: () => "session-B" },
+				ui: {
+					notify: (text: string, level?: string) => notifications.push({ text, level }),
+				},
+			} as never,
+			state,
+			10,
+		);
+		await wait(40);
+		assert.equal(notifications.length, 0, "must not toast another session's run");
+	} finally {
+		stopAsyncRunNotifier(state);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("async notifier still toasts runs owned by the current session", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-samesession-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	const notifications: Array<{ text: string; level?: string }> = [];
+	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "own session" });
+		saveRunManifest({ ...created.manifest, status: "running", ownerSessionId: "session-B" });
+		startAsyncRunNotifier(
+			{
+				cwd,
+				sessionManager: { getSessionId: () => "session-B" },
+				ui: {
+					notify: (text: string, level?: string) => notifications.push({ text, level }),
+				},
+			} as never,
+			state,
+			10,
+		);
+		saveRunManifest({
+			...created.manifest,
+			status: "completed",
+			ownerSessionId: "session-B",
+			updatedAt: new Date().toISOString(),
+		});
+		await wait(40);
+		assert.equal(notifications.length, 1);
+		assert.match(notifications[0]!.text, /completed/);
+	} finally {
+		stopAsyncRunNotifier(state);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

@@ -104,13 +104,21 @@ function shouldRecoverTask(task: TeamTaskState, deadMs: number): boolean {
 	return task.heartbeat.alive === false || isWorkerHeartbeatStale(task.heartbeat, deadMs);
 }
 
-export function detectInterruptedRuns(cwd: string, manifestCache: ManifestCache, deadMs = 300_000): RecoveryPlan[] {
+export function detectInterruptedRuns(
+	cwd: string,
+	manifestCache: ManifestCache,
+	deadMs = 300_000,
+	currentSessionId?: string,
+): RecoveryPlan[] {
 	const plans: RecoveryPlan[] = [];
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
 		// Preserve runs intentionally blocked on plan approval — not crashes.
 		if (isPlanApprovalPending(manifest)) continue;
 		if (manifest.async?.pid !== undefined && checkProcessLiveness(manifest.async.pid).alive) continue;
+		// Skip runs owned by the current live session — a live session B must NOT
+		// detect session A's still-running run as interrupted.
+		if (currentSessionId && manifest.ownerSessionId && manifest.ownerSessionId === currentSessionId) continue;
 		// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
 		const loaded = loadRunManifestById(cwd, manifest.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 		if (!loaded) continue;
@@ -397,7 +405,11 @@ function hasRecentLifeEvidence(
  * Note: This function only cleans user-level active run entries.
  * Project-level stale runs are handled by session_start auto-prune triggered during run creation.
  */
-export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.now()): { purged: string[]; kept: string[] } {
+export function purgeStaleActiveRunIndex(
+	staleThresholdMs = 300_000,
+	now = Date.now(),
+	currentSessionId?: string,
+): { purged: string[]; kept: string[] } {
 	const purged: string[] = [];
 	const kept: string[] = [];
 	const entries = readActiveRunRegistry();
@@ -468,6 +480,13 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 		if (manifest && terminalStatuses.has(manifest.status ?? "")) {
 			unregisterActiveRun(entry.runId);
 			purged.push(entry.runId);
+			continue;
+		}
+
+		// 4b. Skip runs owned by the current live session — a live session B must
+		// NOT purge session A's still-running run from the active-run-index.
+		if (currentSessionId && manifest?.ownerSessionId && manifest.ownerSessionId === currentSessionId) {
+			kept.push(entry.runId);
 			continue;
 		}
 
@@ -605,12 +624,23 @@ export function purgeStaleActiveRunIndex(staleThresholdMs = 300_000, now = Date.
 	return { purged, kept };
 }
 
-export function reconcileAllStaleRuns(cwd: string, manifestCache: ManifestCache, now = Date.now()): ReconcileResult[] {
+export function reconcileAllStaleRuns(
+	cwd: string,
+	manifestCache: ManifestCache,
+	now = Date.now(),
+	currentSessionId?: string,
+): ReconcileResult[] {
 	const results: ReconcileResult[] = [];
 	// Capture runIds to reconcile BEFORE acquiring locks — avoids TOCTOU between cache iteration and lock acquisition.
 	const runIds = manifestCache
 		.list(50)
-		.filter((m) => m.status === "running" || m.status === "blocked")
+		.filter((m) => {
+			if (m.status !== "running" && m.status !== "blocked") return false;
+			// Skip runs owned by the current live session — a live session B must
+			// NOT reconcile (mark failed) session A's still-running run.
+			if (currentSessionId && m.ownerSessionId && m.ownerSessionId === currentSessionId) return false;
+			return true;
+		})
 		.map((m) => m.runId);
 	for (const runId of runIds) {
 		const cached = manifestCache.get(runId);

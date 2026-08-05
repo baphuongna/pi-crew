@@ -1,21 +1,18 @@
 /**
  * Regression test for extractSessionId + extractBrokerSessionId.
  *
- * Background: the inter-pi broker NEVER started in a real pi session because
- * Pi's ExtensionContext does NOT expose a top-level `sessionId` property —
- * the id is reachable only via `ctx.sessionManager.getSessionId()`.
+ * Background: Pi's ExtensionContext does NOT expose a top-level `sessionId`
+ * property — the id is reachable only via `ctx.sessionManager.getSessionId()`.
  *
- * Approach: `extractSessionId` is kept on the original property-only lookup
- * because it is called on EVERY `context` event (before every LLM call) from
- * `context-status-injection.ts`. Method invocations on that hot path were
- * observed to freeze the TUI (dashboard/settings open but unresponsive, pi
- * crew footer missing) during live smoke testing — so the hot path is
- * intentionally trivial.
+ * extractSessionId (the canonical accessor, called on every `context` event
+ * from `context-status-injection.ts`) now reads `sessionManager.getSessionId()`
+ * as its primary path, memoising the result in a WeakMap keyed by the
+ * `sessionManager` ref (stable across events, unlike `ctx` which is recreated
+ * per event). It falls back to a direct `ctx.sessionId` own property for test
+ * mocks and older Pi versions.
  *
- * A SEPARATE helper `extractBrokerSessionId` is added that does the full
- * sessionManager lookup. It is only called from
- * `installCrewBrokerLifecycleController.setSessionId` (once per session_start),
- * which is safe.
+ * `extractBrokerSessionId` performs the same lookup but WITHOUT caching,
+ * since it is called only once per `session_start`.
  *
  * These tests pin BOTH behaviors so neither can regress without warning.
  */
@@ -25,31 +22,85 @@ import { describe, it } from "node:test";
 
 import { extractBrokerSessionId, extractSessionId } from "../../../src/utils/session-utils.ts";
 
-describe("extractSessionId (hot path — property lookup only)", () => {
-	it("returns the session id from a direct ctx.sessionId property (legacy/test shape)", () => {
-		assert.equal(extractSessionId({ sessionId: "crew-test-legacy" }), "crew-test-legacy");
-	});
-
-	it("returns undefined for the real Pi ExtensionContext shape (no top-level sessionId)", () => {
-		// Verifies the intentional decision NOT to read sessionManager on the
-		// hot path. The real Pi shape has sessionManager, NOT sessionId.
+describe("extractSessionId (canonical accessor — sessionManager primary + cache)", () => {
+	it("returns the session id from sessionManager.getSessionId() (real Pi ExtensionContext shape)", () => {
 		const ctx = {
 			ui: {},
 			cwd: "/tmp/proj",
-			sessionManager: { getSessionId: () => "abc" },
+			sessionManager: { getSessionId: () => "019f8852-6c6a-7936-b6f2-b6b55330dc10" },
 		};
-		assert.equal(extractSessionId(ctx), undefined);
+		assert.equal(extractSessionId(ctx), "019f8852-6c6a-7936-b6f2-b6b55330dc10");
+	});
+
+	it("caches by sessionManager ref: a second call does NOT invoke getSessionId() again", () => {
+		let callCount = 0;
+		const sessionManager = {
+			getSessionId: () => {
+				callCount += 1;
+				return "cached-session-id";
+			},
+		};
+		const ctxA = { sessionManager };
+		const ctxB = { sessionManager }; // different ctx, SAME sessionManager ref
+		assert.equal(extractSessionId(ctxA), "cached-session-id");
+		assert.equal(callCount, 1);
+		// Second call with a fresh ctx but identical sessionManager → cache hit.
+		assert.equal(extractSessionId(ctxB), "cached-session-id");
+		assert.equal(callCount, 1);
+	});
+
+	it("cache miss for a different sessionManager ref invokes getSessionId() again", () => {
+		let callsA = 0;
+		let callsB = 0;
+		const smA = {
+			getSessionId: () => {
+				callsA += 1;
+				return "session-a";
+			},
+		};
+		const smB = {
+			getSessionId: () => {
+				callsB += 1;
+				return "session-b";
+			},
+		};
+		assert.equal(extractSessionId({ sessionManager: smA }), "session-a");
+		assert.equal(extractSessionId({ sessionManager: smB }), "session-b");
+		assert.equal(callsA, 1);
+		assert.equal(callsB, 1);
+		// Repeating with smA is a cache hit.
+		assert.equal(extractSessionId({ sessionManager: smA }), "session-a");
+		assert.equal(callsA, 1);
+	});
+
+	it("falls back to a direct ctx.sessionId property when no sessionManager (test mock / old Pi)", () => {
+		assert.equal(extractSessionId({ sessionId: "crew-test-legacy" }), "crew-test-legacy");
+	});
+
+	it("prefers sessionManager.getSessionId() over a direct sessionId property", () => {
+		assert.equal(
+			extractSessionId({
+				sessionManager: { getSessionId: () => "from-manager" },
+				sessionId: "from-direct",
+			}),
+			"from-manager",
+		);
 	});
 
 	it("returns undefined for empty / non-string / hostile inputs", () => {
 		assert.equal(extractSessionId({ sessionId: "" }), undefined);
 		assert.equal(extractSessionId({ sessionId: 42 }), undefined);
 		assert.equal(extractSessionId({}), undefined);
+		assert.equal(extractSessionId({ sessionManager: {} }), undefined);
+		assert.equal(extractSessionId({ sessionManager: { getSessionId: () => "" } }), undefined);
 		assert.equal(extractSessionId(null), undefined);
 		assert.equal(extractSessionId(undefined), undefined);
 		assert.equal(extractSessionId("string"), undefined);
 		assert.equal(extractSessionId(123), undefined);
 		// Hostile Proxy that traps descriptor access must not crash.
+		// sessionManager is read via normal property access (no trap) and is
+		// absent on the target, so it falls through to the descriptor lookup
+		// which throws → caught → undefined.
 		const hostile = new Proxy(
 			{ sessionId: "x" },
 			{

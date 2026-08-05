@@ -139,6 +139,7 @@ export function registerSubagentTools(
 			// Extract sessionId from sessionManager.getSessionId() so team runs created
 			// by the Agent tool have proper session ownership for isolation.
 			const ctxWithSession = withSessionId(ctx);
+			spawnOptions.ownerSessionId = ctxWithSession.sessionId;
 			const runner = async (currentOptions: SubagentSpawnOptions, childSignal?: AbortSignal) =>
 				handleTeamTool(
 					{
@@ -273,6 +274,12 @@ export function registerSubagentTools(
 			const inMemory = subagentManager.getRecord(p.agent_id);
 			const record = inMemory ?? readPersistedSubagentRecord(ctx.cwd, p.agent_id);
 			if (!record) return subagentToolResult(t("result.notFound", { id: p.agent_id }), {}, true);
+			// P2.3: Cross-session ownership check — refuse to serve a record owned by
+			// a different session. Legacy records (no ownerSessionId) still pass.
+			const currentSessionId = withSessionId(ctx).sessionId;
+			if (record.ownerSessionId && record.ownerSessionId !== currentSessionId) {
+				return subagentToolResult("Agent belongs to another session.", {}, true);
+			}
 			let current = refreshPersistedSubagentRecord(ctx, record);
 			if (inMemory && current !== inMemory) Object.assign(inMemory, current);
 			if (!inMemory && !current.runId && (current.status === "running" || current.status === "queued")) {
@@ -323,9 +330,14 @@ export function registerSubagentTools(
 			}
 			const output = readSubagentRunResult(ctx, current);
 			if (current.status !== "running" && current.status !== "queued" && current.status !== "blocked") {
-				current.resultConsumed = true;
-				if (inMemory) inMemory.resultConsumed = true;
-				savePersistedSubagentRecord(ctx.cwd, current);
+				// P2.4: Only consume the result when this session owns the record (or
+				// it's legacy without ownerSessionId). Don't clobber another session's
+				// completion notification.
+				if (!current.ownerSessionId || current.ownerSessionId === currentSessionId) {
+					current.resultConsumed = true;
+					if (inMemory) inMemory.resultConsumed = true;
+					savePersistedSubagentRecord(ctx.cwd, current);
+				}
 			}
 			const text = [
 				p.verbose ? formatSubagentRecord(current) : undefined,

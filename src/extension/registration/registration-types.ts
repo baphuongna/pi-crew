@@ -122,7 +122,7 @@ export interface RegistrationContext {
 
 	// ── Bound predicates ───────────────────────────────────────────────
 	captureSessionGeneration: () => number;
-	isOwnerSessionCurrent: (ownerGeneration: number | undefined) => boolean;
+	isOwnerSessionCurrent: (ownerGeneration?: number, ownerSessionId?: string) => boolean;
 	isContextCurrent: (ctx: ExtensionContext, ownerGeneration: number) => boolean;
 	telemetryEnabled: () => boolean;
 
@@ -140,7 +140,7 @@ export interface RegistrationContext {
 	configureObservability: (ctx: ExtensionContext) => void;
 	configureDeliveryCoordinator: () => void;
 	importCrashRecovery: () => Promise<CrashRecoveryCache>;
-	purgeStaleActiveRunIndexSyncIfLoaded: () => void;
+	purgeStaleActiveRunIndexSyncIfLoaded: (currentSessionId?: string) => void;
 
 	// ── Foreground helpers (consumed by tools + commands) ─────────────
 	startForegroundRun: (ctx: ExtensionContext, runner: (signal?: AbortSignal) => Promise<void>, runId?: string) => void;

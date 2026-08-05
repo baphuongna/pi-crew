@@ -518,7 +518,13 @@ export class RunDashboard implements DashboardComponent {
 		if (!this.options.runProvider) return;
 		const selectedRunId = this.selectedRunId();
 		const next = this.options.runProvider();
-		this.runs = Array.isArray(next) ? next : this.runs;
+		// P3 (#8): re-apply the workspaceId filter on EVERY refresh, not just
+		// the constructor. Without this, runs from other sessions leak back in
+		// on frame 2+ once the runProvider returns the unfiltered manifest list.
+		const unfiltered = Array.isArray(next) ? next : this.runs;
+		this.runs = this.options.workspaceId
+			? unfiltered.filter((run) => !run.ownerSessionId || run.ownerSessionId === this.options.workspaceId)
+			: unfiltered;
 		if (selectedRunId) {
 			const nextIndex = groupedRuns(this.runs, this.options.snapshotCache)
 				.filter((row) => row.run)

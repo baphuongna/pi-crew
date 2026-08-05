@@ -12,7 +12,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { notifyActiveRuns } from "../../../../src/extension/session-summary.ts";
+import { recordFromTask, saveCrewAgents } from "../../../../src/runtime/crew-agent-records.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import { clearProjectRootCache } from "../../../../src/utils/paths.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 interface MockCtx {
 	cwd: string;
@@ -82,6 +86,72 @@ describe("notifyActiveRuns produces at most one notification", () => {
 			assert.ok(ctx.notifyCalls.length <= 1, `expected at most 1 notification, got ${ctx.notifyCalls.length}`);
 		} finally {
 			clearProjectRootCache();
+		}
+	});
+});
+
+const team: TeamConfig = {
+	name: "default",
+	description: "default",
+	source: "builtin",
+	filePath: "default.team.md",
+	roles: [{ name: "planner", agent: "planner" }],
+};
+
+const workflow: WorkflowConfig = {
+	name: "default",
+	description: "default",
+	source: "builtin",
+	filePath: "default.workflow.md",
+	steps: [{ id: "plan", role: "planner", task: "Plan {goal}" }],
+};
+
+/* Vector #11: notifyActiveRuns must never surface another session's runs in the
+ * active-runs toast — session B must not advertise session A's in-flight runs. */
+describe("notifyActiveRuns filters out runs owned by another session (vector #11)", () => {
+	it("skips a run owned by a different pi session, surfaces it for the owning session", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-summary-xsession-"));
+		fs.mkdirSync(path.join(dir, ".crew"));
+		const calls: string[] = [];
+		const ctxAs = (sid: string): unknown => ({
+			cwd: dir,
+			sessionManager: { getSessionId: () => sid },
+			ui: {
+				notify: (msg: string) => {
+					calls.push(msg);
+				},
+			},
+		});
+		try {
+			const created = createRunManifest({ cwd: dir, team, workflow, goal: "cross-session" });
+			const manifest = {
+				...created.manifest,
+				status: "running" as const,
+				ownerSessionId: "session-A",
+				updatedAt: new Date().toISOString(),
+			};
+			const activeTasks = created.tasks.map((task) => ({
+				...task,
+				status: "running" as const,
+				startedAt: new Date().toISOString(),
+			}));
+			saveRunManifest(manifest);
+			saveRunTasks(manifest, activeTasks);
+			saveCrewAgents(manifest, activeTasks.map((task) => recordFromTask(manifest, task, "live-session")));
+
+			// As session-B: the session-A run must be filtered out.
+			clearProjectRootCache();
+			notifyActiveRuns(ctxAs("session-B") as never);
+			assert.equal(calls.length, 0, "must not surface another session's active run");
+
+			// As session-A: the run should now pass the ownership filter.
+			clearProjectRootCache();
+			notifyActiveRuns(ctxAs("session-A") as never);
+			assert.equal(calls.length, 1, "should surface the owning session's active run");
+			assert.match(calls[0]!, /pi-crew active runs/);
+		} finally {
+			clearProjectRootCache();
+			fs.rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

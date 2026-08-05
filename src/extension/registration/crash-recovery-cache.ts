@@ -44,10 +44,10 @@ export async function importCrashRecovery(): Promise<CrashRecoveryCache> {
 }
 
 /** Sync purge-if-loaded helper used by cleanup functions. */
-export function purgeStaleActiveRunIndexSyncIfLoaded(): void {
+export function purgeStaleActiveRunIndexSyncIfLoaded(currentSessionId?: string): void {
 	if (!_cachedCrashRecovery) return;
 	try {
-		_cachedCrashRecovery.purgeStaleActiveRunIndex();
+		_cachedCrashRecovery.purgeStaleActiveRunIndex(300_000, Date.now(), currentSessionId);
 	} catch (error) {
 		logInternalError("register.cleanupRuntime.purgeStale", error);
 	}

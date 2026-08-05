@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS, DEFAULT_SUBAGENT } from "../config/defaults.ts";
@@ -20,6 +21,7 @@ export interface SubagentSpawnOptions {
 	skill?: string | string[] | false;
 	maxTurns?: number;
 	ownerSessionGeneration?: number;
+	ownerSessionId?: string;
 	/** Optional batch grouping id (Rule 1). Agents sharing a batchId coalesce
 	 * completion notifications into one. undefined => individual (default). */
 	batchId?: string;
@@ -41,6 +43,7 @@ export interface SubagentRecord {
 	skill?: string | string[] | false;
 	background: boolean;
 	ownerSessionGeneration?: number;
+	ownerSessionId?: string;
 	/** Batch grouping id (Rule 1). undefined => individual notification. */
 	batchId?: string;
 	stuckNotified?: boolean;
@@ -146,6 +149,7 @@ const ALLOWED_RECORD_FIELDS = new Set([
 	"resultConsumed",
 	"background",
 	"ownerSessionGeneration",
+	"ownerSessionId",
 	"stuckNotified",
 	"blockedAt",
 	"turnCount",
@@ -238,7 +242,7 @@ export class SubagentManager {
 
 	spawn(options: SubagentSpawnOptions, runner: SpawnRunner, signal?: AbortSignal): SubagentRecord {
 		const record: SubagentRecord = {
-			id: `agent_${Date.now().toString(36)}_${(++this.counter).toString(36)}`,
+			id: `agent_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}_${(++this.counter).toString(36)}`,
 			type: options.type,
 			description: options.description,
 			prompt: options.prompt,
@@ -248,6 +252,7 @@ export class SubagentManager {
 			skill: options.skill,
 			background: options.background,
 			ownerSessionGeneration: options.ownerSessionGeneration,
+			ownerSessionId: options.ownerSessionId,
 			batchId: options.batchId,
 		};
 		this.records.set(record.id, record);
@@ -551,6 +556,7 @@ export class SubagentManager {
 				runId: current.runId,
 				durationMs: Math.max(0, Date.now() - current.blockedAt),
 				ownerSessionGeneration: current.ownerSessionGeneration,
+				ownerSessionId: current.ownerSessionId,
 			});
 			savePersistedSubagentRecord(cwd, current);
 		};

@@ -21,6 +21,9 @@ export interface CrewWidgetModel {
 	manifestCache?: ManifestCache;
 	snapshotCache?: RunSnapshotCache;
 	preloadManifests?: TeamRunManifest[];
+	/** P3 (#9): workspace/session ID for filtering runs by ownerSessionId
+	 * on every render, not just the first frame. */
+	workspaceId?: string;
 }
 
 export interface CrewWidgetState {

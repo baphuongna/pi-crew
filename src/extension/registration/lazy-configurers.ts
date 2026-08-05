@@ -90,7 +90,7 @@ async function configureObservabilityImpl(pi: ExtensionAPI, ctx: RegistrationCon
 			getManifestCache: ctx.getManifestCache,
 			notifyOperator: ctx.notifyOperator,
 			isCleanedUp: () => ctx.cleanedUp,
-			reconcileStaleRuns: (cwd, cache) => reconcileAllStaleRuns(cwd, cache),
+			reconcileStaleRuns: (cwd, cache, currentSessionId) => reconcileAllStaleRuns(cwd, cache, undefined, currentSessionId),
 			reconcileOrphanedTempWorkspaces: (now, opts) => reconcileOrphanedTempWorkspaces(now, opts),
 			cleanupOrphanTempDirs,
 			cleanupLegacyOrphanTempDirs,

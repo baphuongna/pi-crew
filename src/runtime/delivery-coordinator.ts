@@ -7,6 +7,11 @@ export interface PendingDelivery {
 	timestamp: number;
 	type: "result" | "notification" | "steer";
 	generation?: number;
+	/** Pi session that owns the underlying run. Set at enqueue time; a delivery
+	 * whose ownerSessionId differs from the currently active session is parked
+	 * (not flushed) so queued results never leak into the wrong session after an
+	 * in-process session switch (vector #12). Absent = ownerless/legacy (always flush). */
+	ownerSessionId?: string;
 }
 
 export interface DeliveryCoordinatorDeps {
@@ -28,6 +33,9 @@ export class DeliveryCoordinator {
 	private readonly deps: DeliveryCoordinatorDeps;
 	private ttlTimer: ReturnType<typeof setInterval> | undefined;
 	private timerStarted = false;
+	/** The session id passed to the most recent activate(); used by flushQueuedResults
+	 * to park deliveries owned by a different session (vector #12). */
+	private activeSessionId?: string;
 
 	constructor(deps: DeliveryCoordinatorDeps) {
 		this.deps = deps;
@@ -35,6 +43,7 @@ export class DeliveryCoordinator {
 
 	activate(sessionId: string): void {
 		this.active = true;
+		this.activeSessionId = sessionId;
 		this.flushQueuedResults();
 	}
 
@@ -51,7 +60,7 @@ export class DeliveryCoordinator {
 		return this.pending.length;
 	}
 
-	deliverResult(runId: string, result: unknown): void {
+	deliverResult(runId: string, result: unknown, ownerSessionId?: string): void {
 		if (this.active && this.deps.emit) {
 			try {
 				this.deps.emit("pi-crew:run-result", result);
@@ -66,10 +75,11 @@ export class DeliveryCoordinator {
 				payload: result,
 				timestamp: Date.now(),
 				type: "result",
+				ownerSessionId,
 			});
 	}
 
-	deliverNotification(notification: NotificationDescriptor): void {
+	deliverNotification(notification: NotificationDescriptor, ownerSessionId?: string): void {
 		let delivered = false;
 		if (this.active && this.deps.sendFollowUp) {
 			try {
@@ -95,10 +105,11 @@ export class DeliveryCoordinator {
 				payload: notification,
 				timestamp: Date.now(),
 				type: "notification",
+				ownerSessionId,
 			});
 	}
 
-	deliverSteer(runId: string, message: string): void {
+	deliverSteer(runId: string, message: string, ownerSessionId?: string): void {
 		if (this.active && this.deps.sendWakeUp) {
 			try {
 				this.deps.sendWakeUp(message);
@@ -113,6 +124,7 @@ export class DeliveryCoordinator {
 				payload: message,
 				timestamp: Date.now(),
 				type: "steer",
+				ownerSessionId,
 			});
 	}
 
@@ -127,6 +139,15 @@ export class DeliveryCoordinator {
 		try {
 			const retryLater: PendingDelivery[] = [];
 			for (const delivery of batch) {
+				// Vector #12: park deliveries owned by a session other than the one
+				// currently active. They must never flush into the wrong session after
+				// an in-process session switch. Re-queued as-is (generation preserved)
+				// so the existing stale-steer check still applies when the owning
+				// session becomes active again.
+				if (delivery.ownerSessionId && this.activeSessionId && delivery.ownerSessionId !== this.activeSessionId) {
+					retryLater.push(delivery);
+					continue;
+				}
 				if (delivery.type === "steer" && delivery.generation !== undefined && delivery.generation !== this.generation) {
 					logInternalError("delivery-coordinator.flush.stale", undefined, `runId=${delivery.runId} type=${delivery.type}`);
 					continue;

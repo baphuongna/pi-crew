@@ -5,13 +5,14 @@ import * as path from "node:path";
 import test from "node:test";
 import { saveCrewAgents } from "../../../src/runtime/crew-agent-records.ts";
 import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../src/state/stores/state-store.ts";
-import type { TeamTaskState } from "../../../src/state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import {
 	compactTokens,
 	registerPiCrewPowerbarSegments,
 	resetPowerbarDedupState,
 	updatePiCrewPowerbar,
 } from "../../../src/ui/powerbar-publisher.ts";
+import type { RunUiSnapshot } from "../../../src/ui/snapshot-types.ts";
 
 test("powerbar publisher registers and updates active crew segments", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-"));
@@ -368,6 +369,179 @@ test("powerbar active segment includes notification badge", () => {
 test("compactTokens keeps short values and compacts thousands", () => {
 	assert.equal(compactTokens(999), "999");
 	assert.equal(compactTokens(1500), "2k");
+});
+
+/**
+ * Build a RunUiSnapshot for a run with N running agents and no tasks/usage.
+ * The only countable signal in the emitted active segment is then the running
+ * agent total, which lets the owner-sessionId filter be asserted unambiguously
+ * (distinct per-run agent counts make the filtered vs. unfiltered totals unique).
+ */
+function makeActiveSnapshot(run: TeamRunManifest, runningAgents: number): RunUiSnapshot {
+	const agents = Array.from({ length: runningAgents }, (_, index) => ({
+		id: `${run.runId}:0${index}`,
+		runId: run.runId,
+		taskId: "01",
+		agent: "worker",
+		role: "worker",
+		runtime: "child-process" as const,
+		status: "running" as const,
+		startedAt: run.createdAt,
+	}));
+	return {
+		runId: run.runId,
+		cwd: run.cwd,
+		fetchedAt: Date.now(),
+		signature: `${run.runId}-${runningAgents}`,
+		manifest: run,
+		tasks: [],
+		agents,
+		progress: { total: 0, completed: 0, running: runningAgents, failed: 0, queued: 0 },
+		usage: { tokensIn: 0, tokensOut: 0, toolUses: 0 },
+		mailbox: { inboxUnread: 0, outboxPending: 0, needsAttention: 0 },
+		recentEvents: [],
+		recentOutputLines: [],
+	};
+}
+
+/**
+ * Extract the most recent "pi-crew-active" emitted payload (with a string text)
+ * from the captured event log.
+ */
+function findActivePayload(events: Array<{ event: string; data: unknown }>): Record<string, unknown> | undefined {
+	return [...events]
+		.reverse()
+		.map((item) => (item.data && typeof item.data === "object" ? (item.data as Record<string, unknown>) : undefined))
+		.find((item) => item?.id === "pi-crew-active" && typeof item.text === "string");
+}
+
+test("powerbar self-derives workspaceId from ctx.sessionManager and filters runs by ownerSessionId (#10)", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-session-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-session-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		resetPowerbarDedupState();
+		const events: Array<{ event: string; data: unknown }> = [];
+		const bus = {
+			emit: (event: string, data: unknown) => events.push({ event, data }),
+		};
+		const team = {
+			name: "session-team",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "session-workflow",
+			description: "",
+			steps: [{ id: "one", role: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		// Three runs in the shared project tree: owned by session A, owned by
+		// session B, and ownerless. Each gets a DISTINCT number of running agents
+		// (A=3, B=2, ownerless=1) so the surviving running total uniquely
+		// identifies which runs passed the filter.
+		const now = new Date().toISOString();
+		const manifestA = {
+			...createRunManifest({ cwd, team, workflow, goal: "owned-A", ownerSessionId: "A" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const manifestB = {
+			...createRunManifest({ cwd, team, workflow, goal: "owned-B", ownerSessionId: "B" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const manifestO = {
+			...createRunManifest({ cwd, team, workflow, goal: "ownerless" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const snapshots = new Map<string, RunUiSnapshot>([
+			[manifestA.runId, makeActiveSnapshot(manifestA, 3)],
+			[manifestB.runId, makeActiveSnapshot(manifestB, 2)],
+			[manifestO.runId, makeActiveSnapshot(manifestO, 1)],
+		]);
+		const snapshotCache = { get: (id: string) => snapshots.get(id) };
+		// ctx belongs to session B → effectiveWorkspaceId self-derives to "B"
+		// via extractSessionId(ctx) (P3 #10). Run A must be filtered out.
+		const ctx = { hasUI: false, sessionManager: { getSessionId: () => "B" } };
+		updatePiCrewPowerbar(bus, cwd, {}, undefined, snapshotCache as never, ctx, 0, [manifestA, manifestB, manifestO]);
+		const active = findActivePayload(events);
+		// Only B (2) + ownerless (1) survive the owner filter → 3 running agents.
+		assert.match(String(active?.text ?? ""), /^⚙ 3 running/);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
+	}
+});
+
+test("powerbar processes all runs when ctx has no sessionManager (back-compat, #10)", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-nosession-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-nosession-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		resetPowerbarDedupState();
+		const events: Array<{ event: string; data: unknown }> = [];
+		const bus = {
+			emit: (event: string, data: unknown) => events.push({ event, data }),
+		};
+		const team = {
+			name: "nosession-team",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "nosession-workflow",
+			description: "",
+			steps: [{ id: "one", role: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const now = new Date().toISOString();
+		const manifestA = {
+			...createRunManifest({ cwd, team, workflow, goal: "owned-A2", ownerSessionId: "A" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const manifestB = {
+			...createRunManifest({ cwd, team, workflow, goal: "owned-B2", ownerSessionId: "B" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const manifestO = {
+			...createRunManifest({ cwd, team, workflow, goal: "ownerless2" }).manifest,
+			status: "running" as const,
+			updatedAt: now,
+		};
+		const snapshots = new Map<string, RunUiSnapshot>([
+			[manifestA.runId, makeActiveSnapshot(manifestA, 3)],
+			[manifestB.runId, makeActiveSnapshot(manifestB, 2)],
+			[manifestO.runId, makeActiveSnapshot(manifestO, 1)],
+		]);
+		const snapshotCache = { get: (id: string) => snapshots.get(id) };
+		// No sessionManager, no workspaceId arg → extractSessionId returns
+		// undefined → no filtering; pre-fix behavior preserved (all runs shown).
+		updatePiCrewPowerbar(bus, cwd, {}, undefined, snapshotCache as never, undefined, 0, [manifestA, manifestB, manifestO]);
+		const active = findActivePayload(events);
+		// All three runs processed → 3 + 2 + 1 = 6 running agents.
+		assert.match(String(active?.text ?? ""), /^⚙ 6 running/);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
+	}
 });
 
 test("powerbar dedups per-segment when payload unchanged across renders (1.8)", () => {

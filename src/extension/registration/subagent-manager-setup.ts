@@ -70,7 +70,7 @@ function createCompletionCoalescer(pi: ExtensionAPI, ctx: RegistrationContext): 
 		const f = ctx.subagentManager.getRecord(c.agentId);
 		const p = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, c.agentId) : undefined;
 		if (f?.resultConsumed || p?.resultConsumed) return false;
-		if (!ctx.isOwnerSessionCurrent(f?.ownerSessionGeneration ?? c.ownerGen)) return false;
+		if (!ctx.isOwnerSessionCurrent(f?.ownerSessionGeneration ?? c.ownerGen, f?.ownerSessionId)) return false;
 		return true;
 	};
 
@@ -213,6 +213,7 @@ function onTerminalStatus(
 		durationMs?: number;
 		background?: boolean;
 		ownerSessionGeneration?: number;
+		ownerSessionId?: string;
 		description?: string;
 		batchId?: string;
 	},
@@ -231,7 +232,7 @@ function onTerminalStatus(
 		});
 	}
 	if (!record.background) return;
-	if (!ctx.isOwnerSessionCurrent(record.ownerSessionGeneration)) return;
+	if (!ctx.isOwnerSessionCurrent(record.ownerSessionGeneration, record.ownerSessionId)) return;
 	if (
 		record.status !== "completed" &&
 		record.status !== "failed" &&
@@ -257,7 +258,7 @@ function onTerminalStatus(
 			const persisted = ctx.currentCtx ? readPersistedSubagentRecord(ctx.currentCtx.cwd, agentId) : undefined;
 			// Leader already joined the result -> suppress redundant notify.
 			if (fresh?.resultConsumed || persisted?.resultConsumed) return;
-			if (!ctx.isOwnerSessionCurrent(fresh?.ownerSessionGeneration ?? ownerGen)) return;
+			if (!ctx.isOwnerSessionCurrent(fresh?.ownerSessionGeneration ?? ownerGen, fresh?.ownerSessionId)) return;
 			const member: BatchMember = {
 				id: agentId,
 				description: agentDescription,
@@ -308,7 +309,11 @@ function onInternalEvent(pi: ExtensionAPI, ctx: RegistrationContext, event: stri
 		typeof (payload as { ownerSessionGeneration?: unknown })?.ownerSessionGeneration === "number"
 			? ((payload as { ownerSessionGeneration?: number }).ownerSessionGeneration as number)
 			: undefined;
-	if (ownerGeneration !== undefined && !ctx.isOwnerSessionCurrent(ownerGeneration)) return;
+	const ownerSessionId =
+		typeof (payload as { ownerSessionId?: unknown })?.ownerSessionId === "string"
+			? ((payload as { ownerSessionId?: string }).ownerSessionId as string)
+			: undefined;
+	if (ownerGeneration !== undefined && !ctx.isOwnerSessionCurrent(ownerGeneration, ownerSessionId)) return;
 	if (event === "subagent.stuck-blocked") {
 		const p = payload as Record<string, unknown>;
 		const id = typeof p.id === "string" ? p.id : "unknown";

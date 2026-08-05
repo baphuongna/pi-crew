@@ -86,7 +86,10 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 		globalStore: globalThis as Record<string | symbol, unknown>,
 		runtimeCleanupStoreKey: RUNTIME_CLEANUP_STORE_KEY,
 		captureSessionGeneration: () => ctx.sessionGeneration,
-		isOwnerSessionCurrent: (gen) => !ctx.cleanedUp && (gen === undefined || gen === ctx.sessionGeneration),
+		isOwnerSessionCurrent: (gen, oid) => {
+			const currentSid = ctx.currentCtx?.sessionManager?.getSessionId?.();
+			return !ctx.cleanedUp && (oid === undefined || oid === currentSid) && (gen === undefined || gen === ctx.sessionGeneration);
+		},
 		isContextCurrent: (c, gen) => !ctx.cleanedUp && ctx.currentCtx === c && ctx.sessionGeneration === gen,
 		telemetryEnabled: () => loadConfig(ctx.currentCtx?.cwd ?? process.cwd()).config.telemetry?.enabled !== false,
 		notifyOperator: undefined as never,
@@ -98,7 +101,7 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 		configureObservability: () => undefined,
 		configureDeliveryCoordinator: () => undefined,
 		importCrashRecovery: undefined as never,
-		purgeStaleActiveRunIndexSyncIfLoaded: () => undefined,
+		purgeStaleActiveRunIndexSyncIfLoaded: (_currentSessionId?: string) => undefined,
 		startForegroundRun: undefined as never,
 		abortForegroundRun: () => false,
 		openLiveSidebar: () => undefined,

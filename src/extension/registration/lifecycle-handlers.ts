@@ -323,7 +323,7 @@ async function runDeferredSessionCleanup(
 
 	// Global purge of stale active-run-index entries
 	try {
-		const { purged } = purgeStaleActiveRunIndexFn();
+		const { purged } = purgeStaleActiveRunIndexFn(300_000, Date.now(), currentSessionId);
 		if (purged.length > 0) {
 			ctx.notifyOperator({
 				id: `active_index_purge`,
@@ -339,7 +339,8 @@ async function runDeferredSessionCleanup(
 
 	// Reconcile stale runs found on disk
 	try {
-		const staleResults = reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd)) ?? [];
+		const staleResults =
+			reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), Date.now(), currentSessionId) ?? [];
 		if (staleResults.length > 0) {
 			ctx.notifyOperator({
 				id: "stale_reconcile",
@@ -494,6 +495,20 @@ function setupCrewScheduler(
  *     `runs/` root (new-run detection) plus per-active-run watchers
  *     reconciled each preload tick. Total inotify cost: O(active runs).
  */
+/**
+ * Phase 5 (Vector #3): keep only the CURRENT session's owned runs (plus
+ * ownerless runs) for health notifications. Previously the inline filter derived
+ * `currentSessionId` from a cast that was always `undefined` and compared
+ * against `ownerSessionGeneration` (a field absent from TeamRunManifest), so
+ * together they dropped EVERY owned run. Exported for unit testing.
+ */
+export function filterManifestsForHealthNotifications(
+	manifests: TeamRunManifest[],
+	currentSessionId: string | undefined,
+): TeamRunManifest[] {
+	return manifests.filter((run) => !run.ownerSessionId || run.ownerSessionId === currentSessionId);
+}
+
 function setupRenderLoop(
 	pi: ExtensionAPI,
 	ctx: RegistrationContext,
@@ -609,14 +624,14 @@ function setupRenderLoop(
 			manifests,
 		);
 		// Health notifications: only warn about genuinely running runs.
-		const currentSessionGen = ctx.sessionGeneration;
-		const currentSessionId = ctx.currentCtx ? (ctx.currentCtx as { sessionId?: string }).sessionId : undefined;
-		const sessionManifests = manifests.filter(
-			(run) =>
-				!run.ownerSessionId ||
-				run.ownerSessionId === currentSessionId ||
-				(run as unknown as Record<string, unknown>).ownerSessionGeneration === currentSessionGen,
-		);
+		// Phase 5 (Vector #3): derive currentSessionId via the working accessor.
+		// ctx is RegistrationContext; currentCtx holds the ExtensionContext whose
+		// sessionManager exposes getSessionId(). The previous cast to {sessionId?}
+		// was always undefined, and the ownerSessionGeneration clause referenced a
+		// field absent from TeamRunManifest — together they dropped EVERY owned
+		// run. Now only the current session's owned runs + ownerless runs pass.
+		const currentSessionId = ctx.currentCtx?.sessionManager?.getSessionId();
+		const sessionManifests = filterManifestsForHealthNotifications(manifests, currentSessionId);
 		const now = Date.now();
 		for (const run of sessionManifests) {
 			if (run.status !== "running") continue;

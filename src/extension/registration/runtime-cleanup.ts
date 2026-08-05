@@ -26,6 +26,7 @@ import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { clearProjectRootCache } from "../../utils/paths.ts";
+import { extractSessionId } from "../../utils/session-utils.ts";
 import { stopAsyncRunNotifier } from "../async-notifier.ts";
 import { uninstallCrewGlobalRegistry } from "../team-tool.ts";
 import { disposeNotifications } from "./lifecycle.ts";
@@ -66,6 +67,7 @@ function buildCleanupSessionResourcesOnly(ctx: RegistrationContext): () => void 
 	return (): void => {
 		if (ctx.cleanedUp) return;
 		ctx.cleanedUp = true;
+		const sid = extractSessionId(ctx.currentCtx);
 		if (ctx.preloadTimer) {
 			clearTimeout(ctx.preloadTimer);
 			ctx.preloadTimer = undefined;
@@ -83,7 +85,7 @@ function buildCleanupSessionResourcesOnly(ctx: RegistrationContext): () => void 
 		stopAsyncRunNotifier(ctx.notifierState);
 
 		// P0: Purge all stale active-run-index entries on session cleanup.
-		ctx.purgeStaleActiveRunIndexSyncIfLoaded();
+		ctx.purgeStaleActiveRunIndexSyncIfLoaded(sid);
 
 		stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(ctx.pi.events);
@@ -121,6 +123,7 @@ function buildCleanupRuntime(ctx: RegistrationContext): () => void {
 	return (): void => {
 		if (ctx.cleanedUp) return;
 		ctx.cleanedUp = true;
+		const sid = extractSessionId(ctx.currentCtx);
 		if (ctx.preloadTimer) {
 			clearTimeout(ctx.preloadTimer);
 			ctx.preloadTimer = undefined;
@@ -155,7 +158,7 @@ function buildCleanupRuntime(ctx: RegistrationContext): () => void {
 		// purgeStaleActiveRunIndex() runs at next session_start instead.
 		// 2.7: only purge if crash-recovery has been loaded already; otherwise
 		// the next session_start will fire the lazy import + purge.
-		ctx.purgeStaleActiveRunIndexSyncIfLoaded();
+		ctx.purgeStaleActiveRunIndexSyncIfLoaded(sid);
 
 		stopCrewWidget(ctx.currentCtx, ctx.widgetState, ctx.currentCtx ? loadConfig(ctx.currentCtx.cwd).config.ui : undefined);
 		clearPiCrewPowerbar(ctx.pi.events);

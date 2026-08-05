@@ -26,6 +26,7 @@ import type { MetricSink } from "../../observability/metric-sink.ts";
 import type { HeartbeatWatcher } from "../../runtime/heartbeat/heartbeat-watcher.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot } from "../../utils/paths.ts";
+import { extractSessionId } from "../../utils/session-utils.ts";
 import type { NotificationDescriptor } from "../notification-router.ts";
 
 /** Type-only alias for the lazy-loaded OTLPExporter (avoid static import). */
@@ -56,7 +57,7 @@ export interface ObservabilityDeps {
 	getManifestCache: (cwd: string) => ReturnType<typeof import("../../runtime/manifest-cache.ts").createManifestCache>;
 	notifyOperator: (notification: NotificationDescriptor) => void;
 	isCleanedUp: () => boolean;
-	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>) => unknown[];
+	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>, currentSessionId?: string) => unknown[];
 	reconcileOrphanedTempWorkspaces: (now: number, opts: { cleanupOrphanedTempDirs?: boolean }) => unknown;
 	cleanupOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
 	cleanupLegacyOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
@@ -68,6 +69,8 @@ export interface ObservabilityDeps {
 		detectInterruptedRuns: (
 			cwd: string,
 			cache: ReturnType<ObservabilityDeps["getManifestCache"]>,
+			deadMs?: number,
+			currentSessionId?: string,
 		) => Iterable<{ runId: string; resumableTasks: unknown[] }>;
 	}>;
 }
@@ -185,7 +188,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 		deps.pi.on?.("before_agent_start", () => {
 			if (deps.isCleanedUp()) return;
 			try {
-				deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd));
+				deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
 			} catch (error) {
 				logInternalError("register.autoRepair.turnHook", error);
 			}
@@ -206,7 +209,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 		state.autoRepairTimer = setInterval(() => {
 			if (deps.isCleanedUp()) return;
 			try {
-				const staleResults = deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd));
+				const staleResults = deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
 				if (Array.isArray(staleResults) && staleResults.length > 0) {
 					for (const result of staleResults) {
 						const repaired = (result as { repaired?: boolean }).repaired;
@@ -275,7 +278,8 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 			.importCrashRecovery()
 			.then(({ detectInterruptedRuns }) => {
 				if (deps.isCleanedUp()) return;
-				for (const plan of detectInterruptedRuns(cwdSnapshot, cacheSnapshot)) {
+				const sid = extractSessionId(ctx);
+				for (const plan of detectInterruptedRuns(cwdSnapshot, cacheSnapshot, 300_000, sid)) {
 					deps.notifyOperator({
 						id: `recovery_prompt_${plan.runId}`,
 						severity: "warning",

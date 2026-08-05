@@ -6,6 +6,7 @@ import { appendEvent, readEventsCursor, type TeamEvent } from "../state/event-lo
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { extractSessionId } from "../utils/session-utils.ts";
 import { listRuns } from "./run-index.ts";
 
 export interface AsyncNotifierState {
@@ -120,7 +121,14 @@ export function startAsyncRunNotifier(
 	state.generation = generation;
 	const startedAtMs = Date.now();
 	const staleBeforeMs = state.lastStoppedAtMs ?? startedAtMs;
-	for (const run of listRuns(ctx.cwd)) {
+	// Vector #11: only observe runs owned by THIS pi session (plus
+	// ownerless/legacy runs). Runs owned by a different pi session must never be
+	// toasted here — otherwise session B notifies about session A's completions
+	// (cross-session information leak). When the session id is unavailable (older
+	// Pi / test mocks without a sessionManager), nothing is filtered (back-compat).
+	const sid = extractSessionId(ctx);
+	const ownsRun = (run: TeamRunManifest): boolean => !sid || !run.ownerSessionId || run.ownerSessionId === sid;
+	for (const run of listRuns(ctx.cwd).filter(ownsRun)) {
 		// Suppress only terminal runs that were already finished before this owner
 		// session (or before the previous session switch). Active runs must remain
 		// un-seen so completions during auto-compaction/session restart are delivered.
@@ -133,7 +141,7 @@ export function startAsyncRunNotifier(
 			if (options.isCurrent && !options.isCurrent(generation)) return;
 			const nowMs = Date.now();
 			if (cachedRuns === undefined || nowMs - (state.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
-				cachedRuns = listRuns(ctx.cwd).slice(0, 20);
+				cachedRuns = listRuns(ctx.cwd).filter(ownsRun).slice(0, 20);
 				state.lastListRunsMs = nowMs;
 			}
 			for (const run of cachedRuns) {

@@ -2,13 +2,14 @@ import * as fs from "node:fs";
 import type { CrewUiConfig } from "../config/config.ts";
 import { listRecentRuns } from "../extension/run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
-import { listLiveAgents } from "../runtime/live-session/live-agent-manager.ts";
+import { listLiveAgents, listLiveAgentsByWorkspace } from "../runtime/live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../runtime/manifest-cache.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { extractSessionId } from "../utils/session-utils.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { RenderCoalescer } from "./render-coalescer.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
@@ -97,8 +98,9 @@ export function updatePiCrewPowerbar(
 	ctx?: StatusContext,
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
+	workspaceId?: string,
 ): void {
-	powerbarPublisher.update(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests);
+	powerbarPublisher.update(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests, workspaceId);
 }
 
 // --- Dedup state + coalescer live on a class instance so they survive hot-reload
@@ -191,6 +193,7 @@ interface PowerbarUpdateArgs {
 	ctx?: StatusContext;
 	notificationCount: number;
 	preloadedManifests?: TeamRunManifest[];
+	workspaceId?: string;
 }
 
 /**
@@ -211,7 +214,17 @@ class PowerbarPublisher {
 			const a = this.#latestArgs;
 			this.#latestArgs = null;
 			if (!a) return;
-			this.update(a.events, a.cwd, a.config, a.manifestCache, a.snapshotCache, a.ctx, a.notificationCount, a.preloadedManifests);
+			this.update(
+				a.events,
+				a.cwd,
+				a.config,
+				a.manifestCache,
+				a.snapshotCache,
+				a.ctx,
+				a.notificationCount,
+				a.preloadedManifests,
+				a.workspaceId,
+			);
 		}, 200);
 	}
 
@@ -224,10 +237,18 @@ class PowerbarPublisher {
 		ctx?: StatusContext,
 		notificationCount = 0,
 		preloadedManifests?: TeamRunManifest[],
+		workspaceId?: string,
 	): void {
 		if (config?.powerbar === false) return;
 		const useStatusFallback = !hasPowerbarConsumer(events);
-		const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
+		// P3 (#10): prefer an explicit workspaceId arg; otherwise self-derive
+		// from the ctx every caller already passes (ExtensionContext exposes
+		// sessionManager). Back-compat: when neither is present, no filtering.
+		const effectiveWorkspaceId = workspaceId ?? extractSessionId(ctx);
+		const allRuns = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
+		const runs = effectiveWorkspaceId
+			? allRuns.filter((run) => !run.ownerSessionId || run.ownerSessionId === effectiveWorkspaceId)
+			: allRuns;
 		const active = runs
 			.map((run) => {
 				let snapshot: RunUiSnapshot | undefined;
@@ -300,7 +321,8 @@ class PowerbarPublisher {
 						?.model?.split("/")
 						.at(-1);
 		const tokenText = config?.showTokens === false || !tokenTotal ? undefined : compactTokens(tokenTotal);
-		const liveRunning = listLiveAgents().filter((a) => a.status === "running").length;
+		const liveAgents = effectiveWorkspaceId ? listLiveAgentsByWorkspace(effectiveWorkspaceId) : listLiveAgents();
+		const liveRunning = liveAgents.filter((a) => a.status === "running").length;
 		// Always show consistent status: running count + queued count from live tasks only
 		// Avoid snapshot cache for counts to prevent UI jumping
 		const runningCount = agents.filter((a) => a.status === "running").length;
@@ -388,6 +410,7 @@ class PowerbarPublisher {
 		ctx?: StatusContext,
 		notificationCount = 0,
 		preloadedManifests?: TeamRunManifest[],
+		workspaceId?: string,
 	): void {
 		if (config?.powerbar === false) return;
 		this.#latestArgs = {
@@ -399,6 +422,7 @@ class PowerbarPublisher {
 			ctx,
 			notificationCount,
 			preloadedManifests,
+			workspaceId,
 		};
 		this.#coalescer.request();
 	}
@@ -440,8 +464,9 @@ export function requestPowerbarUpdate(
 	ctx?: StatusContext,
 	notificationCount = 0,
 	preloadedManifests?: TeamRunManifest[],
+	workspaceId?: string,
 ): void {
-	powerbarPublisher.request(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests);
+	powerbarPublisher.request(events, cwd, config, manifestCache, snapshotCache, ctx, notificationCount, preloadedManifests, workspaceId);
 }
 
 /** Dispose the powerbar coalescer. Call during extension cleanup. */

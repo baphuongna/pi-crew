@@ -262,4 +262,69 @@ describe("DeliveryCoordinator", () => {
 		dc.dispose();
 		assert.equal(dc.getPendingCount(), 0);
 	});
+
+	// Vector #12: activate() must store the session id and flushQueuedResults
+	// must PARK (not flush) deliveries owned by a different session, so queued
+	// results never leak into the wrong session after an in-process switch.
+	describe("session-scoped flushing (vector #12)", () => {
+		it("activate stores the session id and parks deliveries owned by another session", () => {
+			const emitted: unknown[] = [];
+			const dc = new DeliveryCoordinator({
+				emit: (_event, data) => {
+					emitted.push(data);
+				},
+			});
+			// Queue a delivery owned by session-A while inactive.
+			dc.deliverResult("run-a", { status: "completed" }, "session-A");
+			assert.equal(dc.getPendingCount(), 1);
+			// Activate as session-B: the session-A delivery must be PARKED, not flushed.
+			dc.activate("session-B");
+			assert.equal(dc.getPendingCount(), 1, "cross-session delivery should remain parked");
+			assert.equal(emitted.length, 0, "cross-session delivery must not flush into session-B");
+			// Now the owning session-A activates: the parked delivery should flush.
+			dc.activate("session-A");
+			assert.equal(dc.getPendingCount(), 0);
+			assert.deepEqual(emitted, [{ status: "completed" }]);
+			dc.dispose();
+		});
+
+		it("parks a same-generation cross-session steer until its owner activates", () => {
+			const wakeups: string[] = [];
+			const dc = new DeliveryCoordinator({
+				sendWakeUp: (message) => {
+					wakeups.push(message);
+				},
+			});
+			// Steer owned by session-A, enqueued while inactive (generation 0).
+			dc.deliverSteer("run-a", "steer-A", "session-A");
+			assert.equal(dc.getPendingCount(), 1);
+			// Activate as session-B WITHOUT deactivating first (same generation):
+			// the session-A steer must be PARKED, not flushed into session-B. (Across a
+			// real deactivate the existing stale-steer generation check already drops
+			// it; this exercises the in-process same-generation guard specifically.)
+			dc.activate("session-B");
+			assert.equal(wakeups.length, 0, "cross-session steer must not wake session-B");
+			assert.equal(dc.getPendingCount(), 1, "cross-session steer should remain parked");
+			// Now the owning session-A activates (still generation 0): the steer should flush.
+			dc.activate("session-A");
+			assert.deepEqual(wakeups, ["steer-A"]);
+			assert.equal(dc.getPendingCount(), 0);
+			dc.dispose();
+		});
+
+		it("ownerless deliveries always flush regardless of active session", () => {
+			const emitted: unknown[] = [];
+			const dc = new DeliveryCoordinator({
+				emit: (_event, data) => {
+					emitted.push(data);
+				},
+			});
+			// No ownerSessionId supplied — legacy/back-compat path.
+			dc.deliverResult("run-x", { status: "completed" });
+			dc.activate("session-B");
+			assert.equal(dc.getPendingCount(), 0);
+			assert.deepEqual(emitted, [{ status: "completed" }]);
+			dc.dispose();
+		});
+	});
 });

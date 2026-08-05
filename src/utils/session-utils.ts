@@ -50,33 +50,56 @@ export function safeToPiSessionId(runId: string): string | undefined {
 }
 
 /**
+ * Module-level cache for resolved session ids, keyed by the stable
+ * `sessionManager` reference (NOT by `ctx` — `ctx` is recreated per event by
+ * `createContext()` on the runner, so keying on `ctx` would never hit the
+ * cache). The `sessionManager` object persists across events within a session.
+ */
+const sessionIdCache = new WeakMap<object, string>();
+
+/**
  * Extract the current Pi session id from an ExtensionContext.
  *
- * `ExtensionContext` does not declare `sessionId` in its type, but the runtime
- * attaches it as an own property. We read it via `getOwnPropertyDescriptor`
- * to safely bypass any Proxy traps, then validate it as a non-empty string.
+ * On Pi 0.83.0 the `ExtensionContext` has NO top-level `sessionId` property —
+ * the id is reachable only via `ctx.sessionManager.getSessionId()`. This is
+ * the canonical accessor: every site that filters the SHARED per-project
+ * `.crew/state/` tree down to the current session MUST use this, otherwise
+ * cross-session state leaks (e.g. compaction-guard resuming another session's
+ * runs, ambient-status injecting another session's runs).
  *
- * This is the canonical accessor — every site that filters the SHARED
- * per-project `.crew/state/` tree down to the current session MUST use this,
- * otherwise cross-session state leaks (e.g. compaction-guard resuming another
- * session's runs, ambient-status injecting another session's runs).
+ * Strategy (primary → fallback):
+ *   1. `ctx.sessionManager?.getSessionId?.()` — the working accessor on
+ *      Pi 0.83.0. The result is cached by `sessionManager` ref so the method
+ *      lookup runs at most once per session-manager instance, keeping the hot
+ *      path (called on every `context` event) cheap.
+ *   2. `Object.getOwnPropertyDescriptor(ctx, "sessionId")` — for test mocks
+ *      and older Pi versions that attach `sessionId` as an own property.
  *
  * Returns undefined when the session id is absent or unparseable — callers
  * must decide whether to treat that as "no filter" (back-compat) or "no runs".
  */
 export function extractSessionId(ctx: unknown): string | undefined {
 	if (typeof ctx !== "object" || ctx === null) return undefined;
-	let raw: unknown;
 	try {
-		raw = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		const sm = (ctx as { sessionManager?: { getSessionId?: () => unknown } }).sessionManager;
+		if (sm && typeof sm === "object") {
+			const cached = sessionIdCache.get(sm as object);
+			if (cached) return cached;
+			const id = (sm as { getSessionId?: () => unknown }).getSessionId?.();
+			if (typeof id === "string" && id.length > 0) {
+				sessionIdCache.set(sm as object, id);
+				return id;
+			}
+		}
+		const direct = Object.getOwnPropertyDescriptor(ctx, "sessionId")?.value;
+		if (typeof direct === "string" && direct.length > 0) return direct;
 	} catch {
-		// Defensive: a hostile Proxy or exotic object may trap descriptor
-		// access. Real Pi ExtensionContext objects are plain, so this is
-		// only hit by adversarial/degenerate inputs — treat as no session id.
+		// Defensive: a hostile Proxy or exotic object may trap property or
+		// descriptor access. Real Pi ExtensionContext objects are plain, so
+		// this is only hit by adversarial/degenerate inputs — treat as no id.
 		return undefined;
 	}
-	if (typeof raw !== "string" || raw.length === 0) return undefined;
-	return raw;
+	return undefined;
 }
 
 /**
@@ -86,11 +109,11 @@ export function extractSessionId(ctx: unknown): string | undefined {
  * its public surface — the id is reachable via `ctx.sessionManager.getSessionId()`.
  * This helper is only called from `installCrewBrokerLifecycleController.setSessionId`
  * (once per session_start), so the extra method invocation is safe here. It is
- * INTENTIONALLY a separate function from `extractSessionId`, which is called on
- * every `context` event (before every LLM call) from `context-status-injection.ts`
- * — extending that hot path with method calls was observed to freeze the TUI
- * (dashboard opens but is unresponsive, footer does not render) during smoke
- * testing, so it stays on the trivial property lookup.
+ * INTENTIONALLY a separate function from `extractSessionId`: both now read
+ * `sessionManager.getSessionId()` first, but `extractSessionId` memoises the
+ * result in a WeakMap keyed by the `sessionManager` ref (it is called on every
+ * `context` event from `context-status-injection.ts`), whereas this broker
+ * helper is called only once per `session_start`, so caching is unnecessary.
  *
  * Tries the sessionManager path first, then falls back to a direct
  * `ctx.sessionId` for test mock compatibility.
