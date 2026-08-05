@@ -35,6 +35,8 @@ export interface RunLiveTaskInput {
 	modelRegistry?: unknown;
 	modelOverride?: string;
 	teamRoleModel?: string;
+	teamRoleFallbackModels?: string[];
+	teamRoleThinking?: string;
 	isCurrent?: () => boolean;
 	/** Workspace where this task run was initiated — used for session-scoped live-agent visibility. */
 	workspaceId: string;
@@ -134,6 +136,8 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 		modelRegistry: input.modelRegistry,
 		modelOverride: input.modelOverride,
 		teamRoleModel: input.teamRoleModel,
+		teamRoleFallbackModels: input.teamRoleFallbackModels,
+		teamRoleThinking: input.teamRoleThinking,
 		isCurrent,
 		workspaceId: input.workspaceId,
 		// Phase 2: Pass output schema for yield validation
@@ -180,6 +184,14 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 			...task,
 			usage: liveResult.usage,
 			agentProgress: applyUsageToProgress(task.agentProgress, liveResult.usage),
+		};
+	if (liveResult.modelRouting)
+		task = {
+			...task,
+			modelRouting: {
+				...liveResult.modelRouting,
+				usedAttempt: 0,
+			},
 		};
 	persistLiveProgress({ type: "attempt_finished" }, true);
 	const resultArtifact = writeArtifact(manifest.artifactsRoot, {

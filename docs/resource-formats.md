@@ -81,8 +81,14 @@ category: implementation
 Role line:
 
 ```text
-- {role-name}: agent={agent-name} [model={provider/model}] [skills={a,b}|false] [maxConcurrency={n}] optional description
+- {role-name}: agent={agent-name} [model={provider/model}] [fallbackModels={a,b}] [thinking={level}] [skills={a,b}|false] [maxConcurrency={n}] optional description
 ```
+
+- `model` — primary model for this role (e.g. `openai/gpt-5`, `anthropic/claude-sonnet-4-5`)
+- `fallbackModels` — comma-separated fallback models tried in order when the primary fails (e.g. `fallbackModels=openai/gpt-5-mini,anthropic/claude-haiku-4-5`)
+- `thinking` — thinking level override for this role (`high`, `medium`, `low`, `off`)
+- `skills` — additional skills to inject, or `false` to disable role-default skills
+- `maxConcurrency` — max parallel tasks for this role
 
 ## Workflow files
 

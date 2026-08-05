@@ -52,6 +52,9 @@ export interface TaskRunnerInput {
 	modelRegistry?: unknown;
 	modelOverride?: string;
 	teamRoleModel?: string;
+	teamRoleFallbackModels?: string[];
+	/** Per-role thinking level override (teamRole.thinking). Takes precedence over agent.thinking. */
+	teamRoleThinking?: string;
 	teamRoleSkills?: string[] | false;
 	skillOverride?: string[] | false;
 	limits?: CrewLimitsConfig;
@@ -152,6 +155,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 				modelRegistry: input.modelRegistry,
 				modelOverride: input.modelOverride,
 				teamRoleModel: input.teamRoleModel,
+				teamRoleFallbackModels: input.teamRoleFallbackModels,
+				teamRoleThinking: input.teamRoleThinking,
 				workspaceId: input.workspaceId,
 			});
 			task = live.task;

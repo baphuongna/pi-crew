@@ -33,6 +33,7 @@ async function executeTeamRun(...args: Parameters<ExecuteTeamRunFn>): Promise<Aw
 
 import { directTeamAndWorkflowFromRun } from "../runtime/direct-run.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../runtime/model/runtime-resolver.ts";
+import { resolveParentModel } from "../runtime/model/session-model.ts";
 import { parsePiJsonOutput } from "../runtime/output/pi-json-output.ts";
 import { effectiveRunConfig } from "./team-tool/config-patch.ts";
 import { buildParentContext, formatScoped, result, type TeamContext } from "./team-tool/context.ts";
@@ -497,7 +498,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		runtime: decision.runtime,
 		runtimeConfig: decision.executedConfig.runtime,
 		parentContext: buildParentContext(ctx),
-		parentModel: ctx.model,
+		parentModel: resolveParentModel(ctx.model),
 		modelRegistry: ctx.modelRegistry,
 		modelOverride: params.model,
 		skillOverride: decision.resumeSkillOverride,

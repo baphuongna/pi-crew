@@ -143,6 +143,8 @@ export interface ChildPiRunInput {
 	agentId?: string;
 	/** Role for tool restrictions (from role-tools.ts) */
 	role?: string;
+	/** Team-role thinking override (takes precedence over agent.thinking). */
+	thinkingOverride?: string;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
 	/**

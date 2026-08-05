@@ -48,6 +48,7 @@ import { writeAsyncStartMarker } from "./async-marker.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "./model/runtime-resolver.ts";
+import { registryFromModelContext } from "./model/session-model.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
 import { startParentGuard, stopParentGuard } from "./parent-guard.ts";
 import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.ts";
@@ -59,6 +60,26 @@ import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.t
  */
 function debugLog(message: string): void {
 	if (process.env.PI_CREW_DEBUG) console.log(message);
+}
+
+/**
+ * Re-hydrate the model routing inputs a detached background run cannot obtain
+ * from an ExtensionContext. Absent `modelContext` (older manifests) yields an
+ * empty object, preserving previous behaviour exactly.
+ */
+function restoredModelRouting(manifest: TeamRunManifest): {
+	modelOverride?: string;
+	parentModel?: string;
+	modelRegistry?: { getAvailable: () => unknown[] };
+} {
+	const context = manifest.modelContext;
+	if (!context) return {};
+	const modelRegistry = registryFromModelContext(context);
+	return {
+		...(context.override ? { modelOverride: context.override } : {}),
+		...(context.parentModel ? { parentModel: context.parentModel } : {}),
+		...(modelRegistry ? { modelRegistry } : {}),
+	};
 }
 
 /**
@@ -825,6 +846,11 @@ async function main(): Promise<void> {
 							runtime,
 							runtimeConfig: runConfig.runtime,
 							skillOverride: manifest.skillOverride,
+							// Restore the caller's model routing inputs (see RunModelContext):
+							// this process has no ExtensionContext, so without these the
+							// `model=` override and the inherited session model are lost and
+							// every worker falls back to the first models.json entry.
+							...restoredModelRouting(manifest),
 							reliability: runConfig.reliability,
 							workspaceId: manifest.ownerSessionId ?? manifest.cwd,
 							signal: abortController.signal,

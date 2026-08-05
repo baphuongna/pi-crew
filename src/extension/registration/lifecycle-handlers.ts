@@ -25,7 +25,10 @@ import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
+import { providerOfModelRef } from "../../runtime/model/model-fallback.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
+import { clearProviderQuotaCache, noteProviderResponse } from "../../runtime/model/provider-quota.ts";
+import { currentSessionModel, noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
@@ -68,6 +71,32 @@ export function installSessionLifecycleHandlers(pi: ExtensionAPI, ctx: Registrat
 	installSessionShutdownHandler(pi, ctx);
 	installSessionStartHandler(pi, ctx);
 	installSessionBeforeSwitchHandler(pi, ctx);
+	installModelTrackingHandlers(pi);
+}
+
+/**
+ * model_select / thinking_level_select:
+ *   Track what the MAIN session is *actually* running so subagents that
+ *   inherit the parent model (`model: false` — every builtin agent) follow it.
+ *   `ctx.model` alone is the session's saved model and can point at whatever a
+ *   previous session persisted, which made inherited models jump around.
+ */
+function installModelTrackingHandlers(pi: ExtensionAPI): void {
+	pi.on("model_select", (event) => {
+		noteSessionModel(event.model);
+	});
+	pi.on("thinking_level_select", (event) => {
+		noteSessionThinking(event.level);
+	});
+	// Quota-aware routing: capture rate-limit headers from the main session's
+	// provider responses so the fallback chain can deprioritize exhausted
+	// providers. The event doesn't carry a provider field, so we attribute it
+	// to the currently tracked session model's provider.
+	pi.on("after_provider_response", (event) => {
+		const model = currentSessionModel();
+		const provider = model ? providerOfModelRef(model) : undefined;
+		if (provider) noteProviderResponse(provider, event.status, event.headers);
+	});
 }
 
 /**
@@ -117,6 +146,7 @@ function installSessionBeforeSwitchHandler(pi: ExtensionAPI, ctx: RegistrationCo
 		ctx.lifecycleState.deliveryCoordinator?.deactivate();
 		resetPowerbarDedupState();
 		stopAsyncRunNotifier(ctx.notifierState);
+		clearProviderQuotaCache();
 		ctx.stopSessionBoundSubagents();
 	});
 }
@@ -160,6 +190,9 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		ctx.sessionGeneration++;
 		const ownerGeneration = ctx.sessionGeneration;
 		ctx.currentCtx = extensionCtx;
+		// Seed the live-model tracker; a later model_select overrides it.
+		noteSessionModel(extensionCtx.model, "session_start");
+		noteSessionThinking(extensionCtx.thinkingLevel);
 		// Round 13 UX: register the crew natural-language autocomplete provider
 		// once we have a UI context. Guarded so repeated session_start events
 		// don't stack wrappers (each wrapper delegates, but stacking wastes

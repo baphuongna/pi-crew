@@ -1729,6 +1729,8 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 			modelRegistry: input.modelRegistry,
 			modelOverride: input.modelOverride,
 			teamRoleModel: teamRole?.model,
+			teamRoleThinking: teamRole?.thinking,
+			teamRoleFallbackModels: teamRole?.fallbackModels,
 			teamRoleSkills: teamRole?.skills,
 			skillOverride: input.skillOverride,
 			limits: input.limits,

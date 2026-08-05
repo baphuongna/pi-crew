@@ -5,7 +5,9 @@ import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { type DriftReport, detectDrift, formatDriftReport } from "../../config/drift-detector.ts";
+import { buildConfiguredModelRouting, resolveModelFallbackPolicy } from "../../runtime/model/model-fallback.ts";
 import { getRuntimeWarmupStatus } from "../../runtime/model/runtime-warmup.ts";
+import { currentSessionModel, sessionModelSnapshot } from "../../runtime/model/session-model.ts";
 import { getPiSpawnCommand } from "../../runtime/pi-spawn.ts";
 import { formatZombieReport, scanZombieSubagents } from "../../runtime/process/zombie-scanner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -232,6 +234,47 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 					label: "artifacts root",
 					ok: true,
 					detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir),
+				},
+			];
+		}),
+		section("Model Routing", () => {
+			const snapshot = sessionModelSnapshot();
+			const liveModel = currentSessionModel();
+			const policy = resolveModelFallbackPolicy(loadConfig(input.cwd).config.runtime?.modelFallback);
+			// Build a sample chain for a generic agent (no explicit model) to show
+			// what the auto tail looks like with the current config.
+			const sampleRouting = buildConfiguredModelRouting({
+				parentModel: liveModel,
+				cwd: input.cwd,
+				policy,
+			});
+			return [
+				{
+					label: "session model (live)",
+					ok: true,
+					detail: liveModel ?? "not tracked yet",
+				},
+				{
+					label: "session model (source)",
+					ok: true,
+					detail: `${snapshot.source}${snapshot.updatedAt ? ` @ ${new Date(snapshot.updatedAt).toISOString()}` : ""}`,
+				},
+				{
+					label: "fallback policy",
+					ok: true,
+					detail: policy
+						? `maxAuto=${policy.maxAutoFallbacks ?? "∞"} order=${policy.order ?? "parentFirst"} creds=${policy.requireCredentials ?? false} quota=${policy.quotaAwareOrdering ?? true}`
+						: "legacy (unbounded, unordered)",
+				},
+				{
+					label: "sample chain (no explicit model)",
+					ok: true,
+					detail: sampleRouting.candidates.length > 0 ? sampleRouting.candidates.join(" → ") : "(empty)",
+				},
+				{
+					label: "auto tail size",
+					ok: true,
+					detail: `${sampleRouting.autoFallbackCount ?? 0} models`,
 				},
 			];
 		}),

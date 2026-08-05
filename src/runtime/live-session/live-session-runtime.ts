@@ -13,7 +13,16 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
 import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
-import { buildConfiguredModelRouting } from "../model/model-fallback.ts";
+import {
+	availableModelInfosFromRegistry,
+	buildConfiguredModelRouting,
+	type ModelFallbackPolicy,
+	modelRefToString,
+	providerOfModelRef,
+	resolveDefaultSubagentModel,
+	resolveModelFallbackPolicy,
+	warnOutOfScopeSoft,
+} from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
@@ -94,6 +103,8 @@ export interface LiveSessionSpawnInput {
 	modelRegistry?: unknown;
 	modelOverride?: string;
 	teamRoleModel?: string;
+	teamRoleFallbackModels?: string[];
+	teamRoleThinking?: string;
 	isCurrent?: () => boolean;
 	/** Workspace where this run was initiated — used for session-scoped live-agent visibility. */
 	workspaceId: string;
@@ -111,6 +122,15 @@ export interface LiveSessionRunResult {
 	error?: string;
 	/** Phase 1: Extracted yield result from submit_result tool call. */
 	yieldResult?: YieldResult;
+	/** Model routing diagnostics for the task state. */
+	modelRouting?: {
+		requested?: string;
+		resolved: string;
+		fallbackChain: string[];
+		reason?: string;
+		droppedRequested?: string;
+		autoFallbackCount?: number;
+	};
 }
 
 export interface LiveSessionUnavailableResult {
@@ -263,6 +283,24 @@ async function resolveScopeModelsPatterns(cwd: string, agentDir?: string): Promi
 	return readEnabledModelsPatterns(cwd, agentDir);
 }
 
+/** Resolve model fallback policy from crew config + env (best-effort). */
+function resolveLiveModelFallbackPolicy(cwd: string): ModelFallbackPolicy | undefined {
+	try {
+		return resolveModelFallbackPolicy(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Resolve the default subagent model from crew config + env. */
+function resolveLiveDefaultSubagentModel(cwd: string): string | undefined {
+	try {
+		return resolveDefaultSubagentModel(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
+}
+
 function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined): unknown {
 	if (!modelId?.includes("/")) return undefined;
 	const registry = asRecord(modelRegistry);
@@ -292,7 +330,11 @@ function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined):
  * raw `parentModel` unchanged so the caller surfaces E008.
  */
 export function resolveParentModelFromRegistry(modelRegistry: unknown, rawParentModel: unknown): string | undefined {
-	const raw = typeof rawParentModel === "string" ? rawParentModel.trim() : undefined;
+	// `ctx.model` is a pi `Model` OBJECT, not a string. The old string-only
+	// guard silently discarded it, so every live-session subagent that inherited
+	// the parent model landed on `getAvailable()[0]` instead — i.e. the parent
+	// model was never actually honoured on this path.
+	const raw = modelRefToString(rawParentModel);
 	if (raw) {
 		const candidate = raw.includes("/")
 			? raw
@@ -305,19 +347,13 @@ export function resolveParentModelFromRegistry(modelRegistry: unknown, rawParent
 				})();
 		if (candidate && modelFromRegistry(modelRegistry, candidate)) return candidate;
 	}
-	const registry = modelRegistry as { getAvailable?: () => unknown[] } | undefined;
-	if (registry && typeof registry.getAvailable === "function") {
-		try {
-			const available = registry.getAvailable();
-			if (Array.isArray(available) && available.length > 0) {
-				const first = available[0] as { provider?: unknown; id?: unknown } | undefined;
-				if (first && typeof first.provider === "string" && typeof first.id === "string") {
-					return `${first.provider}/${first.id}`;
-				}
-			}
-		} catch {
-			// ignore — fall through to raw
-		}
+	const available = availableModelInfosFromRegistry(modelRegistry);
+	if (available && available.length > 0) {
+		// Staying on the parent's provider keeps the same auth + cost profile;
+		// only cross providers when the parent's provider has nothing available.
+		const parentProvider = providerOfModelRef(raw);
+		const sameProvider = parentProvider ? available.find((entry) => entry.provider === parentProvider) : undefined;
+		return (sameProvider ?? available[0]).fullId;
 	}
 	return raw;
 }
@@ -657,15 +693,38 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			overrideModel: input.modelOverride,
 			stepModel: input.step.model,
 			teamRoleModel: input.teamRoleModel,
+			teamRoleFallbackModels: input.teamRoleFallbackModels,
 			agentModel: input.agent.model,
+			defaultSubagentModel: resolveLiveDefaultSubagentModel(input.manifest.cwd),
 			fallbackModels: input.agent.fallbackModels,
 			parentModel: effectiveParentModel,
 			modelRegistry: input.modelRegistry,
 			cwd: input.manifest.cwd,
+			policy: resolveLiveModelFallbackPolicy(input.manifest.cwd),
 			scopeModelsPatterns: await resolveScopeModelsPatterns(input.manifest.cwd),
 		});
 		const resolvedModel =
 			modelFromRegistry(input.modelRegistry, modelRouting.candidates[0] ?? modelRouting.requested) ?? input.parentModel;
+		// Surface a warning when the caller's requested model was silently replaced.
+		if (modelRouting.droppedRequested) {
+			appendEventFireAndForget(input.manifest.eventsPath, {
+				type: "task.model_dropped",
+				runId: input.manifest.runId,
+				taskId: input.task.id,
+				message: `Requested model "${modelRouting.droppedRequested}" is not available; using "${modelRouting.candidates[0] ?? "default"}" instead.`,
+				data: {
+					requested: modelRouting.droppedRequested,
+					resolved: modelRouting.candidates[0],
+					fallbackChain: modelRouting.candidates,
+				},
+			});
+		}
+		// Sec-M1: surface a non-silent warning when a soft-sourced model is out-of-scope.
+		// Only non-caller sources (frontmatter / resolved) get the soft warning —
+		// caller sources already throw inside buildConfiguredModelRouting.
+		warnOutOfScopeSoft(modelRouting.scopeVerdict, "live-session.model-out-of-scope");
+		// H1.a: teamRole.thinking takes precedence over agent.thinking.
+		const effectiveThinking = input.teamRoleThinking ?? input.agent.thinking;
 		// Phase 4: MCP proxy — will be determined after session creation
 		// (we check parent's MCP tools and share connections when available)
 		const mcpProxy = buildMcpProxyFromSession([], { shareMcp: true });
@@ -695,7 +754,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				: {}),
 			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
-			...(input.agent.thinking ? { thinkingLevel: input.agent.thinking } : {}),
+			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
 			...(mcpProxy.enableMcp ? {} : { enableMCP: false }),
 			customTools,
 		});
@@ -1087,6 +1146,14 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			jsonEvents,
 			usage,
 			yieldResult,
+			modelRouting: {
+				requested: modelRouting.requested,
+				resolved: modelRefToString(resolvedModel) ?? modelRouting.candidates[0] ?? "default",
+				fallbackChain: modelRouting.candidates,
+				reason: modelRouting.reason,
+				droppedRequested: modelRouting.droppedRequested,
+				autoFallbackCount: modelRouting.autoFallbackCount,
+			},
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

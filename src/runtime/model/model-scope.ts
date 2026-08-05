@@ -8,6 +8,8 @@
  *   - Frontmatter-pinned (AgentConfig.model) out-of-scope
  *     → WARNING + runs anyway (frontmatter is authoritative; the agent
  *     author made a deliberate choice).
+ *   - defaultSubagentModel / parentModel-inherited out-of-scope
+ *     → WARNING + runs anyway (soft warn, same as frontmatter).
  *
  * Pattern semantics match pi's `--models` CLI / `enabledModels` allowlist:
  *   - `"anthropic/claude-opus-4-5"` — exact match (case-insensitive).

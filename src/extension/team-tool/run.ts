@@ -32,6 +32,7 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "../../runtime/model/runtime-resolver.ts";
+import { captureRunModelContext, resolveParentModel } from "../../runtime/model/session-model.ts";
 import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
 import type { RunMetrics } from "../../state/stores/run-metrics.ts";
 import type { RuntimeResolutionState, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
@@ -752,6 +753,10 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		...updatedManifest,
 		runtimeResolution,
 		runConfig: executedConfig,
+		// Background/async runs re-enter through background-runner in a detached
+		// process with no ExtensionContext. Snapshot the model routing inputs so
+		// they survive the hand-off instead of being rediscovered from models.json.
+		modelContext: captureRunModelContext(ctx, params.model),
 		// Persist budget config on the manifest so it's observable post-run
 		// (events.jsonl, status reads, audits). The team-runner reads these
 		// from the input, but persisting them means consumers can verify
@@ -975,7 +980,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					runtimeConfig: executedConfig.runtime,
 					parentContext: buildParentContext(ctx),
 
-					parentModel: ctx.model,
+					parentModel: resolveParentModel(ctx.model),
 					modelRegistry: ctx.modelRegistry,
 					modelOverride: params.model,
 					skillOverride,
@@ -1048,7 +1053,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			runtime,
 			runtimeConfig: executedConfig.runtime,
 			parentContext: buildParentContext(ctx),
-			parentModel: ctx.model,
+			parentModel: resolveParentModel(ctx.model),
 			modelRegistry: ctx.modelRegistry,
 			modelOverride: params.model,
 			skillOverride,

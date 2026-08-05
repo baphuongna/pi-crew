@@ -51,6 +51,10 @@ import {
 	formatModelAttemptNote,
 	isRetryableModelFailure,
 	type ModelAttemptSummary,
+	type ModelFallbackPolicy,
+	resolveDefaultSubagentModel,
+	resolveModelFallbackPolicy,
+	warnOutOfScopeSoft,
 } from "../model/model-fallback.ts";
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../output/pi-json-output.ts";
@@ -142,6 +146,27 @@ export function resolveConfiguredMaxAttempts(cwd: string): number {
  */
 export function computeSpawnBudgetMax(attemptModelsCount: number, configuredMaxAttempts: number): number {
 	return attemptModelsCount * (configuredMaxAttempts + 1);
+}
+
+/**
+ * Resolve the model fallback policy from crew config + env. Best-effort: any
+ * config read failure returns undefined (legacy unbounded/unordered behaviour).
+ */
+function resolveTaskModelFallbackPolicy(cwd: string): ModelFallbackPolicy | undefined {
+	try {
+		return resolveModelFallbackPolicy(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Resolve the default subagent model from crew config + env. */
+function resolveTaskDefaultSubagentModel(cwd: string): string | undefined {
+	try {
+		return resolveDefaultSubagentModel(loadConfig(cwd).config.runtime?.modelFallback);
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -256,19 +281,46 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	let terminalEvidence: OperationTerminalEvidence[] = [];
 	let startupEvidence = ctx.startupEvidence;
 
+	const modelFallbackPolicy = resolveTaskModelFallbackPolicy(task.cwd);
+	const defaultSubagentModel = resolveTaskDefaultSubagentModel(task.cwd);
 	const modelRoutingPlan = buildConfiguredModelRouting({
 		overrideModel: input.modelOverride,
 		stepModel: input.step.model,
 		teamRoleModel: input.teamRoleModel,
+		teamRoleFallbackModels: input.teamRoleFallbackModels,
 		agentModel: input.agent.model,
+		defaultSubagentModel,
 		fallbackModels: input.agent.fallbackModels,
 		parentModel: input.parentModel,
 		modelRegistry: input.modelRegistry,
 		cwd: task.cwd,
+		policy: modelFallbackPolicy,
 		scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd),
 	});
 	const candidates = modelRoutingPlan.candidates;
-	const attemptModels = candidates.length > 0 ? candidates : [undefined];
+	// Surface a warning when the caller's requested model was silently replaced.
+	if (modelRoutingPlan.droppedRequested) {
+		void appendEventAsync(manifest.eventsPath, {
+			type: "task.model_dropped",
+			runId: manifest.runId,
+			taskId: task.id,
+			message: `Requested model "${modelRoutingPlan.droppedRequested}" is not available; using "${candidates[0] ?? "default"}" instead.`,
+			data: {
+				requested: modelRoutingPlan.droppedRequested,
+				resolved: candidates[0],
+				fallbackChain: candidates,
+			},
+		}).catch(() => {
+			/* no-op: best-effort diagnostic append, ignore delivery errors */
+		});
+	}
+	// F2: surface a non-silent warning when the INITIAL routing resolved an
+	// out-of-scope soft-sourced model (mirrors live-session-runtime.ts). Caller
+	// sources already throw inside buildConfiguredModelRouting.
+	warnOutOfScopeSoft(modelRoutingPlan.scopeVerdict, "child-executor.initial-out-of-scope");
+	// Mutable: the one-shot re-resolve below appends a late-discovered model so
+	// the loop actually retries it (see FIX 1 at the end of the attempt loop).
+	const attemptModels: (string | undefined)[] = candidates.length > 0 ? [...candidates] : [undefined];
 	// CORE-3: auto-compute per-task spawn budget on first entry.
 	// Budget = attemptModels.length × (maxAttempts + 1) — always one
 	// full attempt-worth above the theoretical maximum of
@@ -283,6 +335,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	}
 	const logs: string[] = [];
 	let finalStderr = "";
+	// One-shot: the re-resolve is a safety net for a chain that was computed
+	// before the registry was complete, not a retry loop of its own.
+	let reResolveUsed = false;
 	modelAttempts = [];
 	let finalCheckpointWritten = false;
 	let lastAgentRecordPersistedAt = 0;
@@ -440,6 +495,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				excludeContextBash: input.runtimeConfig?.excludeContextBash,
 				sessionId: manifest.sessionId,
 				role: task.role,
+				thinkingOverride: input.teamRoleThinking,
 				runId: manifest.runId,
 				agentId: task.id,
 				artifactsRoot: manifest.artifactsRoot,
@@ -666,7 +722,8 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		// after the precompute, or the precompute ran before the parent
 		// model was known). If a different candidate is found, use it as
 		// nextModel; otherwise fall through to the existing break.
-		if (!nextModel && isRetryableModelFailure(error)) {
+		if (!nextModel && !reResolveUsed && isRetryableModelFailure(error)) {
+			reResolveUsed = true;
 			const reResolved = buildConfiguredModelRouting({
 				overrideModel: undefined,
 				stepModel: undefined,
@@ -676,10 +733,29 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				parentModel: attempt.model,
 				modelRegistry: input.modelRegistry,
 				cwd: task.cwd,
+				policy: modelFallbackPolicy,
 				scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd),
 			});
-			const alt = reResolved.candidates.find((c) => c !== attempt.model);
-			if (alt) nextModel = alt;
+			// Sec-M1: surface a non-silent warning when a soft-sourced re-resolved
+			// model is out-of-scope. Only non-caller sources (frontmatter /
+			// resolved) reach here — caller sources already throw inside
+			// buildConfiguredModelRouting.
+			warnOutOfScopeSoft(reResolved.scopeVerdict, "child-executor.re-resolve-out-of-scope", "Re-resolved model");
+			// Must exclude EVERY model already tried, not just the last one —
+			// otherwise the "alternative" is one that already failed.
+			const tried = new Set(modelAttempts.map((a) => a.model));
+			const alt = reResolved.candidates.find((candidate) => !tried.has(candidate));
+			if (alt) {
+				// Append so the loop reaches it. Without this the log claimed a
+				// retry that never happened: `nextModel` alone only gates `break`,
+				// the next iteration reads `attemptModels[i + 1]`.
+				attemptModels.push(alt);
+				nextModel = alt;
+				// Keep the budget consistent with the extended chain (one extra
+				// model = one extra attempt-worth), otherwise the spawn-budget
+				// guard aborts the very attempt we just queued.
+				if (input.spawnBudget) input.spawnBudget.max += 1;
+			}
 		}
 		if (!nextModel || !isRetryableModelFailure(error)) break;
 		logs.push(formatModelAttemptNote(attempt, nextModel), "");
@@ -762,6 +838,8 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			fallbackChain: candidates,
 			reason: fallbackReason ?? modelRoutingPlan.reason,
 			usedAttempt,
+			droppedRequested: modelRoutingPlan.droppedRequested,
+			autoFallbackCount: modelRoutingPlan.autoFallbackCount,
 		},
 	};
 	tasks = updateTask(tasks, task);

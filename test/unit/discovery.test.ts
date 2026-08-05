@@ -332,6 +332,53 @@ test("team discovery round-trips role metadata", () => {
 	}
 });
 
+test("parseRoleLine handles fallbackModels, thinking, and colon in model refs", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-role-line-edge-"));
+	try {
+		const teamsDir = path.join(cwd, ".crew", "teams");
+		fs.mkdirSync(teamsDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(teamsDir, "edge.team.md"),
+			[
+				"---",
+				"name: edge-team",
+				"description: Edge case team",
+				"---",
+				"",
+				"- researcher: Research agent fallbackModels=a,b,c",
+				"- judge: Judge agent thinking=high",
+				"- worker: model=anthropic/claude-sonnet thinking=high fallbackModels=a,b",
+				"- agent: Name thinking=",
+				"- coder: Coder fallbackModels=anthropic/claude:high",
+				"",
+			].join("\n"),
+			"utf-8",
+		);
+		const team = allTeams(discoverTeams(cwd)).find((candidate) => candidate.name === "edge-team");
+		assert.ok(team, "edge-team should be discovered");
+		const roles = team!.roles;
+
+		// (a) fallbackModels comma-separated
+		assert.deepEqual(roles[0]?.fallbackModels, ["a", "b", "c"]);
+
+		// (b) thinking=high
+		assert.equal(roles[1]?.thinking, "high");
+
+		// (c) combined model + thinking + fallbackModels
+		assert.equal(roles[2]?.model, "anthropic/claude-sonnet");
+		assert.equal(roles[2]?.thinking, "high");
+		assert.deepEqual(roles[2]?.fallbackModels, ["a", "b"]);
+
+		// (d) empty thinking= → undefined (trimmed away)
+		assert.equal(roles[3]?.thinking, undefined);
+
+		// (e) colon preserved in fallbackModels (L-NEW-1 fix)
+		assert.deepEqual(roles[4]?.fallbackModels, ["anthropic/claude:high"]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("team discovery supports git URL source in frontmatter", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-team-git-source-"));
 	try {
