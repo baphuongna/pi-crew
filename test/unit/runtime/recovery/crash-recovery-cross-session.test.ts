@@ -23,19 +23,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import {
-	detectInterruptedRuns,
-	purgeStaleActiveRunIndex,
-	reconcileAllStaleRuns,
-} from "../../../../src/runtime/recovery/crash-recovery.ts";
 import type { ManifestCache } from "../../../../src/runtime/manifest-cache.ts";
+import { detectInterruptedRuns, purgeStaleActiveRunIndex, reconcileAllStaleRuns } from "../../../../src/runtime/recovery/crash-recovery.ts";
 import { registerActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
-import {
-	createRunManifest,
-	loadRunManifestById,
-	saveRunManifest,
-	saveRunTasks,
-} from "../../../../src/state/stores/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
@@ -118,8 +109,12 @@ function makeStubCache(manifests: TeamRunManifest[]): ManifestCache {
 		list: () => manifests,
 		listActive: (limit: number) => manifests.filter((m) => m.status === "running").slice(0, limit),
 		get: (runId: string) => byId.get(runId),
-		clear: () => {},
-		dispose: () => {},
+		clear: () => {
+			/* no-op */
+		},
+		dispose: () => {
+			/* no-op */
+		},
 	};
 }
 
@@ -129,7 +124,12 @@ function makeStubCache(manifests: TeamRunManifest[]): ManifestCache {
  */
 function setupRun(
 	cwd: string,
-	opts: { ownerSessionId: string; status?: TeamRunManifest["status"]; asyncBlock?: TeamRunManifest["async"]; heartbeat: TeamTaskState["heartbeat"] },
+	opts: {
+		ownerSessionId: string;
+		status?: TeamRunManifest["status"];
+		asyncBlock?: TeamRunManifest["async"];
+		heartbeat: TeamTaskState["heartbeat"];
+	},
 ): { manifest: TeamRunManifest; tasks: TeamTaskState[] } {
 	const created = createRunManifest({ cwd, team, workflow, goal: "cross-session test" });
 	const manifest: TeamRunManifest = {
@@ -194,7 +194,10 @@ test("reconcileAllStaleRuns: cross-session stale run IS reconciled when currentS
 		const results = reconcileAllStaleRuns(dir, cache, Date.now(), "B");
 
 		assert.ok(results.length > 0, "cross-session stale run must be reconciled");
-		assert.ok(results.some((r) => r.runId === manifest.runId && r.repaired), "run must be marked repaired");
+		assert.ok(
+			results.some((r) => r.runId === manifest.runId && r.repaired),
+			"run must be marked repaired",
+		);
 
 		const reloaded = loadRunManifestById(dir, manifest.runId);
 		assert.equal(reloaded?.manifest.status, "failed", "stale run must be marked failed after reconciliation");
@@ -219,7 +222,10 @@ test("reconcileAllStaleRuns: back-compat (no currentSessionId) → stale run IS 
 		const results = reconcileAllStaleRuns(dir, cache, Date.now());
 
 		assert.ok(results.length > 0, "back-compat: stale run must be reconciled");
-		assert.ok(results.some((r) => r.runId === manifest.runId && r.repaired), "run must be marked repaired");
+		assert.ok(
+			results.some((r) => r.runId === manifest.runId && r.repaired),
+			"run must be marked repaired",
+		);
 	} finally {
 		removeTrackedTempDir(dir);
 	}

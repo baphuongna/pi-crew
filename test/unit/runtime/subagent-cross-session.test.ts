@@ -13,14 +13,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-
-import { registerSubagentTools } from "../../../src/extension/registration/subagent-tools.ts";
 import { buildRegistrationContext } from "../../../src/extension/registration/context-builder.ts";
+import { registerSubagentTools } from "../../../src/extension/registration/subagent-tools.ts";
 import {
 	readPersistedSubagentRecord,
-	savePersistedSubagentRecord,
 	SubagentManager,
 	type SubagentRecord,
+	savePersistedSubagentRecord,
 } from "../../../src/runtime/subagent-manager.ts";
 import { firstText } from "../../fixtures/tool-result-helpers.ts";
 
@@ -62,7 +61,17 @@ function fakeCtx(cwd: string, sessionId: string | undefined): any {
 	const ctx: Record<string, unknown> = {
 		cwd,
 		hasUI: false,
-		ui: { notify() {}, setWidget() {}, setStatus() {} },
+		ui: {
+			notify() {
+				/* no-op */
+			},
+			setWidget() {
+				/* no-op */
+			},
+			setStatus() {
+				/* no-op */
+			},
+		},
 	};
 	if (sessionId !== undefined) {
 		ctx.sessionManager = { getSessionId: () => sessionId };
@@ -233,13 +242,7 @@ test("(c2) resultConsumed IS written when owner reads their own record", async (
 		const fake = createFakePi();
 		registerSubagentTools(fake.api as never, manager);
 		const resultTool = fake.tools.get("get_subagent_result");
-		await resultTool.execute(
-			"call-c2",
-			{ agent_id: "agent_own_consume" },
-			undefined,
-			undefined,
-			fakeCtx(cwd, "session-A"),
-		);
+		await resultTool.execute("call-c2", { agent_id: "agent_own_consume" }, undefined, undefined, fakeCtx(cwd, "session-A"));
 		const persisted = readPersistedSubagentRecord(cwd, "agent_own_consume");
 		assert.equal(persisted?.resultConsumed, true, "owner session should consume the result");
 	} finally {

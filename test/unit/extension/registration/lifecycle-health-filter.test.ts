@@ -11,8 +11,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { filterManifestsForHealthNotifications } from "../../../../src/extension/registration/lifecycle-handlers.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 /** Minimal manifest stub — the filter only inspects `ownerSessionId`. */
 function makeRun(runId: string, ownerSessionId?: string): TeamRunManifest {
@@ -41,11 +41,7 @@ test("health filter: ownerless runs always pass", () => {
 });
 
 test("health filter: mixed batch keeps only own + ownerless", () => {
-	const manifests = [
-		makeRun("own", "session-A"),
-		makeRun("other", "session-B"),
-		makeRun("orphan", undefined),
-	];
+	const manifests = [makeRun("own", "session-A"), makeRun("other", "session-B"), makeRun("orphan", undefined)];
 	const result = filterManifestsForHealthNotifications(manifests, "session-A");
 	assert.deepEqual(
 		result.map((r) => r.runId),

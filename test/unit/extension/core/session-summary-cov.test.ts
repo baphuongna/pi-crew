@@ -137,7 +137,10 @@ describe("notifyActiveRuns filters out runs owned by another session (vector #11
 			}));
 			saveRunManifest(manifest);
 			saveRunTasks(manifest, activeTasks);
-			saveCrewAgents(manifest, activeTasks.map((task) => recordFromTask(manifest, task, "live-session")));
+			saveCrewAgents(
+				manifest,
+				activeTasks.map((task) => recordFromTask(manifest, task, "live-session")),
+			);
 
 			// As session-B: the session-A run must be filtered out.
 			clearProjectRootCache();
