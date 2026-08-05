@@ -26,6 +26,7 @@ import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
+import { noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
@@ -68,6 +69,23 @@ export function installSessionLifecycleHandlers(pi: ExtensionAPI, ctx: Registrat
 	installSessionShutdownHandler(pi, ctx);
 	installSessionStartHandler(pi, ctx);
 	installSessionBeforeSwitchHandler(pi, ctx);
+	installModelTrackingHandlers(pi);
+}
+
+/**
+ * model_select / thinking_level_select:
+ *   Track what the MAIN session is *actually* running so subagents that
+ *   inherit the parent model (`model: false` — every builtin agent) follow it.
+ *   `ctx.model` alone is the session's saved model and can point at whatever a
+ *   previous session persisted, which made inherited models jump around.
+ */
+function installModelTrackingHandlers(pi: ExtensionAPI): void {
+	pi.on("model_select", (event) => {
+		noteSessionModel(event.model);
+	});
+	pi.on("thinking_level_select", (event) => {
+		noteSessionThinking(event.level);
+	});
 }
 
 /**
@@ -160,6 +178,9 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		ctx.sessionGeneration++;
 		const ownerGeneration = ctx.sessionGeneration;
 		ctx.currentCtx = extensionCtx;
+		// Seed the live-model tracker; a later model_select overrides it.
+		noteSessionModel(extensionCtx.model, "session_start");
+		noteSessionThinking(extensionCtx.thinkingLevel);
 		// Round 13 UX: register the crew natural-language autocomplete provider
 		// once we have a UI context. Guarded so repeated session_start events
 		// don't stack wrappers (each wrapper delegates, but stacking wastes

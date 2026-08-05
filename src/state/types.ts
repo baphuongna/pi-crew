@@ -249,6 +249,25 @@ export interface TeamRunManifest {
 	/** #2 (assessment): goal-achievement verdict — kills the silent false-green. */
 	goalAchieved?: boolean | "unknown";
 	goalAchievementNote?: string;
+	/**
+	 * Model routing snapshot captured at dispatch time. Background/async runs
+	 * execute in a detached process with no `ExtensionContext`, so without this
+	 * they lose the caller's `model=` override, the inherited session model and
+	 * the auth-filtered model catalogue — and silently route to whatever
+	 * models.json happens to list first.
+	 */
+	modelContext?: RunModelContext;
+}
+
+export interface RunModelContext {
+	/** `model=` passed to the team tool for this run. */
+	override?: string;
+	/** The main session's live model at dispatch time (`"provider/id"`). */
+	parentModel?: string;
+	/** The main session's thinking level at dispatch time. */
+	parentThinking?: string;
+	/** `"provider/id"` entries from the caller's pi ModelRegistry (auth-filtered). */
+	availableModels?: string[];
 }
 
 export interface UsageState {
