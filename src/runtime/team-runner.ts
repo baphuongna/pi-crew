@@ -1102,6 +1102,10 @@ interface SchedulerContext {
 	queueIndex: TaskGraphIndex;
 	wfMachine: WorkflowStateMachine;
 	pendingUnits: Map<string, PendingUnit>;
+	/** Task ids ever dispatched (grows monotonically; never removed). Used by
+	 * terminaliseRunWithDrain to cancel — not skip — tasks that were in-flight
+	 * even after their dispatch unit settled + left pendingUnits (RT-NEW-2 race). */
+	dispatchedTaskIds: Set<string>;
 	runController: AbortController;
 	runtimeKind: CrewRuntimeKind;
 	adaptivePlanInjected: boolean;
@@ -1266,10 +1270,13 @@ async function terminaliseRunWithDrain(
 	ctx: SchedulerContext,
 	opts: { cancelMessage: string; blockedMessage: string; failedReason: string },
 ): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
-	const inflightTaskIds = new Set<string>();
-	for (const unit of ctx.pendingUnits.values()) {
-		for (const id of unit.taskIds) inflightTaskIds.add(id);
-	}
+	// Ever-dispatched tasks (monotonic set populated at dispatch). Using this
+	// instead of a pendingUnits snapshot closes the RT-NEW-2 race where a task
+	// whose unit settled + left pendingUnits before the abort — but whose task
+	// status isn't terminal yet — would otherwise fall through to markBlocked
+	// and be clobbered to "skipped" (observed CI flake: 02_b skipped on
+	// team-runner-budget-abort-inflight across v0.9.59 / cfd68d06 / 12386af2).
+	const inflightTaskIds = ctx.dispatchedTaskIds;
 	const outcomes = await drainPendingUnits(ctx.pendingUnits, ctx.runController);
 	const validResults: { manifest: TeamRunManifest; tasks: TeamTaskState[] }[] = [];
 	for (const outcome of outcomes) {
@@ -1928,6 +1935,10 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
 			promise: rawPromise,
 			wrapped,
 		});
+		// RT-NEW-2 race fix: record ever-dispatched task ids so terminaliseRunWithDrain
+		// cancels (not skips) tasks whose unit settled + left pendingUnits before
+		// the abort fired but whose task status isn't terminal yet.
+		for (const id of unitTaskIds) ctx.dispatchedTaskIds.add(id);
 	}
 }
 
@@ -2464,6 +2475,7 @@ async function executeTeamRunCore(
 		queueIndex,
 		wfMachine,
 		pendingUnits,
+		dispatchedTaskIds: new Set(),
 		runController,
 		runtimeKind,
 		adaptivePlanInjected,
