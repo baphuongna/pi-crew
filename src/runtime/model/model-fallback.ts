@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { errors } from "../../errors.ts";
 import { fuzzyResolveModelId } from "./model-resolver.ts";
 import { checkModelScope } from "./model-scope.ts";
+import { deprioritizedProviders as quotaDeprioritizedProviders, providerRankFromQuota } from "./provider-quota.ts";
 
 export interface AvailableModelInfo {
 	provider: string;
@@ -441,6 +442,12 @@ export interface ModelFallbackPolicy {
 	deprioritizedProviders?: string[];
 	/** Drop pi-config models whose provider has no discoverable credential. */
 	requireCredentials?: boolean;
+	/**
+	 * When true (default), populate `providerRank` and `deprioritizedProviders`
+	 * from the provider-quota cache before ordering the auto tail. Set to false
+	 * to disable quota-aware ordering entirely.
+	 */
+	quotaAwareOrdering?: boolean;
 }
 
 /**
@@ -504,11 +511,12 @@ export function resolveModelFallbackPolicy(
 	// quotaAwareOrdering defaults to true (user preference: default-on with cache).
 	// When explicitly disabled, no deprioritization/rank data is attached.
 	const quotaAware = config?.quotaAwareOrdering !== false;
-	if (maxAutoFallbacks === undefined && !order && requireCredentials === undefined && !quotaAware) return undefined;
+	if (maxAutoFallbacks === undefined && !order && requireCredentials === undefined && config?.quotaAwareOrdering === undefined) return undefined;
 	return {
 		...(maxAutoFallbacks !== undefined && Number.isFinite(maxAutoFallbacks) ? { maxAutoFallbacks } : {}),
 		...(order ? { order } : {}),
 		...(requireCredentials !== undefined ? { requireCredentials } : {}),
+		quotaAwareOrdering: quotaAware,
 	};
 }
 
@@ -624,10 +632,15 @@ export function buildConfiguredModelRouting(input: {
 	// only knows about models from models.json / registry, NOT builtin Pi models.
 	// Pin the inherited parentModel at index 0 regardless of availability.
 	const parentModelRaw = effectiveAgentModel?.trim() || undefined;
+	// When defaultSubagentModel replaced parentModel as the effective agent
+	// model, the parent model is still a valid fallback (it IS the session's
+	// live model) — pin it too so isAvailableModel doesn't filter it out.
+	const parentModelFallback = defaultSubagent && !input.agentModel?.trim() ? parentModel : undefined;
 	const declaredModels = declaredRaw
 		.filter((model): model is string => Boolean(model?.trim()))
 		.filter((model, idx) => {
 			if (parentModelRaw && idx === 0 && model.trim() === parentModelRaw) return true;
+			if (parentModelFallback && model.trim() === parentModelFallback) return true;
 			return isAvailableModel(model.trim(), availableModels);
 		});
 	const declaredCandidates = buildModelCandidates(
@@ -644,9 +657,24 @@ export function buildConfiguredModelRouting(input: {
 		(candidate) => !declaredSet.has(candidate),
 	);
 	const anchorProvider = providerOfModelRef(declaredCandidates[0]) ?? providerOfModelRef(parentModel);
-	const autoOrdered = orderAutoFallbacks(autoResolved, input.policy, anchorProvider);
+	// Quota-aware ordering: when the policy allows it, enrich with live quota
+	// data so exhausted providers sink to the back of the auto tail.
+	let effectivePolicy = input.policy;
+	if (effectivePolicy?.quotaAwareOrdering !== false && autoResolved.length > 0) {
+		const tailProviders = [...new Set(autoResolved.map((m) => providerOfModelRef(m)).filter((p): p is string => Boolean(p)))];
+		const deprioritized = quotaDeprioritizedProviders(tailProviders);
+		const rank = providerRankFromQuota(tailProviders);
+		if (deprioritized.length > 0 || Object.keys(rank).length > 0) {
+			effectivePolicy = {
+				...effectivePolicy,
+				deprioritizedProviders: [...(effectivePolicy?.deprioritizedProviders ?? []), ...deprioritized],
+				providerRank: { ...rank, ...(effectivePolicy?.providerRank ?? {}) },
+			};
+		}
+	}
+	const autoOrdered = orderAutoFallbacks(autoResolved, effectivePolicy, anchorProvider);
 	const autoCandidates =
-		input.policy?.maxAutoFallbacks === undefined ? autoOrdered : autoOrdered.slice(0, Math.max(0, input.policy.maxAutoFallbacks));
+		effectivePolicy?.maxAutoFallbacks === undefined ? autoOrdered : autoOrdered.slice(0, Math.max(0, effectivePolicy.maxAutoFallbacks));
 	const candidates = [...declaredCandidates, ...autoCandidates];
 	const resolvedRequested = requested ? resolveModelCandidate(requested, availableModels, preferredProvider) : undefined;
 	const droppedRequested = requested && candidates[0] && resolvedRequested !== candidates[0] ? requested : undefined;

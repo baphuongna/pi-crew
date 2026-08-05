@@ -286,6 +286,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		overrideModel: input.modelOverride,
 		stepModel: input.step.model,
 		teamRoleModel: input.teamRoleModel,
+		teamRoleFallbackModels: input.teamRoleFallbackModels,
 		agentModel: input.agent.model,
 		defaultSubagentModel,
 		fallbackModels: input.agent.fallbackModels,
@@ -296,6 +297,20 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		scopeModelsPatterns: await resolveTaskScopeModelsPatterns(task.cwd),
 	});
 	const candidates = modelRoutingPlan.candidates;
+	// Surface a warning when the caller's requested model was silently replaced.
+	if (modelRoutingPlan.droppedRequested) {
+		void appendEventAsync(manifest.eventsPath, {
+			type: "task.model_dropped",
+			runId: manifest.runId,
+			taskId: task.id,
+			message: `Requested model "${modelRoutingPlan.droppedRequested}" is not available; using "${candidates[0] ?? "default"}" instead.`,
+			data: {
+				requested: modelRoutingPlan.droppedRequested,
+				resolved: candidates[0],
+				fallbackChain: candidates,
+			},
+		}).catch(() => {});
+	}
 	// Mutable: the one-shot re-resolve below appends a late-discovered model so
 	// the loop actually retries it (see FIX 1 at the end of the attempt loop).
 	const attemptModels: (string | undefined)[] = candidates.length > 0 ? [...candidates] : [undefined];
@@ -810,6 +825,8 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			fallbackChain: candidates,
 			reason: fallbackReason ?? modelRoutingPlan.reason,
 			usedAttempt,
+			droppedRequested: modelRoutingPlan.droppedRequested,
+			autoFallbackCount: modelRoutingPlan.autoFallbackCount,
 		},
 	};
 	tasks = updateTask(tasks, task);

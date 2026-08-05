@@ -42,6 +42,17 @@ export const PiTeamsLimitsConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const PiTeamsModelFallbackConfigSchema = Type.Object(
+	{
+		maxAutoFallbacks: Type.Optional(Type.Integer({ minimum: 0 })),
+		order: Type.Optional(Type.Union([Type.Literal("parentFirst"), Type.Literal("asIs")])),
+		requireCredentials: Type.Optional(Type.Boolean()),
+		quotaAwareOrdering: Type.Optional(Type.Boolean()),
+		defaultSubagentModel: Type.Optional(Type.String({ minLength: 1 })),
+	},
+	{ additionalProperties: false },
+);
+
 export const PiTeamsRuntimeConfigSchema = Type.Object(
 	{
 		mode: Type.Optional(
@@ -82,6 +93,7 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 				{ additionalProperties: false },
 			),
 		),
+		modelFallback: Type.Optional(PiTeamsModelFallbackConfigSchema),
 	},
 	{ additionalProperties: false },
 );

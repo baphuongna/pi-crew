@@ -102,6 +102,7 @@ export interface LiveSessionSpawnInput {
 	modelRegistry?: unknown;
 	modelOverride?: string;
 	teamRoleModel?: string;
+	teamRoleFallbackModels?: string[];
 	isCurrent?: () => boolean;
 	/** Workspace where this run was initiated — used for session-scoped live-agent visibility. */
 	workspaceId: string;
@@ -119,6 +120,15 @@ export interface LiveSessionRunResult {
 	error?: string;
 	/** Phase 1: Extracted yield result from submit_result tool call. */
 	yieldResult?: YieldResult;
+	/** Model routing diagnostics for the task state. */
+	modelRouting?: {
+		requested?: string;
+		resolved: string;
+		fallbackChain: string[];
+		reason?: string;
+		droppedRequested?: string;
+		autoFallbackCount?: number;
+	};
 }
 
 export interface LiveSessionUnavailableResult {
@@ -681,6 +691,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			overrideModel: input.modelOverride,
 			stepModel: input.step.model,
 			teamRoleModel: input.teamRoleModel,
+			teamRoleFallbackModels: input.teamRoleFallbackModels,
 			agentModel: input.agent.model,
 			defaultSubagentModel: resolveLiveDefaultSubagentModel(input.manifest.cwd),
 			fallbackModels: input.agent.fallbackModels,
@@ -692,6 +703,20 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		});
 		const resolvedModel =
 			modelFromRegistry(input.modelRegistry, modelRouting.candidates[0] ?? modelRouting.requested) ?? input.parentModel;
+		// Surface a warning when the caller's requested model was silently replaced.
+		if (modelRouting.droppedRequested) {
+			appendEventFireAndForget(input.manifest.eventsPath, {
+				type: "task.model_dropped",
+				runId: input.manifest.runId,
+				taskId: input.task.id,
+				message: `Requested model "${modelRouting.droppedRequested}" is not available; using "${modelRouting.candidates[0] ?? "default"}" instead.`,
+				data: {
+					requested: modelRouting.droppedRequested,
+					resolved: modelRouting.candidates[0],
+					fallbackChain: modelRouting.candidates,
+				},
+			});
+		}
 		// Phase 4: MCP proxy — will be determined after session creation
 		// (we check parent's MCP tools and share connections when available)
 		const mcpProxy = buildMcpProxyFromSession([], { shareMcp: true });
@@ -1113,6 +1138,14 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			jsonEvents,
 			usage,
 			yieldResult,
+			modelRouting: {
+				requested: modelRouting.requested,
+				resolved: modelRefToString(resolvedModel) ?? modelRouting.candidates[0] ?? "default",
+				fallbackChain: modelRouting.candidates,
+				reason: modelRouting.reason,
+				droppedRequested: modelRouting.droppedRequested,
+				autoFallbackCount: modelRouting.autoFallbackCount,
+			},
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

@@ -9,7 +9,10 @@ import {
 	buildModelCandidates,
 	configuredModelInfosFromPiConfig,
 	isRetryableModelFailure,
+	orderAutoFallbacks,
+	resolveDefaultSubagentModel,
 	resolveModelCandidate,
+	resolveModelFallbackPolicy,
 	splitThinkingSuffix,
 } from "../../../../src/runtime/model/model-fallback.ts";
 
@@ -337,4 +340,173 @@ test("buildConfiguredModelCandidates keeps inherited parent builtin model when r
 		modelRegistry,
 	});
 	assert.deepEqual(result, ["minimax/MiniMax-M3", "zaic/glm-5.2", "zai/glm-5.2"]);
+});
+
+// ── Policy: orderAutoFallbacks ──────────────────────────────────────────────
+
+test("orderAutoFallbacks: parentFirst keeps anchor provider first", () => {
+	const candidates = ["openai/gpt-5", "anthropic/sonnet", "openai/gpt-5-mini"];
+	const ordered = orderAutoFallbacks(candidates, { order: "parentFirst" }, "openai");
+	assert.deepEqual(ordered, ["openai/gpt-5", "openai/gpt-5-mini", "anthropic/sonnet"]);
+});
+
+test("orderAutoFallbacks: asIs preserves catalogue order", () => {
+	const candidates = ["openai/gpt-5", "anthropic/sonnet", "openai/gpt-5-mini"];
+	const ordered = orderAutoFallbacks(candidates, { order: "asIs" }, "openai");
+	assert.deepEqual(ordered, candidates);
+});
+
+test("orderAutoFallbacks: deprioritized providers sink to the back", () => {
+	const candidates = ["openai/gpt-5", "anthropic/sonnet", "gemini/pro"];
+	const ordered = orderAutoFallbacks(candidates, { deprioritizedProviders: ["openai"] }, undefined);
+	assert.deepEqual(ordered, ["anthropic/sonnet", "gemini/pro", "openai/gpt-5"]);
+});
+
+test("orderAutoFallbacks: providerRank overrides catalogue order", () => {
+	const candidates = ["openai/gpt-5", "anthropic/sonnet", "gemini/pro"];
+	const ordered = orderAutoFallbacks(candidates, { providerRank: { gemini: 0, anthropic: 1, openai: 2 } }, undefined);
+	assert.deepEqual(ordered, ["gemini/pro", "anthropic/sonnet", "openai/gpt-5"]);
+});
+
+test("orderAutoFallbacks: undefined policy returns candidates unchanged", () => {
+	const candidates = ["openai/gpt-5", "anthropic/sonnet"];
+	assert.deepEqual(orderAutoFallbacks(candidates, undefined), candidates);
+});
+
+// ── Policy: resolveModelFallbackPolicy ───────────────────────────────────────
+
+test("resolveModelFallbackPolicy returns undefined when nothing configured", () => {
+	assert.equal(resolveModelFallbackPolicy(undefined), undefined);
+	assert.equal(resolveModelFallbackPolicy({}), undefined);
+});
+
+test("resolveModelFallbackPolicy maps config fields", () => {
+	const policy = resolveModelFallbackPolicy({
+		maxAutoFallbacks: 3,
+		order: "asIs",
+		requireCredentials: true,
+	});
+	assert.equal(policy?.maxAutoFallbacks, 3);
+	assert.equal(policy?.order, "asIs");
+	assert.equal(policy?.requireCredentials, true);
+	assert.equal(policy?.quotaAwareOrdering, true);
+});
+
+test("resolveModelFallbackPolicy env vars override config", () => {
+	const env = { PI_CREW_MAX_AUTO_FALLBACKS: "5", PI_CREW_MODEL_FALLBACK_ORDER: "asIs" };
+	const policy = resolveModelFallbackPolicy({ maxAutoFallbacks: 3, order: "parentFirst" }, env as NodeJS.ProcessEnv);
+	assert.equal(policy?.maxAutoFallbacks, 5);
+	assert.equal(policy?.order, "asIs");
+});
+
+test("resolveModelFallbackPolicy quotaAwareOrdering defaults to true", () => {
+	const policy = resolveModelFallbackPolicy({ maxAutoFallbacks: 1 });
+	assert.equal(policy?.quotaAwareOrdering, true);
+	const disabled = resolveModelFallbackPolicy({ quotaAwareOrdering: false, maxAutoFallbacks: 1 });
+	assert.equal(disabled?.quotaAwareOrdering, false);
+});
+
+// ── Policy: resolveDefaultSubagentModel ──────────────────────────────────────
+
+test("resolveDefaultSubagentModel returns undefined when nothing configured", () => {
+	assert.equal(resolveDefaultSubagentModel(undefined), undefined);
+	assert.equal(resolveDefaultSubagentModel({}), undefined);
+});
+
+test("resolveDefaultSubagentModel prefers env over config", () => {
+	const env = { PI_CREW_MODEL: "openai/gpt-5" };
+	assert.equal(resolveDefaultSubagentModel({ defaultSubagentModel: "anthropic/sonnet" }, env as NodeJS.ProcessEnv), "openai/gpt-5");
+});
+
+test("resolveDefaultSubagentModel falls back to config", () => {
+	assert.equal(resolveDefaultSubagentModel({ defaultSubagentModel: "anthropic/sonnet" }), "anthropic/sonnet");
+});
+
+// ── defaultSubagentModel in chain ────────────────────────────────────────────
+
+test("buildConfiguredModelRouting: defaultSubagentModel takes precedence over parent when agent has no model", () => {
+	const modelRegistry = {
+		getAvailable: () => [
+			{ provider: "openai-codex", id: "gpt-5.5" },
+			{ provider: "openai-codex", id: "gpt-5-mini" },
+		],
+	};
+	const routing = buildConfiguredModelRouting({
+		agentModel: undefined,
+		defaultSubagentModel: "openai-codex/gpt-5-mini",
+		parentModel: { provider: "minimax", id: "MiniMax-M3" },
+		modelRegistry,
+	});
+	assert.equal(routing.requested, "openai-codex/gpt-5-mini");
+	assert.equal(routing.candidates[0], "openai-codex/gpt-5-mini");
+	// Parent model becomes the first fallback after the default.
+	assert.ok(routing.candidates.includes("minimax/MiniMax-M3"));
+});
+
+test("buildConfiguredModelRouting: agent model beats defaultSubagentModel", () => {
+	const modelRegistry = {
+		getAvailable: () => [{ provider: "openai-codex", id: "gpt-5.5" }],
+	};
+	const routing = buildConfiguredModelRouting({
+		agentModel: "anthropic/claude-sonnet-4-5",
+		defaultSubagentModel: "openai-codex/gpt-5.5",
+		parentModel: { provider: "minimax", id: "MiniMax-M3" },
+		modelRegistry,
+	});
+	assert.equal(routing.requested, "anthropic/claude-sonnet-4-5");
+	assert.equal(routing.candidates[0], "anthropic/claude-sonnet-4-5");
+});
+
+test("buildConfiguredModelRouting: maxAutoFallbacks caps the auto tail", () => {
+	const modelRegistry = {
+		getAvailable: () => [
+			{ provider: "openai-codex", id: "gpt-5.5" },
+			{ provider: "openai-codex", id: "gpt-5-mini" },
+			{ provider: "gemini", id: "gemini-pro" },
+			{ provider: "anthropic", id: "sonnet" },
+		],
+	};
+	const routing = buildConfiguredModelRouting({
+		agentModel: "claude-haiku-4-5",
+		modelRegistry,
+		policy: { maxAutoFallbacks: 2 },
+	});
+	// declared (1) + auto tail capped at 2 = 3 total
+	assert.equal(routing.candidates.length, 3);
+	assert.equal(routing.autoFallbackCount, 2);
+});
+
+test("buildConfiguredModelRouting: teamRoleFallbackModels appear in declared chain", () => {
+	const modelRegistry = {
+		getAvailable: () => [
+			{ provider: "openai-codex", id: "gpt-5.5" },
+			{ provider: "openai-codex", id: "gpt-5-mini" },
+			{ provider: "gemini", id: "gemini-pro" },
+		],
+	};
+	const routing = buildConfiguredModelRouting({
+		teamRoleModel: "openai-codex/gpt-5.5",
+		teamRoleFallbackModels: ["openai-codex/gpt-5-mini", "gemini/gemini-pro"],
+		agentModel: undefined,
+		parentModel: { provider: "minimax", id: "MiniMax-M3" },
+		modelRegistry,
+	});
+	// teamRoleFallbackModels come right after the effective agent model.
+	const roleIdx = routing.candidates.indexOf("openai-codex/gpt-5.5");
+	assert.ok(roleIdx >= 0, "teamRoleModel should be in candidates");
+	assert.ok(routing.candidates.indexOf("openai-codex/gpt-5-mini") > roleIdx);
+	assert.ok(routing.candidates.indexOf("gemini/gemini-pro") > roleIdx);
+});
+
+test("buildConfiguredModelRouting: droppedRequested is set when requested model is unavailable", () => {
+	const modelRegistry = {
+		getAvailable: () => [{ provider: "openai-codex", id: "gpt-5.5" }],
+	};
+	const routing = buildConfiguredModelRouting({
+		overrideModel: "nonexistent/model",
+		modelRegistry,
+	});
+	assert.equal(routing.droppedRequested, "nonexistent/model");
+	assert.equal(routing.requested, "nonexistent/model");
+	assert.equal(routing.candidates[0], "openai-codex/gpt-5.5");
 });

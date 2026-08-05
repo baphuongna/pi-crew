@@ -367,6 +367,14 @@ export interface ModelRoutingState {
 	fallbackChain: string[];
 	reason?: string;
 	usedAttempt: number;
+	/**
+	 * Set when the caller asked for a model that is not resolvable against the
+	 * available catalogue, so the chain silently ran something else. Surfaced
+	 * as a warning in the tool result and doctor output.
+	 */
+	droppedRequested?: string;
+	/** How many candidates came from the auto tail (diagnostics). */
+	autoFallbackCount?: number;
 }
 
 export interface TaskWorktreeState {

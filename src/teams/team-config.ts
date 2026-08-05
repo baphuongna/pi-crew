@@ -5,6 +5,10 @@ export interface TeamRole {
 	agent: string;
 	description?: string;
 	model?: string;
+	/** Comma-separated fallback models declared on the role line. */
+	fallbackModels?: string[];
+	/** Thinking level for this role (e.g. "high", "medium", "low", "off"). */
+	thinking?: string;
 	/** Additional skills for this role; false disables role-default injected skills for tasks using this role. */
 	skills?: string[] | false;
 	maxConcurrency?: number;

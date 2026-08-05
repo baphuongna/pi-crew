@@ -26,7 +26,9 @@ import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
-import { noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
+import { noteProviderResponse } from "../../runtime/model/provider-quota.ts";
+import { currentSessionModel, noteSessionModel, noteSessionThinking } from "../../runtime/model/session-model.ts";
+import { providerOfModelRef } from "../../runtime/model/model-fallback.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
@@ -85,6 +87,15 @@ function installModelTrackingHandlers(pi: ExtensionAPI): void {
 	});
 	pi.on("thinking_level_select", (event) => {
 		noteSessionThinking(event.level);
+	});
+	// Quota-aware routing: capture rate-limit headers from the main session's
+	// provider responses so the fallback chain can deprioritize exhausted
+	// providers. The event doesn't carry a provider field, so we attribute it
+	// to the currently tracked session model's provider.
+	pi.on("after_provider_response", (event) => {
+		const model = currentSessionModel();
+		const provider = model ? providerOfModelRef(model) : undefined;
+		if (provider) noteProviderResponse(provider, event.status, event.headers);
 	});
 }
 
