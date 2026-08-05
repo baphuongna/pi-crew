@@ -190,6 +190,11 @@ Keeps the 20 most recent runs and deletes the rest.
 | `runtime.groupJoinAckTimeoutMs` | number | `300000` | Group join ack timeout (ms) |
 | `runtime.requirePlanApproval` | boolean | `false` | Require approving the plan before execution |
 | `runtime.completionMutationGuard` | string | `"warn"` | `off`, `warn`, `fail` |
+| `runtime.modelFallback.maxAutoFallbacks` | number | — | Cap auto-appended fallback models (default: unbounded) |
+| `runtime.modelFallback.order` | string | `"parentFirst"` | `parentFirst` (same provider first) or `asIs` (catalogue order) |
+| `runtime.modelFallback.requireCredentials` | boolean | `false` | Drop models whose provider has no discoverable credential |
+| `runtime.modelFallback.quotaAwareOrdering` | boolean | `true` | Deprioritize providers near rate-limit/quota |
+| `runtime.modelFallback.defaultSubagentModel` | string | — | Default model when neither caller nor agent specifies one |
 | `limits.maxConcurrentWorkers` | number | `1024` | Max workers running in parallel |
 | `limits.maxTaskDepth` | number | `100` | Max task tree depth |
 | `limits.maxChildrenPerTask` | number | — | Max children per task |

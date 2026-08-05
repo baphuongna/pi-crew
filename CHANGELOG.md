@@ -3,6 +3,38 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [Unreleased] — subagent model routing: live-session model tracking, fallback policy, quota-aware ordering
+
+### Bug fixes
+
+- **Subagent model "jumped" to whatever a previous session had saved.** `ctx.model` is the session's *saved* model, not the live one. A session that restored stale state could report `anthropic/claude-sonnet-4-5` while actually running `minimax/MiniMax-M3`. Subagents inheriting the parent model (`model: false`, which every builtin agent uses) therefore landed on the wrong model. Fix: track the live model via pi's `model_select` event (`src/runtime/model/session-model.ts`) and use it as the parent model for all spawn paths.
+- **Live-session path silently discarded `ctx.model`.** `resolveParentModelFromRegistry` only accepted strings; `ctx.model` is a pi `Model` object. Every live-session subagent that inherited the parent model fell through to `getAvailable()[0]` instead. Fix: accept both objects and strings via `modelRefToString`.
+- **Background/async runs lost the caller's model context.** A detached background run has no `ExtensionContext`, so it lost the `model=` override, the inherited session model, and the auth-filtered model catalogue — silently routing to whatever `models.json` listed first. Fix: persist `modelContext` (override / parent model / available models) on the manifest at dispatch time and re-hydrate it in `background-runner`.
+- **Dead re-resolve branch in child-executor.** When the precomputed fallback chain was exhausted, the one-shot re-resolve found an alternative model but never appended it to `attemptModels` — the loop logged "retrying with X" but never actually retried. Fix: append the discovered model, exclude all previously-tried models, bump the spawn budget, and guard against re-entry.
+
+### Features
+
+- **Model fallback policy** (`runtime.modelFallback` in config, or env vars). Controls the auto tail (models appended from the registry/pi-config that nobody explicitly declared):
+  - `maxAutoFallbacks` — cap the auto tail (each extra candidate multiplies the worst-case spawn budget by `maxAttempts + 1`)
+  - `order: "parentFirst" | "asIs"` — keep the tail on the same provider as the running model before crossing providers
+  - `requireCredentials` — drop pi-config models whose provider has no discoverable credential
+  - `quotaAwareOrdering` — deprioritize providers near their rate-limit/quota (default: true, reads `after_provider_response` headers)
+  - `defaultSubagentModel` — default model for subagents when neither the caller nor the agent specifies one (sits between agent model and parent inheritance)
+  - Env overrides: `PI_CREW_MAX_AUTO_FALLBACKS`, `PI_CREW_MODEL_FALLBACK_ORDER`, `PI_CREW_MODEL_REQUIRE_CREDENTIALS`, `PI_CREW_MODEL`
+- **TeamRole `fallbackModels` + `thinking`**. Role lines now accept `fallbackModels=a,b` (comma-separated) and `thinking=high|medium|low|off`. Previously `fallbackModels=a,b` was silently swallowed into the role description.
+- **Quota-aware ordering** (`src/runtime/model/provider-quota.ts`). Tracks `x-ratelimit-remaining-*` and `retry-after` headers from `after_provider_response` events. Providers that are 429'd or near-zero remaining are pushed to the back of the auto tail. Process-local, 5-minute TTL, never blocks spawn.
+- **`task.model_dropped` warning event**. When the caller's requested model is not resolvable against the available catalogue, the chain silently runs something else. Now surfaced as an event + persisted to `task.modelRouting.droppedRequested` so users can see what happened.
+- **Doctor: "Model Routing" section**. Shows the live session model (from `model_select`), the active fallback policy, a sample chain for a generic agent, and the auto tail size.
+
+### Technical details
+
+- `ConfiguredModelRouting` gains `droppedRequested` and `autoFallbackCount` fields.
+- `ModelRoutingState` (persisted to task state) gains `droppedRequested` and `autoFallbackCount`.
+- `TeamRunManifest` gains `modelContext?: RunModelContext` for background/async model routing restoration.
+- `buildConfiguredModelRouting` input gains `defaultSubagentModel`, `teamRoleFallbackModels`, and `policy` fields.
+- New modules: `src/runtime/model/session-model.ts`, `src/runtime/model/provider-quota.ts`.
+- 42 new unit tests covering session-model tracker, provider-quota tracker, policy resolution, defaultSubagentModel precedence, teamRoleFallbackModels chain position, and droppedRequested detection.
+
 ## [0.9.59] — cross-session isolation: stop leak of runs/subagents between concurrent pi sessions + stop false-reap of live sessions (2026-08-05)
 
 ### Bug fixes
