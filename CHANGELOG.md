@@ -3,6 +3,12 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [0.9.61] — bundle republish: bug-44 fix shipped in dist (2026-08-05)
+
+### Bug fixes
+
+- **Bug-44 fix was missing from the v0.9.60 npm bundle (hot-fix republish).** The source-level fix for GitHub #44 (chain run fails fast when `workflow:"chain"` is forwarded to steps) landed in commit `5b43d556`, but the published `dist/index.mjs` was built from a stale source tree *before* the fix, so users installing `pi-crew@0.9.60` got the old buggy bundle (the chain runner still forwarded `workflow` to steps). v0.9.61 rebuilds the bundle with the fix included and verified (`grep` for the reject message + fallback logic now matches in `dist/index.mjs`). No source changes — purely a corrected bundle republish.
+
 ## [0.9.60] — subagent model routing: live-session model tracking, fallback policy, quota-aware ordering + iterative-audit hardening (2026-08-05)
 
 ### Bug fixes
