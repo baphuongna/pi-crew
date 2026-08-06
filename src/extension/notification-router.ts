@@ -10,6 +10,8 @@ export interface NotificationDescriptor {
 	title: string;
 	body?: string;
 	timestamp?: number;
+	/** When true, this is a dismiss/clear request for a previously-emitted notification (same id). Bypasses dedup/severity/quiet-hours; the deliver callback drops the matching notification. */
+	clear?: boolean;
 }
 
 export interface NotificationRouterOptions {
@@ -99,6 +101,29 @@ export class NotificationRouter {
 			...notification,
 			timestamp: notification.timestamp ?? now,
 		};
+		// Clear path: remove the id from `seen` so a future genuine re-occurrence
+		// can re-notify. Delivery is guarded on whether the id was actually in
+		// `seen` to keep the clear idempotent (bypassing dedup / severity filter /
+		// quiet hours when it does deliver — a clear must go through so the
+		// dashboard can drop the previously-emitted notification).
+		if (withTime.clear) {
+			const clearKey = notificationKey(withTime);
+			// Idempotent: only deliver the clear if the id was actually in `seen`
+			// (i.e., a notification for it was previously emitted and not yet
+			// cleared). This prevents multi-fire drift when the render loop calls
+			// clearHealthNotifications on consecutive ticks for the same terminal
+			// run — each clear after the first is a silent no-op that returns true.
+			const wasInSeen = this.seen.delete(clearKey);
+			if (wasInSeen) {
+				try {
+					this.opts.sink?.(withTime);
+				} catch (sinkError) {
+					logInternalError("notification-sink", sinkError);
+				}
+				this.deliver(withTime);
+			}
+			return true;
+		}
 		try {
 			this.opts.sink?.(withTime);
 		} catch (sinkError) {

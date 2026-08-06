@@ -120,3 +120,19 @@ test("summarizeHeartbeats uses strict greater-than thresholds", () => {
 	});
 	assert.equal(summary.healthy, 1);
 });
+
+test("summarizeHeartbeats regression: running task with >5min stale heartbeat is dead", () => {
+	// Pin the invariant: a GENUINELY running task whose heartbeat aged past
+	// the dead threshold (default 5 min) MUST still be classified as dead so
+	// the health alert fires. The terminal-run suppression lives at the
+	// renderTick gate (fresh-manifest re-verify), NOT here — summarizeHeartbeats
+	// must never be weakened to silently drop real dead-worker alerts.
+	const now = Date.parse("2026-01-01T00:10:00.000Z");
+	const summary = summarizeHeartbeats(snapshot([task("running-stale", "running", "2026-01-01T00:03:00.000Z")]), {
+		now,
+		staleMs: 60_000,
+		deadMs: 5 * 60_000,
+	});
+	// heartbeat is 7 min old -> older than deadMs (5 min) -> dead.
+	assert.ok(summary.dead >= 1, `expected dead >= 1, got ${summary.dead}`);
+});

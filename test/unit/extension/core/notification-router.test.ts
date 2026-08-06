@@ -110,3 +110,59 @@ test("NotificationRouter dispose clears batch and seen", () => {
 	router.flush();
 	assert.equal(delivered.length, 0, "nothing should be delivered after dispose");
 });
+
+test("NotificationRouter clear removes id from seen and allows re-notification", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const now = 1000;
+	const router = makeRouter({ dedupWindowMs: 60_000, now: () => now }, (n) => delivered.push(n));
+	// 1. Enqueue with id "x" -> delivered.
+	assert.equal(router.enqueue(baseNotification({ id: "x" })), true);
+	assert.equal(delivered.length, 1);
+	// 2. Re-enqueue within the dedup window -> deduped (NOT delivered).
+	assert.equal(router.enqueue(baseNotification({ id: "x" })), false);
+	assert.equal(delivered.length, 1);
+	// 3. Clear for the same id -> removes id from `seen` and delivers the clear.
+	assert.equal(router.enqueue(baseNotification({ id: "x", clear: true, severity: "info" })), true);
+	assert.equal(delivered.length, 2);
+	assert.equal(delivered[1].clear, true);
+	// 4. Re-enqueue the original -> NOT deduped now (the clear purged `seen`).
+	assert.equal(router.enqueue(baseNotification({ id: "x" })), true);
+	assert.equal(delivered.length, 3);
+});
+
+test("NotificationRouter clear bypasses severity filter and quiet hours", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const mockDate = new Date();
+	mockDate.setHours(10, 30, 0, 0); // outside quiet hours
+	// Default severity filter (warning/error/critical) excludes "info".
+	const router = new NotificationRouter({ quietHours: "22:00-23:00", now: () => mockDate.getTime() }, (n) => delivered.push(n));
+	// 1. Enqueue a warning notification outside quiet hours -> delivered, in seen.
+	assert.equal(router.enqueue(baseNotification({ id: "y", severity: "warning" })), true);
+	assert.equal(delivered.length, 1);
+	// 2. Move into quiet hours — a new normal notification is now blocked.
+	mockDate.setHours(22, 30, 0, 0);
+	assert.equal(router.enqueue(baseNotification({ id: "z", severity: "warning" })), false);
+	assert.equal(delivered.length, 1);
+	// 3. A clear for "y" must bypass quiet hours AND the severity filter (it is
+	//    "info") so the dashboard can always drop the previously-emitted alert.
+	assert.equal(router.enqueue(baseNotification({ id: "y", severity: "info", clear: true })), true);
+	assert.equal(delivered.length, 2);
+	assert.equal(delivered[1].clear, true);
+});
+
+test("NotificationRouter clear is idempotent (double-clear delivers only once)", () => {
+	const delivered: NotificationDescriptor[] = [];
+	const now = 1000;
+	const router = makeRouter({ dedupWindowMs: 60_000, now: () => now }, (n) => delivered.push(n));
+	// 1. Enqueue with id "d" -> delivered, in seen.
+	assert.equal(router.enqueue(baseNotification({ id: "d" })), true);
+	assert.equal(delivered.length, 1);
+	// 2. First clear -> delivered (id was in seen).
+	assert.equal(router.enqueue(baseNotification({ id: "d", clear: true, severity: "info" })), true);
+	assert.equal(delivered.length, 2);
+	// 3. Second clear for the same id -> silent no-op (id already removed from
+	//    seen by the first clear). Prevents notificationCount drift on repeated
+	//    render ticks for the same terminal run.
+	assert.equal(router.enqueue(baseNotification({ id: "d", clear: true, severity: "info" })), true);
+	assert.equal(delivered.length, 2);
+});

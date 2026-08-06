@@ -664,12 +664,55 @@ function setupRenderLoop(
 		const currentSessionId = ctx.currentCtx?.sessionManager?.getSessionId();
 		const sessionManifests = filterManifestsForHealthNotifications(manifests, currentSessionId);
 		const now = Date.now();
+		// FIX #2: clear path — when a run is detected terminal, dismiss any
+		// previously-emitted health notification for it AND drop its cooldown
+		// (autoRecoveryLast) so a future genuine re-occurrence can re-notify.
+		// Keeps the dashboard clean and stops the 5-min re-fire cycle.
+		const clearHealthNotifications = (runId: string): void => {
+			for (const kind of ["recovery_dead_workers", "recovery_missing_heartbeat"]) {
+				const key = `${kind}_${runId}`;
+				ctx.autoRecoveryLast.delete(key);
+				ctx.notifyOperator({
+					id: key,
+					clear: true,
+					severity: "info",
+					source: "health",
+					runId,
+					title: `Cleared ${kind} for ${runId}`,
+				});
+			}
+		};
 		for (const run of sessionManifests) {
-			if (run.status !== "running") continue;
+			if (run.status !== "running") {
+				// GATE 1 — preloaded manifest says terminal. Purge any stale snapshot
+				// and clear previously-emitted health notifications so the dashboard
+				// stays clean (belt-and-suspenders with the FIX #1 fresh-read gate).
+				snapshotCache.invalidate(run.runId);
+				clearHealthNotifications(run.runId);
+				continue;
+			}
 			try {
+				// FIX #1: re-verify against a FRESH manifest read. The preloaded `run`
+				// (from lastPreloadedManifests) can lag the on-disk terminal
+				// transition; the manifest cache has a 500ms TTL + file watcher so it
+				// is the source of truth. A terminal run must NEVER reach
+				// maybeNotifyHealth. Also purge the stale snapshot + clear any
+				// previously-emitted health notification for this run.
+				const freshManifest = ctx.getManifestCache(extensionCtx.cwd).get(run.runId);
+				if (freshManifest?.status !== "running") {
+					snapshotCache.invalidate(run.runId);
+					clearHealthNotifications(run.runId);
+					continue;
+				}
 				const snapshot = snapshotCache.get(run.runId);
 				if (!snapshot) continue;
-				if (snapshot.manifest.status !== "running") continue;
+				if (snapshot.manifest.status !== "running") {
+					// GATE 2 — a running snapshot paired with a now-terminal manifest is
+					// stale. Purge it so subsequent ticks get a fresh view, and clear.
+					snapshotCache.invalidate(run.runId);
+					clearHealthNotifications(run.runId);
+					continue;
+				}
 				const summary = summarizeHeartbeats(snapshot, { now });
 				const maybeNotifyHealth = (kind: string, count: number, title: string, body: string): void => {
 					if (count <= 0) return;

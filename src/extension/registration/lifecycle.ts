@@ -148,13 +148,19 @@ export async function configureNotifications(ctx: ExtensionContext, state: Lifec
 			sink: (notification) => state.notificationSink?.write(notification),
 		},
 		(notification: NotificationDescriptor) => {
-			deps.widgetState.notificationCount = (deps.widgetState.notificationCount ?? 0) + 1;
-			sendFollowUp(
-				deps.pi,
-				[notification.title, notification.body, notification.runId ? `Run: ${notification.runId}` : undefined]
-					.filter((line): line is string => Boolean(line))
-					.join("\n"),
-			);
+			if (notification.clear) {
+				// Clear/dismiss: decrement the counter (floor 0) and skip the
+				// follow-up message — this is a dismissal, not a new alert.
+				deps.widgetState.notificationCount = Math.max(0, (deps.widgetState.notificationCount ?? 0) - 1);
+			} else {
+				deps.widgetState.notificationCount = (deps.widgetState.notificationCount ?? 0) + 1;
+				sendFollowUp(
+					deps.pi,
+					[notification.title, notification.body, notification.runId ? `Run: ${notification.runId}` : undefined]
+						.filter((line): line is string => Boolean(line))
+						.join("\n"),
+				);
+			}
 			const currentCtx = deps.getCurrentCtx();
 			if (currentCtx) {
 				const uiConfig = loadConfig(currentCtx.cwd).config.ui;
