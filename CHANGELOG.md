@@ -3,6 +3,12 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
+## [Unreleased]
+
+### Bug fixes
+
+- **Provider-quota responses were attributed to the wrong provider in the opt-in `live-session` runtime.** pi's `after_provider_response` event carries no provider/sessionId, so quota was keyed off the shared module-scoped `currentSessionModel()`: a provider-B response (e.g. a 429) was recorded under the main session's anchor provider A — mis-deprioritizing A, or overwriting a genuine exhaustion signal so the “deprioritize exhausted providers” contract was not reliably honored. (Only reachable via the opt-in `live-session` runtime; the default `child-process` runtime is unaffected since each worker is its own process with anchor==serving provider.) Fix: carry each in-process live agent's resolved model through `AsyncLocalStorage` and attribute quota from it (`resolveProviderForResponse()`, `src/runtime/model/session-model.ts`); **skip** attribution (rather than guess) when live agents are active but the async context is absent; the default `child-process` path is byte-identical to before. Hardening from review: `unregisterLiveAgentModel` now runs **first** in the live-session `finally` block (a thrown `terminateLiveAgent` on the user-cancel path previously skipped it, permanently blinding quota process-wide via `hasActiveLiveAgents()` stuck `true`); `liveAgentModels` is capped at 5,000 entries matching `MAX_LIVE_AGENTS`. Tests in `test/unit/runtime/model/live-agent-quota-attribution.test.ts`. Investigation/spec in `docs/bugs/model-quota-attribution.md`.
+
 ## [0.9.61] — bundle republish: bug-44 fix shipped in dist (2026-08-05)
 
 ### Bug fixes

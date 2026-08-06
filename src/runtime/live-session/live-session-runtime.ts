@@ -26,6 +26,7 @@ import {
 import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
+import { liveAgentContext, registerLiveAgentModel, unregisterLiveAgentModel } from "../model/session-model.ts";
 import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../output/sidechain-output.ts";
 // NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
 // block is injected via renderTaskPrompt().full (the USER prompt), which is
@@ -705,6 +706,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		});
 		const resolvedModel =
 			modelFromRegistry(input.modelRegistry, modelRouting.candidates[0] ?? modelRouting.requested) ?? input.parentModel;
+		const resolvedModelRef = modelRefToString(resolvedModel) ?? modelRouting.candidates[0];
 		// Surface a warning when the caller's requested model was silently replaced.
 		if (modelRouting.droppedRequested) {
 			appendEventFireAndForget(input.manifest.eventsPath, {
@@ -839,6 +841,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			appendEvent,
 			input.manifest.eventsPath,
 		);
+		registerLiveAgentModel(agentId, resolvedModelRef ?? "");
 		streamOut = createStreamingOutput(input.manifest, input.task.id);
 		let controlCursor: LiveAgentControlCursor = { offset: 0 };
 		const seenControlRequestIds = new Set<string>();
@@ -988,7 +991,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// Phase 3: Wrap session.prompt with timeout for graceful cancellation
 		const sessionTimeoutMs = DEFAULT_LIVE_SESSION.responseTimeoutMs;
 		try {
-			await promptWithTimeout(session, effectivePrompt, sessionTimeoutMs, "Live-session");
+			await liveAgentContext.run({ agentId, modelRef: resolvedModelRef ?? "" }, () =>
+				promptWithTimeout(session!, effectivePrompt, sessionTimeoutMs, "Live-session"),
+			);
 		} catch (promptError) {
 			const msg = promptError instanceof Error ? promptError.message : String(promptError);
 			// P7: fire-and-forget — return value not needed.
@@ -1181,6 +1186,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			error: message,
 		};
 	} finally {
+		// Unregister the live-agent model FIRST: a synchronous Map.delete that must run on
+		// every exit path. If skipped (e.g. terminateLiveAgent throws on session.abort()),
+		// hasActiveLiveAgents() stays true for the process lifetime and permanently disables
+		// quota attribution (priority-2 skip) — including the main session's own tracking.
+		// (Review finding H1/M1.)
+		unregisterLiveAgentModel(agentId);
 		// H6: Unsubscribe listeners FIRST before clearing timer to prevent race
 		unsubscribe?.();
 		unsubscribeControlRealtime?.();

@@ -17,8 +17,10 @@
  * the pi events; the spawn paths read it through {@link resolveParentModel}.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { RunModelContext } from "../../state/types.ts";
-import { availableModelInfosFromRegistry, modelRefToString } from "./model-fallback.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { availableModelInfosFromRegistry, modelRefToString, providerOfModelRef } from "./model-fallback.ts";
 
 export type SessionModelSource = "model_select" | "session_start" | "none";
 
@@ -30,6 +32,78 @@ interface SessionModelState {
 }
 
 const state: SessionModelState = { source: "none" };
+
+// --- Live-session per-agent quota attribution ---
+//
+// In the opt-in `live-session` runtime, multiple in-process subagents share
+// this ONE module-scoped tracker. The `after_provider_response` event carries
+// no sessionId/model field, so the global `currentSessionModel()` returns the
+// MAIN session's model regardless of which in-process agent actually produced
+// the response. That mis-attributes quota (e.g. a provider-B 429 written under
+// provider-A's key).
+//
+// AsyncLocalStorage propagates each live agent's known model through the
+// async call chain. `resolveProviderForResponse()` checks it first, then falls
+// back to a guard (skip attribution when live agents are active but context
+// is absent — prevents contamination), then the original global tracker (the
+// default child-process path, unchanged).
+
+/** Per-agent async context for live-session quota attribution. */
+export const liveAgentContext = new AsyncLocalStorage<{ agentId: string; modelRef: string }>();
+
+/** Registered live-session agent models (agentId → "provider/id"). */
+const liveAgentModels = new Map<string, string>();
+
+// Cap the tracker to prevent unbounded growth if a caller registers an agent
+// but fails to unregister it (e.g. a crashed/disposed live agent). Matches the
+// precedent in live-agent-manager.ts (MAX_LIVE_AGENTS). When at cap, evict the
+// oldest insertion (Map preserves insertion order); a leaked entry also pins
+// hasActiveLiveAgents()=true, so bounding it matters beyond raw memory.
+const MAX_LIVE_AGENT_MODELS = 5_000;
+
+/** Record a live-session agent's resolved model for quota attribution. */
+export function registerLiveAgentModel(agentId: string, model: string): void {
+	if (liveAgentModels.size >= MAX_LIVE_AGENT_MODELS && !liveAgentModels.has(agentId)) {
+		const oldestKey = liveAgentModels.keys().next().value;
+		if (oldestKey !== undefined) {
+			logInternalError(
+				"session-model.liveAgentModels.cap",
+				new Error(`liveAgentModels at cap ${MAX_LIVE_AGENT_MODELS}; evicting oldest ${oldestKey}`),
+			);
+			liveAgentModels.delete(oldestKey);
+		}
+	}
+	liveAgentModels.set(agentId, model);
+}
+
+/** Remove a live-session agent's model (called in the finally block). */
+export function unregisterLiveAgentModel(agentId: string): void {
+	liveAgentModels.delete(agentId);
+}
+
+/** Whether any live-session agents are currently registered. */
+export function hasActiveLiveAgents(): boolean {
+	return liveAgentModels.size > 0;
+}
+
+/**
+ * Resolve the provider for an `after_provider_response` event.
+ *
+ * Priority:
+ *   1. Async context from the live-session agent that issued the request
+ *      (correct per-agent attribution — pi-crew knows each agent's model).
+ *   2. Live agents are active but the context didn't propagate → skip
+ *      attribution entirely (return undefined) to PREVENT cross-agent
+ *      contamination.
+ *   3. No live agents (default child-process runtime) → original behavior:
+ *      attribute to the global session model's provider.
+ */
+export function resolveProviderForResponse(): string | undefined {
+	const ctx = liveAgentContext.getStore();
+	if (ctx) return providerOfModelRef(ctx.modelRef);
+	if (hasActiveLiveAgents()) return undefined;
+	return providerOfModelRef(currentSessionModel());
+}
 
 /**
  * Record the model the main session is running. Accepts pi's `Model` object
@@ -132,4 +206,5 @@ export function __test_resetSessionModel(): void {
 	state.thinking = undefined;
 	state.source = "none";
 	state.updatedAt = undefined;
+	liveAgentModels.clear();
 }
