@@ -3,7 +3,7 @@
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 
-## [Unreleased]
+## [0.9.62] — provider-quota attribution per live-session agent + dead-worker alert re-fire fix (2026-08-06)
 
 ### Bug fixes
 
