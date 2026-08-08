@@ -2,6 +2,29 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Phase 2 crash-resume (experimental)
+
+### Features
+
+- **Cross-attempt restore (crash-resume)**: a scratchpad worker attempt N+1 (retry
+  / crash-recovery re-queue / manual re-run) automatically revives the namespace
+  from the previous attempt's redacted snapshot artifact — via a single
+  spawn-time lookup (`findLatestScratchpadSnapshot`), no retry-loop / recovery
+  changes needed. Restores lazily on the first `execute` call (D7 lazy invariant
+  kept) with a one-line model-visible notice.
+  - Lookup: latest mtime (model-fallback index resets each retry round → number
+    is not write-order); tie-break lowest attempt = newest round.
+  - Security: read-time re-validation (containment + filename pattern + lstat +
+    size + mtime hint, D10); fail-open (D11) never breaks the worker; strict scan
+    (D12); base64 round-trip (D13); redacted secret → literal `"***"` (D4).
+- **Guest zombie backstop (SEC-1)**: the engine now overrides
+  `PI_CREW_PARENT_PID=worker pid` for the guest (D5), so an orphaned guest
+  (worker SIGKILL'd) is flagged by the zombie scanner — pure inheritance left
+  guests LIVE forever holding provider keys + broker token.
+- **Snapshot cap (D6)**: 4 MiB two-sided (write-side raw byteLength trim, read-
+  side file + per-var 256 KiB) bounds v8.deserialize amplification.
+
+
 ## [Unreleased] — Phase 1 worker scratchpad (experimental)
 
 ### Features

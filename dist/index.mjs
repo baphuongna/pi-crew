@@ -14918,6 +14918,55 @@ var init_env_filter = __esm({
   }
 });
 
+// src/runtime/scratchpad/snapshot-lookup.ts
+import { lstatSync as lstatSync5, readdirSync as readdirSync8 } from "node:fs";
+import { join as join18 } from "node:path";
+function findLatestScratchpadSnapshot(artifactsRoot, agentId) {
+  const scratchpadDir = join18(artifactsRoot, "scratchpad");
+  let dirStat;
+  try {
+    dirStat = lstatSync5(scratchpadDir);
+  } catch {
+    return null;
+  }
+  if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) return null;
+  let entries;
+  try {
+    entries = readdirSync8(scratchpadDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const prefix = `${agentId}.attempt-`;
+  let best = null;
+  for (const dirent of entries) {
+    if (dirent.isSymbolicLink() || !dirent.isFile()) continue;
+    const name = dirent.name;
+    if (!name.startsWith(prefix) || !name.endsWith(SNAPSHOT_SUFFIX)) continue;
+    const attemptPart = name.slice(prefix.length, name.length - SNAPSHOT_SUFFIX.length);
+    if (!/^\d+$/.test(attemptPart)) continue;
+    const attempt = Number.parseInt(attemptPart, 10);
+    let stat2;
+    try {
+      stat2 = lstatSync5(join18(scratchpadDir, name));
+    } catch {
+      continue;
+    }
+    if (!stat2.isFile()) continue;
+    const hit = { path: join18(scratchpadDir, name), attempt, mtimeMs: stat2.mtimeMs };
+    if (best === null || hit.mtimeMs > best.mtimeMs || hit.mtimeMs === best.mtimeMs && hit.attempt < best.attempt) {
+      best = hit;
+    }
+  }
+  return best;
+}
+var SNAPSHOT_SUFFIX;
+var init_snapshot_lookup = __esm({
+  "src/runtime/scratchpad/snapshot-lookup.ts"() {
+    "use strict";
+    SNAPSHOT_SUFFIX = ".snapshot.json";
+  }
+});
+
 // src/runtime/child-pi/child-pi-spawn.ts
 import * as fs18 from "node:fs";
 import * as path18 from "node:path";
@@ -15023,6 +15072,11 @@ function prepareSpawnContext(input, effectiveTask) {
     }
     const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
     built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
+    const restoreHit = input.artifactsRoot ? findLatestScratchpadSnapshot(input.artifactsRoot, input.agentId) : null;
+    if (restoreHit) {
+      built.env.PI_CREW_SCRATCHPAD_RESTORE = restoreHit.path;
+      built.env.PI_CREW_SCRATCHPAD_RESTORE_MTIME = String(restoreHit.mtimeMs);
+    }
   }
   if (input.signal?.aborted) {
     return {
@@ -15058,6 +15112,7 @@ var init_child_pi_spawn = __esm({
     init_safe_paths();
     init_pi_args();
     init_pi_spawn();
+    init_snapshot_lookup();
     BASE_ALLOWLIST = [
       "PATH",
       "HOME",
@@ -23075,12 +23130,12 @@ var init_crew_hooks = __esm({
 
 // src/runtime/skill-effectiveness.ts
 import { existsSync as existsSync23, mkdirSync as mkdirSync14, readFileSync as readFileSync23, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname16, join as join29 } from "node:path";
+import { dirname as dirname16, join as join30 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
-  return join29(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
+  return join30(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
 }
 function getSkillActivationsPath(cwd, runId) {
-  return join29(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
+  return join30(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
 }
 function ensureSkillMetricsDir(cwd, runId) {
   const dir = dirname16(getSkillMetricsPath(cwd, runId));
@@ -40815,9 +40870,9 @@ var init_handle_settings = __esm({
 
 // src/extension/team-tool/workflow-manage.ts
 import { existsSync as existsSync41, readFileSync as readFileSync40, rmSync as rmSync14, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname29, join as join45 } from "node:path";
+import { dirname as dirname29, join as join46 } from "node:path";
 function allowedWorkflowDirs(cwd) {
-  return [join45(projectCrewRoot(cwd), "workflows"), join45(userPiRoot(), "workflows"), join45(packageRoot(), "workflows")];
+  return [join46(projectCrewRoot(cwd), "workflows"), join46(userPiRoot(), "workflows"), join46(packageRoot(), "workflows")];
 }
 function validateScriptContent(content) {
   for (const pattern of FORBIDDEN_PATTERNS) {
@@ -40829,7 +40884,7 @@ function validateScriptContent(content) {
 }
 function resolveWorkflowWritePath(cwd, name, scope = "project") {
   assertSafePathId("workflowName", name);
-  const base = scope === "user" ? join45(userPiRoot(), "workflows") : join45(projectCrewRoot(cwd), "workflows");
+  const base = scope === "user" ? join46(userPiRoot(), "workflows") : join46(projectCrewRoot(cwd), "workflows");
   return resolveRealContainedPath(base, `${name}.dwf.ts`);
 }
 function handleWorkflowCreate(params, ctx) {
@@ -41683,7 +41738,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync10, existsSync as existsSync44, mkdirSync as mkdirSync26, openSync as openSync10, readdirSync as readdirSync20, readFileSync as readFileSync42, statSync as statSync33, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync10, existsSync as existsSync44, mkdirSync as mkdirSync26, openSync as openSync10, readdirSync as readdirSync21, readFileSync as readFileSync42, statSync as statSync33, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname32 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -41843,7 +41898,7 @@ var init_goal_state_store = __esm({
         try {
           const root = resolveGoalsRoot(this.cwd);
           if (!existsSync44(root)) return [];
-          const entries = readdirSync20(root);
+          const entries = readdirSync21(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -41907,7 +41962,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash7 } from "node:crypto";
-import { closeSync as closeSync11, existsSync as existsSync45, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync21, readFileSync as readFileSync44, statSync as statSync35, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
+import { closeSync as closeSync11, existsSync as existsSync45, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync22, readFileSync as readFileSync44, statSync as statSync35, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
 import * as path50 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path50.resolve(cwd);
@@ -61204,7 +61259,7 @@ __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
 import { readFileSync as readFileSync67 } from "node:fs";
-import { join as join71 } from "node:path";
+import { join as join72 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
   try {
@@ -61216,7 +61271,7 @@ function assertStructuredCloneable(value, name) {
 }
 function resolveScriptPath(workflow, cwd) {
   const crewRoot = projectCrewRoot(cwd);
-  const allowedBases = [join71(projectCrewRoot(cwd), "workflows"), join71(userPiRoot(), "workflows"), join71(packageRoot(), "workflows")];
+  const allowedBases = [join72(projectCrewRoot(cwd), "workflows"), join72(userPiRoot(), "workflows"), join72(packageRoot(), "workflows")];
   for (const base of allowedBases) {
     try {
       const real = resolveRealContainedPath(base, workflow.filePath);
@@ -72369,20 +72424,20 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 import { existsSync as existsSync75, mkdirSync as mkdirSync42, readFileSync as readFileSync74, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname39, join as join77 } from "node:path";
+import { dirname as dirname39, join as join78 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
 import { existsSync as existsSync74, readFileSync as readFileSync73 } from "node:fs";
 import { homedir as homedir11, platform } from "node:os";
-import { join as join76 } from "node:path";
+import { join as join77 } from "node:path";
 function fontPath() {
   const os18 = platform();
   const home = homedir11();
-  if (os18 === "darwin") return join76(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os18 === "linux") return join76(home, ".local", "share", "fonts", "crew-vibes.ttf");
+  if (os18 === "darwin") return join77(home, "Library", "Fonts", "crew-vibes.ttf");
+  if (os18 === "linux") return join77(home, ".local", "share", "fonts", "crew-vibes.ttf");
   if (os18 === "win32") {
-    const local = process.env.LOCALAPPDATA ?? join76(home, "AppData", "Local");
-    return join76(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
+    const local = process.env.LOCALAPPDATA ?? join77(home, "AppData", "Local");
+    return join77(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
   }
   return "";
 }
@@ -72431,7 +72486,7 @@ function resolveHome() {
   return (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
-  return join77(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
+  return join78(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
 }
 var DEFAULT_CONFIG2 = {
   enabled: true,
@@ -72931,14 +72986,14 @@ function createCrewVibesFooter(deps) {
 // src/extension/crew-vibes/provider-usage.ts
 import { readFileSync as readFileSync75 } from "node:fs";
 import { homedir as homedir12 } from "node:os";
-import { join as join78 } from "node:path";
+import { join as join79 } from "node:path";
 function withTimeout(ms, fn) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
   return fn(controller.signal).finally(() => clearTimeout(timeoutId));
 }
 function piAuthPath() {
-  return join78(homedir12(), ".pi", "agent", "auth.json");
+  return join79(homedir12(), ".pi", "agent", "auth.json");
 }
 function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
@@ -72983,8 +73038,8 @@ function tokenFromHostEntry(entry) {
   return void 0;
 }
 function loadLegacyCopilotToken() {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join78(homedir12(), ".config");
-  const candidates = [join78(configHome, "github-copilot", "hosts.json"), join78(homedir12(), ".github-copilot", "hosts.json")];
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join79(homedir12(), ".config");
+  const candidates = [join79(configHome, "github-copilot", "hosts.json"), join79(homedir12(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
       const data = JSON.parse(readFileSync75(hostsPath, "utf8"));

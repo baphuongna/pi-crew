@@ -89,6 +89,11 @@ function send(message: GuestToHostMessage): void {
 type Namespace = Record<string, unknown>;
 const namespace: Namespace = Object.create(null);
 
+/** D6 per-var restore cap (guest-side, NIT-5): a single decoded var larger than
+ *  this is rejected → failed[] (bounds v8.deserialize amplification). Default
+ *  256 KiB — documented in README; pinned by P2-T5. */
+const MAX_RESTORE_VAR_BYTES = 256 * 1024;
+
 interface CellContext {
 	cellId: string;
 	/** Set when this cell is aborted; its later writes are discarded. */
@@ -258,8 +263,30 @@ function restoreNamespace(vars: Record<string, string>): {
 	const restored: string[] = [];
 	const failed: { name: string; reason: string }[] = [];
 	for (const [name, encoded] of Object.entries(vars)) {
+		// D4 (MAJOR-S2): a redacted secret arrives as the literal "***" (structural
+		// redaction in writeArtifact). base64 of a real value is never "***", so this
+		// special-case is collision-free — restore it as the placeholder so the model
+		// re-fetches, instead of failing (Buffer.from("***") → empty → deserialize
+		// throws → wrongly lands in failed).
+		if (encoded === "***") {
+			namespace[name] = "***";
+			restored.push(name);
+			continue;
+		}
 		try {
 			const buffer = Buffer.from(encoded, "base64");
+			// D6 per-var cap (256 KiB) — bounds v8 amplification per decoded var.
+			if (buffer.length > MAX_RESTORE_VAR_BYTES) {
+				failed.push({ name, reason: `size:${buffer.length}>${MAX_RESTORE_VAR_BYTES}` });
+				continue;
+			}
+			// D13 (MINOR-S4): flat redaction can inject "***" INTO a valid base64 payload
+			// (bytes matching sk-/eyJ patterns) → decode yields a DIFFERENT buffer →
+			// silent corruption. Round-trip check: a clean base64 re-encodes identically.
+			if (buffer.toString("base64") !== encoded) {
+				failed.push({ name, reason: "base64-corrupt" });
+				continue;
+			}
 			namespace[name] = deserialize(buffer);
 			restored.push(name);
 		} catch (error) {

@@ -10,6 +10,7 @@ import {
 	PI_CREW_SCRATCHPAD_SNAPSHOT_ENV,
 	PI_CREW_TASK_ID_ENV,
 	type ScratchpadSnapshotDeps,
+	SNAPSHOT_MAX_BYTES,
 	validateSnapshotEnv,
 } from "../../src/prompt/scratchpad-lifecycle.ts";
 import type { EngineManager } from "../../src/runtime/scratchpad/engine.ts";
@@ -354,4 +355,91 @@ describe("scratchpad-artifact (T7 §10.3 / plan T7)", () => {
 			ctx.cleanup();
 		}
 	});
+
+	// ── Phase 2 (D6) — write-side cap: measure RAW byteLength; trim failed ONLY
+	// when over cap; still over → skip persist (keep previous artifact). ────────
+
+	it("P2-T4: under cap with many failed entries → persisted UNTRIMMED (align spec D6 — NIT-4)", async () => {
+		const ctx = makeTempCtx();
+		try {
+			const many = Array.from({ length: 200 }, (_, i) => ({ name: `v${i}`, reason: "r" }));
+			fs.writeFileSync(ctx.snapshotPath, JSON.stringify({ version: 1, vars: {}, failed: many }));
+			const { engine, calls } = makeMockEngine({
+				snapshotState: async () => {
+					calls.snapshotState++;
+					return { path: ctx.snapshotPath, saved: [], failed: many };
+				},
+			});
+			const { calls: writes, spy } = capturedWriteArtifact();
+			await flushScratchpadSnapshot(makeDeps(engine, ctx, { writeArtifact: spy }));
+			assert.equal(writes.length, 1, "small payload must persist");
+			const reparsed = JSON.parse(writes[0].options.content as string);
+			assert.equal(reparsed.failed.length, 200, "under-cap payload is NOT trimmed");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("P2-T4: over cap → failed list trimmed to 50, then persisted", async () => {
+		const ctx = makeTempCtx();
+		try {
+			// Make each failed entry ~2KB so trimming 200→50 saves ~300KB, enough to
+			// land the trimmed payload UNDER the cap (vars occupy most of the cap).
+			const big = "x".repeat(SNAPSHOT_MAX_BYTES - 350_000);
+			const many = Array.from({ length: 200 }, (_, i) => ({ name: `var${i}`, reason: "x".repeat(1900) }));
+			fs.writeFileSync(ctx.snapshotPath, JSON.stringify({ version: 1, vars: { data: big }, failed: many }));
+			const rawSize = fs.statSync(ctx.snapshotPath).size;
+			assert.ok(rawSize > SNAPSHOT_MAX_BYTES, `fixture must exceed cap (raw=${rawSize})`);
+			const { engine, calls } = makeMockEngine({
+				snapshotState: async () => {
+					calls.snapshotState++;
+					return { path: ctx.snapshotPath, saved: ["data"], failed: many };
+				},
+			});
+			const { calls: writes, spy } = capturedWriteArtifact();
+			await flushScratchpadSnapshot(makeDeps(engine, ctx, { writeArtifact: spy }));
+			assert.equal(writes.length, 1, "trimmed payload must persist");
+			const reparsed = JSON.parse(writes[0].options.content as string);
+			assert.equal(reparsed.failed.length, 50, "failed list trimmed to 50");
+			assert.equal(reparsed.vars.data, big, "vars preserved by trim");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("P2-T4: still over cap after trim → skip persist (no write, logs cap)", async () => {
+		const ctx = makeTempCtx();
+		try {
+			const huge = "x".repeat(SNAPSHOT_MAX_BYTES + 10_000);
+			fs.writeFileSync(ctx.snapshotPath, JSON.stringify({ version: 1, vars: { data: huge }, failed: [] }));
+			const { engine } = makeMockEngine({
+				snapshotState: async () => ({ path: ctx.snapshotPath, saved: ["data"], failed: [] }),
+			});
+			const { calls: writes, spy } = capturedWriteArtifact();
+			const logs: string[] = [];
+			await flushScratchpadSnapshot(makeDeps(engine, ctx, { writeArtifact: spy, log: (scope) => logs.push(scope) }));
+			assert.equal(writes.length, 0, "oversized payload must NOT be persisted");
+			assert.ok(logs.includes("scratchpad.cap"), "cap skip must be logged");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+});
+
+it("P2-T4: over cap AND non-JSON → skip persist + log scratchpad.cap (MINOR-2)", async () => {
+	const ctx = makeTempCtx();
+	try {
+		// Non-JSON oversized content (e.g. a partial write after a crash).
+		fs.writeFileSync(ctx.snapshotPath, `${"x".repeat(SNAPSHOT_MAX_BYTES + 100)} not json`);
+		const { engine } = makeMockEngine({
+			snapshotState: async () => ({ path: ctx.snapshotPath, saved: [], failed: [] }),
+		});
+		const { calls: writes, spy } = capturedWriteArtifact();
+		const logs: string[] = [];
+		await flushScratchpadSnapshot(makeDeps(engine, ctx, { writeArtifact: spy, log: (scope) => logs.push(scope) }));
+		assert.equal(writes.length, 0, "non-JSON oversized must NOT persist");
+		assert.ok(logs.includes("scratchpad.cap"), "cap skip logged");
+	} finally {
+		ctx.cleanup();
+	}
 });

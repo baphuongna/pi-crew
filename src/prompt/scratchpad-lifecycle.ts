@@ -32,6 +32,8 @@ import * as path from "node:path";
 import { type Static, Type } from "@sinclair/typebox";
 import { defineTool, type ExtensionAPI, type ToolDefinition } from "../extension/pi-api.ts";
 import { EngineManager, type ExecuteResult } from "../runtime/scratchpad/engine.ts";
+// D5/MAJOR-S1: PI_CREW_PARENT_PID + PI_CREW_GUEST build the guest's zombie-
+// backstop env (PI_CREW_KIND_ENV is already exported above).
 import { type ArtifactWriteOptions, writeArtifact } from "../state/stores/artifact-store.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -42,6 +44,17 @@ export const PI_CREW_ATTEMPT_ENV = "PI_CREW_ATTEMPT";
 export const PI_CREW_ARTIFACTS_ROOT_ENV = "PI_CREW_ARTIFACTS_ROOT";
 export const PI_CREW_SCRATCHPAD_SNAPSHOT_ENV = "PI_CREW_SCRATCHPAD_SNAPSHOT";
 export const PI_CREW_KIND_ENV = "PI_CREW_KIND";
+// D5/MAJOR-S1: guest zombie-backstop env keys (the guest reports the WORKER as
+// its parent so an orphaned guest is flagged when the worker dies).
+export const PI_CREW_PARENT_PID_ENV = "PI_CREW_PARENT_PID";
+export const PI_CREW_GUEST_ENV = "PI_CREW_GUEST";
+// Phase 2 crash-resume (D2): parent-set restore hint — previous attempt's
+// snapshot artifact. Worker re-validates at READ time (D10), never trusts it.
+export const PI_CREW_SCRATCHPAD_RESTORE_ENV = "PI_CREW_SCRATCHPAD_RESTORE";
+// D10/MINOR-S1: swap-detection HINT (parent-pinned mtime at scan time). It is
+// forgeable by any same-uid actor (utimesSync) — defense-in-depth only, never
+// an integrity/authn control (NIT-CA-1).
+export const PI_CREW_SCRATCHPAD_RESTORE_MTIME_ENV = "PI_CREW_SCRATCHPAD_RESTORE_MTIME";
 
 /** Per-cell wall-clock bound (D9/Q2): the ONLY default anti-hang limit. */
 export const EXECUTE_CELL_TIMEOUT_MS = 120_000;
@@ -52,6 +65,12 @@ export const SNAPSHOT_DEBOUNCE_MS = 1500;
 export const EXECUTE_CODE_MAX_LENGTH = 262_144;
 /** §4 step 5: stack traces are capped before they reach the model. */
 export const MAX_ERROR_STACK_LINES = 20;
+/** Phase 2 (D6): snapshot cap — raw byteLength measured BEFORE writeArtifact
+ *  (redacted ≤ raw → conservative). Write side = flush (this module); read side
+ *  = restoreState file-size cap (engine.ts) + guest per-var decode cap (T4). */
+export const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
+/** D10: tolerance for the parent-pinned mtime swap-detection hint. */
+export const RESTORE_MTIME_TOLERANCE_MS = 1000;
 
 const ExecuteParams = Type.Object({
 	code: Type.String({ minLength: 1, maxLength: EXECUTE_CODE_MAX_LENGTH }),
@@ -86,9 +105,31 @@ export const SCRATCHPAD_DOCTRINE: string[] = [
 // lives inside engine.execute → start(), F21).
 let engineSingleton: EngineManager | undefined;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+// Phase 2 crash-resume (D3): pending restore hint, captured at register time
+// (path + parsed attempt only — NOT validated here; MAJOR-P1: validation is
+// re-run at READ time inside the execute handler). Module-scope, not
+// session-scope (NIT-2a): a session reload mid-run re-arms the restore —
+// acceptable, "once per session" means once per worker process.
+interface PendingRestore {
+	path: string;
+	attempt: number;
+}
+let restorePending: PendingRestore | null = null;
 
 function getScratchpadEngine(): EngineManager {
-	engineSingleton ??= new EngineManager();
+	engineSingleton ??= new EngineManager({
+		env: {
+			// D5 (MAJOR-S1): make the guest's recorded parent the WORKER pid, not the
+			// leader's (worker env carries PI_CREW_PARENT_PID=<leader pid> via
+			// child-pi-spawn.ts:152 — pure inheritance would leave orphaned guests
+			// classified LIVE forever, holding provider keys + broker token).
+			// options.env spreads AFTER process.env (engine.ts spawn) → overrides win.
+			// PI_CREW_GUEST distinguishes guest entries in zombie reports.
+			PI_CREW_KIND: "subagent",
+			[PI_CREW_PARENT_PID_ENV]: String(process.pid),
+			[PI_CREW_GUEST_ENV]: "1",
+		},
+	});
 	return engineSingleton;
 }
 
@@ -171,6 +212,72 @@ export function validateSnapshotEnv(env: NodeJS.ProcessEnv = process.env): Snaps
 	return { valid: true, taskId, attempt, artifactsRoot, snapshotPath };
 }
 
+// ── restore validation (Phase 2 — D10, fail-closed at READ time) ───────────
+
+export interface RestoreEnvValidation {
+	valid: boolean;
+	reason?: string;
+	path?: string;
+	attempt?: number;
+}
+
+/**
+ * Phase 2 crash-resume (D10, MAJOR-P1): worker-side, fail-closed, 3-layer
+ * validation of the restore path, re-run at READ time (immediately before
+ * `engine.restoreState`) — the env hint is captured at register but must NOT
+ * be trusted then (TOCTOU: a same-uid team worker can swap the file between
+ * the spawn-time scan and the first execute).
+ *
+ * 1. containment: `resolveRealContainedPath` (O_NOFOLLOW ancestor walk) — the
+ *    resolved path must stay inside artifactsRoot;
+ * 2. filename pattern: `^<taskId>.attempt-<digits>.snapshot.json$`;
+ * 3. regular file (lstat — symlink rejected), size ≤ SNAPSHOT_MAX_BYTES
+ *    (D6 read-side cap against v8.deserialize amplification);
+ * 4. optional mtime pin vs `PI_CREW_SCRATCHPAD_RESTORE_MTIME` — swap-detection
+ *    HINT (forgeable), not authn.
+ *
+ * Any violation → `{ valid: false, reason }`; the caller fail-opens (D11):
+ * no restore, empty namespace, execute continues, message never leaks paths.
+ */
+export function validateRestoreEnv(env: NodeJS.ProcessEnv = process.env, restorePath: string): RestoreEnvValidation {
+	const taskId = env[PI_CREW_TASK_ID_ENV];
+	const artifactsRoot = env[PI_CREW_ARTIFACTS_ROOT_ENV];
+	if (!taskId) return { valid: false, reason: `missing ${PI_CREW_TASK_ID_ENV}` };
+	if (!artifactsRoot) return { valid: false, reason: `missing ${PI_CREW_ARTIFACTS_ROOT_ENV}` };
+	try {
+		// (1) containment + O_NOFOLLOW ancestors (absolute targetPath supported).
+		const resolved = resolveRealContainedPath(artifactsRoot, restorePath);
+		// (2) exact filename pattern (taskId not interpolated into a regex — the
+		//     startsWith/endsWith form keeps agentId free of injection surface).
+		const base = path.basename(resolved);
+		const prefix = `${taskId}.attempt-`;
+		if (!base.startsWith(prefix) || !base.endsWith(".snapshot.json")) {
+			return { valid: false, reason: "restore-path-pattern-mismatch" };
+		}
+		const attemptPart = base.slice(prefix.length, base.length - ".snapshot.json".length);
+		if (!/^\d+$/.test(attemptPart)) return { valid: false, reason: "restore-path-attempt-invalid" };
+		const attempt = Number.parseInt(attemptPart, 10);
+		// (3) regular file, not a symlink; size ≤ cap (D6 read-side).
+		const st = fs.lstatSync(resolved);
+		if (st.isSymbolicLink() || !st.isFile()) return { valid: false, reason: "restore-path-not-regular-file" };
+		if (st.size > SNAPSHOT_MAX_BYTES) return { valid: false, reason: "restore-path-over-cap" };
+		// (4) mtime pin (swap-detection hint — forgeable, never authn).
+		const pinned = env[PI_CREW_SCRATCHPAD_RESTORE_MTIME_ENV];
+		if (pinned) {
+			const pinnedMs = Number.parseFloat(pinned);
+			if (Number.isFinite(pinnedMs) && Math.abs(st.mtimeMs - pinnedMs) > RESTORE_MTIME_TOLERANCE_MS) {
+				return { valid: false, reason: "restore-path-mtime-mismatch" };
+			}
+		}
+		return { valid: true, path: resolved, attempt };
+	} catch (error) {
+		return {
+			valid: false,
+			reason: `restore-path-invalid:${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+}
+
 // ── snapshot flush ──────────────────────────────────────────────────────────
 
 export interface ScratchpadSnapshotDeps {
@@ -231,10 +338,41 @@ export async function flushScratchpadSnapshot(deps: ScratchpadSnapshotDeps): Pro
 			// mkdtemp dir is 0700, so this is belt-and-braces.
 			await fs.promises.chmod(tempPath, 0o600);
 			const content = await fs.promises.readFile(tempPath, "utf8");
+			// Phase 2 (D6 — write-side cap): measure RAW byteLength BEFORE writeArtifact
+			// (redaction happens inside writeArtifact; raw ≥ redacted → conservative).
+			// Trim the failed list ONLY when over cap (align spec D6 — do not trim
+			// unconditionally, NIT-4). Still over cap after trim → skip persist: keep
+			// the previous good artifact (mtime-restore picks the older one).
+			let out = content;
+			if (Buffer.byteLength(content) > SNAPSHOT_MAX_BYTES) {
+				try {
+					const parsed = JSON.parse(content) as { vars?: Record<string, unknown>; failed?: { name: string; reason: string }[] };
+					const trimmed = JSON.stringify({
+						version: 1,
+						vars: parsed.vars ?? {},
+						failed: (parsed.failed ?? []).slice(0, 50),
+					});
+					if (Buffer.byteLength(trimmed) <= SNAPSHOT_MAX_BYTES) {
+						out = trimmed;
+					} else {
+						log(
+							"scratchpad.cap",
+							new Error(
+								`snapshot ${Buffer.byteLength(content)}B > cap ${SNAPSHOT_MAX_BYTES}B; skipping persist (keeps previous artifact)`,
+							),
+						);
+						return;
+					}
+				} catch {
+					// not JSON (unexpected shape) — skip persist rather than write oversized.
+					log("scratchpad.cap", new Error("oversized non-JSON snapshot; skipping persist"), undefined, "warn");
+					return;
+				}
+			}
 			await writeArtifactFn(artifactsRoot, {
 				kind: "result",
 				relativePath: `scratchpad/${taskId}.attempt-${attempt}.snapshot.json`,
-				content,
+				content: out,
 				producer: taskId,
 			});
 		} finally {
@@ -246,6 +384,14 @@ export async function flushScratchpadSnapshot(deps: ScratchpadSnapshotDeps): Pro
 		// F8: best-effort — a snapshot failure must not kill the worker.
 		log("scratchpad.snapshot", error);
 	}
+}
+
+// ── restore notice (MINOR-3: cap the restored/failed name lists so a
+// thousands-var snapshot cannot flood model context with a multi-MB notice) ──
+
+function truncateNameList(names: string[], max = 50): string {
+	if (names.length <= max) return names.join(", ");
+	return `${names.slice(0, max).join(", ")}, … (+${names.length - max} more)`;
 }
 
 // ── execute tool ────────────────────────────────────────────────────────────
@@ -304,6 +450,31 @@ export function createExecuteTool(engine: EngineManager, deps: Partial<Scratchpa
 			if (engine.state === "shutdown") {
 				throw new Error("scratchpad engine đã chết (shutdown)");
 			}
+			// 2.5. Phase 2 crash-resume (D3/D10/D11): restore ONCE on the first execute.
+			//   MAJOR-P1: re-validate at READ time (TOCTOU — the file may have been
+			//   swapped since the spawn-time scan). D11 fail-open: any failure logs
+			//   and continues with an EMPTY namespace — restore is best-effort, never
+			//   a precondition. Message never embeds paths (NIT-2b).
+			let restoreNotice: string | null = null;
+			if (restorePending) {
+				const pending = restorePending;
+				restorePending = null; // NIT-1: null IMMEDIATELY (before any await) — two
+				// overlapping execute dispatches would otherwise both restore (D3 violation).
+				const v = validateRestoreEnv(env, pending.path);
+				try {
+					if (!v.valid) {
+						// NIT-2: observable (sanitized, no path) rejection reason.
+						logInternalError("scratchpad.restore", new Error(`rejected:${v.reason ?? "unknown"}`));
+					}
+					const r = v.valid ? await engine.restoreState(v.path!) : null; // auto-start inside restoreState
+					restoreNotice = r
+						? `[scratchpad] restored ${r.restored.length} vars from attempt-${pending.attempt}; restored: [${truncateNameList(r.restored)}]; failed: [${truncateNameList(r.failed.map((f) => f.name))}]`
+						: "[scratchpad] snapshot restore: no state to restore (fail-open)";
+				} catch (error) {
+					logInternalError("scratchpad.restore", error);
+					restoreNotice = "[scratchpad] snapshot restore failed; continuing with empty namespace";
+				}
+			}
 			// 3. Ping-before-execute (S-2/N2-2): skip on idle so the first cell of a
 			//    session never false-positives (listNamespaceNames → null when idle).
 			if (engine.isRunning) {
@@ -352,8 +523,9 @@ export function createExecuteTool(engine: EngineManager, deps: Partial<Scratchpa
 			if (result.status === "ok") {
 				scheduleScratchpadSnapshot({ ...deps, engine });
 			}
+			const text = restoreNotice ? `${restoreNotice}\n\n${renderExecuteResult(result)}` : renderExecuteResult(result);
 			return {
-				content: [{ type: "text", text: renderExecuteResult(result) }],
+				content: [{ type: "text", text }],
 				details,
 			};
 		},
@@ -398,6 +570,18 @@ export function registerScratchpadLifecycle(pi: ExtensionAPI, options: Scratchpa
 
 	if (shouldRegisterScratchpadTool(options.env ?? process.env)) {
 		pi.registerTool(createExecuteTool(engine, deps));
+		// Phase 2 crash-resume (D3): capture the restore hint — path + parsed
+		// attempt ONLY. NOT validated here (MAJOR-P1: re-validated at READ time).
+		// Reset first: each register is a fresh worker session (a session reload
+		// re-arms restore via the env — NIT-2a, module-scope is intentional).
+		const env = options.env ?? process.env;
+		const restorePath = env[PI_CREW_SCRATCHPAD_RESTORE_ENV];
+		if (restorePath) {
+			const m = restorePath.match(/\.attempt-(\d+)\.snapshot\.json$/);
+			restorePending = { path: restorePath, attempt: m ? Number.parseInt(m[1], 10) : 0 };
+		} else {
+			restorePending = null;
+		}
 	}
 
 	pi.on("session_shutdown", (event) => {

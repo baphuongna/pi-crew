@@ -26,6 +26,7 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { buildPiWorkerArgs, createSafeTempDir, getPiTempBase } from "../model/pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
+import { findLatestScratchpadSnapshot } from "../scratchpad/snapshot-lookup.ts";
 import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
 
 // ── Env allowlist (base set always passed to children) ──────────────────
@@ -297,6 +298,19 @@ export function prepareSpawnContext(
 		// spawn). createSafeTempDir auto-tracks the dir for cleanupAllTrackedTempDirs.
 		const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
 		built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
+		// Phase 2 crash-resume (D1/D1b/D2): locate the latest snapshot artifact of a
+		// PREVIOUS attempt (retry round / crash-recovery re-queue / manual re-run)
+		// and hand its path to the worker via PI_CREW_SCRATCHPAD_RESTORE. The worker
+		// re-validates at READ time (D10) — this env is a hint, not a trust anchor.
+		// Latest-mtime wins (model-fallback i resets each retry round); RESTORE_MTIME
+		// lets the worker detect a swap between spawn and first execute (MINOR-S1).
+		const restoreHit = input.artifactsRoot ? findLatestScratchpadSnapshot(input.artifactsRoot, input.agentId) : null;
+		if (restoreHit) {
+			built.env.PI_CREW_SCRATCHPAD_RESTORE = restoreHit.path;
+			// NIT-CA-1: mtime pin is a SWAP-DETECTION HINT (defense-in-depth), never
+			// an integrity/authn control — any same-uid actor can utimesSync it.
+			built.env.PI_CREW_SCRATCHPAD_RESTORE_MTIME = String(restoreHit.mtimeMs);
+		}
 	}
 	// B5: if the parent already aborted before we spawn, do not start the child
 	// at all. Spawning a doomed process wastes resources, and the abort listener

@@ -19,10 +19,17 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+
+/** D6 read-side cap (Checkpoint B, MINOR-2): restoreState refuses a file larger
+ *  than this — an independent guard from the lifecycle cap (same value, no
+ *  import to keep engine free of a lifecycle cycle). Bounds v8.deserialize
+ *  amplification from a swapped snapshot file. */
+const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
+
 import { decodeMessage, encodeMessage, type GuestToHostMessage, type HostToGuestMessage, NONCE_ENV, PROTOCOL_FD } from "./protocol.ts";
 
 const GUEST_PATH = fileURLToPath(new URL("./guest.ts", import.meta.url));
@@ -554,10 +561,25 @@ export class EngineManager {
 	}
 
 	async restoreState(path: string): Promise<RestoreResult | null> {
-		if (!existsSync(path)) return null;
-		await this.start();
+		// MINOR-2 (Checkpoint B review) + holistic MINOR-1 (fd leak): open ONCE with
+		// O_NOFOLLOW, fstat for regular-file + size cap, read via that fd — ALL
+		// under a single try/finally so the fd is closed on EVERY path (the early
+		// `return null` checks and an `await this.start()` throw included). Closes
+		// the TOCTOU between the caller's lstat and this read, and the cap is
+		// enforced HERE so a caller cannot bypass it.
+		let fd: number | undefined;
 		try {
-			const payload = JSON.parse(readFileSync(path, "utf8")) as {
+			try {
+				fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+			} catch {
+				return null; // missing / symlinked final component — fail-open
+			}
+			const st = fstatSync(fd);
+			if (!st.isFile() || st.isSymbolicLink()) return null;
+			if (st.size > SNAPSHOT_MAX_BYTES) return null;
+			// file validated → lazily start the engine, then read+restore via fd.
+			await this.start();
+			const payload = JSON.parse(readFileSync(fd, { encoding: "utf8" })) as {
 				vars?: Record<string, string>;
 			};
 			const vars = payload.vars ?? {};
@@ -566,6 +588,8 @@ export class EngineManager {
 			return { path, restored: reply.restored, failed: reply.failed };
 		} catch {
 			return null;
+		} finally {
+			if (fd !== undefined) closeSync(fd);
 		}
 	}
 

@@ -115,3 +115,128 @@ test("T5: all 5 keys are PI_CREW_* control vars (pass assertOnlyControlEnvKeys)"
 	// must not throw — all keys are PI_CREW_* prefixed.
 	assert.doesNotThrow(() => assertOnlyControlEnvKeys(added));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 (D2) — PI_CREW_SCRATCHPAD_RESTORE env wiring: only when a previous
+// attempt's snapshot artifact exists in the run artifact store.
+
+function envForWithArtifacts(
+	role: string,
+	agent: AgentConfig,
+	opts?: { agentId?: string; artifactsRoot?: string; attempt?: number; snapshots?: string[] },
+): { env: Record<string, string | undefined>; root: string } {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-"));
+	try {
+		const artifactsRoot: string | undefined = opts?.artifactsRoot;
+		if (artifactsRoot) {
+			for (const name of opts?.snapshots ?? []) {
+				const p = path.join(artifactsRoot, "scratchpad", name);
+				fs.mkdirSync(path.dirname(p), { recursive: true });
+				fs.writeFileSync(p, "{}");
+			}
+		}
+		const res = prepareSpawnContext(
+			{
+				cwd: dir,
+				task: "small task",
+				agent,
+				role,
+				agentId: opts?.agentId,
+				artifactsRoot,
+				attempt: opts?.attempt,
+			},
+			"small task",
+		);
+		assert.equal(res.kind, "ready", "must be ready (no pre-spawn abort)");
+		if (res.kind !== "ready") return { env: {}, root: dir };
+		return { env: res.ctx.mergedEnv as Record<string, string | undefined>, root: dir };
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+test("P2-T2: prior snapshot exists → PI_CREW_SCRATCHPAD_RESTORE + _MTIME set (crash-resume D2)", () => {
+	const art = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-art-"));
+	try {
+		fs.mkdirSync(path.join(art, "scratchpad"), { recursive: true });
+		const snap = path.join(art, "scratchpad", "task-1.attempt-0.snapshot.json");
+		fs.writeFileSync(snap, "{}");
+		const { env } = envForWithArtifacts("executor", makeAgent(), {
+			agentId: "task-1",
+			artifactsRoot: art,
+			snapshots: [],
+		});
+		assert.ok(env.PI_CREW_SCRATCHPAD_RESTORE, "restore env must be set when a snapshot exists");
+		assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE, snap);
+		assert.match(env.PI_CREW_SCRATCHPAD_RESTORE_MTIME!, /^\d+(\.\d+)?$/, "mtime pin must be numeric");
+	} finally {
+		fs.rmSync(art, { recursive: true, force: true });
+	}
+});
+
+test("P2-T2: no prior snapshot → no RESTORE env (fail-open, zero behavior change)", () => {
+	const art = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-art-"));
+	try {
+		const { env } = envForWithArtifacts("executor", makeAgent(), { agentId: "task-1", artifactsRoot: art });
+		assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE, undefined);
+		assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE_MTIME, undefined);
+	} finally {
+		fs.rmSync(art, { recursive: true, force: true });
+	}
+});
+
+test("P2-T2: artifactsRoot unset → no RESTORE env, no crash", () => {
+	const { env } = envForWithArtifacts("executor", makeAgent(), { agentId: "task-1" });
+	assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE, undefined);
+});
+
+test("P2-T2: S-6 read-only role gets NO RESTORE env even with a prior snapshot (privilege gate)", () => {
+	const art = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-art-"));
+	try {
+		fs.mkdirSync(path.join(art, "scratchpad"), { recursive: true });
+		fs.writeFileSync(path.join(art, "scratchpad", "task-1.attempt-0.snapshot.json"), "{}");
+		const { env } = envForWithArtifacts("explorer", makeAgent(), { agentId: "task-1", artifactsRoot: art });
+		assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE, undefined);
+		assert.equal(env.PI_CREW_SCRATCHPAD, undefined, "read-only role: no scratchpad at all");
+	} finally {
+		fs.rmSync(art, { recursive: true, force: true });
+	}
+});
+
+test("P2-T2: F6 kill-switch (agent.scratchpad:false) → no RESTORE env even with a prior snapshot", () => {
+	const art = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-art-"));
+	try {
+		fs.mkdirSync(path.join(art, "scratchpad"), { recursive: true });
+		fs.writeFileSync(path.join(art, "scratchpad", "task-1.attempt-0.snapshot.json"), "{}");
+		const { env } = envForWithArtifacts("executor", makeAgent({ scratchpad: false }), {
+			agentId: "task-1",
+			artifactsRoot: art,
+		});
+		assert.equal(env.PI_CREW_SCRATCHPAD_RESTORE, undefined);
+		assert.equal(env.PI_CREW_SCRATCHPAD, undefined);
+	} finally {
+		fs.rmSync(art, { recursive: true, force: true });
+	}
+});
+
+test("P2-T2: RESTORE keys are PI_CREW_* control vars (pass assertOnlyControlEnvKeys — NIT-3)", async () => {
+	const { assertOnlyControlEnvKeys } = await import("../../../../src/runtime/child-pi/child-pi-spawn.ts");
+	const art = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5-art-"));
+	try {
+		fs.mkdirSync(path.join(art, "scratchpad"), { recursive: true });
+		fs.writeFileSync(path.join(art, "scratchpad", "task-1.attempt-0.snapshot.json"), "{}");
+		const { env } = envForWithArtifacts("executor", makeAgent(), { agentId: "task-1", artifactsRoot: art });
+		const added = Object.fromEntries(
+			Object.entries(env).filter(
+				([k]) =>
+					k.startsWith("PI_CREW_SCRATCHPAD") ||
+					k === "PI_CREW_TASK_ID" ||
+					k === "PI_CREW_ATTEMPT" ||
+					k === "PI_CREW_ARTIFACTS_ROOT",
+			),
+		);
+		assert.doesNotThrow(() => assertOnlyControlEnvKeys(added));
+	} finally {
+		fs.rmSync(art, { recursive: true, force: true });
+	}
+});
