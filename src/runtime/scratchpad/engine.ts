@@ -19,7 +19,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants as fsConstants, fstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -553,7 +553,12 @@ export class EngineManager {
 			const reply = await this.request({ type: "snapshot", id: randomUUID() }, SNAPSHOT_REQUEST_TIMEOUT_MS);
 			if (reply.type !== "snapshot_result") return null;
 			mkdirSync(dirname(path), { recursive: true });
-			writeFileSync(path, JSON.stringify({ version: 1, vars: reply.vars, failed: reply.failed }));
+			// Phase 3 (D2'): atomic write — temp + rename same-dir eliminates the
+			// torn-write race (debounce timer vs F3 quit, or any future 2nd writer).
+			// Same directory ⇒ same filesystem ⇒ rename is atomic.
+			const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+			writeFileSync(tmp, JSON.stringify({ version: 1, vars: reply.vars, failed: reply.failed }));
+			renameSync(tmp, path);
 			return { path, saved: Object.keys(reply.vars), failed: reply.failed };
 		} catch {
 			return null;

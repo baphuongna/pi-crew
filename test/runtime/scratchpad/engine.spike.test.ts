@@ -108,3 +108,32 @@ test("snapshot reports unserializable bindings in failed list, engine stays usab
 	assert.equal(usable.status, "ok");
 	assert.equal(usable.result, "42");
 });
+
+test("Phase 3 (D2'): snapshotState is atomic — concurrent writes don't tear, no .tmp leftover", { timeout: 60_000 }, async () => {
+	const dir = mkdtempSync(join(tmpdir(), "p3-atomic-"));
+	try {
+		const engine = new EngineManager({
+			env: { PI_CREW_KIND: "subagent", PI_CREW_PARENT_PID: String(process.pid), PI_CREW_GUEST: "1" },
+		});
+		try {
+			await engine.execute("const x = 1; x");
+			const target = join(dir, "snap.json");
+			// Two concurrent snapshotState calls to the same path — without atomicity
+			// the non-atomic writeFileSync could tear; with rename, one wins clean.
+			const [, r2] = await Promise.all([engine.snapshotState(target), engine.snapshotState(target)]);
+			void r2;
+			// The file must be valid JSON (no torn write).
+			const { readFileSync, readdirSync } = await import("node:fs");
+			const parsed = JSON.parse(readFileSync(target, "utf8")) as { version: number; vars: Record<string, unknown> };
+			assert.equal(parsed.version, 1);
+			assert.ok(parsed.vars && typeof parsed.vars === "object");
+			// No leftover .tmp files (rename consumed them).
+			const leftover = readdirSync(dir).filter((f) => f.endsWith(".tmp"));
+			assert.equal(leftover.length, 0, "no .tmp leftover after atomic rename");
+		} finally {
+			await engine.kill();
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});

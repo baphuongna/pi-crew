@@ -136,3 +136,49 @@ The `test/runtime/scratchpad/*` spike tests (incl. the D1/D4/D6/D13 restore pins
 are NOT wired into `npm run test:unit` (which globs `test/unit/**`). Run them
 directly per the Phase runbook: `node scripts/test-runner.mjs --test-force-exit
 test/runtime/scratchpad/restore-e2e.spike.test.ts`.
+
+---
+
+# Phase 3 — Cancellation: kill-and-restore (verified) + atomic snapshot
+
+## Kill-and-restore ALREADY WORKS (no new handler needed)
+
+A worker killed via SIGTERM is flushed by the **existing** F3 quit-path — no
+Phase 3 worker-side handler is required. The chain (verified against installed
+pi 0.80.3/0.84.1):
+
+```
+parent abort() / timeout / drain
+└─ child-pi killProcessTree → group SIGTERM
+   └─ pi print-mode signal handler (modes/print-mode.js:31-44 registerSignalHandlers)
+      └─ disposeRuntime() → runtimeHost.dispose()
+         └─ emitSessionShutdownEvent({ reason: "quit" })  [awaited]
+            └─ scratchpad-lifecycle F3 handler (reason === "quit" gate passes)
+               └─ performShutdownFlush: snapshot → writeArtifact (redact) → engine.kill
+                  └─ process.exit(143)
+```
+
+The next attempt then restores from this F3 flush (Phase 2), closing the ≤1.5s
+debounce gap. (pi-crew's own `extension/crew-cleanup.ts:98` also installs a
+worker SIGTERM handler for child-process cleanup; both coexist.)
+
+## Phase 3 hardening
+
+- **Atomic `snapshotState` (D2')**: the raw snapshot temp is now written via
+  `temp + rename` (same dir → atomic). Eliminates the theoretical torn-write
+  race between the debounce timer and the F3 quit flush.
+- **EngineBusyError: SKIPPED** (confirmed). The spike dropped it (engine.ts:15);
+  the engine serializes concurrent `execute` calls via a FIFO queue, and
+  ping-before-execute (`scratchpad-lifecycle.ts`) already detects a wedged guest.
+  Re-adding a busy-reject would break the queue contract for no new coverage.
+- **Eviction is a non-scenario**: live agents are in-process SDK sessions
+  (`live-session-runtime.ts`), `abort()` is in-process (no SIGTERM, no worker
+  process). Scratchpad is never armed in the host process (gate requires
+  `PI_CREW_KIND=subagent`), so there is nothing to flush on eviction.
+
+## Pin test
+
+`test/runtime/scratchpad/sigterm-kill-restore.spike.test.ts` (gated
+`PI_CREW_TEST_REAL_MODEL=1`) spawns a real `pi --mode json -p` worker, runs one
+`execute` cell, sends SIGTERM inside the debounce window, and asserts an F3
+artifact appears with a SIGTERM-time mtime. Skipped by default (CI-safe).

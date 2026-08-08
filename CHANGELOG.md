@@ -2,6 +2,21 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Phase 3 cancellation hardening (experimental)
+
+### Features
+
+- **Atomic snapshot write (D2')**: `engine.snapshotState` now writes via
+  `temp + rename` (same directory), eliminating the theoretical torn-write race
+  between the debounce timer and the F3 quit flush.
+- **Kill-and-restore verified**: the existing SIGTERM → pi print-mode dispose →
+  `session_shutdown` reason:"quit" → F3 flush chain already captures a fresh
+  snapshot on worker kill (no new handler required). Documented + pinned by a
+  gated real-worker test.
+- **EngineBusyError: deliberately skipped** — ping-before-execute already
+  detects a wedged guest; the FIFO execute queue makes a busy-reject redundant.
+
+
 ## [Unreleased] — Phase 2 crash-resume (experimental)
 
 ### Features
