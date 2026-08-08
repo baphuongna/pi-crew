@@ -2,6 +2,39 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Phase 1 worker scratchpad (experimental)
+
+### Features
+
+- **Worker stateful scratchpad (experimental)**: opt-in persistent Bun-free JS
+  evaluator (`execute` tool) for workers, ported from the pi-rlm pattern.
+  State (variables, parsed data) compounds across `execute` calls within a task
+  attempt — intermediate results live in a namespace instead of being re-derived
+  from transcript text. Snapshot per-attempt into the run artifact store
+  (redacted + atomic) prepares the ground for Phase 2 crash-resume.
+  - Opt-in per role: `executor`, `test-engineer`, `verifier` (default on); other
+    roles via agent frontmatter `scratchpad: true` (write roles only).
+  - Security: S-6 read-only roles are gated out regardless of frontmatter
+    (privilege-elevation guard); F6 `scratchpad: false` is an explicit kill-switch;
+    raw snapshots never land in the artifact root (temp dir → redacted
+    `writeArtifact`).
+  - Dormant by default: only active when `PI_CREW_SCRATCHPAD=1` is set by the
+    spawner; zero behavior change for non-opt-in workers.
+
+
+## [0.9.63] — built-in performance observability + local-path provider-extension discovery (2026-08-08)
+
+### Features
+
+- **Built-in performance observability (byte-built-in, always-on).** Every team run now auto-attaches a detached resource sampler and auto-generates a detailed performance report on completion — no separate benchmark harness needed. Toggle per-team via frontmatter `observability: true|false` (default `true` for parsed team files; direct-object `TeamConfig` fixtures stay unset for test isolation).
+  - **Live resource sampler** (`scripts/resource-sampler.mjs`): samples CPU/RSS per-PID every 2s via ppid-tree attribution (root runner + all child workers, including respawns), with PID-reuse guard (`/proc` starttime), first-sample CPU exclusion, and **6 live warning categories** — `high_cpu` (≥300%), `rss_jump` (+200MB/interval), `rss_high` (≥1GB), `rss_leak` (window-30 monotonic +100MB), `proc_died`, `proc_zombie`. Rate-limited (10s/pid/category); `--no-live-warn` flag to silence.
+  - **Post-hoc analyzer** (`scripts/analyze-run.mjs`): combines `events.jsonl` + transcripts + `resources.jsonl` into a markdown report at `docs/perf-report-<runId>.md` with **22 anomaly categories** (task_failed, model_retry/model_cascade, large_gap, slow_phase, launch_delay, drain_stall, token_imbalance, no_cache, worker_respawn_churn, api_error_storm, zero_output_completion, sustained_cpu, transient_cpu/rss_spike, rss_growth, run_not_completed, high_failure_rate, run_idle, cost_unreported, missing_transcript, sampler_gap, tool_churn), a per-subagent timeline (launch / respawn / startup / active-work / drain / finalize), and token/cost/model attribution. Optional `--agents` flag emits per-agent breakdowns.
+  - **Runtime wiring** (`src/runtime/team-runner.ts`): `startPerfSampler` spawns the sampler detached + `unref`'d (death never affects the run); `schedulePerfAnalyze` runs the analyzer +3s after `after_run_complete` via an `unref`'d `setTimeout` (never blocks run completion). Strict `observability !== true` keeps test fixtures from spawning. The sampler auto-stops when the run manifest reaches a terminal status (`--watch-run` mode).
+  - **Overhead ≈ 0** (measured A/B): sampler ~0.05% of one core, 56MB RSS fixed; analyzer ~72ms one-shot after run; ~32KB artifacts/run. Verified end-to-end on real runs — see `docs/real-test/reports/real-test-2026-08-07-perf-obs-overhead.md`.
+
+### Bug fixes
+
+- **Local-path provider extensions were not discovered for child workers (oc-go and any `pi install <local-path>` provider went "Model not found").** `discoverProviderExtensions` only resolved `npm:` specs from `~/.pi/agent/settings.json` `packages`, skipping local-path specs (e.g. `../../source/my_pi/source/pi-other-provider`) on the assumption that local paths were the pi-crew extension itself. That assumption was wrong for local provider extensions: `--no-extensions` in `buildPiWorkerArgs` stripped the provider from every child spawn → every model from that provider hit `Error: Model "…" not found` → the fallback chain burned 5 spawn-fails (~10s) per task before landing on a builtin provider. Fix: resolve local-path specs (`./`, `../`, absolute) relative to the settings.json dir — same trust level as `npm:` (settings packages are a sanctioned channel written by `pi install`); skip the pi-crew package itself via `packageRoot()` (a worker must not re-load the orchestrator). **SEC-1 preserved** (project/project-pi AGENT extensions in `.crew/agents/*.md` frontmatter stay gated — that is a separate, untrusted channel). Tests in `test/unit/runtime/model/provider-extensions.test.ts`. Investigation + correction of the earlier "hidden models" mis-attribution in `docs/real-test/reports/real-test-2026-08-08-provider-ext-local-path.md`.
 
 ## [0.9.62] — provider-quota attribution per live-session agent + dead-worker alert re-fire fix (2026-08-06)
 

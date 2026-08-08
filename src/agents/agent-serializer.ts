@@ -15,6 +15,7 @@ export function serializeAgent(agent: AgentConfig): string {
 		line("fallbackModels", agent.fallbackModels),
 		line("thinking", agent.thinking),
 		line("tools", agent.tools),
+		line("scratchpad", agent.scratchpad),
 		agent.extensions !== undefined ? (line("extensions", agent.extensions) ?? "extensions:") : undefined,
 		line("skills", agent.skills),
 		line("systemPromptMode", agent.systemPromptMode),

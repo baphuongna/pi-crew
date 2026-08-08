@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startChildBrokerClient } from "../runtime/broker/crew-broker-child.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { registerScratchpadLifecycle } from "./scratchpad-lifecycle.ts";
 
 export const PI_TEAMS_INHERIT_PROJECT_CONTEXT_ENV = "PI_TEAMS_INHERIT_PROJECT_CONTEXT";
 export const PI_TEAMS_INHERIT_SKILLS_ENV = "PI_TEAMS_INHERIT_SKILLS";
@@ -377,4 +378,9 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 		if (rewritten === event.systemPrompt) return;
 		return { systemPrompt: rewritten };
 	});
+
+	// ── Phase 1 scratchpad (T6): conditional `execute` tool + EngineManager
+	// lifecycle. Registers nothing when PI_CREW_SCRATCHPAD !== "1" (D3) and
+	// only flushes+kills the engine on session_shutdown reason "quit" (F3).
+	registerScratchpadLifecycle(pi);
 }

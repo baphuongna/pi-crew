@@ -60,6 +60,10 @@ export interface AgentConfig {
 	fallbackModels?: string[];
 	thinking?: string;
 	tools?: string[];
+	/** Phase 1 scratchpad opt-in (execute tool). `false` wins over a
+	 * role default (F6 kill-switch); read-only roles are gated out regardless
+	 * (S-6) by `isScratchpadEnabledForRole`. Parsed from frontmatter `scratchpad:`. */
+	scratchpad?: boolean;
 	extensions?: string[];
 	/**
 	 * F1 (v0.7.9): extension denylist (case-insensitive plain names). Applied

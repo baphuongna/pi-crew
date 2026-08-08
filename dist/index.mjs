@@ -11513,10 +11513,16 @@ function discoverProviderExtensions(settingsPath2) {
   const npmBase = path9.join(baseDir, "npm", "node_modules");
   for (const spec of settings.packages ?? []) {
     if (typeof spec !== "string") continue;
-    if (!spec.startsWith("npm:")) continue;
-    const pkgName = spec.slice(4);
-    const pkgDir = path9.join(npmBase, pkgName);
+    let pkgDir;
+    if (spec.startsWith("npm:")) {
+      pkgDir = path9.join(npmBase, spec.slice(4));
+    } else if (spec.startsWith("./") || spec.startsWith("../") || path9.isAbsolute(spec)) {
+      pkgDir = path9.resolve(baseDir, spec);
+    } else {
+      continue;
+    }
     if (!fs9.existsSync(pkgDir)) continue;
+    if (path9.resolve(pkgDir) === path9.resolve(packageRoot())) continue;
     const entryPath = resolvePackageEntry(pkgDir);
     if (entryPath) out.push({ spec, entryPath });
   }
@@ -11602,15 +11608,51 @@ var init_frontmatter = __esm({
   }
 });
 
+// src/runtime/role-permission.ts
+function permissionForRole(role) {
+  if (READ_ONLY_ROLES.has(role)) return "read_only";
+  if (WRITE_ROLES.has(role)) return "workspace_write";
+  return "read_only";
+}
+function currentCrewRole(env = process.env) {
+  return env.PI_CREW_ROLE?.trim() || env.PI_TEAMS_ROLE?.trim() || void 0;
+}
+function checkSubagentSpawnPermission(role) {
+  if (!role) return { allowed: true, mode: "workspace_write" };
+  const mode = permissionForRole(role);
+  if (mode === "read_only")
+    return {
+      allowed: false,
+      mode,
+      reason: `Role '${role}' is read-only and cannot spawn additional subagents.`
+    };
+  return { allowed: true, mode };
+}
+var READ_ONLY_ROLES, WRITE_ROLES;
+var init_role_permission = __esm({
+  "src/runtime/role-permission.ts"() {
+    "use strict";
+    READ_ONLY_ROLES = /* @__PURE__ */ new Set(["explorer", "reviewer", "security-reviewer", "analyst", "critic", "planner"]);
+    WRITE_ROLES = /* @__PURE__ */ new Set(["executor", "test-engineer", "writer", "verifier", "agent", "cold-verifier", "chain-executor", "worker"]);
+  }
+});
+
 // src/config/role-tools.ts
 function getToolConfig(role) {
   const key = role.includes("_") ? role.replaceAll("_", "-") : role;
   return ROLE_TOOL_CONFIGS[key] ?? ROLE_TOOL_CONFIGS[role] ?? {};
 }
+function isScratchpadEnabledForRole(role, agent) {
+  const normalized = role.includes("_") ? role.replaceAll("_", "-") : role;
+  if (permissionForRole(normalized) === "read_only") return false;
+  if (agent?.scratchpad === false) return false;
+  return agent?.scratchpad === true || getToolConfig(normalized).scratchpad === true;
+}
 var ROLE_TOOL_CONFIGS;
 var init_role_tools = __esm({
   "src/config/role-tools.ts"() {
     "use strict";
+    init_role_permission();
     ROLE_TOOL_CONFIGS = {
       // Explorer - Read-only exploration; bash is included for git log/show
       // (decisions stream needs commit-history mining) but edit/write stay
@@ -11641,9 +11683,11 @@ var init_role_tools = __esm({
         tools: ["read", "grep", "find", "ls", "glob"],
         excludeTools: ["edit", "write", "bash", "web"]
       },
-      // Executor - Full access (default)
+      // Executor - Full access (default). Phase 1 scratchpad-enabled (stateful
+      // evaluator compounds intermediate results across execute calls).
       executor: {
         // No restrictions - full tool access
+        scratchpad: true
       },
       // Reviewer - Read and review, no write
       reviewer: {
@@ -11670,12 +11714,16 @@ var init_role_tools = __esm({
       // integrity is preserved during verification. Mirrors cold-verifier behavior.
       verifier: {
         tools: ["read", "grep", "find", "ls", "bash"],
-        excludeTools: ["edit", "write", "web"]
+        excludeTools: ["edit", "write", "web"],
+        // Phase 1 scratchpad: multi-cell test/verify flows reuse parsed state.
+        scratchpad: true
       },
       // Test Engineer - Can write tests (F1: hyphenated key)
       "test-engineer": {
         tools: ["read", "edit", "write", "bash", "ls"],
-        excludeTools: ["web"]
+        excludeTools: ["web"],
+        // Phase 1 scratchpad: build/run test suites with state across cells.
+        scratchpad: true
       }
     };
   }
@@ -11891,6 +11939,14 @@ function parseAgentFile(filePath, source) {
       fallbackModels: parseCsv(frontmatter.fallbackModels),
       thinking: frontmatter.thinking === "false" ? void 0 : frontmatter.thinking || void 0,
       tools: parseToolsField(frontmatter.tools),
+      // Phase 1 scratchpad opt-in (Q3: pi ignores unknown frontmatter keys; pi-crew
+      // is the sole consumer in the worker path — task arrives via -p, agent file
+      // is not re-read by pi). 3-STATE parse (NOT `=== "true"` like
+      // inheritProjectContext): omitted/malformed → undefined so the F6 kill-switch
+      // (`agent.scratchpad === false`) only fires on an EXPLICIT `scratchpad: false`,
+      // not on every agent without the key (which would wrongly kill role
+      // default-on). Only the literal "true"/"false" are honored.
+      scratchpad: frontmatter.scratchpad === "true" ? true : frontmatter.scratchpad === "false" ? false : void 0,
       // SEC-1: Strip extensions/excludeExtensions for untrusted project-sourced
       // agents (RCE prevention). Both `project` (.crew/agents/) and
       // `project-pi` (.pi/agents/) are repo-adjacent / untrusted sources —
@@ -12392,6 +12448,8 @@ function parseTeamFile(filePath, source) {
       defaultWorkflow: frontmatter.defaultWorkflow || frontmatter.workflow || void 0,
       workspaceMode: frontmatter.workspaceMode?.trim() === "worktree" ? "worktree" : "single",
       maxConcurrency: frontmatter.maxConcurrency ? Number.parseInt(frontmatter.maxConcurrency, 10) : void 0,
+      // observability defaults ON ("luôn hoạt động"); explicit `observability: false` disables.
+      observability: frontmatter.observability === void 0 ? true : frontmatter.observability !== "false",
       routing: triggers || useWhen || avoidWhen || cost || category ? { triggers, useWhen, avoidWhen, cost, category } : void 0
     };
   } catch {
@@ -14956,6 +15014,16 @@ function prepareSpawnContext(input, effectiveTask) {
     if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
     if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
   }
+  if (input.agentId && isScratchpadEnabledForRole(input.role ?? input.agent.name, input.agent)) {
+    built.env.PI_CREW_SCRATCHPAD = "1";
+    built.env.PI_CREW_TASK_ID = input.agentId;
+    built.env.PI_CREW_ATTEMPT = String(input.attempt ?? 0);
+    if (input.artifactsRoot) {
+      built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
+    }
+    const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
+    built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
+  }
   if (input.signal?.aborted) {
     return {
       kind: "aborted",
@@ -14983,9 +15051,11 @@ var BASE_ALLOWLIST;
 var init_child_pi_spawn = __esm({
   "src/runtime/child-pi/child-pi-spawn.ts"() {
     "use strict";
+    init_role_tools();
     init_env_allowlist();
     init_env_filter();
     init_internal_error();
+    init_safe_paths();
     init_pi_args();
     init_pi_spawn();
     BASE_ALLOWLIST = [
@@ -33743,35 +33813,6 @@ var init_live_session_runtime = __esm({
   }
 });
 
-// src/runtime/role-permission.ts
-function permissionForRole(role) {
-  if (READ_ONLY_ROLES.has(role)) return "read_only";
-  if (WRITE_ROLES.has(role)) return "workspace_write";
-  return "read_only";
-}
-function currentCrewRole(env = process.env) {
-  return env.PI_CREW_ROLE?.trim() || env.PI_TEAMS_ROLE?.trim() || void 0;
-}
-function checkSubagentSpawnPermission(role) {
-  if (!role) return { allowed: true, mode: "workspace_write" };
-  const mode = permissionForRole(role);
-  if (mode === "read_only")
-    return {
-      allowed: false,
-      mode,
-      reason: `Role '${role}' is read-only and cannot spawn additional subagents.`
-    };
-  return { allowed: true, mode };
-}
-var READ_ONLY_ROLES, WRITE_ROLES;
-var init_role_permission = __esm({
-  "src/runtime/role-permission.ts"() {
-    "use strict";
-    READ_ONLY_ROLES = /* @__PURE__ */ new Set(["explorer", "reviewer", "security-reviewer", "analyst", "critic", "planner"]);
-    WRITE_ROLES = /* @__PURE__ */ new Set(["executor", "test-engineer", "writer", "verifier", "agent", "cold-verifier", "chain-executor", "worker"]);
-  }
-});
-
 // src/state/coordination/task-claims.ts
 import { randomUUID as randomUUID4, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 function createTaskClaim(owner, leaseMs = 5 * 6e4, now = /* @__PURE__ */ new Date()) {
@@ -39426,6 +39467,7 @@ function serializeAgent(agent) {
     line("fallbackModels", agent.fallbackModels),
     line("thinking", agent.thinking),
     line("tools", agent.tools),
+    line("scratchpad", agent.scratchpad),
     agent.extensions !== void 0 ? line("extensions", agent.extensions) ?? "extensions:" : void 0,
     line("skills", agent.skills),
     line("systemPromptMode", agent.systemPromptMode),
@@ -39476,6 +39518,7 @@ function serializeTeam(team) {
     team.defaultWorkflow ? `defaultWorkflow: ${team.defaultWorkflow}` : void 0,
     team.workspaceMode ? `workspaceMode: ${team.workspaceMode}` : void 0,
     team.maxConcurrency !== void 0 ? `maxConcurrency: ${team.maxConcurrency}` : void 0,
+    team.observability !== void 0 ? `observability: ${team.observability}` : void 0,
     line2("triggers", team.routing?.triggers),
     line2("useWhen", team.routing?.useWhen),
     line2("avoidWhen", team.routing?.avoidWhen),
@@ -53371,6 +53414,7 @@ async function runChildProcessTask(ctx) {
         runId: manifest.runId,
         agentId: task.id,
         artifactsRoot: manifest.artifactsRoot,
+        attempt: i,
         steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
         onSpawn: (pid) => {
           try {
@@ -56696,8 +56740,10 @@ __export(team_runner_exports, {
   setRunStatusRunning: () => setRunStatusRunning,
   shouldUseRetry: () => shouldUseRetry
 });
+import { spawn as spawn6 } from "node:child_process";
 import * as fs86 from "node:fs";
 import * as path72 from "node:path";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 function startTeamRunHeartbeat(stateRoot, runId) {
   const heartbeatPath = path72.join(stateRoot, "heartbeat.json");
   const writeHeartbeat = () => {
@@ -56720,6 +56766,87 @@ function startTeamRunHeartbeat(stateRoot, runId) {
   writeHeartbeat();
   const interval = setInterval(writeHeartbeat, 6e4);
   return () => clearInterval(interval);
+}
+function perfScriptPath(scriptName) {
+  try {
+    const candidates = [
+      fileURLToPath7(new URL(`../../scripts/${scriptName}`, import.meta.url)),
+      fileURLToPath7(new URL(`../scripts/${scriptName}`, import.meta.url))
+    ];
+    return candidates.find((p) => fs86.existsSync(p));
+  } catch {
+    return void 0;
+  }
+}
+function startPerfSampler(manifest, team) {
+  const marker = (msg) => {
+    try {
+      fs86.appendFileSync(path72.join(manifest.artifactsRoot, "perf-obs.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+`);
+    } catch {
+    }
+  };
+  marker(`startPerfSampler entered (team=${team.name} observability=${String(team.observability)} importMetaUrl=${import.meta.url})`);
+  if (team.observability !== true) {
+    marker(`SKIP: observability=${String(team.observability)} !== true`);
+    return;
+  }
+  const samplerPath = perfScriptPath("resource-sampler.mjs");
+  if (!samplerPath) {
+    marker(`SKIP: resource-sampler.mjs not found (importMetaUrl=${import.meta.url})`);
+    return;
+  }
+  marker(`spawning sampler from ${samplerPath}`);
+  const crewRoot = path72.dirname(path72.dirname(path72.dirname(manifest.stateRoot)));
+  const outPath = path72.join(manifest.artifactsRoot, "resources.jsonl");
+  const logPath = path72.join(manifest.artifactsRoot, "perf-obs.log");
+  try {
+    const child = spawn6(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        samplerPath,
+        "--watch-run",
+        manifest.runId,
+        "--crew-root",
+        crewRoot,
+        "--interval",
+        String(OBSERVABILITY_INTERVAL_MS),
+        "--out",
+        outPath
+      ],
+      { detached: true, stdio: ["ignore", "ignore", "pipe"] }
+    );
+    child.stderr?.on("data", (d) => {
+      try {
+        fs86.appendFileSync(logPath, String(d));
+      } catch {
+      }
+    });
+    child.unref();
+  } catch (err2) {
+    console.warn(`[perf-obs] sampler spawn failed for ${manifest.runId}: ${String(err2)}`);
+  }
+}
+function schedulePerfAnalyze(manifest, team) {
+  if (team.observability !== true) return;
+  const analyzePath = perfScriptPath("analyze-run.mjs");
+  const resourcesPath = path72.join(manifest.artifactsRoot, "resources.jsonl");
+  if (!analyzePath || !fs86.existsSync(resourcesPath)) return;
+  const crewRoot = path72.dirname(path72.dirname(path72.dirname(manifest.stateRoot)));
+  const timer = setTimeout(() => {
+    try {
+      const child = spawn6(
+        process.execPath,
+        ["--experimental-strip-types", analyzePath, manifest.runId, "--crew-root", crewRoot, "--resources", resourcesPath],
+        { detached: true, stdio: "ignore" }
+      );
+      child.unref();
+    } catch (err2) {
+      console.warn(`[perf-obs] analyze spawn failed for ${manifest.runId}: ${String(err2)}`);
+    }
+  }, OBSERVABILITY_ANALYZE_DELAY_MS);
+  timer.unref();
 }
 function checkPerTaskBudget(tasks, budgetTotal, budgetWarning, budgetAbort, fairShareFraction = 0.5) {
   const usage = aggregateUsage(tasks);
@@ -57093,6 +57220,7 @@ async function executeTeamRun(input) {
   }
   void registerRunPromise(manifest.runId);
   const stopTeamHeartbeat = startTeamRunHeartbeat(manifest.stateRoot, manifest.runId);
+  startPerfSampler(manifest, input.team);
   const cleanupUsage = () => {
     for (const task of input.tasks) clearTrackedTaskUsage(task.id);
   };
@@ -57158,6 +57286,7 @@ async function executeTeamRun(input) {
       );
     }
     await flushEventLogBuffer();
+    schedulePerfAnalyze(manifest, input.team);
     return result4;
   } catch (error) {
     stopTeamHeartbeat();
@@ -58245,7 +58374,7 @@ async function executeTeamRunCore(input, manifest, workflow) {
     await drainPendingUnits(pendingUnits, runController);
   }
 }
-var builtInRegistry, REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks;
+var builtInRegistry, OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks;
 var init_team_runner = __esm({
   "src/runtime/team-runner.ts"() {
     "use strict";
@@ -58297,6 +58426,8 @@ var init_team_runner = __esm({
     builtInRegistry.register(NextJsPlugin);
     builtInRegistry.register(VitestPlugin);
     builtInRegistry.register(VitePlugin);
+    OBSERVABILITY_INTERVAL_MS = 2e3;
+    OBSERVABILITY_ANALYZE_DELAY_MS = 3e3;
     REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
       const rejected = /* @__PURE__ */ new Set();
       for (const from of TEAM_TASK_STATUSES) {
@@ -72488,7 +72619,7 @@ function isDangerStage(index, levels) {
 init_pi_ui_compat();
 init_theme_adapter();
 init_visual();
-import { isAbsolute as isAbsolute10, relative as relative8, resolve as resolve21, sep as sep9 } from "node:path";
+import { isAbsolute as isAbsolute11, relative as relative8, resolve as resolve21, sep as sep9 } from "node:path";
 
 // src/extension/crew-vibes/render.ts
 function formatCount(value) {
@@ -72625,7 +72756,7 @@ function formatCwdForFooter(cwd, home) {
   const resolvedCwd = resolve21(cwd);
   const resolvedHome = resolve21(home);
   const rel = relative8(resolvedHome, resolvedCwd);
-  const inside = rel === "" || rel !== ".." && !rel.startsWith(`..${sep9}`) && !isAbsolute10(rel);
+  const inside = rel === "" || rel !== ".." && !rel.startsWith(`..${sep9}`) && !isAbsolute11(rel);
   if (!inside) return cwd;
   return rel === "" ? "~" : `~${sep9}${rel}`;
 }
@@ -75190,7 +75321,7 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 init_config();
 import * as fs103 from "node:fs";
 import * as path82 from "node:path";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
+import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/runtime/per-write-validator.ts
 import { readFileSync as readFileSync81 } from "node:fs";
@@ -75293,7 +75424,7 @@ function installResourcesDiscoverHook(pi, ctx) {
     pi.on("resources_discover", () => {
       const sessionCwd = ctx.currentCtx?.cwd ?? process.cwd();
       const skillDir = path82.resolve(sessionCwd, "skills");
-      const extSkillDir = path82.resolve(path82.dirname(fileURLToPath7(import.meta.url)), "..", "..", "skills");
+      const extSkillDir = path82.resolve(path82.dirname(fileURLToPath8(import.meta.url)), "..", "..", "skills");
       const paths = [];
       if (fs103.existsSync(extSkillDir)) paths.push(extSkillDir);
       if (skillDir !== extSkillDir && fs103.existsSync(skillDir)) {

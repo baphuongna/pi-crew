@@ -147,6 +147,11 @@ export interface ChildPiRunInput {
 	thinkingOverride?: string;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
+	/** Phase 1 scratchpad: model-fallback attempt index (0-based) for per-attempt
+	 * snapshot relativePath `scratchpad/<taskId>.attempt-<attempt>.snapshot.json`
+	 * (C3). Optional — worker defaults to attempt 0 when unset (e.g. custom
+	 * agent spawn outside child-executor). */
+	attempt?: number;
 	/**
 	 * Optional broker spawn context (Phase 0 inter-pi broker). When present,
 	 * `prepareSpawnContext` injects `PI_CREW_BROKER_SOCKET` and

@@ -3,11 +3,17 @@
  * Uses the excludeTools option from pi v0.77.0.
  */
 
+import { permissionForRole } from "../runtime/role-permission.ts";
+
 export interface RoleToolConfig {
 	/** Explicit list of tools to use (if undefined, use all default tools) */
 	tools?: string[];
 	/** Tools to exclude from the default set */
 	excludeTools?: string[];
+	/** Phase 1 scratchpad: opt-in the persistent Bun-free JS evaluator (execute tool)
+	 * for this role. Only effective on WRITE roles — read-only roles are gated
+	 * out by `isScratchpadEnabledForRole` (S-6, privilege-elevation guard). */
+	scratchpad?: boolean;
 }
 
 export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
@@ -44,9 +50,11 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 		excludeTools: ["edit", "write", "bash", "web"],
 	},
 
-	// Executor - Full access (default)
+	// Executor - Full access (default). Phase 1 scratchpad-enabled (stateful
+	// evaluator compounds intermediate results across execute calls).
 	executor: {
 		// No restrictions - full tool access
+		scratchpad: true,
 	},
 
 	// Reviewer - Read and review, no write
@@ -78,12 +86,16 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 	verifier: {
 		tools: ["read", "grep", "find", "ls", "bash"],
 		excludeTools: ["edit", "write", "web"],
+		// Phase 1 scratchpad: multi-cell test/verify flows reuse parsed state.
+		scratchpad: true,
 	},
 
 	// Test Engineer - Can write tests (F1: hyphenated key)
 	"test-engineer": {
 		tools: ["read", "edit", "write", "bash", "ls"],
 		excludeTools: ["web"],
+		// Phase 1 scratchpad: build/run test suites with state across cells.
+		scratchpad: true,
 	},
 };
 
@@ -115,4 +127,40 @@ export function getRestrictedRoles(): string[] {
 	return Object.entries(ROLE_TOOL_CONFIGS)
 		.filter(([, config]) => config.tools !== undefined || config.excludeTools !== undefined)
 		.map(([role]) => role);
+}
+
+/** Agent frontmatter shape consumed by the scratchpad opt-in check. */
+export interface ScratchpadAgentOption {
+	scratchpad?: boolean;
+}
+
+/**
+ * Phase 1: is the scratchpad (execute tool) enabled for this role/agent?
+ *
+ * Decision order (load-bearing — do not reorder):
+ *  1. S-6 (SECURITY, privilege-elevation guard): read-only roles NEVER enable,
+ *     regardless of any agent frontmatter opt-in. A `scratchpad: true` on a
+ *     read-only role (e.g. security-reviewer, whose tool-set is read/grep/find
+ *     with NO bash) would grant full-trust JS execution (fs/network/env/
+ *     child_process) inside a role designed to have no execution — a real
+ *     elevation. `permissionForRole` is default-deny (unknown → read_only), so
+ *     typos/underscore/case-drift cannot bypass this.
+ *  2. F6 (kill-switch): `agent.scratchpad === false` WINS over the role default,
+ *     giving an emergency off-switch for an experimental full-trust feature.
+ *  3. agent explicit opt-in (`scratchpad: true`) OR role default (`scratchpad:
+ *     true` in ROLE_TOOL_CONFIGS).
+ *
+ * F10: `permissionForRole` and `getToolConfig` both expect HYPHENATED role
+ * strings (runtime convention); a raw underscore role would default-deny
+ * wrongly, so normalize FIRST.
+ */
+export function isScratchpadEnabledForRole(role: string, agent?: ScratchpadAgentOption): boolean {
+	// F10: normalize underscore→hyphen before every downstream lookup.
+	const normalized = role.includes("_") ? role.replaceAll("_", "-") : role;
+	// S-6 (điều kiện tiên quyết): read-only gate trước mọi agent flag.
+	if (permissionForRole(normalized) === "read_only") return false;
+	// F6: explicit-false agent override (kill-switch) wins over role default.
+	if (agent?.scratchpad === false) return false;
+	// agent explicit opt-in OR role default.
+	return agent?.scratchpad === true || getToolConfig(normalized).scratchpad === true;
 }

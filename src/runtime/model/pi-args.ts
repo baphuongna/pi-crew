@@ -31,7 +31,7 @@ const createdTempDirs = new Set<string>();
  * /tmp directory. Uses `userPiRoot()` so the path stays consistent with
  * the rest of pi-crew (respects PI_TEAMS_HOME / PI_CODING_AGENT_DIR).
  */
-function getPiTempBase(): string {
+export function getPiTempBase(): string {
 	return path.join(userPiRoot(), "tmp");
 }
 

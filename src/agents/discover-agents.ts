@@ -427,6 +427,14 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 			fallbackModels: parseCsv(frontmatter.fallbackModels),
 			thinking: frontmatter.thinking === "false" ? undefined : frontmatter.thinking || undefined,
 			tools: parseToolsField(frontmatter.tools),
+			// Phase 1 scratchpad opt-in (Q3: pi ignores unknown frontmatter keys; pi-crew
+			// is the sole consumer in the worker path — task arrives via -p, agent file
+			// is not re-read by pi). 3-STATE parse (NOT `=== "true"` like
+			// inheritProjectContext): omitted/malformed → undefined so the F6 kill-switch
+			// (`agent.scratchpad === false`) only fires on an EXPLICIT `scratchpad: false`,
+			// not on every agent without the key (which would wrongly kill role
+			// default-on). Only the literal "true"/"false" are honored.
+			scratchpad: frontmatter.scratchpad === "true" ? true : frontmatter.scratchpad === "false" ? false : undefined,
 			// SEC-1: Strip extensions/excludeExtensions for untrusted project-sourced
 			// agents (RCE prevention). Both `project` (.crew/agents/) and
 			// `project-pi` (.pi/agents/) are repo-adjacent / untrusted sources —

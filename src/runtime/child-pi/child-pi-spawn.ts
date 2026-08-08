@@ -19,10 +19,12 @@
 import type { SpawnOptions } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isScratchpadEnabledForRole } from "../../config/role-tools.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../../utils/env-allowlist.ts";
 import { buildScopedAllowList, sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { buildPiWorkerArgs } from "../model/pi-args.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { buildPiWorkerArgs, createSafeTempDir, getPiTempBase } from "../model/pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
 import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
 
@@ -270,6 +272,31 @@ export function prepareSpawnContext(
 		// they pass assertOnlyControlEnvKeys. agentId is the per-task id.
 		if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
 		if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+	}
+	// Phase 1 scratchpad: opt in the persistent Bun-free JS evaluator (execute
+	// tool) for this worker. Gated by role/agent (S-6 read-only roles never;
+	// F6 agent.scratchpad===false kills). All keys are PI_CREW_* control vars →
+	// pass assertOnlyControlEnvKeys. Only set when there is a task id to bind
+	// the snapshot to (always present on the child-executor path).
+	if (input.agentId && isScratchpadEnabledForRole(input.role ?? input.agent.name, input.agent)) {
+		built.env.PI_CREW_SCRATCHPAD = "1"; // dormant gate (worker conditional registerTool)
+		built.env.PI_CREW_TASK_ID = input.agentId; // snapshot relativePath provenance
+		built.env.PI_CREW_ATTEMPT = String(input.attempt ?? 0); // C3 per-attempt suffix
+		if (input.artifactsRoot) {
+			// N2-1: worker reads this DIRECTLY as writeArtifact's artifactsRoot — do
+			// NOT derive from the snapshot path (snapshot is in tempDir, not under
+			// artifactsRoot after F4/S-1).
+			built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
+		}
+		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
+		// point it at a temp dir; the worker reads it then writeArtifact()
+		// (redact+atomic) is the ONLY writer into artifactsRoot.
+		// R3-1: built.tempDir is only created by buildPiWorkerArgs when the agent
+		// has a systemPrompt OR the task exceeds TASK_ARG_LIMIT — guard against
+		// undefined (resolveRealContainedPath(undefined) would TypeError and crash
+		// spawn). createSafeTempDir auto-tracks the dir for cleanupAllTrackedTempDirs.
+		const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
+		built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
 	}
 	// B5: if the parent already aborted before we spawn, do not start the child
 	// at all. Spawning a doomed process wastes resources, and the abort listener
