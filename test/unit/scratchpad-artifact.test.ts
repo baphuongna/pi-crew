@@ -336,23 +336,33 @@ describe("scratchpad-artifact (T7 §10.3 / plan T7)", () => {
 		}
 	});
 
-	it("SEC-ENV-1: symlinked snapshot dirname → validation fails closed (O_NOFOLLOW)", { skip: process.platform === "win32" }, () => {
+	it("SEC-ENV-1: symlinked snapshot dirname escaping the container → validation fails closed (Linux O_NOFOLLOW)", {
+		skip: process.platform === "win32" || process.platform === "darwin",
+	}, () => {
 		const ctx = makeTempCtx();
+		// Linux-only: resolveRealContainedPath rejects a symlinked baseDir via
+		// O_NOFOLLOW (ELOOP → throw → valid=false). On macOS the function FOLLOWS
+		// symlinks via realpath (deliberate, for /var→/private/var compat) so this
+		// strict-rejection assertion is Linux-specific — skipped on darwin+win32.
+		// (Containment on macOS is enforced by realpath + ancestor-walk against the
+		// resolved target, a different mechanism; the parent validates the snapshot
+		// path under tempDir at spawn time.) Symlink target OUTSIDE artifactsRoot:
+		// macOS via realpath, so it must point outside to be cross-platform.)
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "sec-env1-outside-"));
 		try {
-			const real = path.join(ctx.root, "real");
-			fs.mkdirSync(real, { recursive: true });
 			const linkDir = path.join(ctx.root, "link");
-			fs.symlinkSync(real, linkDir);
+			fs.symlinkSync(outside, linkDir);
 			const validation = validateSnapshotEnv({
 				PI_CREW_SCRATCHPAD: "1",
 				PI_CREW_TASK_ID: "task-1",
 				PI_CREW_ARTIFACTS_ROOT: ctx.artifactsRoot,
 				PI_CREW_SCRATCHPAD_SNAPSHOT: path.join(linkDir, "s.json"),
 			});
-			assert.equal(validation.valid, false, "symlinked ancestor must be rejected");
+			assert.equal(validation.valid, false, "symlinked ancestor escaping the container must be rejected");
 			assert.match(validation.reason ?? "", /env-path-invalid/);
 		} finally {
 			ctx.cleanup();
+			fs.rmSync(outside, { recursive: true, force: true });
 		}
 	});
 
