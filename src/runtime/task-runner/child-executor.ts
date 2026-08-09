@@ -259,6 +259,51 @@ export function detectRetryableModelFailureFromOutput(parsed: ParsedPiJsonOutput
  *             UI event-bus handle (may be undefined).
  * @returns    The branch execution result.
  */
+// Quick Win 11 (Pattern 11 — error-as-data contract): the per-attempt outcome
+// assembly, extracted as PURE functions so the precedence contract is directly
+// unit-testable. Logic is identical to the former inline blocks; runChildProcessTask
+// calls these instead of inlining. E008 (modelExhausted, post-loop) stays in the
+// caller — putting it here would feed isRetryableModelFailure per-attempt and
+// change the retry chain (MINOR-3).
+//
+// Precedence: evidenceStatus = cancelled > failed (error || non-zero exit) >
+// completed. error = childResult.error > non-zero-exit message, THEN E007
+// (timedOut) overrides unconditionally, THEN 429-detection only when !error.
+
+export type AttemptEvidenceStatus = "cancelled" | "failed" | "completed";
+
+export function evidenceStatusFor(childResult: ChildPiRunResult): AttemptEvidenceStatus {
+	return childResult.exitStatus?.cancelled
+		? "cancelled"
+		: childResult.error || (childResult.exitCode && childResult.exitCode !== 0)
+			? "failed"
+			: "completed";
+}
+
+export function attemptErrorFor(
+	childResult: ChildPiRunResult,
+	parsedOutput: ParsedPiJsonOutput | undefined,
+	taskId: string,
+): string | undefined {
+	let err: string | undefined =
+		childResult.error ||
+		(childResult.exitCode && childResult.exitCode !== 0
+			? childResult.stderr || `Child Pi exited with ${childResult.exitCode}`
+			: undefined);
+	// E1/E7: a child timeout surfaces a structured CrewError (E007) — unconditional
+	// override of any hard error.
+	if (childResult.exitStatus?.timedOut) {
+		err = errors.childTimeout({ taskId, stderr: childResult.stderr }).message;
+	}
+	// 429/rate-limit: only when no error was set above AND the transcript carries
+	// only retryable model-failure messages with no real output.
+	if (!err && parsedOutput) {
+		const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
+		if (rateLimitErr) err = rateLimitErr;
+	}
+	return err;
+}
+
 export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<TaskExecutionResult> {
 	const input = ctx.input;
 	const manifest: TeamRunManifest = ctx.manifest;
@@ -614,11 +659,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				input.signal.removeEventListener("abort", externalAbortListener);
 			}
 		}
-		const evidenceStatus = childResult.exitStatus?.cancelled
-			? "cancelled"
-			: childResult.error || (childResult.exitCode && childResult.exitCode !== 0)
-				? "failed"
-				: "completed";
+		const evidenceStatus = evidenceStatusFor(childResult);
 		terminalEvidence = [
 			...terminalEvidence,
 			{
@@ -669,32 +710,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		parsedOutput = parsePiJsonOutput(transcriptText);
 		rawFinalText = childResult.rawFinalText;
 		intermediateFindings = childResult.intermediateFindings;
-		error =
-			childResult.error ||
-			(childResult.exitCode && childResult.exitCode !== 0
-				? childResult.stderr || `Child Pi exited with ${childResult.exitCode}`
-				: undefined);
-		// E1/E7 (Round 15): when the child timed out, surface a structured
-		// CrewError (E007) so users get a code + actionable help hint instead
-		// of a bare 'no new output for N ms'. We keep .message as the task error.
-		if (childResult.exitStatus?.timedOut) {
-			error = errors.childTimeout({
-				taskId: task.id,
-				stderr: childResult.stderr,
-			}).message;
-		}
-		// 429/rate-limit fix (PI_CREW_TOOLING_429_NOTE.md): a worker can exit
-		// code 0 with NO hard error, but the transcript is full of
-		// `message_end` events with `errorMessage: "429 ... overloaded"` and
-		// empty content. The model never produced a tool call, so the worker
-		// "completed" without doing anything. Detect this: if no error was set
-		// above AND the parsed output carries a retryable model-failure message
-		// AND there is no real output text, surface it as an error so the
-		// model-fallback chain can retry on another model.
-		if (!error && parsedOutput) {
-			const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
-			if (rateLimitErr) error = rateLimitErr;
-		}
+		error = attemptErrorFor(childResult, parsedOutput, task.id);
 		persistHeartbeat(true);
 		persistChildProgress({ type: "attempt_finished" }, true);
 		const attempt: ModelAttemptSummary = {

@@ -98,7 +98,7 @@ export function readManifestWithTransientRetry(manifestPath: string, maxRetries 
 	throw new Error(`unreachable: readManifestWithTransientRetry exhausted for ${manifestPath}`);
 }
 
-function shouldRecoverTask(task: TeamTaskState, deadMs: number): boolean {
+export function shouldRecoverTask(task: TeamTaskState, deadMs: number): boolean {
 	if (task.status !== "running") return false;
 	if (!task.heartbeat) return true;
 	return task.heartbeat.alive === false || isWorkerHeartbeatStale(task.heartbeat, deadMs);

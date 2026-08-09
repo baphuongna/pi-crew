@@ -2,6 +2,25 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Quick Wins (patterns 17/19/20/11 + spike CI)
+
+### Features
+- **Schema-driven docs (QW17)**: `agents/*.md` frontmatter `tools:` now matches the
+  enforced `ROLE_TOOL_CONFIGS` (4 drifts fixed); a sync-test pins the derivation;
+  `scripts/gen-role-tools-docs.mjs` renders `docs/role-tools.md` from the source.
+- **Retry-resume contract suite (QW19)**: pins `executeWithRetry` (`?`-glob, empty-
+  retryableErrors, maxAttempts:0, abort-during-sleep, default attemptId),
+  `FileCheckpointStore` (corrupt-file quarantine, list-skip, wrong-runId delete),
+  and exports `shouldRecoverTask` for direct testing.
+- **Failure-mode inventory (QW20)**: `docs/failure-mode-inventory.md` maps the 7
+  pi-rlm failure modes to pi-crew handlers (wedge gap closed by Phase 1
+  ping-before-execute; EPIPE/timeout interplay declared as gaps).
+- **Error-as-data contract (QW11)**: `evidenceStatusFor` + `attemptErrorFor`
+  extracted as pure functions from `runChildProcessTask`; contract test pins the
+  precedence (cancelled > failed > completed; E007 timedOut override; 429 gated).
+- **`test:spike` script**: wires the scratchpad spike tests into CI.
+
+
 ## [Unreleased] — Phase 3 cancellation hardening (experimental)
 
 ### Features

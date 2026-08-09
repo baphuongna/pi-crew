@@ -45167,7 +45167,8 @@ __export(crash_recovery_exports, {
   detectInterruptedRuns: () => detectInterruptedRuns,
   purgeStaleActiveRunIndex: () => purgeStaleActiveRunIndex,
   readManifestWithTransientRetry: () => readManifestWithTransientRetry,
-  reconcileAllStaleRuns: () => reconcileAllStaleRuns
+  reconcileAllStaleRuns: () => reconcileAllStaleRuns,
+  shouldRecoverTask: () => shouldRecoverTask
 });
 import * as fs63 from "node:fs";
 import * as path52 from "node:path";
@@ -53286,6 +53287,20 @@ function detectRetryableModelFailureFromOutput(parsed) {
   }
   return void 0;
 }
+function evidenceStatusFor(childResult) {
+  return childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
+}
+function attemptErrorFor(childResult, parsedOutput, taskId) {
+  let err2 = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : void 0);
+  if (childResult.exitStatus?.timedOut) {
+    err2 = errors.childTimeout({ taskId, stderr: childResult.stderr }).message;
+  }
+  if (!err2 && parsedOutput) {
+    const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
+    if (rateLimitErr) err2 = rateLimitErr;
+  }
+  return err2;
+}
 async function runChildProcessTask(ctx) {
   const input = ctx.input;
   const manifest = ctx.manifest;
@@ -53558,7 +53573,7 @@ async function runChildProcessTask(ctx) {
         input.signal.removeEventListener("abort", externalAbortListener);
       }
     }
-    const evidenceStatus = childResult.exitStatus?.cancelled ? "cancelled" : childResult.error || childResult.exitCode && childResult.exitCode !== 0 ? "failed" : "completed";
+    const evidenceStatus = evidenceStatusFor(childResult);
     terminalEvidence = [
       ...terminalEvidence,
       {
@@ -53604,17 +53619,7 @@ async function runChildProcessTask(ctx) {
     parsedOutput = parsePiJsonOutput(transcriptText2);
     rawFinalText = childResult.rawFinalText;
     intermediateFindings = childResult.intermediateFindings;
-    error = childResult.error || (childResult.exitCode && childResult.exitCode !== 0 ? childResult.stderr || `Child Pi exited with ${childResult.exitCode}` : void 0);
-    if (childResult.exitStatus?.timedOut) {
-      error = errors.childTimeout({
-        taskId: task.id,
-        stderr: childResult.stderr
-      }).message;
-    }
-    if (!error && parsedOutput) {
-      const rateLimitErr = detectRetryableModelFailureFromOutput(parsedOutput);
-      if (rateLimitErr) error = rateLimitErr;
-    }
+    error = attemptErrorFor(childResult, parsedOutput, task.id);
     persistHeartbeat(true);
     persistChildProgress({ type: "attempt_finished" }, true);
     const attempt = {
