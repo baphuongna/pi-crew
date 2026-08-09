@@ -36,7 +36,9 @@ describe("P2-T6 guest zombie env (D5 production wiring)", () => {
 			registerTool: (t: any) => {
 				captured.ref = t;
 			},
-			on: () => {},
+			on: () => {
+				/* noop */
+			},
 		} as any;
 		registerScratchpadLifecycle(fakePi, { env });
 		assert.ok(captured.ref, "tool must be registered");
@@ -72,33 +74,35 @@ describe("P2-T6 guest zombie env (D5 production wiring)", () => {
 	});
 });
 
-	it("a detached grandchild of the guest inherits the WORKER pid → flagged when worker dies", linuxOnly, async () => {
-		// The guest spawns a detached grandchild (nohup-style); it inherits the
-		// guest env, so its PI_CREW_PARENT_PID is also the worker pid. When the
-		// worker dies, BOTH the guest and the grandchild are orphans of the same
-		// (dead) worker pid → both flagged. We verify the inheritance half: spawn
-		// a synthetic detached process with the guest's env keys and confirm it
-		// carries the worker pid as parent.
-		// (Full "guest spawns grandchild" e2e is out of unit-test scope — the
-		// invariant being pinned is env inheritance, asserted structurally here.)
-		const { spawn } = await import("node:child_process");
-		const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 60000)"], {
-			detached: true,
-			stdio: "ignore",
-			env: {
-				...process.env,
-				[PI_CREW_KIND_ENV]: "subagent",
-				[PI_CREW_PARENT_PID_ENV]: String(process.pid),
-				[PI_CREW_GUEST_ENV]: "1",
-			},
-		});
-		try {
-			const childEnv = zombieTest.readProcEnviron(child.pid ?? 0);
-			assert.equal(childEnv[PI_CREW_PARENT_PID_ENV], String(process.pid), "grandchild parent must be worker pid");
-			assert.equal(childEnv[PI_CREW_KIND_ENV], "subagent");
-		} finally {
-			try {
-				process.kill(child.pid ?? 0);
-			} catch {}
-		}
+it("a detached grandchild of the guest inherits the WORKER pid → flagged when worker dies", linuxOnly, async () => {
+	// The guest spawns a detached grandchild (nohup-style); it inherits the
+	// guest env, so its PI_CREW_PARENT_PID is also the worker pid. When the
+	// worker dies, BOTH the guest and the grandchild are orphans of the same
+	// (dead) worker pid → both flagged. We verify the inheritance half: spawn
+	// a synthetic detached process with the guest's env keys and confirm it
+	// carries the worker pid as parent.
+	// (Full "guest spawns grandchild" e2e is out of unit-test scope — the
+	// invariant being pinned is env inheritance, asserted structurally here.)
+	const { spawn } = await import("node:child_process");
+	const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 60000)"], {
+		detached: true,
+		stdio: "ignore",
+		env: {
+			...process.env,
+			[PI_CREW_KIND_ENV]: "subagent",
+			[PI_CREW_PARENT_PID_ENV]: String(process.pid),
+			[PI_CREW_GUEST_ENV]: "1",
+		},
 	});
+	try {
+		const childEnv = zombieTest.readProcEnviron(child.pid ?? 0);
+		assert.equal(childEnv[PI_CREW_PARENT_PID_ENV], String(process.pid), "grandchild parent must be worker pid");
+		assert.equal(childEnv[PI_CREW_KIND_ENV], "subagent");
+	} finally {
+		try {
+			process.kill(child.pid ?? 0);
+		} catch {
+			/* noop */
+		}
+	}
+});

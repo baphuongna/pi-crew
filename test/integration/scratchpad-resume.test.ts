@@ -99,14 +99,18 @@ describe("P2-T7 crash-resume integration", () => {
 				listNamespaceNames: async () => ["x"],
 				restoreState: async () => ({ path: snap, restored: ["x"], failed: [] }),
 				snapshotState: async () => null, // NIT-1: present so post-ok debounce cannot TypeError on the mock
-				kill: async () => {},
+				kill: async () => {
+					/* noop */
+				},
 			} as unknown as EngineManager;
 			const captured: { ref: any } = { ref: null };
 			const fakePi = {
 				registerTool: (t: any) => {
 					captured.ref = t;
 				},
-				on: () => {},
+				on: () => {
+					/* noop */
+				},
 			} as any;
 			registerScratchpadLifecycle(fakePi, { engine: mockEngine, env });
 			const tool: any = captured.ref;

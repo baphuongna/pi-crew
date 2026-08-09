@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EXECUTE_CODE_MAX_LENGTH, SCRATCHPAD_DOCTRINE } from "../../src/prompt/scratchpad-lifecycle.ts";
-import { PI_CREW_SCRATCHPAD_ENV } from "../../src/prompt/scratchpad-lifecycle.ts";
+import { EXECUTE_CODE_MAX_LENGTH, PI_CREW_SCRATCHPAD_ENV, SCRATCHPAD_DOCTRINE } from "../../src/prompt/scratchpad-lifecycle.ts";
 
 // Phase 1 — DoD gap (j): token/perf metric (spec §10.7/§12(j)). The scratchpad
 // feature adds a per-turn prompt cost to opt-in workers: the execute tool

@@ -48,13 +48,17 @@ function makeMockEngine(overrides: Partial<MockEngineShape> = {}): {
 		isRunning: false,
 		state: "idle",
 		execute: async () => ({ stdout: "", stderr: "", status: "ok", durationMs: 1, result: "42" }),
-		start: async () => {},
+		start: async () => {
+			/* noop */
+		},
 		listNamespaceNames: async () => ["x"],
 		restoreState: async () => {
 			state.restoreCalls++;
 			return { path: "/p", restored: ["data"], failed: [{ name: "apiKey", reason: "redacted" }] };
 		},
-		kill: async () => {},
+		kill: async () => {
+			/* noop */
+		},
 	};
 	return { engine: { ...base, ...overrides } as unknown as EngineManager, restoreCalls: () => state.restoreCalls };
 }
@@ -92,7 +96,9 @@ function makeCtx(overrides: { env?: Record<string, string>; engine?: Partial<Moc
 		registerTool: (t: ToolDefinition<any, any>) => {
 			captured.tool = t;
 		},
-		on: () => {},
+		on: () => {
+			/* noop */
+		},
 	} as any;
 	registerScratchpadLifecycle(fakePi, { engine: mock.engine, env });
 	return { root, artifacts, snapshotFile, env, engine: mock.engine, restoreCalls: mock.restoreCalls, tool: captured.tool };
