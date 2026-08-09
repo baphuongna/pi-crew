@@ -90,13 +90,13 @@ export interface ExecuteDetails {
  * which would produce duplicate doctrine.
  */
 export const SCRATCHPAD_DOCTRINE: string[] = [
-	"State compounds: variables persist across execute calls in the task's persistent namespace. Don't re-derive what a previous cell already computed.",
+	"State compounds: variables persist across scratchpad calls in the task's persistent namespace. Don't re-derive what a previous cell already computed.",
 	"Write small cells and run many: the cell's result is the value of its final (trailing) expression.",
 	"The runtime is Node.js — use child_process for shell commands; there is no Bun.",
 	"Writes are surgical; reads are full: read all the data you need, write the minimum.",
 	"Non-serializable variables (functions/classes) are reported in the snapshot's failed list — do not rely on them across calls.",
 	"If you see <rlm_engine_reset> or a snapshot-restore notice, re-verify variables before use.",
-	"Tool calls inside execute are await expressions — await the result before the next cell.",
+	"Tool calls inside scratchpad are await expressions — await the result before the next cell.",
 ];
 
 // ── singleton engine + debounce timer (per worker process) ─────────────────
@@ -432,13 +432,13 @@ export type ExecuteToolDefinition = ToolDefinition<typeof ExecuteParams, Execute
  */
 export function createExecuteTool(engine: EngineManager, deps: Partial<ScratchpadSnapshotDeps> = {}): ExecuteToolDefinition {
 	return defineTool({
-		name: "execute",
+		name: "scratchpad",
 		label: "Execute JavaScript",
 		description:
 			"Chạy JavaScript trong namespace bền vững của task. State (biến gán ở cell trước) tồn tại qua các lần gọi. Kết quả cell = giá trị biểu thức cuối.",
 		parameters: ExecuteParams,
 		renderShell: "default",
-		promptSnippet: "execute(code) — chạy JS trong namespace bền vững của task",
+		promptSnippet: "scratchpad(code) — chạy JS trong namespace bền vững của task",
 		promptGuidelines: SCRATCHPAD_DOCTRINE,
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			const env = deps.env ?? process.env;

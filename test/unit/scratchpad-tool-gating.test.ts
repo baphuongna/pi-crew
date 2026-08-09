@@ -101,7 +101,7 @@ describe("scratchpad-tool-gating (T7 §10.2 / plan T7)", () => {
 		const { pi, registered } = makeFakePi();
 		registerScratchpadLifecycle(pi, { env: okEnv() });
 		assert.equal(registered.length, 1);
-		assert.equal((registered[0] as { name: string }).name, "execute");
+		assert.equal((registered[0] as { name: string }).name, "scratchpad");
 	});
 
 	it("registerScratchpadLifecycle does NOT register when env differs (D3)", () => {
@@ -233,7 +233,7 @@ describe("scratchpad-tool-gating (T7 §10.2 / plan T7)", () => {
 		const { engine } = makeMockEngine();
 		const tool = createExecuteTool(engine, { env: okEnv() });
 		const def = tool as unknown as ExecuteToolDefinition;
-		assert.equal(def.name, "execute");
+		assert.equal(def.name, "scratchpad");
 		assert.equal(def.renderShell, "default");
 		assert.ok(
 			Array.isArray(def.promptGuidelines) && (def.promptGuidelines as string[]).length >= 5,

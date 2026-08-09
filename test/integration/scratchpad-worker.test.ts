@@ -223,7 +223,7 @@ test("T8-a1: opt-in executor → execute tool present; non-opt-in planner → ab
 			const { pi, registered } = makeFakePi();
 			registerScratchpadLifecycle(pi, { env: optIn.builtEnv });
 			assert.equal(registered.length, 1, "execute must be registered for opt-in executor");
-			assert.equal((registered[0] as { name: string }).name, "execute");
+			assert.equal((registered[0] as { name: string }).name, "scratchpad");
 		} finally {
 			cleanupTempDir(optIn.tempDir);
 		}
@@ -316,7 +316,7 @@ test("T8-a4: lazy-guest — opt-in worker that never calls execute spawns 0 gues
 		// the first execute (engine.ts F21). We never call execute.
 		registerScratchpadLifecycle(pi, { engine, env });
 		assert.equal(registered.length, 1, "tool surface still carries execute for opt-in");
-		assert.equal((registered[0] as { name: string }).name, "execute");
+		assert.equal((registered[0] as { name: string }).name, "scratchpad");
 
 		// No execute call → engine never leaves idle → no guest can exist.
 		assert.equal(engine.state, "idle", "engine must stay idle without execute");
