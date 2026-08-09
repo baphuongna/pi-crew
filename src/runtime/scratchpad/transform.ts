@@ -239,15 +239,15 @@ function importReplacement(node: ImportDeclaration): string {
 	// Assignments, not declarations: imported bindings must land in the
 	// namespace so they persist across cells like any other name.
 	const parts: string[] = [];
-	if (namespaceSpecifier) parts.push(`${namespaceSpecifier.local.name} = await import(${moduleText});`);
+	if (namespaceSpecifier) parts.push(`${namespaceSpecifier.local.name} = await import(${moduleText});`); // LAZY: codegen emits guest-cell import syntax, not a pi-crew dynamic import
 	const destructured: string[] = [];
 	if (defaultSpecifier) destructured.push(`default: ${defaultSpecifier.local.name}`);
 	for (const spec of namedSpecifiers) {
 		const imported = spec.imported.type === "Identifier" ? spec.imported.name : String(spec.imported.value);
 		destructured.push(imported === spec.local.name ? imported : `${JSON.stringify(imported)}: ${spec.local.name}`);
 	}
-	if (destructured.length > 0) parts.push(`({ ${destructured.join(", ")} } = await import(${moduleText}));`);
-	if (parts.length === 0) parts.push(`await import(${moduleText});`);
+	if (destructured.length > 0) parts.push(`({ ${destructured.join(", ")} } = await import(${moduleText}));`); // LAZY: codegen emits guest-cell import syntax
+	if (parts.length === 0) parts.push(`await import(${moduleText});`); // LAZY: codegen emits guest-cell import syntax
 	return parts.join(" ");
 }
 
