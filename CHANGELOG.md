@@ -2,7 +2,9 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — Quick Wins (patterns 17/19/20/11 + spike CI)
+## [0.9.64] — pi-rlm→pi-crew pattern transfer: worker scratchpad + crash-resume + cancellation + quick wins (2026-08-09)
+
+### Quick Wins (patterns 17/19/20/11 + spike CI)
 
 ### Features
 - **Schema-driven docs (QW17)**: `agents/*.md` frontmatter `tools:` now matches the
@@ -21,7 +23,7 @@
 - **`test:spike` script**: wires the scratchpad spike tests into CI.
 
 
-## [Unreleased] — Phase 3 cancellation hardening (experimental)
+### Phase 3 cancellation hardening (experimental)
 
 ### Features
 
@@ -36,7 +38,7 @@
   detects a wedged guest; the FIFO execute queue makes a busy-reject redundant.
 
 
-## [Unreleased] — Phase 2 crash-resume (experimental)
+### Phase 2 crash-resume (experimental)
 
 ### Features
 
@@ -59,7 +61,7 @@
   side file + per-var 256 KiB) bounds v8.deserialize amplification.
 
 
-## [Unreleased] — Phase 1 worker scratchpad (experimental)
+### Phase 1 worker scratchpad (experimental)
 
 ### Features
 
