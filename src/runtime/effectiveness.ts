@@ -26,6 +26,24 @@ export function taskHasObservableWorkerActivity(task: TeamTaskState): boolean {
 	);
 }
 
+/**
+ * True when the task completed but its result artifact is an EMPTY file
+ * (0 bytes). Closes the F4 monitoring gap (real-test-2026-08-10 finding):
+ * a child worker absorbed by a rate-limit (429) or a model-not-found
+ * failure still emits transcript/usage events, so
+ * {@link taskHasObservableWorkerActivity} reports "activity" — but the
+ * actual result content is empty. A completed task with an empty result
+ * has done no real work and must not count toward run effectiveness.
+ *
+ * Deliberately only flags `sizeBytes === 0` (a written-but-empty file).
+ * A missing resultArtifact stays non-flagging (some tasks legitimately
+ * produce no result file), and an undefined sizeBytes stays non-flagging
+ * (legacy tasks — do not false-positive on absent metadata).
+ */
+export function taskHasEmptyResult(task: TeamTaskState): boolean {
+	return Boolean(task.resultArtifact && task.resultArtifact.sizeBytes === 0);
+}
+
 export function resolveEffectivenessGuardMode(
 	runtimeConfig: CrewRuntimeConfig | undefined,
 	manifest?: TeamRunManifest,
@@ -43,7 +61,11 @@ export function evaluateRunEffectiveness(input: {
 	runtimeConfig?: CrewRuntimeConfig;
 }): RunEffectivenessSummary {
 	const completedTasks = input.tasks.filter((task) => task.status === "completed");
-	const noObservedWorkTasks = completedTasks.filter((task) => !taskHasObservableWorkerActivity(task));
+	// F4: a completed task with an EMPTY result artifact (0 bytes) is
+	// treated exactly like no-observed-work — the worker may have spun up
+	// and streamed transcript events, but it produced no real output
+	// (e.g. a 429 rate-limit absorbed by the fallback chain).
+	const noObservedWorkTasks = completedTasks.filter((task) => !taskHasObservableWorkerActivity(task) || taskHasEmptyResult(task));
 	const needsAttentionTasks = input.tasks.filter((task) => task.agentProgress?.activityState === "needs_attention");
 	const workerExecution: WorkerExecutionState = input.executeWorkers ? "enabled" : "disabled/scaffold";
 	const guardMode = resolveEffectivenessGuardMode(input.runtimeConfig, input.manifest);

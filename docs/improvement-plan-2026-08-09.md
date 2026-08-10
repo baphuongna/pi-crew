@@ -386,6 +386,28 @@ Phase 1 + 2 + 3 completed 2026-08-09. All code-pattern checks done.
 
 ## Change log
 
+- **2026-08-10 (phase 6 — real-test follow-up):** processed the pi
+  `real-test-2026-08-10-full-9-tier-budget-total-fix` report (9-tier
+  battery run on HEAD `cca7d029` — all required tiers passed; 1 HIGH bug
+  `budgetTotal` schema was found AND fixed by pi, bundle rebuilt).
+  - **F2 — skill citation drift fixed:** `skills/real-test-pi-crew/SKILL.md`
+    cited `PI_CREW_BROKER_DIAG_UI` / `run-dashboard.ts:831` — the
+    keystroke-diag env var was removed in `e3ee6fe2` (PR-B5/UI-8).
+    Skill now documents the removal + screen-change-evidence replacement;
+    `scripts/pty_probe.py` no longer sets the dead env var.
+  - **F4 — empty-output guard shipped:** `evaluateRunEffectiveness`
+    (`src/runtime/effectiveness.ts`) now treats a completed task with an
+    EMPTY result artifact (`resultArtifact.sizeBytes === 0`) as
+    no-observed-work. Closes the monitoring gap where a 429-absorbed
+    worker (transcript events present, output empty) still reported a
+    green "completed" run. Deliberately non-flagging for missing
+    resultArtifact and undefined sizeBytes (no false positives on legacy
+    tasks). +4 tests (taskHasEmptyResult unit + 3 evaluate cases).
+    The `effectivenessPolicyDecision` escalations (warn→blocked for
+    mutating roles) now apply to empty-result tasks automatically.
+  - All gates green: typecheck, test:critical 101/0, effectiveness
+    suite 31/0.
+
 - **2026-08-09 (phase 1 verification pass):** ran `npm run typecheck` (PASS), `npm run test:critical` (101/0 pass, 16.8 s), `npm run test:unit` (deep run, summary not captured). Independently verified all 19 plan items via grep/read. **Two explore-agent claims corrected in-place:**
   - **C.1** — `crewHooks` is ACTIVE (16 sites), not dormant; the three hook subsystems have distinct scopes (blocking decisions / async side-effects / SIEM-future / user-scripts). Recommendation changed from "unify" to "document." Tier moved 2→1.
   - **D.4** — scratchpad guest spawn has NO `detached: true`; orphan risk is narrowed to cell-spawned subprocesses. Recommendation revised. Priority lowered.

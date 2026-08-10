@@ -22412,7 +22412,18 @@ var init_model_fallback = __esm({
       /context[_ ]?length[_ ]?exceeded/i,
       /safety/i,
       /is[_ ]?overloaded/i,
-      /\b408\b/
+      /\b408\b/,
+      //
+      // EPIPE / broken-pipe. In the child-pi worker path this typically means
+      // the child `pi` process exited (crash or early exit) while the parent
+      // was still writing to its stdin — spawning a fresh child on the next
+      // model in the fallback chain usually recovers. In the network path it
+      // is a transient pipe close. Both are retryable on a different model.
+      // See docs/failure-mode-inventory.md EPIPE gap; NON_RETRYABLE patterns
+      // (auth/billing) are checked first, so an auth error mentioning EPIPE
+      // stays non-retryable.
+      /epipe/i,
+      /broken pipe/i
     ];
     NON_RETRYABLE_MODEL_FAILURE_PATTERNS = [
       /auth(?:entication)?/i,
@@ -23850,10 +23861,12 @@ var init_team_tool_schema = __esm({
         })
       ),
       budgetTotal: Type.Optional(
+        // Empty-string unset marker accepted (Tier-9: models emit "" when unset).
         // 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
         // as the MISCONFIGURATION GUARD against typo'd silent-abort configs.
         Type.Union(
           [
+            Type.Literal(""),
             Type.Literal(0),
             Type.Number({
               minimum: 1e3
@@ -48464,6 +48477,9 @@ function taskHasObservableWorkerActivity(task) {
     (task.agentProgress?.toolCount ?? 0) > 0 || task.usage || task.transcriptArtifact || task.modelAttempts?.some((attempt) => attempt.success) || task.jsonEvents
   );
 }
+function taskHasEmptyResult(task) {
+  return Boolean(task.resultArtifact && task.resultArtifact.sizeBytes === 0);
+}
 function resolveEffectivenessGuardMode(runtimeConfig, manifest) {
   const configured = runtimeConfig?.effectivenessGuard;
   if (configured === "off" || configured === "warn" || configured === "block" || configured === "fail") return configured;
@@ -48472,7 +48488,7 @@ function resolveEffectivenessGuardMode(runtimeConfig, manifest) {
 }
 function evaluateRunEffectiveness(input) {
   const completedTasks = input.tasks.filter((task) => task.status === "completed");
-  const noObservedWorkTasks = completedTasks.filter((task) => !taskHasObservableWorkerActivity(task));
+  const noObservedWorkTasks = completedTasks.filter((task) => !taskHasObservableWorkerActivity(task) || taskHasEmptyResult(task));
   const needsAttentionTasks = input.tasks.filter((task) => task.agentProgress?.activityState === "needs_attention");
   const workerExecution = input.executeWorkers ? "enabled" : "disabled/scaffold";
   const guardMode = resolveEffectivenessGuardMode(input.runtimeConfig, input.manifest);
@@ -49331,112 +49347,6 @@ var init_correlation = __esm({
   "src/observability/correlation.ts"() {
     "use strict";
     storage = new AsyncLocalStorage3();
-  }
-});
-
-// src/plugins/plugin-registry.ts
-var PluginRegistry;
-var init_plugin_registry = __esm({
-  "src/plugins/plugin-registry.ts"() {
-    "use strict";
-    PluginRegistry = class {
-      plugins = [];
-      register(plugin) {
-        this.plugins.push(plugin);
-      }
-      activePlugins(allDeps) {
-        return this.plugins.filter(
-          (p) => p.enablers.some((enabler) => {
-            if (enabler.endsWith("/")) {
-              return allDeps.some((d) => d.startsWith(enabler));
-            }
-            return allDeps.includes(enabler);
-          })
-        );
-      }
-      allPlugins() {
-        return [...this.plugins];
-      }
-    };
-  }
-});
-
-// src/plugins/plugin-define.ts
-function definePlugin(spec) {
-  return spec;
-}
-var init_plugin_define = __esm({
-  "src/plugins/plugin-define.ts"() {
-    "use strict";
-  }
-});
-
-// src/plugins/plugins/nextjs.ts
-var NextJsPlugin;
-var init_nextjs = __esm({
-  "src/plugins/plugins/nextjs.ts"() {
-    "use strict";
-    init_plugin_define();
-    NextJsPlugin = definePlugin({
-      name: "nextjs",
-      enablers: ["next"],
-      entryPatterns: [
-        "src/app/**/*.{ts,tsx}",
-        "src/pages/**/*.{ts,tsx}",
-        "src/app/**/page.{ts,tsx}",
-        "src/app/**/layout.{ts,tsx}",
-        "src/app/**/route.{ts,tsx}",
-        "middleware.{ts,js}",
-        "next.config.{ts,js,mjs}"
-      ],
-      configPatterns: ["next.config.{ts,js,mjs}"],
-      toolingDependencies: ["next", "@next/font", "@next/mdx"],
-      pathAliases: [["~", "src"]],
-      virtualModulePrefixes: ["next:"]
-    });
-  }
-});
-
-// src/plugins/plugins/vite.ts
-var VitePlugin;
-var init_vite = __esm({
-  "src/plugins/plugins/vite.ts"() {
-    "use strict";
-    init_plugin_define();
-    VitePlugin = definePlugin({
-      name: "vite",
-      enablers: ["vite", "rolldown-vite"],
-      entryPatterns: ["src/main.{ts,tsx,js,jsx}", "src/index.{ts,tsx,js,jsx}", "index.html"],
-      configPatterns: ["vite.config.{ts,js,mts,mjs}"],
-      toolingDependencies: ["vite"],
-      virtualModulePrefixes: ["virtual:"]
-    });
-  }
-});
-
-// src/plugins/plugins/vitest.ts
-var VitestPlugin;
-var init_vitest = __esm({
-  "src/plugins/plugins/vitest.ts"() {
-    "use strict";
-    init_plugin_define();
-    VitestPlugin = definePlugin({
-      name: "vitest",
-      enablers: ["vitest"],
-      entryPatterns: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "src/**/*.test.{ts,tsx}", "src/**/*.spec.{ts,tsx}"],
-      configPatterns: ["vitest.config.{ts,js,mjs}", "vite.config.ts"],
-      toolingDependencies: ["vitest"]
-    });
-  }
-});
-
-// src/plugins/plugins/index.ts
-var init_plugins = __esm({
-  "src/plugins/plugins/index.ts"() {
-    "use strict";
-    init_nextjs();
-    init_vite();
-    init_vitest();
   }
 });
 
@@ -51749,6 +51659,166 @@ var init_run_coalesced_task_group = __esm({
   }
 });
 
+// src/runtime/scheduling/task-graph-scheduler.ts
+function buildTaskGraphIndex(tasks) {
+  const cached2 = taskGraphIndexCache.get(tasks);
+  if (cached2) return cached2;
+  const fresh = {
+    doneSteps: new Set(
+      tasks.filter((task) => task.status === "completed").map((task) => task.stepId).filter((id) => id !== void 0)
+    ),
+    idMap: new Map(tasks.map((task) => [task.id, task])),
+    stepToTaskId: new Map(
+      tasks.map((task) => [task.stepId, task.id]).filter((entry) => entry[0] !== void 0)
+    )
+  };
+  taskGraphIndexCache.set(tasks, fresh);
+  return fresh;
+}
+function dependencySatisfied(task, doneStepIds, idMap, stepMap) {
+  return task.dependsOn.every((dependency) => {
+    if (doneStepIds.has(dependency)) return true;
+    const taskId = stepMap.get(dependency) ?? dependency;
+    return idMap.get(taskId)?.status === "completed";
+  });
+}
+function withQueue(task, index) {
+  let resolvedQueue;
+  if (task.status === "queued") {
+    const isReady = dependencySatisfied(task, index.doneSteps, index.idMap, index.stepToTaskId);
+    resolvedQueue = isReady ? "ready" : "blocked";
+  } else if (task.status === "running") {
+    resolvedQueue = "running";
+  } else if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
+    resolvedQueue = "done";
+  } else {
+    resolvedQueue = "blocked";
+  }
+  if (task.graph && task.graph.queue === resolvedQueue) {
+    return task;
+  }
+  return {
+    ...task,
+    graph: task.graph ? { ...task.graph, queue: resolvedQueue } : task.graph
+  };
+}
+function ensureIndex(tasks, index) {
+  return index ?? buildTaskGraphIndex(tasks);
+}
+function refreshTaskGraphQueues(tasks, index) {
+  const resolved = ensureIndex(tasks, index);
+  return tasks.map((task) => withQueue(task, resolved));
+}
+function taskGraphSnapshot(tasks, index) {
+  const refreshed = refreshTaskGraphQueues(tasks, index);
+  return {
+    ready: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "ready").map((task) => task.id),
+    blocked: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "blocked").map((task) => task.id),
+    running: refreshed.filter((task) => task.status === "running").map((task) => task.id),
+    done: refreshed.filter((task) => task.status === "completed" || task.status === "skipped").map((task) => task.id),
+    failed: refreshed.filter((task) => task.status === "failed").map((task) => task.id),
+    cancelled: refreshed.filter((task) => task.status === "cancelled").map((task) => task.id)
+  };
+}
+var taskGraphIndexCache;
+var init_task_graph_scheduler = __esm({
+  "src/runtime/scheduling/task-graph-scheduler.ts"() {
+    "use strict";
+    taskGraphIndexCache = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/runtime/merge-gate.ts
+function isNonTerminalTaskStatus(status) {
+  return status === "queued" || status === "running" || status === "waiting";
+}
+function safeFinishedAt(task) {
+  if (!task.finishedAt) return -Infinity;
+  const ms = new Date(task.finishedAt).getTime();
+  return Number.isNaN(ms) ? Infinity : ms;
+}
+function isMalformedFinishedAtReplacement(currentTime, updatedTime) {
+  return !Number.isFinite(currentTime) && Number.isFinite(updatedTime);
+}
+function statusMergeKey(from, to) {
+  return `${from}->${to}`;
+}
+function shouldMergeTaskUpdate(current, updated) {
+  if (REJECTED_STATUS_MERGE_TRANSITIONS.has(statusMergeKey(current.status, updated.status))) return false;
+  if (current.status === updated.status && updated.status === "running" && current.resultArtifact && !updated.resultArtifact)
+    return false;
+  if (current.status === updated.status && current.status === "completed" && current.resultArtifact && !updated.resultArtifact)
+    return false;
+  if (current.finishedAt !== void 0 && updated.finishedAt !== void 0) {
+    const currentTime = safeFinishedAt(current);
+    const updatedTime = safeFinishedAt(updated);
+    if (!Number.isFinite(currentTime)) {
+      console.warn(`[merge-gate] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
+    }
+    if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
+      return true;
+    }
+    if (updatedTime < currentTime) return false;
+  }
+  if (!updated.finishedAt && !isNonTerminalTaskStatus(updated.status)) return false;
+  const hasMeaningfulUpdate = updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) || Boolean(updated.resultArtifact) && updated.resultArtifact !== current.resultArtifact || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage) || Boolean(updated.attempts?.length) || updated.heartbeat?.lastSeenAt !== current.heartbeat?.lastSeenAt || updated.jsonEvents !== current.jsonEvents || updated.agentProgress?.lastActivityAt !== current.agentProgress?.lastActivityAt;
+  return hasMeaningfulUpdate;
+}
+function mergeTaskUpdatesPreservingTerminal(base, results) {
+  const indexById = /* @__PURE__ */ new Map();
+  for (const task of base) indexById.set(task.id, task);
+  let skipped = 0;
+  for (const result4 of results) {
+    for (const updated of result4.tasks) {
+      const current = indexById.get(updated.id);
+      if (!current) continue;
+      if (!shouldMergeTaskUpdate(current, updated)) {
+        console.debug("[merge-gate] Skipping stale merge for task", updated.id, {
+          currentStatus: current.status,
+          updatedStatus: updated.status,
+          currentFinishedAt: current.finishedAt,
+          updatedFinishedAt: updated.finishedAt
+        });
+        skipped += 1;
+        continue;
+      }
+      indexById.set(updated.id, updated);
+    }
+  }
+  const merged = base.map((task) => indexById.get(task.id) ?? task);
+  void skipped;
+  return refreshTaskGraphQueues(merged);
+}
+var REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates;
+var init_merge_gate = __esm({
+  "src/runtime/merge-gate.ts"() {
+    "use strict";
+    init_contracts();
+    init_task_graph_scheduler();
+    REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
+      const rejected = /* @__PURE__ */ new Set();
+      for (const from of TEAM_TASK_STATUSES) {
+        if (!TEAM_TERMINAL_TASK_STATUSES.has(from)) continue;
+        for (const to of TEAM_TASK_STATUSES) {
+          if (!TEAM_TERMINAL_TASK_STATUSES.has(to)) rejected.add(statusMergeKey(from, to));
+        }
+      }
+      rejected.add(statusMergeKey("waiting", "running"));
+      const completedIntegrityFlips = [
+        ["completed", "failed"],
+        ["completed", "needs_attention"],
+        ["failed", "completed"],
+        ["cancelled", "completed"],
+        ["needs_attention", "completed"]
+      ];
+      for (const [from, to] of completedIntegrityFlips) rejected.add(statusMergeKey(from, to));
+      return rejected;
+    })();
+    __test__shouldMergeTaskUpdate = shouldMergeTaskUpdate;
+    __test__mergeTaskUpdates = mergeTaskUpdatesPreservingTerminal;
+  }
+});
+
 // src/runtime/scheduling/task-graph.ts
 function buildExecutionPlan(tasks) {
   if (tasks.length === 0) {
@@ -51828,75 +51898,6 @@ function getReadyTasks(plan, completedTaskIds) {
 var init_task_graph = __esm({
   "src/runtime/scheduling/task-graph.ts"() {
     "use strict";
-  }
-});
-
-// src/runtime/scheduling/task-graph-scheduler.ts
-function buildTaskGraphIndex(tasks) {
-  const cached2 = taskGraphIndexCache.get(tasks);
-  if (cached2) return cached2;
-  const fresh = {
-    doneSteps: new Set(
-      tasks.filter((task) => task.status === "completed").map((task) => task.stepId).filter((id) => id !== void 0)
-    ),
-    idMap: new Map(tasks.map((task) => [task.id, task])),
-    stepToTaskId: new Map(
-      tasks.map((task) => [task.stepId, task.id]).filter((entry) => entry[0] !== void 0)
-    )
-  };
-  taskGraphIndexCache.set(tasks, fresh);
-  return fresh;
-}
-function dependencySatisfied(task, doneStepIds, idMap, stepMap) {
-  return task.dependsOn.every((dependency) => {
-    if (doneStepIds.has(dependency)) return true;
-    const taskId = stepMap.get(dependency) ?? dependency;
-    return idMap.get(taskId)?.status === "completed";
-  });
-}
-function withQueue(task, index) {
-  let resolvedQueue;
-  if (task.status === "queued") {
-    const isReady = dependencySatisfied(task, index.doneSteps, index.idMap, index.stepToTaskId);
-    resolvedQueue = isReady ? "ready" : "blocked";
-  } else if (task.status === "running") {
-    resolvedQueue = "running";
-  } else if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
-    resolvedQueue = "done";
-  } else {
-    resolvedQueue = "blocked";
-  }
-  if (task.graph && task.graph.queue === resolvedQueue) {
-    return task;
-  }
-  return {
-    ...task,
-    graph: task.graph ? { ...task.graph, queue: resolvedQueue } : task.graph
-  };
-}
-function ensureIndex(tasks, index) {
-  return index ?? buildTaskGraphIndex(tasks);
-}
-function refreshTaskGraphQueues(tasks, index) {
-  const resolved = ensureIndex(tasks, index);
-  return tasks.map((task) => withQueue(task, resolved));
-}
-function taskGraphSnapshot(tasks, index) {
-  const refreshed = refreshTaskGraphQueues(tasks, index);
-  return {
-    ready: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "ready").map((task) => task.id),
-    blocked: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "blocked").map((task) => task.id),
-    running: refreshed.filter((task) => task.status === "running").map((task) => task.id),
-    done: refreshed.filter((task) => task.status === "completed" || task.status === "skipped").map((task) => task.id),
-    failed: refreshed.filter((task) => task.status === "failed").map((task) => task.id),
-    cancelled: refreshed.filter((task) => task.status === "cancelled").map((task) => task.id)
-  };
-}
-var taskGraphIndexCache;
-var init_task_graph_scheduler = __esm({
-  "src/runtime/scheduling/task-graph-scheduler.ts"() {
-    "use strict";
-    taskGraphIndexCache = /* @__PURE__ */ new WeakMap();
   }
 });
 
@@ -56796,7 +56797,6 @@ __export(team_runner_exports, {
   drainPendingUnits: () => drainPendingUnits,
   executeTeamRun: () => executeTeamRun,
   hasPendingMutatingTaskAtBoundary: () => hasPendingMutatingTaskAtBoundary,
-  mergeTaskUpdatesPreservingTerminal: () => mergeTaskUpdatesPreservingTerminal,
   setRunStatusRunning: () => setRunStatusRunning,
   shouldUseRetry: () => shouldUseRetry
 });
@@ -56951,9 +56951,6 @@ function markBlocked(tasks, reason) {
     } : task
   );
 }
-function isNonTerminalTaskStatus(status) {
-  return status === "queued" || status === "running" || status === "waiting";
-}
 function cancelNonTerminalTasks(tasks, status, reason, filter, transform) {
   const predicate = filter ?? ((task) => isNonTerminalTaskStatus(task.status));
   return tasks.map((task) => {
@@ -56961,63 +56958,6 @@ function cancelNonTerminalTasks(tasks, status, reason, filter, transform) {
     const terminalised = { ...task, status, finishedAt: (/* @__PURE__ */ new Date()).toISOString(), error: reason };
     return transform ? transform(task, terminalised) : terminalised;
   });
-}
-function safeFinishedAt(task) {
-  if (!task.finishedAt) return -Infinity;
-  const ms = new Date(task.finishedAt).getTime();
-  return Number.isNaN(ms) ? Infinity : ms;
-}
-function isMalformedFinishedAtReplacement(currentTime, updatedTime) {
-  return !Number.isFinite(currentTime) && Number.isFinite(updatedTime);
-}
-function statusMergeKey(from, to) {
-  return `${from}->${to}`;
-}
-function shouldMergeTaskUpdate(current, updated) {
-  if (REJECTED_STATUS_MERGE_TRANSITIONS.has(statusMergeKey(current.status, updated.status))) return false;
-  if (current.status === updated.status && updated.status === "running" && current.resultArtifact && !updated.resultArtifact)
-    return false;
-  if (current.status === updated.status && current.status === "completed" && current.resultArtifact && !updated.resultArtifact)
-    return false;
-  if (current.finishedAt !== void 0 && updated.finishedAt !== void 0) {
-    const currentTime = safeFinishedAt(current);
-    const updatedTime = safeFinishedAt(updated);
-    if (!Number.isFinite(currentTime)) {
-      console.warn(`[team-runner] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
-    }
-    if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
-      return true;
-    }
-    if (updatedTime < currentTime) return false;
-  }
-  if (!updated.finishedAt && !isNonTerminalTaskStatus(updated.status)) return false;
-  const hasMeaningfulUpdate = updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) || Boolean(updated.resultArtifact) && updated.resultArtifact !== current.resultArtifact || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage) || Boolean(updated.attempts?.length) || updated.heartbeat?.lastSeenAt !== current.heartbeat?.lastSeenAt || updated.jsonEvents !== current.jsonEvents || updated.agentProgress?.lastActivityAt !== current.agentProgress?.lastActivityAt;
-  return hasMeaningfulUpdate;
-}
-function mergeTaskUpdatesPreservingTerminal(base, results) {
-  const indexById = /* @__PURE__ */ new Map();
-  for (const task of base) indexById.set(task.id, task);
-  let skipped = 0;
-  for (const result4 of results) {
-    for (const updated of result4.tasks) {
-      const current = indexById.get(updated.id);
-      if (!current) continue;
-      if (!shouldMergeTaskUpdate(current, updated)) {
-        console.debug("[team-runner] Skipping stale merge for task", updated.id, {
-          currentStatus: current.status,
-          updatedStatus: updated.status,
-          currentFinishedAt: current.finishedAt,
-          updatedFinishedAt: updated.finishedAt
-        });
-        skipped += 1;
-        continue;
-      }
-      indexById.set(updated.id, updated);
-    }
-  }
-  const merged = base.map((task) => indexById.get(task.id) ?? task);
-  void skipped;
-  return refreshTaskGraphQueues(merged);
 }
 function formatTaskProgress(task) {
   return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
@@ -58434,15 +58374,13 @@ async function executeTeamRunCore(input, manifest, workflow) {
     await drainPendingUnits(pendingUnits, runController);
   }
 }
-var builtInRegistry, OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks;
+var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks;
 var init_team_runner = __esm({
   "src/runtime/team-runner.ts"() {
     "use strict";
     init_errors3();
     init_registry2();
     init_correlation();
-    init_plugin_registry();
-    init_plugins();
     init_atomic_write();
     init_contracts();
     init_locks();
@@ -58471,6 +58409,7 @@ var init_team_runner = __esm({
     init_coalesce_tasks();
     init_concurrency();
     init_run_coalesced_task_group();
+    init_merge_gate();
     init_task_graph();
     init_task_graph_scheduler();
     init_task_display();
@@ -58481,34 +58420,10 @@ var init_team_runner = __esm({
     init_usage_tracker();
     init_workflow_state();
     init_adaptive_plan();
+    init_merge_gate();
     init_adaptive_plan();
-    builtInRegistry = new PluginRegistry();
-    builtInRegistry.register(NextJsPlugin);
-    builtInRegistry.register(VitestPlugin);
-    builtInRegistry.register(VitePlugin);
     OBSERVABILITY_INTERVAL_MS = 2e3;
     OBSERVABILITY_ANALYZE_DELAY_MS = 3e3;
-    REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
-      const rejected = /* @__PURE__ */ new Set();
-      for (const from of TEAM_TASK_STATUSES) {
-        if (!TEAM_TERMINAL_TASK_STATUSES.has(from)) continue;
-        for (const to of TEAM_TASK_STATUSES) {
-          if (!TEAM_TERMINAL_TASK_STATUSES.has(to)) rejected.add(statusMergeKey(from, to));
-        }
-      }
-      rejected.add(statusMergeKey("waiting", "running"));
-      const completedIntegrityFlips = [
-        ["completed", "failed"],
-        ["completed", "needs_attention"],
-        ["failed", "completed"],
-        ["cancelled", "completed"],
-        ["needs_attention", "completed"]
-      ];
-      for (const [from, to] of completedIntegrityFlips) rejected.add(statusMergeKey(from, to));
-      return rejected;
-    })();
-    __test__shouldMergeTaskUpdate = shouldMergeTaskUpdate;
-    __test__mergeTaskUpdates = mergeTaskUpdatesPreservingTerminal;
     lastProgressContentHash = /* @__PURE__ */ new Map();
     __test__lastProgressContentHash = lastProgressContentHash;
     __test__writeProgress = writeProgress;
@@ -66357,7 +66272,6 @@ var init_mascot = __esm({
       currentArminGrid;
       effectState = {};
       effectDone = false;
-      visible = true;
       frame = 0;
       effectPhase = 0;
       gridVersion = 0;
@@ -66453,7 +66367,7 @@ var init_mascot = __esm({
           this.gridVersion++;
         }
         this.invalidate();
-        if (this.visible) this.requestRender?.();
+        this.requestRender?.();
       }
       tickArminEffect() {
         switch (this.effect) {
@@ -66659,14 +66573,6 @@ var init_mascot = __esm({
         if (data === "q" || data === "\x1B" || data === "") {
           this.close();
         }
-      }
-      /**
-       * Set whether the mascot is currently visible (not obscured by another
-       * overlay).  When invisible, tick() skips requestRender so the animation
-       * does not trigger needless repaints while hidden.
-       */
-      setVisible(visible) {
-        this.visible = visible;
       }
       dispose() {
         this.doneGuard.called = true;
@@ -70716,10 +70622,18 @@ var init_otlp_exporter = __esm({
 });
 
 // src/observability/metrics-primitives.ts
-function enforceLabelCap(map3, metricName) {
+function getCardinalityEvictions() {
+  return cardinalityEvictions;
+}
+function enforceLabelCap(map3, _metricName) {
   while (map3.size > MAX_LABEL_COMBINATIONS) {
     const firstKey = map3.keys().next().value;
-    if (firstKey !== void 0) map3.delete(firstKey);
+    if (firstKey !== void 0) {
+      map3.delete(firstKey);
+      cardinalityEvictions++;
+    } else {
+      break;
+    }
   }
 }
 function normalizeLabels(labels = {}) {
@@ -70733,12 +70647,13 @@ function labelKey(labels = {}) {
 function cloneLabels(labels) {
   return { ...labels };
 }
-var DEFAULT_HISTOGRAM_BUCKETS, MAX_LABEL_COMBINATIONS, Metric, Counter, Gauge, Histogram;
+var DEFAULT_HISTOGRAM_BUCKETS, MAX_LABEL_COMBINATIONS, cardinalityEvictions, Metric, Counter, Gauge, Histogram;
 var init_metrics_primitives = __esm({
   "src/observability/metrics-primitives.ts"() {
     "use strict";
     DEFAULT_HISTOGRAM_BUCKETS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1e3, 2500, 5e3, 1e4];
     MAX_LABEL_COMBINATIONS = 1e4;
+    cardinalityEvictions = 0;
     Metric = class {
       name;
       description;
@@ -71003,6 +70918,8 @@ function wireEventToMetrics(events, registry2) {
   const deadletterCount = registry2.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
   const overflowCount = registry2.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
   const supervisorContactCount = registry2.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
+  const unboundedConcurrencyCount = registry2.counter("crew.limits.unbounded_total", "Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)");
+  const cardinalityEvictedGauge = registry2.gauge("crew.metrics.cardinality_evicted", "Cumulative label-combination evictions (non-zero = unreliable aggregation)");
   registry2.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds");
   const runDuration = registry2.histogram(
     "crew.run.duration_ms",
@@ -71102,11 +71019,21 @@ function wireEventToMetrics(events, registry2) {
           direction: stringValue(item.direction, "unknown")
         });
       }
+    ],
+    [
+      "crew.limits.unbounded",
+      () => {
+        unboundedConcurrencyCount.inc({});
+      }
     ]
   ];
   const unsubscribers = [];
   for (const [event, handler] of handlers) {
     const unsubscribe = events?.on?.(event, (data) => {
+      try {
+        cardinalityEvictedGauge.set({}, getCardinalityEvictions());
+      } catch {
+      }
       try {
         handler(data);
       } catch {
@@ -71127,6 +71054,7 @@ var CANCELLATION_REASON_LABELS;
 var init_event_to_metric = __esm({
   "src/observability/event-to-metric.ts"() {
     "use strict";
+    init_metrics_primitives();
     CANCELLATION_REASON_LABELS = /* @__PURE__ */ new Set([
       "caller_cancelled",
       "leader_interrupted",
@@ -76106,19 +76034,6 @@ var CrewBroker = class {
       }
     }
     this.resolvedSocketPath = null;
-  }
-  /**
-   * Non-throwing enqueue entry point for the post-append mailbox observer
-   * (Phase 1) or any other in-process producer. Phase 0 accepts `notifyMessage`
-   * as a no-op shape so the lifecycle controller can install a single
-   * observer regardless of broker state.
-   *
-   * Fanout goes ONLY to authenticated connections matching the recipient.
-   * Phase 0 keeps this as a typed no-op (`not-implemented` would be
-   * inappropriate here — the caller is in-process and shouldn't be
-   * punished for testing the broker skeleton).
-   */
-  notifyMessage(_message) {
   }
   // ------------------------------------------------------------------------
   // Connection lifecycle
