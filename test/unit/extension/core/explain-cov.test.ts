@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
-import { buildTaskExplainContext, formatTaskExplain, type TaskExplainContext } from "../../../../src/extension/team-tool/explain.ts";
+import { handleExplain, buildTaskExplainContext, formatTaskExplain, type TaskExplainContext } from "../../../../src/extension/team-tool/explain.ts";
+import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
 function makeManifest(overrides?: Partial<TeamRunManifest>): TeamRunManifest {
@@ -36,6 +40,46 @@ function makeTask(id: string, overrides?: Partial<TeamTaskState>): TeamTaskState
 		...overrides,
 	};
 }
+
+describe("handleExplain cross-project lookup", () => {
+	it("resolves a run stored in a nested child dir's .crew", () => {
+		// Project tree with a .git marker so state lands under the temp tree
+		// (mirrors test/unit/extension/core/locate-run-cwd.test.ts).
+		const base = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-explain-cross-"));
+		try {
+			fs.mkdirSync(path.join(base, ".git"), { recursive: true });
+			const child = path.join(base, "child");
+			fs.mkdirSync(path.join(child, ".crew"), { recursive: true });
+			const team = {
+				name: "explain-team",
+				description: "",
+				source: "builtin" as const,
+				filePath: "builtin",
+				roles: [{ name: "worker", agent: "worker" }],
+			} as never;
+			const workflow = {
+				name: "wf",
+				description: "",
+				steps: [{ id: "one", role: "worker" }],
+				source: "builtin" as const,
+				filePath: "builtin",
+			} as never;
+			const { manifest } = createRunManifest({
+				cwd: child,
+				team,
+				workflow,
+				goal: "cross-project explain",
+			});
+			// handleExplain invoked from the PARENT cwd must still find the run
+			// in the nested child's .crew via locateRunCwd.
+			const res = handleExplain({ runId: manifest.runId }, base);
+			assert.equal(res.isError, false, res.text);
+			assert.ok(res.text.includes(manifest.runId));
+		} finally {
+			fs.rmSync(base, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("buildTaskExplainContext", () => {
 	it("throws for non-existent task ID", () => {

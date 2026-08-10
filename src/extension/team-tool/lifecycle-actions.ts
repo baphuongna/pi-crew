@@ -16,6 +16,7 @@ import { listImportedRuns } from "../import-index.ts";
 import { exportRunBundle } from "../run-export.ts";
 import { importRunBundle } from "../run-import.ts";
 import { pruneFinishedRuns } from "../run-maintenance.ts";
+import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { configRecord, result, type TeamContext } from "./context.ts";
 import { enforceDestructiveIntent, intentFromConfig } from "./intent-policy.ts";
@@ -29,7 +30,9 @@ export function handleWorktrees(params: TeamToolParamsValue, ctx: TeamContext): 
 			{ action: "worktrees", status: "error" },
 			true,
 		);
-	const loaded = loadRunManifestById(ctx.cwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+	const runCwd = locateRunCwd(params.runId, ctx.cwd);
+	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "worktrees", status: "error" }, true);
+	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "worktrees", status: "error" }, true);
 	const withWorktrees = loaded.tasks.filter((task) => task.worktree);
 	const lines = [

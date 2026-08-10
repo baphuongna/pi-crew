@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { locateRunCwd } from "../team-tool.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
@@ -215,7 +216,8 @@ export function handleExplain(
 		return result("explain requires runId", { action: "explain", status: "error" }, true);
 	}
 
-	const loaded = loadRunManifestById(cwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+	const runCwd = locateRunCwd(params.runId, cwd);
+	const loaded = runCwd ? loadRunManifestById(runCwd, params.runId) : undefined; // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) {
 		return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "explain", status: "error" }, true);
 	}
