@@ -357,22 +357,6 @@ export class CrewBroker {
 		this.resolvedSocketPath = null;
 	}
 
-	/**
-	 * Non-throwing enqueue entry point for the post-append mailbox observer
-	 * (Phase 1) or any other in-process producer. Phase 0 accepts `notifyMessage`
-	 * as a no-op shape so the lifecycle controller can install a single
-	 * observer regardless of broker state.
-	 *
-	 * Fanout goes ONLY to authenticated connections matching the recipient.
-	 * Phase 0 keeps this as a typed no-op (`not-implemented` would be
-	 * inappropriate here — the caller is in-process and shouldn't be
-	 * punished for testing the broker skeleton).
-	 */
-	notifyMessage(_message: unknown): void {
-		// Phase 0: no fanout. Phase 1 replaces this with the single
-		// post-durable mailbox observer fanout.
-	}
-
 	// ------------------------------------------------------------------------
 	// Connection lifecycle
 	// ------------------------------------------------------------------------

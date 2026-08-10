@@ -1,5 +1,4 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { crewEventBus } from "../../observability/event-bus.ts";
 
 export interface AgentProgress {
 	toolCalls: number;
@@ -25,7 +24,7 @@ export class ProgressTracker {
 			subscribe: (listener: (event: AgentSessionEvent) => void) => () => void;
 		},
 		agentId: string,
-		runId: string,
+		_runId: string,
 	): AgentProgress {
 		if (this.sessions.has(agentId)) {
 			return this.sessions.get(agentId)!.progress;
@@ -42,26 +41,19 @@ export class ProgressTracker {
 		};
 
 		const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-			this.handleEvent(event, progress, agentId, runId);
+			this.handleEvent(event, progress);
 		});
 
 		this.sessions.set(agentId, { unsubscribe, progress });
 		return progress;
 	}
 
-	private handleEvent(event: AgentSessionEvent, progress: AgentProgress, agentId: string, runId: string): void {
+	private handleEvent(event: AgentSessionEvent, progress: AgentProgress): void {
 		switch (event.type) {
 			case "tool_execution_start":
 				progress.toolCalls++;
 				progress.currentTool = event.toolName;
 				progress.toolStartTime = Date.now();
-				crewEventBus.emit({
-					type: "agent:progress",
-					runId,
-					agentId,
-					payload: { ...progress },
-					timestamp: Date.now(),
-				});
 				break;
 
 			case "tool_execution_end":
@@ -69,21 +61,7 @@ export class ProgressTracker {
 				progress.toolStartTime = null;
 				if (event.isError) {
 					progress.errors.push(String(event.result ?? "Unknown error"));
-					crewEventBus.emit({
-						type: "agent:error",
-						runId,
-						agentId,
-						payload: String(event.result ?? "Unknown error"),
-						timestamp: Date.now(),
-					});
 				}
-				crewEventBus.emit({
-					type: "agent:progress",
-					runId,
-					agentId,
-					payload: { ...progress },
-					timestamp: Date.now(),
-				});
 				break;
 
 			case "turn_start":
@@ -92,13 +70,6 @@ export class ProgressTracker {
 
 			case "agent_end":
 				progress.status = "completed";
-				crewEventBus.emit({
-					type: "agent:complete",
-					runId,
-					agentId,
-					payload: { ...progress },
-					timestamp: Date.now(),
-				});
 				break;
 
 			case "agent_start":
@@ -120,5 +91,4 @@ export class ProgressTracker {
 	}
 }
 
-// Export singleton instance
 export const globalProgressTracker = new ProgressTracker();

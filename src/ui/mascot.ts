@@ -99,7 +99,6 @@ export class AnimatedMascot {
 	private currentArminGrid: string[][];
 	private effectState: EffectState = {};
 	private effectDone = false;
-	private visible = true;
 	private frame = 0;
 	private effectPhase = 0;
 	private gridVersion = 0;
@@ -200,14 +199,10 @@ export class AnimatedMascot {
 			this.gridVersion++;
 		}
 		this.invalidate();
-		// Only request a re-render when the mascot is visible (not obscured by
-		// another overlay such as the dashboard or live sidebar).  This avoids
-		// pointless repaints on every animation frame while hidden.
-		if (this.visible) this.requestRender?.();
+		this.requestRender?.();
 	}
 
-	private tickArminEffect(): boolean {
-		switch (this.effect) {
+	private tickArminEffect(): boolean {		switch (this.effect) {
 			case "typewriter":
 				return this.tickTypewriter();
 			case "scanline":
@@ -430,15 +425,6 @@ export class AnimatedMascot {
 		if (data === "q" || data === "\u001b" || data === "\u0003") {
 			this.close();
 		}
-	}
-
-	/**
-	 * Set whether the mascot is currently visible (not obscured by another
-	 * overlay).  When invisible, tick() skips requestRender so the animation
-	 * does not trigger needless repaints while hidden.
-	 */
-	setVisible(visible: boolean): void {
-		this.visible = visible;
 	}
 
 	dispose(): void {

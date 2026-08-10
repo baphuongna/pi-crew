@@ -8,8 +8,6 @@ import { CrewError, ErrorCode } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
-import { PluginRegistry } from "../plugins/plugin-registry.ts";
-import { NextJsPlugin, VitePlugin, VitestPlugin } from "../plugins/plugins/index.ts";
 import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write.ts";
 import { canTransitionRunStatus, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
@@ -71,16 +69,6 @@ import {
 	validatePhasePreconditions,
 	type WorkflowStateMachine,
 } from "./workflow-state.ts";
-
-// Built-in plugin registry for framework awareness.
-// NOTE: This registry is registered here for future use. The integration
-// point (reading package.json deps, computing active plugin context, and
-// passing it into RunConfig / task-runner) is not yet implemented; see
-// `getPluginContext` in src/plugins/plugin-context.ts (planned).
-const builtInRegistry = new PluginRegistry();
-builtInRegistry.register(NextJsPlugin);
-builtInRegistry.register(VitestPlugin);
-builtInRegistry.register(VitePlugin);
 
 /**
  * Start a periodic heartbeat for the team-level run.

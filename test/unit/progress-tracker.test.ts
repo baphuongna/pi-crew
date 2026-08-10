@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { crewEventBus } from "../../src/observability/event-bus.ts";
 import { ProgressTracker } from "../../src/runtime/output/progress-tracker.ts";
 
 test("ProgressTracker counts tool calls", () => {
@@ -86,24 +85,6 @@ test("ProgressTracker tracks errors", () => {
 
 	const progress = tracker.getProgress("agent-2");
 	assert.equal(progress?.errors.length, 1);
-});
-
-test("EventBus emits progress events", () => {
-	const events: any[] = [];
-	const unsubscribe = crewEventBus.on("agent:progress", (e) => events.push(e));
-
-	crewEventBus.emit({
-		type: "agent:progress",
-		runId: "test-run",
-		agentId: "test-agent",
-		payload: { toolCalls: 1 } as any,
-		timestamp: Date.now(),
-	});
-
-	assert.equal(events.length, 1);
-	assert.equal(events[0].agentId, "test-agent");
-
-	unsubscribe();
 });
 
 test("ProgressTracker untrack removes subscription", () => {

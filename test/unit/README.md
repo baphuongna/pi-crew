@@ -25,7 +25,6 @@ cross-cutting tests stay at this root by design.
 | [`security/`](./security/) | 3 | pre-existing (security invariants) |
 | [`skills/`](./skills/) | 2 | `src/skills/` — SKILL.md validation |
 | [`prompt/`](./prompt/) | 2 | `src/prompt/` — prompt building |
-| [`plugins/`](./plugins/) | 1 | `src/plugins/` — plugin registry |
 
 ## Cross-cutting tests (stay at root — by design)
 

@@ -7,7 +7,7 @@ clusters are extracted into subdirectories; the remaining files stay at the root
 
 | Subdir | Phase | Cluster | Key files |
 |--------|-------|---------|-----------|
-| [`child-pi/`](./child-pi/) | B-1 | child Pi worker spawn/lifecycle/steering/transcript | `child-pi.ts`, `child-pi-spawn.ts`, `child-pi-kill.ts`, `child-pi-constants.ts`, `child-pi-steering.ts`, `child-pi-streams.ts`, `child-pi-transcript.ts`, `child-pi-pool.ts` |
+| [`child-pi/`](./child-pi/) | B-1 | child Pi worker spawn/lifecycle/steering/transcript | `child-pi.ts`, `child-pi-spawn.ts`, `child-pi-kill.ts`, `child-pi-constants.ts`, `child-pi-steering.ts`, `child-pi-streams.ts`, `child-pi-transcript.ts` |
 | [`broker/`](./broker/) | B-2 | crew broker server/client/auth (child-pi ↔ parent IPC) | `crew-broker.ts`, `crew-broker-client.ts`, `crew-broker-child.ts`, `crew-broker-tokens.ts`, `broker-issuer.ts` |
 | [`task-runner/`](./task-runner/) | (pre-existing) | per-task execution (pre-execution, child-executor) | `child-executor.ts`, `pre-execution.ts`, ... |
 | [`live-session/`](./live-session/) | 3 | live agent control/manager, session runtime, IRC, health, extension bridge | `live-session-runtime.ts`, `live-agent-manager.ts`, `live-agent-control.ts`, `live-control-realtime.ts`, `live-irc.ts`, `live-session-health.ts`, `live-extension-bridge.ts`, `intercom-bridge.ts` |
