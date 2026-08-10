@@ -202,7 +202,8 @@ export class AnimatedMascot {
 		this.requestRender?.();
 	}
 
-	private tickArminEffect(): boolean {		switch (this.effect) {
+	private tickArminEffect(): boolean {
+		switch (this.effect) {
 			case "typewriter":
 				return this.tickTypewriter();
 			case "scanline":

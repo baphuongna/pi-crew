@@ -6,8 +6,8 @@ import {
 	isSnapshotHmacStrict,
 	SNAPSHOT_HMAC_KEY_ENV,
 	SNAPSHOT_SIG_PREFIX,
-	signSnapshot,
 	shouldRejectSnapshot,
+	signSnapshot,
 	snapshotSignatureMatches,
 	stripSnapshotSignature,
 	verifySnapshotPayload,
@@ -31,10 +31,7 @@ test("getSnapshotHmacKey: accepts hex and utf8 keys >= 32 bytes", () => {
 });
 
 test("getSnapshotHmacKey: rejects keys shorter than 32 bytes", () => {
-	assert.throws(
-		() => getSnapshotHmacKey({ [SNAPSHOT_HMAC_KEY_ENV]: "short" }),
-		/at least 32 bytes/,
-	);
+	assert.throws(() => getSnapshotHmacKey({ [SNAPSHOT_HMAC_KEY_ENV]: "short" }), /at least 32 bytes/);
 });
 
 test("signSnapshot + snapshotSignatureMatches round-trip", () => {

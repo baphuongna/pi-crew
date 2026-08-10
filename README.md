@@ -289,6 +289,12 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ## Recent changes
 
+### v0.9.65: team-tool schema empty-string guard + effectiveness empty-result guard (2026-08-10)
+
+- **`budgetTotal` empty-string unset marker accepted**: `budgetTotal` was the only numeric `TeamToolParams` field missing the `Literal("")` union branch its siblings had. Calling models that emit every schema key with defaults were rejected by pi-ai's pre-handler validation → `Validation failed for tool "team"` on every action. The `MISCONFIGURATION GUARD` (rejects 1-999) is preserved. Caught by the Tier 9 feature battery — Tiers 1-8 stayed green while the team tool was broken for emitting models.
+- **Effectiveness empty-result guard**: a completed task with an empty result artifact (`sizeBytes === 0`) is now treated as no-observed-work — closing the monitoring gap where a 429-absorbed / model-not-found worker produced zero real content but the run still completed with `consistency=1`. Empty-result tasks flow through the existing `noObservedWork` escalation. Regression tests: `test/unit/runtime/core/effectiveness-guard.test.ts` (8 tests).
+- Full 9-tier real-test re-run (2026-08-10): Tiers 1-8 + 9a (10/10) + 9b (5/5) pass; previous failure modes did not reproduce. See [CHANGELOG.md](CHANGELOG.md) §0.9.65 and `docs/real-test/reports/real-test-2026-08-10-full-9-tier-f4-effectiveness-guard.md`.
+
 ### v0.9.63: built-in performance observability + local-path provider-extension discovery
 
 - **Built-in performance observability (always-on, toggle per team)**: every team run now auto-attaches a detached resource sampler (`scripts/resource-sampler.mjs` — per-PID CPU/RSS via ppid-tree attribution, 6 live warning categories: high_cpu / rss_jump / rss_high / rss_leak / proc_died / proc_zombie) and auto-generates a markdown performance report (`scripts/analyze-run.mjs` → `docs/perf-report-<runId>.md` — 22 anomaly categories, per-subagent launch/respawn/active/drain timeline, token/cost/model attribution). Runtime wiring in `src/runtime/team-runner.ts`: `startPerfSampler` (detached + `unref`'d; death never affects the run) + `schedulePerfAnalyze` (+3s after `after_run_complete`, `unref`'d `setTimeout`). Toggle: team frontmatter `observability: true|false` (default `true`). **Overhead ≈ 0** (A/B verified: sampler ~0.05% CPU / 56MB RSS, analyzer ~72ms post-run, ~32KB artifacts/run). New scripts: `scripts/resource-sampler.mjs`, `scripts/analyze-run.mjs`. Tests: `test/unit/scripts/{analyze-run,resource-sampler}-audit.test.ts`.

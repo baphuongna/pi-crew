@@ -2,6 +2,19 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.9.65] — team-tool schema empty-string guard (budgetTotal) + effectiveness empty-result guard + skill drift fix (2026-08-10)
+
+### Fixes
+- **`budgetTotal` empty-string unset marker accepted** (`src/schema/team-tool-schema.ts`): `budgetTotal` was the only numeric `TeamToolParams` field missing the `Literal("")` union branch that its siblings (`budgetWarning`, `budgetAbort`, `tokenBudget`, `interval`, `replyDeadline`) already had. Calling models that emit every schema key with defaults (documented behavior in `normalizeTeamParams`) were rejected by pi-ai's pre-handler `validateToolArguments` → `Validation failed for tool "team"` on every action. The `MISCONFIGURATION GUARD` (rejects 1-999) is preserved — only the unset marker is added. Caught by the Tier 9 feature battery in the `real-test-pi-crew` skill (Tiers 1-8 stayed green while the team tool was broken for emitting models).
+- **Effectiveness empty-result guard** (`src/runtime/effectiveness.ts`): a completed task with an EMPTY result artifact (`resultArtifact.sizeBytes === 0`) is now treated as no-observed-work, closing the monitoring gap where a child worker absorbed by a 429 rate-limit or model-not-found failure still emitted transcript/usage events and the run completed with `consistency=1` (zero real work). Empty-result tasks flow through the existing `noObservedWork` escalation (warn → blocked for mutating roles). New regression tests: `test/unit/runtime/core/effectiveness-guard.test.ts` (8 tests).
+- **`real-test-pi-crew` skill drift fix**: `PI_CREW_BROKER_DIAG_UI` / `src/ui/run-dashboard.ts:831` citation removed from `skills/real-test-pi-crew/SKILL.md` Tier 6 (the env var was removed in `e3ee6fe2`); Tier 6 now documents the screen-change-evidence replacement. `scripts/pty_probe.py` no longer sets the dead env var.
+
+### Verified
+- `npm run test:critical`: 101/101 pass (default, `PI_CREW_BROKER=0`, `PI_CREW_BROKER=1`).
+- New `effectiveness-guard.test.ts`: 8/8 pass.
+- `npm run typecheck` + `npm run build:bundle` exit 0; bundle md5 `e39373498d618de7e233c361ebb03b03`.
+- Full 9-tier real-test re-run (2026-08-10): Tiers 1-8 + 9a (10/10) + 9b (5/5 spawn paths) pass; the previous run's failure modes (model-not-found spawn loop, 429-absorbed empty output) did not reproduce. Report: `docs/real-test/reports/real-test-2026-08-10-full-9-tier-f4-effectiveness-guard.md`.
+
 ## [0.9.64] — pi-rlm→pi-crew pattern transfer: worker scratchpad + crash-resume + cancellation + quick wins (2026-08-09)
 
 ### Quick Wins (patterns 17/19/20/11 + spike CI)

@@ -50389,6 +50389,166 @@ var init_group_join = __esm({
   }
 });
 
+// src/runtime/scheduling/task-graph-scheduler.ts
+function buildTaskGraphIndex(tasks) {
+  const cached2 = taskGraphIndexCache.get(tasks);
+  if (cached2) return cached2;
+  const fresh = {
+    doneSteps: new Set(
+      tasks.filter((task) => task.status === "completed").map((task) => task.stepId).filter((id) => id !== void 0)
+    ),
+    idMap: new Map(tasks.map((task) => [task.id, task])),
+    stepToTaskId: new Map(
+      tasks.map((task) => [task.stepId, task.id]).filter((entry) => entry[0] !== void 0)
+    )
+  };
+  taskGraphIndexCache.set(tasks, fresh);
+  return fresh;
+}
+function dependencySatisfied(task, doneStepIds, idMap, stepMap) {
+  return task.dependsOn.every((dependency) => {
+    if (doneStepIds.has(dependency)) return true;
+    const taskId = stepMap.get(dependency) ?? dependency;
+    return idMap.get(taskId)?.status === "completed";
+  });
+}
+function withQueue(task, index) {
+  let resolvedQueue;
+  if (task.status === "queued") {
+    const isReady = dependencySatisfied(task, index.doneSteps, index.idMap, index.stepToTaskId);
+    resolvedQueue = isReady ? "ready" : "blocked";
+  } else if (task.status === "running") {
+    resolvedQueue = "running";
+  } else if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
+    resolvedQueue = "done";
+  } else {
+    resolvedQueue = "blocked";
+  }
+  if (task.graph && task.graph.queue === resolvedQueue) {
+    return task;
+  }
+  return {
+    ...task,
+    graph: task.graph ? { ...task.graph, queue: resolvedQueue } : task.graph
+  };
+}
+function ensureIndex(tasks, index) {
+  return index ?? buildTaskGraphIndex(tasks);
+}
+function refreshTaskGraphQueues(tasks, index) {
+  const resolved = ensureIndex(tasks, index);
+  return tasks.map((task) => withQueue(task, resolved));
+}
+function taskGraphSnapshot(tasks, index) {
+  const refreshed = refreshTaskGraphQueues(tasks, index);
+  return {
+    ready: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "ready").map((task) => task.id),
+    blocked: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "blocked").map((task) => task.id),
+    running: refreshed.filter((task) => task.status === "running").map((task) => task.id),
+    done: refreshed.filter((task) => task.status === "completed" || task.status === "skipped").map((task) => task.id),
+    failed: refreshed.filter((task) => task.status === "failed").map((task) => task.id),
+    cancelled: refreshed.filter((task) => task.status === "cancelled").map((task) => task.id)
+  };
+}
+var taskGraphIndexCache;
+var init_task_graph_scheduler = __esm({
+  "src/runtime/scheduling/task-graph-scheduler.ts"() {
+    "use strict";
+    taskGraphIndexCache = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/runtime/merge-gate.ts
+function isNonTerminalTaskStatus(status) {
+  return status === "queued" || status === "running" || status === "waiting";
+}
+function safeFinishedAt(task) {
+  if (!task.finishedAt) return -Infinity;
+  const ms = new Date(task.finishedAt).getTime();
+  return Number.isNaN(ms) ? Infinity : ms;
+}
+function isMalformedFinishedAtReplacement(currentTime, updatedTime) {
+  return !Number.isFinite(currentTime) && Number.isFinite(updatedTime);
+}
+function statusMergeKey(from, to) {
+  return `${from}->${to}`;
+}
+function shouldMergeTaskUpdate(current, updated) {
+  if (REJECTED_STATUS_MERGE_TRANSITIONS.has(statusMergeKey(current.status, updated.status))) return false;
+  if (current.status === updated.status && updated.status === "running" && current.resultArtifact && !updated.resultArtifact)
+    return false;
+  if (current.status === updated.status && current.status === "completed" && current.resultArtifact && !updated.resultArtifact)
+    return false;
+  if (current.finishedAt !== void 0 && updated.finishedAt !== void 0) {
+    const currentTime = safeFinishedAt(current);
+    const updatedTime = safeFinishedAt(updated);
+    if (!Number.isFinite(currentTime)) {
+      console.warn(`[merge-gate] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
+    }
+    if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
+      return true;
+    }
+    if (updatedTime < currentTime) return false;
+  }
+  if (!updated.finishedAt && !isNonTerminalTaskStatus(updated.status)) return false;
+  const hasMeaningfulUpdate = updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) || Boolean(updated.resultArtifact) && updated.resultArtifact !== current.resultArtifact || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage) || Boolean(updated.attempts?.length) || updated.heartbeat?.lastSeenAt !== current.heartbeat?.lastSeenAt || updated.jsonEvents !== current.jsonEvents || updated.agentProgress?.lastActivityAt !== current.agentProgress?.lastActivityAt;
+  return hasMeaningfulUpdate;
+}
+function mergeTaskUpdatesPreservingTerminal(base, results) {
+  const indexById = /* @__PURE__ */ new Map();
+  for (const task of base) indexById.set(task.id, task);
+  let skipped = 0;
+  for (const result4 of results) {
+    for (const updated of result4.tasks) {
+      const current = indexById.get(updated.id);
+      if (!current) continue;
+      if (!shouldMergeTaskUpdate(current, updated)) {
+        console.debug("[merge-gate] Skipping stale merge for task", updated.id, {
+          currentStatus: current.status,
+          updatedStatus: updated.status,
+          currentFinishedAt: current.finishedAt,
+          updatedFinishedAt: updated.finishedAt
+        });
+        skipped += 1;
+        continue;
+      }
+      indexById.set(updated.id, updated);
+    }
+  }
+  const merged = base.map((task) => indexById.get(task.id) ?? task);
+  void skipped;
+  return refreshTaskGraphQueues(merged);
+}
+var REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates;
+var init_merge_gate = __esm({
+  "src/runtime/merge-gate.ts"() {
+    "use strict";
+    init_contracts();
+    init_task_graph_scheduler();
+    REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
+      const rejected = /* @__PURE__ */ new Set();
+      for (const from of TEAM_TASK_STATUSES) {
+        if (!TEAM_TERMINAL_TASK_STATUSES.has(from)) continue;
+        for (const to of TEAM_TASK_STATUSES) {
+          if (!TEAM_TERMINAL_TASK_STATUSES.has(to)) rejected.add(statusMergeKey(from, to));
+        }
+      }
+      rejected.add(statusMergeKey("waiting", "running"));
+      const completedIntegrityFlips = [
+        ["completed", "failed"],
+        ["completed", "needs_attention"],
+        ["failed", "completed"],
+        ["cancelled", "completed"],
+        ["needs_attention", "completed"]
+      ];
+      for (const [from, to] of completedIntegrityFlips) rejected.add(statusMergeKey(from, to));
+      return rejected;
+    })();
+    __test__shouldMergeTaskUpdate = shouldMergeTaskUpdate;
+    __test__mergeTaskUpdates = mergeTaskUpdatesPreservingTerminal;
+  }
+});
+
 // src/runtime/model/runtime-policy.ts
 function resolveTaskRuntimeKind(globalKind, role, isolationPolicy, env = process.env) {
   if (globalKind === "scaffold") return "scaffold";
@@ -51656,166 +51816,6 @@ var init_run_coalesced_task_group = __esm({
     init_output_splitter();
     init_team_runner_artifacts();
     init_workspace_tree();
-  }
-});
-
-// src/runtime/scheduling/task-graph-scheduler.ts
-function buildTaskGraphIndex(tasks) {
-  const cached2 = taskGraphIndexCache.get(tasks);
-  if (cached2) return cached2;
-  const fresh = {
-    doneSteps: new Set(
-      tasks.filter((task) => task.status === "completed").map((task) => task.stepId).filter((id) => id !== void 0)
-    ),
-    idMap: new Map(tasks.map((task) => [task.id, task])),
-    stepToTaskId: new Map(
-      tasks.map((task) => [task.stepId, task.id]).filter((entry) => entry[0] !== void 0)
-    )
-  };
-  taskGraphIndexCache.set(tasks, fresh);
-  return fresh;
-}
-function dependencySatisfied(task, doneStepIds, idMap, stepMap) {
-  return task.dependsOn.every((dependency) => {
-    if (doneStepIds.has(dependency)) return true;
-    const taskId = stepMap.get(dependency) ?? dependency;
-    return idMap.get(taskId)?.status === "completed";
-  });
-}
-function withQueue(task, index) {
-  let resolvedQueue;
-  if (task.status === "queued") {
-    const isReady = dependencySatisfied(task, index.doneSteps, index.idMap, index.stepToTaskId);
-    resolvedQueue = isReady ? "ready" : "blocked";
-  } else if (task.status === "running") {
-    resolvedQueue = "running";
-  } else if (task.status === "completed" || task.status === "skipped" || task.status === "needs_attention") {
-    resolvedQueue = "done";
-  } else {
-    resolvedQueue = "blocked";
-  }
-  if (task.graph && task.graph.queue === resolvedQueue) {
-    return task;
-  }
-  return {
-    ...task,
-    graph: task.graph ? { ...task.graph, queue: resolvedQueue } : task.graph
-  };
-}
-function ensureIndex(tasks, index) {
-  return index ?? buildTaskGraphIndex(tasks);
-}
-function refreshTaskGraphQueues(tasks, index) {
-  const resolved = ensureIndex(tasks, index);
-  return tasks.map((task) => withQueue(task, resolved));
-}
-function taskGraphSnapshot(tasks, index) {
-  const refreshed = refreshTaskGraphQueues(tasks, index);
-  return {
-    ready: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "ready").map((task) => task.id),
-    blocked: refreshed.filter((task) => task.status === "queued" && task.graph?.queue === "blocked").map((task) => task.id),
-    running: refreshed.filter((task) => task.status === "running").map((task) => task.id),
-    done: refreshed.filter((task) => task.status === "completed" || task.status === "skipped").map((task) => task.id),
-    failed: refreshed.filter((task) => task.status === "failed").map((task) => task.id),
-    cancelled: refreshed.filter((task) => task.status === "cancelled").map((task) => task.id)
-  };
-}
-var taskGraphIndexCache;
-var init_task_graph_scheduler = __esm({
-  "src/runtime/scheduling/task-graph-scheduler.ts"() {
-    "use strict";
-    taskGraphIndexCache = /* @__PURE__ */ new WeakMap();
-  }
-});
-
-// src/runtime/merge-gate.ts
-function isNonTerminalTaskStatus(status) {
-  return status === "queued" || status === "running" || status === "waiting";
-}
-function safeFinishedAt(task) {
-  if (!task.finishedAt) return -Infinity;
-  const ms = new Date(task.finishedAt).getTime();
-  return Number.isNaN(ms) ? Infinity : ms;
-}
-function isMalformedFinishedAtReplacement(currentTime, updatedTime) {
-  return !Number.isFinite(currentTime) && Number.isFinite(updatedTime);
-}
-function statusMergeKey(from, to) {
-  return `${from}->${to}`;
-}
-function shouldMergeTaskUpdate(current, updated) {
-  if (REJECTED_STATUS_MERGE_TRANSITIONS.has(statusMergeKey(current.status, updated.status))) return false;
-  if (current.status === updated.status && updated.status === "running" && current.resultArtifact && !updated.resultArtifact)
-    return false;
-  if (current.status === updated.status && current.status === "completed" && current.resultArtifact && !updated.resultArtifact)
-    return false;
-  if (current.finishedAt !== void 0 && updated.finishedAt !== void 0) {
-    const currentTime = safeFinishedAt(current);
-    const updatedTime = safeFinishedAt(updated);
-    if (!Number.isFinite(currentTime)) {
-      console.warn(`[merge-gate] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
-    }
-    if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
-      return true;
-    }
-    if (updatedTime < currentTime) return false;
-  }
-  if (!updated.finishedAt && !isNonTerminalTaskStatus(updated.status)) return false;
-  const hasMeaningfulUpdate = updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) || Boolean(updated.resultArtifact) && updated.resultArtifact !== current.resultArtifact || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage) || Boolean(updated.attempts?.length) || updated.heartbeat?.lastSeenAt !== current.heartbeat?.lastSeenAt || updated.jsonEvents !== current.jsonEvents || updated.agentProgress?.lastActivityAt !== current.agentProgress?.lastActivityAt;
-  return hasMeaningfulUpdate;
-}
-function mergeTaskUpdatesPreservingTerminal(base, results) {
-  const indexById = /* @__PURE__ */ new Map();
-  for (const task of base) indexById.set(task.id, task);
-  let skipped = 0;
-  for (const result4 of results) {
-    for (const updated of result4.tasks) {
-      const current = indexById.get(updated.id);
-      if (!current) continue;
-      if (!shouldMergeTaskUpdate(current, updated)) {
-        console.debug("[merge-gate] Skipping stale merge for task", updated.id, {
-          currentStatus: current.status,
-          updatedStatus: updated.status,
-          currentFinishedAt: current.finishedAt,
-          updatedFinishedAt: updated.finishedAt
-        });
-        skipped += 1;
-        continue;
-      }
-      indexById.set(updated.id, updated);
-    }
-  }
-  const merged = base.map((task) => indexById.get(task.id) ?? task);
-  void skipped;
-  return refreshTaskGraphQueues(merged);
-}
-var REJECTED_STATUS_MERGE_TRANSITIONS, __test__shouldMergeTaskUpdate, __test__mergeTaskUpdates;
-var init_merge_gate = __esm({
-  "src/runtime/merge-gate.ts"() {
-    "use strict";
-    init_contracts();
-    init_task_graph_scheduler();
-    REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
-      const rejected = /* @__PURE__ */ new Set();
-      for (const from of TEAM_TASK_STATUSES) {
-        if (!TEAM_TERMINAL_TASK_STATUSES.has(from)) continue;
-        for (const to of TEAM_TASK_STATUSES) {
-          if (!TEAM_TERMINAL_TASK_STATUSES.has(to)) rejected.add(statusMergeKey(from, to));
-        }
-      }
-      rejected.add(statusMergeKey("waiting", "running"));
-      const completedIntegrityFlips = [
-        ["completed", "failed"],
-        ["completed", "needs_attention"],
-        ["failed", "completed"],
-        ["cancelled", "completed"],
-        ["needs_attention", "completed"]
-      ];
-      for (const [from, to] of completedIntegrityFlips) rejected.add(statusMergeKey(from, to));
-      return rejected;
-    })();
-    __test__shouldMergeTaskUpdate = shouldMergeTaskUpdate;
-    __test__mergeTaskUpdates = mergeTaskUpdatesPreservingTerminal;
   }
 });
 
@@ -58398,6 +58398,7 @@ var init_team_runner = __esm({
     init_goal_achievement();
     init_group_join();
     init_live_agent_manager();
+    init_merge_gate();
     init_runtime_policy();
     init_path_overlap();
     init_policy_engine();
@@ -58409,7 +58410,6 @@ var init_team_runner = __esm({
     init_coalesce_tasks();
     init_concurrency();
     init_run_coalesced_task_group();
-    init_merge_gate();
     init_task_graph();
     init_task_graph_scheduler();
     init_task_display();
@@ -70918,8 +70918,14 @@ function wireEventToMetrics(events, registry2) {
   const deadletterCount = registry2.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
   const overflowCount = registry2.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
   const supervisorContactCount = registry2.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
-  const unboundedConcurrencyCount = registry2.counter("crew.limits.unbounded_total", "Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)");
-  const cardinalityEvictedGauge = registry2.gauge("crew.metrics.cardinality_evicted", "Cumulative label-combination evictions (non-zero = unreliable aggregation)");
+  const unboundedConcurrencyCount = registry2.counter(
+    "crew.limits.unbounded_total",
+    "Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)"
+  );
+  const cardinalityEvictedGauge = registry2.gauge(
+    "crew.metrics.cardinality_evicted",
+    "Cumulative label-combination evictions (non-zero = unreliable aggregation)"
+  );
   registry2.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds");
   const runDuration = registry2.histogram(
     "crew.run.duration_ms",

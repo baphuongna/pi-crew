@@ -154,9 +154,7 @@ function taskWithEmptyResult(id: string, observed = false, sizeBytes = 0): TeamT
 	const base = task(id, observed);
 	return {
 		...base,
-		resultArtifact: base.resultArtifact
-			? { ...base.resultArtifact, sizeBytes }
-			: undefined,
+		resultArtifact: base.resultArtifact ? { ...base.resultArtifact, sizeBytes } : undefined,
 	};
 }
 

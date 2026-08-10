@@ -9,7 +9,7 @@ import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { atomicWriteFile, flushPendingAtomicWrites } from "../state/atomic-write.ts";
-import { canTransitionRunStatus, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../state/contracts.ts";
+import { canTransitionRunStatus } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
 import {
 	appendEvent,
@@ -35,6 +35,7 @@ import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffecti
 import { applyGoalAchievement, assessGoalAchievement } from "./goal-workflow/goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts";
+import { isNonTerminalTaskStatus, mergeTaskUpdatesPreservingTerminal } from "./merge-gate.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./model/runtime-resolver.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
@@ -47,12 +48,6 @@ import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-t
 import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./scheduling/coalesce-tasks.ts";
 import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./scheduling/concurrency.ts";
 import { runCoalescedTaskGroup } from "./scheduling/run-coalesced-task-group.ts";
-import {
-	isNonTerminalTaskStatus,
-	mergeTaskUpdatesPreservingTerminal,
-	__test__mergeTaskUpdates,
-	__test__shouldMergeTaskUpdate,
-} from "./merge-gate.ts";
 import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./scheduling/task-graph.ts";
 import {
 	buildTaskGraphIndex,

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getCardinalityEvictions } from "./metrics-primitives.ts";
 import type { MetricRegistry } from "./metric-registry.ts";
+import { getCardinalityEvictions } from "./metrics-primitives.ts";
 
 function recordValue(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -42,13 +42,19 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 	const deadletterCount = registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
 	const overflowCount = registry.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
 	const supervisorContactCount = registry.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
-	const unboundedConcurrencyCount = registry.counter("crew.limits.unbounded_total", "Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)");
+	const unboundedConcurrencyCount = registry.counter(
+		"crew.limits.unbounded_total",
+		"Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)",
+	);
 	// Gauge reflecting cumulative label-combination evictions across all
 	// metrics in this process. Updated lazily on every metric event so the
 	// value stays fresh without a separate timer. Non-zero = aggregation
 	// for high-cardinality labels is unreliable. See metrics-primitives.ts
 	// `enforceLabelCap`.
-	const cardinalityEvictedGauge = registry.gauge("crew.metrics.cardinality_evicted", "Cumulative label-combination evictions (non-zero = unreliable aggregation)");
+	const cardinalityEvictedGauge = registry.gauge(
+		"crew.metrics.cardinality_evicted",
+		"Cumulative label-combination evictions (non-zero = unreliable aggregation)",
+	);
 	registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds");
 	const runDuration = registry.histogram(
 		"crew.run.duration_ms",

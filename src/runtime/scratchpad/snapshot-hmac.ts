@@ -55,9 +55,7 @@ export function getSnapshotHmacKey(env: NodeJS.ProcessEnv = process.env): Buffer
 	if (!raw) return undefined;
 	// Accept hex-encoded keys directly; otherwise encode the string as utf8.
 	// A key shorter than 32 bytes is rejected to prevent trivial brute-force.
-	const buf = /^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0
-		? Buffer.from(raw, "hex")
-		: Buffer.from(raw, "utf8");
+	const buf = /^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0 ? Buffer.from(raw, "hex") : Buffer.from(raw, "utf8");
 	if (buf.length < 32) {
 		throw new Error(
 			`${SNAPSHOT_HMAC_KEY_ENV} must be at least 32 bytes (got ${buf.length}); use a longer key or generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
@@ -120,9 +118,7 @@ export function verifySnapshotPayload(payload: Buffer, key: Buffer | undefined, 
 	if (newlineIdx < 0) return { kind: "unsigned", strict };
 	const sigHex = payload.subarray(prefixStr.length, newlineIdx).toString("utf8");
 	const body = payload.subarray(newlineIdx + 1);
-	return snapshotSignatureMatches(body, sigHex, key)
-		? { kind: "verified" }
-		: { kind: "mismatch", strict };
+	return snapshotSignatureMatches(body, sigHex, key) ? { kind: "verified" } : { kind: "mismatch", strict };
 }
 
 /**

@@ -301,11 +301,7 @@ test("isRetryableModelFailure treats EPIPE / broken pipe as retryable (D-2)", ()
 	// exited while the parent was still writing — spawning a fresh child on
 	// the next model in the fallback chain usually recovers. See
 	// docs/failure-mode-inventory.md EPIPE gap.
-	for (const err of [
-		"Error: write EPIPE",
-		"EPIPE: broken pipe",
-		"broken pipe (child exited)",
-	]) {
+	for (const err of ["Error: write EPIPE", "EPIPE: broken pipe", "broken pipe (child exited)"]) {
 		assert.equal(isRetryableModelFailure(err), true, `expected retryable: ${err}`);
 	}
 });

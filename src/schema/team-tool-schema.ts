@@ -268,10 +268,12 @@ const sharedFields = {
 		}),
 	),
 	budgetTotal: Type.Optional(
+		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
 		// 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
 		// as the MISCONFIGURATION GUARD against typo'd silent-abort configs.
 		Type.Union(
 			[
+				Type.Literal(""),
 				Type.Literal(0),
 				Type.Number({
 					minimum: 1000,
