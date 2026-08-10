@@ -10934,11 +10934,15 @@ function updateConfig(patch, options = {}) {
       for (const unset of options.unsetPaths) unsetPath(raw, unset);
       merged = parseConfig(raw);
     }
+    const normalizedCurrent = parseConfig(current);
+    if (JSON.stringify(merged) === JSON.stringify(normalizedCurrent)) {
+      return { path: filePath, config: merged, written: false };
+    }
     fs5.mkdirSync(path5.dirname(filePath), { recursive: true });
     atomicWriteFile(filePath, `${JSON.stringify(merged, null, 2)}
 `);
     invalidateConfigCache();
-    return { path: filePath, config: merged };
+    return { path: filePath, config: merged, written: true };
   });
 }
 function updateAutonomousConfig(patch) {
@@ -10953,11 +10957,15 @@ function updateAutonomousConfig(patch) {
       throw new Error(`Could not update pi-crew config: ${message}`);
     }
     const currentAutonomous = current.autonomous && typeof current.autonomous === "object" && !Array.isArray(current.autonomous) ? current.autonomous : {};
-    current.autonomous = { ...currentAutonomous, ...patch };
+    const next = { ...current, autonomous: { ...currentAutonomous, ...patch } };
+    if (JSON.stringify(next) === JSON.stringify(current)) {
+      return { path: filePath, config: parseConfig(current), written: false };
+    }
+    current.autonomous = next.autonomous;
     atomicWriteFile(filePath, `${JSON.stringify(current, null, 2)}
 `);
     invalidateConfigCache();
-    return { path: filePath, config: parseConfig(current) };
+    return { path: filePath, config: parseConfig(current), written: true };
   });
 }
 var CONFIG_CACHE_TTL_MS, configCache, configCacheTtlMsOverride, KNOWN_TOP_LEVEL_KEYS, LIMIT_CEILINGS, DANGEROUS_OBJECT_KEYS;
@@ -35647,23 +35655,46 @@ function parseIntervalMs(s) {
   }
   return ms;
 }
+function cronFieldMatches(value, field, min, max, names) {
+  let normalized = field.trim().toUpperCase();
+  if (names) {
+    for (const name of Object.keys(names).sort((a, b) => b.length - a.length)) {
+      normalized = normalized.split(name).join(String(names[name]));
+    }
+  }
+  if (min === 0 && max === 6) normalized = normalized.replace(/\b7\b/g, "0");
+  const matched = /* @__PURE__ */ new Set();
+  for (const rawPart of normalized.split(",")) {
+    const part = rawPart.trim();
+    if (part === "") return false;
+    const stepMatch = part.match(/^(.*)\/(\d+)$/);
+    const step = stepMatch ? Number.parseInt(stepMatch[2], 10) : 1;
+    if (!Number.isFinite(step) || step < 1) return false;
+    const rangeStr = stepMatch ? stepMatch[1] : part;
+    let lo;
+    let hi;
+    if (rangeStr === "*") {
+      lo = min;
+      hi = max;
+    } else if (/^\d+$/.test(rangeStr)) {
+      lo = Number.parseInt(rangeStr, 10);
+      hi = stepMatch ? max : lo;
+    } else {
+      const rm = rangeStr.match(/^(\d+)-(\d+)$/);
+      if (!rm) return false;
+      lo = Number.parseInt(rm[1], 10);
+      hi = Number.parseInt(rm[2], 10);
+    }
+    for (let v = lo; v <= hi; v += step) {
+      if (v >= min && v <= max) matched.add(v);
+    }
+  }
+  return matched.has(value);
+}
 function nextCronDate(spec, from) {
   const parts = spec.split(/\s+/);
   if (parts.length < 5) return { error: "Invalid cron expression" };
   const [minStr, hourStr, domStr, monthStr, dowStr] = parts;
-  function matchField(value, str, min, max) {
-    if (str === "*") return true;
-    const n = parseInt(str, 10);
-    if (!Number.isNaN(n) && n >= min && n <= max && n === value) return true;
-    if (/^\d+-\d+$/.test(str)) {
-      const [a, b] = str.split("-").map(Number);
-      return value >= a && value <= b;
-    }
-    if (str.includes(",")) {
-      return str.split(",").some((part) => matchField(value, part.trim(), min, max));
-    }
-    return false;
-  }
   let cursor = new Date(from.getTime());
   cursor.setSeconds(0, 0);
   cursor = new Date(cursor.getTime() + 6e4);
@@ -35674,7 +35705,7 @@ function nextCronDate(spec, from) {
     const dom = cursor.getUTCDate();
     const month = cursor.getUTCMonth() + 1;
     const dow = cursor.getUTCDay();
-    if (matchField(min, minStr, 0, 59) && matchField(hour, hourStr, 0, 23) && matchField(dom, domStr, 1, 31) && matchField(month, monthStr, 1, 12) && matchField(dow, dowStr, 0, 6)) {
+    if (cronFieldMatches(min, minStr, 0, 59) && cronFieldMatches(hour, hourStr, 0, 23) && cronFieldMatches(dom, domStr, 1, 31) && cronFieldMatches(month, monthStr, 1, 12, CRON_MONTH_NAMES) && cronFieldMatches(dow, dowStr, 0, 6, CRON_DOW_NAMES)) {
       return cursor;
     }
     cursor = new Date(cursor.getTime() + 6e4);
@@ -35752,7 +35783,7 @@ function humanizeSchedule(spec) {
   }
   return "unknown schedule";
 }
-var CrewScheduler;
+var CrewScheduler, CRON_DOW_NAMES, CRON_MONTH_NAMES;
 var init_scheduler = __esm({
   "src/runtime/scheduling/scheduler.ts"() {
     "use strict";
@@ -35906,6 +35937,21 @@ var init_scheduler = __esm({
         }
         throw new Error(`Invalid schedule "${s}". Use "5m", "+10m", ISO timestamp, or cron expression.`);
       }
+    };
+    CRON_DOW_NAMES = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
+    CRON_MONTH_NAMES = {
+      JAN: 1,
+      FEB: 2,
+      MAR: 3,
+      APR: 4,
+      MAY: 5,
+      JUN: 6,
+      JUL: 7,
+      AUG: 8,
+      SEP: 9,
+      OCT: 10,
+      NOV: 11,
+      DEC: 12
     };
   }
 });
@@ -36532,8 +36578,13 @@ var cancel_exports = {};
 __export(cancel_exports, {
   abortOwned: () => abortOwned,
   handleCancel: () => handleCancel,
-  handleRetry: () => handleRetry
+  handleRetry: () => handleRetry,
+  retryShortCircuitsCompleted: () => retryShortCircuitsCompleted
 });
+function retryShortCircuitsCompleted(runStatus, tasks, targetTaskId) {
+  if (runStatus !== "completed") return false;
+  return !tasks.some((task) => (targetTaskId ? task.id === targetTaskId : true) && RETRYABLE_STATUSES.has(task.status));
+}
 function abortOwned(runId, taskIds, ctx, force) {
   const runCwd = locateRunCwd(runId, ctx.cwd);
   if (!runCwd) return { abortedIds: [], missingIds: taskIds ?? [], foreignIds: [] };
@@ -36606,6 +36657,13 @@ async function handleRetry(params, ctx, deps) {
     );
   }
   const targetTaskId = typeof params.taskId === "string" ? params.taskId : void 0;
+  if (retryShortCircuitsCompleted(loaded.manifest.status, loaded.tasks, targetTaskId)) {
+    return result(
+      `Run ${loaded.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
+      { action: "retry", status: "error", runId: loaded.manifest.runId },
+      true
+    );
+  }
   return withRunLockSync(loaded.manifest, () => {
     const retryableStatuses = /* @__PURE__ */ new Set(["failed", "cancelled"]);
     const matchingTasks = loaded.tasks.filter((task) => {
@@ -36810,6 +36868,7 @@ async function handleCancel(params, ctx, deps) {
     });
   });
 }
+var RETRYABLE_STATUSES;
 var init_cancel = __esm({
   "src/extension/team-tool/cancel.ts"() {
     "use strict";
@@ -36829,6 +36888,7 @@ var init_cancel = __esm({
     init_intent_policy();
     init_param_error();
     init_run_not_found();
+    RETRYABLE_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled"]);
   }
 });
 
@@ -38806,7 +38866,9 @@ function handleWorktrees(params, ctx) {
       { action: "worktrees", status: "error" },
       true
     );
-  const loaded = loadRunManifestById(ctx.cwd, params.runId);
+  const runCwd = locateRunCwd(params.runId, ctx.cwd);
+  if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "worktrees", status: "error" }, true);
+  const loaded = loadRunManifestById(runCwd, params.runId);
   if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "worktrees", status: "error" }, true);
   const withWorktrees = loaded.tasks.filter((task) => task.worktree);
   const lines = [
@@ -39331,6 +39393,7 @@ var init_lifecycle_actions = __esm({
     init_run_export();
     init_run_import();
     init_run_maintenance();
+    init_team_tool2();
     init_context();
     init_intent_policy();
     init_param_error();
@@ -41167,10 +41230,13 @@ async function handleManageDomain(params, ctx) {
             unsetPaths
           });
           return result(
-            ["Updated pi-crew config.", `Path: ${saved.path}`, "Effective config:", JSON.stringify(saved.config, null, 2)].join(
-              "\n"
-            ),
-            { action: "config", status: "ok" }
+            [
+              saved.written ? "Updated pi-crew config." : "Config unchanged (no effective changes).",
+              `Path: ${saved.path}`,
+              "Effective config:",
+              JSON.stringify(saved.config, null, 2)
+            ].join("\n"),
+            { action: "config", status: "ok", written: saved.written }
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -47796,7 +47862,8 @@ function handleExplain(params, cwd) {
   if (!params.runId) {
     return result3("explain requires runId", { action: "explain", status: "error" }, true);
   }
-  const loaded = loadRunManifestById(cwd, params.runId);
+  const runCwd = locateRunCwd(params.runId, cwd);
+  const loaded = runCwd ? loadRunManifestById(runCwd, params.runId) : void 0;
   if (!loaded) {
     return result3(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "explain", status: "error" }, true);
   }
@@ -47855,6 +47922,7 @@ var init_explain = __esm({
   "src/extension/team-tool/explain.ts"() {
     "use strict";
     init_state_store();
+    init_team_tool2();
     init_run_not_found();
   }
 });
@@ -54561,16 +54629,24 @@ function validateWorkerOutput(role, output) {
     issues
   };
 }
-var ROLE_PATTERN_DEFS, makeUrlRe;
+var MARKDOWN_STRUCTURED, STRICT_ROLE_PATTERNS, ROLE_PATTERN_DEFS, makeUrlRe;
 var init_output_validator = __esm({
   "src/runtime/output/output-validator.ts"() {
     "use strict";
+    MARKDOWN_STRUCTURED = /^(?:#{1,6}\s|\*\*|[-*]\s|\d+\.\s)/m;
+    STRICT_ROLE_PATTERNS = {
+      explorer: /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
+      executor: /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
+      reviewer: new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
+      "security-reviewer": new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
+      verifier: /^(PASS:|FAIL:)/m
+    };
     ROLE_PATTERN_DEFS = {
-      explorer: () => /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
-      executor: () => /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
-      reviewer: () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
-      "security-reviewer": () => new RegExp("^([^:\\s]+:\\d+:\\s+\\p{Emoji_Presentation}|No issues\\.|totals:)", "mu"),
-      verifier: () => /^(PASS:|FAIL:)/m
+      explorer: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.explorer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+      executor: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.executor.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+      reviewer: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.reviewer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
+      "security-reviewer": () => new RegExp(`(?:${STRICT_ROLE_PATTERNS["security-reviewer"].source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
+      verifier: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.verifier.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m")
     };
     makeUrlRe = () => /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
   }

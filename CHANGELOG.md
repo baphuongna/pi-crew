@@ -2,6 +2,24 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.9.66] — real-test findings: cross-project run lookup, output validation, config no-op-write, retry clarity, cron grammar (2026-08-10)
+
+Six fixes distilled from the `real-test-pi-crew` 9-tier battery (run 2026-08-10). All verified live end-to-end; `npm run test:critical` 101/101, `npx tsc --noEmit` exit 0, biome lint+format clean.
+
+### Fixes
+- **Cross-project run lookup** (`src/extension/team-tool/explain.ts`, `lifecycle-actions.ts`): `explain` and `worktrees` now resolve runs via `locateRunCwd` (the same cross-project resolver `status`/`cancel`/`inspect` use) instead of raw `ctx.cwd`. A run created with a nested `cwd` override is now reachable from the parent session root (previously "Run not found"). Finding #1.
+- **Output validation accepts markdown** (`src/runtime/output/output-validator.ts`): `ROLE_PATTERN_DEFS` only matched the strict caveman format, so every task tripped `output_validation valid:false`. Each role pattern now also accepts markdown-structured handoffs (`## Handoff`, bullets, bold); structural-preservation checks and empty-output rejection are unchanged. Finding #2.
+- **Config skip-write guard** (`src/config/config.ts`, `types.ts`): `action='config'` with an empty patch went through the write path (`parseConfig({})` yields a full default config → `shouldUpdate=true`) and rewrote `~/.pi/agent/pi-crew.json` on every read. Added a skip-if-unchanged guard (and a `written` flag) so a no-op patch leaves the file untouched. Finding #3.
+- **Retry clarity for completed runs** (`src/extension/team-tool/cancel.ts`): `action='retry'` on a completed run acquired the run lock and surfaced a stale-lock error ("run.lock is locked by another operation"). A pre-lock terminal-status check now short-circuits to "already completed; retry only applies to failed/cancelled runs" before touching the lock. Finding #4.
+- **Cron grammar** (`src/runtime/scheduling/scheduler.ts`): `nextCronDate`'s matcher rejected standard cron step values (`*/30`, `9-17/2`) and named tokens (`MON`, `JAN`), so `action='schedule cron='0 9 * * MON'` errored with "No next cron occurrence found". Rewritten as `cronFieldMatches` handling wildcard, single, range, list, step, and named DOW/month tokens. Cosmetic finding.
+- **"Config unchanged" message** (`src/extension/team-tool-types.ts`, `dispatch/manage.ts`): the config action always said "Updated" even when the skip-write guard left the file untouched; now shows "Config unchanged (no effective changes)." when no write occurred. Cosmetic finding.
+
+### Verified
+- `npm run test:critical`: 101/101 pass (default, `PI_CREW_BROKER=0`, `PI_CREW_BROKER=1`).
+- `npx tsc --noEmit` exit 0; biome lint + format clean.
+- Bundle md5 `a32223b037f35d8605fa3013e1d8a095` (~2857 KB).
+- Full 9-tier `real-test-pi-crew` re-run (2026-08-10): all tiers green, all 6 fixes live-verified. Reports under `docs/real-test/reports/real-test-2026-08-10-full-9-tier*.md`.
+
 ## [0.9.65] — team-tool schema empty-string guard (budgetTotal) + effectiveness empty-result guard + skill drift fix (2026-08-10)
 
 ### Fixes
