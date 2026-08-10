@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""pty_probe.py — bulk-key + diag probe for pi-crew TUI components.
+"""pty_probe.py — bulk-key probe for pi-crew TUI components.
 
 Spawns a real `pi` session under a pty, sends a sequence of keys with
 short sleeps, captures the resulting output. Useful for verifying that
 keystrokes reached the component's handleInput after a ui/ change.
+
+NOTE (2026-08-10): the per-keystroke diag env var (PI_CREW_BROKER_DIAG_UI)
+was REMOVED in e3ee6fe2 (PR-B5/UI-8 — "remove TEMP DIAGNOSTIC from
+run-dashboard"). There is no replacement in src/. Keystroke arrival is now
+proven by SCREEN-CHANGE evidence: capture the output frames before/after
+each key and diff them — a key that changes screen state reached the TUI.
 
 Requires Python 3.x on PATH. Unix only (Linux + macOS) — uses POSIX `pty.fork`.
 Does NOT work on native Windows (no `pty` module); use WSL or Tier 5 (tmux) instead.
 
 Usage:
     python3 scripts/pty_probe.py [--keys j,k,q] [--cwd /path/to/repo]
-
-Env:
-    PI_CREW_BROKER_DIAG_UI=1   enable diag stderr writes from run-dashboard
-                              (only component wired; see src/ui/run-dashboard.ts:831)
 
 Examples:
     # Default probe (vim nav + arrow keys + quit)
@@ -22,8 +24,8 @@ Examples:
     # Custom probe: only arrow keys
     python3 scripts/pty_probe.py --keys '\x1bOA,\x1bOB,\x1bOC,\x1bOD,q,q'
 
-    # Capture to a file
-    python3 scripts/pty_probe.py 2>&1 | tee /tmp/diag.log
+    # Capture to a file (diff frames for screen-change evidence)
+    python3 scripts/pty_probe.py 2>&1 | tee /tmp/pty-probe.log
 """
 import argparse
 import os
@@ -99,7 +101,7 @@ def main() -> int:
             pass  # use as-is if decode fails
         keys.append(k)
 
-    env = {**os.environ, "PI_CREW_BROKER_DIAG_UI": "1"}
+    env = dict(os.environ)  # keystroke diag env var removed (see module docstring)
 
     pid, fd = pty.fork()
     if pid == 0:

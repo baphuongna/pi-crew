@@ -303,7 +303,7 @@ tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 import os, sys, time
 
 CMD = ['pi']
-ENV = {**os.environ, 'PI_CREW_BROKER_DIAG_UI': '1'}
+ENV = dict(os.environ)  # keystroke diag env var REMOVED (see note below)
 
 pid, fd = pty.fork()
 if pid == 0:
@@ -331,14 +331,14 @@ else:
 > ```
 > The inline code works for a quick one-off but **leaks a zombie `pi` process** on exit.
 
-**`PI_CREW_BROKER_DIAG_UI=1`** makes `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr for every keystroke. (The diag is currently wired only in `run-dashboard`, not in `settings-overlay` or other overlays — if you need diag in another overlay, port the `process.env.PI_CREW_BROKER_DIAG_UI === "1"` check from `src/ui/run-dashboard.ts:831`.) Pair with `2>&1 | tee /tmp/diag.log`.
+**Keystroke diag env var REMOVED (2026-08-10)**: `PI_CREW_BROKER_DIAG_UI=1` made `run-dashboard`'s `handleInput` write a `[PI-CREW-DIAG]` line to stderr per keystroke. It was removed in `e3ee6fe2` (PR-B5: remove TEMP DIAGNOSTIC from run-dashboard, UI-8) — there is no replacement in `src/`. **To prove keystroke arrival now, rely on screen-change evidence** (Tier 5 tmux `capture-pane` before/after each key, or the pty output diff): a key that changes screen state reached the TUI; a key that does not was consumed or never arrived. Capture the probe output to a file with `2>&1 | tee /tmp/pty-probe.log` and diff the rendered frames.
 
 **References**:
 
 | What | Where |
 |---|---|
-| Diag env var | `PI_CREW_BROKER_DIAG_UI=1` — checked at `src/ui/run-dashboard.ts:831` |
-| Reduced-noise commit | `00e8ba0 chore(broker): strip diagnostic noise from focused-field fix` — diag calls left in but no longer noisy |
+| Keystroke diag env var | **REMOVED** — `e3ee6fe2` (PR-B5/UI-8). No replacement; use screen-change evidence |
+| Reduced-noise commit | `00e8ba0 chore(broker): strip diagnostic noise from focused-field fix` — diag calls left in but no longer noisy (pre-removal) |
 | Original probe | `84944f7 test(probe): add invalidate() to control object so typecheck passes` |
 
 ---
@@ -637,7 +637,7 @@ The skill mentions specific commits, line numbers, and version pins. As the code
 |---|---|---|
 | Verify line refs after each `src/` commit | Every commit touching the cited file | `git log -p -- src/extension/registration/lifecycle-handlers.ts \| grep effectiveEnabled` — if line moved, update the skill |
 | Verify commit hashes still exist | Quarterly or before major edits | `git log --oneline -1 <hash>` — if gone, find the equivalent newer commit |
-| Verify version pins (v0.9.46, etc.) | Each release | `git log --oneline -- src/ui/run-dashboard.ts \| head -5` — find when diag was wired |
+| Verify version pins (v0.9.46, etc.) | Each release | `git log --oneline -- src/ui/run-dashboard.ts \| head -5` — confirm diag removal history (e3ee6fe2) still accurate |
 | Verify `test:critical` still has 14 files | Each `src/runtime/crew-broker*.ts` edit | `cat package.json \| grep test:critical` — adjust the file list |
 | Verify Tier 7 verifier prompts still say `test:critical` | Each workflow file edit | `grep "Run FAST checks" workflows/*.workflow.md` |
 
@@ -662,7 +662,7 @@ readlink ../node_modules/pi-crew  # dev: → ../pi-crew
 readlink "$(npm root -g)"/pi-crew  # global install
 # Tier 5 (tmux probe)
 tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
-  "cd ${PWD} && PI_CREW_BROKER_DIAG_UI=1 exec pi 2>&1"
+  "cd ${PWD} && exec pi 2>&1"
 tmux send-keys -t pi '<key>' ; sleep 0.5
 tmux capture-pane -t pi -p
 # Tier 6 (pty probe)
