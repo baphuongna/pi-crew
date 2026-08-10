@@ -81,6 +81,40 @@ test("nextRunTime from cron returns correct next occurrence", () => {
 	assert.equal((result as Date).toISOString(), "2026-05-10T12:00:00.000Z");
 });
 
+test("nextRunTime from cron accepts step values like */30", () => {
+	// 10:00:00 → next */30-minute mark at 10:30:00
+	const from = new Date("2026-05-10T10:00:00.000Z");
+	const result = nextRunTime({ kind: "cron", spec: "*/30 * * * *" }, from);
+	assert.ok(result instanceof Date, `expected a Date, got: ${JSON.stringify(result)}`);
+	assert.equal((result as Date).toISOString(), "2026-05-10T10:30:00.000Z");
+});
+
+test("nextRunTime from cron accepts named DOW (MON) and ranges", () => {
+	// 2026-05-10 is a Sunday (dow 0). `0 9 * * MON` → next Monday 09:00 UTC.
+	const from = new Date("2026-05-10T10:00:00.000Z");
+	const result = nextRunTime({ kind: "cron", spec: "0 9 * * MON" }, from);
+	assert.ok(result instanceof Date, `expected a Date, got: ${JSON.stringify(result)}`);
+	assert.equal((result as Date).getUTCDay(), 1); // Monday
+	assert.equal((result as Date).getUTCHours(), 9);
+});
+
+test("nextRunTime from cron accepts ranged step like 9-17/2", () => {
+	// At 10:00, `9-17/2 * * * *` should match 11:00 (9,11,13,15,17).
+	const from = new Date("2026-05-10T10:00:00.000Z");
+	const result = nextRunTime({ kind: "cron", spec: "0 9-17/2 * * *" }, from);
+	assert.ok(result instanceof Date, `expected a Date, got: ${JSON.stringify(result)}`);
+	assert.equal((result as Date).getUTCHours(), 11);
+});
+
+test("nextRunTime from cron accepts named month (JAN)", () => {
+	// `0 0 1 JAN *` from 2026-05-10 → 2027-01-01 00:00 UTC.
+	const from = new Date("2026-05-10T10:00:00.000Z");
+	const result = nextRunTime({ kind: "cron", spec: "0 0 1 JAN *" }, from);
+	assert.ok(result instanceof Date, `expected a Date, got: ${JSON.stringify(result)}`);
+	assert.equal((result as Date).getUTCMonth(), 0); // January
+	assert.equal((result as Date).getUTCDate(), 1);
+});
+
 test("humanizeSchedule produces human-readable labels", () => {
 	assert.equal(humanizeSchedule({ kind: "once", spec: "2026-05-15T10:00:00Z" }), "once at 2026-05-15T10:00:00Z");
 	assert.equal(humanizeSchedule({ kind: "once", spec: "+10m" }), "once in 10m");

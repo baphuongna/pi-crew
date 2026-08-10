@@ -229,24 +229,61 @@ function parseIntervalMs(s: string): number | undefined {
 	return ms;
 }
 
+/** Named-token maps for cron DOW (SUN=0..SAT=6) and month (JAN=1..DEC=12). */
+const CRON_DOW_NAMES: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
+const CRON_MONTH_NAMES: Record<string, number> = {
+	JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+};
+
+/**
+ * Match a single cron field value against a cron field expression.
+ * Supports the standard cron grammar: wildcard, single N, range a-b, list a,b,c,
+ * step syntax (wildcard-step, range-step, from-step), and named tokens
+ * (MON, JAN) when a `names` map is passed. Fixes the prior matcher that
+ * rejected step values and named DOW (parseInt returned NaN).
+ */
+function cronFieldMatches(value: number, field: string, min: number, max: number, names?: Record<string, number>): boolean {
+	let normalized = field.trim().toUpperCase();
+	if (names) {
+		for (const name of Object.keys(names).sort((a, b) => b.length - a.length)) {
+			normalized = normalized.split(name).join(String(names[name]));
+		}
+	}
+	// Cron permits 7 for Sunday in the DOW field — normalize to 0.
+	if (min === 0 && max === 6) normalized = normalized.replace(/\b7\b/g, "0");
+	const matched = new Set<number>();
+	for (const rawPart of normalized.split(",")) {
+		const part = rawPart.trim();
+		if (part === "") return false;
+		const stepMatch = part.match(/^(.*)\/(\d+)$/);
+		const step = stepMatch ? Number.parseInt(stepMatch[2], 10) : 1;
+		if (!Number.isFinite(step) || step < 1) return false;
+		const rangeStr = stepMatch ? stepMatch[1] : part;
+		let lo: number;
+		let hi: number;
+		if (rangeStr === "*") {
+			lo = min;
+			hi = max;
+		} else if (/^\d+$/.test(rangeStr)) {
+			lo = Number.parseInt(rangeStr, 10);
+			hi = stepMatch ? max : lo; // bare `N` = single value; `N/S` = N..max step S
+		} else {
+			const rm = rangeStr.match(/^(\d+)-(\d+)$/);
+			if (!rm) return false;
+			lo = Number.parseInt(rm[1], 10);
+			hi = Number.parseInt(rm[2], 10);
+		}
+		for (let v = lo; v <= hi; v += step) {
+			if (v >= min && v <= max) matched.add(v);
+		}
+	}
+	return matched.has(value);
+}
+
 function nextCronDate(spec: string, from: Date): Date | { error: string } | null {
 	const parts = spec.split(/\s+/);
 	if (parts.length < 5) return { error: "Invalid cron expression" };
 	const [minStr, hourStr, domStr, monthStr, dowStr] = parts;
-
-	function matchField(value: number, str: string, min: number, max: number): boolean {
-		if (str === "*") return true;
-		const n = parseInt(str, 10);
-		if (!Number.isNaN(n) && n >= min && n <= max && n === value) return true;
-		if (/^\d+-\d+$/.test(str)) {
-			const [a, b] = str.split("-").map(Number);
-			return value >= a && value <= b;
-		}
-		if (str.includes(",")) {
-			return str.split(",").some((part) => matchField(value, part.trim(), min, max));
-		}
-		return false;
-	}
 
 	let cursor = new Date(from.getTime());
 	cursor.setSeconds(0, 0);
@@ -261,11 +298,11 @@ function nextCronDate(spec: string, from: Date): Date | { error: string } | null
 		const dow = cursor.getUTCDay();
 
 		if (
-			matchField(min, minStr, 0, 59) &&
-			matchField(hour, hourStr, 0, 23) &&
-			matchField(dom, domStr, 1, 31) &&
-			matchField(month, monthStr, 1, 12) &&
-			matchField(dow, dowStr, 0, 6)
+			cronFieldMatches(min, minStr, 0, 59) &&
+			cronFieldMatches(hour, hourStr, 0, 23) &&
+			cronFieldMatches(dom, domStr, 1, 31) &&
+			cronFieldMatches(month, monthStr, 1, 12, CRON_MONTH_NAMES) &&
+			cronFieldMatches(dow, dowStr, 0, 6, CRON_DOW_NAMES)
 		) {
 			return cursor;
 		}
