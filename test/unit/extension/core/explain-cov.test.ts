@@ -3,7 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { handleExplain, buildTaskExplainContext, formatTaskExplain, type TaskExplainContext } from "../../../../src/extension/team-tool/explain.ts";
+import {
+	buildTaskExplainContext,
+	formatTaskExplain,
+	handleExplain,
+	type TaskExplainContext,
+} from "../../../../src/extension/team-tool/explain.ts";
 import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 
