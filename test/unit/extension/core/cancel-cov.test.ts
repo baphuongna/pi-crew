@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { abortOwned } from "../../../../src/extension/team-tool/cancel.ts";
+import { abortOwned, retryShortCircuitsCompleted } from "../../../../src/extension/team-tool/cancel.ts";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 
 /**
@@ -18,6 +18,70 @@ function makeEmptyCwd(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-cancel-test-"));
 	return dir;
 }
+
+describe("retryShortCircuitsCompleted", () => {
+	it("returns true for a completed run with all completed tasks", () => {
+		assert.equal(
+			retryShortCircuitsCompleted("completed", [
+				{ id: "01_explore", status: "completed" },
+				{ id: "02_execute", status: "completed" },
+			]),
+			true,
+		);
+	});
+
+	it("returns false for a completed run that still has a failed task", () => {
+		assert.equal(
+			retryShortCircuitsCompleted("completed", [
+				{ id: "01_explore", status: "completed" },
+				{ id: "02_execute", status: "failed" },
+			]),
+			false,
+		);
+	});
+
+	it("returns false for a completed run that still has a cancelled task", () => {
+		assert.equal(
+			retryShortCircuitsCompleted("completed", [{ id: "01_explore", status: "cancelled" }]),
+			false,
+		);
+	});
+
+	it("returns false for a non-completed run regardless of task statuses", () => {
+		assert.equal(retryShortCircuitsCompleted("failed", [{ id: "01", status: "failed" }]), false);
+		assert.equal(retryShortCircuitsCompleted("running", [{ id: "01", status: "completed" }]), false);
+		assert.equal(retryShortCircuitsCompleted("cancelled", [{ id: "01", status: "cancelled" }]), false);
+	});
+
+	it("honors targetTaskId: completed run with the targeted task completed short-circuits", () => {
+		assert.equal(
+			retryShortCircuitsCompleted(
+				"completed",
+				[
+					{ id: "01_explore", status: "completed" },
+					{ id: "02_execute", status: "failed" },
+				],
+				"01_explore",
+			),
+			true,
+		);
+	});
+
+	it("honors targetTaskId: completed run with the targeted task failed does NOT short-circuit", () => {
+		assert.equal(
+			retryShortCircuitsCompleted(
+				"completed",
+				[{ id: "01_explore", status: "failed" }],
+				"01_explore",
+			),
+			false,
+		);
+	});
+
+	it("returns true for a completed run with no tasks", () => {
+		assert.equal(retryShortCircuitsCompleted("completed", []), true);
+	});
+});
 
 describe("abortOwned", () => {
 	it("returns all IDs as missing when runId does not resolve to a cwd", () => {

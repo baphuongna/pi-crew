@@ -21,6 +21,30 @@ import { enforceDestructiveIntent, intentFromConfig } from "./intent-policy.ts";
 import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
+/** Retryable terminal statuses (a task in one of these can be re-queued). */
+const RETRYABLE_STATUSES: ReadonlySet<string> = new Set(["failed", "cancelled"]);
+
+/**
+ * Pure pre-lock decision for `action='retry'`: a run whose manifest status is
+ * "completed" (terminal success) and has no retryable tasks has nothing to
+ * retry. Returns true so the caller short-circuits with a clear message
+ * BEFORE acquiring the run lock — avoiding a misleading
+ * "run.lock is locked by another operation" error from a stale lock file left
+ * behind by a completed async run (finding #4, real-test-2026-08-10-full-9-tier).
+ *
+ * Exported for unit testing (handleRetry itself needs filesystem state).
+ */
+export function retryShortCircuitsCompleted(
+	runStatus: string,
+	tasks: ReadonlyArray<{ id: string; status: string }>,
+	targetTaskId?: string,
+): boolean {
+	if (runStatus !== "completed") return false;
+	return !tasks.some(
+		(task) => (targetTaskId ? task.id === targetTaskId : true) && RETRYABLE_STATUSES.has(task.status),
+	);
+}
+
 export interface AbortOwnedResult {
 	abortedIds: string[];
 	missingIds: string[];
@@ -125,6 +149,18 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 	}
 
 	const targetTaskId = typeof params.taskId === "string" ? params.taskId : undefined;
+
+	// Pre-lock terminal-status check: a completed run has nothing to retry.
+	// Short-circuit BEFORE acquiring the run lock so a stale lock file left by a
+	// completed async run does not surface a misleading "run.lock is locked by
+	// another operation" error (finding #4 in real-test-2026-08-10-full-9-tier).
+	if (retryShortCircuitsCompleted(loaded.manifest.status, loaded.tasks, targetTaskId)) {
+		return result(
+			`Run ${loaded.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
+			{ action: "retry", status: "error", runId: loaded.manifest.runId },
+			true,
+		);
+	}
 
 	return withRunLockSync(loaded.manifest, () => {
 		const retryableStatuses: ReadonlySet<string> = new Set(["failed", "cancelled"]);
