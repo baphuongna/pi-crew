@@ -17,7 +17,7 @@
  *     grace, truncateWithMarker, the childClosed race guard — is ported 1:1.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, constants as fsConstants, fstatSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -198,6 +198,15 @@ export class EngineManager {
 				...(this.options.env ?? {}),
 				[NONCE_ENV]: this.nonce,
 			},
+			// Run the guest as its own session leader so descendants
+			// (cell-spawned subprocesses) share its process group. teardown
+			// then uses `process.kill(-pid, ...)` (POSIX) or `taskkill /T`
+			// (Windows) to clean up the whole tree — closing the
+			// "cell-subprocess orphan on session_shutdown" gap declared in
+			// docs/failure-mode-inventory.md (D.4 narrowed).
+			// stdio pipes are still owned by the parent; `detached` only
+			// affects process-group / kill-on-parent-exit semantics.
+			detached: true,
 			// fd 3 carries protocol traffic so stdout/stderr stay pure user output.
 			stdio: ["pipe", "pipe", "pipe", "pipe"],
 		});
@@ -303,7 +312,36 @@ export class EngineManager {
 		this.engineState = "shutdown";
 		liveEngines.delete(this);
 		this.failAllPending(new Error("Engine has been shut down"));
-		this.child?.kill("SIGKILL");
+		// Kill the whole process group / job tree so cell-spawned
+		// subprocesses (grandchildren of the host) do not orphan when the
+		// session shuts down. Best-effort: fall back to a single-pid kill
+		// if the group/tree kill fails (already dead, EPERM, etc.).
+		const child = this.child;
+		const pid = child?.pid;
+		if (pid !== undefined && pid > 0) {
+			try {
+				if (process.platform === "win32") {
+					// taskkill /T /F kills the entire process tree rooted at pid.
+					spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+				} else {
+					// Negative pid = signal the entire process group.
+					// Requires the guest to be its own session leader (detached:true above).
+					process.kill(-pid, "SIGKILL");
+				}
+			} catch {
+				try {
+					child?.kill("SIGKILL");
+				} catch {
+					/* already gone — nothing to clean up */
+				}
+			}
+		} else if (child) {
+			try {
+				child.kill("SIGKILL");
+			} catch {
+				/* already gone */
+			}
+		}
 		this.child = undefined;
 		this.protocolReader?.close();
 		this.protocolReader = undefined;
