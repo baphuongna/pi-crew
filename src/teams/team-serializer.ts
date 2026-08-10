@@ -24,6 +24,7 @@ export function serializeTeam(team: TeamConfig): string {
 		team.defaultWorkflow ? `defaultWorkflow: ${team.defaultWorkflow}` : undefined,
 		team.workspaceMode ? `workspaceMode: ${team.workspaceMode}` : undefined,
 		team.maxConcurrency !== undefined ? `maxConcurrency: ${team.maxConcurrency}` : undefined,
+		team.observability !== undefined ? `observability: ${team.observability}` : undefined,
 		line("triggers", team.routing?.triggers),
 		line("useWhen", team.routing?.useWhen),
 		line("avoidWhen", team.routing?.avoidWhen),

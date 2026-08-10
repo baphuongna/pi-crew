@@ -22,7 +22,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { userPiRoot } from "../../utils/paths.ts";
+import { packageRoot, userPiRoot } from "../../utils/paths.ts";
 
 export interface DiscoveredProviderExtension {
 	/** Package specifier as written in settings.json packages (e.g. "npm:pi-commandcode-provider"). */
@@ -95,12 +95,17 @@ function resolvePackageEntry(pkgDir: string): string | undefined {
 
 /**
  * Discover provider extension entry points from Pi's installed package registry.
- * Reads `~/.pi/agent/settings.json` → `packages` (npm: specs only — local
- * relative paths are the pi-crew extension itself and other local work, which
- * children already handle) and resolves each against `~/.pi/agent/npm/node_modules/`.
+ * Reads `~/.pi/agent/settings.json` → `packages` and resolves each spec:
+ *   - `npm:<name>`      → `~/.pi/agent/npm/node_modules/<name>/`
+ *   - local path spec   → resolved relative to the settings.json dir (the way
+ *     `pi install <local-path>` records them), e.g. "../../src/foo"
+ *   - git:/file: specs   → skipped (not resolvable on disk)
  *
- * Non-npm specs (local paths, git URLs) are skipped: they are not part of the
- * npm registry dir and resolving them is outside this module's scope.
+ * Both npm: and local-path specs are SANCTIONED channels — the user wrote them
+ * into settings.json (directly or via `pi install`), so they are trusted at the
+ * same level. This is distinct from project-sourced AGENT extensions
+ * (`.crew/agents/*.md` `extensions:` frontmatter), which are repo-adjacent
+ * untrusted data and stay gated by SEC-1 in discover-agents.ts.
  */
 export function discoverProviderExtensions(settingsPath?: string): DiscoveredProviderExtension[] {
 	const root = userPiRoot();
@@ -125,13 +130,27 @@ export function discoverProviderExtensions(settingsPath?: string): DiscoveredPro
 	const npmBase = path.join(baseDir, "npm", "node_modules");
 	for (const spec of settings.packages ?? []) {
 		if (typeof spec !== "string") continue;
-		// Only npm: specs resolve into the npm registry dir. Skip local path
-		// packages (e.g. "../../source/my_pi/pi-crew") and git specs.
-		if (!spec.startsWith("npm:")) continue;
-		const pkgName = spec.slice(4);
-		// Scoped packages: "@scope/name" → "@scope/name"; plain: "name".
-		const pkgDir = path.join(npmBase, pkgName);
+		let pkgDir: string;
+		if (spec.startsWith("npm:")) {
+			// Scoped packages: "@scope/name" → "@scope/name"; plain: "name".
+			pkgDir = path.join(npmBase, spec.slice(4));
+		} else if (spec.startsWith("./") || spec.startsWith("../") || path.isAbsolute(spec)) {
+			// Local path spec — resolve relative to the settings.json dir, matching
+			// how `pi install <local-path>` records it. Same trust level as npm:
+			// (user wrote it into settings.json). Not to be confused with project
+			// AGENT extensions (.crew/agents/* frontmatter) — those stay SEC-1 gated.
+			pkgDir = path.resolve(baseDir, spec);
+		} else {
+			// git:/file:/http: specs etc. — not resolvable on disk, skip.
+			continue;
+		}
 		if (!fs.existsSync(pkgDir)) continue;
+		// Skip self: pi-crew's own package is a settings package (the orchestrator
+		// extension the parent loads), but a child WORKER must not re-load it — it
+		// would register the team tool / observability / MCP wiring intended for
+		// the orchestrator process, not a worker. Provider + adapter extensions
+		// (pi-other-provider, pi-mcp-adapter, pi-rlm, ...) stay.
+		if (path.resolve(pkgDir) === path.resolve(packageRoot())) continue;
 		const entryPath = resolvePackageEntry(pkgDir);
 		if (entryPath) out.push({ spec, entryPath });
 	}

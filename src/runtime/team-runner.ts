@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewReliabilityConfig, CrewRuntimeConfig } from "../config/config.ts";
 import { CrewError, ErrorCode } from "../errors.ts";
@@ -126,6 +128,113 @@ function startTeamRunHeartbeat(stateRoot: string, runId: string): () => void {
 	// behavioral change.
 	const interval = setInterval(writeHeartbeat, 60_000);
 	return () => clearInterval(interval);
+}
+
+// ─── Perf observability (auto-attach, toggle per team) ─────────────────────
+// "Bộ đo luôn hoạt động khi pi-crew chạy": unless the team frontmatter says
+// `observability: false`, every run spawns the external resource sampler
+// (scripts/resource-sampler.mjs --watch-run — auto-resolves the runner PID
+// from state and auto-stops when the runner dies) and, after completion,
+// runs analyze-run to emit the perf report. Both are detached child
+// processes so a failure in the tooling never affects the run itself.
+const OBSERVABILITY_INTERVAL_MS = 2000;
+const OBSERVABILITY_ANALYZE_DELAY_MS = 3000;
+
+function perfScriptPath(scriptName: string): string | undefined {
+	try {
+		// Two layouts: dev (src/runtime/team-runner.ts → ../../scripts) and
+		// bundled (dist/index.mjs → ../scripts). Try both, use whichever exists.
+		const candidates = [
+			fileURLToPath(new URL(`../../scripts/${scriptName}`, import.meta.url)),
+			fileURLToPath(new URL(`../scripts/${scriptName}`, import.meta.url)),
+		];
+		return candidates.find((p) => fs.existsSync(p));
+	} catch {
+		return undefined;
+	}
+}
+
+function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig): void {
+	// DIRECT fs marker (console may be swallowed by the host) — every branch
+	// writes artifacts/<runId>/perf-obs.log with the exact reason.
+	const marker = (msg: string): void => {
+		try {
+			fs.appendFileSync(path.join(manifest.artifactsRoot, "perf-obs.log"), `[${new Date().toISOString()}] ${msg}\n`);
+		} catch {
+			/* best-effort */
+		}
+	};
+	marker(`startPerfSampler entered (team=${team.name} observability=${String(team.observability)} importMetaUrl=${import.meta.url})`);
+	// Strict true: parsed team files default observability to true (parseTeamFile),
+	// while direct-object TeamConfig fixtures (unit tests) stay undefined and
+	// therefore do NOT spawn the sampler — keeps test isolation.
+	if (team.observability !== true) {
+		marker(`SKIP: observability=${String(team.observability)} !== true`);
+		return;
+	}
+	const samplerPath = perfScriptPath("resource-sampler.mjs");
+	if (!samplerPath) {
+		marker(`SKIP: resource-sampler.mjs not found (importMetaUrl=${import.meta.url})`);
+		return;
+	}
+	marker(`spawning sampler from ${samplerPath}`);
+	const crewRoot = path.dirname(path.dirname(path.dirname(manifest.stateRoot)));
+	const outPath = path.join(manifest.artifactsRoot, "resources.jsonl");
+	const logPath = path.join(manifest.artifactsRoot, "perf-obs.log");
+	try {
+		const child = spawn(
+			process.execPath,
+			[
+				"--experimental-strip-types",
+				samplerPath,
+				"--watch-run",
+				manifest.runId,
+				"--crew-root",
+				crewRoot,
+				"--interval",
+				String(OBSERVABILITY_INTERVAL_MS),
+				"--out",
+				outPath,
+			],
+			{ detached: true, stdio: ["ignore", "ignore", "pipe"] },
+		);
+		// diagnostics: sampler stderr → perf-obs.log (best-effort; never affects the run)
+		child.stderr?.on("data", (d: Buffer) => {
+			try {
+				fs.appendFileSync(logPath, String(d));
+			} catch {
+				/* best-effort */
+			}
+		});
+		child.unref();
+	} catch (err) {
+		console.warn(`[perf-obs] sampler spawn failed for ${manifest.runId}: ${String(err)}`);
+	}
+}
+
+function schedulePerfAnalyze(manifest: TeamRunManifest, team: TeamConfig): void {
+	// Strict true — same test-isolation rationale as startPerfSampler.
+	if (team.observability !== true) return;
+	const analyzePath = perfScriptPath("analyze-run.mjs");
+	const resourcesPath = path.join(manifest.artifactsRoot, "resources.jsonl");
+	// Only analyze when the sampler actually produced data (sampler may have
+	// been skipped/failed to spawn) AND the scripts exist.
+	if (!analyzePath || !fs.existsSync(resourcesPath)) return;
+	const crewRoot = path.dirname(path.dirname(path.dirname(manifest.stateRoot)));
+	// Delay so child-worker transcripts are fully flushed before analyze reads them.
+	const timer = setTimeout(() => {
+		try {
+			const child = spawn(
+				process.execPath,
+				["--experimental-strip-types", analyzePath, manifest.runId, "--crew-root", crewRoot, "--resources", resourcesPath],
+				{ detached: true, stdio: "ignore" },
+			);
+			child.unref();
+		} catch (err) {
+			console.warn(`[perf-obs] analyze spawn failed for ${manifest.runId}: ${String(err)}`);
+		}
+	}, OBSERVABILITY_ANALYZE_DELAY_MS);
+	timer.unref();
 }
 
 export interface ExecuteTeamRunInput {
@@ -912,6 +1021,10 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	// heartbeats; the team-level run had no heartbeat, so any multi-phase
 	// workflow lasting >5min was marked stale and cancelled.
 	const stopTeamHeartbeat = startTeamRunHeartbeat(manifest.stateRoot, manifest.runId);
+	// Perf observability: auto-attach the resource sampler for this run (toggle:
+	// team frontmatter `observability: false`). Detached + unref'd — the sampler
+	// auto-stops when the runner dies, so no explicit cleanup needed.
+	startPerfSampler(manifest, input.team);
 
 	const cleanupUsage = (): void => {
 		for (const task of input.tasks) clearTrackedTaskUsage(task.id);
@@ -994,6 +1107,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// this single flush at run-end coalesces any pending progress bursts
 		// before manifest updates are observed by readers.
 		await flushEventLogBuffer();
+		// Perf observability: emit the post-run perf report (detached, delayed so
+		// child transcripts are flushed). Never affects run outcome.
+		schedulePerfAnalyze(manifest, input.team);
 		return result;
 	} catch (error) {
 		// Round 27 (BUG 1): the success path calls stopTeamHeartbeat() but this

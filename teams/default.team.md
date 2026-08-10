@@ -1,5 +1,6 @@
 ---
 name: default
+observability: true
 description: Balanced team for ordinary implementation tasks
 defaultWorkflow: default
 workspaceMode: single

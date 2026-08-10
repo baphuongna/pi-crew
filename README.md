@@ -71,7 +71,8 @@ repo: https://github.com/baphuongna/pi-crew
 - **Inter-pi broker** (v0.9.47, default-on) — a Unix-domain-socket message bus that lets concurrently-running Pi sessions pass messages, steering notes, and task-status events to each other. **On by default** on Linux + macOS; auto-disabled on native Windows (no unix socket). Three independent kill switches: `broker.enabled: false` (config), `PI_CREW_BROKER=0` (env, always wins), Windows auto-disable. See [docs/decisions/2026-07-22-broker-phase4-gated-on.md](docs/decisions/2026-07-22-broker-phase4-gated-on.md).
 - **Worker stateful scratchpad** (experimental, opt-in per role) — `executor` / `test-engineer` / `verifier` workers get a `scratchpad` tool: a persistent Bun-free JS evaluator whose namespace **compounds across calls within a task attempt** (variables set in one cell are visible in the next), so intermediate results live in memory instead of being re-derived from the transcript. Snapshots are flushed (redacted, atomic) per-attempt into the artifact store; the next attempt (retry / crash-recovery re-queue / re-run) **automatically revives the namespace** from the latest snapshot. Dormant by default (armed only when the spawner sets `PI_CREW_SCRATCHPAD=1`); zero behavior change for non-opt-in workers. Ported from the `@shift-labs/pi-rlm` pattern. See [src/runtime/scratchpad/README.md](src/runtime/scratchpad/README.md) (Phase 1-3 design, env keys, guards, threat model).
 - **`test:critical` + `real-test-pi-crew` skill** (v0.9.47) — a curated 14-file / 97-test subset (`npm run test:critical`, ~20s) for fast in-loop verification, plus a bundled skill distilling the full 8-tier end-to-end verification discipline (unit → 3-path kill-switch proof → typecheck/bundle → live TUI probing → smoke team run). Prevents the verifier-worker hang that full `npm test` (>4 min) caused against the 300s worker timeout.
-- **Provider extensions in subagents** (v0.9.57) — pi-crew spawns child-pi workers with `--no-extensions` (security posture), which made extension-registered providers (e.g. `pi-commandcode-provider`) unresolvable inside subagents. pi-crew now **auto-discovers provider packages** from `~/.pi/agent/settings.json` `packages` (npm: specs) and loads them via `--extension` in every builtin/user subagent — so **all provider models work in subagents**. An explicit `runtime.agentExtensions: string[]` config is an optional extra allowlist on top of auto-discovery. **SEC-1 preserved:** project/project-pi agents never receive these (env-gate unchanged).
+- **Provider extensions in subagents** (v0.9.57, local-path support v0.9.63) — pi-crew spawns child-pi workers with `--no-extensions` (security posture), which made extension-registered providers (e.g. `pi-commandcode-provider`, `pi-other-provider`) unresolvable inside subagents. pi-crew now **auto-discovers provider packages** from `~/.pi/agent/settings.json` `packages` — both `npm:` specs (v0.9.57) and **local-path specs** like `../../source/foo` (v0.9.63) — and loads them via `--extension` in every builtin/user subagent, so **all provider models work in subagents**. An explicit `runtime.agentExtensions: string[]` config is an optional extra allowlist on top of auto-discovery. **SEC-1 preserved:** project/project-pi agents never receive these (env-gate unchanged).
+- **Built-in performance observability** (v0.9.63) — every team run auto-attaches a detached resource sampler (per-PID CPU/RSS via ppid-tree attribution, 6 live warning categories) and auto-generates a markdown performance report on completion (22 anomaly categories, per-subagent timeline, token/cost/model attribution). Toggle per-team via frontmatter `observability: true|false`. Overhead ≈ 0 (sampler ~0.05% CPU / 56MB RSS; analyzer ~72ms post-run). See [Built-in performance observability](#built-in-performance-observability) below.
 
 ---
 
@@ -288,6 +289,12 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ## Recent changes
 
+### v0.9.63: built-in performance observability + local-path provider-extension discovery
+
+- **Built-in performance observability (always-on, toggle per team)**: every team run now auto-attaches a detached resource sampler (`scripts/resource-sampler.mjs` — per-PID CPU/RSS via ppid-tree attribution, 6 live warning categories: high_cpu / rss_jump / rss_high / rss_leak / proc_died / proc_zombie) and auto-generates a markdown performance report (`scripts/analyze-run.mjs` → `docs/perf-report-<runId>.md` — 22 anomaly categories, per-subagent launch/respawn/active/drain timeline, token/cost/model attribution). Runtime wiring in `src/runtime/team-runner.ts`: `startPerfSampler` (detached + `unref`'d; death never affects the run) + `schedulePerfAnalyze` (+3s after `after_run_complete`, `unref`'d `setTimeout`). Toggle: team frontmatter `observability: true|false` (default `true`). **Overhead ≈ 0** (A/B verified: sampler ~0.05% CPU / 56MB RSS, analyzer ~72ms post-run, ~32KB artifacts/run). New scripts: `scripts/resource-sampler.mjs`, `scripts/analyze-run.mjs`. Tests: `test/unit/scripts/{analyze-run,resource-sampler}-audit.test.ts`.
+- **Local-path provider extensions now discovered for child workers**: `discoverProviderExtensions` previously resolved only `npm:` specs from `~/.pi/agent/settings.json` `packages`, skipping local-path specs on the assumption they were the pi-crew extension itself. That broke local provider extensions (e.g. `pi-other-provider` installed via `pi install <local-path>`) — every model from such a provider hit `Error: Model "…" not found` in child workers and burned ~10s/task of fallback churn. Fix: resolve `./`, `../`, and absolute specs relative to the settings.json dir (same sanctioned trust level as `npm:`), and skip pi-crew itself via `packageRoot()`. **SEC-1 preserved** (project/project-pi AGENT extensions stay gated). Tests in `test/unit/runtime/model/provider-extensions.test.ts`.
+- See [CHANGELOG.md](CHANGELOG.md) §0.9.63 and `docs/real-test/reports/real-test-2026-08-08-provider-ext-local-path.md`.
+
 ### v0.9.57: team-tool schema repair + provider-extension auto-discovery + post-reorg repo-layout consolidation
 
 - **Team tool repaired (was broken live while tests stayed green)**: calling models emit empty-string/boolean defaults for every schema key, which pi-ai's pre-handler `validateToolArguments` rejected (`Validation failed for tool team`) and `Type.Unsafe` schema fields without `[TypeBox.Kind]` made `Value.Check` throw (`Unknown type`). Schema now accepts unset markers natively; `SkillOverride`/`FreeformConfig` switched to TypeBox-native constructors; `normalizeTeamParams` drops empties in the handler. Chain-runner also fixed (quote-aware step splitting). Caught by a new **Tier 9 feature battery** in the [`real-test-pi-crew`](skills/real-test-pi-crew/SKILL.md) skill (live team-tool action coverage).
@@ -363,6 +370,38 @@ pi-crew supports multiple runtime modes for task execution:
 // Disable workers globally
 { "executeWorkers": false }
 ```
+
+## Built-in performance observability
+
+Every team run auto-attaches a **detached resource sampler** and auto-generates a **performance report** on completion — measuring real resource usage and surfacing anomalies from the run's actual events/transcripts, not a synthetic benchmark.
+
+### Artifacts produced (per run, under `.crew/artifacts/<runId>/`)
+
+| File | Contents |
+|------|----------|
+| `resources.jsonl` | Per-PID CPU/RSS samples every 2s (root runner + all child workers via ppid-tree attribution, including respawns). PID-reuse guarded by `/proc` starttime; first-sample CPU excluded from averages. |
+| `perf-obs.log` | Sampler diagnostics: spawn marker, live warnings, terminal-stop confirmation. |
+| `docs/perf-report-<runId>.md` | Markdown report: 22 anomaly categories, per-subagent timeline (launch/respawn/startup/active-work/drain/finalize), token/cost/model attribution. |
+
+### Live warnings (written to `perf-obs.log` during the run)
+
+`high_cpu` (≥300% one core) · `rss_jump` (+200MB/interval) · `rss_high` (≥1GB) · `rss_leak` (window-30 monotonic +100MB) · `proc_died` · `proc_zombie`. Rate-limited (10s/pid/category).
+
+### Toggle
+
+```yaml
+# teams/my-team.team.md
+---
+name: my-team
+observability: false   # default: true — set false to skip sampler + report
+---
+```
+
+`observability: true` is the default for parsed team files; direct-object `TeamConfig` fixtures (unit tests) stay unset so they never spawn the sampler. `schedulePerfAnalyze` runs the analyzer `+3s` after `after_run_complete` via an `unref`'d `setTimeout` — it never blocks run completion. The sampler auto-stops when the run manifest reaches a terminal status.
+
+### Overhead
+
+Measured A/B (same team/goal, observability on vs off): **no detectable wall-time difference** (delta inside the 429-storm noise). Sampler: ~0.05% of one core, 56MB RSS fixed, detached + `unref`'d. Analyzer: ~72ms one-shot after run. ~32KB artifacts/run. See `docs/real-test/reports/real-test-2026-08-07-perf-obs-overhead.md`.
 
 ## Async Runs
 

@@ -111,6 +111,8 @@ function parseTeamFile(filePath: string, source: ResourceSource): TeamConfig | u
 			defaultWorkflow: frontmatter.defaultWorkflow || frontmatter.workflow || undefined,
 			workspaceMode: frontmatter.workspaceMode?.trim() === "worktree" ? "worktree" : "single",
 			maxConcurrency: frontmatter.maxConcurrency ? Number.parseInt(frontmatter.maxConcurrency, 10) : undefined,
+			// observability defaults ON ("luôn hoạt động"); explicit `observability: false` disables.
+			observability: frontmatter.observability === undefined ? true : frontmatter.observability !== "false",
 			routing: triggers || useWhen || avoidWhen || cost || category ? { triggers, useWhen, avoidWhen, cost, category } : undefined,
 		};
 	} catch {

@@ -405,3 +405,27 @@ test("team discovery supports git URL source in frontmatter", () => {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("team observability flag: defaults ON, explicit false disables, true honored", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-obs-flag-"));
+	try {
+		const teamsDir = path.join(cwd, ".crew", "teams");
+		fs.mkdirSync(teamsDir, { recursive: true });
+		// default: no observability field → true
+		fs.writeFileSync(path.join(teamsDir, "on.team.md"), "---\nname: on-team\ndescription: d\n---\n", "utf-8");
+		// explicit off
+		fs.writeFileSync(path.join(teamsDir, "off.team.md"), "---\nname: off-team\ndescription: d\nobservability: false\n---\n", "utf-8");
+		// explicit on
+		fs.writeFileSync(
+			path.join(teamsDir, "explicit.team.md"),
+			"---\nname: explicit-team\ndescription: d\nobservability: true\n---\n",
+			"utf-8",
+		);
+		const teams = allTeams(discoverTeams(cwd));
+		assert.equal(teams.find((t) => t.name === "on-team")?.observability, true, "default must be true");
+		assert.equal(teams.find((t) => t.name === "off-team")?.observability, false, "observability: false must disable");
+		assert.equal(teams.find((t) => t.name === "explicit-team")?.observability, true, "observability: true must enable");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

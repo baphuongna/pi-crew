@@ -1,5 +1,6 @@
 ---
 name: fast-fix
+observability: true
 description: Small team for quick bug fixes
 defaultWorkflow: fast-fix
 workspaceMode: single

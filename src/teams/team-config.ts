@@ -23,6 +23,13 @@ export interface TeamConfig {
 	defaultWorkflow?: string;
 	workspaceMode?: "single" | "worktree";
 	maxConcurrency?: number;
+	/**
+	 * Perf observability: when true (default), the run auto-attaches the
+	 * resource sampler (scripts/resource-sampler.mjs --watch-run) and runs
+	 * analyze-run after completion. Set `observability: false` in the team
+	 * frontmatter to disable.
+	 */
+	observability?: boolean;
 	routing?: RoutingMetadata;
 	/**
 	 * Optional git-based source URL when this team config is sourced from a remote URL.

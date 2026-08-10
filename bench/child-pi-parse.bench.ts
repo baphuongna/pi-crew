@@ -12,13 +12,13 @@
  */
 
 import type { AgentConfig } from "../src/agents/agent-config.ts";
-import { ChildPiLineObserver } from "../src/runtime/child-pi.ts";
 import type { ChildPiRunInput } from "../src/runtime/child-pi.ts";
+import { ChildPiLineObserver } from "../src/runtime/child-pi.ts";
 
 // --- Instrument JSON.parse to count calls -----------------------------------
 let parseCount = 0;
 const origParse = JSON.parse;
-const countedParse: typeof JSON.parse = function (...args: Parameters<typeof JSON.parse>) {
+const countedParse: typeof JSON.parse = (...args: Parameters<typeof JSON.parse>) => {
 	parseCount++;
 	return origParse.apply(JSON, args);
 };
@@ -121,6 +121,7 @@ function main(): void {
 
 // node:require shim for strip-types
 import { createRequire } from "node:module";
+
 const require = createRequire(import.meta.url);
 
 main();
