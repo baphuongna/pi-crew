@@ -365,6 +365,17 @@ const RETRYABLE_MODEL_FAILURE_PATTERNS = [
 	/safety/i,
 	/is[_ ]?overloaded/i,
 	/\b408\b/,
+	//
+	// EPIPE / broken-pipe. In the child-pi worker path this typically means
+	// the child `pi` process exited (crash or early exit) while the parent
+	// was still writing to its stdin — spawning a fresh child on the next
+	// model in the fallback chain usually recovers. In the network path it
+	// is a transient pipe close. Both are retryable on a different model.
+	// See docs/failure-mode-inventory.md EPIPE gap; NON_RETRYABLE patterns
+	// (auth/billing) are checked first, so an auth error mentioning EPIPE
+	// stays non-retryable.
+	/epipe/i,
+	/broken pipe/i,
 ];
 
 // These patterns indicate auth/key/billing issues that will never succeed on retry.

@@ -296,6 +296,28 @@ test("isRetryableModelFailure handles undefined/empty (no false trigger)", () =>
 	assert.equal(isRetryableModelFailure(""), false);
 });
 
+test("isRetryableModelFailure treats EPIPE / broken pipe as retryable (D-2)", () => {
+	// In the child-pi worker path EPIPE typically means the child process
+	// exited while the parent was still writing — spawning a fresh child on
+	// the next model in the fallback chain usually recovers. See
+	// docs/failure-mode-inventory.md EPIPE gap.
+	for (const err of [
+		"Error: write EPIPE",
+		"EPIPE: broken pipe",
+		"broken pipe (child exited)",
+	]) {
+		assert.equal(isRetryableModelFailure(err), true, `expected retryable: ${err}`);
+	}
+});
+
+test("isRetryableModelFailure: auth error wrapping EPIPE stays NON-retryable", () => {
+	// NON_RETRYABLE (auth/billing) must win even when the error string also
+	// mentions EPIPE — guards against retrying a permanent auth failure just
+	// because the connection happened to close with a pipe error.
+	assert.equal(isRetryableModelFailure("EPIPE while sending api key: unauthorized"), false);
+	assert.equal(isRetryableModelFailure("broken pipe after token expired"), false);
+});
+
 // FIX 2 — Broader RETRYABLE_MODEL_FAILURE_PATTERNS (2026-06-25).
 // Each new pattern is asserted with a representative provider error string.
 test("isRetryableModelFailure: 'provider error: api_error' triggers fallback", () => {
