@@ -130,10 +130,10 @@ export async function handleManageDomain(params: TeamToolParamsValue, ctx: TeamC
 						unsetPaths,
 					});
 					return result(
-						["Updated pi-crew config.", `Path: ${saved.path}`, "Effective config:", JSON.stringify(saved.config, null, 2)].join(
+						[saved.written ? "Updated pi-crew config." : "Config unchanged (no effective changes).", `Path: ${saved.path}`, "Effective config:", JSON.stringify(saved.config, null, 2)].join(
 							"\n",
 						),
-						{ action: "config", status: "ok" },
+						{ action: "config", status: "ok", written: saved.written },
 					);
 				} catch (error) {
 					const message = error instanceof Error ? error.message : String(error);
