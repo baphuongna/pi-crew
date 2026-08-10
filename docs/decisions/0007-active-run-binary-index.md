@@ -4,7 +4,12 @@ Date: 2026-05-14
 
 ## Status
 
-Proposed — not yet implemented.
+Accepted — implemented (`src/state/stores/active-run-registry.ts:118-192`).
+The implementation uses a JSON-stringified body under a `PICREW2BIN` magic
++ version header rather than the v8-serialize / msgpack style proposed
+below, because `JSON.parse` is schema-safe (no hostile-object risk from
+`v8.deserialize`). During the transition window both JSON and binary
+mirrors are written; see `writeEntries` (`active-run-registry.ts:194-274`).
 
 ## Context
 

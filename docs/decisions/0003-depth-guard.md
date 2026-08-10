@@ -16,8 +16,16 @@ the already-running agent. This causes stack overflow or resource exhaustion.
 ## Decision
 
 Add a depth guard: track nesting depth via environment variable
-`PI_CREW_SESSION_DEPTH`. If depth >= 2, force `child-process` mode instead of
-`live-session`.
+`PI_CREW_DEPTH` (with `PI_TEAMS_DEPTH` accepted as a legacy alias). If
+depth >= 2, force `child-process` mode instead of `live-session`.
+
+> **Implementation note (synced 2026-08-09):** the canonical env var in
+> code is `PI_CREW_DEPTH` (see `src/runtime/model/pi-args.ts:71`). The
+> max-depth ceiling is read from `PI_CREW_MAX_DEPTH` /
+> `PI_TEAMS_MAX_DEPTH`, clamped to [1, 10]. Earlier drafts of this ADR
+> referenced `PI_CREW_SESSION_DEPTH`; that name is not used by the
+> implementation. The depth + max are propagated to children via env
+> (`pi-args.ts:363-380`).
 
 ## Alternatives Considered
 
