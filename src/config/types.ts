@@ -312,6 +312,8 @@ export interface ConfigValidationResult {
 export interface SavedPiTeamsConfig {
 	config: PiTeamsConfig;
 	path: string;
+	/** Whether the file was actually rewritten. `false` when a no-op patch hit the skip-write guard. */
+	written: boolean;
 }
 
 export interface UpdateConfigOptions {

@@ -1249,12 +1249,20 @@ export function updateConfig(patch: PiTeamsConfig, options: UpdateConfigOptions 
 			for (const unset of options.unsetPaths) unsetPath(raw, unset);
 			merged = parseConfig(raw);
 		}
+		// Skip-if-unchanged: an empty/identical patch must not rewrite the file
+		// (e.g. `team action='config'` with an empty patch — read-only path).
+		// Both sides are parseConfig-normalized, so JSON.stringify key order is
+		// deterministic (same construction path); no key sorting needed.
+		const normalizedCurrent = parseConfig(current);
+		if (JSON.stringify(merged) === JSON.stringify(normalizedCurrent)) {
+			return { path: filePath, config: merged, written: false }; // unchanged — skip write
+		}
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
 		atomicWriteFile(filePath, `${JSON.stringify(merged, null, 2)}\n`);
 		// (F16) Invalidate the loadConfig cache after a write — the next
 		// caller must see the new value, not a 0-2s stale snapshot.
 		invalidateConfigCache();
-		return { path: filePath, config: merged };
+		return { path: filePath, config: merged, written: true };
 	});
 }
 
@@ -1273,10 +1281,18 @@ export function updateAutonomousConfig(patch: PiTeamsAutonomousConfig): SavedPiT
 			current.autonomous && typeof current.autonomous === "object" && !Array.isArray(current.autonomous)
 				? (current.autonomous as Record<string, unknown>)
 				: {};
-		current.autonomous = { ...currentAutonomous, ...patch };
+		// Skip-if-unchanged (raw shape): a no-op autonomous patch must not
+		// rewrite the file. NOTE: compare the RAW on-disk record, NOT the
+		// parseConfig-normalized shape — normalizing would add default keys and
+		// false-positive the equality check.
+		const next = { ...current, autonomous: { ...currentAutonomous, ...patch } };
+		if (JSON.stringify(next) === JSON.stringify(current)) {
+			return { path: filePath, config: parseConfig(current), written: false }; // unchanged — skip write
+		}
+		current.autonomous = next.autonomous;
 		atomicWriteFile(filePath, `${JSON.stringify(current, null, 2)}\n`);
 		// (F16) Invalidate the loadConfig cache after a write — see updateConfig.
 		invalidateConfigCache();
-		return { path: filePath, config: parseConfig(current) };
+		return { path: filePath, config: parseConfig(current), written: true };
 	});
 }
