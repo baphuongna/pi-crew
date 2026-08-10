@@ -398,4 +398,59 @@ Phase 1 + 2 + 3 completed 2026-08-09. All code-pattern checks done.
   - **Correctness (D.2, D.3):** EPIPE/broken-pipe added to `RETRYABLE_MODEL_FAILURE_PATTERNS` (NON_RETRYABLE still wins) + 2 new tests in `model-fallback.test.ts`. New `test/unit/runtime/timeout-layer-contract.test.ts` (4 tests) documents the per-cell < no-output < wall-clock ordering invariant.
   - **Docs/lint (F.3, C.1):** ADR 0003 env var corrected (`PI_CREW_DEPTH`, not `PI_CREW_SESSION_DEPTH`) + implementation note; ADR 0007 status corrected ("Accepted — implemented"). New `scripts/check-decision-drift.mjs` wired into `npm run ci` catches future ADR↔src env-var drift (skips Proposed ADRs + historical-mention lines). New `docs/hooks-reference.md` documents the 3 hook subsystems' distinct scopes (was C.1 "unify" — corrected in phase 1 to "document").
   - **Net code delta:** −6 production source files, −1 dead method, −1 dead field, −4 dead event emits, +1 metric counter, +1 metric gauge + getter, +2 EPIPE regex patterns, +2 model-fallback tests, +1 contract test file (4 tests), +1 CI lint script, +2 docs files. typecheck + test:critical + 897 unit tests green.
+- **2026-08-10 (phase 5 — Tier 2/3 implementation):** implemented the
+  feasible-and-safe subset; deferred the breaking/large items behind ADRs
+  with explicit plans. All gates green throughout: `npm run typecheck`
+  PASS, `npm run test:critical` 101/0, `npm run check:decision-drift` clean.
+  - **B.1/B.2 — PIVOTED to ADR.** On reading the twin code in depth, the
+    pairs were found to have intentional behavioural drift (sync paths
+    uncached, async paths cached — `findGitRoot` vs `findGitRootAsync`,
+    `assertCleanLeader` vs `assertCleanLeaderAsync`). Mechanical
+    extraction would either drop the async cache (perf regression) or
+    add a cache to sync (changes concurrent-run semantics). New ADR
+    `docs/decisions/2026-08-10-reduce-sync-async-twins.md` records the
+    contract-test-first, phased, per-pair plan. **Not implemented in
+    source** — the ADR is the deliverable.
+  - **D.4 — narrowed and shipped.** Spawned the scratchpad guest with
+    `detached: true` so descendants form their own process group;
+    `killSync()` now signals the whole group (POSIX `process.kill(-pid,
+    SIGKILL)`) or kills the tree (Windows `taskkill /T /F`), with
+    single-pid fallback. Closes the cell-subprocess orphan gap.
+  - **team-runner split — phase 1 shipped.** Extracted the self-contained
+    merge-gate portion to `src/runtime/merge-gate.ts` (4 helpers + the
+    `REJECTED_STATUS_MERGE_TRANSITIONS` table + `mergeTaskUpdatesPreservingTerminal`).
+    team-runner re-imports them; existing tests (`team-runner-merge.test.ts`
+    7/0, `team-runner-should-merge-table.test.ts`) pass unchanged. Further
+    split phases (scheduler-loop, dispatch-batch) deferred — they touch
+    the forward-sync dance and need their own ADR.
+  - **E.2 — Phase 1 helper shipped.** New
+    `src/runtime/scratchpad/snapshot-hmac.ts` (sign / verify / strip /
+    attach, with `getSnapshotHmacKey`, `isSnapshotHmacStrict`,
+    `shouldRejectSnapshot`). 11 unit tests. Inline `PI_CREW_SIG=<hex>\n`
+    envelope. Opt-in via `PI_CREW_SNAPSHOT_HMAC_KEY`; strict mode via
+    `PI_CREW_SNAPSHOT_HMAC_STRICT`. Production wire-up deferred to Phase
+    2 (needs snapshot envelope format audit). New ADR
+    `docs/decisions/2026-08-10-scratchpad-snapshot-hmac.md` documents
+    the 4-phase migration window.
+  - **E.1 — ADR only (NOT implemented).** isolated-vm is a multi-week
+    milestone (WorkflowCtx API audit, isolate marshalling, perf
+    measurement, migration window). New ADR
+    `docs/decisions/2026-08-10-dwf-isolated-vm-sandbox.md` records the
+    decision, prerequisites, and implementation sketch.
+  - **D.1 — still blocked.** bug-023 needs a Windows VM; the linux
+    environment cannot verify the O_NOFOLLOW fix. Skip gate in
+    `chain-executor.test.ts` is explicit and documented.
+  - **failure-mode-inventory updated.** EPIPE and timeout rows flipped
+    from ⚠️ partial-GAP to ✅ covered, with file:line pointers to the
+    D.2 / D.3 work from Tier 1.
+  - **Net code delta (Tier 2/3):** +1 module (merge-gate.ts, ~190 lines
+    extracted from team-runner), +1 module (snapshot-hmac.ts, ~140
+    lines), +1 test file (snapshot-hmac 11 tests), +3 ADRs, +scratchpad
+    `detached:true` + group-kill in engine.ts killSync. team-runner.ts
+    shrinks by ~180 lines.
+  - **Dead code cleared (A.1, A.2, A.3, A.4, A.5, A.6):** removed `iteration-hooks.ts` (+ test), `src/plugins/` (+ test), `src/observability/event-bus.ts` (+ test, + 4 emit sites in progress-tracker kept as pure state updates), `mascot.setVisible` (+ field + dead tick branch + C6 test), `broker.notifyMessage`, `child-pi-pool.ts` (+ test + README row). Net: ~6 dead modules + 1 dead method + 1 dead field/branch removed from `src/`.
+  - **Observability additions (F.1, F.2):** `crew.limits.unbounded_total` counter wired to `crew.limits.unbounded` event; `crew.metrics.cardinality_evicted` gauge refreshed on every metric event, backed by `getCardinalityEvictions()` in `metrics-primitives.ts` (module counter to avoid Counter self-eviction recursion).
+  - **Correctness (D.2, D.3):** EPIPE/broken-pipe added to `RETRYABLE_MODEL_FAILURE_PATTERNS` (NON_RETRYABLE still wins) + 2 new tests in `model-fallback.test.ts`. New `test/unit/runtime/timeout-layer-contract.test.ts` (4 tests) documents the per-cell < no-output < wall-clock ordering invariant.
+  - **Docs/lint (F.3, C.1):** ADR 0003 env var corrected (`PI_CREW_DEPTH`, not `PI_CREW_SESSION_DEPTH`) + implementation note; ADR 0007 status corrected ("Accepted — implemented"). New `scripts/check-decision-drift.mjs` wired into `npm run ci` catches future ADR↔src env-var drift (skips Proposed ADRs + historical-mention lines). New `docs/hooks-reference.md` documents the 3 hook subsystems' distinct scopes (was C.1 "unify" — corrected in phase 1 to "document").
+  - **Net code delta:** −6 production source files, −1 dead method, −1 dead field, −4 dead event emits, +1 metric counter, +1 metric gauge + getter, +2 EPIPE regex patterns, +2 model-fallback tests, +1 contract test file (4 tests), +1 CI lint script, +2 docs files. typecheck + test:critical + 897 unit tests green.
 - 2026-08-09 (initial draft): baseline typecheck PASS; test suite and critical subset not yet run. All `🔍 EXPLORE` items awaited independent verification.
