@@ -9,13 +9,45 @@
  * (headings, code blocks, URLs) after compression.
  */
 
-/** Role-specific output format patterns — constructed fresh per call to avoid /g lastIndex leak */
+/**
+ * Why relax: real worker LLMs emit markdown handoffs (`## Handoff`,
+ * `### Summary`, `## Follow-ups`, `- bullet`, `**bold**`) instead of the
+ * caveman formats (`file:line — text`, `PASS:`/`FAIL:`, emoji findings)
+ * these patterns originally required. Each role pattern below ORs its
+ * strict contract with a markdown-structured alternation so structured
+ * handoffs validate while empty/garbage output still fails.
+ *
+ * What changed: added the MARKDOWN_STRUCTURED alternation to every role.
+ * What is preserved: the strict patterns still match verbatim, and the
+ * structural-preservation checks (code blocks, URLs, headings) in
+ * validateWorkerOutput are UNCHANGED.
+ */
+
+/** Accepts atx headings (`## X`), bold (`**x**`), bullets (`- x` / `* x`), and numbered lists (`1. x`) */
+const MARKDOWN_STRUCTURED = /^(?:#{1,6}\s|\*\*|[-*]\s|\d+\.\s)/m;
+
+/** Strict per-role contract patterns (kept verbatim; `.source` is embedded in the alternations below) */
+const STRICT_ROLE_PATTERNS: Record<string, RegExp> = {
+	explorer: /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
+	executor: /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
+	reviewer: /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
+	"security-reviewer": /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
+	verifier: /^(PASS:|FAIL:)/m,
+};
+
+/** Role-specific output format patterns — constructed fresh per call to avoid /g lastIndex leak.
+ * Each factory: strict contract OR markdown-structured alternation. */
 const ROLE_PATTERN_DEFS: Record<string, () => RegExp> = {
-	explorer: () => /^(\S+:\d+|Defs:|Refs:|Callers:|Tests:|Sites:|No match\.|totals:)/m,
-	executor: () => /^(\S+:\d+(-\d+)? — .{1,80}\.|verified:|too-big\.|needs-confirm\.|ambiguous\.|regressed\.)/m,
-	reviewer: () => /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
-	"security-reviewer": () => /^([^:\s]+:\d+:\s+\p{Emoji_Presentation}|No issues\.|totals:)/mu,
-	verifier: () => /^(PASS:|FAIL:)/m,
+	explorer: () =>
+		new RegExp(`(?:${STRICT_ROLE_PATTERNS.explorer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+	executor: () =>
+		new RegExp(`(?:${STRICT_ROLE_PATTERNS.executor.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+	reviewer: () =>
+		new RegExp(`(?:${STRICT_ROLE_PATTERNS.reviewer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
+	"security-reviewer": () =>
+		new RegExp(`(?:${STRICT_ROLE_PATTERNS["security-reviewer"].source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
+	verifier: () =>
+		new RegExp(`(?:${STRICT_ROLE_PATTERNS.verifier.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
 };
 
 /** Fresh RegExp factories for structural preservation checks (avoids /g lastIndex leak) */

@@ -83,6 +83,25 @@ describe("output-validator", () => {
 		});
 	});
 
+	describe("accepts markdown handoff output", () => {
+		const handoff = "## Handoff\n\n### Summary\n- did X\n\n## Follow-ups\n- item";
+
+		for (const role of ["explorer", "executor", "reviewer", "security-reviewer", "verifier"]) {
+			it(`accepts markdown handoff for ${role}`, () => {
+				const result = validateWorkerOutput(role, handoff);
+				assert.equal(result.formatMatch, true, `formatMatch should be true for ${role}`);
+				assert.equal(result.valid, true, `valid should be true for ${role}`);
+			});
+		}
+
+		it("rejects garbage prose without markdown structure", () => {
+			// Free prose with no markdown marker must still fail for roles
+			// whose strict pattern also fails (e.g. reviewer).
+			const result = validateWorkerOutput("reviewer", "lorem ipsum dolor sit amet consectetur");
+			assert.equal(result.formatMatch, false);
+		});
+	});
+
 	describe("parseReviewerFindings", () => {
 		it("parses multiple findings", () => {
 			const output = [
