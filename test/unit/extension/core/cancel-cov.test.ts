@@ -41,10 +41,7 @@ describe("retryShortCircuitsCompleted", () => {
 	});
 
 	it("returns false for a completed run that still has a cancelled task", () => {
-		assert.equal(
-			retryShortCircuitsCompleted("completed", [{ id: "01_explore", status: "cancelled" }]),
-			false,
-		);
+		assert.equal(retryShortCircuitsCompleted("completed", [{ id: "01_explore", status: "cancelled" }]), false);
 	});
 
 	it("returns false for a non-completed run regardless of task statuses", () => {
@@ -68,14 +65,7 @@ describe("retryShortCircuitsCompleted", () => {
 	});
 
 	it("honors targetTaskId: completed run with the targeted task failed does NOT short-circuit", () => {
-		assert.equal(
-			retryShortCircuitsCompleted(
-				"completed",
-				[{ id: "01_explore", status: "failed" }],
-				"01_explore",
-			),
-			false,
-		);
+		assert.equal(retryShortCircuitsCompleted("completed", [{ id: "01_explore", status: "failed" }], "01_explore"), false);
 	});
 
 	it("returns true for a completed run with no tasks", () => {

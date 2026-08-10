@@ -232,7 +232,18 @@ function parseIntervalMs(s: string): number | undefined {
 /** Named-token maps for cron DOW (SUN=0..SAT=6) and month (JAN=1..DEC=12). */
 const CRON_DOW_NAMES: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
 const CRON_MONTH_NAMES: Record<string, number> = {
-	JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+	JAN: 1,
+	FEB: 2,
+	MAR: 3,
+	APR: 4,
+	MAY: 5,
+	JUN: 6,
+	JUL: 7,
+	AUG: 8,
+	SEP: 9,
+	OCT: 10,
+	NOV: 11,
+	DEC: 12,
 };
 
 /**

@@ -40,9 +40,7 @@ export function retryShortCircuitsCompleted(
 	targetTaskId?: string,
 ): boolean {
 	if (runStatus !== "completed") return false;
-	return !tasks.some(
-		(task) => (targetTaskId ? task.id === targetTaskId : true) && RETRYABLE_STATUSES.has(task.status),
-	);
+	return !tasks.some((task) => (targetTaskId ? task.id === targetTaskId : true) && RETRYABLE_STATUSES.has(task.status));
 }
 
 export interface AbortOwnedResult {

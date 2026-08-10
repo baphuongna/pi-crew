@@ -38,16 +38,12 @@ const STRICT_ROLE_PATTERNS: Record<string, RegExp> = {
 /** Role-specific output format patterns — constructed fresh per call to avoid /g lastIndex leak.
  * Each factory: strict contract OR markdown-structured alternation. */
 const ROLE_PATTERN_DEFS: Record<string, () => RegExp> = {
-	explorer: () =>
-		new RegExp(`(?:${STRICT_ROLE_PATTERNS.explorer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
-	executor: () =>
-		new RegExp(`(?:${STRICT_ROLE_PATTERNS.executor.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
-	reviewer: () =>
-		new RegExp(`(?:${STRICT_ROLE_PATTERNS.reviewer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
+	explorer: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.explorer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+	executor: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.executor.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+	reviewer: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.reviewer.source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
 	"security-reviewer": () =>
 		new RegExp(`(?:${STRICT_ROLE_PATTERNS["security-reviewer"].source})|(?:${MARKDOWN_STRUCTURED.source})`, "mu"),
-	verifier: () =>
-		new RegExp(`(?:${STRICT_ROLE_PATTERNS.verifier.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
+	verifier: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.verifier.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m"),
 };
 
 /** Fresh RegExp factories for structural preservation checks (avoids /g lastIndex leak) */
