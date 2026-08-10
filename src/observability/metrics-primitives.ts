@@ -36,13 +36,51 @@ interface StoredHistogram {
 
 export const DEFAULT_HISTOGRAM_BUCKETS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
 
-/** Maximum number of unique label combinations per metric. */
+/**
+ * Maximum number of unique label combinations per metric.
+ *
+ * When this cap is reached, the oldest label combination is silently
+ * evicted (FIFO by insertion order, with MRU promotion on use). Read
+ * {@link getCardinalityEvictions} to detect when aggregation has become
+ * unreliable for high-cardinality labels.
+ */
 const MAX_LABEL_COMBINATIONS = 10_000;
 
-function enforceLabelCap(map: Map<string, unknown>, metricName: string): void {
+/**
+ * Cumulative count of label-combination evictions across all metrics in
+ * this process. Incremented every time {@link enforceLabelCap} drops an
+ * entry. Exported so observability wiring and OTLP/Prometheus exporters
+ * can surface `crew.metrics.cardinality_evicted` without risking the
+ * recursion of routing this signal through a `Counter` (a Counter itself
+ * consumes a label slot and could self-evict).
+ */
+let cardinalityEvictions = 0;
+
+/**
+ * Returns the cumulative number of metric label-combination evictions
+ * that have occurred in this process. A non-zero value means at least
+ * one metric exceeded {@link MAX_LABEL_COMBINATIONS} and silently dropped
+ * the oldest label combination — aggregation for high-cardinality labels
+ * is unreliable.
+ */
+export function getCardinalityEvictions(): number {
+	return cardinalityEvictions;
+}
+
+/** Reset the eviction counter. Intended for tests only. */
+export function _resetCardinalityEvictionsForTests(): void {
+	cardinalityEvictions = 0;
+}
+
+function enforceLabelCap(map: Map<string, unknown>, _metricName: string): void {
 	while (map.size > MAX_LABEL_COMBINATIONS) {
 		const firstKey = map.keys().next().value;
-		if (firstKey !== undefined) map.delete(firstKey);
+		if (firstKey !== undefined) {
+			map.delete(firstKey);
+			cardinalityEvictions++;
+		} else {
+			break;
+		}
 	}
 }
 

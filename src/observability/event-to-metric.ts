@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getCardinalityEvictions } from "./metrics-primitives.ts";
 import type { MetricRegistry } from "./metric-registry.ts";
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -41,6 +42,13 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 	const deadletterCount = registry.counter("crew.task.deadletter_total", "Deadletter triggers by reason");
 	const overflowCount = registry.counter("crew.task.overflow_phase_total", "Overflow recovery phase transitions");
 	const supervisorContactCount = registry.counter("crew.task.supervisor_contact_total", "Supervisor contact requests by reason");
+	const unboundedConcurrencyCount = registry.counter("crew.limits.unbounded_total", "Runs that enabled allowUnboundedConcurrency (advisory; bypasses hard cap)");
+	// Gauge reflecting cumulative label-combination evictions across all
+	// metrics in this process. Updated lazily on every metric event so the
+	// value stays fresh without a separate timer. Non-zero = aggregation
+	// for high-cardinality labels is unreliable. See metrics-primitives.ts
+	// `enforceLabelCap`.
+	const cardinalityEvictedGauge = registry.gauge("crew.metrics.cardinality_evicted", "Cumulative label-combination evictions (non-zero = unreliable aggregation)");
 	registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds");
 	const runDuration = registry.histogram(
 		"crew.run.duration_ms",
@@ -146,11 +154,26 @@ export function wireEventToMetrics(events: ExtensionAPI["events"] | undefined, r
 				});
 			},
 		],
+		[
+			"crew.limits.unbounded",
+			() => {
+				// Fires when a run enables allowUnboundedConcurrency (bypasses the
+				// hard cap of 8 and the worker cap). One emit per affected run.
+				unboundedConcurrencyCount.inc({});
+			},
+		],
 	];
 
 	const unsubscribers: Array<() => void> = [];
 	for (const [event, handler] of handlers) {
 		const unsubscribe = events?.on?.(event, (data: unknown) => {
+			// Refresh the cardinality-eviction gauge on every event so the
+			// value reflects the latest eviction state without a timer.
+			try {
+				cardinalityEvictedGauge.set({}, getCardinalityEvictions());
+			} catch {
+				/* gauge refresh must never break event delivery */
+			}
 			try {
 				handler(data);
 			} catch {
