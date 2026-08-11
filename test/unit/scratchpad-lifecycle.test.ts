@@ -231,7 +231,8 @@ describe("scratchpad I5 — adoption/value metric events", () => {
 		}
 	});
 
-	it("I5: cell succeeds even when the event write fails (injected failing writer)", async () => {		const ctx = makeTempCtx();
+	it("I5: cell succeeds even when the event write fails (injected failing writer)", async () => {
+		const ctx = makeTempCtx();
 		const env = {
 			...makeEnv(ctx),
 			[PI_CREW_EVENTS_PATH_ENV]: path.join(ctx.root, "events.jsonl"),

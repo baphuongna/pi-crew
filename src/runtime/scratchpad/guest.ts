@@ -191,7 +191,9 @@ const INTERNAL_BINDINGS = new Map<string, unknown>();
 /** Pattern-12 nullish guard: refuse undefined/null BEFORE spawning. */
 function assertShellArgNotNullish(name: string, value: unknown): void {
 	if (value === undefined || value === null) {
-		throw new Error(`sh: argument '${name}' is null/undefined — a missing variable would stringify to the literal 'undefined' in the command. Re-verify variables after a restore before using them in shell commands.`);
+		throw new Error(
+			`sh: argument '${name}' is null/undefined — a missing variable would stringify to the literal 'undefined' in the command. Re-verify variables after a restore before using them in shell commands.`,
+		);
 	}
 }
 
