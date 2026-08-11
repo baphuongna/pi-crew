@@ -10,7 +10,7 @@ import {
 } from "../../runtime/process/cancellation.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -198,12 +198,21 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 
 		const retriedTaskIds = [...retriedIds];
 		for (const taskId of retriedTaskIds) {
-			appendEvent(loaded.manifest.eventsPath, {
+			// H1 (2026-08-10): inside a sync run-lock callback — cannot await;
+			// fire-and-forget async. task.retried is informational; the queued
+			// status is the authoritative record in tasks.json.
+			void appendEventAsync(loaded.manifest.eventsPath, {
 				type: "task.retried",
 				runId: loaded.manifest.runId,
 				taskId,
 				message: `Task ${taskId} queued for retry.`,
-			});
+			}).catch((error) =>
+				logInternalError(
+					"cancel.retry-event",
+					error instanceof Error ? error : new Error(String(error)),
+					`runId=${loaded.manifest.runId}`,
+				),
+			);
 		}
 
 		if (deps) invalidateSnapshot(loaded.manifest.runId, runCwd, deps);
@@ -267,7 +276,9 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 	if (asyncPid !== undefined && asyncPid > 0) {
 		try {
 			killProcessPid(asyncPid);
-			appendEvent(loaded.manifest.eventsPath, {
+			// H1 (2026-08-10): informational event in async context — await the
+			// async lock path (non-blocking event loop, ~1ms vs ~14ms sync).
+			await appendEventAsync(loaded.manifest.eventsPath, {
 				type: "async.kill_requested",
 				runId: loaded.manifest.runId,
 				message: "Sent SIGTERM to background runner process.",

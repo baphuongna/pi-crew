@@ -24,7 +24,7 @@
  * import type { WorkflowCtx } from "pi-crew/workflow";
  * ```
  *
- * These interfaces mirror the runtime types in `src/runtime/dynamic-workflow-context.ts`.
+ * These interfaces mirror the runtime types in `src/runtime/goal-workflow/dynamic-workflow-context.ts`.
  * They are authoring-only (no runtime values); the real implementations live in the runner.
  *
  * ## Resume & Checkpoint (round-18 P2-3)

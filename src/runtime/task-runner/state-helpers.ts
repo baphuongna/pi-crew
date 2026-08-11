@@ -41,7 +41,15 @@ export function persistSingleTaskUpdate(
 	checkpointPhase?: TaskCheckpointState["phase"],
 	skipCoalesce: boolean = false,
 ): TeamTaskState[] {
-	const MAX_CAS_ATTEMPTS = 100;
+	// H5 (2026-08-10): lowered from 100 → 10. Each retry does
+	// flushPendingAtomicWrites (global) + loadRunManifestById (stat + parse)
+	// + statSync, ~5ms each. The first attempt uses fallbackTasks directly
+	// (no disk read); retries only fire under real contention from best-effort
+	// writers that don't hold the run lock (async-notifier, crash-recovery).
+	// If 10 retries cannot converge, the system is in a pathological state
+	// where 100 would not help either — the explicit error below surfaces it
+	// instead of blocking the event loop for 500ms.
+	const MAX_CAS_ATTEMPTS = 10;
 	let baseMtime = 0;
 	try {
 		baseMtime = fs.statSync(manifest.tasksPath).mtimeMs;

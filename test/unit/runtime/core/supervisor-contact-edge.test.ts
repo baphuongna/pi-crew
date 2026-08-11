@@ -3,91 +3,83 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { parseSupervisorContactFromLine, recordSupervisorContact } from "../../../../src/runtime/supervisor-contact.ts";
+import { recordSupervisorContact, supervisorContactFromEvent } from "../../../../src/runtime/supervisor-contact.ts";
 
-describe("parseSupervisorContactFromLine edge cases", () => {
+// Edge-case suite for `supervisorContactFromEvent`. Previously exercised via
+// the deprecated `parseSupervisorContactFromLine` wrapper; migrated 2026-08-10
+// to call the shared validator directly (the production code path).
+
+describe("supervisorContactFromEvent edge cases", () => {
 	it("handles data field as object", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: "t-1",
-				reason: "decision_needed",
-				message: "test",
-				data: { context: "some info" },
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: "t-1",
+			reason: "decision_needed",
+			message: "test",
+			data: { context: "some info" },
+		});
 		assert.ok(result);
 		assert.equal(result.data?.context, "some info");
 	});
 
 	it("ignores data field as array", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: "t-1",
-				reason: "custom",
-				message: "test",
-				data: [1, 2, 3],
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: "t-1",
+			reason: "custom",
+			message: "test",
+			data: [1, 2, 3],
+		});
 		assert.ok(result);
 		assert.equal(result.data, undefined);
 	});
 
 	it("handles valid reason: approval", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: "t-1",
-				reason: "approval",
-				message: "Need approval to proceed",
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: "t-1",
+			reason: "approval",
+			message: "Need approval to proceed",
+		});
 		assert.ok(result);
 		assert.equal(result.reason, "approval");
 	});
 
 	it("handles valid reason: error_escalation", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: "t-1",
-				reason: "error_escalation",
-				message: "Fatal error occurred",
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: "t-1",
+			reason: "error_escalation",
+			message: "Fatal error occurred",
+		});
 		assert.ok(result);
 		assert.equal(result.reason, "error_escalation");
 	});
 
 	it("handles non-string taskId (number)", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: 12345,
-				reason: "custom",
-				message: "test",
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: 12345,
+			reason: "custom",
+			message: "test",
+		});
 		assert.ok(result);
 		assert.equal(result.taskId, "");
 	});
 
 	it("handles non-string message (number)", () => {
-		const result = parseSupervisorContactFromLine(
-			JSON.stringify({
-				type: "supervisor_contact",
-				taskId: "t-1",
-				reason: "custom",
-				message: 42,
-			}),
-		);
+		const result = supervisorContactFromEvent({
+			type: "supervisor_contact",
+			taskId: "t-1",
+			reason: "custom",
+			message: 42,
+		});
 		assert.ok(result);
 		assert.equal(result.message, "42");
 	});
 
 	it("returns undefined for JSON array", () => {
-		assert.equal(parseSupervisorContactFromLine("[1,2,3]"), undefined);
+		assert.equal(supervisorContactFromEvent([1, 2, 3]), undefined);
 	});
 });
 

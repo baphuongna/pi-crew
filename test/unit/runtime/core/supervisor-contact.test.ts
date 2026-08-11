@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChildPiRunInput } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { ChildPiLineObserver } from "../../../../src/runtime/child-pi/child-pi-streams.ts";
-import { parseSupervisorContactFromLine, supervisorContactFromEvent } from "../../../../src/runtime/supervisor-contact.ts";
+import { supervisorContactFromEvent } from "../../../../src/runtime/supervisor-contact.ts";
 
 function makeObserver(onJsonEvent?: (e: unknown) => void): ChildPiLineObserver {
 	// Minimal input shape; only the callbacks matter for this test.
@@ -49,13 +49,8 @@ test("supervisorContactFromEvent: non-supervisor types → undefined", () => {
 	assert.equal(supervisorContactFromEvent(null), undefined);
 });
 
-test("parseSupervisorContactFromLine (deprecated) still works via shared validator", () => {
-	const line = JSON.stringify({ type: "supervisor_contact", taskId: "t2", reason: "clarification", message: "huh?" });
-	const payload = parseSupervisorContactFromLine(line);
-	assert.equal(payload?.taskId, "t2");
-	assert.equal(payload?.reason, "clarification");
-	// Non-JSON line → undefined (no throw).
-	assert.equal(parseSupervisorContactFromLine("plain prose, not json"), undefined);
+test("supervisorContactFromEvent: array input → undefined (no throw)", () => {
+	assert.equal(supervisorContactFromEvent([1, 2, 3]), undefined);
 });
 
 test("COMPACT PASS-THROUGH: observer delivers full supervisor_contact payload to onJsonEvent", () => {

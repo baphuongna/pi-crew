@@ -566,3 +566,42 @@ describe("api interrupt-agent operation wiring", () => {
 		}
 	});
 });
+
+// ─── unknown-operation error (H4) ──────────────────────────────────────────
+// H4 (2026-08-10): an unknown operation (e.g. "claim_task" typo with underscore)
+// must return a clear error listing valid operations, NOT silently fall through
+// to read-manifest or return undefined. Guards against the same class of bug
+// as the v0.9.65 budgetTotal empty-string issue.
+
+describe("api unknown-operation error wiring (H4)", () => {
+	it("returns a clear error listing valid operations for a typo", async () => {
+		const tmp = createTrackedTempDir("api-unknown-op-");
+		try {
+			const { runId } = seedRun(tmp);
+			// Common typo: underscore instead of hyphen.
+			const res = await handleApi(makeParams({ runId, config: { operation: "claim_task" } }), makeCtx(tmp));
+			assert.strictEqual(res.isError, true);
+			const text = textFromToolResult(res);
+			assert.match(text, /Unknown API operation: claim_task/);
+			// Error must list valid operations so the caller can self-correct.
+			assert.match(text, /Valid operations:/);
+			assert.match(text, /claim-task/); // the correct hyphenated form is in the list
+			assert.match(text, /read-manifest/);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("returns a clear error for an empty-string operation", async () => {
+		const tmp = createTrackedTempDir("api-empty-op-");
+		try {
+			const { runId } = seedRun(tmp);
+			const res = await handleApi(makeParams({ runId, config: { operation: "" } }), makeCtx(tmp));
+			assert.strictEqual(res.isError, true);
+			const text = textFromToolResult(res);
+			assert.match(text, /Unknown API operation:/);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});

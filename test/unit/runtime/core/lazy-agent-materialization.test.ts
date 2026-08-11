@@ -22,6 +22,7 @@ test.skip("queued dependency tasks are shown as waiting tasks, not materialized 
 	// This is a known limitation of the foreground run architecture.
 	// Skipping for now - the lazy materialization concept is still valid, just the test
 	// timing cannot be reliably verified in the current implementation.
+	// Tracked in docs/bugs/bug-025-lazy-agent-materialization-untestable.md.
 
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;

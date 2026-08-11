@@ -19,7 +19,7 @@ import { GoalStore } from "../../runtime/goal-workflow/goal-state-store.ts";
 import { snapshotManifests } from "../../runtime/verification/verification-integrity.ts";
 import { isWorkspaceBusy } from "../../runtime/workspace-lock.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { createRunPaths, saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -193,7 +193,7 @@ async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof
 			runKind: "goal-loop",
 		};
 		await saveRunManifestAsync(goalLoopManifest);
-		appendEvent(paths.eventsPath, {
+		await appendEventAsync(paths.eventsPath, {
 			type: "goal.loop_start",
 			runId: goalId,
 			data: {
@@ -438,7 +438,7 @@ async function handleResume(input: GoalSubActionInput): Promise<ReturnType<typeo
 	if (hint) {
 		withHint = store.patch(goalId, { nextTurnFeedback: hint }, eventsPath) ?? updated;
 	}
-	appendEvent(eventsPath, {
+	await appendEventAsync(eventsPath, {
 		type: "goal.resumed",
 		runId: goalId,
 		data: { goalId, fromState: existing.state, hint: hint?.slice(0, 200) },
@@ -487,7 +487,7 @@ async function handleResume(input: GoalSubActionInput): Promise<ReturnType<typeo
 		// 'goal resume' (which requires paused/stuck). Leaving it at 'running' with no process made
 		// the goal un-resumable — the user had to pause-then-resume as a workaround.
 		store.compareAndSetStatus(goalId, "running", existing.state, eventsPath);
-		appendEvent(eventsPath, {
+		await appendEventAsync(eventsPath, {
 			type: "goal.resume_spawn_failed",
 			runId: goalId,
 			data: { goalId, error: msg, rolledBackTo: existing.state },

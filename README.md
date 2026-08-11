@@ -271,7 +271,7 @@ The guidance is available in three places agents see:
 
 ### How to silence the advisory
 
-The advisory is **informational only** — there is no `force:true` flag needed (the run proceeds regardless). If you want to silence the `console.warn` output for cleaner logs, set `PI_CREW_QUIET_PREFLIGHT=1` in your environment.
+The advisory is **informational only** — there is no `force:true` flag needed (the run proceeds regardless).
 
 ### Implementation
 
@@ -827,7 +827,7 @@ This is pi-crew's cliff-resilient mode: the workflow definitions, phase structur
 { "action": "auto-summarize" }
 ```
 
-📖 Full actions reference (40+ actions): [docs/actions-reference.md](docs/actions-reference.md)
+📖 Full actions reference (54 schema actions across 5 domain dispatchers: run/status/control/manage/automate): [docs/actions-reference.md](docs/actions-reference.md)
 
 ---
 
@@ -911,7 +911,6 @@ Your system prompt here.
 |----------|---------|
 | `PI_CREW_BROKER=0` | **Disable the inter-pi broker entirely** (always wins over config). Use to opt out of cross-session messaging. |
 | `PI_CREW_BROKER=1` | Explicitly enable the broker (redundant under the v0.9.47 default-on; useful for overriding a config `broker.enabled: false`). |
-| `PI_CREW_BROKER_DIAG_UI=1` | Make the run-dashboard `handleInput` emit a `[PI-CREW-DIAG]` line to stderr per keystroke — for TUI keybinding probes. |
 | `PI_CREW_USE_BUNDLE=1` | Force-load via bundled `dist/index.mjs` (~19% faster cold-start than strip-types). Default: bundle (since v0.9.17). Set `PI_CREW_USE_BUNDLE=0` to force strip-types fallback. Requires `npm run build:bundle` to have produced `dist/`. |
 | `PI_CREW_EXECUTE_WORKERS=0` | Disable child workers (scaffold mode) |
 | `PI_TEAMS_EXECUTE_WORKERS=0` | Legacy disable flag |

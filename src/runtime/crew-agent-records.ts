@@ -299,9 +299,26 @@ export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentReco
 	withAgentsLock(manifest, () => {
 		fs.mkdirSync(manifest.stateRoot, { recursive: true });
 		const filePath = agentsPath(manifest);
+		// Index file (agents.json) is the authoritative record — always full
+		// durability.
 		atomicWriteJson(filePath, redactSecrets(records));
 		asyncAgentReaderCache.delete(filePath);
-		for (const record of records) writeCrewAgentStatus(manifest, record);
+		for (const record of records) {
+			// H2 (2026-08-10): per-task status.json is a DENORMALIZED read
+			// optimization for the dashboard/notifier, not an authoritative
+			// record — agents.json + events.jsonl cover crash recovery.
+			// Previously EVERY record (including running/queued progress
+			// snapshots) got a full fsync: N+1 fsyncs per saveCrewAgents call
+			// (50-task team ≈ 750ms blocking). Only TERMINAL records keep
+			// full durability (F4: notifier/dashboard must see the final
+			// state immediately); non-terminal per-task status is best-effort
+			// coalesced like the upsertCrewAgent non-terminal path.
+			if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
+				writeCrewAgentStatus(manifest, record);
+			} else {
+				writeCrewAgentStatusCoalesced(manifest, record);
+			}
+		}
 	});
 }
 

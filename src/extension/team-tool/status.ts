@@ -9,15 +9,35 @@ import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
+import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
 import { paramRequired } from "./param-error.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
+
+// H5 (2026-08-10): idempotency guard for the stale-async side-effect below.
+// Without this, every status poll of a dead async run (dashboard refresh,
+// status-bar tick, broker RPC) re-runs saveRunTasks + appendEvent — each
+// costing ~30ms of blocking I/O on what callers treat as a read-only path.
+// The runId is added the first time we transition it; it's never removed
+// (a real resurrection goes through a fresh runId, not a status query).
+// Bounded FIFO to avoid unbounded growth from long-lived sessions.
+const STALE_ASYNC_MARKED = new Set<string>();
+const STALE_ASYNC_MARKED_MAX = 256;
+function markStaleAsync(runId: string): boolean {
+	if (STALE_ASYNC_MARKED.has(runId)) return false;
+	STALE_ASYNC_MARKED.add(runId);
+	if (STALE_ASYNC_MARKED.size > STALE_ASYNC_MARKED_MAX) {
+		const oldest = STALE_ASYNC_MARKED.keys().next().value;
+		if (oldest !== undefined) STALE_ASYNC_MARKED.delete(oldest);
+	}
+	return true;
+}
 
 export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	if (!params.runId)
@@ -41,24 +61,39 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const liveness = checkProcessLiveness(asyncState.pid);
 		asyncLivenessLine = `Async: pid=${asyncState.pid ?? "unknown"} alive=${liveness.alive ? "true" : "false"} detail=${liveness.detail} log=${asyncState.logPath} spawnedAt=${asyncState.spawnedAt}`;
 		if (!liveness.alive && isActiveRunStatus(manifest.status)) {
-			manifest = updateRunStatus(manifest, "failed", `Async process stale: ${liveness.detail}`);
-			tasks = tasks.map((task) =>
-				task.status === "running"
-					? {
-							...task,
-							status: "cancelled" as const,
-							finishedAt: new Date().toISOString(),
-							error: "Async process died; task was not completed.",
-						}
-					: task,
-			);
-			saveRunTasks(manifest, tasks);
-			appendEvent(manifest.eventsPath, {
-				type: "async.stale",
-				runId: manifest.runId,
-				message: liveness.detail,
-				data: { pid: asyncState.pid },
-			});
+			// H5: only transition once per runId. Repeated status polls of a
+			// dead async run previously re-ran saveRunTasks + sync appendEvent
+			// on every call (~30ms blocking each).
+			if (markStaleAsync(manifest.runId)) {
+				manifest = updateRunStatus(manifest, "failed", `Async process stale: ${liveness.detail}`);
+				tasks = tasks.map((task) =>
+					task.status === "running"
+						? {
+								...task,
+								status: "cancelled" as const,
+								finishedAt: new Date().toISOString(),
+								error: "Async process died; task was not completed.",
+							}
+						: task,
+				);
+				saveRunTasks(manifest, tasks);
+				// H1 (2026-08-10): informational event → fire-and-forget async.
+				// The status query is treated as read-only by callers (dashboard,
+				// RPC, status bar); a sync appendEvent here blocks the event loop
+				// ~14ms via withEventLogLockSync's sleepSync retry loop.
+				void appendEventAsync(manifest.eventsPath, {
+					type: "async.stale",
+					runId: manifest.runId,
+					message: liveness.detail,
+					data: { pid: asyncState.pid },
+				}).catch((error) =>
+					logInternalError(
+						"status.async-stale-event",
+						error instanceof Error ? error : new Error(String(error)),
+						`runId=${manifest.runId}`,
+					),
+				);
+			}
 		}
 	}
 	const counts = new Map<string, number>();
@@ -74,7 +109,14 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const attentionByTask = new Map(
 		allEvents.filter((event) => event.type === "task.attention" && event.taskId).map((event) => [event.taskId!, event]),
 	);
-	const controlConfig = resolveCrewControlConfig(loadConfig(ctx.cwd).config);
+	// H5 (2026-08-10): hoist the config load. Previously three separate
+	// loadConfig(ctx.cwd) calls at lines 77, 85, 119 each stat'd up to 4 files;
+	// status is called per dashboard refresh / RPC poll, so this tripled the
+	// stat cost on every tick. loadConfig is mtime-cached internally so the
+	// three calls returned the same object, but each still paid the cache
+	// lookup + stat syscall. One call, reused everywhere.
+	const cfg = loadConfig(ctx.cwd).config;
+	const controlConfig = resolveCrewControlConfig(cfg);
 	const crewAgents = readCrewAgents(manifest).map((agent) => applyAttentionState(manifest, agent, controlConfig));
 	const artifactLines = manifest.artifacts
 		.slice(-10)
@@ -82,7 +124,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 			(artifact) => `- ${artifact.kind}: ${artifact.path}${artifact.sizeBytes !== undefined ? ` (${artifact.sizeBytes} bytes)` : ""}`,
 		);
 	const deliveryState = readDeliveryState(manifest);
-	const ackTimeoutMs = loadConfig(ctx.cwd).config.runtime?.groupJoinAckTimeoutMs;
+	const ackTimeoutMs = cfg.runtime?.groupJoinAckTimeoutMs;
 	const groupJoinLines: string[] = [];
 	for (const message of readMailbox(manifest, "outbox")
 		.filter((m) => m.data?.kind === "group_join")
@@ -92,7 +134,10 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const requestId = String(message.data?.requestId ?? "unknown");
 		const timedOut = ack === "pending" && ackTimeoutMs !== undefined && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
 		if (timedOut && !ackTimeoutRequestIds.has(requestId)) {
-			appendEvent(manifest.eventsPath, {
+			// H1 (2026-08-10): informational telemetry event → fire-and-forget
+			// async. This loop iterates up to 5 messages; each prior sync
+			// appendEvent blocked the event loop ~14ms via sleepSync.
+			void appendEventAsync(manifest.eventsPath, {
 				type: "agent.group_join.ack_timeout",
 				runId: manifest.runId,
 				message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -104,7 +149,13 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 					ageMs,
 					ackTimeoutMs,
 				},
-			});
+			}).catch((error) =>
+				logInternalError(
+					"status.group-join-ack-timeout-event",
+					error instanceof Error ? error : new Error(String(error)),
+					`runId=${manifest.runId}`,
+				),
+			);
 		}
 		groupJoinLines.push(
 			`- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId} message=${message.id} ack=${timedOut ? "timeout" : ack}`,
@@ -116,7 +167,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		manifest,
 		tasks,
 		executeWorkers: manifest.runtimeResolution?.kind !== "scaffold",
-		runtimeConfig: loadConfig(ctx.cwd).config.runtime,
+		runtimeConfig: cfg.runtime,
 	});
 	const noObservedWorkTasks = effectiveness.noObservedWorkTaskIds
 		.map((id) => tasks.find((task) => task.id === id))

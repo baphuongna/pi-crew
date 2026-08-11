@@ -1,6 +1,4 @@
-import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
-import { sanitizeTaskText } from "../../runtime/task-packet.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -8,9 +6,6 @@ import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
-import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
-import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
-import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktree-manager.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
@@ -18,7 +13,6 @@ const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamR
 import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
-import { paramRequired } from "./param-error.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -82,8 +76,8 @@ import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
 import { buildParentContext, result, type TeamContext } from "./context.ts";
-import { isGoalWrapEnabled, shouldGoalWrap, startGoalWrappedRun } from "./goal-wrap.ts";
 import { resolveRunDeadline } from "./run-deadline.ts";
+import { validateRunIntent } from "./run-intent.ts";
 
 function tailFile(filePath: string, maxBytes = 4096): string | undefined {
 	try {
@@ -129,76 +123,6 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 		});
 	}, 3000);
 	timer.unref();
-}
-
-/**
- * Max analysis size in bytes — matches the `maxLength: 100_000` schema cap on
- * the inline `analysis` param, so the file channel can't smuggle in a larger
- * payload than the inline channel allows (prompt-size blowup guard).
- */
-const MAX_ANALYSIS_BYTES = 100_000;
-
-/**
- * Resolve the analysis channel (round-X Y1): inline `analysis` or `analysisPath` file.
- *
- * Called BEFORE `createRunManifest` so validation failures fail-fast and no orphan
- * run state is left on disk. Sanitizes the parsed content with the same
- * {@link sanitizeTaskText} machinery used in `buildTaskPacket` (SEC-007), since the
- * resulting text is injected into worker prompts via standard sharedReads.
- *
- * Mutual exclusivity mirrors the `budgetTotal`/`budgetUnlimited` pattern in
- * `goal.ts` — a cold-review #2 blocking fix pattern.
- */
-function resolveAnalysisText(
-	params: TeamToolParamsValue,
-	cwd: string,
-): { text?: string; error?: string; source: "inline" | "path" | "none" } {
-	const hasInline = typeof params.analysis === "string" && params.analysis.length > 0;
-	const hasPath = typeof params.analysisPath === "string" && params.analysisPath.length > 0;
-
-	if (hasInline && hasPath) {
-		return {
-			error: "`analysis` and `analysisPath` are mutually exclusive. Set exactly one.",
-			source: "none",
-		};
-	}
-	if (!hasInline && !hasPath) return { source: "none" };
-
-	if (hasPath) {
-		let resolved: string;
-		try {
-			resolved = resolveRealContainedPath(cwd, params.analysisPath as string);
-		} catch {
-			return {
-				error: `analysisPath must be within project directory: ${params.analysisPath}`,
-				source: "none",
-			};
-		}
-		if (!fs.existsSync(resolved)) {
-			return {
-				error: `Analysis file not found: ${resolved}`,
-				source: "none",
-			};
-		}
-		// Size cap BEFORE reading: mirror the inline schema cap (maxLength 100_000)
-		// so a large file can't blow up worker prompts via the sharedReads channel.
-		const { size } = fs.statSync(resolved);
-		if (size > MAX_ANALYSIS_BYTES) {
-			return {
-				error: `Analysis file too large: ${size} bytes (max ${MAX_ANALYSIS_BYTES}). Trim the analysis or pass a summary inline.`,
-				source: "none",
-			};
-		}
-		const raw = fs.readFileSync(resolved, "utf-8");
-		const sanitized = sanitizeTaskText(raw);
-		if (!sanitized) return { source: "none" };
-		return { text: sanitized, source: "path" };
-	}
-
-	// hasInline
-	const sanitized = sanitizeTaskText(params.analysis as string);
-	if (!sanitized) return { source: "none" };
-	return { text: sanitized, source: "inline" };
 }
 
 /**
@@ -390,215 +314,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		const { handleChainRun } = await import("./chain-dispatch.ts");
 		return handleChainRun(params, ctx, handleRun);
 	}
-	const goal = params.goal ?? params.task;
-	if (!goal)
-		return result(
-			paramRequired("run", "goal or task", "{ action: 'run', goal: '<what to achieve>' }"),
-			{ action: "run", status: "error" },
-			true,
-		);
-	const intentPrefix = goal.length > 60 ? `${goal.slice(0, 57)}...` : goal;
 
-	// P0: Ensure .crew directory structure exists before creating any manifests.
-	// Latched dynamic import (loadCrewInit) — concurrent `team` tool calls from
-	// N subagents share ONE in-flight promise so crew-init.ts's module body
-	// evaluates exactly once (avoids the cold-start race on CREW_README / path / fs).
-	const workingDir = ctx.cwd ?? process.cwd();
-	const { ensureCrewDirectory } = await loadCrewInit();
-	await ensureCrewDirectory(workingDir);
-
-	// WORKTREE FIX: If worktree mode is needed but cwd is not a git repo,
-	// auto-correct to the nearest git repo root. This prevents "not a git repository"
-	// errors when ctx.cwd points to a parent directory that isn't a git repo.
-	let resolvedCtx = ctx;
-	if (workingDir) {
-		try {
-			const gitRoot = await findGitRootAsync(workingDir);
-			if (gitRoot && gitRoot !== workingDir) {
-				resolvedCtx = { ...ctx, cwd: gitRoot };
-			}
-		} catch {
-			// cwd is not in a git repo — validate below if worktree mode is needed
-		}
-	}
-
-	// WORKTREE PRECONDITION CHECK: validate git repo exists and is clean
-	// BEFORE creating the run manifest, so we return a friendly error
-	// instead of crashing mid-execution in prepareTaskWorkspace.
-	if (params.workspaceMode === "worktree") {
-		let gitRoot: string | undefined;
-		try {
-			gitRoot = await findGitRootAsync(resolvedCtx.cwd);
-		} catch {
-			// not a git repo
-		}
-		if (!gitRoot) {
-			return result(
-				`Worktree mode requires a git repository. '${resolvedCtx.cwd}' is not inside a git repo.\nUse workspaceMode: 'single' or run from a git repository.`,
-				{ action: "run", status: "error" },
-				true,
-			);
-		}
-		// Check if clean leader is required (can be disabled via config)
-		const preCheckConfig = loadConfig(resolvedCtx.cwd);
-		if (preCheckConfig.config.requireCleanWorktreeLeader !== false) {
-			try {
-				await assertCleanLeaderAsync(gitRoot);
-			} catch (err) {
-				const msg = errorMessage(err);
-				return result(
-					`${msg}\nCommit or stash changes before using worktree mode, or use workspaceMode: 'single'.`,
-					{ action: "run", status: "error" },
-					true,
-				);
-			}
-		}
-	}
-
-	const teams = allTeams(discoverTeams(resolvedCtx.cwd));
-	const workflows = allWorkflows(discoverWorkflows(resolvedCtx.cwd));
-	const agents = allAgents(discoverAgents(resolvedCtx.cwd));
-	const directAgent = params.agent ? agents.find((item) => item.name === params.agent) : undefined;
-	if (params.agent && !directAgent) return result(`Agent '${params.agent}' not found.`, { action: "run", status: "error" }, true);
-	const teamName = params.team ?? "default";
-	const team = directAgent
-		? {
-				name: `direct-${directAgent.name}`,
-				description: `Direct subagent run for ${directAgent.name}`,
-				source: "builtin" as const,
-				filePath: "<generated>",
-				roles: [
-					{
-						name: params.role ?? "agent",
-						agent: directAgent.name,
-						description: directAgent.description,
-					},
-				],
-				defaultWorkflow: "direct-agent",
-				workspaceMode: params.workspaceMode,
-			}
-		: teams.find((item) => item.name === teamName);
-	if (!team) return result(`Team '${teamName}' not found.`, { action: "run", status: "error" }, true);
-	// BUG-44 (github #44): `chain` is a dispatcher-only workflow — the chain runner owns
-	// step execution, so it is never runnable via the normal executeTeamRun path (its
-	// .workflow.md parses to doc headings, and validation fails fast with a confusing
-	// error). If a caller (or a chain step forwarding params.workflow) asks for
-	// workflow='chain' WITHOUT a chain param, fall back to the team's default workflow
-	// instead of failing. Chain steps are the only realistic producers of this state;
-	// handleChainRun itself routes via params.chain before reaching here.
-	const workflowName = directAgent
-		? "direct-agent"
-		: params.workflow === "chain" && !params.chain
-			? (team.defaultWorkflow ?? "default")
-			: (params.workflow ?? team.defaultWorkflow ?? "default");
-	const baseWorkflow = directAgent
-		? {
-				name: "direct-agent",
-				description: `Direct task for ${directAgent.name}`,
-				source: "builtin" as const,
-				filePath: "<generated>",
-				steps: [
-					{
-						id: "01_agent",
-						role: params.role ?? "agent",
-						task: "{goal}",
-						model: params.model,
-						reads: params.analysis || params.analysisPath ? ["analysis.md"] : undefined,
-					},
-				],
-			}
-		: workflows.find((item) => item.name === workflowName);
-	if (!baseWorkflow) return result(`Workflow '${workflowName}' not found.`, { action: "run", status: "error" }, true);
-
-	// ANALYSIS CHANNEL (round-X Y1): resolve analysis text from inline or file BEFORE
-	// createRunManifest so validation errors fail-fast (no orphan run state).
-	const analysisParam = resolveAnalysisText(params, resolvedCtx.cwd);
-	if (analysisParam.error) return result(analysisParam.error, { action: "run", status: "error" }, true);
-
-	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { expandParallelResearchWorkflow }` above (issue #28, RFC 17). At call time the module body has fully evaluated, so the dynamic import returns a live binding. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line.
-	const { expandParallelResearchWorkflow: expandParallelResearch } = await import("../../runtime/scheduling/parallel-research.ts");
-	const workflow = directAgent ? baseWorkflow : expandParallelResearch(baseWorkflow, resolvedCtx.cwd);
-	const isDynamicWorkflow =
-		!directAgent && (workflow as import("../../workflows/workflow-config.ts").WorkflowConfig).runtime === "dynamic";
-	const effectiveRunKind = isDynamicWorkflow ? params.runKind : undefined;
-	if (params.runKind !== undefined && !isDynamicWorkflow) {
-		logInternalError(
-			"team-tool.run.runKindIgnored",
-			new Error(`Ignoring runKind='${params.runKind}' because workflow '${workflow.name}' is not dynamic.`),
-			undefined,
-			"warn",
-		);
-	}
-
-	// PREFLIGHT (advisory only, since v0.9.15): classify workflow topology and emit
-	// informational notes per the rule in .crew/knowledge.md "pi-crew USAGE THRESHOLD
-	// RULE". Never blocks execution — the agent (caller) decides whether to proceed,
-	// refactor, or override. This honors Pi's design philosophy: tooling provides
-	// information, agents exercise judgment.
-	// Skip for direct-agent runs (they bypass the workflow system entirely).
-	if (!directAgent) {
-		// LAZY: defer preflight-validator import until a team run actually requests it.
-		const { validateWorkflowUsage } = await import("../../workflows/preflight-validator.ts");
-		const preflight = validateWorkflowUsage(workflow, {
-			force: params.force === true,
-		});
-		const icon = preflight.level === "warn" ? "⚠️ " : preflight.level === "note" ? "ℹ️  " : "";
-		const tag = preflight.level.toUpperCase();
-		console.warn(`${icon}[team-tool.preflight] ${tag}: ${preflight.message} (workflow=${workflow.name})`);
-		if (preflight.suggestion) {
-			console.warn(`[team-tool.preflight] → ${preflight.suggestion}`);
-		}
-	}
-
-	// RFC v0.5 vision: goal-wrap. If .crew/config.json has goalWrap[workflow.name].enabled=true,
-	// route to a goal loop where this workflow runs as the worker turn (judge → feedback → redo
-	// until achieved). Only for eligible builtins (implementation, fast-fix, default). Per-workflow
-	// toggle; OFF by default. See goal-wrap.ts.
-	//
-	// SAFETY (commit b57bad3): multi-step workflows crash non-deterministically
-	// in the background goal-loop process (V8/libuv race in team-runner batch
-	// transition). When goal-wrap is unsafe for this workflow, we do NOT error
-	// out — we fall through to the normal team-run path so the user still gets
-	// the run they asked for. The disabled reason is logged for traceability.
-	if (!directAgent && workflow.source === "builtin" && isGoalWrapEnabled(resolvedCtx.cwd, workflow.name)) {
-		const decision = shouldGoalWrap(resolvedCtx.cwd, workflow);
-		if (decision.enabled) {
-			if (analysisParam.text) {
-				console.warn(
-					`[team-tool.run] analysis param is ignored by goal-wrapped run (workflow=${workflow.name}). The analysis artifact will not be written.`,
-				);
-			}
-			return await startGoalWrappedRun(params, ctx, workflow, goal);
-		}
-		// goal-wrap disabled for this workflow — fall through silently to normal
-		// team-run path. Log the reason so it's discoverable in events.jsonl and
-		// debug logs. This preserves the trace of WHY goal-wrap was bypassed for
-		// a given run (vs. just disappearing without explanation).
-		if (decision.message) {
-			logInternalError(
-				"team-tool.run.goalWrapBypassed",
-				new Error(decision.message),
-				`workflow=${workflow.name} reason=${decision.reason}`,
-			);
-		}
-	}
-
-	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { validateWorkflowForTeam }` above (issue #28, RFC 17).
-	const { validateWorkflowForTeam: validateWorkflow } = await import("../../workflows/validate-workflow.ts");
-	const validationErrors = validateWorkflow(workflow, team);
-	if (validationErrors.length > 0) {
-		return result(
-			[`Workflow '${workflow.name}' is not valid for team '${team.name}':`, ...validationErrors.map((error) => `- ${error}`)].join(
-				"\n",
-			),
-			{ action: "run", status: "error" },
-			true,
-		);
-	}
-
-	// LAZY: dodge the jiti ESM/CJS interop TDZ race on the static `import { normalizeSkillOverride }` above (issue #28, RFC 17).
-	const { normalizeSkillOverride: normalizeSkill } = await import("../../runtime/skill-instructions.ts");
-	const skillOverride = normalizeSkill(params.skill);
+	// H3 phase 4 (2026-08-10): validation extracted to run-intent.ts. Returns
+	// a validated RunIntent (goal/team/workflow/analysis/skillOverride…) or an
+	// error result with the exact precedence order the run tests assert.
+	const validated = await validateRunIntent(params, ctx);
+	if (validated.kind === "error") return validated.result;
+	const { goal, resolvedCtx, directAgent, team, workflow, agents, analysisParam, isDynamicWorkflow, effectiveRunKind, skillOverride } =
+		validated.intent;
 	const { manifest, tasks, paths } = createRunManifest({
 		cwd: resolvedCtx.cwd,
 		team,

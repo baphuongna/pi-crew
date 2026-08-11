@@ -197,6 +197,59 @@ test("updateGitignore writes atomically — no temp file leftovers (NEW-R5)", as
 	}
 });
 
+// G12 (2026-08-10): when `.pi/` exists and `.crew/` does not, the project is
+// on the legacy `.pi/teams/` layout. gitignore entries must target that path
+// or run state silently leaks into git. Mirrors the projectCrewRoot fallback
+// in src/utils/paths.ts:230-241.
+test("updateGitignore writes .pi/teams/ entries when .pi/ exists without .crew/ (G12)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gitignore-pi-teams-"));
+	try {
+		// Create .pi/ to trigger the legacy-layout branch.
+		fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+		const gitignorePath = path.join(dir, ".gitignore");
+		await updateGitignore(gitignorePath);
+		const content = fs.readFileSync(gitignorePath, "utf-8");
+		assert.ok(content.includes("/.pi/teams/state/"), "Should contain /.pi/teams/state/");
+		assert.ok(content.includes("/.pi/teams/cache/"), "Should contain /.pi/teams/cache/");
+		assert.ok(content.includes("/.pi/teams/worktrees/"), "Should contain /.pi/teams/worktrees/");
+		assert.ok(content.includes("!/.pi/teams/artifacts/"), "artifacts stay committable");
+		assert.ok(content.includes("!/.pi/teams/graphs/"), "graphs stay committable");
+		// Must NOT contain the .crew/ entries — wrong layout.
+		assert.ok(!content.includes("/.crew/"), "Should NOT contain /.crew/ on .pi/ layout");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("updateGitignore prefers .crew/ entries when both .crew/ and .pi/ exist (G12)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gitignore-both-"));
+	try {
+		fs.mkdirSync(path.join(dir, ".crew"), { recursive: true });
+		fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+		const gitignorePath = path.join(dir, ".gitignore");
+		await updateGitignore(gitignorePath);
+		const content = fs.readFileSync(gitignorePath, "utf-8");
+		assert.ok(content.includes("/.crew/"), ".crew/ takes precedence when it exists");
+		assert.ok(!content.includes("/.pi/teams/state/"), "Should NOT add .pi/teams/ when .crew/ exists");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("updateGitignore writes .pi/teams/ entries atomically — no temp leftovers (G12)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gitignore-pi-atomic-"));
+	try {
+		fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+		const gitignorePath = path.join(dir, ".gitignore");
+		fs.writeFileSync(gitignorePath, "node_modules/\n", "utf-8");
+		await updateGitignore(gitignorePath);
+		const leftovers = fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"));
+		assert.deepEqual(leftovers, [], "no temp files on .pi/ layout either");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("ensureCrewDirectory updates .gitignore in project root", async () => {
 	const dir = makeTempProject();
 	try {

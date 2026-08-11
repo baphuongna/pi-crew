@@ -301,6 +301,7 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 				content = `${content.slice(0, MAX_KNOWLEDGE_HEAD_BYTES)}\n\n<!-- knowledge.md truncated at ${MAX_KNOWLEDGE_HEAD_BYTES} bytes (head shown). Full file: ${p} — use the \`read\` tool if you need sections beyond the head. -->`;
 			}
 			knowledgeCache.set(p, { key: cacheKey, content });
+			enforceKnowledgeCacheCap(knowledgeCache);
 			return content;
 		}
 
@@ -325,6 +326,7 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 				conventions: parsed.conventions,
 				sessionLog: parsed.sessionLog,
 			});
+			enforceKnowledgeCacheCap(sectionCache);
 		}
 
 		const queryText = [query.goal, query.taskText].filter(Boolean).join(" \n ");
@@ -381,6 +383,21 @@ interface CachedSections {
 	sessionLog: KnowledgeSection[];
 }
 const sectionCache = new Map<string, CachedSections>();
+
+// H6 (2026-08-10): FIFO cap — mirrors the discover-* caches
+// (TEAM_DISCOVERY_MAX_ENTRIES = 32, WORKFLOW_DISCOVERY_MAX_ENTRIES = 32).
+// Without this, the caches grow with every distinct project root seen by the
+// process; each entry can be KB-scale (full knowledge.md content + parsed
+// sections). Eviction is safe: a cache miss falls through to a fresh
+// readFileSync + parse, same as the first call for that path.
+const KNOWLEDGE_CACHE_MAX_ENTRIES = 64;
+
+function enforceKnowledgeCacheCap(cache: Map<string, unknown>): void {
+	if (cache.size > KNOWLEDGE_CACHE_MAX_ENTRIES) {
+		const oldest = cache.keys().next().value;
+		if (oldest !== undefined) cache.delete(oldest);
+	}
+}
 
 /** Head cap for the no-query (legacy / main-session) path. */
 const MAX_KNOWLEDGE_HEAD_BYTES = 2_000;

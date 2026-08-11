@@ -357,6 +357,12 @@ function persistSequence(eventsPath: string, seq: number): void {
 // makes assignment atomic (JS is single-threaded); persistSequence() keeps the
 // sidecar durable for crash recovery across restarts.
 const seqCounters = new Map<string, number>();
+// H6 (2026-08-10): FIFO cap — mirrors appendCounters (APPEND_COUNTER_MAX_ENTRIES = 256)
+// and agentEventSeqCache (cap at :434). Without this, a long-lived parent pi process
+// that observes many runs (dev sessions with hundreds of background runs over a week)
+// accumulates one entry per distinct eventsPath forever. Eviction is safe: the next
+// append re-seeds from the `.seq` sidecar via reserveSequenceUnderLock.
+const SEQ_COUNTERS_MAX_ENTRIES = 256;
 
 /** Atomically reserve the next sequence number for `eventsPath`.
  *
@@ -384,7 +390,18 @@ function reserveSequence(eventsPath: string): number {
  *  (e.g. baseMetadata.seq) so a later auto-assigned seq never collides with it. */
 function advanceSequenceCounter(eventsPath: string, seq: number): void {
 	const last = seqCounters.get(eventsPath);
-	if (last === undefined || seq > last) seqCounters.set(eventsPath, seq);
+	if (last === undefined || seq > last) {
+		seqCounters.set(eventsPath, seq);
+		enforceSeqCountersCap();
+	}
+}
+
+/** H6: FIFO eviction when the seqCounters map exceeds its bounded size. */
+function enforceSeqCountersCap(): void {
+	if (seqCounters.size > SEQ_COUNTERS_MAX_ENTRIES) {
+		const oldest = seqCounters.keys().next().value;
+		if (oldest !== undefined) seqCounters.delete(oldest);
+	}
 }
 
 /** C-01: Reserve sequence INSIDE the cross-process lock. Reads the authoritative
@@ -401,6 +418,7 @@ function reserveSequenceUnderLock(eventsPath: string): number {
 	const last = Math.max(stored, inProcess);
 	const next = last + 1;
 	seqCounters.set(eventsPath, next);
+	enforceSeqCountersCap();
 	return next;
 }
 
@@ -416,32 +434,6 @@ export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" 
 		)
 		.digest("hex")
 		.slice(0, 16);
-}
-
-/**
- * Check for sequence gaps between the sidecar file and the events file.
- * This detects situations where the sidecar records a sequence number that has
- * no corresponding event in the file (e.g., due to a crash between
- * persistSequence and appendFile in older code, or other corruption).
- *
- * Returns an array of gap info: for each gap found, { missing: n } indicates
- * sequence n is recorded in sidecar but has no corresponding event.
- * An empty array means no gaps were found.
- */
-export function checkSequenceGaps(eventsPath: string): { missing: number }[] {
-	if (!fs.existsSync(eventsPath)) return [];
-	const gaps: { missing: number }[] = [];
-	const storedSeq = readStoredSequence(eventsPath);
-	if (storedSeq === undefined) return [];
-	const maxInFile = scanSequence(eventsPath);
-	// If sidecar is ahead of file, report the missing sequences
-	// (sidecar stores the NEXT sequence to use, so storedSeq is the last written)
-	if (storedSeq > maxInFile) {
-		for (let i = maxInFile + 1; i <= storedSeq; i++) {
-			gaps.push({ missing: i });
-		}
-	}
-	return gaps;
 }
 
 /**

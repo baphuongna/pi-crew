@@ -5,7 +5,7 @@ import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import { killProcessPid } from "../../runtime/child-pi/child-pi.ts";
 import { terminateLiveAgentsForRun } from "../../runtime/live-session/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot, userPiRoot } from "../../utils/paths.ts";
@@ -128,7 +128,7 @@ export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext
 	}
 
 	const exported = exportRunBundle(loaded.manifest, loaded.tasks);
-	appendEvent(loaded.manifest.eventsPath, {
+	await appendEventAsync(loaded.manifest.eventsPath, {
 		type: "run.exported",
 		runId: loaded.manifest.runId,
 		data: exported,
@@ -256,7 +256,7 @@ export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext
 			true,
 		);
 	const intent = intentFromConfig(params.config);
-	appendEvent(loaded.manifest.eventsPath, {
+	await appendEventAsync(loaded.manifest.eventsPath, {
 		type: "run.forget_requested",
 		runId: loaded.manifest.runId,
 		message: "Run state and artifacts are being forgotten.",
@@ -276,7 +276,7 @@ export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext
 	if (asyncPid !== undefined && asyncPid > 0) {
 		try {
 			killProcessPid(asyncPid);
-			appendEvent(loaded.manifest.eventsPath, {
+			await appendEventAsync(loaded.manifest.eventsPath, {
 				type: "async.kill_requested",
 				runId: loaded.manifest.runId,
 				message: "Sent SIGTERM to background runner process (forget).",
@@ -655,7 +655,7 @@ async function handleRunCleanup(params: TeamToolParamsValue, ctx: TeamContext): 
 		signal: ctx.signal,
 	});
 	const intent = intentFromConfig(params.config);
-	appendEvent(loaded.manifest.eventsPath, {
+	await appendEventAsync(loaded.manifest.eventsPath, {
 		type: "worktree.cleanup",
 		runId: loaded.manifest.runId,
 		data: {

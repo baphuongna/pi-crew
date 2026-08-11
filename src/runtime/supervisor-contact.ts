@@ -61,19 +61,3 @@ export function supervisorContactFromEvent(event: unknown): Omit<SupervisorConta
 				: undefined,
 	};
 }
-
-/**
- * @deprecated The compact pipeline now passes `supervisor_contact` events through
- * to `onJsonEvent` with their full payload (P2-25 fix). Prefer
- * `supervisorContactFromEvent` on the parsed event. Kept for backward compat.
- */
-export function parseSupervisorContactFromLine(line: string): Omit<SupervisorContactPayload, "timestamp" | "runId"> | undefined {
-	if (!line.trim()) return undefined;
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(line);
-	} catch {
-		return undefined;
-	}
-	return supervisorContactFromEvent(parsed);
-}

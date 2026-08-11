@@ -10,11 +10,12 @@ import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
 import { replayPendingMailboxMessages } from "../state/coordination/mailbox.ts";
-import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
+import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { listRuns } from "./run-index.ts";
@@ -388,7 +389,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			updatedAt: new Date().toISOString(),
 		};
 		await saveRunManifestAsync(runtimeManifest);
-		appendEvent(runtimeManifest.eventsPath, {
+		await appendEventAsync(runtimeManifest.eventsPath, {
 			type: "runtime.resolved",
 			runId: runtimeManifest.runId,
 			message: `Runtime resolved for resume: ${runtime.kind} safety=${runtime.safety}`,
@@ -401,7 +402,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 				"blocked",
 				runtime.reason ?? "Child worker execution is disabled; refusing to resume with no-op scaffold subagents.",
 			);
-			appendEvent(blocked.eventsPath, {
+			await appendEventAsync(blocked.eventsPath, {
 				type: "run.blocked",
 				runId: blocked.runId,
 				message: blocked.summary,
@@ -442,7 +443,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		);
 		saveRunTasks(runtimeManifest, resetTasks);
 		const replay = replayPendingMailboxMessages(runtimeManifest);
-		appendEvent(runtimeManifest.eventsPath, {
+		await appendEventAsync(runtimeManifest.eventsPath, {
 			type: "run.resume_requested",
 			runId: runtimeManifest.runId,
 			data: {
@@ -451,14 +452,14 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			},
 		});
 		if (recovered.recovered.length)
-			appendEvent(runtimeManifest.eventsPath, {
+			await appendEventAsync(runtimeManifest.eventsPath, {
 				type: "task.checkpoint_recovered",
 				runId: runtimeManifest.runId,
 				message: `Recovered ${recovered.recovered.length} task(s) from artifact-written checkpoints.`,
 				data: { taskIds: recovered.recovered },
 			});
 		if (replay.messages.length)
-			appendEvent(runtimeManifest.eventsPath, {
+			await appendEventAsync(runtimeManifest.eventsPath, {
 				type: "mailbox.replayed",
 				runId: runtimeManifest.runId,
 				message: `Replayed ${replay.messages.length} pending inbox message(s).`,
@@ -571,12 +572,13 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 	} catch {
 		// Best-effort: file write failure doesn't block the steer from pending array
 	}
-	appendEvent(loaded.manifest.eventsPath, {
+	// H1 (2026-08-10): handleSteer is a SYNC function — fire-and-forget async.
+	void appendEventAsync(loaded.manifest.eventsPath, {
 		type: "task.steer_queued",
 		runId,
 		taskId,
 		data: { message },
-	});
+	}).catch((error) => logInternalError("steer.event", error instanceof Error ? error : new Error(String(error)), `runId=${runId}`));
 	return result(`Steer queued for task '${taskId}'. It will be delivered when the task's session is ready.`, {
 		action: "steer",
 		status: "ok",

@@ -1,11 +1,8 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
-import { atomicWriteFile } from "../../state/atomic-write.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
@@ -17,6 +14,7 @@ import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-s
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
+import { runMockChildPi } from "./mock-fixtures.ts";
 
 // ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
 // killProcessTree is internal (not previously exported) — keep that invariant.
@@ -253,146 +251,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			stdout: "",
 			stderr: `pi-crew depth guard blocked child worker: depth ${depth.depth} >= max ${depth.maxDepth}`,
 		};
-	const mock = process.env.PI_TEAMS_MOCK_CHILD_PI;
-	if (mock) {
-		// SECURITY (Issue #2): Mock mode security model is intentionally asymmetric.
-		// PI_TEAMS_MOCK_CHILD_PI is in the allowlist (passed to children) but
-		// PI_CREW_ALLOW_MOCK is NOT in the allowlist — it is only checked in the
-		// parent process scope. This means:
-		//   (1) If an attacker sets PI_CREW_ALLOW_MOCK in the parent's environment,
-		//       it will NOT be passed to child processes (safe).
-		//   (2) Mock mode activation in the child always fails the PI_CREW_ALLOW_MOCK
-		//       check, so mock mode can only be triggered from the parent process.
-		// This asymmetry is intentional: PI_CREW_ALLOW_MOCK must be set in the Pi root
-		// process (the entry point that spawns children), not inherited from a parent.
-		// Setup hooks cannot inject PI_CREW_ALLOW_MOCK into the parent's env.
-		const allowMock = process.env.PI_CREW_ALLOW_MOCK === "1" || process.env.PI_CREW_ALLOW_MOCK === "true";
-		if (!allowMock) {
-			return {
-				exitCode: 1,
-				stdout: "",
-				stderr: "Mock mode requires PI_CREW_ALLOW_MOCK=1",
-			};
-		}
-		// SECURITY: Log mock mode activation prominently for audit trail
-		logInternalError("child-pi.mock", new Error(`Mock mode active: ${mock}`), "NOT running real agents");
-		if (mock === "success") {
-			const stdout = `[MOCK] Success for ${input.agent.name}\n`;
-			await observeStdoutChunk(input, stdout);
-			return { exitCode: 0, stdout, stderr: "" };
-		}
-		if (mock === "json-success" || mock === "adaptive-plan") {
-			const text =
-				mock === "adaptive-plan" && effectiveTask.includes("ADAPTIVE_PLAN_JSON_START")
-					? `[MOCK] Adaptive plan\nADAPTIVE_PLAN_JSON_START\n${JSON.stringify({
-							phases: [
-								{
-									name: "research",
-									tasks: [
-										{
-											role: "explorer",
-											task: "Explore adaptive target",
-										},
-										{
-											role: "analyst",
-											task: "Analyze adaptive target",
-										},
-										{
-											role: "planner",
-											task: "Plan adaptive target",
-										},
-									],
-								},
-								{
-									name: "build",
-									tasks: [
-										{
-											role: "executor",
-											task: "Implement adaptive target",
-										},
-									],
-								},
-								{
-									name: "check",
-									tasks: [
-										{
-											role: "reviewer",
-											task: "Review adaptive target",
-										},
-										{
-											role: "test-engineer",
-											task: "Test adaptive target",
-										},
-										{
-											role: "writer",
-											task: "Summarize adaptive target",
-										},
-									],
-								},
-							],
-						})}\nADAPTIVE_PLAN_JSON_END`
-					: `[MOCK] JSON success for ${input.agent.name}`;
-			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
-			await observeStdoutChunk(input, stdout);
-			return { exitCode: 0, stdout, stderr: "" };
-		}
-		if (mock === "retryable-failure")
-			return {
-				exitCode: 1,
-				stdout: "",
-				stderr: "[MOCK] rate limit: mock failure",
-			};
-		// E2E fallback-chain fixture: invocation #1 returns a SILENT retryable
-		// failure (exit code 0, no real assistant text, message_end carries a
-		// retryable-pattern errorMessage). Invocation #2+ delegates to the
-		// standard json-success shape. Counter lives in os.tmpdir() keyed by
-		// process.pid + mock name so concurrent test processes don't collide.
-		// The test cleans up the file in its finally block.
-		if (mock === "retryable-failure-then-success") {
-			const counterFile = path.join(os.tmpdir(), `pi-crew-mock-counter-${process.pid}-retryable-failure-then-success`);
-			let count = 0;
-			try {
-				const raw = fs.readFileSync(counterFile, "utf-8");
-				const parsed = Number.parseInt(raw.trim(), 10);
-				if (Number.isFinite(parsed) && parsed >= 0) count = parsed;
-			} catch {
-				// file missing or unreadable — first invocation in this process
-			}
-			count += 1;
-			try {
-				atomicWriteFile(counterFile, String(count));
-			} catch (error) {
-				logInternalError("child-pi.mock-counter-write", error as Error, `file=${counterFile}`);
-			}
-			if (count === 1) {
-				// Silent retryable failure: exit 0, no real text, message_end
-				// carries errorMessage matching `/provider[_ ]?error/i` so that
-				// `detectRetryableModelFailureFromOutput` surfaces it as an error
-				// and `isRetryableModelFailure` routes the next attempt to the
-				// next candidate model. `stopReason:"error"` (NOT "stop") so
-				// `isFinalAssistantEvent` does NOT prematurely terminate the run.
-				const failureEvent = {
-					type: "message_end",
-					message: {
-						role: "assistant",
-						content: [],
-						errorMessage: "Provider error: api_error",
-						stopReason: "error",
-					},
-				};
-				const stdout = `${JSON.stringify(failureEvent)}\n`;
-				await observeStdoutChunk(input, stdout);
-				return { exitCode: 0, stdout, stderr: "" };
-			}
-			// Subsequent invocations: delegate to json-success shape so the
-			// fallback chain's second attempt succeeds and the run completes.
-			const text = `[MOCK] JSON success for ${input.agent.name}`;
-			const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
-			await observeStdoutChunk(input, stdout);
-			return { exitCode: 0, stdout, stderr: "" };
-		}
-		return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
-	}
+	// H3 phase 3 (2026-08-10): mock-mode fixtures extracted to mock-fixtures.ts.
+	// Returns undefined when mock mode is NOT active → fall through to spawn.
+	const mockResult = await runMockChildPi(input, effectiveTask, observeStdoutChunk);
+	if (mockResult) return mockResult;
 	// H-7 step 6: spawn/env/args preparation extracted to child-pi-spawn.ts.
 	// prepareSpawnContext builds the worker args, attaches the steering file env,
 	// and handles the pre-spawn abort check (returns an immediate-abort result
@@ -406,7 +268,19 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	if (!brokerSpawn && brokerIssuer && input.runId) {
 		try {
 			brokerSpawn = await brokerIssuer(input.runId, input.agentId);
-		} catch {
+		} catch (error) {
+			// H8 (2026-08-10): surface the silent degradation. Previously this
+			// swallowed ALL issuer failures (token-rotation race, broker socket
+			// down, key fetch network error) with zero observability — the child
+			// spawned without broker credentials and the run just looked "slow".
+			// logInternalError writes to the internal-error channel (sampled +
+			// bounded); it does NOT propagate, so the child still runs without
+			// broker acceleration (the durable-first invariant is preserved).
+			logInternalError(
+				"child-pi.broker-issuer-failed",
+				error instanceof Error ? error : new Error(String(error)),
+				`runId=${input.runId} agentId=${input.agentId ?? "?"} — child will spawn without broker credentials`,
+			);
 			brokerSpawn = undefined;
 		}
 	}

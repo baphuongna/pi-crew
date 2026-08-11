@@ -31,7 +31,7 @@ State layer
 
 | Path | Purpose |
 |------|---------|
-| `src/extension/team-tool.ts` | Main tool — 28 actions (run, status, list, recommend, doctor, config, etc.) |
+| `src/extension/team-tool.ts` | Main tool — 54 schema actions across 5 domain dispatchers (run/status/control/manage/automate); see `src/schema/team-tool-schema.ts:381-432` |
 | `src/runtime/team-runner.ts` | Workflow scheduler, task graph, concurrency control |
 | `src/runtime/task-runner.ts` | Task execution, workspace/worktree context, model selection |
 | `src/runtime/child-pi.ts` | Child Pi process runner — spawns real `pi` workers |

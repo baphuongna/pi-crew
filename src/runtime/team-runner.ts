@@ -964,8 +964,22 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 			);
 			manifest = updateRunStatus(manifest, "failed", `Unhandled error in team runner: ${message}`);
 			await saveRunManifestAsync(manifest);
-		} catch {
-			// Best-effort — state write may also fail
+		} catch (error) {
+			// H8 (2026-08-10): surface the silent failure. This is the
+			// unhandled-error recovery branch — if the state save ALSO fails
+			// (disk full, run-dir gone, permissions), the manifest stays in
+			// its pre-failure state (possibly still "running") and crash
+			// recovery will treat it as stale. Previously the failure was
+			// swallowed with no signal; now it lands in the internal-error
+			// channel so operators can see when recovery itself failed.
+			// We do NOT re-throw — the run must still be reported as failed
+			// to the caller (rejectRunPromise below) regardless of state-save
+			// outcome.
+			logInternalError(
+				"team-runner.recovery-save-failed",
+				error instanceof Error ? error : new Error(String(error)),
+				`runId=${manifest.runId} — state may be inconsistent; crash-recovery will reconcile on next launch`,
+			);
 		}
 		const result = { manifest, tasks };
 		rejectRunPromise(manifest.runId, error instanceof Error ? error : new Error(message));

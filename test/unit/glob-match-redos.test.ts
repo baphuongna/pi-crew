@@ -4,21 +4,12 @@ import test from "node:test";
 /**
  * Tests for the hardened globMatch function (MEDIUM #4 fix).
  *
- * The globMatch function is inlined here because importing api.ts pulls in
- * heavy dependencies (pi-coding-agent) that are not available in unit test context.
- *
- * This copy must be kept in sync with src/extension/team-tool/api.ts.
+ * Imports the real implementation from `src/utils/glob-match.ts` (extracted
+ * from `src/extension/team-tool/api.ts` on 2026-08-10 so this regression suite
+ * exercises the shipped function rather than a stale inline copy).
  */
 
-function globMatch(value: string, pattern: string): boolean {
-	// Prevent ReDoS: reject excessively long patterns
-	if (pattern.length > 200) return false;
-	const regex = pattern
-		.replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape regex special chars
-		.replace(/\*/g, "[^/]*") // * matches non-slash characters only
-		.replace(/\?/g, "[^/]"); // ? matches single non-slash
-	return new RegExp(`^${regex}$`).test(value);
-}
+import { globMatch } from "../../src/utils/glob-match.ts";
 
 test("globMatch: basic wildcard matches any non-slash chars", () => {
 	assert.equal(globMatch("foo", "*"), true);

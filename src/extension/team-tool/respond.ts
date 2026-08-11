@@ -2,7 +2,7 @@ import { readCrewAgents, recordFromTask, saveCrewAgents } from "../../runtime/cr
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendMailboxMessage, updateMailboxMessageReply } from "../../state/coordination/mailbox.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -133,13 +133,21 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			manifest = updateRunStatus(manifest, "running", `Resumed ${resumed.size} waiting task(s).`);
 		}
 		for (const taskId of resumed) {
-			appendEvent(manifest.eventsPath, {
+			// H1 (2026-08-10): handleRespond is a SYNC function inside a sync
+			// run-lock callback — cannot await; fire-and-forget async.
+			void appendEventAsync(manifest.eventsPath, {
 				type: "task.resumed",
 				runId: manifest.runId,
 				taskId,
 				message: message || "Task re-queued after respond.",
 				data: { mailboxIds },
-			});
+			}).catch((error) =>
+				logInternalError(
+					"respond.resumed-event",
+					error instanceof Error ? error : new Error(String(error)),
+					`runId=${manifest.runId}`,
+				),
+			);
 		}
 		try {
 			const existingRuntimes = new Map(readCrewAgents(fresh.manifest).map((a) => [a.taskId, a.runtime]));

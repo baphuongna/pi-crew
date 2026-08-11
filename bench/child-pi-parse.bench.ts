@@ -61,8 +61,12 @@ function buildObserver(): ChildPiLineObserver {
 		cwd: process.cwd(),
 		task: "bench",
 		agent: SAMPLE_AGENT,
-		onJsonEvent: () => {},
-		onStdoutLine: () => {},
+		onJsonEvent: () => {
+			/* bench: no-op observer */
+		},
+		onStdoutLine: () => {
+			/* bench: no-op observer */
+		},
 	};
 	return new ChildPiLineObserver(input);
 }

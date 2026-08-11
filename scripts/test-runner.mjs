@@ -27,8 +27,10 @@ if (args.length === 0) {
 }
 
 // Always inject --test-force-exit to guarantee child exits (prevents pi hang).
+// EXCEPT when --watch is passed: node forbids --watch + --test-force-exit.
+const watchMode = args.includes("--watch");
 const hasForceExit = args.includes("--test-force-exit");
-let finalArgs = hasForceExit ? args : ["--test-force-exit", ...args];
+let finalArgs = hasForceExit ? args : watchMode ? args : ["--test-force-exit", ...args];
 
 // Expand recursive globs (`**`) into an explicit file list. Node v22's --test does
 // NOT expand `**` itself (only single-level `*`), so without this, tests in
@@ -81,10 +83,33 @@ finalArgs = finalArgs.map((arg) => {
 	return m && Number(m[2]) > 2 ? `${m[1]}=2` : arg;
 });
 
-const result = spawnSync(
-	process.execPath,
-	["--import", "tsx/esm", "--test", ...finalArgs],
-	{
+// Detect --watch. Node's --watch keeps the process alive and re-runs on file
+// change; spawnSync cannot model that, so we switch to spawn + signal relay.
+// `--watch` must be the FIRST node flag (before --test) per node CLI rules.
+const testArgs = watchMode ? finalArgs.filter((a) => a !== "--watch") : finalArgs;
+const nodeFlags = watchMode ? ["--watch", "--import", "tsx/esm", "--test"] : ["--import", "tsx/esm", "--test"];
+
+if (watchMode) {
+	// Long-running: spawn, pipe stdio, relay signals, exit with child code.
+	const { spawn } = await import("node:child_process");
+	const child = spawn(process.execPath, [...nodeFlags, ...testArgs], {
+		stdio: "inherit",
+		env: {
+			...process.env,
+			NODE_ENV: "test",
+			PI_CREW_SKIP_HOME_CHECK: "1",
+			PI_CREW_TRUST_PROJECT_DWF: "1",
+		},
+	});
+	for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+		process.on(sig, () => child.kill(sig));
+	}
+	child.on("exit", (code, signal) => {
+		if (signal) process.kill(process.pid, signal);
+		else process.exit(code ?? 0);
+	});
+} else {
+	const result = spawnSync(process.execPath, [...nodeFlags, ...testArgs], {
 		stdio: "inherit",
 		env: {
 			...process.env,
@@ -104,15 +129,15 @@ const result = spawnSync(
 		// comfortable headroom on Windows (slowest) without masking real
 		// test bugs.
 		timeout: 900_000,
-	},
-);
+	});
 
-if (result.error) {
-	console.error("Test runner error:", result.error.message);
-	process.exit(1);
+	if (result.error) {
+		console.error("Test runner error:", result.error.message);
+		process.exit(1);
+	}
+
+	// The Node.js test runner exits with non-zero when tests fail.
+	// With --test-force-exit, it may exit with code 1 if force-exited
+	// while tests were still running (which shouldn't happen normally).
+	process.exit(result.status ?? 0);
 }
-
-// The Node.js test runner exits with non-zero when tests fail.
-// With --test-force-exit, it may exit with code 1 if force-exited
-// while tests were still running (which shouldn't happen normally).
-process.exit(result.status ?? 0);
