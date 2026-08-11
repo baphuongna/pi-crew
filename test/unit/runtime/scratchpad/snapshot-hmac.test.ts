@@ -1,3 +1,7 @@
+// ⚠️ NOT WIRED — see ADR 2026-08-10 (Phase 2) + improvement-plan-2026-08-11.md
+// §4 J1. This suite tests the HMAC helper in isolation; the helper has ZERO
+// production call sites (snapshot write/read path does not use it). Green here
+// is not evidence of protection in the restore path. Wire-or-delete: J1.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

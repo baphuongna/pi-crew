@@ -1,8 +1,14 @@
 /**
  * Snapshot HMAC helper — opt-in integrity for scratchpad snapshots.
  *
+ * ⚠️ NOT WIRED — see ADR 2026-08-10, Phase 2. This module is NOT connected to
+ * the snapshot write/read path (`guest.ts` restore uses plain `v8.deserialize`,
+ * `snapshotNamespace` writes unsigned payloads). Zero production call sites.
+ * The 11 unit tests here are green but exercise the helper in isolation.
+ * Wire-or-delete decision: docs/improvement-plan-2026-08-11.md §4 J1.
+ *
  * Closes the E.2 gap declared in docs/improvement-plan-2026-08-09.md and
- * docs/runtime/scratchpad/README.md:120 ("v8.deserialize of restore content
+ * src/runtime/scratchpad/README.md:120 ("v8.deserialize of restore content
  * is unauthenticated (no HMAC)"). The threat model — a same-uid attacker
  * plants a crafted V8 blob at the snapshot path to run deserialize gadgets
  * in the guest — does not cross the existing same-uid boundary, but HMAC

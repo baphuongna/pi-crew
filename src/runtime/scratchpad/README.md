@@ -123,6 +123,12 @@ attempt N+1 worker (scratchpad-lifecycle.ts)
   the guest already runs at full worker trust (it holds provider keys + broker
   token), so this does not cross the existing boundary. An HMAC over the payload
   is a Phase 2.5/3 hardening if artifacts ever land in a shared location.
+
+> ⚠️ **NOT WIRED (2026-08-11):** `src/runtime/scratchpad/snapshot-hmac.ts` is an
+> unconnected helper — zero production call sites, 11 green unit tests in
+> isolation. Wire-or-delete decision in `docs/improvement-plan-2026-08-11.md`
+> §4 J1. Until then the note above (v8.deserialize unauthenticated) is exactly
+> how the code behaves.
 - **Secret-at-rest under a benign key name** persists as base64 for the run's
   retention (structural redaction is key-name based, best-effort). A sanitized-
   namespace policy is a Phase 2.5 concern.
