@@ -17,6 +17,7 @@ import {
 	appendEventBuffered,
 	appendEventFireAndForget,
 	flushEventLogBuffer,
+	readEvents,
 } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
 import { HealthStore } from "../state/stores/health-store.ts";
@@ -413,6 +414,27 @@ function runEffectivenessLines(
 			runtimeConfig,
 		}),
 	);
+}
+
+// I5 (plan): surface scratchpad adoption in the run summary — but ONLY when
+// non-zero, so the 3 armed roles that never call it add no noise. Counts the
+// metric events the workers appended to the run events log (fire-and-forget
+// scratchpad.cell / scratchpad.restored). Silent when the feature is unused or
+// the events path is missing (no throw).
+function scratchpadSummaryLines(manifest: TeamRunManifest): string[] {
+	if (!manifest.eventsPath) return [];
+	const events = readEvents(manifest.eventsPath);
+	const cells = events.filter((e) => e.type === "scratchpad.cell");
+	const restores = events.filter((e) => e.type === "scratchpad.restored");
+	if (cells.length === 0 && restores.length === 0) return [];
+	return [
+		`## Scratchpad (RLM adoption) — I5 metric`,
+		`- cells executed: ${cells.length}`,
+		`- snapshot restores: ${restores.length}`,
+		...(cells.length > 0
+			? [`- total cell time: ${Math.round(cells.reduce((s, e) => s + ((e.data?.durationMs as number) ?? 0), 0))} ms`]
+			: []),
+	];
 }
 
 // P6 (perf): Cache the last-rendered progress content so we can skip the
@@ -2274,6 +2296,7 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 			"## Policy decisions",
 			...(manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"]),
 			"",
+			...scratchpadSummaryLines(manifest),
 		].join("\n"),
 	});
 	// Build the complete manifest BEFORE acquiring the lock so the artifacts array

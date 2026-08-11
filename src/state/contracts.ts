@@ -114,6 +114,9 @@ export const TEAM_EVENT_TYPES = [
 	"dwf.failed",
 	"dwf.trust_denied", // F-01: project .dwf.ts denied without PI_CREW_TRUST_PROJECT_DWF
 	"dwf.log",
+	// RLM/scratchpad adoption metrics (plan I5)
+	"scratchpad.cell",
+	"scratchpad.restored",
 ] as const;
 export type TeamEventType = (typeof TEAM_EVENT_TYPES)[number];
 

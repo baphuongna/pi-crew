@@ -544,6 +544,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				runId: manifest.runId,
 				agentId: task.id,
 				artifactsRoot: manifest.artifactsRoot,
+				eventsPath: manifest.eventsPath, // I5: scratchpad metric events from the worker
 				attempt: i,
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {

@@ -259,6 +259,12 @@ export function prepareSpawnContext(
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+	// I5: run/task identity is threaded ALWAYS (not broker-gated) so the worker's
+	// scratchpad metric events (emitScratchpadMetric) can write runId/taskId even
+	// when the inter-pi broker is disabled. Control-namespace keys — pass
+	// assertOnlyControlEnvKeys.
+	if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+	if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
 	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is
@@ -267,12 +273,7 @@ export function prepareSpawnContext(
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
 		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
-		// The child needs its own runId + taskId to complete the broker `hello`
-		// (the token is validated against the runId; the taskId binds the
-		// connection for message routing). Both are control-namespace keys so
-		// they pass assertOnlyControlEnvKeys. agentId is the per-task id.
-		if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
-		if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+		// runId/taskId are threaded unconditionally above (I5); nothing to add here.
 	}
 	// Phase 1 scratchpad: opt in the persistent Bun-free JS evaluator (execute
 	// tool) for this worker. Gated by role/agent (S-6 read-only roles never;
@@ -289,7 +290,12 @@ export function prepareSpawnContext(
 			// artifactsRoot after F4/S-1).
 			built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
 		}
-		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
+		// I5: thread the run's events path so the worker's scratchpad execute
+		// handler can append fire-and-forget metric events (scratchpad.cell /
+		// scratchpad.restored). Optional — absent in non-team contexts.
+		if (input.eventsPath) {
+			built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
+		}		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
 		// point it at a temp dir; the worker reads it then writeArtifact()
 		// (redact+atomic) is the ONLY writer into artifactsRoot.
 		// R3-1: built.tempDir is only created by buildPiWorkerArgs when the agent

@@ -7,9 +7,13 @@ import {
 	cancelScratchpadSnapshot,
 	createExecuteTool,
 	PI_CREW_ARTIFACTS_ROOT_ENV,
+	PI_CREW_EVENTS_PATH_ENV,
+	PI_CREW_RUN_ID_ENV,
+	PI_CREW_SCRATCHPAD_RESTORE_ENV,
 	PI_CREW_SCRATCHPAD_SNAPSHOT_ENV,
 	PI_CREW_TASK_ID_ENV,
 	performShutdownFlush,
+	registerScratchpadLifecycle,
 	SCRATCHPAD_DOCTRINE,
 	scheduleScratchpadSnapshot,
 } from "../../src/prompt/scratchpad-lifecycle.ts";
@@ -32,11 +36,12 @@ interface MockEngineShape {
 	start: () => Promise<void>;
 	listNamespaceNames: () => Promise<string[] | null>;
 	snapshotState: () => Promise<{ path: string; saved: string[]; failed: { name: string; reason: string }[] } | null>;
+	restoreState: () => Promise<{ restored: string[]; failed: { name: string; reason: string }[] } | null>;
 	kill: () => Promise<void>;
 }
 
 function makeMockEngine(overrides: Partial<MockEngineShape> = {}): { engine: EngineManager; calls: Record<string, number> } {
-	const calls: Record<string, number> = { execute: 0, start: 0, listNamespaceNames: 0, snapshotState: 0, kill: 0 };
+	const calls: Record<string, number> = { execute: 0, start: 0, listNamespaceNames: 0, snapshotState: 0, restoreState: 0, kill: 0 };
 	const base: MockEngineShape = {
 		isRunning: false,
 		state: "idle",
@@ -53,6 +58,10 @@ function makeMockEngine(overrides: Partial<MockEngineShape> = {}): { engine: Eng
 		},
 		snapshotState: async () => {
 			calls.snapshotState++;
+			return null;
+		},
+		restoreState: async () => {
+			calls.restoreState++;
 			return null;
 		},
 		kill: async () => {
@@ -134,6 +143,159 @@ describe("scratchpad doctrine truthfulness (plan I1/I2 — no absent tools adver
 		assert.ok(description !== undefined && !nonAscii.test(description), `description must be English, got: ${description}`);
 		assert.ok(promptSnippet !== undefined && !nonAscii.test(promptSnippet), `promptSnippet must be English, got: ${promptSnippet}`);
 		assert.ok(Array.isArray(promptGuidelines) && promptGuidelines.length > 0, "promptGuidelines must remain populated");
+	});
+});
+
+describe("scratchpad I5 — adoption/value metric events", () => {
+	it("I5: emits exactly one scratchpad.cell per cell with metric data", async () => {
+		const ctx = makeTempCtx();
+		const eventsPath = path.join(ctx.root, "events.jsonl");
+		const env = {
+			...makeEnv(ctx),
+			[PI_CREW_EVENTS_PATH_ENV]: eventsPath,
+			[PI_CREW_RUN_ID_ENV]: "run-1",
+		};
+		const { engine } = makeMockEngine();
+		const tool = createExecuteTool(engine, { env });
+		try {
+			await tool.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
+			await tool.execute("c2", { code: "2+2" }, undefined, undefined, {} as never);
+			// Fire-and-forget — give the async append a moment to flush.
+			await new Promise((r) => setTimeout(r, 200));
+			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
+			const cells = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.cell");
+			assert.equal(cells.length, 2, "exactly one scratchpad.cell per cell");
+			assert.equal(cells[0].runId, "run-1");
+			assert.equal(cells[0].taskId, "task-1");
+			assert.equal(cells[0].data.status, "ok");
+			assert.equal(cells[0].data.codeLength, 3);
+			assert.equal(typeof cells[0].data.durationMs, "number");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("I5: no event write when eventsPath/runId absent (no-op, never throws)", async () => {
+		const ctx = makeTempCtx();
+		const { engine } = makeMockEngine();
+		const tool = createExecuteTool(engine, { env: makeEnv(ctx) }); // no PI_CREW_EVENTS_PATH/RUN_ID
+		try {
+			await tool.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
+			await new Promise((r) => setTimeout(r, 100));
+			// No events file should have been created.
+			assert.ok(!fs.existsSync(path.join(ctx.root, "events.jsonl")), "no events written when path absent");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("I5: emits scratchpad.restored on the restore branch", async () => {
+		const ctx = makeTempCtx();
+		const eventsPath = path.join(ctx.root, "events.jsonl");
+		// validateRestoreEnv requires a real file matching taskId.attempt-N.snapshot.json
+		// AND contained under artifactsRoot (resolveRealContainedPath).
+		const restorePath = path.join(ctx.artifactsRoot, "task-1.attempt-1.snapshot.json");
+		fs.writeFileSync(restorePath, JSON.stringify({ version: 1, vars: { x: 1 }, failed: [] }));
+		const env = {
+			...makeEnv(ctx),
+			[PI_CREW_EVENTS_PATH_ENV]: eventsPath,
+			[PI_CREW_RUN_ID_ENV]: "run-1",
+			[PI_CREW_SCRATCHPAD_RESTORE_ENV]: restorePath,
+		};
+		const { engine } = makeMockEngine({
+			restoreState: async () => ({ restored: ["x"], failed: [] }),
+		});
+		// registerScratchpadLifecycle arms the restore hint from env (module-scope
+		// restorePending) — createExecuteTool alone does not.
+		let tool: { execute: (a: string, b: unknown, c: unknown, d: unknown, e: never) => Promise<unknown> } | undefined;
+		registerScratchpadLifecycle(
+			{
+				registerTool: (t: { execute: (a: string, b: unknown, c: unknown, d: unknown, e: never) => Promise<unknown> }) => {
+					tool = t;
+				},
+				on: () => undefined,
+			} as never,
+			{ env, engine },
+		);
+		try {
+			assert.ok(tool, "tool must be registered");
+			await tool!.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
+			await new Promise((r) => setTimeout(r, 200));
+			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
+			const restored = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.restored");
+			assert.equal(restored.length, 1, "one scratchpad.restored on restore branch");
+			assert.equal(restored[0].data.restoredCount, 1);
+			assert.equal(restored[0].data.attempt, 1);
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("I5: cell succeeds even when the event write fails (injected failing writer)", async () => {		const ctx = makeTempCtx();
+		const env = {
+			...makeEnv(ctx),
+			[PI_CREW_EVENTS_PATH_ENV]: path.join(ctx.root, "events.jsonl"),
+			[PI_CREW_RUN_ID_ENV]: "run-1",
+		};
+		const { engine, calls } = makeMockEngine();
+		// DI seam: a writer that throws synchronously — the cell must still pass.
+		const tool = createExecuteTool(engine, {
+			env,
+			appendEvent: () => {
+				throw new Error("injected event write failure");
+			},
+		});
+		try {
+			const result = await tool.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
+			assert.equal(calls.execute, 1, "cell must still execute");
+			const text = result.content?.[0]?.type === "text" ? result.content[0].text : undefined;
+			assert.ok(text, "cell output must be returned despite event failure");
+		} finally {
+			ctx.cleanup();
+		}
+	});
+
+	it("I5: emits scratchpad.restored with status=failed when restoreState throws", async () => {
+		const ctx = makeTempCtx();
+		const eventsPath = path.join(ctx.root, "events.jsonl");
+		// validateRestoreEnv requires a real file matching taskId.attempt-N.snapshot.json
+		// AND contained under artifactsRoot.
+		const restorePath = path.join(ctx.artifactsRoot, "task-1.attempt-1.snapshot.json");
+		fs.writeFileSync(restorePath, JSON.stringify({ version: 1, vars: { x: 1 }, failed: [] }));
+		const env = {
+			...makeEnv(ctx),
+			[PI_CREW_EVENTS_PATH_ENV]: eventsPath,
+			[PI_CREW_RUN_ID_ENV]: "run-1",
+			[PI_CREW_SCRATCHPAD_RESTORE_ENV]: restorePath,
+		};
+		const { engine } = makeMockEngine({
+			// restoreState throws → catch branch emits status:"failed".
+			restoreState: async () => {
+				throw new Error("corrupt snapshot");
+			},
+		});
+		let tool: { execute: (a: string, b: unknown, c: unknown, d: unknown, e: never) => Promise<unknown> } | undefined;
+		registerScratchpadLifecycle(
+			{
+				registerTool: (t: { execute: (a: string, b: unknown, c: unknown, d: unknown, e: never) => Promise<unknown> }) => {
+					tool = t;
+				},
+				on: () => undefined,
+			} as never,
+			{ env, engine },
+		);
+		try {
+			assert.ok(tool, "tool must be registered");
+			await tool!.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
+			await new Promise((r) => setTimeout(r, 200));
+			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
+			const restored = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.restored");
+			assert.equal(restored.length, 1, "one scratchpad.restored even on restore failure");
+			assert.equal(restored[0].data.status, "failed");
+			assert.equal(restored[0].data.restoredCount, 0);
+		} finally {
+			ctx.cleanup();
+		}
 	});
 });
 

@@ -32,6 +32,7 @@ import * as path from "node:path";
 import { type Static, Type } from "@sinclair/typebox";
 import { defineTool, type ExtensionAPI, type ToolDefinition } from "../extension/pi-api.ts";
 import { EngineManager, type ExecuteResult } from "../runtime/scratchpad/engine.ts";
+import { appendEventFireAndForget } from "../state/event-log/event-log.ts";
 // D5/MAJOR-S1: PI_CREW_PARENT_PID + PI_CREW_GUEST build the guest's zombie-
 // backstop env (PI_CREW_KIND_ENV is already exported above).
 import { type ArtifactWriteOptions, writeArtifact } from "../state/stores/artifact-store.ts";
@@ -56,8 +57,43 @@ export const PI_CREW_SCRATCHPAD_RESTORE_ENV = "PI_CREW_SCRATCHPAD_RESTORE";
 // an integrity/authn control (NIT-CA-1).
 export const PI_CREW_SCRATCHPAD_RESTORE_MTIME_ENV = "PI_CREW_SCRATCHPAD_RESTORE_MTIME";
 
+// I5 (plan): scratchpad adoption/value metric. The events path + run id are
+// threaded from the team-runner via child-pi-spawn so the worker (where the
+// execute handler runs) can append fire-and-forget metric events. Absent in
+// non-team contexts (e.g. direct tests) → emission is silently skipped.
+export const PI_CREW_EVENTS_PATH_ENV = "PI_CREW_EVENTS_PATH";
+export const PI_CREW_RUN_ID_ENV = "PI_CREW_BROKER_RUN_ID";
+
 /** Per-cell wall-clock bound (D9/Q2): the ONLY default anti-hang limit. */
 export const EXECUTE_CELL_TIMEOUT_MS = 120_000;
+
+// I5: fire-and-forget metric emission. Events are written ONLY when the worker
+// was spawned by a team-runner that threads PI_CREW_EVENTS_PATH; in any other
+// context (tests, standalone) the path is absent and we no-op. Fire-and-forget
+// is mandatory — the cell hot path must never block on the event log (H1).
+function emitScratchpadMetric(
+	type: "scratchpad.cell" | "scratchpad.restored",
+	env: NodeJS.ProcessEnv,
+	data: Record<string, unknown>,
+	appendEvent: typeof appendEventFireAndForget = appendEventFireAndForget,
+): void {
+	const eventsPath = env[PI_CREW_EVENTS_PATH_ENV];
+	const runId = env[PI_CREW_RUN_ID_ENV];
+	if (!eventsPath || !runId) return;
+	// Fire-and-forget semantics (H1): a throwing writer (sync or async) must
+	// never break the cell. The real appendEventFireAndForget already catches
+	// async; this guard also absorbs a sync throw from a bad writer.
+	try {
+		appendEvent(eventsPath, {
+			type,
+			runId,
+			taskId: env[PI_CREW_TASK_ID_ENV],
+			data,
+		});
+	} catch {
+		// Metric is best-effort — drop the event, never the cell.
+	}
+}
 /** Debounce window for the post-cell snapshot (D5/F8). */
 export const SNAPSHOT_DEBOUNCE_MS = 1500;
 /** SEC-10: cap a single cell so a giant payload cannot OOM the esbuild
@@ -285,6 +321,9 @@ export interface ScratchpadSnapshotDeps {
 	/** Injected for tests; production defaults to the real artifact-store writer.
 	 *  Return type is loose (unknown) — the flush ignores the descriptor. */
 	writeArtifact?: ScratchpadWriteArtifact;
+	/** I5: injected for tests (failing-writer path); production defaults to the
+	 *  real fire-and-forget event appender. Never awaited on the cell path. */
+	appendEvent?: typeof appendEventFireAndForget;
 	env?: NodeJS.ProcessEnv;
 	logInternalError?: typeof logInternalError;
 }
@@ -470,9 +509,30 @@ export function createExecuteTool(engine: EngineManager, deps: Partial<Scratchpa
 					restoreNotice = r
 						? `[scratchpad] restored ${r.restored.length} vars from attempt-${pending.attempt}; restored: [${truncateNameList(r.restored)}]; failed: [${truncateNameList(r.failed.map((f) => f.name))}]`
 						: "[scratchpad] snapshot restore: no state to restore (fail-open)";
+					// I5: metric — restoredCount/failedCount only (names already in the
+					// model-facing notice; never embed paths). Fire-and-forget.
+					emitScratchpadMetric(
+						"scratchpad.restored",
+						env,
+						{
+							status: r ? (r.restored.length > 0 ? "restored" : "empty") : "rejected",
+							attempt: pending.attempt,
+							restoredCount: r?.restored.length ?? 0,
+							failedCount: r?.failed.length ?? 0,
+						},
+						deps.appendEvent,
+					);
 				} catch (error) {
 					logInternalError("scratchpad.restore", error);
 					restoreNotice = "[scratchpad] snapshot restore failed; continuing with empty namespace";
+					// I5: a restore that THREW is still a restore attempt — record it so a
+					// corrupt/unreadable snapshot is visible to the metric, not silent.
+					emitScratchpadMetric(
+						"scratchpad.restored",
+						env,
+						{ status: "failed", attempt: pending.attempt, restoredCount: 0, failedCount: 0 },
+						deps.appendEvent,
+					);
 				}
 			}
 			// 3. Ping-before-execute (S-2/N2-2): skip on idle so the first cell of a
@@ -523,6 +583,20 @@ export function createExecuteTool(engine: EngineManager, deps: Partial<Scratchpa
 			if (result.status === "ok") {
 				scheduleScratchpadSnapshot({ ...deps, engine });
 			}
+			// I5: metric — exactly one scratchpad.cell per cell, fire-and-forget.
+			// resultBytes approximates the rendered output size (best-effort, never
+			// blocks the cell path).
+			emitScratchpadMetric(
+				"scratchpad.cell",
+				env,
+				{
+					status: result.status,
+					durationMs: result.durationMs,
+					codeLength: params.code.length,
+					resultBytes: result.result?.length ?? 0,
+				},
+				deps.appendEvent,
+			);
 			const text = restoreNotice ? `${restoreNotice}\n\n${renderExecuteResult(result)}` : renderExecuteResult(result);
 			return {
 				content: [{ type: "text", text }],

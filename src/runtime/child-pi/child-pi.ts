@@ -145,6 +145,10 @@ export interface ChildPiRunInput {
 	thinkingOverride?: string;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
+	/** I5: run events JSONL path — threaded to the worker so its scratchpad
+	 * execute handler can append fire-and-forget metric events. Optional;
+	 * absent in non-team contexts (emission silently skipped). */
+	eventsPath?: string;
 	/** Phase 1 scratchpad: model-fallback attempt index (0-based) for per-attempt
 	 * snapshot relativePath `scratchpad/<taskId>.attempt-<attempt>.snapshot.json`
 	 * (C3). Optional — worker defaults to attempt 0 when unset (e.g. custom
