@@ -58,3 +58,12 @@ The skill `real-test-pi-crew` was updated to current code (101 tests, bundle md5
 - T9b live tool-surface: explorer=scratchpad NO (correct, read-only gate), executor=scratchpad YES (armed) — confirms fix `f753be30` + skill now match reality
 
 Conclusion: the updated skill's numbers are now accurate against the live tree; the armed-role tool-surface behavior is verified in both directions (armed roles have scratchpad, read-only roles do not).
+
+## Full Tier 9 re-run (2026-08-11 third pass, updated skill)
+Complete 9a–9f battery re-run from scratch against the updated skill — all green with per-action evidence:
+- **9a (10/10)**: list / recommend / health / doctor(zombies) / status / events / summary / get(workflow) / explain / worktrees — all returned structured results, no `Unknown type`/`Validation failed`. Health scanned 38 runs: 0 running, 26 completed, 10 failed (goal-loop + trust-denied probes, expected), 1 cancelled, 1 blocked; 0 orphaned/zombie processes; 2 corrupted (goal-loop leftovers) + 5 stale /tmp workspaces (pre-existing test artifacts).
+- **9b (5/5)**: sync `team_20260811161739_27ee5970` (3/3, grep count=2); async `team_20260811162458_bcdceb57` (3/3, count=2); chain 2/2 (`82e18fed` → `ba705a0e`, 2 handoffs); Agent direct (count=1); crew_agent background + get_subagent_result (`CREW-AGENT-9B-RERUN 4`). All consistency=1.
+- **9c**: wait (terminal status), invalidate (ok), steer (graceful "Task '02_execute' is completed; cannot steer"), cache (0 entries stats).
+- **9e**: workflow-create/get/list/delete round-trip (9e-rerun-workflow; F-01 trust gate verified — `dwf.trust_denied` without PI_CREW_TRUST_PROJECT_DWF=1, graceful); team create/list/delete (9e-rerun-team, auto-backup); scratch + backup cleaned.
+- **9f**: schedule register (cron `0 4 * * *`) → scheduled list → schedule remove (list back to 0); auto-summarize status (Enabled: No); anchor (graceful no-op). Goal-loop dispatch verified in the earlier pass (run `78a612f6`).
+- Post-run: git tracked-clean (no unauthorized edits).
