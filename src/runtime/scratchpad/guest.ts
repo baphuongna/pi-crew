@@ -26,6 +26,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { execFile } from "node:child_process";
 import { writeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { format, inspect } from "node:util";
@@ -179,14 +180,59 @@ console.error = consoleErr;
 console.trace = consoleErr;
 
 // ── bootstrap bindings ───────────────────────────────────────────────────────
-// pi-rlm mounts rlm/tools/Bun handles here. The spike has no host bridge, so
-// nothing is installed — but the hook is kept (and re-run after restore) for
-// fidelity with the port plan: a later phase wires real bindings here.
+// pi-rlm mounts rlm/tools/Bun handles here. Pattern 12 (shell guard): the
+// guest-local `sh` helper narrows raw child_process — it refuses null/undefined
+// arguments (the `rm -rf undefined` class bug) and returns a value, not a
+// string, so cell 2 can reuse cell 1's result. Advisory guard only — cells run
+// at full worker trust (no VM sandbox), so `sh` is a nudge, not a boundary.
 
 const INTERNAL_BINDINGS = new Map<string, unknown>();
 
+/** Pattern-12 nullish guard: refuse undefined/null BEFORE spawning. */
+function assertShellArgNotNullish(name: string, value: unknown): void {
+	if (value === undefined || value === null) {
+		throw new Error(`sh: argument '${name}' is null/undefined — a missing variable would stringify to the literal 'undefined' in the command. Re-verify variables after a restore before using them in shell commands.`);
+	}
+}
+
+/**
+ * sh(cmd, args[]) — pattern-12 shell interpolation guard.
+ * Runs via execFile (shell:false, args as an array — no shell interpolation
+ * of the command string), refuses nullish args, and returns a value:
+ * `{ exitCode, stdout, stderr }` (pi-rlm "shell as value"). Non-zero exit does
+ * NOT throw — it is returned in `exitCode`.
+ */
+function makeSh(): (cmd: string, args?: unknown[]) => Promise<{ exitCode: number; stdout: string; stderr: string }> {
+	const execFileAsync = (cmd: string, args: string[]) =>
+		new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+			execFile(cmd, args, { shell: false, encoding: "utf8" }, (error, stdout, stderr) => {
+				if (error) {
+					// error.code is the exit code for a non-zero exit; otherwise a real
+					// spawn failure (ENOENT etc.) — surface it as exitCode 127-like.
+					const exitCode = typeof error.code === "number" ? error.code : 127;
+					resolve({ exitCode, stdout: String(stdout), stderr: String(stderr || error.message) });
+					return;
+				}
+				resolve({ exitCode: 0, stdout: String(stdout), stderr: String(stderr) });
+			});
+		});
+	return async (cmd: string, args?: unknown[]) => {
+		assertShellArgNotNullish("cmd", cmd);
+		const stringArgs = (args ?? []).map((a, i) => {
+			assertShellArgNotNullish(`arg[${i}]`, a);
+			return String(a);
+		});
+		return execFileAsync(cmd, stringArgs);
+	};
+}
+
 function installBootstrapBindings(): void {
-	// Spike: no host bridge, no Bun — nothing to mount.
+	const sh = makeSh();
+	// Register the SAME function reference in INTERNAL_BINDINGS and the
+	// namespace so snapshotNamespace()'s identity skip (===) excludes it from
+	// serialization, and so cells can call `sh(...)` directly.
+	INTERNAL_BINDINGS.set("sh", sh);
+	namespace.sh = sh;
 }
 
 installBootstrapBindings();
@@ -294,7 +340,8 @@ function restoreNamespace(vars: Record<string, string>): {
 		}
 	}
 	// Bootstrap runs after restore: live handles would overwrite anything
-	// revived. The spike installs nothing, but the hook is kept for fidelity.
+	// revived. `sh` is re-installed so a revived stale value cannot shadow the
+	// live handle (I6).
 	installBootstrapBindings();
 	return { restored, failed };
 }

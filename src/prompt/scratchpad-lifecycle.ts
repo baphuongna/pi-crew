@@ -128,7 +128,7 @@ export interface ExecuteDetails {
 export const SCRATCHPAD_DOCTRINE: string[] = [
 	"State compounds: variables persist across scratchpad calls in the task's persistent namespace. Don't re-derive what a previous cell already computed.",
 	"Write small cells and run many: the cell's result is the value of its final (trailing) expression.",
-	"The runtime is Node.js — use child_process for shell commands; there is no Bun.",
+	"The runtime is Node.js — shell commands go through the built-in sh(cmd, args[]) helper (it refuses null/empty arguments, so a missing variable can never leak into the command). Never interpolate variables into raw child_process/exec strings — use sh().",
 	"Writes are surgical; reads are full: read all the data you need, write the minimum.",
 	"Non-serializable variables (functions/classes) are reported in the snapshot's failed list — do not rely on them across calls.",
 	"A message starting [scratchpad] means the namespace was restored or reset — re-verify variables before using them, especially inside shell commands.",
