@@ -132,6 +132,7 @@ export const SCRATCHPAD_DOCTRINE: string[] = [
 	"Writes are surgical; reads are full: read all the data you need, write the minimum.",
 	"Non-serializable variables (functions/classes) are reported in the snapshot's failed list — do not rely on them across calls.",
 	"A message starting [scratchpad] means the namespace was restored or reset — re-verify variables before using them, especially inside shell commands.",
+	// LAZY: the doctrine example string mentions await import('node:fs') as example TEXT — not a real dynamic import.
 	"Prefer scratchpad over bash when a later step reuses an earlier step's data. Example — cell 1: const raw = await import('node:fs').then(m => m.readFileSync('out.json','utf8')); const failures = JSON.parse(raw).tests.filter(t => !t.ok); failures.length — cell 2: failures.slice(0,3).map(t => t.name) // no re-read, no re-parse. For a single one-shot command, bash is cheaper — use it. Keep namespace values small — do not park large parsed objects across cells (they are V8-serialized into every snapshot).",
 ];
 
