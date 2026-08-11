@@ -95,8 +95,7 @@ export const SCRATCHPAD_DOCTRINE: string[] = [
 	"The runtime is Node.js — use child_process for shell commands; there is no Bun.",
 	"Writes are surgical; reads are full: read all the data you need, write the minimum.",
 	"Non-serializable variables (functions/classes) are reported in the snapshot's failed list — do not rely on them across calls.",
-	"If you see <rlm_engine_reset> or a snapshot-restore notice, re-verify variables before use.",
-	"Tool calls inside scratchpad are await expressions — await the result before the next cell.",
+	"A message starting [scratchpad] means the namespace was restored or reset — re-verify variables before using them, especially inside shell commands.",
 ];
 
 // ── singleton engine + debounce timer (per worker process) ─────────────────
@@ -435,10 +434,10 @@ export function createExecuteTool(engine: EngineManager, deps: Partial<Scratchpa
 		name: "scratchpad",
 		label: "Execute JavaScript",
 		description:
-			"Chạy JavaScript trong namespace bền vững của task. State (biến gán ở cell trước) tồn tại qua các lần gọi. Kết quả cell = giá trị biểu thức cuối.",
+			"Run JavaScript in the task's persistent namespace. State (variables assigned in earlier cells) persists across calls. The cell's result is the value of its final expression.",
 		parameters: ExecuteParams,
 		renderShell: "default",
-		promptSnippet: "scratchpad(code) — chạy JS trong namespace bền vững của task",
+		promptSnippet: "scratchpad(code) — run JS in the task's persistent namespace",
 		promptGuidelines: SCRATCHPAD_DOCTRINE,
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			const env = deps.env ?? process.env;

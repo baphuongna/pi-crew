@@ -43,7 +43,7 @@ test("(j) metric: active worker adds schema + doctrine — measure the delta", (
 
 	// Sanity bound (NOT a hard perf budget — generous ceiling so accidental
 	// schema bloat is caught, not a precise target): a single tool schema +
-	// 7-line doctrine should be well under 2000 estimated tokens per turn.
+	// doctrine (6 bullets since plan I1) should be well under 2000 estimated tokens per turn.
 	assert.ok(
 		deltaTokens < 2000,
 		`scratchpad per-turn token delta ${deltaTokens} must stay bounded (<2000); schema=${schemaTokens}, doctrine=${doctrineTokens}`,

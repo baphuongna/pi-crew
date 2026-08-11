@@ -10,6 +10,7 @@ import {
 	PI_CREW_SCRATCHPAD_SNAPSHOT_ENV,
 	PI_CREW_TASK_ID_ENV,
 	performShutdownFlush,
+	SCRATCHPAD_DOCTRINE,
 	scheduleScratchpadSnapshot,
 } from "../../src/prompt/scratchpad-lifecycle.ts";
 import type { EngineManager } from "../../src/runtime/scratchpad/engine.ts";
@@ -101,6 +102,39 @@ function noopWriteArtifact(_root: string, _options: ArtifactWriteOptions): unkno
 
 afterEach(() => {
 	cancelScratchpadSnapshot();
+});
+
+describe("scratchpad doctrine truthfulness (plan I1/I2 — no absent tools advertised)", () => {
+	it("I1: doctrine does not advertise a tools bridge that does not exist (no 'await expressions' tool-call claim)", () => {
+		for (const line of SCRATCHPAD_DOCTRINE) {
+			assert.ok(
+				!line.includes("await expressions") && !line.includes("tools.read") && !line.includes("await tools"),
+				`doctrine must not advertise absent tool bindings: ${line}`,
+			);
+		}
+	});
+
+	it("I2: doctrine references no <rlm_engine_reset> marker that pi-crew never emits", () => {
+		for (const line of SCRATCHPAD_DOCTRINE) {
+			assert.ok(!line.includes("<rlm_engine_reset>"), `doctrine must not reference the foreign <rlm_engine_reset> marker: ${line}`);
+		}
+	});
+
+	it("I2: doctrine teaches the real [scratchpad] restore/reset notice prefix", () => {
+		const joined = SCRATCHPAD_DOCTRINE.join("\n");
+		assert.ok(joined.includes("[scratchpad]"), "doctrine must teach the real [scratchpad] prefix");
+		assert.ok(/re-verify variables/.test(joined), "doctrine must tell the model to re-verify variables after a restore");
+		assert.ok(joined.includes("especially inside shell commands"), "doctrine must keep the I6-pairing shell-command clause");
+	});
+
+	it("I3: the model-facing tool surface is English (no Vietnamese in description/promptSnippet)", () => {
+		const tool = createExecuteTool(makeMockEngine().engine, { env: makeEnv(makeTempCtx()) });
+		const { description, promptSnippet, promptGuidelines } = tool;
+		const nonAscii = /[\u00C0-\u1FFF\u2E80-\u9FFF\uAC00-\uD7AF]/; // accented/Vietnamese + CJK
+		assert.ok(description !== undefined && !nonAscii.test(description), `description must be English, got: ${description}`);
+		assert.ok(promptSnippet !== undefined && !nonAscii.test(promptSnippet), `promptSnippet must be English, got: ${promptSnippet}`);
+		assert.ok(Array.isArray(promptGuidelines) && promptGuidelines.length > 0, "promptGuidelines must remain populated");
+	});
 });
 
 describe("scratchpad-lifecycle (T7 §10.6 / plan T7 — F21)", () => {
