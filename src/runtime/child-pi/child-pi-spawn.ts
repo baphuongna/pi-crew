@@ -295,7 +295,7 @@ export function prepareSpawnContext(
 		// scratchpad.restored). Optional — absent in non-team contexts.
 		if (input.eventsPath) {
 			built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
-		}		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
+		} // F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
 		// point it at a temp dir; the worker reads it then writeArtifact()
 		// (redact+atomic) is the ONLY writer into artifactsRoot.
 		// R3-1: built.tempDir is only created by buildPiWorkerArgs when the agent
