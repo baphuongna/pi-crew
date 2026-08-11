@@ -47,3 +47,14 @@
 
 ## Verdict
 All required tiers pass with evidence. 9c/9e/9f run as an extended battery (full lifecycle + admin CRUD + background/scheduled coverage): schedule register→list→remove clean, workflow-create/get/list/delete round-trip (with F-01 trust-gate verification), team create/delete with backup, goal-loop dispatch completes (with a tool-wait finding). The I-batch (I1–I7) plus the armed-role tools-list fix are verified live end-to-end; scratch state fully cleaned; git tracked-clean.
+
+## Re-run after skill update (2026-08-11 second pass)
+The skill `real-test-pi-crew` was updated to current code (101 tests, bundle md5 `16e29d05…`, armed-role tool-surface anti-pattern, strengthened overclaim row). Full re-run against the updated skill:
+- T1 `test:critical` 101/0 in 25.6s (matches updated skill figure)
+- T2 3-path: default + `PI_CREW_BROKER=0` + `=1` all 101/0
+- T3 typecheck exit 0; bundle md5 `16e29d053bd370e24f40df147dadcb79` (matches updated skill); bundle-staleness OK
+- T6 pty probe: pi v0.84.1 boots, keys reach
+- T7 smoke `team_20260811154411_333c19507f398652` 3/3, verifier 101/0 + tsc in 30.3s, no hang
+- T9b live tool-surface: explorer=scratchpad NO (correct, read-only gate), executor=scratchpad YES (armed) — confirms fix `f753be30` + skill now match reality
+
+Conclusion: the updated skill's numbers are now accurate against the live tree; the armed-role tool-surface behavior is verified in both directions (armed roles have scratchpad, read-only roles do not).
