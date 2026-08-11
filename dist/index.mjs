@@ -11721,14 +11721,14 @@ var init_role_tools = __esm({
       // agents/verifier.md). Tool-set keeps bash but excludes edit/write so source
       // integrity is preserved during verification. Mirrors cold-verifier behavior.
       verifier: {
-        tools: ["read", "grep", "find", "ls", "bash"],
+        tools: ["read", "grep", "find", "ls", "bash", "scratchpad"],
         excludeTools: ["edit", "write", "web"],
         // Phase 1 scratchpad: multi-cell test/verify flows reuse parsed state.
         scratchpad: true
       },
       // Test Engineer - Can write tests (F1: hyphenated key)
       "test-engineer": {
-        tools: ["read", "edit", "write", "bash", "ls"],
+        tools: ["read", "edit", "write", "bash", "ls", "scratchpad"],
         excludeTools: ["web"],
         // Phase 1 scratchpad: build/run test suites with state across cells.
         scratchpad: true
