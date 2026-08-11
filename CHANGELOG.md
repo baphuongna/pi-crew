@@ -2,6 +2,59 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.9.67] — RLM/scratchpad adoption batch (I1–I7) (2026-08-11)
+
+First shippable slice of `improvement-plan-2026-08-11.md` — the scratchpad was
+armed-but-unused (0 cells in 14 runs); this batch fixes the doctrine, adds an
+adoption/value metric, and ports the pattern-12 shell guard. Each item was
+loop-reviewed (iterative-audit) before commit; `test:critical` 101/0, 129
+scratchpad tests, `tsc`/biome clean.
+
+### Fixes
+- **Doctrine truthfulness (I1–I2)** (`src/prompt/scratchpad-lifecycle.ts`):
+  removed the "await expressions" bullet that advertised a tools bridge that
+does not exist (pattern-22 "silence is cheaper"); replaced the foreign
+`<rlm_engine_reset>` marker with the real `[scratchpad]` restore-notice prefix,
+keeping the I6-pairing "especially inside shell commands" clause. New pins in
+`test/unit/scratchpad-lifecycle.test.ts` (no absent-binding ads, no foreign
+marker, real prefix taught).
+- **English model-facing surface (I3)**: `description` + `promptSnippet`
+translated from Vietnamese to English (model-facing channel only; human docs
+stay Vietnamese). Pin asserts no non-ASCII prose.
+- **Worked example + when-to-prefer rule (I4)**: 7th doctrine bullet shows a
+two-cell `await import('node:fs')` example with `const failures` persisting
+across cells, a prefer-scratchpad-over-bash rule, the "bash is cheaper for
+one-shot" negative rule, and a "keep namespace values small" caveat. Perf
+metric re-recorded: doctrine=299, delta=310 est-tokens (under the ~350
+budget).
+- **Adoption/value metric (I5)**: fire-and-forget `scratchpad.cell` (per cell:
+status/durationMs/codeLength/resultBytes) and `scratchpad.restored`
+(attempt/restoredCount/failedCount/status, incl. restore-throw) events, threaded
+via new `PI_CREW_EVENTS_PATH` env + runId (now set unconditionally, uncoupled
+from the broker gate). Both literals registered in `TEAM_EVENT_TYPES`; a
+non-zero `## Scratchpad` section is reported in `summary.md` (silent when
+unused). DI-seam failing-writer test added.
+- **Pattern-12 shell guard (I6)** (`src/runtime/scratchpad/guest.ts`): guest-local
+`sh(cmd, args[])` refuses null/empty args before spawn (the `rm -rf undefined`
+class bug), runs `execFile(shell:false, args array)`, returns
+`{ exitCode, stdout, stderr }` (non-zero does not throw). Registered in
+`INTERNAL_BINDINGS` + namespace (identity skip excludes it from snapshots);
+re-installed after restore. Advisory guard only — cells run at full worker
+trust (no VM sandbox). 5 new guest tests.
+- **NOT WIRED banners (I7)**: `snapshot-hmac.ts` marked unmissably NOT WIRED
+(module + test header + README threat-model cross-ref) pending the J1
+wire-or-delete decision.
+
+### Verified
+- `npm run test:critical`: 101/0; 19 scratchpad test files 129/129; `test:spike`
+12 pass/1 pre-existing skip.
+- `npx tsc --noEmit`, biome lint + format clean; `check:event-types` 67
+registered (2 new), drift unchanged at 72; `check:lazy-imports`
+(LAZY marker on the doctrine example string), bundle-staleness/size OK.
+- Bundle rebuilt (2.81 MB < 3.5 MB budget).
+- Observation window for the §5 decision gate starts after this release
+(scratchpad.cell counts now visible in run state + summary.md).
+
 ## [0.9.66] — real-test findings: cross-project run lookup, output validation, config no-op-write, retry clarity, cron grammar (2026-08-10)
 
 Six fixes distilled from the `real-test-pi-crew` 9-tier battery (run 2026-08-10). All verified live end-to-end; `npm run test:critical` 101/101, `npx tsc --noEmit` exit 0, biome lint+format clean.
