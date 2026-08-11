@@ -110,7 +110,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 
 ---
 
-## Tier 1 — Critical unit tests (~21s, 97 tests, the only suite you need for broker/UI changes)
+## Tier 1 — Critical unit tests (~25s, 101 tests, the only suite you need for broker/UI changes)
 
 **What**: run the curated 14-file fast subset.
 
@@ -122,7 +122,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 time npm run test:critical
 ```
 
-Expected output: `# tests 97 # pass 97 # fail 0 # duration_ms ~21000`.
+Expected output: `# tests 101 # pass 101 # fail 0 # duration_ms ~26000`. (Count was 97 at v0.9.46; 101 since the model-routing merge — verify with the actual run; the skill's hard-coded numbers drift between releases.)
 
 **References**:
 
@@ -162,7 +162,7 @@ PI_CREW_BROKER=0 npm run test:critical
 PI_CREW_BROKER=1 npm run test:critical
 ```
 
-All three must show `# pass 97 # fail 0`. Measured times in this session: ~20s for default and `PI_CREW_BROKER=0`, ~21s for `PI_CREW_BROKER=1` (varies ±1s run-to-run).
+All three must show `# pass 101 # fail 0`. Measured times in this session (2026-08-11): ~26s for default, ~26s for `PI_CREW_BROKER=0`, ~26s for `PI_CREW_BROKER=1` (varies ±1-2s run-to-run).
 
 **References**:
 
@@ -202,7 +202,7 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 | Bundle builder | `scripts/build-bundle.mjs` (esbuild-based, bundles `index.bundle.ts` → `dist/index.mjs`) |
 | Bundle resolution rule | `index.ts:5-22` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
 | Postinstall hook | `scripts/postinstall.mjs:43` — best-effort bundle rebuild; falls back to strip-types if esbuild missing |
-| Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (~2.78 MB at the time; bundle size drifts ±5% between releases, check current `ls -la dist/index.mjs`) |
+| Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (~2.78 MB at the time; **check current**: `md5sum dist/index.mjs`. As of v0.9.66 I-batch 2026-08-11: `16e29d053bd370e24f40df147dadcb79` ~2.81 MB) |
 
 ---
 
@@ -454,7 +454,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 **Real measured outcome** (this session, after the v0.9.57 schema fix): 9a (15 team actions) + 9b (4 subagent tools / 3 run paths) exercised; all green; the two silent-failure modes that motivated this tier (`Unknown type` from `Type.Unsafe` without Kind, and `Validation failed for tool team` from empty-string-strict schema) were caught ONLY by this battery — Tier 1-8 all passed while the team tool was broken live. The session also surfaced the unauthorized-agent-edit anti-pattern (a chain-run agent edited `chain-runner.ts` mid-smoke) — see Anti-patterns.
 
-**Not covered by the cheap battery above** — the actions below need extra setup, cost, or user confirmation. Run them only when the change touches their code path, and prefer a throwaway cwd / config so you don't mutate the user's real state. Organised by cost/safety:
+**Not covered by the cheap battery above** — the actions below need extra setup, cost, or user confirmation. Run them only when the change touches their code path, and prefer a throwaway cwd / config so you don't mutate the user's real state. Organised by cost/safety. **As of 2026-08-11 (extended battery, run report `real-test-2026-08-11-scratchpad-I-batch.md`), 9c/9e/9f have been exercised live once each — they are no longer unproven, but still require explicit scope+confirmation to re-run.**
 
 **9c. Lifecycle / recovery** (needs a *running* run — start an async run, then exercise these against its runId):
 - `team action='wait' runId='...'` — block until completion
@@ -508,9 +508,10 @@ If the two md5s match → session is on the latest code. If not → user must `/
 | `makeFakeCtx({ flagOn: false })` without `brokerEnv: "0"` | `makeFakeCtx` deletes `PI_CREW_BROKER` env if `brokerEnv` is undefined | `612e18b` (test fix) | `test/unit/crew-broker-server-gate.test.ts:78` — pass `brokerEnv: "0"` to preserve env |
 | Trust green CI on one OS | macOS/Windows regressions slip through | n/a (permanent) | `.crew/knowledge.md` — "CI runs 3 OSes ... A flake on one OS IS a real bug" |
 | Trusting a team-run agent not to edit the repo under test | Agents spawned by `team`/`Agent`/`crew_agent` inherit the session cwd and have `edit`/`write` tools — a proactive LLM (observed with deepseek) will make **unauthorized source edits** to pi-crew during a trivial smoke run (e.g. "improving" `chain-runner.ts` while parsing a chain string). The edit can be correct + green-tested yet still be unintended scope creep that silently lands in your commit. | n/a (permanent) | After EVERY team/subagent run: `git status` and verify each changed file was authored by you. Diff + review any surprise change before staging. Consider `workspaceMode: 'worktree'` for parallel/risky runs to isolate mutations. |
+| **Armed-role tool-surface bug (found live 2026-08-11)**: an opt-in tool (e.g. `scratchpad`) is armed via `ROLE_TOOL_CONFIGS[role].scratchpad=true` AND env `PI_CREW_SCRATCHPAD=1`, but NEVER appears in the worker surface. Root cause: `resolveToolPolicy` (`src/agents/agent-config.ts:165`) falls back `roleConfig.tools ?? agent.tools` when the role has no `tools` allowlist, and the builtin `agents/{executor,verifier,test-engineer}.md` frontmatter `tools:` did not list `scratchpad` → pi got `--tools read,grep,find,ls,bash,edit,write` and **hard-filtered** scratchpad. Env was correct; the tool was silently dropped by the `--tools` allowlist. Reproduce: `pi -p --tools read,grep,find,ls,bash,edit,write "list tools"` → no scratchpad; with scratchpad added → present. | `f753be30` | **Fix**: keep armed-role `agents/*.md` frontmatter `tools:` lists in sync with `ROLE_TOOL_CONFIGS` (QW17 pins the pinned roles; add the new tool to BOTH frontmatter AND role config for pinned roles, frontmatter-only for vacuous roles). A smoke run that claims the tool is "not available" in the worker is a REAL signal — verify the worker's actual `--tools` allowlist, not just env vars. |
 | `Type.Unsafe({ anyOf/type })` schema field **without** `[TypeBox.Kind]` symbol | `Value.Check` throws `Unknown type` the first time a model emits that field (e.g. `skill`, `config`) — every team action returns `isError:true` text `"Unknown type"`. Tier 1-8 stay green because unit tests never send the offending field. | v0.9.57 | `src/schema/team-tool-schema.ts` — `SkillOverride`/`FreeformConfig` switched from `Type.Unsafe` to TypeBox-native `Type.Union`/`Type.Record`. See Tier 9. |
 | Schema too strict for model-emitted empty strings (`runId:""`, `workspaceMode:""`, `budgetTotal:0`) | pi-ai `validateToolArguments` runs BEFORE the pi-crew handler and rejects `""` against Literal unions / patterns → `Validation failed for tool team` → model loops. | v0.9.57 | `src/schema/team-tool-schema.ts` — added `Literal("")` to unions, `^$|` pattern for runId, `""` to action enum, `0`/Boolean allowances. Handler-side `normalizeTeamParams` drops the empties. |
-| Claiming "all 9 tiers pass" while 9c–9f were never run | Overclaim — once reported "9 tiers pass" when only 9a (8/10) + 9b (4/5) had actually run; 9c–9f were skipped. Past runs then become unverifiable ("did it really pass 9 tiers?"). | n/a (process) | Fill `REPORT-TEMPLATE.md` per-tier DURING the run. "Tier 9 pass" = 9a AND 9b AND the applicable 9c–9f, each with evidence. Round-up-to-pass is the anti-pattern this row exists to prevent. |
+| Claiming "all 9 tiers pass" while 9c–9f were never run | Overclaim — once reported "9 tiers pass" when only 9a (8/10) + 9b (4/5) had actually run; 9c–9f were skipped. Past runs then become unverifiable ("did it really pass 9 tiers?"). **2026-08-11 repeat**: an initial report said "9c–9f skipped" yet the summary read as full coverage until the gap was called out. | n/a (process) | Fill `REPORT-TEMPLATE.md` per-tier DURING the run. "Tier 9 pass" = 9a AND 9b AND the applicable 9c–9f, each with evidence. Round-up-to-pass is the anti-pattern this row exists to prevent. If 9c–9f are skipped, SAY SO in the verdict and do not phrase it as "all pass". |
 | chain run with `workflow:"chain"` forwarded to steps | Every chain step fails in ~58ms with an EMPTY error string — looks like a parse failure but isn't. `chain-dispatch` forwards `params.workflow` ("chain") into executor overrides; each step then runs the "chain" workflow via the normal `executeTeamRun` path and fails fast + silently. | Open (issue #44) | Omit `workflow` when invoking `action:'run' chain=...` — chain then runs 2/2 success (~308s). See `docs/bugs/chain-workflow-forward-quirk.md`. |
 
 ---
@@ -648,7 +649,7 @@ The skill does NOT need to be updated for every commit — only when the cited l
 ## Quick reference — exact commands
 
 ```bash
-# Tier 1 (critical unit, ~21s, 97 tests)
+# Tier 1 (critical unit, ~25s, 101 tests)
 npm run test:critical
 # Tier 2 (3-path proof, broker changes only)
 PI_CREW_BROKER=0 npm run test:critical
@@ -687,14 +688,14 @@ md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
 
 Before claiming "tested":
 
-- [ ] Tier 1: `test:critical` fresh-run, all pass (<25s). Count varies by release — was 97 at v0.9.46, 101 after the model-routing merge; record the actual count in the report.
+- [ ] Tier 1: `test:critical` fresh-run, all pass (<25s). Count varies by release — was 97 at v0.9.46, **101 since the model-routing merge (v0.9.66)**; record the actual count in the report.
 - [ ] Tier 2: 3-path proof all pass — **required if you touched `src/config/defaults.ts` or `src/extension/registration/lifecycle-handlers.ts`**
 - [ ] Tier 3: `npm run typecheck` exit 0, `npm run build:bundle` exit 0
 - [ ] Tier 4: bundle md5 matches what the session loaded (or user has `/quit`-ed + reopened)
 - [ ] Tier 5/6: live TUI smoke for any `src/ui/` change — keystroke reached `handleInput`
 - [ ] Tier 7: smoke team run for any `src/runtime/plan-templates.ts` or `workflows/*.workflow.md` change — completed, no hang, verifier output under 60s
 - [ ] Tier 8: final md5 sync check passed
-- [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, or any `Type.Unsafe({...})` schema**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
+- [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, any `Type.Unsafe({...})` schema, or any armed-role tool list (`agents/*.md` / `src/config/role-tools.ts`)**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; **at least one full 9c/9e/9f sweep per release is recommended so the battery stays proven** (see `real-test-2026-08-11-scratchpad-I-batch.md`); 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
 - [ ] **Output report**: save `docs/real-test/reports/real-test-<YYYY-MM-DD>-<slug>.md` from `skills/real-test-pi-crew/REPORT-TEMPLATE.md`, filled DURING the run with per-tier evidence (counts/md5/runId) — not reconstructed from memory afterward. This is what makes past runs verifiable instead of trust-the-summary.
 
 **"All 9 tiers pass" is a claim that needs per-row evidence.** Tier 9 means 9a **and** 9b **and** whichever of 9c–9f applies to the change — not "9a passed, therefore 9 passed". If any required item above is unchecked or lacks concrete evidence (a number, an md5, a runId), the answer to "is it tested?" is **no** — say so explicitly instead of rounding up to "pass".
