@@ -25104,7 +25104,6 @@ var init_agent_control = __esm({
     init_live_control_realtime();
     init_mailbox();
     init_event_log();
-    init_internal_error();
     handleNudgeAgent = (hctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2, ctx } = hctx;
       const agentId = typeof cfg.agentId === "string" ? cfg.agentId : void 0;
@@ -25131,15 +25130,13 @@ var init_agent_control = __esm({
         priority: "normal",
         data: { source: "nudge-agent" }
       });
-      void appendEventAsync(loaded.manifest.eventsPath, {
+      appendEvent(loaded.manifest.eventsPath, {
         type: "agent.nudged",
         runId: loaded.manifest.runId,
         taskId: agent.taskId,
         message: messageText,
         data: { agentId: agent.id, mailboxMessageId: message.id }
-      }).catch(
-        (error) => logInternalError("api.nudge-event", error instanceof Error ? error : new Error(String(error)), `runId=${loaded.manifest.runId}`)
-      );
+      });
       ctx.events?.emit?.("crew.mailbox.message", {
         runId: loaded.manifest.runId,
         id: message.id,
@@ -25374,7 +25371,7 @@ var init_agent_control = __esm({
           }) : void 0;
           publishLiveControlRealtime(request);
           ctx.events?.emit?.("pi-crew:live-control", liveControlRealtimeMessage(request));
-          await appendEventAsync(loaded.manifest.eventsPath, {
+          appendEvent(loaded.manifest.eventsPath, {
             type: "agent.control.queued",
             runId: loaded.manifest.runId,
             taskId: agent.taskId,
@@ -25442,7 +25439,6 @@ var init_heartbeat = __esm({
     init_locks();
     init_event_log();
     init_state_store();
-    init_internal_error();
     handleWriteHeartbeat = (hctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2 } = hctx;
       const taskId = typeof cfg.taskId === "string" ? cfg.taskId : void 0;
@@ -25474,18 +25470,12 @@ var init_heartbeat = __esm({
           );
           const tasks = loaded.tasks.map((item) => item.id === task.id ? { ...item, heartbeat } : item);
           saveRunTasks(loaded.manifest, tasks);
-          void appendEventAsync(loaded.manifest.eventsPath, {
+          appendEvent(loaded.manifest.eventsPath, {
             type: "worker.heartbeat",
             runId: loaded.manifest.runId,
             taskId: task.id,
             data: { ...heartbeat }
-          }).catch(
-            (error) => logInternalError(
-              "api.worker-heartbeat-event",
-              error instanceof Error ? error : new Error(String(error)),
-              `runId=${loaded.manifest.runId}`
-            )
-          );
+          });
           return result4(JSON.stringify(heartbeat, null, 2), {
             action: "api",
             status: "ok",
@@ -25520,7 +25510,6 @@ var init_mailbox2 = __esm({
     init_locks();
     init_mailbox();
     init_event_log();
-    init_internal_error();
     handleReadMailbox = (hctx) => {
       const { cfg, loaded, result: result4 } = hctx;
       const direction = cfg.direction === "inbox" || cfg.direction === "outbox" ? cfg.direction : void 0;
@@ -25621,17 +25610,11 @@ var init_mailbox2 = __esm({
             body,
             taskId
           });
-          void appendEventAsync(loaded.manifest.eventsPath, {
+          appendEvent(loaded.manifest.eventsPath, {
             type: "mailbox.message",
             runId: loaded.manifest.runId,
             data: { id: message.id, direction, from, to }
-          }).catch(
-            (error) => logInternalError(
-              "api.mailbox-message-event",
-              error instanceof Error ? error : new Error(String(error)),
-              `runId=${loaded.manifest.runId}`
-            )
-          );
+          });
           ctx.events?.emit?.("crew.mailbox.message", {
             runId: loaded.manifest.runId,
             id: message.id,
@@ -25682,19 +25665,13 @@ var init_mailbox2 = __esm({
         return withRunLockSync(loaded.manifest, () => {
           const message = readMailboxMessage(loaded.manifest, messageId);
           const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-          void appendEventAsync(loaded.manifest.eventsPath, {
+          appendEvent(loaded.manifest.eventsPath, {
             type: "mailbox.acknowledged",
             runId: loaded.manifest.runId,
             data: { messageId }
-          }).catch(
-            (error) => logInternalError(
-              "api.mailbox-ack-event",
-              error instanceof Error ? error : new Error(String(error)),
-              `runId=${loaded.manifest.runId}`
-            )
-          );
+          });
           if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-            void appendEventAsync(loaded.manifest.eventsPath, {
+            appendEvent(loaded.manifest.eventsPath, {
               type: "agent.group_join.acknowledged",
               runId: loaded.manifest.runId,
               message: "Group join delivery acknowledged via mailbox ack.",
@@ -25707,13 +25684,7 @@ var init_mailbox2 = __esm({
                 acknowledgedBy: "leader"
               },
               metadata: { provenance: "api" }
-            }).catch(
-              (error) => logInternalError(
-                "api.group-join-ack-event",
-                error instanceof Error ? error : new Error(String(error)),
-                `runId=${loaded.manifest.runId}`
-              )
-            );
+            });
           }
           ctx.events?.emit?.("crew.mailbox.acknowledged", {
             runId: loaded.manifest.runId,
@@ -25810,7 +25781,7 @@ var init_plan_approval = __esm({
             }
           };
           await saveRunManifestAsync(manifest);
-          await appendEventAsync(manifest.eventsPath, {
+          appendEvent(manifest.eventsPath, {
             type: "plan.approved",
             runId: manifest.runId,
             taskId: approval.planTaskId,
@@ -25885,7 +25856,7 @@ var init_plan_approval = __esm({
           };
           await saveRunManifestAsync(manifest);
           saveRunTasks(manifest, tasks);
-          await appendEventAsync(manifest.eventsPath, {
+          appendEvent(manifest.eventsPath, {
             type: "plan.cancelled",
             runId: manifest.runId,
             taskId: approval.planTaskId,
@@ -49210,18 +49181,12 @@ function handleStatus2(params, ctx) {
           } : task
         );
         saveRunTasks(manifest, tasks);
-        void appendEventAsync(manifest.eventsPath, {
+        appendEvent(manifest.eventsPath, {
           type: "async.stale",
           runId: manifest.runId,
           message: liveness.detail,
           data: { pid: asyncState.pid }
-        }).catch(
-          (error) => logInternalError(
-            "status.async-stale-event",
-            error instanceof Error ? error : new Error(String(error)),
-            `runId=${manifest.runId}`
-          )
-        );
+        });
       }
     }
   }
@@ -49251,7 +49216,7 @@ function handleStatus2(params, ctx) {
     const requestId3 = String(message.data?.requestId ?? "unknown");
     const timedOut = ack === "pending" && ackTimeoutMs !== void 0 && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
     if (timedOut && !ackTimeoutRequestIds.has(requestId3)) {
-      void appendEventAsync(manifest.eventsPath, {
+      appendEvent(manifest.eventsPath, {
         type: "agent.group_join.ack_timeout",
         runId: manifest.runId,
         message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -49263,13 +49228,7 @@ function handleStatus2(params, ctx) {
           ageMs,
           ackTimeoutMs
         }
-      }).catch(
-        (error) => logInternalError(
-          "status.group-join-ack-timeout-event",
-          error instanceof Error ? error : new Error(String(error)),
-          `runId=${manifest.runId}`
-        )
-      );
+      });
     }
     groupJoinLines.push(
       `- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId3} message=${message.id} ack=${timedOut ? "timeout" : ack}`
@@ -49404,7 +49363,6 @@ var init_status = __esm({
     init_state_store();
     init_usage();
     init_format_helpers();
-    init_internal_error();
     init_team_tool2();
     init_context();
     init_param_error();
