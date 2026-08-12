@@ -184,7 +184,10 @@ test("removeCrewAgent: removes per-task status.json", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-status-"));
 	try {
 		const manifest = makeManifest(cwd);
-		const a = makeCrewRecord({ id: "a", taskId: "01_a" });
+		// H2 (2026-08-10): non-terminal records get best-effort coalesced (debounced)
+		// status writes — only TERMINAL records are sync-written, so use a terminal
+		// status here to guarantee status.json exists immediately after save.
+		const a = makeCrewRecord({ id: "a", taskId: "01_a", status: "completed" });
 		saveCrewAgents(manifest, [a]);
 		const statusPath = agentStatusPath(manifest, "01_a");
 		assert.ok(fs.existsSync(statusPath), "status.json should exist after save");
