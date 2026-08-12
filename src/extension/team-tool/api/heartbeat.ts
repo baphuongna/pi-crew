@@ -7,9 +7,8 @@
 
 import { touchWorkerHeartbeat } from "../../../runtime/heartbeat/worker-heartbeat.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
-import { appendEventAsync } from "../../../state/event-log/event-log.ts";
+import { appendEvent } from "../../../state/event-log/event-log.ts";
 import { saveRunTasks } from "../../../state/stores/state-store.ts";
-import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
 export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
@@ -43,18 +42,12 @@ export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
 			);
 			const tasks = loaded.tasks.map((item) => (item.id === task.id ? { ...item, heartbeat } : item));
 			saveRunTasks(loaded.manifest, tasks);
-			void appendEventAsync(loaded.manifest.eventsPath, {
+			appendEvent(loaded.manifest.eventsPath, {
 				type: "worker.heartbeat",
 				runId: loaded.manifest.runId,
 				taskId: task.id,
 				data: { ...heartbeat },
-			}).catch((error) =>
-				logInternalError(
-					"api.worker-heartbeat-event",
-					error instanceof Error ? error : new Error(String(error)),
-					`runId=${loaded.manifest.runId}`,
-				),
-			);
+			});
 			return result(JSON.stringify(heartbeat, null, 2), {
 				action: "api",
 				status: "ok",

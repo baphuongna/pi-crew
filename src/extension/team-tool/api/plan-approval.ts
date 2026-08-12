@@ -8,7 +8,7 @@
 import { terminateLiveAgentsForRun } from "../../../runtime/live-session/live-agent-manager.ts";
 import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { withRunLock } from "../../../state/coordination/locks.ts";
-import { appendEvent, appendEventAsync } from "../../../state/event-log/event-log.ts";
+import { appendEvent } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../../state/stores/state-store.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
@@ -63,7 +63,7 @@ export const handleApprovePlan: ApiOperationHandler = async (hctx) => {
 				},
 			};
 			await saveRunManifestAsync(manifest);
-			await appendEventAsync(manifest.eventsPath, {
+			appendEvent(manifest.eventsPath, {
 				type: "plan.approved",
 				runId: manifest.runId,
 				taskId: approval.planTaskId,
@@ -141,7 +141,7 @@ export const handleCancelPlan: ApiOperationHandler = async (hctx) => {
 			};
 			await saveRunManifestAsync(manifest);
 			saveRunTasks(manifest, tasks);
-			await appendEventAsync(manifest.eventsPath, {
+			appendEvent(manifest.eventsPath, {
 				type: "plan.cancelled",
 				runId: manifest.runId,
 				taskId: approval.planTaskId,

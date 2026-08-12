@@ -9,11 +9,10 @@ import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
+import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";
-import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -77,22 +76,15 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 						: task,
 				);
 				saveRunTasks(manifest, tasks);
-				// H1 (2026-08-10): informational event → fire-and-forget async.
-				// The status query is treated as read-only by callers (dashboard,
-				// RPC, status bar); a sync appendEvent here blocks the event loop
-				// ~14ms via withEventLogLockSync's sleepSync retry loop.
-				void appendEventAsync(manifest.eventsPath, {
+				// async.stale (2026-08-10): sync append (byte-identical to pre-extract
+				// api.ts) so callers reading eventsPath immediately after status see
+				// the event — async fire-and-forget would race.
+				appendEvent(manifest.eventsPath, {
 					type: "async.stale",
 					runId: manifest.runId,
 					message: liveness.detail,
 					data: { pid: asyncState.pid },
-				}).catch((error) =>
-					logInternalError(
-						"status.async-stale-event",
-						error instanceof Error ? error : new Error(String(error)),
-						`runId=${manifest.runId}`,
-					),
-				);
+				});
 			}
 		}
 	}
@@ -134,10 +126,8 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const requestId = String(message.data?.requestId ?? "unknown");
 		const timedOut = ack === "pending" && ackTimeoutMs !== undefined && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
 		if (timedOut && !ackTimeoutRequestIds.has(requestId)) {
-			// H1 (2026-08-10): informational telemetry event → fire-and-forget
-			// async. This loop iterates up to 5 messages; each prior sync
-			// appendEvent blocked the event loop ~14ms via sleepSync.
-			void appendEventAsync(manifest.eventsPath, {
+			// ack_timeout: sync append (byte-identical to pre-extract api.ts).
+			appendEvent(manifest.eventsPath, {
 				type: "agent.group_join.ack_timeout",
 				runId: manifest.runId,
 				message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -149,13 +139,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 					ageMs,
 					ackTimeoutMs,
 				},
-			}).catch((error) =>
-				logInternalError(
-					"status.group-join-ack-timeout-event",
-					error instanceof Error ? error : new Error(String(error)),
-					`runId=${manifest.runId}`,
-				),
-			);
+			});
 		}
 		groupJoinLines.push(
 			`- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId} message=${message.id} ack=${timedOut ? "timeout" : ack}`,

@@ -16,8 +16,7 @@ import {
 	readMailboxMessage,
 	validateMailbox,
 } from "../../../state/coordination/mailbox.ts";
-import { appendEventAsync } from "../../../state/event-log/event-log.ts";
-import { logInternalError } from "../../../utils/internal-error.ts";
+import { appendEvent } from "../../../state/event-log/event-log.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
 export const handleReadMailbox: ApiOperationHandler = (hctx) => {
@@ -127,20 +126,14 @@ export const handleSendMessage: ApiOperationHandler = (hctx) => {
 				taskId,
 			});
 			// H1 (2026-08-10): informational mailbox event inside a SYNC
-			// run-lock callback — cannot await; fire-and-forget async so
-			// the event loop stays responsive. The mailbox file itself is
-			// the authoritative record; this event is telemetry.
-			void appendEventAsync(loaded.manifest.eventsPath, {
+			// run-lock callback. Sync append (byte-identical to pre-extract
+			// api.ts) so consumers reading eventsPath immediately after the
+			// call see the event — async fire-and-forget would race.
+			appendEvent(loaded.manifest.eventsPath, {
 				type: "mailbox.message",
 				runId: loaded.manifest.runId,
 				data: { id: message.id, direction, from, to },
-			}).catch((error) =>
-				logInternalError(
-					"api.mailbox-message-event",
-					error instanceof Error ? error : new Error(String(error)),
-					`runId=${loaded.manifest.runId}`,
-				),
-			);
+			});
 			ctx.events?.emit?.("crew.mailbox.message", {
 				runId: loaded.manifest.runId,
 				id: message.id,
@@ -192,19 +185,13 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 		return withRunLockSync(loaded.manifest, () => {
 			const message = readMailboxMessage(loaded.manifest, messageId);
 			const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-			void appendEventAsync(loaded.manifest.eventsPath, {
+			appendEvent(loaded.manifest.eventsPath, {
 				type: "mailbox.acknowledged",
 				runId: loaded.manifest.runId,
 				data: { messageId },
-			}).catch((error) =>
-				logInternalError(
-					"api.mailbox-ack-event",
-					error instanceof Error ? error : new Error(String(error)),
-					`runId=${loaded.manifest.runId}`,
-				),
-			);
+			});
 			if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-				void appendEventAsync(loaded.manifest.eventsPath, {
+				appendEvent(loaded.manifest.eventsPath, {
 					type: "agent.group_join.acknowledged",
 					runId: loaded.manifest.runId,
 					message: "Group join delivery acknowledged via mailbox ack.",
@@ -217,13 +204,7 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 						acknowledgedBy: "leader",
 					},
 					metadata: { provenance: "api" },
-				}).catch((error) =>
-					logInternalError(
-						"api.group-join-ack-event",
-						error instanceof Error ? error : new Error(String(error)),
-						`runId=${loaded.manifest.runId}`,
-					),
-				);
+				});
 			}
 			ctx.events?.emit?.("crew.mailbox.acknowledged", {
 				runId: loaded.manifest.runId,
