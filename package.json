@@ -67,7 +67,8 @@
   ],
   "scripts": {
     "check": "npm run ci",
-    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run check:conflict-markers && npm run check:decision-drift && npm run check:event-types && npm run check:lazy-imports && npm run check:bundle-staleness && npm run build:bundle && npm run check:bundle-size && npm run test:bundle && npm test && npm pack --dry-run",
+    "ci": "npm run check:lockfile-sync && npm run typecheck && npm run lint && npm run format:check && npm run check:conflict-markers && npm run check:decision-drift && npm run check:event-types && npm run check:lazy-imports && npm run check:bundle-staleness && npm run build:bundle && npm run check:bundle-size && npm run test:bundle && npm test && npm pack --dry-run",
+    "check:lockfile-sync": "node scripts/check-lockfile-sync.mjs",
     "check:lazy-imports": "node scripts/check-lazy-imports.mjs",
     "check:bundle-staleness": "node scripts/check-bundle-staleness.mjs",
     "check:bundle-size": "node scripts/check-bundle-size.mjs",

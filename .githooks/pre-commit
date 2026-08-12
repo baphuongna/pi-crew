@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# pi-crew pre-commit hook — block lockfile-drift commits locally.
+#
+# Catches the "bump a devDependency in package.json but forget `npm install`"
+# class of CI failure BEFORE it is pushed. Runs the fast (<50ms, no install)
+# check-lockfile-sync.mjs gate only when package.json or package-lock.json is
+# staged, so it adds zero overhead to unrelated commits.
+#
+# Activate once per clone:  git config core.hooksPath .githooks
+# Bypass for a WIP commit:  git commit --no-verify   (CI will still catch it)
+
+set -euo pipefail
+
+# Only run when the manifests are staged (cheap path for unrelated commits).
+if git diff --cached --name-only -- package.json package-lock.json | grep -q .; then
+  echo "[pre-commit] checking package.json ↔ package-lock.json sync…"
+  if ! node scripts/check-lockfile-sync.mjs; then
+    echo "[pre-commit] ✋ commit blocked: package-lock.json is out of sync."
+    echo "[pre-commit]    Fix: run 'npm install' and 'git add package-lock.json', or use --no-verify to bypass (CI still gates)."
+    exit 1
+  fi
+fi

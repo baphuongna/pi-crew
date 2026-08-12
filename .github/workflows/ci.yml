@@ -33,6 +33,13 @@ jobs:
         run: |
           node -p "JSON.stringify({ platform: process.platform, arch: process.arch, node: process.version, cwd: process.cwd() }, null, 2)"
           npm --version
+      - name: Lockfile sync
+        # Fast (<50ms, no install) check that package.json deps/devDeps are
+        # satisfiable by package-lock.json. Catches the "bump a devDep in
+        # package.json but forget `npm install`" class of error with a clear
+        # one-line message BEFORE the slower `npm ci` install dumps a verbose
+        # sync error. Runs pre-install (needs only node).
+        run: node scripts/check-lockfile-sync.mjs
       - name: Install dependencies
         # `npm ci` (not `npm install`): install the exact locked dependency tree
         # and FAIL FAST if package.json and package-lock.json disagree. This is
