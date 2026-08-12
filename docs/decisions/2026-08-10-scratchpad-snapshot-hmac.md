@@ -4,6 +4,32 @@
 
 ## Status
 
+**SUPERSEDED / REVERTED (2026-08-12)** — the Phase 1 helper module
+`src/runtime/scratchpad/snapshot-hmac.ts` and its 11 unit tests were
+**deleted**. Rationale (decision P3 of `docs/rlm-fixes-implementation-plan.md`,
+grounded in `docs/rlm-deep-review-2026-08-12.md` §5.2E):
+
+1. **The mitigated threat is double-conditional.** v8.deserialize-gadget
+   tampering only materializes when (a) scratchpad has real adoption (today:
+   0 cells across 83+ runs) AND (b) snapshots move to a shared/networked/
+   group-writable store (today: same-uid dev-machine — the ADR's own Phase 4
+   gate). Neither condition holds.
+2. **Hardening a 0-adoption surface is premature.** The whole scratchpad
+   feature is itself at risk of removal (decision gate §3.3 of the deep review:
+   "Still ~0 cells AND task-shape precondition met → remove feature"). Wiring
+   HMAC (ROADMAP R1-4) into a feature that may be deleted is wasted work.
+3. **Not clean to wire.** Phase 2 wire-up is blocked on 3 unresolved design
+   questions (writeArtifact redaction vs inline prefix; raw-bytes vs envelope;
+   cap application). Per the deep review §5.2E: "nếu không clean → delete".
+4. **Fully re-addable.** This ADR records every design decision (raw bytes,
+   bare-payload cap, inline `PI_CREW_SIG=` prefix, 3-phase migration). If both
+   conditions ever hold, re-implement from this spec.
+
+**Original (Phase 1, shipped 2026-08-10) status below — retained as the design
+spec for any future re-introduction.**
+
+---
+
 Accepted (Phase 1 helper + tests shipped 2026-08-10; production
 wire-up deferred to a follow-up that audits the snapshot envelope format).
 

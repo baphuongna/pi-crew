@@ -188,6 +188,49 @@ console.trace = consoleErr;
 
 const INTERNAL_BINDINGS = new Map<string, unknown>();
 
+/**
+ * Protected Node globals — must never be persistently shadowed by a cell.
+ *
+ * Because the scope proxy's `get` trap checks the namespace BEFORE globalThis,
+ * a cell writing `const process = 'poisoned'` (transformed to a namespace
+ * assignment) would otherwise poison EVERY later cell in the same engine
+ * (the namespace is a module-level singleton) AND survive snapshot→restore
+ * (a serializable shadow revives). Result: silent corruption — e.g.
+ * `typeof process.env` becomes 'undefined' with no error.
+ *
+ * We register the LIVE global for each protected name in INTERNAL_BINDINGS +
+ * the namespace, so (a) restore's re-install overwrites any revived shadow,
+ * and (b) each cell starts with the real global. Within-cell shadowing still
+ * works (the cell's own write wins for that cell only); it just cannot leak
+ * to other cells or across restarts. Verified: probe reproduced the bug
+ * pre-fix; see test/unit/runtime/scratchpad/guest-global-shadow.test.ts.
+ */
+const PROTECTED_GLOBALS: ReadonlyArray<string> = [
+	"process",
+	"Buffer",
+	"console",
+	"setTimeout",
+	"clearTimeout",
+	"setInterval",
+	"clearInterval",
+	"setImmediate",
+	"clearImmediate",
+	"queueMicrotask",
+	"structuredClone",
+	"AbortController",
+	"globalThis",
+];
+
+function resetProtectedGlobals(): void {
+	const g = globalThis as Record<string, unknown>;
+	for (const name of PROTECTED_GLOBALS) {
+		const live = g[name];
+		if (live === undefined) continue;
+		INTERNAL_BINDINGS.set(name, live);
+		namespace[name] = live;
+	}
+}
+
 /** Pattern-12 nullish guard: refuse undefined/null BEFORE spawning. */
 function assertShellArgNotNullish(name: string, value: unknown): void {
 	if (value === undefined || value === null) {
@@ -235,6 +278,9 @@ function installBootstrapBindings(): void {
 	// serialization, and so cells can call `sh(...)` directly.
 	INTERNAL_BINDINGS.set("sh", sh);
 	namespace.sh = sh;
+	// Overwrite any protected-global shadow (e.g. a revived `process='x'` from
+	// restore) with the live global — fixes the global shadow poisoning bug.
+	resetProtectedGlobals();
 }
 
 installBootstrapBindings();
@@ -246,14 +292,69 @@ const AsyncFunction = (async () => {}).constructor as new (...args: string[]) =>
 
 const liveCells = new Map<string, CellContext>();
 
+// ── P6: remap transformed error-stack lines back to the cell's source ───────
+// V8 reports a thrown line as `N = bodyLine + 2` (1-based) — the AsyncFunction
+// wrapper adds 2 prefix lines (the anonymous function line + the `with (...)`
+// line) before the cell body. `lineMap` (from transformCell) maps body lines
+// that RECEIVED A REPLACEMENT back to the source line the model wrote. Lines
+// between replacements (unreplaced spans — e.g. a bare `throw`) are identity:
+// sourceLine = entry.sourceLine + (bodyLine - entry.bodyLine), using the
+// nearest replacement entry at or before the body line.
+//
+// SECURITY/robustness (P6 review finding): only lines that look like a real
+// V8 frame (`    at ... <anonymous>:N:C)`) are remapped. The `Error: <message>`
+// line and any cell text containing `<anonymous>:N:C)` (e.g. an error message
+// that echoes code) must be left byte-identical — a crafted message must never
+// get its numbers rewritten.
+function remapStackLines(stack: string, lineMap: { sourceLine: number; bodyLine: number }[]): string[] {
+	const lines = stack.split("\n");
+	const sorted = [...lineMap].sort((a, b) => a.bodyLine - b.bodyLine);
+	return lines.map((line) => {
+		// Real V8 frame only: `    at <anything> <anonymous>:N:C)` — anchored to
+		// the leading frame prefix and a parenthesized trailing position. The
+		// message line (`Error: ...`) does not start with `    at `, so it is
+		// never matched; a crafted message containing `<anonymous>:N:C)` is
+		// likewise safe because it lacks the frame prefix.
+		const m = line.match(/^\s+at .*<anonymous>:(\d+):(\d+)\)/);
+		if (!m) return line;
+		const reported = Number(m[1]);
+		const bodyLine = reported - 2; // wrapper prefix offset (verified by probe)
+		// nearest replacement entry at or before bodyLine (lower bound)
+		let lo = 0;
+		let hi = sorted.length - 1;
+		let entry: { sourceLine: number; bodyLine: number } | undefined;
+		while (lo <= hi) {
+			const mid = (lo + hi) >> 1;
+			if (sorted[mid].bodyLine <= bodyLine) {
+				entry = sorted[mid];
+				lo = mid + 1;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		if (!entry) return line; // before any replacement — leave as-is
+		const sourceLine = entry.sourceLine + (bodyLine - entry.bodyLine);
+		const col = m[2];
+		return line.replace(/<anonymous>:\d+:\d+/, `<anonymous>:${sourceLine}:${col}`);
+	});
+}
+
 async function runCell(cellId: string, code: string): Promise<void> {
 	const ctx = makeCellContext(cellId);
 	activeCell = ctx;
 	liveCells.set(cellId, ctx);
+	// Reset protected globals so a prior cell's shadow (e.g. `const process='x'`)
+	// cannot poison this cell — shadowing stays local to the cell that did it
+	// (the namespace is a module-level singleton shared across cells).
+	resetProtectedGlobals();
 
 	let done: GuestToHostMessage;
+	// P6: lineMap from transformCell is needed in BOTH try (to build the
+	// wrapper) and catch (to remap the error stack), so hoist it here.
+	let lineMap: { sourceLine: number; bodyLine: number }[] = [];
 	try {
-		const { body } = transformCell(code, { ctxName: CTX_NAME });
+		const { body, lineMap: lm } = transformCell(code, { ctxName: CTX_NAME });
+		lineMap = lm;
 		// Sloppy-mode wrapper so `with` is legal (AsyncFunction bodies are always
 		// sloppy, even inside a strict ESM strip-types module); async for
 		// top-level await.
@@ -271,7 +372,7 @@ async function runCell(cellId: string, code: string): Promise<void> {
 			type: "done",
 			cellId,
 			status: ctx.aborted ? "aborted" : "error",
-			error: { name: err.name, message: err.message, stack: (err.stack ?? "").split("\n") },
+			error: { name: err.name, message: err.message, stack: remapStackLines(err.stack ?? "", lineMap) },
 		};
 	} finally {
 		if (activeCell === ctx) activeCell = undefined;

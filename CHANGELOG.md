@@ -2,6 +2,54 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.9.68] — RLM fixes after deep-review verification (2026-08-12)
+
+Fixes from `docs/rlm-deep-review-2026-08-12.md` (verified) +
+`docs/rlm-fixes-implementation-plan.md`. Each code part loop-reviewed (3
+parallel reviewers: security/correctness/tests, read-only) before merge here.
+
+### Fixes
+- **P1 — global shadow poisoning** (`src/runtime/scratchpad/guest.ts`):
+  `PROTECTED_GLOBALS` + `resetProtectedGlobals()` register live Node globals
+  into the namespace/`INTERNAL_BINDINGS`. Closes both poisoning paths: restore
+  (re-install overwrites revived shadow) and in-session (reset at cell start —
+  shadow stays local to the cell that created it). Silent corruption (e.g.
+  `const process='x'` making `process.env` undefined) is gone. 8 regression
+  tests in `test/unit/runtime/scratchpad/guest-global-shadow.test.ts`.
+- **P2 — scratchpad adoption lever** (`src/agents/agent-config.ts`): new
+  `PI_CREW_SCRATCHPAD_DEMOTE_BASH=1` flag. When on + a role has scratchpad
+  enabled, `resolveToolPolicy` removes `bash` (allowlist filter + denylist add)
+  so the model reaches for the `sh()` binding instead — the documented root
+  cause of 0 adoption. Default off (zero behavior change); scoped to
+  scratchpad-armed roles (executor/verifier/test-engineer) via
+  `isScratchpadEnabledForRole` (S-6 read-only gate + F6 kill-switch honored).
+  10 tests in `test/unit/scratchpad-demote-bash.test.ts`.
+- **P4 — host_request protocol doc** (`src/runtime/scratchpad/protocol.ts`):
+  the `host_request` type is now documented as reserved for the future host
+  bridge (§5.2F), not yet wired (no handler).
+- **P5 — version drift** (`package.json`): 4 pi devDeps `^0.83.0` → `^0.84.0`
+  (installed runtime is 0.84.1).
+- **P6 — scratchpad stack-trace sourcemap** (`src/runtime/scratchpad/transform.ts`
+  + `guest.ts`): `transformCell` now returns a `lineMap` (body line → source
+  line) built from esbuild `sourcemap:'inline'` + a hand-rolled VLQ decoder
+  (no dependency) + import pre-rewrite tracking + splice line counting. Guest
+  `remapStackLines` remaps the V8 `<anonymous>:N` frame back to the cell's
+  original source line. Only real `    at ` frames are remapped (a crafted
+  error message containing `<anonymous>:N:C)` is left byte-identical). Known
+  cosmetic limitation: multi-line type annotations map to the esbuild collapse
+  point. 10 tests in `test/unit/runtime/scratchpad/scratchpad-sourcemap.test.ts`.
+
+### Removed
+- **P3 — dead HMAC crypto deleted.** `src/runtime/scratchpad/snapshot-hmac.ts`
+  (167 lines, 11 tests) + its test file removed. The threat it mitigated
+  (v8.deserialize tamper) is double-conditional (0 scratchpad adoption +
+  same-uid store both hold today); wiring (ROADMAP R1-4) was premature and
+  blocked on 3 unresolved design questions. ADR Superseded; design retained
+  for clean re-add if conditions ever hold. ROADMAP R1-4 / R2-2 marked removed.
+
+### Deferred (needs design)
+- *None remaining.* (P6 was the last deferred item; it shipped — see Fixes.)
+
 ## [0.9.67] — RLM/scratchpad adoption batch (I1–I7) (2026-08-11)
 
 First shippable slice of `improvement-plan-2026-08-11.md` — the scratchpad was

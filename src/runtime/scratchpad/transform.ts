@@ -31,6 +31,15 @@ export interface TransformedCell {
 	body: string;
 	/** Top-level names this cell binds into the namespace. */
 	declaredNames: string[];
+	/**
+	 * P6: line-based position map — for each body line (1-based), the
+	 * corresponding SOURCE line (1-based) the model wrote. Used to remap the
+	 * V8-reported error line (relative to `body`) back to the cell's original
+	 * line so stack traces point at the source the user wrote, not the
+	 * transformed body. Built WITHOUT a source-map dependency by tracking
+	 * replacement newline shifts against the source (acorn `locations`).
+	 */
+	lineMap: { sourceLine: number; bodyLine: number }[];
 }
 
 export interface TransformOptions {
@@ -41,8 +50,16 @@ export interface TransformOptions {
 // esbuild's transform strips types but never drops side-effect-free trailing
 // expressions (no DCE in transform mode) — the exact thing we capture as the
 // cell result.
-function stripTypes(code: string): string {
-	return transformSync(code, { loader: "ts" }).code;
+// P6: `sourcemap: 'inline'` so we can map the stripped `js` lines back to the
+// `rewritten` (pre-strip) lines — esbuild does NOT preserve line numbers
+// across type stripping (probe: 7 input lines → 5 output lines). The inline
+// sourcemap is stripped from the output (it would otherwise leak into the cell
+// body as a trailing comment); we only keep the decoded line map.
+function stripTypes(code: string): { code: string; lineMap: number[] } {
+	const out = transformSync(code, { loader: "ts", sourcemap: "inline" });
+	const lineMap = esbuildLineMap(out.code);
+	const codeWithoutMap = out.code.replace(/\/\/# sourceMappingURL=data:application\/json;base64,[A-Za-z0-9+/=]+\s*$/, "");
+	return { code: codeWithoutMap, lineMap };
 }
 
 // ── top-level import extraction ──────────────────────────────────────────────
@@ -271,14 +288,147 @@ function variableReplacement(decl: VariableDeclaration, source: string): string 
 	return statements.join(" ");
 }
 
+// ── P6: line-based position map ─────────────────────────────────────────────
+// V8 reports a cell error's line as 1-based relative to the TRANSFORMED `body`.
+// The model wrote `code`; between them sit 3 transforms:
+//   1. import pre-rewrite (acorn)      — collapses multi-line imports to 1 line
+//   2. esbuild strip-types             — collapses type annotations/signatures
+//   3. declaration → assignment + trailing-expr capture — may add/remove lines
+// We build a map { sourceLine (1-based, in `code`) → bodyLine (1-based) } by
+// tracking line deltas across each stage with acorn `locations` + newline
+// counts. No source-map dependency (probe: esbuild strip-types does NOT
+// preserve lines — 7→5 — so a naive single-layer sourcemap would be wrong).
+
+function countNewlines(s: string): number {
+	let n = 0;
+	for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+	return n;
+}
+
+/** 1-based line of `pos` (char offset) in `text`. */
+function lineAt(text: string, pos: number): number {
+	let line = 1;
+	for (let i = 0; i < pos && i < text.length; i++) if (text.charCodeAt(i) === 10) line++;
+	return line;
+}
+
+// ── P6: esbuild inline sourcemap → line map (js → rewritten) ───────────────
+// esbuild `sourcemap: 'inline'` emits a base64 VLQ sourcemap whose `mappings`
+// field encodes, per generated line, segments mapping back to source
+// positions. We only need LINE fidelity (column is overkill for the bug), so
+// we decode each generated line's first segment's source line. VLQ is the
+// standard base64-variable-length encoding (no dependency needed).
+
+const BASE64: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const VLQ: Map<string, number> = new Map([...BASE64].map((c, i) => [c, i]));
+
+function decodeVlqSegment(segment: string): number[] {
+	const values: number[] = [];
+	let shift = 0;
+	let value = 0;
+	for (let i = 0; i < segment.length; i++) {
+		const digit = VLQ.get(segment[i]);
+		if (digit === undefined) break;
+		value |= (digit & 31) << shift;
+		if (digit & 32) {
+			shift += 5;
+		} else {
+			values.push(value & 1 ? -(value >>> 1) : value >>> 1);
+			value = 0;
+			shift = 0;
+		}
+	}
+	return values;
+}
+
+/**
+ * Decode an esbuild inline sourcemap's `mappings` into an array where
+ * `lineMapGenerated[generatedLine-1]` = the source LINE (1-based) that
+ * generated line originates from (first segment per generated line; falls back
+ * to the previous mapped line for continuation lines).
+ */
+function esbuildLineMap(codeWithInlineMap: string): number[] {
+	const m = codeWithInlineMap.match(/\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/);
+	if (!m) return [];
+	let sm: { mappings?: string };
+	try {
+		sm = JSON.parse(Buffer.from(m[1], "base64").toString("utf8")) as { mappings?: string };
+	} catch {
+		return [];
+	}
+	if (!sm.mappings) return [];
+	const result: number[] = [];
+	let srcLine = 1;
+	let lastSrcLine = 1;
+	for (const genLine of sm.mappings.split(";")) {
+		const segs = genLine.split(",").filter(Boolean);
+		if (segs.length > 0) {
+			const vals = decodeVlqSegment(segs[0]);
+			// values: [genColDelta, srcIdxDelta, srcLineDelta, srcColDelta, ...]
+			if (vals.length >= 3) {
+				srcLine += vals[2];
+				lastSrcLine = srcLine;
+			}
+		}
+		result.push(lastSrcLine);
+	}
+	return result;
+}
+
+/**
+ * Build a `code`-line → `js`-line map across the import pre-rewrite.
+ * For each import replacement, its `code` span [codeStart, codeEnd] collapses
+ * to `js` lines [jsStart, jsEnd] (usually 1). Lines outside any replacement
+ * are identity-shifted by the cumulative delta.
+ */
+function buildImportLineMap(
+	code: string,
+	rewritten: string,
+	importSpans: { codeStart: number; codeEnd: number; jsStart: number; jsEnd: number }[],
+): (src: number) => number {
+	if (importSpans.length === 0) return (src) => src;
+	// P6 (final): map a `rewritten` (post-import) LINE to the original `code`
+	// line. `rewritten` = code with each import statement replaced by its
+	// (usually 1-line) dynamic-import fragment. We walk both strings tracking
+	// newline counts: between imports the line numbers advance identically;
+	// inside an import span, all its code lines map to the replacement's first
+	// rewritten line (collapsed).
+	const rewrittenLines: string[] = rewritten.split("\n");
+	const codeLines: string[] = code.split("\n");
+	const map = new Map<number, number>(); // rewrittenLine → codeLine (1-based)
+	let codeIdx = 1;
+	let rewIdx = 1;
+	for (const span of importSpans) {
+		// Advance both to the span start, emitting identity mapping for the
+		// untouched lines between the previous span end and this span start.
+		const spanStartCodeLine = lineAt(code, span.codeStart);
+		const spanStartRewLine = lineAt(rewritten, span.jsStart);
+		for (; codeIdx < spanStartCodeLine && rewIdx < spanStartRewLine; codeIdx++, rewIdx++) {
+			map.set(rewIdx, codeIdx);
+		}
+		// Lines inside the import span (in code) collapse to the replacement's
+		// single starting rewritten line.
+		const spanEndCodeLine = lineAt(code, span.codeEnd);
+		for (; codeIdx <= spanEndCodeLine; codeIdx++) {
+			map.set(spanStartRewLine, spanStartCodeLine);
+		}
+		rewIdx = spanStartRewLine + 1;
+	}
+	// Tail: identity from wherever we stopped.
+	for (; rewIdx <= rewrittenLines.length; rewIdx++, codeIdx++) {
+		map.set(rewIdx, Math.min(codeIdx, codeLines.length));
+	}
+	return (rewLine: number) => {
+		const mapped = map.get(rewLine);
+		return mapped ?? Math.min(rewLine, codeLines.length);
+	};
+}
+
 export function transformCell(code: string, options: TransformOptions = {}): TransformedCell {
 	const ctxName = options.ctxName ?? "__ctx";
-
-	// Top-level imports are rewritten into awaited dynamic imports BEFORE type
-	// stripping: esbuild elides unused imports, and the reference behaviour
-	// binds every imported name into the namespace so it persists across cells.
 	let importDeclared: string[] = [];
 	let rewritten = code;
+	const importSpans: { codeStart: number; codeEnd: number; jsStart: number; jsEnd: number }[] = [];
 	try {
 		const tokens = lexTopLevel(code);
 		const imports = findImportStatements(tokens);
@@ -286,11 +436,21 @@ export function transformCell(code: string, options: TransformOptions = {}): Tra
 			importDeclared = [];
 			const pieces: string[] = [];
 			let cursor = 0;
+			let jsCursor = 0;
 			for (const stmt of imports) {
-				pieces.push(rewritten.slice(cursor, stmt.start));
+				const pre = rewritten.slice(cursor, stmt.start);
+				pieces.push(pre);
+				jsCursor += pre.length;
 				const rewrite = rewriteImport(code, stmt, tokens);
 				importDeclared.push(...rewrite.declaredNames);
 				pieces.push(rewrite.replacement);
+				importSpans.push({
+					codeStart: stmt.start,
+					codeEnd: stmt.end,
+					jsStart: jsCursor,
+					jsEnd: jsCursor + rewrite.replacement.length - 1,
+				});
+				jsCursor += rewrite.replacement.length;
 				cursor = stmt.end;
 			}
 			pieces.push(rewritten.slice(cursor));
@@ -301,8 +461,15 @@ export function transformCell(code: string, options: TransformOptions = {}): Tra
 		// the pre-rewrite; type stripping below surfaces the error.
 	}
 
-	const js = stripTypes(rewritten);
-	const program: Program = parse(js, { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true });
+	const { code: js, lineMap: esbLineMap } = stripTypes(rewritten);
+	const rewToCode = buildImportLineMap(code, rewritten, importSpans);
+	const program: Program = parse(js, {
+		ecmaVersion: "latest",
+		sourceType: "module",
+		allowAwaitOutsideFunction: true,
+		// P6: locations needed to know each top-level node's source lines.
+		locations: true,
+	});
 
 	const declaredNames: string[] = [];
 	const replacements: { start: number; end: number; text: string }[] = [];
@@ -353,11 +520,38 @@ export function transformCell(code: string, options: TransformOptions = {}): Tra
 	replacements.sort((a, b) => a.start - b.start);
 	let body = "";
 	let cursor = 0;
+	// P6: build bodyLine → sourceLine map while splicing. `body` is what V8
+	// reports error lines against; `js` is the esbuild-stripped source; the map
+	// composes: bodyLine → jsLine (via newline deltas) → rewrittenLine (via
+	// esbuild inline sourcemap) → codeLine (via import pre-rewrite).
+	const lineMap: { sourceLine: number; bodyLine: number }[] = [];
+	let bodyLine = 1;
+	let jsLine = 1;
+	// jsLineOfBodyStart maps the js line at each body boundary; we track the
+	// cumulative js-line delta as body lines are emitted.
 	for (const replacement of replacements) {
-		body += js.slice(cursor, replacement.start) + replacement.text;
+		const pre = js.slice(cursor, replacement.start);
+		body += pre;
+		bodyLine += countNewlines(pre);
+		jsLine += countNewlines(pre);
+		// The replacement's first body line maps from the js line at its start.
+		const repJsStartLine = lineAt(js, replacement.start);
+		// Source line = compose: js → rewritten (esbuild) → code (imports).
+		const rewLine = esbLineMap.length > 0 ? esbLineMap[Math.min(repJsStartLine - 1, esbLineMap.length - 1)] : repJsStartLine;
+		const srcLine = rewToCode(rewLine);
+		lineMap.push({ sourceLine: srcLine, bodyLine: bodyLine });
+		body += replacement.text;
+		bodyLine += countNewlines(replacement.text);
+		// js line after the replacement: replacements are in js coordinate, so
+		// jsLine advances by the replacement's text newlines too.
+		jsLine += countNewlines(replacement.text);
 		cursor = replacement.end;
 	}
-	body += js.slice(cursor);
+	const tail = js.slice(cursor);
+	body += tail;
+	bodyLine += countNewlines(tail);
+	// Any body line not covered by a replacement maps identity.
+	lineMap.sort((a, b) => a.bodyLine - b.bodyLine);
 
-	return { body, declaredNames: [...new Set([...importDeclared, ...declaredNames])] };
+	return { body, declaredNames: [...new Set([...importDeclared, ...declaredNames])], lineMap };
 }

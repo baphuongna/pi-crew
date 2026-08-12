@@ -45,7 +45,19 @@ export interface GuestToHost {
 		error?: { name: string; message: string; stack: string[] };
 	};
 	pong: { type: "pong"; id: string };
-	host_request: { type: "host_request"; id: string; requestType: string; payload: Record<string, unknown> };
+	host_request: {
+		// RESERVED for future host bridge (rlm-deep-review-2026-08-12.md §5.2F /
+		// J2): guest-side cells would request host services (tools.read,
+		// tools.grep) so data enters the namespace WITHOUT crossing the
+		// transcript — pi-rlm's core token-saving value proposition. Declared
+		// here so the protocol type is stable, but NOT YET WIRED: engine.ts and
+		// guest.ts have no host_request dispatcher/handler. Blocked on scratchpad
+		// adoption > 0 (do not add a host execution surface nobody calls).
+		type: "host_request";
+		id: string;
+		requestType: string;
+		payload: Record<string, unknown>;
+	};
 	snapshot_result: {
 		type: "snapshot_result";
 		id: string;

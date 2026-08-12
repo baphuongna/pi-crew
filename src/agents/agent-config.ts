@@ -1,5 +1,5 @@
 import type { RoleToolConfig } from "../config/role-tools.ts";
-import { getToolConfig } from "../config/role-tools.ts";
+import { getToolConfig, isScratchpadEnabledForRole } from "../config/role-tools.ts";
 
 /**
  * F1 (v0.7.9): canonical built-in tool name list. Used by `parseToolsField`
@@ -162,22 +162,43 @@ export function resolveToolPolicy(agent: AgentConfig, role?: string): ResolvedTo
 	const roleConfig = role ? getToolConfig(role) : {};
 	// allowlist: source-aware precedence (see doc above).
 	const explicitTools = agent.source === "builtin" ? (roleConfig.tools ?? agent.tools) : (agent.tools ?? roleConfig.tools);
-	// L5: when the agent opts into `loadMode: "lean"` AND provides a
-	// non-empty `defaultTools` list, merge that list into the resolved
-	// allowlist. The merge is additive (union, dedup, order-preserving) so
-	// the existing source-aware precedence is preserved and a lean agent
-	// gets a focused-but-non-empty tool set. Signal flow:
-	//   agent YAML frontmatter (loadMode, defaultTools)
-	//     → parsed into AgentConfig
-	//     → resolveToolPolicy(agent, role) here
-	//     → policy.tools returned to buildPiWorkerArgs
-	//     → `args.push("--tools", policy.tools.join(","))` in pi-args.ts
-	//     → child pi process sees the merged allowlist
-	const tools =
+	let tools =
 		agent.loadMode === "lean" && agent.defaultTools?.length ? uniqueToolMerge(explicitTools, agent.defaultTools) : explicitTools;
 	// denylist: additive merge of role excludeTools + agent disallowedTools.
-	const excludeTools = uniqueToolMerge(roleConfig.excludeTools, agent.disallowedTools);
+	let excludeTools = uniqueToolMerge(roleConfig.excludeTools, agent.disallowedTools);
+	// P2 (scratchpad adoption lever, rlm-deep-review-2026-08-12.md §5.1A):
+	// when scratchpad is armed for this role AND the operator opted in via
+	// PI_CREW_SCRATCHPAD_DEMOTE_BASH=1, remove `bash` from the tool surface so
+	// the model reaches for `sh()` inside scratchpad cells (structured value
+	// reuse) instead of `bash` (which always wins by default — the documented
+	// root cause of 0 scratchpad adoption). Gated behind a flag because it
+	// changes the tool surface the model sees (behavioral risk). The model
+	// keeps read/edit/write/ls/grep/find; shell ops must go via `sh()`.
+	if (shouldDemoteBashForScratchpad(role, agent)) {
+		tools = tools ? tools.filter((t) => t !== "bash") : tools;
+		excludeTools = uniqueToolMerge(excludeTools, ["bash"]);
+	}
 	return { tools, excludeTools };
+}
+
+/**
+ * P2: should `bash` be demoted (removed) for a scratchpad-armed role?
+ *
+ * True only when BOTH hold:
+ *  (a) the role has scratchpad enabled (so the model still has a way to run
+ *      shell commands — via the `sh()` binding inside scratchpad cells);
+ *  (b) the operator opted in via `PI_CREW_SCRATCHPAD_DEMOTE_BASH=1`.
+ *
+ * Default off → zero behavior change (existing adoption stays at 0). On → the
+ * lever to break 0-adoption without full tool collapse. This is read-only
+ * config logic; the actual tool-surface change happens in `resolveToolPolicy`
+ * above and flows to BOTH spawn paths (child-pi `--tools`/`--exclude-tools` and
+ * live-session filterActiveTools) via the unified policy.
+ */
+function shouldDemoteBashForScratchpad(role: string | undefined, agent: AgentConfig): boolean {
+	if (process.env.PI_CREW_SCRATCHPAD_DEMOTE_BASH !== "1") return false;
+	if (!role) return false;
+	return isScratchpadEnabledForRole(role, { scratchpad: agent.scratchpad });
 }
 
 /**

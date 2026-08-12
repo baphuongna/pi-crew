@@ -124,11 +124,16 @@ attempt N+1 worker (scratchpad-lifecycle.ts)
   token), so this does not cross the existing boundary. An HMAC over the payload
   is a Phase 2.5/3 hardening if artifacts ever land in a shared location.
 
-> ⚠️ **NOT WIRED (2026-08-11):** `src/runtime/scratchpad/snapshot-hmac.ts` is an
-> unconnected helper — zero production call sites, 11 green unit tests in
-> isolation. Wire-or-delete decision in `docs/improvement-plan-2026-08-11.md`
-> §4 J1. Until then the note above (v8.deserialize unauthenticated) is exactly
-> how the code behaves.
+> **REMOVED (2026-08-12):** `src/runtime/scratchpad/snapshot-hmac.ts` and its
+> test were deleted. Decision (P3 of `docs/rlm-fixes-implementation-plan.md`):
+> the HMAC threat is double-conditional — it only materializes when scratchpad
+> has adoption (>0 cells; today: 0/83 runs) AND snapshots move to a
+> shared/networked store (today: same-uid dev-machine). Hardening a
+> 0-adoption surface that is itself at risk of removal (decision gate §3.3)
+> is premature. The design is fully recorded in ADR
+> `docs/decisions/2026-08-10-scratchpad-snapshot-hmac.md` (Superseded), so it
+> can be re-added cleanly if/when both conditions hold. Until then the note
+> below (v8.deserialize unauthenticated) remains exactly how the code behaves.
 - **Secret-at-rest under a benign key name** persists as base64 for the run's
   retention (structural redaction is key-name based, best-effort). A sanitized-
   namespace policy is a Phase 2.5 concern.

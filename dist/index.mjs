@@ -11755,9 +11755,18 @@ function uniqueToolMerge(...lists) {
 function resolveToolPolicy(agent, role) {
   const roleConfig = role ? getToolConfig(role) : {};
   const explicitTools = agent.source === "builtin" ? roleConfig.tools ?? agent.tools : agent.tools ?? roleConfig.tools;
-  const tools = agent.loadMode === "lean" && agent.defaultTools?.length ? uniqueToolMerge(explicitTools, agent.defaultTools) : explicitTools;
-  const excludeTools = uniqueToolMerge(roleConfig.excludeTools, agent.disallowedTools);
+  let tools = agent.loadMode === "lean" && agent.defaultTools?.length ? uniqueToolMerge(explicitTools, agent.defaultTools) : explicitTools;
+  let excludeTools = uniqueToolMerge(roleConfig.excludeTools, agent.disallowedTools);
+  if (shouldDemoteBashForScratchpad(role, agent)) {
+    tools = tools ? tools.filter((t2) => t2 !== "bash") : tools;
+    excludeTools = uniqueToolMerge(excludeTools, ["bash"]);
+  }
   return { tools, excludeTools };
+}
+function shouldDemoteBashForScratchpad(role, agent) {
+  if (process.env.PI_CREW_SCRATCHPAD_DEMOTE_BASH !== "1") return false;
+  if (!role) return false;
+  return isScratchpadEnabledForRole(role, { scratchpad: agent.scratchpad });
 }
 var BUILTIN_TOOL_NAMES;
 var init_agent_config = __esm({
