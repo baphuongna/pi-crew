@@ -55,6 +55,14 @@ registered (2 new), drift unchanged at 72; `check:lazy-imports`
 - Observation window for the §5 decision gate starts after this release
 (scratchpad.cell counts now visible in run state + summary.md).
 
+### CI regression fixes (same release)
+- **Untracked api/ modules committed** (`src/extension/team-tool/api/*`, `run-intent.ts`, `src/utils/glob-match.ts`, `src/runtime/child-pi/mock-fixtures.ts`): the 08-10 batch staged only tracked files; CI typecheck failed `Cannot find module './api/*.ts'`. Fixed by committing the 10 missing source files.
+- **Sync appendEvent restored in extracted api/ handlers** (`team-tool/api/{agent-control,mailbox,heartbeat,plan-approval}.ts` + `team-tool/status.ts`): the H3 extract silently changed 11 sync `appendEvent` → fire-and-forget `appendEventAsync`, breaking byte-identical behavior and racing integration tests (status/ack/nudge events missed when read immediately after the call). Reverted to sync `appendEvent`; integration 188/0 (was 3 fails), unit 7121/0.
+- **removeCrewAgent test fixed** for H2 coalesced non-terminal status writes (use a terminal record).
+
+### Verified (CI)
+- GitHub Actions: ubuntu + windows + macOS all green (run `31556762231`).
+
 ## [0.9.66] — real-test findings: cross-project run lookup, output validation, config no-op-write, retry clarity, cron grammar (2026-08-10)
 
 Six fixes distilled from the `real-test-pi-crew` 9-tier battery (run 2026-08-10). All verified live end-to-end; `npm run test:critical` 101/101, `npx tsc --noEmit` exit 0, biome lint+format clean.
