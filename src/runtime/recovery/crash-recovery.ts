@@ -142,54 +142,85 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 		runId: plan.runId,
 		cwd: ctx.cwd,
 	});
-	appendHookEvent(loaded.manifest, hookReport);
-	if (hookReport.outcome === "block") {
-		appendEvent(loaded.manifest.eventsPath, {
-			type: "crew.run.recovery_blocked",
-			runId: plan.runId,
-			message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
-			data: { hookOutcome: "block", reason: hookReport.reason },
-		});
-		return;
-	}
 
-	const reset = new Set(plan.resumableTasks);
-	const tasks = loaded.tasks.map((task) =>
-		reset.has(task.id)
-			? {
-					...task,
-					status: "queued" as const,
-					startedAt: undefined,
-					finishedAt: undefined,
-					error: undefined,
-					heartbeat: undefined,
-				}
-			: task,
-	);
-	saveRunTasks(loaded.manifest, tasks);
-	appendEvent(loaded.manifest.eventsPath, {
-		type: "crew.run.resumed",
-		runId: plan.runId,
-		message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
-		data: {
-			recoveredFromSeq: plan.lastEventSeq,
-			resumableTasks: plan.resumableTasks,
-		},
+	// R14-4: the hook await above is an arbitrary async gap — a concurrent writer
+	// may have completed/cancelled the run in the meantime. Re-read inside the
+	// lock and derive every write from the FRESH snapshot; never reset a run that
+	// reached a terminal status.
+	withRunLockSync(loaded.manifest, () => {
+		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
+		if (
+			fresh.manifest.status === "completed" ||
+			fresh.manifest.status === "failed" ||
+			fresh.manifest.status === "cancelled"
+		) {
+			// Run reached a terminal status while the recovery hook was running —
+			// do NOT reset it (no task reset, no status change).
+			appendEvent(fresh.manifest.eventsPath, {
+				type: "crew.run.recovery_skipped",
+				runId: plan.runId,
+				message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
+				data: { status: fresh.manifest.status },
+			});
+			return;
+		}
+		appendHookEvent(fresh.manifest, hookReport);
+		if (hookReport.outcome === "block") {
+			appendEvent(fresh.manifest.eventsPath, {
+				type: "crew.run.recovery_blocked",
+				runId: plan.runId,
+				message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
+				data: { hookOutcome: "block", reason: hookReport.reason },
+			});
+			return;
+		}
+
+		const reset = new Set(plan.resumableTasks);
+		const tasks = fresh.tasks.map((task) =>
+			reset.has(task.id)
+				? {
+						...task,
+						status: "queued" as const,
+						startedAt: undefined,
+						finishedAt: undefined,
+						error: undefined,
+						heartbeat: undefined,
+					}
+				: task,
+		);
+		saveRunTasks(fresh.manifest, tasks);
+		appendEvent(fresh.manifest.eventsPath, {
+			type: "crew.run.resumed",
+			runId: plan.runId,
+			message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
+			data: {
+				recoveredFromSeq: plan.lastEventSeq,
+				resumableTasks: plan.resumableTasks,
+			},
+		});
+		registry?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
 	});
-	registry?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
 }
 
 export function declineRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionContext, "cwd">): void {
 	const loaded = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
-	// Log the event first — if appendEvent fails, state remains consistent.
-	appendEvent(loaded.manifest.eventsPath, {
-		type: "crew.run.recovery_declined",
-		runId: plan.runId,
-		message: "Interrupted run was not resumed.",
-		data: { recoveredFromSeq: plan.lastEventSeq },
+	// R14-4: re-read inside the lock so the decline decision applies to the
+	// on-disk state, not the best-effort snapshot read above. Kept SYNC —
+	// withRunLockSync is the sync lock variant.
+	withRunLockSync(loaded.manifest, () => {
+		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh) return;
+		// Log the event first — if appendEvent fails, state remains consistent.
+		appendEvent(fresh.manifest.eventsPath, {
+			type: "crew.run.recovery_declined",
+			runId: plan.runId,
+			message: "Interrupted run was not resumed.",
+			data: { recoveredFromSeq: plan.lastEventSeq },
+		});
+		updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
 	});
-	updateRunStatus(loaded.manifest, "cancelled", "interrupted-not-resumed");
 }
 
 /**

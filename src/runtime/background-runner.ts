@@ -892,10 +892,28 @@ async function main(): Promise<void> {
 		if (manifest.status === "failed" || manifest.status === "cancelled" || manifest.status === "blocked") process.exitCode = 1;
 	} catch (error) {
 		// Terminate live agents on failure too — agents are done when the run fails
+		const message = errorMessage(error);
 		try {
-			const loaded = withRunLockSync(manifest, () => loadRunManifestById(cwd, runId), { staleMs: 30_000 }); // Use withRunLockSync to prevent race with concurrent writers (e.g., stale reconciler)
-			// between the read and the subsequent save.
-			const manifestToUse = loaded?.manifest ?? manifest;
+			// R14-2: re-read INSIDE the lock and derive the failed-status write from the
+			// FRESH manifest. The outer `manifest` is a pre-throw snapshot — using it
+			// here could flip a concurrently completed/cancelled run back to "failed"
+			// (updateRunStatus validates against the fresh on-disk status; an illegal
+			// flip throws and is swallowed by the best-effort catch below). Keeping the
+			// write inside withRunLockSync prevents race with concurrent writers
+			// (e.g., stale reconciler) between the read and the subsequent save.
+			const manifestToUse = withRunLockSync(manifest, () => {
+				const loaded = loadRunManifestById(cwd, runId);
+				const fresh = loaded?.manifest ?? manifest;
+				if (fresh) {
+					manifest = updateRunStatus(fresh, "failed", message);
+					appendEvent(manifest.eventsPath, {
+						type: "async.failed",
+						runId: manifest.runId,
+						message,
+					});
+				}
+				return fresh;
+			}, { staleMs: 30_000 });
 			if (manifestToUse) {
 				// LAZY: live-agent-manager only needed on failure cleanup path; avoid module load at hot path.
 				const { terminateLiveAgentsForRun } = await import("./live-session/live-agent-manager.ts");
@@ -906,13 +924,6 @@ async function main(): Promise<void> {
 		} catch {
 			/* best-effort */
 		}
-		const message = errorMessage(error);
-		manifest = updateRunStatus(manifest, "failed", message);
-		appendEvent(manifest.eventsPath, {
-			type: "async.failed",
-			runId: manifest.runId,
-			message,
-		});
 		process.exitCode = 1;
 		console.log(`[background-runner] catch block, error=${errorMessage(error)}`);
 	} finally {

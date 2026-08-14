@@ -3,6 +3,7 @@ import { loadConfig } from "../../config/config.ts";
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
@@ -112,15 +113,42 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 			return;
 		const liveness = checkProcessLiveness(pid);
 		if (liveness.alive) return;
-		const tail = tailFile(logPath);
-		const message = `Background runner exited within 3s; see background.log${tail ? `\n${tail}` : ""}`;
-		const failed = updateRunStatus(loaded.manifest, "failed", "Background runner exited within 3s; see background.log");
-		void appendEventAsync(failed.eventsPath, {
-			type: "async.failed",
-			runId: failed.runId,
-			message,
-			data: { pid, detail: liveness.detail },
-		});
+		// R14-3 (Round 14): stale-snapshot RMW — the failed-status write used the
+		// pre-lock `loaded` snapshot, so a concurrent non-terminal write (e.g.
+		// runtime.resolved) could be clobbered. Re-read fresh inside the run lock
+		// and re-verify the guard checks so a run that completed/cancelled since
+		// the initial load is not flipped to failed.
+		try {
+			withRunLockSync(loaded.manifest, () => {
+				const fresh = loadRunManifestById(cwd, runId);
+				if (!fresh) return;
+				if (!isActiveRunStatus(fresh.manifest.status)) return;
+				if (hasAsyncStartMarker(fresh.manifest)) return;
+				if (
+					readEventsCursor(fresh.manifest.eventsPath).events.some(
+						(event) => event.type === "async.started" || event.type === "async.completed" || event.type === "async.failed",
+					)
+				)
+					return;
+				const tail = tailFile(logPath);
+				const message = `Background runner exited within 3s; see background.log${tail ? `\n${tail}` : ""}`;
+				const failed = updateRunStatus(fresh.manifest, "failed", "Background runner exited within 3s; see background.log");
+				void appendEventAsync(failed.eventsPath, {
+					type: "async.failed",
+					runId: failed.runId,
+					message,
+					data: { pid, detail: liveness.detail },
+				});
+			});
+		} catch (error) {
+			// One-shot unref'd timer — a lock-contention error must not escape and
+			// crash the process; the owning session's poll will surface the failure.
+			logInternalError(
+				"team-tool.run.earlyExitGuard",
+				error instanceof Error ? error : new Error(String(error)),
+				`runId=${runId}`,
+			);
+		}
 	}, 3000);
 	timer.unref();
 }

@@ -362,6 +362,13 @@ export class CrewBroker {
 	// ------------------------------------------------------------------------
 
 	private async handleConnection(sock: net.Socket): Promise<void> {
+		// B1 (Round 14): a connection event queued after stop() must not be
+		// processed — the broker is shutting down and the token registry is
+		// already cleared. Destroy (not end) since the server is stopping.
+		if (this.stopped) {
+			sock.destroy();
+			return;
+		}
 		const conn: ServerConnection = {
 			socket: sock,
 			decoder: new NdjsonDecoder(),
