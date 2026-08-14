@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { clearHooks, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
+import { clearHooksScoped, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
 import type { HookContext, HookDefinition } from "../../../src/hooks/types.ts";
 
 function makeCtx(overrides?: Partial<HookContext>): HookContext {
@@ -13,7 +13,7 @@ function makeCtx(overrides?: Partial<HookContext>): HookContext {
 
 describe("registerHook / getHooks", () => {
 	beforeEach(() => {
-		clearHooks();
+		clearHooksScoped();
 	});
 
 	it("registers and retrieves hooks by name", () => {
@@ -47,9 +47,9 @@ describe("registerHook / getHooks", () => {
 	});
 });
 
-describe("clearHooks", () => {
+describe("clearHooksScoped", () => {
 	beforeEach(() => {
-		clearHooks();
+		clearHooksScoped();
 	});
 
 	it("removes all registered hooks", () => {
@@ -63,7 +63,7 @@ describe("clearHooks", () => {
 			mode: "non_blocking",
 			handler: () => ({ outcome: "allow" }),
 		});
-		clearHooks();
+		clearHooksScoped();
 		assert.equal(getHooks("before_run_start").length, 0);
 		assert.equal(getHooks("after_run_complete").length, 0);
 	});
@@ -71,7 +71,7 @@ describe("clearHooks", () => {
 
 describe("executeHook", () => {
 	beforeEach(() => {
-		clearHooks();
+		clearHooksScoped();
 	});
 
 	it("returns allow when no hooks registered", async () => {

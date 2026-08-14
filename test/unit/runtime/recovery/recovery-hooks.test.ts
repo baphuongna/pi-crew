@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { clearHooks, registerHook } from "../../../../src/hooks/registry.ts";
+import { clearHooksScoped, registerHook } from "../../../../src/hooks/registry.ts";
 import { applyRecoveryPlan, declineRecoveryPlan } from "../../../../src/runtime/recovery/crash-recovery.ts";
 import { readEvents } from "../../../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
@@ -40,8 +40,8 @@ function createRecoveryRun(ownerSessionId = "session-a"): {
 }
 
 describe("run_recovery hook", () => {
-	beforeEach(() => clearHooks());
-	afterEach(() => clearHooks());
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
 
 	it("allows recovery when hook outcome is allow", async () => {
 		const run = createRecoveryRun();

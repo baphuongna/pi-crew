@@ -48,16 +48,6 @@ export function buildTaskGraphIndex(tasks: TeamTaskState[]): TaskGraphIndex {
 	return fresh;
 }
 
-/** Test/diagnostic helper — invalidate the WeakMap-backed index cache. Not
- *  used by production code paths; the WeakMap self-invalidates when a tasks
- *  array goes out of scope. Provided for parity with `clearStablePrefixCache`. */
-export function clearTaskGraphIndexCache(): void {
-	// WeakMap has no `.clear()`; rely on GC. Exposed as a no-op stub so callers
-	// that import `clearStablePrefixCache` (also a no-op stub for symmetry) can
-	// adopt a parallel API if needed in the future. Documented as no-op rather
-	// than removed so the API stays discoverable.
-}
-
 function taskById(tasks: TeamTaskState[]): Map<string, TeamTaskState> {
 	return new Map(tasks.map((task) => [task.id, task]));
 }

@@ -10,7 +10,7 @@ import * as fs from "node:fs";
  * caused a permanent interactive-session busy-loop. The bounded
  * {@link RunWatcherRegistry} (one non-recursive watcher per ACTIVE run) now
  * replaces them. Only the two primitives below survive — they are still used by
- * manifest-cache, result-watcher, and run-watcher-registry.
+ * manifest-cache and run-watcher-registry.
  */
 
 export function closeWatcher(watcher: FSWatcher | null | undefined): void {

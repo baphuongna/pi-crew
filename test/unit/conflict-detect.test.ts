@@ -19,7 +19,7 @@ import {
 	scanFileForConflicts,
 	scanFileForConflictsSync,
 	spliceConflict,
-} from "../../src/utils/conflict-detect.ts";
+} from "../helpers/conflict-detect.ts";
 
 function tempFile(content: string): string {
 	const tmp = path.join(os.tmpdir(), `pi-crew-conflict-test-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { handleCancel } from "../../../../src/extension/team-tool/cancel.ts";
 import { handleCleanup, handleForget } from "../../../../src/extension/team-tool/lifecycle-actions.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
-import { clearHooks, registerHook } from "../../../../src/hooks/registry.ts";
+import { clearHooksScoped, registerHook } from "../../../../src/hooks/registry.ts";
 import { readEvents } from "../../../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 
@@ -42,8 +42,8 @@ function createRun(ownerSessionId = "session-a"): {
 }
 
 describe("before_cancel hook", () => {
-	beforeEach(() => clearHooks());
-	afterEach(() => clearHooks());
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
 
 	it("allows cancel when hook outcome is allow", async () => {
 		const run = createRun();
@@ -111,8 +111,8 @@ describe("before_cancel hook", () => {
 });
 
 describe("before_forget hook", () => {
-	beforeEach(() => clearHooks());
-	afterEach(() => clearHooks());
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
 
 	it("allows forget when hook outcome is allow", async () => {
 		const run = createRun();
@@ -155,8 +155,8 @@ describe("before_forget hook", () => {
 });
 
 describe("before_cleanup hook", () => {
-	beforeEach(() => clearHooks());
-	afterEach(() => clearHooks());
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
 
 	it("allows cleanup when hook outcome is allow", async () => {
 		const run = createRun();

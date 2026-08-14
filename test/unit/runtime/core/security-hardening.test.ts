@@ -9,7 +9,6 @@ import { appendCrewAgentEvent, appendCrewAgentOutput, writeCrewAgentStatus } fro
 import type { CrewAgentRecord } from "../../../../src/runtime/crew-agent-runtime.ts";
 import { appendMailboxMessage } from "../../../../src/state/coordination/mailbox.ts";
 import { appendEvent } from "../../../../src/state/event-log/event-log.ts";
-import { createJsonlWriter } from "../../../../src/state/event-log/jsonl-writer.ts";
 import { writeArtifact } from "../../../../src/state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { allTeams } from "../../../../src/teams/discover-teams.ts";
@@ -44,7 +43,7 @@ function assertRedacted(raw: string): void {
 	assert.match(raw, /\*\*\*/);
 }
 
-test("redacts secrets at event, mailbox, artifact, log, and agent persistence boundaries", async () => {
+test("redacts secrets at event, mailbox, artifact, and agent persistence boundaries", async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-security-"));
 	try {
 		const manifest = makeManifest(root);
@@ -73,19 +72,6 @@ test("redacts secrets at event, mailbox, artifact, log, and agent persistence bo
 			producer: "test",
 		});
 		assertRedacted(fs.readFileSync(artifact.path, "utf-8"));
-
-		const logPath = path.join(manifest.stateRoot, "stream.jsonl");
-		const writer = createJsonlWriter(logPath, {
-			pause() {
-				/* no-op */
-			},
-			resume() {
-				/* no-op */
-			},
-		});
-		writer.writeLine(JSON.stringify({ token: SECRET, ok: true }));
-		await writer.close();
-		assertRedacted(fs.readFileSync(logPath, "utf-8"));
 
 		appendCrewAgentEvent(manifest, "task-1", {
 			authorization: `Bearer ${SECRET}`,

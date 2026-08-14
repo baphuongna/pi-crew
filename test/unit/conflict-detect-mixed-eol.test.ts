@@ -12,7 +12,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { scanConflictLines, spliceConflict } from "../../src/utils/conflict-detect.ts";
+import { scanConflictLines, spliceConflict } from "../helpers/conflict-detect.ts";
 
 const CRLF = "\r\n";
 const LF = "\n";
