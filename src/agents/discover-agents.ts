@@ -406,9 +406,9 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 		// so the agent will behave as `fresh` regardless of the setting.
 		// We warn (not throw) so existing configs that predate live-session
 		// keep working. Deduped per-filePath so we don't spam on cache
-		// reload. Use console.warn (no logger hook here yet; a future
-		// refactor could pipe through the same log channel as
-		// logInternalError below).
+		// reload. User-facing config notice (kept on console.warn deliberately
+		// so the user sees it in the interactive session; internal failures
+		// below use logInternalError).
 		if (contextMode === "fork" && !warnedForkAgents.has(filePath)) {
 			console.warn(
 				"contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-flow.md.",
@@ -494,7 +494,7 @@ function readAgentDir(dir: string, source: ResourceSource): AgentConfig[] {
 			try {
 				const stat = fs.statSync(fullPath);
 				if (stat.size > MAX_AGENT_FILE_BYTES) {
-					console.warn(`[pi-crew] Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`);
+					logInternalError("discover-agents", new Error(`Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`), undefined, "warn");
 					return undefined;
 				}
 			} catch {

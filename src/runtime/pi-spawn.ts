@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { logInternalError } from "../utils/internal-error.ts";
 
 export interface PiSpawnCommand {
 	command: string;
@@ -240,7 +241,7 @@ function validateExplicitBin(explicit: string): string | undefined {
 		}
 	} catch (e) {
 		if (e instanceof Error && e.message.includes("allowed prefixes")) throw e;
-		console.error("[pi-spawn] validateExplicitBin: unexpected realpathSync error:", e);
+		logInternalError("pi-spawn", e, "validateExplicitBin: unexpected realpathSync error", "error");
 		return undefined;
 	}
 	return resolved;

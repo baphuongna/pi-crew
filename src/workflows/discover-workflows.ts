@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ResourceSource } from "../agents/agent-config.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { packageRoot, projectCrewRoot, userPiRoot } from "../utils/paths.ts";
 import type { WorkflowConfig, WorkflowStep } from "./workflow-config.ts";
 
@@ -155,8 +156,14 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 				// runtime, but stripping here prevents the script value from even reaching
 				// downstream consumers (coalesce-tasks, policy-engine, etc.).
 				if (source === "project" && step.preStepScript) {
-					console.warn(
-						`[discover-workflows] Stripping preStepScript from project workflow '${name}' step '${step.id}': '${step.preStepScript}' (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`,
+					// F-02 redaction: NEVER log the preStepScript body — project workflows
+					// are untrusted input and the script may contain secrets. Log name,
+					// step id, and script length only.
+					logInternalError(
+						"discover-workflows",
+						new Error(`Stripping preStepScript from project workflow '${name}' step '${step.id}' — script body redacted (${step.preStepScript.length} chars) (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`),
+						undefined,
+						"warn",
 					);
 					step.preStepScript = undefined;
 					step.preStepArgs = undefined;

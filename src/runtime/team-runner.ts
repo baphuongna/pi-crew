@@ -144,7 +144,7 @@ function perfScriptPath(scriptName: string): string | undefined {
 	}
 }
 
-function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig): void {
+function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig, signal?: AbortSignal): void {
 	// DIRECT fs marker (console may be swallowed by the host) — every branch
 	// writes artifacts/<runId>/perf-obs.log with the exact reason.
 	const marker = (msg: string): void => {
@@ -186,7 +186,7 @@ function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig): void {
 				"--out",
 				outPath,
 			],
-			{ detached: true, stdio: ["ignore", "ignore", "pipe"] },
+			{ detached: true, stdio: ["ignore", "ignore", "pipe"], signal },
 		);
 		// diagnostics: sampler stderr → perf-obs.log (best-effort; never affects the run)
 		child.stderr?.on("data", (d: Buffer) => {
@@ -198,11 +198,15 @@ function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig): void {
 		});
 		child.unref();
 	} catch (err) {
-		console.warn(`[perf-obs] sampler spawn failed for ${manifest.runId}: ${String(err)}`);
+		// R11-4 (LOW, §ROUND 11): sampler linger-orphan hardening — pass the run
+		// AbortSignal so the detached sampler dies on run teardown, not just on
+		// parent death. ROUND 12: console → logInternalError, explicit "warn"
+		// severity (default "debug" would be PI_TEAMS_DEBUG-gated and hide this).
+		logInternalError("team-runner.perf-sampler.spawn-failed", err, `runId=${manifest.runId}`, "warn");
 	}
 }
 
-function schedulePerfAnalyze(manifest: TeamRunManifest, team: TeamConfig): void {
+function schedulePerfAnalyze(manifest: TeamRunManifest, team: TeamConfig, signal?: AbortSignal): void {
 	// Strict true — same test-isolation rationale as startPerfSampler.
 	if (team.observability !== true) return;
 	const analyzePath = perfScriptPath("analyze-run.mjs");
@@ -217,11 +221,13 @@ function schedulePerfAnalyze(manifest: TeamRunManifest, team: TeamConfig): void 
 			const child = spawn(
 				process.execPath,
 				["--experimental-strip-types", analyzePath, manifest.runId, "--crew-root", crewRoot, "--resources", resourcesPath],
-				{ detached: true, stdio: "ignore" },
+				{ detached: true, stdio: "ignore", signal },
 			);
 			child.unref();
 		} catch (err) {
-			console.warn(`[perf-obs] analyze spawn failed for ${manifest.runId}: ${String(err)}`);
+			// R11-4 (LOW, §ROUND 11): same abort-kill hardening as the sampler.
+			// ROUND 12: console → logInternalError, explicit "warn" severity.
+			logInternalError("team-runner.perf-analyze.spawn-failed", err, `runId=${manifest.runId}`, "warn");
 		}
 	}, OBSERVABILITY_ANALYZE_DELAY_MS);
 	timer.unref();
@@ -870,8 +876,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 	const stopTeamHeartbeat = startTeamRunHeartbeat(manifest.stateRoot, manifest.runId);
 	// Perf observability: auto-attach the resource sampler for this run (toggle:
 	// team frontmatter `observability: false`). Detached + unref'd — the sampler
-	// auto-stops when the runner dies, so no explicit cleanup needed.
-	startPerfSampler(manifest, input.team);
+	// auto-stops when the runner dies, so no explicit cleanup needed. R11-4:
+	// input.signal is threaded so run teardown/cancel also kills the sampler.
+	startPerfSampler(manifest, input.team, input.signal);
 
 	const cleanupUsage = (): void => {
 		for (const task of input.tasks) clearTrackedTaskUsage(task.id);
@@ -955,8 +962,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// before manifest updates are observed by readers.
 		await flushEventLogBuffer();
 		// Perf observability: emit the post-run perf report (detached, delayed so
-		// child transcripts are flushed). Never affects run outcome.
-		schedulePerfAnalyze(manifest, input.team);
+		// child transcripts are flushed). Never affects run outcome. R11-4: thread
+		// input.signal so the analyze child dies on run teardown too.
+		schedulePerfAnalyze(manifest, input.team, input.signal);
 		return result;
 	} catch (error) {
 		// Round 27 (BUG 1): the success path calls stopTeamHeartbeat() but this
@@ -2118,7 +2126,9 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 
 		if (budgetCheck.abort) {
 			const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
-			console.warn(`[team-runner] ${message}`);
+			// ROUND 12: console → logInternalError with explicit "warn" severity
+			// (run-termination event — operator channel; default "debug" is gated).
+			logInternalError("team-runner.budget-abort", new Error(message), `runId=${manifest.runId}`, "warn");
 			await appendEventAsync(manifest.eventsPath, {
 				type: "run.budget_abort",
 				runId: manifest.runId,
@@ -2143,7 +2153,8 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 
 		if (budgetCheck.warning) {
 			const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round((budgetCheck.totalUsed / input.budgetTotal) * 100)}%)`;
-			console.warn(`[team-runner] ${message}`);
+			// ROUND 12: console → logInternalError, explicit "warn" severity.
+			logInternalError("team-runner.budget-warning", new Error(message), `runId=${manifest.runId}`, "warn");
 			await appendEventAsync(manifest.eventsPath, {
 				type: "run.budget_warning",
 				runId: manifest.runId,
@@ -2164,7 +2175,8 @@ async function enforceRunBudget(ctx: SchedulerContext): Promise<SchedulerDecisio
 			if (!violator) continue;
 			const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
 			const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round((taskTotal / input.budgetTotal) * 100)}% of total budget) — exceeds fair share`;
-			console.warn(`[team-runner.fair-share] ${message}`);
+			// ROUND 12: console → logInternalError, explicit "warn" severity.
+			logInternalError("team-runner.fair-share", new Error(message), `runId=${manifest.runId} taskId=${violatorId}`, "warn");
 			fairShareAppends.push(
 				appendEventAsync(manifest.eventsPath, {
 					type: "task.budget_fair_share",

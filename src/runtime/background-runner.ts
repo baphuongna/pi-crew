@@ -10,6 +10,7 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { errorMessage } from "../utils/guards.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
+import { assertSafePathId } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 // Heavy runtime — lazy-loaded to avoid pulling team-runner into background-runner
 // at module load time. Only needed when a background run actually starts.
@@ -410,6 +411,13 @@ async function main(): Promise<void> {
 	const _cwd = argValue("--cwd");
 	const _runId = argValue("--run-id");
 	if (_cwd && _runId) {
+		// R11-2 (LOW, §ROUND 11 security hardening): assert the argv-supplied
+		// runId at the argValue boundary BEFORE any path construction — the
+		// background.log join would otherwise embed an untrusted runId (future
+		// user-supplied --resume) → path traversal outside the run root. Throws
+		// at startup for unsafe ids (intended fail-fast; placed OUTSIDE the
+		// best-effort try/catch so the hardening is never silently swallowed).
+		assertSafePathId("runId", _runId);
 		try {
 			// Use projectCrewRoot() so the background log lives next to the
 			// manifest in either .crew/state/runs/ or .pi/teams/state/runs/
@@ -464,6 +472,10 @@ async function main(): Promise<void> {
 		const cwd = argValue("--cwd");
 		const runId = argValue("--run-id");
 		if (!cwd || !runId) return undefined;
+		// R11-2 (LOW, §ROUND 11): same argv boundary hardening as main() — this
+		// IIFE runs at MODULE LOAD, so an unsafe runId throws before the runner
+		// starts (intended fail-fast, matching run-import.ts:105 pattern).
+		assertSafePathId("runId", runId);
 		// Use projectCrewRoot() to honour the .pi/teams/ fallback (issue #29).
 		return path.join(projectCrewRoot(cwd), "state", "runs", runId, "exit-code.txt");
 	})();

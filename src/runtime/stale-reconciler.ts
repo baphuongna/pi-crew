@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
 import { loadManifestWithRecovery, loadTasksWithRecovery, saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -546,14 +547,14 @@ export function reconcileOrphanedTempWorkspaces(
 						// Note: manifestPath here refers to the variable defined in the
 						// for loop at line 442 (outer scope of this catch block).
 						const scanManifestPath = manifestPath;
-						console.warn(`[stale-reconciler] Skipping manifest due to parse error: ${scanManifestPath}: ${err}`);
+						logInternalError("stale-reconciler", new Error(`Skipping manifest due to parse error: ${scanManifestPath}: ${err}`), undefined, "warn");
 					}
 				}
 			} catch (err) {
 				// Cannot determine running state — treat as if running to prevent
 				// premature cleanup of a potentially active workspace.
 				hasRunning = true;
-				console.warn(`[stale-reconciler] Skipping unreadable runs dir: ${stateRunsDir}: ${err}`);
+				logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err}`), undefined, "warn");
 			}
 
 			// Post-loop: check if this workspace dir can be cleaned up.
@@ -617,7 +618,7 @@ export function reconcileOrphanedTempWorkspaces(
 							}
 						}
 					} catch (err) {
-						console.warn(`[stale-reconciler] Skipping unreadable runs dir: ${stateRunsDir}: ${err}`);
+						logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err}`), undefined, "warn");
 					}
 				}
 			}

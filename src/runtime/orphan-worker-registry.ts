@@ -201,7 +201,7 @@ function readRegistry(): OrphanWorkerEntry[] {
 		}
 		// Silent failure is deliberate for robustness (registry read failures
 		// shouldn't crash the process), but log at warning level to aid troubleshooting.
-		console.warn(`[orphan-worker-registry] readRegistry failed: ${error}`);
+		logInternalError("orphan-worker-registry", new Error(`readRegistry failed: ${error}`), undefined, "warn");
 		return [];
 	}
 }

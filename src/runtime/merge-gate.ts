@@ -13,6 +13,7 @@
  */
 import { TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, type TeamTaskStatus } from "../state/contracts.ts";
 import type { TeamTaskState } from "../state/types.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { refreshTaskGraphQueues } from "./scheduling/task-graph-scheduler.ts";
 
 export function isNonTerminalTaskStatus(status: TeamTaskState["status"]): boolean {
@@ -123,7 +124,7 @@ export function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskS
 		// Malformed finishedAt (NaN) is treated as Infinity — invalid state should be
 		// replaced rather than persisting corruption. Log warning for visibility.
 		if (!Number.isFinite(currentTime)) {
-			console.warn(`[merge-gate] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
+			logInternalError("merge-gate", new Error(`Task ${current.id} has malformed finishedAt: ${current.finishedAt}`), undefined, "warn");
 		}
 		if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
 			return true;
