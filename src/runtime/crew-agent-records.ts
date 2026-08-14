@@ -155,7 +155,7 @@ function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 	const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
 	while (true) {
 		try {
-			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
 			try {
 				fs.writeSync(
 					fd,

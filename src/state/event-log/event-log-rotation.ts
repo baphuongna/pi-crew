@@ -423,7 +423,7 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		//     our rename and here, we leave their data intact (EEXIST → skip).
 		fs.renameSync(eventsPath, archivePath);
 		try {
-			const fd = fs.openSync(eventsPath, "wx", 0o644);
+			const fd = fs.openSync(eventsPath, "wx", 0o600);
 			fs.closeSync(fd);
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;

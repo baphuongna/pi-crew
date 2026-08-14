@@ -69,7 +69,7 @@ function withRegistryLock<T>(fn: () => T): T {
 	const deadline = Date.now() + 10_000;
 	while (true) {
 		try {
-			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
 			try {
 				fs.writeSync(
 					fd,
