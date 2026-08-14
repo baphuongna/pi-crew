@@ -800,6 +800,12 @@ Returns `status: "error"` when the run finished as `failed`.
 > ⚠️ **Internal / experimental.** Queues a steering message that is delivered to
 > a task's worker session on its next turn. The message is appended to
 > `pendingSteers` and also written to a live steering file for immediate delivery.
+>
+> **Note (Phase 1.3, 2026-08-14):** the agent-level tools `steer_subagent` /
+> `crew_agent_steer` are **planned, not implemented** — they return a
+> `steer.unavailable` stub because the subagent record has no `taskId` linkage
+> to the live run's steering file. Use this `team action=steer`
+> (`runId` + `taskId` + `message`) for the working run-level steering path.
 
 ```json
 {
