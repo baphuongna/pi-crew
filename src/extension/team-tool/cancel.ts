@@ -25,12 +25,16 @@ import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 const RETRYABLE_STATUSES: ReadonlySet<string> = new Set(["failed", "cancelled"]);
 
 /**
- * Pure pre-lock decision for `action='retry'`: a run whose manifest status is
- * "completed" (terminal success) and has no retryable tasks has nothing to
- * retry. Returns true so the caller short-circuits with a clear message
- * BEFORE acquiring the run lock — avoiding a misleading
- * "run.lock is locked by another operation" error from a stale lock file left
- * behind by a completed async run (finding #4, real-test-2026-08-10-full-9-tier).
+ * Decision for `action='retry'`: a run whose manifest status is "completed"
+ * (terminal success) and has no retryable tasks has nothing to retry. Returns
+ * true so the caller short-circuits with a clear message instead of retrying.
+ *
+ * R13-3 fold: the caller MUST evaluate this on FRESH state read INSIDE the
+ * run lock — a pre-lock decision on a best-effort snapshot could wrongly
+ * refuse a run that was re-queued/failed on disk (finding #4,
+ * real-test-2026-08-10-full-9-tier). Kept as a short-circuit so a completed
+ * async run does not surface a misleading "run.lock is locked by another
+ * operation" error from a stale lock file left behind by that run.
  *
  * Exported for unit testing (handleRetry itself needs filesystem state).
  */
@@ -148,22 +152,30 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 
 	const targetTaskId = typeof params.taskId === "string" ? params.taskId : undefined;
 
-	// Pre-lock terminal-status check: a completed run has nothing to retry.
-	// Short-circuit BEFORE acquiring the run lock so a stale lock file left by a
-	// completed async run does not surface a misleading "run.lock is locked by
-	// another operation" error (finding #4 in real-test-2026-08-10-full-9-tier).
-	if (retryShortCircuitsCompleted(loaded.manifest.status, loaded.tasks, targetTaskId)) {
-		return result(
-			`Run ${loaded.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
-			{ action: "retry", status: "error", runId: loaded.manifest.runId },
-			true,
-		);
-	}
-
 	return withRunLockSync(loaded.manifest, () => {
+		// R13-1 (2026-08-14): fresh re-read INSIDE the lock. `loaded` was captured
+		// lock-free BEFORE the unbounded before_retry hook gap; a concurrent writer
+		// may have completed the run or re-queued tasks on disk. All decisions and
+		// writes below derive from `fresh` — never from the stale `loaded` snapshot.
+		const fresh = loadRunManifestById(loaded.manifest.cwd, params.runId!); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "retry", status: "error" }, true);
+
+		// Terminal-status check on FRESH in-lock state (R13-3 fold): a completed
+		// run has nothing to retry. Short-circuit with a clear message instead of
+		// surfacing a misleading "run.lock is locked by another operation" error
+		// from a stale lock file left by a completed async run (finding #4 in
+		// real-test-2026-08-10-full-9-tier).
+		if (retryShortCircuitsCompleted(fresh.manifest.status, fresh.tasks, targetTaskId)) {
+			return result(
+				`Run ${fresh.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
+				{ action: "retry", status: "error", runId: fresh.manifest.runId },
+				true,
+			);
+		}
+
 		const retryableStatuses: ReadonlySet<string> = new Set(["failed", "cancelled"]);
 
-		const matchingTasks = loaded.tasks.filter((task) => {
+		const matchingTasks = fresh.tasks.filter((task) => {
 			if (targetTaskId && task.id !== targetTaskId) return false;
 			return retryableStatuses.has(task.status);
 		});
@@ -174,26 +186,26 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 				{
 					action: "retry",
 					status: "error",
-					runId: loaded.manifest.runId,
+					runId: fresh.manifest.runId,
 				},
 				true,
 			);
 		}
 
 		const retriedIds = new Set(matchingTasks.map((t) => t.id));
-		const tasks = loaded.tasks.map((task) => {
+		const tasks = fresh.tasks.map((task) => {
 			if (!retriedIds.has(task.id)) return task;
 			const { error: _error, finishedAt: _finishedAt, terminalEvidence: _terminalEvidence, ...rest } = task;
 			return { ...rest, status: "queued" as const };
 		});
-		saveRunTasks(loaded.manifest, tasks);
+		saveRunTasks(fresh.manifest, tasks);
 		try {
 			saveCrewAgents(
-				loaded.manifest,
-				tasks.map((task) => recordFromTask(loaded.manifest, task, "child-process")),
+				fresh.manifest,
+				tasks.map((task) => recordFromTask(fresh.manifest, task, "child-process")),
 			);
 		} catch (error) {
-			logInternalError("team-tool.handleRetry.crewAgents", error, `runId=${loaded.manifest.runId}`);
+			logInternalError("team-tool.handleRetry.crewAgents", error, `runId=${fresh.manifest.runId}`);
 		}
 
 		const retriedTaskIds = [...retriedIds];
@@ -201,27 +213,27 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 			// H1 (2026-08-10): inside a sync run-lock callback — cannot await;
 			// fire-and-forget async. task.retried is informational; the queued
 			// status is the authoritative record in tasks.json.
-			void appendEventAsync(loaded.manifest.eventsPath, {
+			void appendEventAsync(fresh.manifest.eventsPath, {
 				type: "task.retried",
-				runId: loaded.manifest.runId,
+				runId: fresh.manifest.runId,
 				taskId,
 				message: `Task ${taskId} queued for retry.`,
 			}).catch((error) =>
 				logInternalError(
 					"cancel.retry-event",
 					error instanceof Error ? error : new Error(String(error)),
-					`runId=${loaded.manifest.runId}`,
+					`runId=${fresh.manifest.runId}`,
 				),
 			);
 		}
 
-		if (deps) invalidateSnapshot(loaded.manifest.runId, runCwd, deps);
-		return result(`Retried ${retriedTaskIds.length} task(s) in run ${loaded.manifest.runId}.`, {
+		if (deps) invalidateSnapshot(fresh.manifest.runId, runCwd, deps);
+		return result(`Retried ${retriedTaskIds.length} task(s) in run ${fresh.manifest.runId}.`, {
 			action: "retry",
 			status: "ok",
-			runId: loaded.manifest.runId,
+			runId: fresh.manifest.runId,
 			retriedTaskIds: retriedTaskIds,
-			intent: `retrying ${retriedTaskIds.length} task(s) in ${loaded.manifest.runId}`,
+			intent: `retrying ${retriedTaskIds.length} task(s) in ${fresh.manifest.runId}`,
 		});
 	});
 }
@@ -290,26 +302,35 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 	}
 
 	return withRunLockSync(loaded.manifest, () => {
-		if ((loaded.manifest.status === "completed" || loaded.manifest.status === "cancelled") && params.force !== true)
+		// R13-2 (2026-08-14): fresh re-read INSIDE the lock. `loaded` was captured
+		// lock-free BEFORE the before_cancel hook + live-agent termination gap; a
+		// concurrent writer may have completed the run on disk. The terminal-status
+		// short-circuit and ALL writes below derive from `fresh` — never flip a
+		// terminal status (completed → cancelled) from the stale `loaded` snapshot.
+		const fresh = loadRunManifestById(loaded.manifest.cwd, loaded.manifest.runId); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh)
+			return result(`Run '${loaded.manifest.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "cancel", status: "error" }, true);
+
+		if ((fresh.manifest.status === "completed" || fresh.manifest.status === "cancelled") && params.force !== true)
 			return result(
-				`Run ${loaded.manifest.runId} is already ${loaded.manifest.status}; nothing to cancel. Use force: true to mark it cancelled anyway.`,
+				`Run ${fresh.manifest.runId} is already ${fresh.manifest.status}; nothing to cancel. Use force: true to mark it cancelled anyway.`,
 				{
 					action: "cancel",
 					status: "ok",
-					runId: loaded.manifest.runId,
-					artifactsRoot: loaded.manifest.artifactsRoot,
+					runId: fresh.manifest.runId,
+					artifactsRoot: fresh.manifest.artifactsRoot,
 				},
 			);
 
 		// Classify tasks for foreign-aware cancellation
-		const abortResult = abortOwned(loaded.manifest.runId, undefined, ctx, params.force);
+		const abortResult = abortOwned(fresh.manifest.runId, undefined, ctx, params.force);
 		if (abortResult.abortedIds.length === 0 && abortResult.foreignIds.length > 0 && params.force !== true) {
 			return result(
-				`Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
+				`Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
 				{
 					action: "cancel",
 					status: "error",
-					runId: loaded.manifest.runId,
+					runId: fresh.manifest.runId,
 					foreignIds: abortResult.foreignIds,
 				},
 				true,
@@ -321,7 +342,7 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 		const cancelData = cancelIntent ? { reason: cancelReason.code, intent: cancelIntent } : { reason: cancelReason.code };
 		const cancelMessage = `${cancelReason.message} (${cancelReason.code})`;
 
-		const tasks = loaded.tasks.map((task) => {
+		const tasks = fresh.tasks.map((task) => {
 			if (cancellableIds.has(task.id) && (task.status === "queued" || task.status === "running" || task.status === "waiting")) {
 				const base = {
 					...task,
@@ -342,32 +363,32 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 			}
 			return task;
 		});
-		saveRunTasks(loaded.manifest, tasks);
+		saveRunTasks(fresh.manifest, tasks);
 		try {
 			saveCrewAgents(
-				loaded.manifest,
-				tasks.map((task) => recordFromTask(loaded.manifest, task, loaded.manifest.runtimeResolution?.kind ?? "child-process")),
+				fresh.manifest,
+				tasks.map((task) => recordFromTask(fresh.manifest, task, fresh.manifest.runtimeResolution?.kind ?? "child-process")),
 			);
 		} catch (error) {
-			logInternalError("team-tool.handleCancel.crewAgents", error, `runId=${loaded.manifest.runId}`);
+			logInternalError("team-tool.handleCancel.crewAgents", error, `runId=${fresh.manifest.runId}`);
 		}
 		try {
-			writeForegroundInterruptRequest(loaded.manifest, cancelMessage);
+			writeForegroundInterruptRequest(fresh.manifest, cancelMessage);
 		} catch (error) {
-			logInternalError("team-tool.handleCancel.interruptRequest", error, `runId=${loaded.manifest.runId}`);
+			logInternalError("team-tool.handleCancel.interruptRequest", error, `runId=${fresh.manifest.runId}`);
 		}
-		ctx.abortForegroundRun?.(loaded.manifest.runId);
+		ctx.abortForegroundRun?.(fresh.manifest.runId);
 		for (const taskId of abortResult.abortedIds) {
-			appendEvent(loaded.manifest.eventsPath, {
+			appendEvent(fresh.manifest.eventsPath, {
 				type: "task.cancelled",
-				runId: loaded.manifest.runId,
+				runId: fresh.manifest.runId,
 				taskId,
 				message: cancelMessage,
 				data: cancelData,
 			});
 		}
 		const updated = updateRunStatus(
-			loaded.manifest,
+			fresh.manifest,
 			"cancelled",
 			`${cancelMessage} Already-finished worker processes are not retroactively changed.`,
 			{ data: cancelData },
