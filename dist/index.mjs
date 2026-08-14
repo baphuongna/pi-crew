@@ -9994,6 +9994,8 @@ __export(config_exports, {
   __test__configCacheSize: () => __test__configCacheSize,
   __test__getConfigCacheEntry: () => __test__getConfigCacheEntry,
   __test__getConfigCacheTtlMs: () => __test__getConfigCacheTtlMs,
+  __test__mergeConfig: () => __test__mergeConfig,
+  __test__sanitizeProjectConfig: () => __test__sanitizeProjectConfig,
   __test__setConfigCacheTtlMs: () => __test__setConfigCacheTtlMs,
   asRecord: () => asRecord,
   configPath: () => configPath,
@@ -10968,7 +10970,7 @@ function updateAutonomousConfig(patch) {
     return { path: filePath, config: parseConfig(current), written: true };
   });
 }
-var CONFIG_CACHE_TTL_MS, configCache, configCacheTtlMsOverride, KNOWN_TOP_LEVEL_KEYS, LIMIT_CEILINGS, DANGEROUS_OBJECT_KEYS;
+var CONFIG_CACHE_TTL_MS, configCache, configCacheTtlMsOverride, KNOWN_TOP_LEVEL_KEYS, __test__sanitizeProjectConfig, __test__mergeConfig, LIMIT_CEILINGS, DANGEROUS_OBJECT_KEYS;
 var init_config = __esm({
   "src/config/config.ts"() {
     "use strict";
@@ -10985,6 +10987,8 @@ var init_config = __esm({
     configCache = /* @__PURE__ */ new Map();
     configCacheTtlMsOverride = null;
     KNOWN_TOP_LEVEL_KEYS = Object.keys(PiTeamsConfigSchema.properties ?? {});
+    __test__sanitizeProjectConfig = sanitizeProjectConfig;
+    __test__mergeConfig = mergeConfig;
     LIMIT_CEILINGS = {
       maxConcurrentWorkers: 1024,
       maxTaskDepth: 100,
@@ -11240,7 +11244,7 @@ function validateExplicitBin(explicit) {
     }
   } catch (e) {
     if (e instanceof Error && e.message.includes("allowed prefixes")) throw e;
-    console.error("[pi-spawn] validateExplicitBin: unexpected realpathSync error:", e);
+    logInternalError("pi-spawn", e, "validateExplicitBin: unexpected realpathSync error", "error");
     return void 0;
   }
   return resolved;
@@ -11270,6 +11274,7 @@ var PI_PACKAGE_NAMES, cachedNpmGlobalRoot;
 var init_pi_spawn = __esm({
   "src/runtime/pi-spawn.ts"() {
     "use strict";
+    init_internal_error();
     PI_PACKAGE_NAMES = ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"];
     cachedNpmGlobalRoot = null;
   }
@@ -12007,7 +12012,12 @@ function readAgentDir(dir, source) {
     try {
       const stat2 = fs10.statSync(fullPath);
       if (stat2.size > MAX_AGENT_FILE_BYTES) {
-        console.warn(`[pi-crew] Skipping oversized agent file (${stat2.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`);
+        logInternalError(
+          "discover-agents",
+          new Error(`Skipping oversized agent file (${stat2.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`),
+          void 0,
+          "warn"
+        );
         return void 0;
       }
     } catch {
@@ -12630,8 +12640,13 @@ function parseWorkflowFile(filePath, source) {
       if (step) {
         step.source = source;
         if (source === "project" && step.preStepScript) {
-          console.warn(
-            `[discover-workflows] Stripping preStepScript from project workflow '${name}' step '${step.id}': '${step.preStepScript}' (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`
+          logInternalError(
+            "discover-workflows",
+            new Error(
+              `Stripping preStepScript from project workflow '${name}' step '${step.id}' \u2014 script body redacted (${step.preStepScript.length} chars) (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`
+            ),
+            void 0,
+            "warn"
           );
           step.preStepScript = void 0;
           step.preStepArgs = void 0;
@@ -12741,6 +12756,7 @@ var init_discover_workflows = __esm({
   "src/workflows/discover-workflows.ts"() {
     "use strict";
     init_frontmatter();
+    init_internal_error();
     init_paths();
     STEP_CONFIG_KEYS = /* @__PURE__ */ new Set([
       "role",
@@ -13755,7 +13771,7 @@ function registerActiveRun(manifest) {
 }
 function unregisterActiveRun(runId) {
   if (!isSafePathId(runId)) {
-    console.warn(`unregisterActiveRun: invalid runId ignored: ${runId}`);
+    logInternalError("active-run-registry", new Error(`unregisterActiveRun: invalid runId ignored: ${runId}`), void 0, "warn");
     return;
   }
   withRegistryLock(() => {
@@ -13796,6 +13812,7 @@ var init_active_run_registry = __esm({
   "src/state/stores/active-run-registry.ts"() {
     "use strict";
     init_defaults();
+    init_internal_error();
     init_paths();
     init_safe_paths();
     init_scan_cache();
@@ -19679,8 +19696,13 @@ function shouldPersistTasks(manifest, tasks) {
   if (tasks.length > 0) return true;
   const existing = extractTaskArray(readJsonFile(manifest.tasksPath));
   if (existing.length > 0) {
-    console.warn(
-      `[state-store] refusing to persist empty tasks over ${existing.length} existing task(s) \u2014 possible corrupt-load cascade (runId=${manifest.runId})`
+    logInternalError(
+      "state-store",
+      new Error(
+        `refusing to persist empty tasks over ${existing.length} existing task(s) \u2014 possible corrupt-load cascade (runId=${manifest.runId})`
+      ),
+      void 0,
+      "warn"
     );
     return false;
   }
@@ -19900,8 +19922,13 @@ function migrateTasksFile(parsed, runId) {
     const envelope = parsed;
     const detected = typeof envelope.schemaVersion === "number" ? envelope.schemaVersion : 0;
     if (detected !== CURRENT_TASKS_SCHEMA_VERSION) {
-      console.warn(
-        `[state-store] tasks.json schemaVersion mismatch: expected ${CURRENT_TASKS_SCHEMA_VERSION}, got ${detected}. Run ${runId} may be incompatible.`
+      logInternalError(
+        "state-store",
+        new Error(
+          `tasks.json schemaVersion mismatch: expected ${CURRENT_TASKS_SCHEMA_VERSION}, got ${detected}. Run ${runId} may be incompatible.`
+        ),
+        void 0,
+        "warn"
       );
     }
   }
@@ -19942,8 +19969,13 @@ function loadManifestWithRecovery(manifestPath, runId) {
     return JSON.parse(content);
   } catch {
     quarantineCorruptFile(manifestPath);
-    console.error(
-      `[state-store] STATE-3: manifest.json for run ${runId} is corrupt (unparseable) \u2014 quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`
+    logInternalError(
+      "state-store",
+      new Error(
+        `STATE-3: manifest.json for run ${runId} is corrupt (unparseable) \u2014 quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`
+      ),
+      void 0,
+      "error"
     );
     return void 0;
   }
@@ -20025,14 +20057,24 @@ function loadRunManifestById(cwd, runId) {
     );
   }
   if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-    console.warn(
-      `[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`
+    logInternalError(
+      "state-store",
+      new Error(
+        `Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`
+      ),
+      void 0,
+      "warn"
     );
   }
   if (!manifest && fs28.existsSync(manifestPath)) {
     quarantineCorruptFile(manifestPath);
-    console.error(
-      `[state-store] STATE-3: manifest.json for run ${runId} exists but is unparseable \u2014 quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`
+    logInternalError(
+      "state-store",
+      new Error(
+        `STATE-3: manifest.json for run ${runId} exists but is unparseable \u2014 quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`
+      ),
+      void 0,
+      "error"
     );
     return void 0;
   }
@@ -20107,14 +20149,24 @@ async function loadRunManifestByIdAsync(cwd, runId) {
     );
   }
   if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-    console.warn(
-      `[state-store] Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`
+    logInternalError(
+      "state-store",
+      new Error(
+        `Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`
+      ),
+      void 0,
+      "warn"
     );
   }
   if (!manifest && fs28.existsSync(manifestPath)) {
     quarantineCorruptFile(manifestPath);
-    console.error(
-      `[state-store] STATE-3 async: manifest.json for run ${runId} exists but is unparseable \u2014 quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`
+    logInternalError(
+      "state-store",
+      new Error(
+        `STATE-3 async: manifest.json for run ${runId} exists but is unparseable \u2014 quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`
+      ),
+      void 0,
+      "error"
     );
     return void 0;
   }
@@ -21179,8 +21231,11 @@ function readDeliveryState(manifest) {
     } catch (renameError) {
       logInternalError("mailbox.readDeliveryState.quarantine", renameError, `filePath=${filePath}`);
     }
-    console.error(
-      `[pi-crew:mailbox.readDeliveryState] corrupt delivery.json quarantined to ${quarantinePath} \u2014 delivery state reset to empty; messages may be re-delivered. Error: ${error instanceof Error ? error.message : String(error)}`
+    logInternalError(
+      "mailbox.readDeliveryState",
+      error,
+      `corrupt delivery.json quarantined to ${quarantinePath} \u2014 delivery state reset to empty; messages may be re-delivered`,
+      "error"
     );
     deliveryCache.delete(filePath);
     return { messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
@@ -41639,7 +41694,7 @@ function readRegistry() {
     if (error.code === "ENOENT") {
       return [];
     }
-    console.warn(`[orphan-worker-registry] readRegistry failed: ${error}`);
+    logInternalError("orphan-worker-registry", new Error(`readRegistry failed: ${error}`), void 0, "warn");
     return [];
   }
 }
@@ -45376,12 +45431,17 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
             }
           } catch (err2) {
             const scanManifestPath = manifestPath;
-            console.warn(`[stale-reconciler] Skipping manifest due to parse error: ${scanManifestPath}: ${err2}`);
+            logInternalError(
+              "stale-reconciler",
+              new Error(`Skipping manifest due to parse error: ${scanManifestPath}: ${err2}`),
+              void 0,
+              "warn"
+            );
           }
         }
       } catch (err2) {
         hasRunning = true;
-        console.warn(`[stale-reconciler] Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`);
+        logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`), void 0, "warn");
       }
       const sentinelPath = path51.join(workspaceDir, ".cleanup-in-progress");
       let canCleanup = !hasRunning;
@@ -45420,7 +45480,12 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
               }
             }
           } catch (err2) {
-            console.warn(`[stale-reconciler] Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`);
+            logInternalError(
+              "stale-reconciler",
+              new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`),
+              void 0,
+              "warn"
+            );
           }
         }
       }
@@ -45475,6 +45540,7 @@ var init_stale_reconciler = __esm({
     init_errors3();
     init_atomic_write();
     init_state_store();
+    init_internal_error();
     init_crew_agent_records();
     init_process_status();
     ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1e3;
@@ -50815,7 +50881,12 @@ function shouldMergeTaskUpdate(current, updated) {
     const currentTime = safeFinishedAt(current);
     const updatedTime = safeFinishedAt(updated);
     if (!Number.isFinite(currentTime)) {
-      console.warn(`[merge-gate] Task ${current.id} has malformed finishedAt: ${current.finishedAt}`);
+      logInternalError(
+        "merge-gate",
+        new Error(`Task ${current.id} has malformed finishedAt: ${current.finishedAt}`),
+        void 0,
+        "warn"
+      );
     }
     if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
       return true;
@@ -50856,6 +50927,7 @@ var init_merge_gate = __esm({
   "src/runtime/merge-gate.ts"() {
     "use strict";
     init_contracts();
+    init_internal_error();
     init_task_graph_scheduler();
     REJECTED_STATUS_MERGE_TRANSITIONS = (() => {
       const rejected = /* @__PURE__ */ new Set();
@@ -52672,37 +52744,68 @@ function reasonFor(file, keywords) {
   if (hits.length === 0) return `matched by relevance score (no direct keyword hit in path)`;
   return `keyword match: ${hits.join(", ")}`;
 }
-function runRipgrep(args, cwd) {
+function runRipgrep(args, cwd, opts = {}) {
   return new Promise((resolve25, reject) => {
+    const command = opts.command ?? "rg";
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_RG_TIMEOUT_MS;
+    const maxStdoutBytes = opts.maxStdoutBytes ?? DEFAULT_RG_MAX_STDOUT_BYTES;
     let settled = false;
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let timer;
+    const settleOnce = (fn) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== void 0) clearTimeout(timer);
+      fn();
+    };
     try {
-      const child = spawn4("rg", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn4(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      timer = setTimeout(() => {
+        settleOnce(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+          }
+          reject(new Error(`rg timed out after ${timeoutMs}ms`));
+        });
+      }, timeoutMs);
+      timer.unref();
       child.stdout?.on("data", (chunk) => {
-        stdout += chunk.toString("utf-8");
+        if (settled) return;
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+        stdoutBytes += buf.length;
+        if (stdoutBytes > maxStdoutBytes) {
+          settleOnce(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+            }
+            reject(new Error(`rg stdout exceeded ${maxStdoutBytes} bytes`));
+          });
+          return;
+        }
+        stdout += buf.toString("utf-8");
       });
       child.stderr?.on("data", (chunk) => {
+        if (settled) return;
         stderr += chunk.toString("utf-8");
       });
       child.on("error", (err2) => {
-        if (settled) return;
-        settled = true;
-        reject(err2);
+        settleOnce(() => reject(err2));
       });
       child.on("close", (code) => {
-        if (settled) return;
-        settled = true;
-        if (code === 0 || code === 1) {
-          resolve25(stdout);
-        } else {
-          reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
-        }
+        settleOnce(() => {
+          if (code === 0 || code === 1) {
+            resolve25(stdout);
+          } else {
+            reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
+          }
+        });
       });
     } catch (e) {
-      if (settled) return;
-      settled = true;
-      reject(e);
+      settleOnce(() => reject(e));
     }
   });
 }
@@ -52800,7 +52903,7 @@ function renderSuggestedFilesSection(result4) {
   }
   return lines.join("\n");
 }
-var MAX_CYCLES2, MAX_SUGGESTED_FILES, MIN_SUGGESTED_FILES, STOPWORDS2, RELEVANT_EXTS, cachedRgCheck;
+var MAX_CYCLES2, MAX_SUGGESTED_FILES, MIN_SUGGESTED_FILES, STOPWORDS2, RELEVANT_EXTS, cachedRgCheck, DEFAULT_RG_TIMEOUT_MS, DEFAULT_RG_MAX_STDOUT_BYTES;
 var init_retrieval_orchestrator = __esm({
   "src/runtime/task-runner/retrieval-orchestrator.ts"() {
     "use strict";
@@ -52822,6 +52925,8 @@ var init_retrieval_orchestrator = __esm({
       ".yaml",
       ".yml"
     ]);
+    DEFAULT_RG_TIMEOUT_MS = 3e4;
+    DEFAULT_RG_MAX_STDOUT_BYTES = 10 * 1024 * 1024;
   }
 });
 
@@ -57135,11 +57240,16 @@ var init_preflight_validator = __esm({
 // src/runtime/team-runner.ts
 var team_runner_exports = {};
 __export(team_runner_exports, {
+  __test__advanceWorkflowPhases: () => __test__advanceWorkflowPhases,
   __test__cancelPlanTasks: () => __test__cancelPlanTasks,
+  __test__ensurePlanApprovalRequested: () => __test__ensurePlanApprovalRequested,
   __test__lastProgressContentHash: () => __test__lastProgressContentHash,
   __test__mergeTaskUpdates: () => __test__mergeTaskUpdates,
+  __test__mergeUnitResult: () => __test__mergeUnitResult,
   __test__parseAdaptivePlan: () => __test__parseAdaptivePlan,
   __test__repairAdaptivePlan: () => __test__repairAdaptivePlan,
+  __test__requiresPlanApproval: () => __test__requiresPlanApproval,
+  __test__selectDispatchBatch: () => __test__selectDispatchBatch,
   __test__shouldMergeTaskUpdate: () => __test__shouldMergeTaskUpdate,
   __test__writeProgress: () => __test__writeProgress,
   batchSummarySlug: () => batchSummarySlug,
@@ -57189,7 +57299,7 @@ function perfScriptPath(scriptName) {
     return void 0;
   }
 }
-function startPerfSampler(manifest, team) {
+function startPerfSampler(manifest, team, signal) {
   const marker = (msg) => {
     try {
       fs87.appendFileSync(path72.join(manifest.artifactsRoot, "perf-obs.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
@@ -57226,7 +57336,7 @@ function startPerfSampler(manifest, team) {
         "--out",
         outPath
       ],
-      { detached: true, stdio: ["ignore", "ignore", "pipe"] }
+      { detached: true, stdio: ["ignore", "ignore", "pipe"], signal }
     );
     child.stderr?.on("data", (d) => {
       try {
@@ -57236,10 +57346,10 @@ function startPerfSampler(manifest, team) {
     });
     child.unref();
   } catch (err2) {
-    console.warn(`[perf-obs] sampler spawn failed for ${manifest.runId}: ${String(err2)}`);
+    logInternalError("team-runner.perf-sampler.spawn-failed", err2, `runId=${manifest.runId}`, "warn");
   }
 }
-function schedulePerfAnalyze(manifest, team) {
+function schedulePerfAnalyze(manifest, team, signal) {
   if (team.observability !== true) return;
   const analyzePath = perfScriptPath("analyze-run.mjs");
   const resourcesPath = path72.join(manifest.artifactsRoot, "resources.jsonl");
@@ -57250,11 +57360,11 @@ function schedulePerfAnalyze(manifest, team) {
       const child = spawn6(
         process.execPath,
         ["--experimental-strip-types", analyzePath, manifest.runId, "--crew-root", crewRoot, "--resources", resourcesPath],
-        { detached: true, stdio: "ignore" }
+        { detached: true, stdio: "ignore", signal }
       );
       child.unref();
     } catch (err2) {
-      console.warn(`[perf-obs] analyze spawn failed for ${manifest.runId}: ${String(err2)}`);
+      logInternalError("team-runner.perf-analyze.spawn-failed", err2, `runId=${manifest.runId}`, "warn");
     }
   }, OBSERVABILITY_ANALYZE_DELAY_MS);
   timer.unref();
@@ -57584,7 +57694,7 @@ async function executeTeamRun(input) {
   }
   void registerRunPromise(manifest.runId);
   const stopTeamHeartbeat = startTeamRunHeartbeat(manifest.stateRoot, manifest.runId);
-  startPerfSampler(manifest, input.team);
+  startPerfSampler(manifest, input.team, input.signal);
   const cleanupUsage = () => {
     for (const task of input.tasks) clearTrackedTaskUsage(task.id);
   };
@@ -57650,7 +57760,7 @@ async function executeTeamRun(input) {
       );
     }
     await flushEventLogBuffer();
-    schedulePerfAnalyze(manifest, input.team);
+    schedulePerfAnalyze(manifest, input.team, input.signal);
     return result4;
   } catch (error) {
     stopTeamHeartbeat();
@@ -58360,7 +58470,7 @@ async function enforceRunBudget(ctx) {
     const budgetCheck = checkPerTaskBudget(tasks, input.budgetTotal, warnThreshold, abortThreshold);
     if (budgetCheck.abort) {
       const message = `Per-task budget abort threshold exceeded: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
-      console.warn(`[team-runner] ${message}`);
+      logInternalError("team-runner.budget-abort", new Error(message), `runId=${manifest.runId}`, "warn");
       await appendEventAsync(manifest.eventsPath, {
         type: "run.budget_abort",
         runId: manifest.runId,
@@ -58380,7 +58490,7 @@ async function enforceRunBudget(ctx) {
     }
     if (budgetCheck.warning) {
       const message = `Per-task budget warning threshold crossed: ${formatTokens(budgetCheck.totalUsed)}/${formatTokens(input.budgetTotal)} (${Math.round(budgetCheck.totalUsed / input.budgetTotal * 100)}%)`;
-      console.warn(`[team-runner] ${message}`);
+      logInternalError("team-runner.budget-warning", new Error(message), `runId=${manifest.runId}`, "warn");
       await appendEventAsync(manifest.eventsPath, {
         type: "run.budget_warning",
         runId: manifest.runId,
@@ -58398,7 +58508,7 @@ async function enforceRunBudget(ctx) {
       if (!violator) continue;
       const taskTotal = (violator.usage?.input ?? 0) + (violator.usage?.output ?? 0) + (violator.usage?.cacheWrite ?? 0);
       const message = `Task '${violatorId}' consumed ${formatTokens(taskTotal)} (${Math.round(taskTotal / input.budgetTotal * 100)}% of total budget) \u2014 exceeds fair share`;
-      console.warn(`[team-runner.fair-share] ${message}`);
+      logInternalError("team-runner.fair-share", new Error(message), `runId=${manifest.runId} taskId=${violatorId}`, "warn");
       fairShareAppends.push(
         appendEventAsync(manifest.eventsPath, {
           type: "task.budget_fair_share",
@@ -58744,7 +58854,7 @@ async function executeTeamRunCore(input, manifest, workflow) {
     await drainPendingUnits(pendingUnits, runController);
   }
 }
-var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks;
+var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks, __test__requiresPlanApproval, __test__ensurePlanApprovalRequested, __test__selectDispatchBatch, __test__mergeUnitResult, __test__advanceWorkflowPhases;
 var init_team_runner = __esm({
   "src/runtime/team-runner.ts"() {
     "use strict";
@@ -58798,6 +58908,11 @@ var init_team_runner = __esm({
     __test__lastProgressContentHash = lastProgressContentHash;
     __test__writeProgress = writeProgress;
     __test__cancelPlanTasks = cancelPlanTasks;
+    __test__requiresPlanApproval = requiresPlanApproval;
+    __test__ensurePlanApprovalRequested = ensurePlanApprovalRequested;
+    __test__selectDispatchBatch = selectDispatchBatch;
+    __test__mergeUnitResult = mergeUnitResult;
+    __test__advanceWorkflowPhases = advanceWorkflowPhases;
   }
 });
 
@@ -67900,6 +68015,7 @@ var init_settings_overlay = __esm({
 // src/extension/registration/commands.ts
 var commands_exports = {};
 __export(commands_exports, {
+  __test__setHandleTeamTool: () => __test__setHandleTeamTool,
   openTeamDashboard: () => openTeamDashboard,
   openTeamSettingsOverlay: () => openTeamSettingsOverlay,
   registerTeamCommands: () => registerTeamCommands
@@ -67918,6 +68034,10 @@ async function handleTeamTool5(params, ctx) {
     return fn(params, ctx);
   }
   return _cachedHandleTeamTool4(params, ctx);
+}
+function __test__setHandleTeamTool(fn) {
+  _cachedHandleTeamTool4 = fn;
+  _handleTeamToolPromise = void 0;
 }
 async function ui() {
   if (!_uiCache) {

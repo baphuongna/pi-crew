@@ -35,12 +35,12 @@ import {
 	__test__selectDispatchBatch,
 } from "../../../src/runtime/team-runner.ts";
 import { mergeArtifacts } from "../../../src/runtime/team-runner-artifacts.ts";
+import type { WorkflowStateMachine } from "../../../src/runtime/workflow-state.ts";
 import { readEvents } from "../../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../src/state/stores/state-store.ts";
-import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
+import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
-import type { WorkflowStateMachine } from "../../../src/runtime/workflow-state.ts";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -197,7 +197,12 @@ test("1.9b ensurePlanApprovalRequested: already-present planApproval short-circu
 	try {
 		const withApproval: TeamRunManifest = {
 			...manifest,
-			planApproval: { required: true, status: "approved", requestedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+			planApproval: {
+				required: true,
+				status: "approved",
+				requestedAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
 		};
 		const out = await __test__ensurePlanApprovalRequested(withApproval, [makeTask("a", "assess", "planner", "completed")]);
 		assert.equal(out, withApproval, "must return the SAME object when planApproval already exists");
@@ -209,7 +214,9 @@ test("1.9b ensurePlanApprovalRequested: already-present planApproval short-circu
 test("1.9b ensurePlanApprovalRequested: completed assess task wins as planTaskId", async () => {
 	const { cwd, manifest } = makeRunFixture("plan-assess");
 	try {
-		const assess = makeTask("02_assess", "assess", "planner", "completed", { resultArtifact: { path: "plan.md" } } as Partial<TeamTaskState>);
+		const assess = makeTask("02_assess", "assess", "planner", "completed", {
+			resultArtifact: { path: "plan.md" },
+		} as Partial<TeamTaskState>);
 		const executor = makeTask("03_execute", "execute", "executor", "completed");
 		const out = await __test__ensurePlanApprovalRequested(manifest, [assess, executor]);
 		assert.equal(out.planApproval?.required, true);
@@ -218,7 +225,10 @@ test("1.9b ensurePlanApprovalRequested: completed assess task wins as planTaskId
 		assert.equal(out.planApproval?.planArtifactPath, "plan.md");
 		// event appended
 		const events = readEvents(manifest.eventsPath);
-		assert.ok(events.some((e) => e.type === "plan.approval_required"), "plan.approval_required event must be appended");
+		assert.ok(
+			events.some((e) => e.type === "plan.approval_required"),
+			"plan.approval_required event must be appended",
+		);
 		// persisted to disk
 		const reloaded = loadRunManifestById(cwd, manifest.runId);
 		assert.equal(reloaded?.manifest.planApproval?.required, true);
@@ -269,7 +279,11 @@ test("1.9b selectDispatchBatch: max-batch boundary — cap 2 dispatches exactly 
 	assert.equal(decision.kind, "dispatch");
 	if (decision.kind !== "dispatch") return;
 	assert.equal(decision.batch.length, 2, "batch must be capped at maxConcurrent");
-	assert.deepEqual(decision.batch.map((t) => t.id), ["t1", "t2"], "first ready tasks win, declaration order");
+	assert.deepEqual(
+		decision.batch.map((t) => t.id),
+		["t1", "t2"],
+		"first ready tasks win, declaration order",
+	);
 	assert.equal(decision.concurrency.maxConcurrent, 2);
 	assert.equal(decision.snapshot.ready.length, 4, "snapshot still reports all ready tasks");
 	assert.equal(decision.approvalPending, false);
@@ -298,7 +312,10 @@ test("1.9b selectDispatchBatch: slot release/backpressure — in-flight unit fre
 	assert.equal(decision2.kind, "dispatch");
 	if (decision2.kind !== "dispatch") return;
 	assert.equal(decision2.batch.length, 2, "slot released after unit settles");
-	assert.deepEqual(decision2.batch.map((t) => t.id), ["t1", "t2"]);
+	assert.deepEqual(
+		decision2.batch.map((t) => t.id),
+		["t1", "t2"],
+	);
 });
 
 test("1.9b selectDispatchBatch: approval pending filters out mutating tasks from the batch", async () => {
@@ -314,7 +331,10 @@ test("1.9b selectDispatchBatch: approval pending filters out mutating tasks from
 	if (decision.kind !== "dispatch") return;
 	assert.equal(decision.approvalPending, true);
 	// read-only planner task dispatches; mutating executor task is held back
-	assert.deepEqual(decision.batch.map((t) => t.id), ["t1"]);
+	assert.deepEqual(
+		decision.batch.map((t) => t.id),
+		["t1"],
+	);
 });
 
 // ─── mergeUnitResult (:1925) — merge policy + race ─────────────────
@@ -336,14 +356,19 @@ test("1.9b mergeUnitResult: merges settled unit under run lock (policy + artifac
 		const ctx = makeDispatchCtx(baseTasks, { maxConcurrentWorkers: 2 });
 		ctx.manifest = manifest;
 		ctx.tasks = baseTasks;
-		ctx.pendingUnits = new Map<string, PendingUnitLike>([["u1", makePendingUnit(["a", "b"], { manifest: workerManifest, tasks: workerTasks })]]);
+		ctx.pendingUnits = new Map<string, PendingUnitLike>([
+			["u1", makePendingUnit(["a", "b"], { manifest: workerManifest, tasks: workerTasks })],
+		]);
 
 		const decision = await __test__mergeUnitResult(ctx);
 		assert.equal(decision, null, "merge path returns null (continue)");
 		assert.equal(ctx.pendingUnits.size, 0, "settled unit is removed from pendingUnits");
 		assert.equal(ctx.tasks.find((t) => t.id === "a")?.status, "completed");
 		assert.equal(ctx.tasks.find((t) => t.id === "b")?.status, "running");
-		assert.ok(ctx.manifest.artifacts.some((a) => a.path.endsWith("report.md")), "worker artifact merged into manifest");
+		assert.ok(
+			ctx.manifest.artifacts.some((a) => a.path.endsWith("report.md")),
+			"worker artifact merged into manifest",
+		);
 		assert.equal(ctx.manifest.status, "running", "status recomputed via updateRunStatus");
 		assert.deepEqual(ctx.settledMerge?.taskIds, ["a", "b"]);
 		// persisted
@@ -383,7 +408,11 @@ test("1.9b mergeUnitResult: external cancel on disk survives the merge (CANCEL-1
 test("1.9b advanceWorkflowPhases: phase-transition table (completed → failed → non-terminal blocks)", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-extr-phases-"));
 	try {
-		const manifest = { ...makeInMemoryManifest("run_phases"), eventsPath: path.join(cwd, "events.jsonl"), stateRoot: path.join(cwd, ".crew", "state") };
+		const manifest = {
+			...makeInMemoryManifest("run_phases"),
+			eventsPath: path.join(cwd, "events.jsonl"),
+			stateRoot: path.join(cwd, ".crew", "state"),
+		};
 		const tasks = [
 			makeTask("01_assess", "assess", "planner", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" }),
 			makeTask("02_execute", "execute", "executor", "failed", { finishedAt: "2026-01-01T00:00:02.000Z", error: "boom" }),
@@ -410,9 +439,18 @@ test("1.9b advanceWorkflowPhases: phase-transition table (completed → failed �
 		const events = readEvents(manifest.eventsPath);
 		// NOTE: the emitted event payload carries phaseIndex/phaseStatus in `data`;
 		// the phase NAME is only in the message (characterization of current shape).
-		assert.ok(events.some((e) => e.type === "workflow.phase_completed" && e.message?.includes("assess")), "phase_completed event for assess");
-		assert.ok(events.some((e) => e.type === "workflow.phase_failed" && e.message?.includes("execute")), "phase_failed event for execute");
-		assert.ok(!events.some((e) => e.type === "workflow.phase_completed" && e.message?.includes("verify")), "verify phase must not complete");
+		assert.ok(
+			events.some((e) => e.type === "workflow.phase_completed" && e.message?.includes("assess")),
+			"phase_completed event for assess",
+		);
+		assert.ok(
+			events.some((e) => e.type === "workflow.phase_failed" && e.message?.includes("execute")),
+			"phase_failed event for execute",
+		);
+		assert.ok(
+			!events.some((e) => e.type === "workflow.phase_completed" && e.message?.includes("verify")),
+			"verify phase must not complete",
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -421,7 +459,11 @@ test("1.9b advanceWorkflowPhases: phase-transition table (completed → failed �
 test("1.9b advanceWorkflowPhases: non-terminal first phase → no transition at all", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-extr-phases-blocked-"));
 	try {
-		const manifest = { ...makeInMemoryManifest("run_phases_blocked"), eventsPath: path.join(cwd, "events.jsonl"), stateRoot: path.join(cwd, ".crew", "state") };
+		const manifest = {
+			...makeInMemoryManifest("run_phases_blocked"),
+			eventsPath: path.join(cwd, "events.jsonl"),
+			stateRoot: path.join(cwd, ".crew", "state"),
+		};
 		const tasks = [makeTask("01_assess", "assess", "planner", "queued")];
 		const wfMachine: WorkflowStateMachine = {
 			currentPhaseIndex: 0,
@@ -436,7 +478,11 @@ test("1.9b advanceWorkflowPhases: non-terminal first phase → no transition at 
 		assert.equal(ctx.wfMachine.phases[0]?.status, "pending");
 		assert.equal(ctx.wfMachine.currentPhaseIndex, 0);
 		const events = readEvents(manifest.eventsPath);
-		assert.equal(events.filter((e) => e.type.startsWith("workflow.phase_")).length, 0, "no phase events when the first phase is not terminal");
+		assert.equal(
+			events.filter((e) => e.type.startsWith("workflow.phase_")).length,
+			0,
+			"no phase events when the first phase is not terminal",
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -445,7 +491,11 @@ test("1.9b advanceWorkflowPhases: non-terminal first phase → no transition at 
 test("1.9b advanceWorkflowPhases: guard-blocked phase → phase_guard_blocked + index unchanged", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-extr-phases-guard-"));
 	try {
-		const manifest = { ...makeInMemoryManifest("run_phases_guard"), eventsPath: path.join(cwd, "events.jsonl"), stateRoot: path.join(cwd, ".crew", "state") };
+		const manifest = {
+			...makeInMemoryManifest("run_phases_guard"),
+			eventsPath: path.join(cwd, "events.jsonl"),
+			stateRoot: path.join(cwd, ".crew", "state"),
+		};
 		const tasks = [makeTask("01_execute", "execute", "executor", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" })];
 		// phase declares an input artifact that no completed task produced
 		const wfMachine: WorkflowStateMachine = {
@@ -461,7 +511,10 @@ test("1.9b advanceWorkflowPhases: guard-blocked phase → phase_guard_blocked + 
 		assert.equal(ctx.wfMachine.phases[0]?.status, "pending", "guard failure leaves the phase unchanged");
 		assert.equal(ctx.wfMachine.currentPhaseIndex, 0, "guard failure does not advance the machine");
 		const events = readEvents(manifest.eventsPath);
-		assert.ok(events.some((e) => e.type === "workflow.phase_guard_blocked"), "guard-blocked event must be emitted");
+		assert.ok(
+			events.some((e) => e.type === "workflow.phase_guard_blocked"),
+			"guard-blocked event must be emitted",
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -470,7 +523,11 @@ test("1.9b advanceWorkflowPhases: guard-blocked phase → phase_guard_blocked + 
 test("1.9b advanceWorkflowPhases: phases with no matching tasks are skipped (no transition, no advance)", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-extr-phases-skip-"));
 	try {
-		const manifest = { ...makeInMemoryManifest("run_phases_skip"), eventsPath: path.join(cwd, "events.jsonl"), stateRoot: path.join(cwd, ".crew", "state") };
+		const manifest = {
+			...makeInMemoryManifest("run_phases_skip"),
+			eventsPath: path.join(cwd, "events.jsonl"),
+			stateRoot: path.join(cwd, ".crew", "state"),
+		};
 		const tasks: TeamTaskState[] = [];
 		const wfMachine: WorkflowStateMachine = {
 			currentPhaseIndex: 0,

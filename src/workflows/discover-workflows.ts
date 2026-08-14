@@ -161,7 +161,9 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 					// step id, and script length only.
 					logInternalError(
 						"discover-workflows",
-						new Error(`Stripping preStepScript from project workflow '${name}' step '${step.id}' — script body redacted (${step.preStepScript.length} chars) (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`),
+						new Error(
+							`Stripping preStepScript from project workflow '${name}' step '${step.id}' — script body redacted (${step.preStepScript.length} chars) (F-02: project-sourced pre-step scripts are not allowed for RCE prevention)`,
+						),
 						undefined,
 						"warn",
 					);

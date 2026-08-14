@@ -446,7 +446,9 @@ function shouldPersistTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): 
 	if (existing.length > 0) {
 		logInternalError(
 			"state-store",
-			new Error(`refusing to persist empty tasks over ${existing.length} existing task(s) — possible corrupt-load cascade (runId=${manifest.runId})`),
+			new Error(
+				`refusing to persist empty tasks over ${existing.length} existing task(s) — possible corrupt-load cascade (runId=${manifest.runId})`,
+			),
 			undefined,
 			"warn",
 		);
@@ -889,7 +891,9 @@ function migrateTasksFile(parsed: unknown, runId: string): TeamTaskState[] {
 		if (detected !== CURRENT_TASKS_SCHEMA_VERSION) {
 			logInternalError(
 				"state-store",
-				new Error(`tasks.json schemaVersion mismatch: expected ${CURRENT_TASKS_SCHEMA_VERSION}, got ${detected}. Run ${runId} may be incompatible.`),
+				new Error(
+					`tasks.json schemaVersion mismatch: expected ${CURRENT_TASKS_SCHEMA_VERSION}, got ${detected}. Run ${runId} may be incompatible.`,
+				),
 				undefined,
 				"warn",
 			);
@@ -951,7 +955,9 @@ export function loadManifestWithRecovery(manifestPath: string, runId: string): T
 		quarantineCorruptFile(manifestPath);
 		logInternalError(
 			"state-store",
-			new Error(`STATE-3: manifest.json for run ${runId} is corrupt (unparseable) — quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`),
+			new Error(
+				`STATE-3: manifest.json for run ${runId} is corrupt (unparseable) — quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`,
+			),
 			undefined,
 			"error",
 		);
@@ -1105,7 +1111,9 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 		logInternalError(
 			"state-store",
-			new Error(`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`),
+			new Error(
+				`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+			),
 			undefined,
 			"warn",
 		);
@@ -1119,7 +1127,9 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 		quarantineCorruptFile(manifestPath);
 		logInternalError(
 			"state-store",
-			new Error(`STATE-3: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`),
+			new Error(
+				`STATE-3: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`,
+			),
 			undefined,
 			"error",
 		);
@@ -1248,7 +1258,9 @@ export async function loadRunManifestByIdAsync(
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 		logInternalError(
 			"state-store",
-			new Error(`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`),
+			new Error(
+				`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+			),
 			undefined,
 			"warn",
 		);
@@ -1262,7 +1274,9 @@ export async function loadRunManifestByIdAsync(
 		quarantineCorruptFile(manifestPath);
 		logInternalError(
 			"state-store",
-			new Error(`STATE-3 async: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`),
+			new Error(
+				`STATE-3 async: manifest.json for run ${runId} exists but is unparseable — quarantined. Run treated as missing; preserve the .corrupt-* file for diagnosis.`,
+			),
 			undefined,
 			"error",
 		);

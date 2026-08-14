@@ -124,7 +124,12 @@ export function shouldMergeTaskUpdate(current: TeamTaskState, updated: TeamTaskS
 		// Malformed finishedAt (NaN) is treated as Infinity — invalid state should be
 		// replaced rather than persisting corruption. Log warning for visibility.
 		if (!Number.isFinite(currentTime)) {
-			logInternalError("merge-gate", new Error(`Task ${current.id} has malformed finishedAt: ${current.finishedAt}`), undefined, "warn");
+			logInternalError(
+				"merge-gate",
+				new Error(`Task ${current.id} has malformed finishedAt: ${current.finishedAt}`),
+				undefined,
+				"warn",
+			);
 		}
 		if (isMalformedFinishedAtReplacement(currentTime, updatedTime)) {
 			return true;

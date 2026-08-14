@@ -6252,7 +6252,7 @@
       "format": "esm"
     },
     "src/config/config.ts": {
-      "bytes": 54302,
+      "bytes": 54614,
       "imports": [
         {
           "path": "node:fs",
@@ -6323,7 +6323,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 9966,
+      "bytes": 10041,
       "imports": [
         {
           "path": "node:child_process",
@@ -6349,6 +6349,11 @@
           "path": "node:url",
           "kind": "import-statement",
           "external": true
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         }
       ],
       "format": "esm"
@@ -6464,7 +6469,7 @@
       "format": "esm"
     },
     "src/agents/discover-agents.ts": {
-      "bytes": 30121,
+      "bytes": 30223,
       "imports": [
         {
           "path": "node:fs",
@@ -6552,7 +6557,7 @@
       "format": "esm"
     },
     "src/workflows/discover-workflows.ts": {
-      "bytes": 11943,
+      "bytes": 12306,
       "imports": [
         {
           "path": "node:fs",
@@ -6568,6 +6573,11 @@
           "path": "src/utils/frontmatter.ts",
           "kind": "import-statement",
           "original": "../utils/frontmatter.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/utils/paths.ts",
@@ -6657,7 +6667,7 @@
       "format": "esm"
     },
     "src/state/stores/active-run-registry.ts": {
-      "bytes": 17849,
+      "bytes": 17972,
       "imports": [
         {
           "path": "node:crypto",
@@ -6678,6 +6688,11 @@
           "path": "src/config/defaults.ts",
           "kind": "import-statement",
           "original": "../../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
         },
         {
           "path": "src/utils/paths.ts",
@@ -7524,7 +7539,7 @@
       "format": "esm"
     },
     "src/state/stores/state-store.ts": {
-      "bytes": 53639,
+      "bytes": 54022,
       "imports": [
         {
           "path": "node:fs",
@@ -7707,7 +7722,7 @@
       "format": "esm"
     },
     "src/state/coordination/mailbox.ts": {
-      "bytes": 37441,
+      "bytes": 37396,
       "imports": [
         {
           "path": "node:fs",
@@ -11390,7 +11405,7 @@
       "format": "esm"
     },
     "src/runtime/orphan-worker-registry.ts": {
-      "bytes": 18150,
+      "bytes": 18185,
       "imports": [
         {
           "path": "node:child_process",
@@ -11928,7 +11943,7 @@
       "format": "esm"
     },
     "src/runtime/stale-reconciler.ts": {
-      "bytes": 28177,
+      "bytes": 28419,
       "imports": [
         {
           "path": "node:fs",
@@ -11959,6 +11974,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -13334,12 +13354,17 @@
       "format": "esm"
     },
     "src/runtime/merge-gate.ts": {
-      "bytes": 10506,
+      "bytes": 10626,
       "imports": [
         {
           "path": "src/state/contracts.ts",
           "kind": "import-statement",
           "original": "../state/contracts.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/runtime/scheduling/task-graph-scheduler.ts",
@@ -13643,7 +13668,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/retrieval-orchestrator.ts": {
-      "bytes": 10810,
+      "bytes": 12920,
       "imports": [
         {
           "path": "node:child_process",
@@ -14493,7 +14518,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 119541,
+      "bytes": 121850,
       "imports": [
         {
           "path": "node:child_process",
@@ -16349,7 +16374,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands.ts": {
-      "bytes": 46491,
+      "bytes": 47126,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18476,7 +18501,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6628469
+      "bytes": 6637926
     },
     "dist/index.mjs": {
       "imports": [
@@ -20889,13 +20914,13 @@
           "bytesInOutput": 1325
         },
         "src/config/config.ts": {
-          "bytesInOutput": 42415
+          "bytesInOutput": 42685
         },
         "src/runtime/model/runtime-warmup.ts": {
           "bytesInOutput": 2425
         },
         "src/runtime/pi-spawn.ts": {
-          "bytesInOutput": 6666
+          "bytesInOutput": 6705
         },
         "src/runtime/peer-dep.ts": {
           "bytesInOutput": 4943
@@ -20919,7 +20944,7 @@
           "bytesInOutput": 1698
         },
         "src/agents/discover-agents.ts": {
-          "bytesInOutput": 17836
+          "bytesInOutput": 17926
         },
         "src/utils/git.ts": {
           "bytesInOutput": 5951
@@ -20928,7 +20953,7 @@
           "bytesInOutput": 6355
         },
         "src/workflows/discover-workflows.ts": {
-          "bytesInOutput": 9130
+          "bytesInOutput": 9293
         },
         "src/extension/autonomous-policy.ts": {
           "bytesInOutput": 8917
@@ -20949,7 +20974,7 @@
           "bytesInOutput": 3779
         },
         "src/state/stores/active-run-registry.ts": {
-          "bytesInOutput": 11486
+          "bytesInOutput": 11567
         },
         "src/extension/run-index.ts": {
           "bytesInOutput": 3493
@@ -21063,7 +21088,7 @@
           "bytesInOutput": 206
         },
         "src/state/stores/state-store.ts": {
-          "bytesInOutput": 27412
+          "bytesInOutput": 27884
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 961
@@ -21087,7 +21112,7 @@
           "bytesInOutput": 401
         },
         "src/state/coordination/mailbox.ts": {
-          "bytesInOutput": 22987
+          "bytesInOutput": 22951
         },
         "src/state/stores/artifact-store.ts": {
           "bytesInOutput": 5340
@@ -21561,7 +21586,7 @@
           "bytesInOutput": 5808
         },
         "src/runtime/orphan-worker-registry.ts": {
-          "bytesInOutput": 7769
+          "bytesInOutput": 7801
         },
         "src/runtime/async-runner.ts": {
           "bytesInOutput": 9162
@@ -21627,7 +21652,7 @@
           "bytesInOutput": 6431
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 15518
+          "bytesInOutput": 15781
         },
         "src/runtime/recovery/crash-recovery.ts": {
           "bytesInOutput": 17854
@@ -21777,7 +21802,7 @@
           "bytesInOutput": 2691
         },
         "src/runtime/merge-gate.ts": {
-          "bytesInOutput": 4221
+          "bytesInOutput": 4320
         },
         "src/runtime/model/runtime-policy.ts": {
           "bytesInOutput": 581
@@ -21840,7 +21865,7 @@
           "bytesInOutput": 1540
         },
         "src/runtime/task-runner/retrieval-orchestrator.ts": {
-          "bytesInOutput": 6768
+          "bytesInOutput": 7941
         },
         "src/runtime/task-runner/prompt-builder.ts": {
           "bytesInOutput": 8088
@@ -21921,7 +21946,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 69162
+          "bytesInOutput": 70218
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -22077,7 +22102,7 @@
           "bytesInOutput": 30115
         },
         "src/extension/registration/commands.ts": {
-          "bytesInOutput": 40635
+          "bytesInOutput": 40806
         },
         "src/runtime/subagent-manager.ts": {
           "bytesInOutput": 16910
@@ -22278,7 +22303,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2941509
+      "bytes": 2945382
     }
   }
 }

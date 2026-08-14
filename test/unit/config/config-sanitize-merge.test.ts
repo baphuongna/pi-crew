@@ -190,7 +190,10 @@ test("sanitizeProjectConfig: requiresPlanApproval dropped only when === false", 
 		runtime: { requirePlanApproval: false },
 	} as PiTeamsConfig);
 	assert.equal(withFalse.config.runtime?.requirePlanApproval, undefined, "runtime.requirePlanApproval=false must be dropped");
-	assert.ok(withFalse.warnings.some((w) => w.includes("runtime.requirePlanApproval")), "warning emitted for conditional drop");
+	assert.ok(
+		withFalse.warnings.some((w) => w.includes("runtime.requirePlanApproval")),
+		"warning emitted for conditional drop",
+	);
 
 	// requirePlanApproval: true → NOT dropped.
 	const withTrue = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {

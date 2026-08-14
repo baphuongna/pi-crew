@@ -20,10 +20,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
-	__test__setHandleTeamTool,
-	registerTeamCommands,
-} from "../../../../src/extension/registration/commands.ts";
-import {
 	commandText,
 	notifyCommandResult,
 	parseRunArgs,
@@ -31,6 +27,7 @@ import {
 	pushUnset,
 	setNestedConfig,
 } from "../../../../src/extension/registration/command-utils.ts";
+import { __test__setHandleTeamTool, registerTeamCommands } from "../../../../src/extension/registration/commands.ts";
 
 type Handler = (args: string, ctx: never) => Promise<void>;
 
@@ -119,7 +116,15 @@ test("setNestedConfig builds nested objects and overwrites scalars with objects"
 });
 
 test("commandText joins content items with newlines and falls back to empty string", () => {
-	assert.equal(commandText({ content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] }), "a\nb");
+	assert.equal(
+		commandText({
+			content: [
+				{ type: "text", text: "a" },
+				{ type: "text", text: "b" },
+			],
+		}),
+		"a\nb",
+	);
 	assert.equal(commandText({ content: [] }), "");
 	assert.equal(commandText({}), "");
 });

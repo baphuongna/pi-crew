@@ -494,7 +494,12 @@ function readAgentDir(dir: string, source: ResourceSource): AgentConfig[] {
 			try {
 				const stat = fs.statSync(fullPath);
 				if (stat.size > MAX_AGENT_FILE_BYTES) {
-					logInternalError("discover-agents", new Error(`Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`), undefined, "warn");
+					logInternalError(
+						"discover-agents",
+						new Error(`Skipping oversized agent file (${stat.size} > ${MAX_AGENT_FILE_BYTES} bytes): ${fullPath}`),
+						undefined,
+						"warn",
+					);
 					return undefined;
 				}
 			} catch {
