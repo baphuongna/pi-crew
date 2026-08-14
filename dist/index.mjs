@@ -15019,11 +15019,20 @@ function buildChildPiSpawnOptions(cwd, env, model) {
     cwd: validatedCwd,
     env: {
       ...filteredEnv,
-      // PI_CREW_PARENT_PID is set so that child pi workers could theoretically
-      // run a parent-guard (parent-guard.ts). However, as of RT-19/RT-2, this
-      // env var has ZERO consumers: child workers are the external `pi` binary
-      // (@earendil-works/pi-coding-agent) which does NOT read
-      // PI_CREW_PARENT_PID or call startParentGuard (grep of Pi dist = 0 matches).
+      // PI_CREW_PARENT_PID is set so child workers can run a parent-guard
+      // (parent-guard.ts). Consumers (NOT dead):
+      //   1. zombie-scanner.ts:185 — reads PI_CREW_PARENT_PID from
+      //      /proc/<pid>/environ (readProcEnviron) to detect orphaned/zombie
+      //      workers whose leader died.
+      //   2. background-runner.ts:615 — startParentGuard(parentPid)
+      //      self-terminates the orchestrator when its own parent dies.
+      //   3. scratchpad-lifecycle.ts:50,166 — propagates the leader pid into
+      //      scratchpad guest env for guest-zombie detection.
+      // The var is unused ONLY by the external `pi` binary
+      // (@earendil-works/pi-coding-agent): it does NOT read PI_CREW_PARENT_PID
+      // or call startParentGuard (grep of Pi dist = 0 matches), so child-pi
+      // workers cannot self-terminate on leader death — they rely on the
+      // reactive zombie scanner (see docs/decisions/2026-08-14-parent-guard-reactive-scanner.md).
       // The deeper fix (wiring startParentGuard into the pi worker entry point)
       // is DEFERRED because workers are an external binary pi-crew doesn't control.
       //
@@ -15041,7 +15050,7 @@ function buildChildPiSpawnOptions(cwd, env, model) {
     // NOTE: setsid creates a new session; the child process becomes the session leader
     // and its parent becomes that session leader (still the team-runner in the same
     // process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner),
-    // but see the comment above — child pi workers do NOT actually consume it. The
+    // but see the comment above — the pi worker binary does NOT actually consume it. The
     // parent-guard model would check direct parent liveness via process.kill(pid, 0),
     // but this is only implemented in background-runner.ts, not in the worker binary.
     windowsHide: true
@@ -78850,7 +78859,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
   const steerSubagentTool = {
     name: "steer_subagent",
     label: "Steer Agent",
-    description: "Send a steering note to a running pi-crew subagent. Live-session steering is planned; child-process runs expose durable status and can be cancelled if needed.",
+    description: "Send a steering note to a running pi-crew subagent. PLANNED, NOT IMPLEMENTED: live tool-level steering is a stub (the subagent record has no taskId linkage, so the tool layer cannot resolve the live run's steering file). Use team action=steer (runId+taskId+message) for the working run-level steering path, or team cancel for interruption.",
     parameters: Type.Object({
       agent_id: Type.String(),
       message: Type.String()
@@ -78890,7 +78899,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
     ...steerSubagentTool,
     name: "crew_agent_steer",
     label: "Steer Crew Agent",
-    description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name."
+    description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name. PLANNED, NOT IMPLEMENTED (stub \u2014 see steer_subagent); use team action=steer for the working run-level steering path."
   };
   const toolConfig = loadConfig(process.cwd()).config.tools;
   const enableSteer = toolConfig?.enableSteer !== false;
