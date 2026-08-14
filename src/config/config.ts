@@ -356,6 +356,9 @@ function sanitizeProjectConfig(projectPath: string, userConfig: PiTeamsConfig, c
 	return { config: sanitized, warnings };
 }
 
+/** @internal — direct-test seam for Phase 2.2 extraction target (refactor-plan step 1.9c). */
+export const __test__sanitizeProjectConfig = sanitizeProjectConfig;
+
 function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfig {
 	const warnings: string[] = [];
 	const merged: PiTeamsConfig = {
@@ -498,6 +501,9 @@ function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTeamsConfi
 	if (merged.agents?.overrides && Object.keys(merged.agents.overrides).length === 0) delete merged.agents.overrides;
 	return merged;
 }
+
+/** @internal — direct-test seam for Phase 2.2 extraction target (refactor-plan step 1.9c). */
+export const __test__mergeConfig = mergeConfig;
 
 const LIMIT_CEILINGS = {
 	maxConcurrentWorkers: 1024,

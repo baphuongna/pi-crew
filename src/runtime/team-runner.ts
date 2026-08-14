@@ -558,6 +558,22 @@ export const __test__writeProgress = writeProgress;
 /** @internal RT-14 test export — verify cancelPlanTasks preserves graph mutation after consolidation. */
 export const __test__cancelPlanTasks = cancelPlanTasks;
 
+// 1.9(b): characterization test seams for the Phase 2.6 extraction targets
+// (selectDispatchBatch / mergeUnitResult / advanceWorkflowPhases /
+// requiresPlanApproval / ensurePlanApprovalRequested). These functions are
+// module-private today; re-exporting them lets tests pin CURRENT behavior
+// BEFORE the CORE-4 extraction moves them into scheduler/ modules.
+/** @internal 1.9(b) test export — exercise requiresPlanApproval directly. */
+export const __test__requiresPlanApproval = requiresPlanApproval;
+/** @internal 1.9(b) test export — exercise ensurePlanApprovalRequested directly. */
+export const __test__ensurePlanApprovalRequested = ensurePlanApprovalRequested;
+/** @internal 1.9(b) test export — exercise selectDispatchBatch directly. */
+export const __test__selectDispatchBatch = selectDispatchBatch;
+/** @internal 1.9(b) test export — exercise mergeUnitResult directly. */
+export const __test__mergeUnitResult = mergeUnitResult;
+/** @internal 1.9(b) test export — exercise advanceWorkflowPhases directly. */
+export const __test__advanceWorkflowPhases = advanceWorkflowPhases;
+
 function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?: CrewLimitsConfig): TeamRunManifest {
 	const branchFreshness = checkBranchFreshness(manifest.cwd);
 	const branchArtifact = writeArtifact(manifest.artifactsRoot, {

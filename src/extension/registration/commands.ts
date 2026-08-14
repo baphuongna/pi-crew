@@ -23,6 +23,19 @@ async function handleTeamTool(
 	return _cachedHandleTeamTool(params, ctx);
 }
 
+/**
+ * TEST SEAM (STEP 1.9a) — substitute the lazy-loaded team-tool facade.
+ * Production `handleTeamTool` populates `_cachedHandleTeamTool` on first use
+ * via `import("../team-tool.ts")` (1.4s+ runtime chain). This lets unit tests
+ * inject a recording stub and exercise command handlers without importing the
+ * chain. No production behavior change: the lazy-import path is untouched when
+ * this is never called, and handlers always resolve through the same cache.
+ */
+export function __test__setHandleTeamTool(fn: typeof HandleTeamToolFn | undefined): void {
+	_cachedHandleTeamTool = fn;
+	_handleTeamToolPromise = undefined;
+}
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_UI } from "../../config/defaults.ts";
