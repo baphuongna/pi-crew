@@ -143,11 +143,7 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 		} catch (error) {
 			// One-shot unref'd timer — a lock-contention error must not escape and
 			// crash the process; the owning session's poll will surface the failure.
-			logInternalError(
-				"team-tool.run.earlyExitGuard",
-				error instanceof Error ? error : new Error(String(error)),
-				`runId=${runId}`,
-			);
+			logInternalError("team-tool.run.earlyExitGuard", error instanceof Error ? error : new Error(String(error)), `runId=${runId}`);
 		}
 	}, 3000);
 	timer.unref();

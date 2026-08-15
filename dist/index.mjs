@@ -11109,7 +11109,8 @@ function isWithinAllowedPrefixes(resolvedPath) {
     const execDir = path6.dirname(fs6.realpathSync.native(process.execPath));
     allowedPrefixes.push(execDir.toLowerCase());
     allowedPrefixes.push(path6.join(path6.dirname(execDir), "lib", "node_modules").toLowerCase());
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.allowlist-prefixes", error, "execPath realpath failed", "warn");
   }
   if (process.env.APPDATA) {
     allowedPrefixes.push(path6.join(process.env.APPDATA, "npm").toLowerCase());
@@ -11161,7 +11162,8 @@ function packageBinScript(packageJsonPath) {
     if (!binPath) return void 0;
     const candidate = path6.resolve(path6.dirname(packageJsonPath), binPath);
     return isRunnableNodeScript(candidate) ? candidate : void 0;
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.package-bin-script", error, `packageJsonPath=${packageJsonPath}`, "warn");
     return void 0;
   }
 }
@@ -11197,7 +11199,8 @@ function resolveNpmGlobalRoot() {
       windowsHide: true
     }).trim();
     resolved = out.length > 0 ? out : void 0;
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.npm-root-g", error, "npm root -g probe failed", "warn");
     resolved = void 0;
   }
   cachedNpmGlobalRoot = resolved ?? null;
@@ -12678,10 +12681,10 @@ function readWorkflowDir(dir, source) {
 }
 function parseDynamicWorkflowFile(filePath, source) {
   try {
-    const basename19 = path12.basename(filePath, ".dwf.ts");
+    const basename20 = path12.basename(filePath, ".dwf.ts");
     return {
-      name: basename19,
-      description: `Dynamic workflow script (${basename19}.dwf.ts).`,
+      name: basename20,
+      description: `Dynamic workflow script (${basename20}.dwf.ts).`,
       source,
       filePath,
       steps: [],
@@ -13551,7 +13554,7 @@ function withRegistryLock(fn) {
   const deadline = Date.now() + 1e4;
   while (true) {
     try {
-      const fd = fs15.openSync(filePath, fs15.constants.O_WRONLY | fs15.constants.O_CREAT | fs15.constants.O_EXCL, 420);
+      const fd = fs15.openSync(filePath, fs15.constants.O_WRONLY | fs15.constants.O_CREAT | fs15.constants.O_EXCL, 384);
       try {
         fs15.writeSync(
           fd,
@@ -17064,7 +17067,8 @@ function removeStaleAgentsLock(lockPath2, staleMs) {
     }
     fs24.rmSync(lockPath2, { force: true });
     return true;
-  } catch {
+  } catch (error) {
+    logInternalError("crew-agents.remove-stale-lock", error, `lockPath=${lockPath2}`, "warn");
     return false;
   }
 }
@@ -17075,7 +17079,7 @@ function withAgentsLock(manifest, fn) {
   const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
   while (true) {
     try {
-      const fd = fs24.openSync(filePath, fs24.constants.O_WRONLY | fs24.constants.O_CREAT | fs24.constants.O_EXCL, 420);
+      const fd = fs24.openSync(filePath, fs24.constants.O_WRONLY | fs24.constants.O_CREAT | fs24.constants.O_EXCL, 384);
       try {
         fs24.writeSync(
           fd,
@@ -17670,6 +17674,9 @@ function isTeamRunStatus(value) {
 }
 function isTeamTaskStatus(value) {
   return typeof value === "string" && TEAM_TASK_STATUSES.includes(value);
+}
+function isTerminalTaskStatus(status) {
+  return TEAM_TERMINAL_TASK_STATUSES.has(status);
 }
 function canTransitionRunStatus(from, to) {
   return from === to || (TEAM_RUN_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
@@ -18350,7 +18357,7 @@ function rotateEventLogUnlocked(eventsPath) {
     }
     fs26.renameSync(eventsPath, archivePath);
     try {
-      const fd = fs26.openSync(eventsPath, "wx", 420);
+      const fd = fs26.openSync(eventsPath, "wx", 384);
       fs26.closeSync(fd);
     } catch (err2) {
       if (err2.code !== "EEXIST") throw err2;
@@ -18359,7 +18366,7 @@ function rotateEventLogUnlocked(eventsPath) {
     sweepOldArchives(eventsPath);
     return true;
   } catch (error) {
-    logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);
+    logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`, "error");
     return false;
   }
 }
@@ -18581,8 +18588,73 @@ function persistSequence(eventsPath, seq) {
     logInternalError("event-log.persist-sequence-file", error, `eventsPath=${eventsPath}`);
   }
 }
-function reserveSequence(eventsPath) {
-  return reserveSequenceUnderLock(eventsPath);
+function seqLockPath(eventsPath) {
+  return `${eventsPath}.seqlock`;
+}
+function reserveSequenceLocked(eventsPath, count2) {
+  let stored = readStoredSequence(eventsPath);
+  if (stored === void 0) {
+    stored = scanSequence(eventsPath);
+  }
+  const inProcess = seqCounters.get(eventsPath) ?? 0;
+  const last = Math.max(stored, inProcess);
+  const start = last + 1;
+  seqCounters.set(eventsPath, start + count2 - 1);
+  enforceSeqCountersCap();
+  persistSequence(eventsPath, start + count2 - 1);
+  return start;
+}
+function withSeqLock(eventsPath, fn) {
+  const lockDir = seqLockPath(eventsPath);
+  const pidFile = path22.join(lockDir, "pid");
+  const start = Date.now();
+  let acquired = false;
+  while (!acquired) {
+    try {
+      fs27.mkdirSync(lockDir);
+      try {
+        atomicWriteFile(pidFile, String(process.pid), { durability: "best-effort" });
+      } catch {
+      }
+      acquired = true;
+    } catch {
+      try {
+        if (Date.now() - fs27.statSync(lockDir).mtimeMs > SEQ_LOCK_STALE_MS) {
+          fs27.rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() - start > SEQ_LOCK_TIMEOUT_MS) {
+        throw errors.eventLogLockTimeout(eventsPath, SEQ_LOCK_TIMEOUT_MS);
+      }
+      sleepSync(SEQ_LOCK_RETRY_MS);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      if (fs27.readFileSync(pidFile, "utf-8").trim() === String(process.pid)) {
+        fs27.rmSync(lockDir, { recursive: true, force: true });
+      }
+    } catch {
+    }
+  }
+}
+async function withSeqLockAsync(eventsPath, fn) {
+  return withSeqLock(eventsPath, fn);
+}
+function persistSequenceMonotonic(eventsPath, seq) {
+  withSeqLock(eventsPath, () => {
+    const stored = readStoredSequence(eventsPath) ?? 0;
+    const inProcess = seqCounters.get(eventsPath) ?? 0;
+    const value = Math.max(stored, inProcess, seq);
+    if (value !== stored) persistSequence(eventsPath, value);
+  });
+}
+function reserveSequence(eventsPath, count2 = 1) {
+  return reserveSequenceUnderLock(eventsPath, count2);
 }
 function advanceSequenceCounter(eventsPath, seq) {
   const last = seqCounters.get(eventsPath);
@@ -18597,17 +18669,11 @@ function enforceSeqCountersCap() {
     if (oldest !== void 0) seqCounters.delete(oldest);
   }
 }
-function reserveSequenceUnderLock(eventsPath) {
-  let stored = readStoredSequence(eventsPath);
-  if (stored === void 0) {
-    stored = scanSequence(eventsPath);
-  }
-  const inProcess = seqCounters.get(eventsPath) ?? 0;
-  const last = Math.max(stored, inProcess);
-  const next = last + 1;
-  seqCounters.set(eventsPath, next);
-  enforceSeqCountersCap();
-  return next;
+function reserveSequenceUnderLock(eventsPath, count2 = 1) {
+  return withSeqLock(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
+}
+async function reserveSequenceUnderLockAsync(eventsPath, count2 = 1) {
+  return withSeqLockAsync(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
 }
 function computeEventFingerprint(event) {
   return createHash2("sha256").update(
@@ -18713,7 +18779,7 @@ async function appendEventAsync(eventsPath, event) {
       seq = baseMetadata.seq;
       advanceSequenceCounter(eventsPath, seq);
     } else {
-      seq = reserveSequenceUnderLock(eventsPath);
+      seq = await reserveSequenceUnderLockAsync(eventsPath);
     }
     let metadata = {
       seq,
@@ -18765,7 +18831,14 @@ async function appendEventAsync(eventsPath, event) {
         }
         if (afterCompactStat) {
           if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-            rotateEventLogUnlocked(eventsPath);
+            if (!rotateEventLogUnlocked(eventsPath)) {
+              logInternalError(
+                "event-log.rotate-failed",
+                new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+                `eventsPath=${eventsPath}`,
+                "error"
+              );
+            }
           }
         }
       }
@@ -18784,9 +18857,14 @@ async function appendEventAsync(eventsPath, event) {
         logInternalError(
           "event-log.size-limit",
           new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
-          `eventsPath=${eventsPath}`
+          `eventsPath=${eventsPath}`,
+          // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): this was default
+          // severity "debug" (PI_TEAMS_DEBUG-gated) → fully silent drop in
+          // production. "error" always emits.
+          "error"
         );
         skippedDueToSize = true;
+        metadata.skippedDueToSize = true;
       }
     } catch (error) {
       logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -18818,7 +18896,7 @@ async function appendEventAsync(eventsPath, event) {
           await fd.close();
         }
       }
-      persistSequence(eventsPath, seq);
+      if (baseMetadata?.seq !== void 0) persistSequenceMonotonic(eventsPath, seq);
     }
     let compactedAfterAppend = false;
     if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
@@ -18830,10 +18908,12 @@ async function appendEventAsync(eventsPath, event) {
         logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
       }
     }
-    try {
-      emitFromTeamEvent(fullEvent);
-    } catch (error) {
-      logInternalError("event-log.emit", error);
+    if (!skippedDueToSize) {
+      try {
+        emitFromTeamEvent(fullEvent);
+      } catch (error) {
+        logInternalError("event-log.emit", error);
+      }
     }
     const finalSeq = fullEvent.metadata?.seq ?? 0;
     try {
@@ -18899,14 +18979,21 @@ async function appendEventBatchInsideLock(eventsPath, queue) {
           logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
         }
         if (fs27.existsSync(eventsPath) && fs27.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-          rotateEventLogUnlocked(eventsPath);
+          if (!rotateEventLogUnlocked(eventsPath)) {
+            logInternalError(
+              "event-log.rotate-failed",
+              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+              `eventsPath=${eventsPath}`,
+              "error"
+            );
+          }
         }
       }
     }
   } catch (error) {
     logInternalError("event-log.batch-size-check", error, `eventsPath=${eventsPath}`);
   }
-  const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath);
+  const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath, queue.length);
   let nextSeq = startingSeq;
   const finalized = [];
   let lastSeq = 0;
@@ -18964,7 +19051,7 @@ async function appendEventBatchInsideLock(eventsPath, queue) {
   } finally {
     fs27.closeSync(fd);
   }
-  persistSequence(eventsPath, lastSeq);
+  persistSequenceMonotonic(eventsPath, lastSeq);
   try {
     const stat2 = fs27.statSync(eventsPath);
     if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
@@ -19026,7 +19113,14 @@ function appendEventInsideLock(eventsPath, event) {
       if (fs27.existsSync(eventsPath)) {
         const afterCompact = fs27.statSync(eventsPath);
         if (afterCompact.size > MAX_EVENTS_BYTES) {
-          rotateEventLogUnlocked(eventsPath);
+          if (!rotateEventLogUnlocked(eventsPath)) {
+            logInternalError(
+              "event-log.rotate-failed",
+              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+              `eventsPath=${eventsPath}`,
+              "error"
+            );
+          }
         }
       }
     }
@@ -19036,9 +19130,14 @@ function appendEventInsideLock(eventsPath, event) {
       logInternalError(
         "event-log.size-limit",
         new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
-        `eventsPath=${eventsPath}`
+        `eventsPath=${eventsPath}`,
+        // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): was default "debug"
+        // (PI_TEAMS_DEBUG-gated) → fully silent drop in production. "error"
+        // always emits.
+        "error"
       );
       skippedDueToSize = true;
+      metadata.skippedDueToSize = true;
     }
   } catch (error) {
     logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -19055,7 +19154,7 @@ function appendEventInsideLock(eventsPath, event) {
         fs27.closeSync(fd);
       }
     }
-    persistSequence(eventsPath, seq);
+    if (explicitSeq !== void 0) persistSequenceMonotonic(eventsPath, seq);
     try {
       const stat2 = fs27.statSync(eventsPath);
       if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
@@ -19079,10 +19178,12 @@ function appendEventInsideLock(eventsPath, event) {
       logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
     }
   }
-  try {
-    emitFromTeamEvent(fullEvent);
-  } catch (error) {
-    logInternalError("event-log.emit", error);
+  if (!skippedDueToSize) {
+    try {
+      emitFromTeamEvent(fullEvent);
+    } catch (error) {
+      logInternalError("event-log.emit", error);
+    }
   }
   return fullEvent;
 }
@@ -19162,15 +19263,73 @@ function flushBufferedQueuesSync() {
 function appendEventFireAndForget(eventsPath, event) {
   appendEventAsync(eventsPath, event).catch((error) => logInternalError("event-log.fire-and-forget", error, eventsPath));
 }
-function readEvents(eventsPath) {
-  if (!fs27.existsSync(eventsPath)) return [];
-  return fs27.readFileSync(eventsPath, "utf-8").split("\n").map((line4) => line4.trim()).filter(Boolean).flatMap((line4) => {
+function listEventArchivePaths(eventsPath) {
+  const dir = path22.dirname(eventsPath);
+  const base = path22.basename(eventsPath);
+  try {
+    return fs27.readdirSync(dir).filter((entry) => entry.startsWith(`${base}.`) && entry.endsWith(".archive.jsonl")).sort().map((entry) => path22.join(dir, entry));
+  } catch {
+    return [];
+  }
+}
+function parseJsonlEvents(filePath) {
+  let raw;
+  try {
+    raw = fs27.readFileSync(filePath, "utf-8");
+  } catch {
+    return [];
+  }
+  const events = [];
+  for (const line4 of raw.split("\n")) {
+    const trimmed = line4.trim();
+    if (!trimmed) continue;
     try {
-      return [JSON.parse(line4)];
+      events.push(JSON.parse(trimmed));
     } catch {
-      return [];
     }
-  });
+  }
+  return events;
+}
+function readArchiveTailEvents(eventsPath, sinceSeq) {
+  const archives = listEventArchivePaths(eventsPath);
+  if (archives.length === 0) return [];
+  const bySeq = /* @__PURE__ */ new Map();
+  for (const archivePath of archives) {
+    const tail = readJsonlTail(archivePath, ARCHIVE_TAIL_BYTES);
+    for (const event of tail.items) {
+      const seq = event.metadata?.seq;
+      if (typeof seq !== "number" || seq <= sinceSeq) continue;
+      if (!bySeq.has(seq)) bySeq.set(seq, event);
+    }
+  }
+  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+function mergeArchiveTailEvents(archiveEvents, liveEvents) {
+  if (archiveEvents.length === 0) return liveEvents;
+  const bySeq = /* @__PURE__ */ new Map();
+  for (const event of archiveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+  for (const event of liveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+function readEvents(eventsPath) {
+  const archives = listEventArchivePaths(eventsPath);
+  const events = [];
+  const seenSeqs = /* @__PURE__ */ new Set();
+  const push = (event) => {
+    const seq = event.metadata?.seq;
+    if (typeof seq === "number" && seq > 0) {
+      if (seenSeqs.has(seq)) return;
+      seenSeqs.add(seq);
+    }
+    events.push(event);
+  };
+  for (const archivePath of archives) {
+    for (const event of parseJsonlEvents(archivePath)) push(event);
+  }
+  if (fs27.existsSync(eventsPath)) {
+    for (const event of parseJsonlEvents(eventsPath)) push(event);
+  }
+  return events.sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
 }
 function positiveInteger(value) {
   return value !== void 0 && Number.isInteger(value) && value >= 0 ? value : void 0;
@@ -19179,18 +19338,20 @@ function readEventsCursor(eventsPath, options = {}) {
   if (options.fromByteOffset !== void 0) {
     const liveGen = currentGeneration(eventsPath);
     const staleCursor = options.generation !== void 0 && options.generation !== liveGen;
+    const sinceSeq2 = positiveInteger(options.sinceSeq) ?? 0;
+    const archiveEvents = staleCursor ? readArchiveTailEvents(eventsPath, sinceSeq2) : [];
     const byteOffset = staleCursor ? 0 : positiveInteger(options.fromByteOffset) ?? 0;
     const initialState = { byteOffset, lineCount: 0 };
     const { items, state: newState, eof } = readJsonlSince(eventsPath, initialState);
-    const sinceSeq2 = positiveInteger(options.sinceSeq) ?? 0;
     const filtered2 = items.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq2);
+    const merged2 = mergeArchiveTailEvents(archiveEvents, filtered2);
     const limit2 = positiveInteger(options.limit);
-    const events2 = limit2 !== void 0 ? filtered2.slice(0, limit2) : filtered2;
+    const events2 = limit2 !== void 0 ? merged2.slice(0, limit2) : merged2;
     const returnedMaxSeq2 = events2.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq2);
     return {
       events: events2,
       nextSeq: returnedMaxSeq2,
-      total: filtered2.length,
+      total: merged2.length,
       nextByteOffset: newState.byteOffset,
       generation: liveGen
     };
@@ -19217,9 +19378,10 @@ function readEventsCursor(eventsPath, options = {}) {
     all = all.slice(-TAIL_EVENT_CAP);
   }
   const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-  const events = limit !== void 0 ? filtered.slice(0, limit) : filtered;
+  const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
+  const events = limit !== void 0 ? merged.slice(0, limit) : merged;
   const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-  return { events, nextSeq: returnedMaxSeq, total: filtered.length };
+  return { events, nextSeq: returnedMaxSeq, total: merged.length };
 }
 function dedupeTerminalEvents(events) {
   const seen = /* @__PURE__ */ new Set();
@@ -19234,7 +19396,7 @@ function dedupeTerminalEvents(events) {
   }
   return output;
 }
-var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, sequenceCache, MAX_SEQUENCE_CACHE_ENTRIES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, MAX_SEQUENCE_CACHE_ENTRIES_VALUE, seqCounters, SEQ_COUNTERS_MAX_ENTRIES, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS;
+var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, sequenceCache, MAX_SEQUENCE_CACHE_ENTRIES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, MAX_SEQUENCE_CACHE_ENTRIES_VALUE, SEQ_LOCK_TIMEOUT_MS, SEQ_LOCK_STALE_MS, SEQ_LOCK_RETRY_MS, seqCounters, SEQ_COUNTERS_MAX_ENTRIES, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS, ARCHIVE_TAIL_BYTES;
 var init_event_log = __esm({
   "src/state/event-log/event-log.ts"() {
     "use strict";
@@ -19256,6 +19418,9 @@ var init_event_log = __esm({
     APPEND_COUNTER_MAX_ENTRIES = 256;
     overflowCounter = 0;
     MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
+    SEQ_LOCK_TIMEOUT_MS = 2e3;
+    SEQ_LOCK_STALE_MS = 1e3;
+    SEQ_LOCK_RETRY_MS = 5;
     seqCounters = /* @__PURE__ */ new Map();
     SEQ_COUNTERS_MAX_ENTRIES = 256;
     asyncQueues = /* @__PURE__ */ new Map();
@@ -19288,6 +19453,7 @@ var init_event_log = __esm({
       asyncQueues.clear();
       throw error;
     });
+    ARCHIVE_TAIL_BYTES = 4 * 1024 * 1024;
   }
 });
 
@@ -25503,15 +25669,27 @@ var init_worker_heartbeat = __esm({
   }
 });
 
+// src/extension/team-tool/run-not-found.ts
+var RUN_NOT_FOUND_HINT;
+var init_run_not_found = __esm({
+  "src/extension/team-tool/run-not-found.ts"() {
+    "use strict";
+    init_context();
+    RUN_NOT_FOUND_HINT = "\n\nTip: run action='list' to see recent runs and their IDs.";
+  }
+});
+
 // src/extension/team-tool/api/heartbeat.ts
 var handleWriteHeartbeat, HEARTBEAT_OPERATIONS;
 var init_heartbeat = __esm({
   "src/extension/team-tool/api/heartbeat.ts"() {
     "use strict";
     init_worker_heartbeat();
+    init_contracts();
     init_locks();
     init_event_log();
     init_state_store();
+    init_run_not_found();
     handleWriteHeartbeat = (hctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2 } = hctx;
       const taskId = typeof cfg.taskId === "string" ? cfg.taskId : void 0;
@@ -25532,28 +25710,60 @@ var init_heartbeat = __esm({
         );
       try {
         return withRunLockSync(loaded.manifest, () => {
+          const fresh = loadRunManifestById(loaded.manifest.cwd, loaded.manifest.runId);
+          if (!fresh)
+            return result4(
+              `Run '${loaded.manifest.runId}' not found.${RUN_NOT_FOUND_HINT}`,
+              {
+                action: "api",
+                status: "error",
+                runId: loaded.manifest.runId
+              },
+              true
+            );
+          const freshTask = fresh.tasks.find((item) => item.id === taskId || item.stepId === taskId);
+          if (!freshTask)
+            return result4(
+              `Task '${taskId}' not found in run '${fresh.manifest.runId}'.`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
+          if (isTerminalTaskStatus(freshTask.status))
+            return result4(
+              `Cannot write heartbeat for task '${freshTask.id}': task is in terminal state '${freshTask.status}'.`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
           const heartbeat = touchWorkerHeartbeat(
-            task.heartbeat ?? {
-              workerId: task.id,
+            freshTask.heartbeat ?? {
+              workerId: freshTask.id,
               lastSeenAt: (/* @__PURE__ */ new Date()).toISOString()
             },
             {
               alive: typeof cfg.alive === "boolean" ? cfg.alive : void 0
             }
           );
-          const tasks = loaded.tasks.map((item) => item.id === task.id ? { ...item, heartbeat } : item);
-          saveRunTasks(loaded.manifest, tasks);
-          appendEvent(loaded.manifest.eventsPath, {
+          const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? { ...item, heartbeat } : item);
+          saveRunTasks(fresh.manifest, tasks);
+          appendEvent(fresh.manifest.eventsPath, {
             type: "worker.heartbeat",
-            runId: loaded.manifest.runId,
-            taskId: task.id,
+            runId: fresh.manifest.runId,
+            taskId: freshTask.id,
             data: { ...heartbeat }
           });
           return result4(JSON.stringify(heartbeat, null, 2), {
             action: "api",
             status: "ok",
-            runId: loaded.manifest.runId,
-            artifactsRoot: loaded.manifest.artifactsRoot
+            runId: fresh.manifest.runId,
+            artifactsRoot: fresh.manifest.artifactsRoot
           });
         });
       } catch (error) {
@@ -35253,9 +35463,23 @@ var init_task_claims = __esm({
 });
 
 // src/extension/team-tool/api/task-claims.ts
-function findTaskByIdOrStepId2(ctx, taskId) {
+function findTaskByIdOrStepId2(tasks, taskId) {
   if (!taskId) return void 0;
-  return ctx.loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
+  return tasks.find((item) => item.id === taskId || item.stepId === taskId);
+}
+function freshRunOrMissing(loaded, result4) {
+  const fresh = loadRunManifestById(loaded.manifest.cwd, loaded.manifest.runId);
+  if (!fresh)
+    return result4(
+      `Run '${loaded.manifest.runId}' not found.${RUN_NOT_FOUND_HINT}`,
+      {
+        action: "api",
+        status: "error",
+        runId: loaded.manifest.runId
+      },
+      true
+    );
+  return fresh;
 }
 var handleClaimTask, handleReleaseTaskClaim, handleTransitionTaskStatus, TASK_CLAIM_OPERATIONS;
 var init_task_claims2 = __esm({
@@ -35266,11 +35490,12 @@ var init_task_claims2 = __esm({
     init_task_claims();
     init_event_log();
     init_state_store();
+    init_run_not_found();
     handleClaimTask = (ctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2 } = ctx;
       const taskId = typeof cfg.taskId === "string" ? cfg.taskId : void 0;
       const owner = typeof cfg.owner === "string" ? cfg.owner : "api";
-      const task = findTaskByIdOrStepId2(ctx, taskId);
+      const task = findTaskByIdOrStepId2(loaded.tasks, taskId);
       if (!task)
         return result4(
           paramRequired2(
@@ -35287,13 +35512,26 @@ var init_task_claims2 = __esm({
         );
       try {
         return withRunLockSync(loaded.manifest, () => {
-          const updatedTask = claimTask(task, owner);
-          const tasks = loaded.tasks.map((item) => item.id === task.id ? updatedTask : item);
-          saveRunTasks(loaded.manifest, tasks);
-          appendEvent(loaded.manifest.eventsPath, {
+          const fresh = freshRunOrMissing(loaded, result4);
+          if (!("tasks" in fresh)) return fresh;
+          const freshTask = findTaskByIdOrStepId2(fresh.tasks, taskId);
+          if (!freshTask)
+            return result4(
+              `Task '${taskId}' not found in run '${fresh.manifest.runId}'.`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
+          const updatedTask = claimTask(freshTask, owner);
+          const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
+          saveRunTasks(fresh.manifest, tasks);
+          appendEvent(fresh.manifest.eventsPath, {
             type: "task.claimed",
-            runId: loaded.manifest.runId,
-            taskId: task.id,
+            runId: fresh.manifest.runId,
+            taskId: freshTask.id,
             data: {
               owner,
               token: "[REDACTED]",
@@ -35303,8 +35541,8 @@ var init_task_claims2 = __esm({
           return result4(JSON.stringify(updatedTask.claim, null, 2), {
             action: "api",
             status: "ok",
-            runId: loaded.manifest.runId,
-            artifactsRoot: loaded.manifest.artifactsRoot
+            runId: fresh.manifest.runId,
+            artifactsRoot: fresh.manifest.artifactsRoot
           });
         });
       } catch (error) {
@@ -35325,7 +35563,7 @@ var init_task_claims2 = __esm({
       const taskId = typeof cfg.taskId === "string" ? cfg.taskId : void 0;
       const owner = typeof cfg.owner === "string" ? cfg.owner : void 0;
       const token = typeof cfg.token === "string" ? cfg.token : void 0;
-      const task = findTaskByIdOrStepId2(ctx, taskId);
+      const task = findTaskByIdOrStepId2(loaded.tasks, taskId);
       if (!task || !owner || !token)
         return result4(
           paramRequired2(
@@ -35342,20 +35580,33 @@ var init_task_claims2 = __esm({
         );
       try {
         return withRunLockSync(loaded.manifest, () => {
-          const updatedTask = releaseTaskClaim(task, owner, token);
-          const tasks = loaded.tasks.map((item) => item.id === task.id ? updatedTask : item);
-          saveRunTasks(loaded.manifest, tasks);
-          appendEvent(loaded.manifest.eventsPath, {
+          const fresh = freshRunOrMissing(loaded, result4);
+          if (!("tasks" in fresh)) return fresh;
+          const freshTask = findTaskByIdOrStepId2(fresh.tasks, taskId);
+          if (!freshTask)
+            return result4(
+              `Task '${taskId}' not found in run '${fresh.manifest.runId}'.`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
+          const updatedTask = releaseTaskClaim(freshTask, owner, token);
+          const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
+          saveRunTasks(fresh.manifest, tasks);
+          appendEvent(fresh.manifest.eventsPath, {
             type: "task.claim_released",
-            runId: loaded.manifest.runId,
-            taskId: task.id,
+            runId: fresh.manifest.runId,
+            taskId: freshTask.id,
             data: { owner }
           });
           return result4(JSON.stringify(updatedTask, null, 2), {
             action: "api",
             status: "ok",
-            runId: loaded.manifest.runId,
-            artifactsRoot: loaded.manifest.artifactsRoot
+            runId: fresh.manifest.runId,
+            artifactsRoot: fresh.manifest.artifactsRoot
           });
         });
       } catch (error) {
@@ -35377,7 +35628,7 @@ var init_task_claims2 = __esm({
       const owner = typeof cfg.owner === "string" ? cfg.owner : void 0;
       const token = typeof cfg.token === "string" ? cfg.token : void 0;
       const to = cfg.status;
-      const task = findTaskByIdOrStepId2(ctx, taskId);
+      const task = findTaskByIdOrStepId2(loaded.tasks, taskId);
       if (!task || !owner || !token || !isTeamTaskStatus(to))
         return result4(
           paramRequired2(
@@ -35392,32 +35643,45 @@ var init_task_claims2 = __esm({
           },
           true
         );
-      if (!canTransitionTaskStatus(task.status, to))
-        return result4(
-          `Invalid task status transition: ${task.status} -> ${to}`,
-          {
-            action: "api",
-            status: "error",
-            runId: loaded.manifest.runId
-          },
-          true
-        );
       try {
         return withRunLockSync(loaded.manifest, () => {
-          const updatedTask = transitionClaimedTaskStatus(task, owner, token, to);
-          const tasks = loaded.tasks.map((item) => item.id === task.id ? updatedTask : item);
-          saveRunTasks(loaded.manifest, tasks);
-          appendEvent(loaded.manifest.eventsPath, {
+          const fresh = freshRunOrMissing(loaded, result4);
+          if (!("tasks" in fresh)) return fresh;
+          const freshTask = findTaskByIdOrStepId2(fresh.tasks, taskId);
+          if (!freshTask)
+            return result4(
+              `Task '${taskId}' not found in run '${fresh.manifest.runId}'.`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
+          if (!canTransitionTaskStatus(freshTask.status, to))
+            return result4(
+              `Invalid task status transition: ${freshTask.status} -> ${to}`,
+              {
+                action: "api",
+                status: "error",
+                runId: fresh.manifest.runId
+              },
+              true
+            );
+          const updatedTask = transitionClaimedTaskStatus(freshTask, owner, token, to);
+          const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
+          saveRunTasks(fresh.manifest, tasks);
+          appendEvent(fresh.manifest.eventsPath, {
             type: "task.status_transitioned",
-            runId: loaded.manifest.runId,
-            taskId: task.id,
+            runId: fresh.manifest.runId,
+            taskId: freshTask.id,
             data: { owner, status: to }
           });
           return result4(JSON.stringify(updatedTask, null, 2), {
             action: "api",
             status: "ok",
-            runId: loaded.manifest.runId,
-            artifactsRoot: loaded.manifest.artifactsRoot
+            runId: fresh.manifest.runId,
+            artifactsRoot: fresh.manifest.artifactsRoot
           });
         });
       } catch (error) {
@@ -35525,16 +35789,6 @@ var init_param_error = __esm({
   "src/extension/team-tool/param-error.ts"() {
     "use strict";
     init_value5();
-  }
-});
-
-// src/extension/team-tool/run-not-found.ts
-var RUN_NOT_FOUND_HINT;
-var init_run_not_found = __esm({
-  "src/extension/team-tool/run-not-found.ts"() {
-    "use strict";
-    init_context();
-    RUN_NOT_FOUND_HINT = "\n\nTip: run action='list' to see recent runs and their IDs.";
   }
 });
 
@@ -36949,16 +37203,25 @@ async function handleRetry(params, ctx, deps) {
     );
   }
   const targetTaskId = typeof params.taskId === "string" ? params.taskId : void 0;
-  if (retryShortCircuitsCompleted(loaded.manifest.status, loaded.tasks, targetTaskId)) {
-    return result(
-      `Run ${loaded.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
-      { action: "retry", status: "error", runId: loaded.manifest.runId },
-      true
-    );
-  }
   return withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(loaded.manifest.cwd, params.runId);
+    if (!fresh) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "retry", status: "error" }, true);
+    if (typeof fresh.manifest.ownerSessionId === "string" && fresh.manifest.ownerSessionId !== ctx.sessionId && params.force !== true) {
+      return result(
+        `Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
+        { action: "retry", status: "error", runId: fresh.manifest.runId },
+        true
+      );
+    }
+    if (retryShortCircuitsCompleted(fresh.manifest.status, fresh.tasks, targetTaskId)) {
+      return result(
+        `Run ${fresh.manifest.runId} is already completed; retry only applies to failed/cancelled runs.`,
+        { action: "retry", status: "error", runId: fresh.manifest.runId },
+        true
+      );
+    }
     const retryableStatuses = /* @__PURE__ */ new Set(["failed", "cancelled"]);
-    const matchingTasks = loaded.tasks.filter((task) => {
+    const matchingTasks = fresh.tasks.filter((task) => {
       if (targetTaskId && task.id !== targetTaskId) return false;
       return retryableStatuses.has(task.status);
     });
@@ -36968,48 +37231,48 @@ async function handleRetry(params, ctx, deps) {
         {
           action: "retry",
           status: "error",
-          runId: loaded.manifest.runId
+          runId: fresh.manifest.runId
         },
         true
       );
     }
     const retriedIds = new Set(matchingTasks.map((t2) => t2.id));
-    const tasks = loaded.tasks.map((task) => {
+    const tasks = fresh.tasks.map((task) => {
       if (!retriedIds.has(task.id)) return task;
       const { error: _error, finishedAt: _finishedAt, terminalEvidence: _terminalEvidence, ...rest } = task;
       return { ...rest, status: "queued" };
     });
-    saveRunTasks(loaded.manifest, tasks);
+    saveRunTasks(fresh.manifest, tasks);
     try {
       saveCrewAgents(
-        loaded.manifest,
-        tasks.map((task) => recordFromTask(loaded.manifest, task, "child-process"))
+        fresh.manifest,
+        tasks.map((task) => recordFromTask(fresh.manifest, task, "child-process"))
       );
     } catch (error) {
-      logInternalError("team-tool.handleRetry.crewAgents", error, `runId=${loaded.manifest.runId}`);
+      logInternalError("team-tool.handleRetry.crewAgents", error, `runId=${fresh.manifest.runId}`);
     }
     const retriedTaskIds = [...retriedIds];
     for (const taskId of retriedTaskIds) {
-      void appendEventAsync(loaded.manifest.eventsPath, {
+      void appendEventAsync(fresh.manifest.eventsPath, {
         type: "task.retried",
-        runId: loaded.manifest.runId,
+        runId: fresh.manifest.runId,
         taskId,
         message: `Task ${taskId} queued for retry.`
       }).catch(
         (error) => logInternalError(
           "cancel.retry-event",
           error instanceof Error ? error : new Error(String(error)),
-          `runId=${loaded.manifest.runId}`
+          `runId=${fresh.manifest.runId}`
         )
       );
     }
-    if (deps) invalidateSnapshot(loaded.manifest.runId, runCwd, deps);
-    return result(`Retried ${retriedTaskIds.length} task(s) in run ${loaded.manifest.runId}.`, {
+    if (deps) invalidateSnapshot(fresh.manifest.runId, runCwd, deps);
+    return result(`Retried ${retriedTaskIds.length} task(s) in run ${fresh.manifest.runId}.`, {
       action: "retry",
       status: "ok",
-      runId: loaded.manifest.runId,
+      runId: fresh.manifest.runId,
       retriedTaskIds,
-      intent: `retrying ${retriedTaskIds.length} task(s) in ${loaded.manifest.runId}`
+      intent: `retrying ${retriedTaskIds.length} task(s) in ${fresh.manifest.runId}`
     });
   });
 }
@@ -37067,24 +37330,27 @@ async function handleCancel(params, ctx, deps) {
     }
   }
   return withRunLockSync(loaded.manifest, () => {
-    if ((loaded.manifest.status === "completed" || loaded.manifest.status === "cancelled") && params.force !== true)
+    const fresh = loadRunManifestById(loaded.manifest.cwd, loaded.manifest.runId);
+    if (!fresh)
+      return result(`Run '${loaded.manifest.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "cancel", status: "error" }, true);
+    if ((fresh.manifest.status === "completed" || fresh.manifest.status === "cancelled") && params.force !== true)
       return result(
-        `Run ${loaded.manifest.runId} is already ${loaded.manifest.status}; nothing to cancel. Use force: true to mark it cancelled anyway.`,
+        `Run ${fresh.manifest.runId} is already ${fresh.manifest.status}; nothing to cancel. Use force: true to mark it cancelled anyway.`,
         {
           action: "cancel",
           status: "ok",
-          runId: loaded.manifest.runId,
-          artifactsRoot: loaded.manifest.artifactsRoot
+          runId: fresh.manifest.runId,
+          artifactsRoot: fresh.manifest.artifactsRoot
         }
       );
-    const abortResult = abortOwned(loaded.manifest.runId, void 0, ctx, params.force);
+    const abortResult = abortOwned(fresh.manifest.runId, void 0, ctx, params.force);
     if (abortResult.abortedIds.length === 0 && abortResult.foreignIds.length > 0 && params.force !== true) {
       return result(
-        `Run ${loaded.manifest.runId} belongs to another session. Use force: true to override.`,
+        `Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
         {
           action: "cancel",
           status: "error",
-          runId: loaded.manifest.runId,
+          runId: fresh.manifest.runId,
           foreignIds: abortResult.foreignIds
         },
         true
@@ -37095,7 +37361,7 @@ async function handleCancel(params, ctx, deps) {
     const cancelIntent = intentFromConfig(params.config);
     const cancelData = cancelIntent ? { reason: cancelReason.code, intent: cancelIntent } : { reason: cancelReason.code };
     const cancelMessage = `${cancelReason.message} (${cancelReason.code})`;
-    const tasks = loaded.tasks.map((task) => {
+    const tasks = fresh.tasks.map((task) => {
       if (cancellableIds.has(task.id) && (task.status === "queued" || task.status === "running" || task.status === "waiting")) {
         const base = {
           ...task,
@@ -37116,32 +37382,32 @@ async function handleCancel(params, ctx, deps) {
       }
       return task;
     });
-    saveRunTasks(loaded.manifest, tasks);
+    saveRunTasks(fresh.manifest, tasks);
     try {
       saveCrewAgents(
-        loaded.manifest,
-        tasks.map((task) => recordFromTask(loaded.manifest, task, loaded.manifest.runtimeResolution?.kind ?? "child-process"))
+        fresh.manifest,
+        tasks.map((task) => recordFromTask(fresh.manifest, task, fresh.manifest.runtimeResolution?.kind ?? "child-process"))
       );
     } catch (error) {
-      logInternalError("team-tool.handleCancel.crewAgents", error, `runId=${loaded.manifest.runId}`);
+      logInternalError("team-tool.handleCancel.crewAgents", error, `runId=${fresh.manifest.runId}`);
     }
     try {
-      writeForegroundInterruptRequest(loaded.manifest, cancelMessage);
+      writeForegroundInterruptRequest(fresh.manifest, cancelMessage);
     } catch (error) {
-      logInternalError("team-tool.handleCancel.interruptRequest", error, `runId=${loaded.manifest.runId}`);
+      logInternalError("team-tool.handleCancel.interruptRequest", error, `runId=${fresh.manifest.runId}`);
     }
-    ctx.abortForegroundRun?.(loaded.manifest.runId);
+    ctx.abortForegroundRun?.(fresh.manifest.runId);
     for (const taskId of abortResult.abortedIds) {
-      appendEvent(loaded.manifest.eventsPath, {
+      appendEvent(fresh.manifest.eventsPath, {
         type: "task.cancelled",
-        runId: loaded.manifest.runId,
+        runId: fresh.manifest.runId,
         taskId,
         message: cancelMessage,
         data: cancelData
       });
     }
     const updated = updateRunStatus(
-      loaded.manifest,
+      fresh.manifest,
       "cancelled",
       `${cancelMessage} Already-finished worker processes are not retroactively changed.`,
       { data: cancelData }
@@ -42121,7 +42387,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync10, existsSync as existsSync44, mkdirSync as mkdirSync26, openSync as openSync10, readdirSync as readdirSync21, readFileSync as readFileSync42, statSync as statSync33, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync10, existsSync as existsSync44, mkdirSync as mkdirSync26, openSync as openSync10, readdirSync as readdirSync22, readFileSync as readFileSync42, statSync as statSync33, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname32 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -42281,7 +42547,7 @@ var init_goal_state_store = __esm({
         try {
           const root = resolveGoalsRoot(this.cwd);
           if (!existsSync44(root)) return [];
-          const entries = readdirSync21(root);
+          const entries = readdirSync22(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -42345,7 +42611,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash7 } from "node:crypto";
-import { closeSync as closeSync11, existsSync as existsSync45, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync22, readFileSync as readFileSync44, statSync as statSync35, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
+import { closeSync as closeSync11, existsSync as existsSync45, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync23, readFileSync as readFileSync44, statSync as statSync35, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
 import * as path50 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path50.resolve(cwd);
@@ -45622,49 +45888,66 @@ async function applyRecoveryPlan(plan, ctx, registry2) {
     runId: plan.runId,
     cwd: ctx.cwd
   });
-  appendHookEvent(loaded.manifest, hookReport);
-  if (hookReport.outcome === "block") {
-    appendEvent(loaded.manifest.eventsPath, {
-      type: "crew.run.recovery_blocked",
-      runId: plan.runId,
-      message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
-      data: { hookOutcome: "block", reason: hookReport.reason }
-    });
-    return;
-  }
-  const reset = new Set(plan.resumableTasks);
-  const tasks = loaded.tasks.map(
-    (task) => reset.has(task.id) ? {
-      ...task,
-      status: "queued",
-      startedAt: void 0,
-      finishedAt: void 0,
-      error: void 0,
-      heartbeat: void 0
-    } : task
-  );
-  saveRunTasks(loaded.manifest, tasks);
-  appendEvent(loaded.manifest.eventsPath, {
-    type: "crew.run.resumed",
-    runId: plan.runId,
-    message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
-    data: {
-      recoveredFromSeq: plan.lastEventSeq,
-      resumableTasks: plan.resumableTasks
+  withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
+    if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
+    if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
+      appendEvent(fresh.manifest.eventsPath, {
+        type: "crew.run.recovery_skipped",
+        runId: plan.runId,
+        message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
+        data: { status: fresh.manifest.status }
+      });
+      return;
     }
+    appendHookEvent(fresh.manifest, hookReport);
+    if (hookReport.outcome === "block") {
+      appendEvent(fresh.manifest.eventsPath, {
+        type: "crew.run.recovery_blocked",
+        runId: plan.runId,
+        message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
+        data: { hookOutcome: "block", reason: hookReport.reason }
+      });
+      return;
+    }
+    const reset = new Set(plan.resumableTasks);
+    const tasks = fresh.tasks.map(
+      (task) => reset.has(task.id) ? {
+        ...task,
+        status: "queued",
+        startedAt: void 0,
+        finishedAt: void 0,
+        error: void 0,
+        heartbeat: void 0
+      } : task
+    );
+    saveRunTasks(fresh.manifest, tasks);
+    appendEvent(fresh.manifest.eventsPath, {
+      type: "crew.run.resumed",
+      runId: plan.runId,
+      message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
+      data: {
+        recoveredFromSeq: plan.lastEventSeq,
+        resumableTasks: plan.resumableTasks
+      }
+    });
+    registry2?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
   });
-  registry2?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
 }
 function declineRecoveryPlan(plan, ctx) {
   const loaded = loadRunManifestById(ctx.cwd, plan.runId);
   if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
-  appendEvent(loaded.manifest.eventsPath, {
-    type: "crew.run.recovery_declined",
-    runId: plan.runId,
-    message: "Interrupted run was not resumed.",
-    data: { recoveredFromSeq: plan.lastEventSeq }
+  withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
+    if (!fresh) return;
+    appendEvent(fresh.manifest.eventsPath, {
+      type: "crew.run.recovery_declined",
+      runId: plan.runId,
+      message: "Interrupted run was not resumed.",
+      data: { recoveredFromSeq: plan.lastEventSeq }
+    });
+    updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
   });
-  updateRunStatus(loaded.manifest, "cancelled", "interrupted-not-resumed");
 }
 function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThresholdMs = 3e5, now = Date.now()) {
   const cancelled = [];
@@ -49235,6 +49518,33 @@ function markStaleAsync(runId) {
   }
   return true;
 }
+function transitionStaleAsyncUnderLock(loaded, runCwd, runId) {
+  let transitioned;
+  withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(runCwd, runId);
+    if (!fresh || !fresh.manifest.async || !isActiveRunStatus(fresh.manifest.status)) return;
+    const freshLiveness = checkProcessLiveness(fresh.manifest.async.pid);
+    if (freshLiveness.alive) return;
+    const failed = updateRunStatus(fresh.manifest, "failed", `Async process stale: ${freshLiveness.detail}`);
+    const freshTasks = fresh.tasks.map(
+      (task) => task.status === "running" ? {
+        ...task,
+        status: "cancelled",
+        finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        error: "Async process died; task was not completed."
+      } : task
+    );
+    saveRunTasks(failed, freshTasks);
+    appendEvent(failed.eventsPath, {
+      type: "async.stale",
+      runId: failed.runId,
+      message: freshLiveness.detail,
+      data: { pid: fresh.manifest.async.pid }
+    });
+    transitioned = { manifest: failed, tasks: freshTasks };
+  });
+  return transitioned;
+}
 function handleStatus2(params, ctx) {
   if (!params.runId)
     return result(
@@ -49254,23 +49564,15 @@ function handleStatus2(params, ctx) {
     const liveness = checkProcessLiveness(asyncState.pid);
     asyncLivenessLine = `Async: pid=${asyncState.pid ?? "unknown"} alive=${liveness.alive ? "true" : "false"} detail=${liveness.detail} log=${asyncState.logPath} spawnedAt=${asyncState.spawnedAt}`;
     if (!liveness.alive && isActiveRunStatus(manifest.status)) {
-      if (markStaleAsync(manifest.runId)) {
-        manifest = updateRunStatus(manifest, "failed", `Async process stale: ${liveness.detail}`);
-        tasks = tasks.map(
-          (task) => task.status === "running" ? {
-            ...task,
-            status: "cancelled",
-            finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            error: "Async process died; task was not completed."
-          } : task
-        );
-        saveRunTasks(manifest, tasks);
-        appendEvent(manifest.eventsPath, {
-          type: "async.stale",
-          runId: manifest.runId,
-          message: liveness.detail,
-          data: { pid: asyncState.pid }
-        });
+      const foreignRun = typeof manifest.ownerSessionId === "string" && manifest.ownerSessionId !== ctx.sessionId;
+      if (!foreignRun || params.force) {
+        if (markStaleAsync(manifest.runId)) {
+          const transitioned = transitionStaleAsyncUnderLock(loaded, runCwd, params.runId);
+          if (transitioned) {
+            manifest = transitioned.manifest;
+            tasks = transitioned.tasks;
+          }
+        }
       }
     }
   }
@@ -49442,6 +49744,7 @@ var init_status = __esm({
     init_process_status();
     init_task_display();
     init_completion_guard();
+    init_locks();
     init_mailbox();
     init_event_log();
     init_state_store();
@@ -52018,21 +52321,13 @@ async function runCoalescedTaskGroup(input) {
       heartbeatInFlight = true;
       heartbeatPromise = (async () => {
         try {
-          updatedTasks = updatedTasks.map((t2) => {
-            if (!taskIds.includes(t2.id)) return t2;
-            if (t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled") return t2;
-            return {
-              ...t2,
-              heartbeat: touchWorkerHeartbeat(t2.heartbeat ?? createWorkerHeartbeat(t2.id), { alive: true })
-            };
-          });
-          await saveRunTasksAsync(manifest, updatedTasks);
+          await persistGroupHeartbeats(manifest, taskIds);
         } catch {
         } finally {
           heartbeatInFlight = false;
           if (finalWriteStarted) {
             try {
-              await saveRunTasksAsync(manifest, updatedTasks);
+              await repairGroupTerminalWrite(manifest, taskIds, updatedTasks);
             } catch {
             }
           }
@@ -52154,6 +52449,30 @@ async function runCoalescedTaskGroup(input) {
     data: { groupId, taskIds, success, cancelled, strategy: split[0]?.strategy }
   });
   return { manifest: updatedManifest, tasks: updatedTasks, taskIds, rawOutput, success };
+}
+async function persistGroupHeartbeats(manifest, taskIds) {
+  const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+  if (!fresh) return;
+  const merged = fresh.tasks.map((t2) => {
+    if (!taskIds.includes(t2.id)) return t2;
+    if (t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled") return t2;
+    return {
+      ...t2,
+      heartbeat: touchWorkerHeartbeat(t2.heartbeat ?? createWorkerHeartbeat(t2.id), { alive: true })
+    };
+  });
+  await saveRunTasksAsync(manifest, merged);
+}
+async function repairGroupTerminalWrite(manifest, taskIds, updatedTasks) {
+  const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+  if (!fresh) return;
+  const groupById = new Map(updatedTasks.map((t2) => [t2.id, t2]));
+  const merged = fresh.tasks.map((t2) => {
+    if (!taskIds.includes(t2.id)) return t2;
+    if (t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled") return t2;
+    return groupById.get(t2.id) ?? t2;
+  });
+  await saveRunTasksAsync(manifest, merged);
 }
 async function buildCoalescedPrompt(manifest, step, groupTasks, agent) {
   const tree = await buildWorkspaceTree(groupTasks[0].cwd);
@@ -57243,6 +57562,7 @@ __export(team_runner_exports, {
   __test__advanceWorkflowPhases: () => __test__advanceWorkflowPhases,
   __test__cancelPlanTasks: () => __test__cancelPlanTasks,
   __test__ensurePlanApprovalRequested: () => __test__ensurePlanApprovalRequested,
+  __test__finalizeRun: () => __test__finalizeRun,
   __test__lastProgressContentHash: () => __test__lastProgressContentHash,
   __test__mergeTaskUpdates: () => __test__mergeTaskUpdates,
   __test__mergeUnitResult: () => __test__mergeUnitResult,
@@ -58367,6 +58687,9 @@ async function dispatchBatch(ctx, decision2) {
     for (const id of unitTaskIds) ctx.dispatchedTaskIds.add(id);
   }
 }
+function isRunTerminalPreserved(status) {
+  return status === "cancelled" || status === "failed" || status === "completed";
+}
 async function mergeUnitResult(ctx) {
   const settled = await Promise.race([...ctx.pendingUnits.values()].map((u) => u.wrapped));
   const completedUnit = ctx.pendingUnits.get(settled.unitKey);
@@ -58382,11 +58705,8 @@ async function mergeUnitResult(ctx) {
     const diskManifest = disk?.manifest ?? ctx.manifest;
     const diskArtifacts = diskManifest.artifacts;
     const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
-    const resultManifest = updateRunStatus(
-      { ...diskManifest, artifacts: reconciledArtifacts },
-      "running",
-      "Merged task updates from parallel batch."
-    );
+    const mergedBase = { ...diskManifest, artifacts: reconciledArtifacts };
+    const resultManifest = isRunTerminalPreserved(diskManifest.status) ? mergedBase : updateRunStatus(mergedBase, "running", "Merged task updates from parallel batch.");
     const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
     await saveRunManifestAsync(resultManifest);
     await saveRunTasksAsync(resultManifest, resultTasks);
@@ -58577,76 +58897,109 @@ async function finalizeRun(ctx) {
     });
   }
   const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
+  const entryStatus = manifest.status;
+  let chainAppliedStatus = false;
+  const applyStatusInMemory = (status, summary) => {
+    chainAppliedStatus = true;
+    return { ...manifest, status, summary, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  };
   if (failed) {
-    manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
+    manifest = applyStatusInMemory("failed", `Failed at task '${failed.id}'.`);
   } else if (waiting) {
-    manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
+    manifest = applyStatusInMemory("blocked", `Waiting for response to task '${waiting.id}'.`);
   } else if (running) {
-    manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
+    manifest = applyStatusInMemory("blocked", `Task '${running.id}' is still running.`);
   } else if (effectiveness.severity === "failed") {
-    manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
+    manifest = applyStatusInMemory("failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
   } else if (effectiveness.severity === "blocked") {
-    manifest = updateRunStatus(manifest, "blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
+    manifest = applyStatusInMemory("blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
   } else if (blockingDecision) {
-    manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
+    manifest = applyStatusInMemory("blocked", blockingDecision.message);
   } else if (tasks.some((task) => task.status === "queued")) {
-    manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
+    manifest = applyStatusInMemory("blocked", "Run exited with queued tasks still pending.");
   } else if (manifest.status === "failed" || manifest.status === "cancelled") {
   } else {
-    manifest = updateRunStatus(
-      manifest,
+    manifest = applyStatusInMemory(
       "completed",
       input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers."
     );
   }
   manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
-  await saveRunManifestAsync(manifest);
   const usage = aggregateUsage(tasks);
-  const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
-    kind: "summary",
-    relativePath: "summary.md",
-    producer: "team-runner",
-    content: [
-      `# pi-crew run ${manifest.runId}`,
-      "",
-      `Status: ${manifest.status}`,
-      `Team: ${manifest.team}`,
-      `Workflow: ${manifest.workflow ?? "(none)"}`,
-      `Goal: ${manifest.goal}`,
-      `Usage: ${formatUsage(usage)}`,
-      "",
-      "## Tasks",
-      ...tasks.map(formatTaskProgress),
-      "",
-      "## Effectiveness",
-      ...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
-      "",
-      "## Policy decisions",
-      ...manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"],
-      "",
-      ...scratchpadSummaryLines(manifest)
-    ].join("\n")
+  const finalManifest = await withRunLock(manifest, async () => {
+    flushPendingAtomicWrites();
+    const disk = loadRunManifestById(manifest.cwd, manifest.runId);
+    const diskManifest = disk?.manifest;
+    const diskTerminal = diskManifest && isRunTerminalPreserved(diskManifest.status);
+    const signalAborted = ctx.input.signal?.aborted === true;
+    let resolvedManifest;
+    let resolvedTasks = tasks;
+    if (diskTerminal || signalAborted) {
+      const preservedStatus = diskTerminal ? diskManifest.status : "cancelled";
+      resolvedManifest = {
+        ...manifest,
+        status: preservedStatus,
+        summary: diskTerminal ? diskManifest.summary ?? manifest.summary : "Run cancelled during finalization.",
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      resolvedTasks = disk?.tasks ?? tasks;
+      await appendEventAsync(manifest.eventsPath, {
+        type: "run.terminal_preserved",
+        runId: manifest.runId,
+        message: `Run terminal status '${preservedStatus}' preserved from disk; finalize did not overwrite it.`,
+        data: { preservedStatus, derivedStatus: manifest.status, signalAborted }
+      });
+    } else if (chainAppliedStatus) {
+      resolvedManifest = updateRunStatus({ ...manifest, status: entryStatus }, manifest.status, manifest.summary);
+    } else {
+      resolvedManifest = { ...manifest, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    const summaryArtifact = writeArtifact(resolvedManifest.artifactsRoot, {
+      kind: "summary",
+      relativePath: "summary.md",
+      producer: "team-runner",
+      content: [
+        `# pi-crew run ${resolvedManifest.runId}`,
+        "",
+        `Status: ${resolvedManifest.status}`,
+        `Team: ${resolvedManifest.team}`,
+        `Workflow: ${resolvedManifest.workflow ?? "(none)"}`,
+        `Goal: ${resolvedManifest.goal}`,
+        `Usage: ${formatUsage(usage)}`,
+        "",
+        "## Tasks",
+        ...resolvedTasks.map(formatTaskProgress),
+        "",
+        "## Effectiveness",
+        ...runEffectivenessLines(resolvedManifest, tasks, input.executeWorkers, input.runtimeConfig),
+        "",
+        "## Policy decisions",
+        ...resolvedManifest.policyDecisions?.length ? summarizePolicyDecisions(resolvedManifest.policyDecisions) : ["- (none)"],
+        "",
+        ...scratchpadSummaryLines(resolvedManifest)
+      ].join("\n")
+    });
+    const final = {
+      ...resolvedManifest,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      artifacts: [...resolvedManifest.artifacts, summaryArtifact]
+    };
+    await saveRunManifestAsync(final);
+    await saveRunTasksAsync(final, resolvedTasks);
+    return { manifest: final, tasks: resolvedTasks };
   });
-  const finalManifest = {
-    ...manifest,
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    artifacts: [...manifest.artifacts, summaryArtifact]
-  };
-  await withRunLock(finalManifest, async () => {
-    await saveRunManifestAsync(finalManifest);
-    await saveRunTasksAsync(finalManifest, tasks);
-  });
-  manifest = finalManifest;
-  const crewRoot = path72.dirname(path72.dirname(path72.dirname(finalManifest.stateRoot)));
+  manifest = finalManifest.manifest;
+  const finalTasks = finalManifest.tasks;
+  const crewRoot = path72.dirname(path72.dirname(path72.dirname(finalManifest.manifest.stateRoot)));
   const healthStore = new HealthStore(crewRoot);
   healthStore.saveSnapshot({
-    runId: finalManifest.runId,
-    tasks: tasks.map((t2) => ({ id: t2.id, status: t2.status })),
-    createdAt: finalManifest.createdAt
+    runId: finalManifest.manifest.runId,
+    tasks: finalTasks.map((t2) => ({ id: t2.id, status: t2.status })),
+    createdAt: finalManifest.manifest.createdAt
   });
   ctx.manifest = manifest;
-  ctx.tasks = tasks;
-  return { manifest, tasks };
+  ctx.tasks = finalTasks;
+  return { manifest, tasks: finalTasks };
 }
 async function executeTeamRunCore(input, manifest, workflow) {
   const beforeRunReport = await executeHook("before_run_start", {
@@ -58768,6 +59121,9 @@ async function executeTeamRunCore(input, manifest, workflow) {
       tasks = ctx.tasks;
       manifest = ctx.manifest;
       if (mergeDecision?.kind === "return") return mergeDecision.result;
+      if (isRunTerminalPreserved(manifest.status)) {
+        break;
+      }
       const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge;
       await advanceWorkflowPhases(ctx);
       wfMachine = ctx.wfMachine;
@@ -58854,7 +59210,7 @@ async function executeTeamRunCore(input, manifest, workflow) {
     await drainPendingUnits(pendingUnits, runController);
   }
 }
-var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks, __test__requiresPlanApproval, __test__ensurePlanApprovalRequested, __test__selectDispatchBatch, __test__mergeUnitResult, __test__advanceWorkflowPhases;
+var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, lastProgressContentHash, __test__lastProgressContentHash, __test__writeProgress, __test__cancelPlanTasks, __test__requiresPlanApproval, __test__ensurePlanApprovalRequested, __test__selectDispatchBatch, __test__mergeUnitResult, __test__finalizeRun, __test__advanceWorkflowPhases;
 var init_team_runner = __esm({
   "src/runtime/team-runner.ts"() {
     "use strict";
@@ -58912,6 +59268,7 @@ var init_team_runner = __esm({
     __test__ensurePlanApprovalRequested = ensurePlanApprovalRequested;
     __test__selectDispatchBatch = selectDispatchBatch;
     __test__mergeUnitResult = mergeUnitResult;
+    __test__finalizeRun = finalizeRun;
     __test__advanceWorkflowPhases = advanceWorkflowPhases;
   }
 });
@@ -62160,16 +62517,30 @@ function scheduleBackgroundEarlyExitGuard(cwd, runId, pid, logPath) {
       return;
     const liveness = checkProcessLiveness(pid);
     if (liveness.alive) return;
-    const tail = tailFile(logPath);
-    const message = `Background runner exited within 3s; see background.log${tail ? `
+    try {
+      withRunLockSync(loaded.manifest, () => {
+        const fresh = loadRunManifestById(cwd, runId);
+        if (!fresh) return;
+        if (!isActiveRunStatus(fresh.manifest.status)) return;
+        if (hasAsyncStartMarker(fresh.manifest)) return;
+        if (readEventsCursor(fresh.manifest.eventsPath).events.some(
+          (event) => event.type === "async.started" || event.type === "async.completed" || event.type === "async.failed"
+        ))
+          return;
+        const tail = tailFile(logPath);
+        const message = `Background runner exited within 3s; see background.log${tail ? `
 ${tail}` : ""}`;
-    const failed = updateRunStatus(loaded.manifest, "failed", "Background runner exited within 3s; see background.log");
-    void appendEventAsync(failed.eventsPath, {
-      type: "async.failed",
-      runId: failed.runId,
-      message,
-      data: { pid, detail: liveness.detail }
-    });
+        const failed = updateRunStatus(fresh.manifest, "failed", "Background runner exited within 3s; see background.log");
+        void appendEventAsync(failed.eventsPath, {
+          type: "async.failed",
+          runId: failed.runId,
+          message,
+          data: { pid, detail: liveness.detail }
+        });
+      });
+    } catch (error) {
+      logInternalError("team-tool.run.earlyExitGuard", error instanceof Error ? error : new Error(String(error)), `runId=${runId}`);
+    }
   }, 3e3);
   timer.unref();
 }
@@ -62744,6 +63115,7 @@ var init_run2 = __esm({
     "use strict";
     init_config();
     init_atomic_write();
+    init_locks();
     init_active_run_registry();
     init_artifact_store();
     init_state_store();
@@ -69113,7 +69485,10 @@ function readPersistedSubagentRecord(cwd, id) {
   try {
     const raw = JSON.parse(fs102.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
     return sanitizePersistedRecord(raw);
-  } catch {
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      logInternalError("subagent-manager.read-persisted", error, `id=${id}`, "warn");
+    }
     return void 0;
   }
 }
@@ -76609,6 +76984,10 @@ var CrewBroker = class {
   // Connection lifecycle
   // ------------------------------------------------------------------------
   async handleConnection(sock) {
+    if (this.stopped) {
+      sock.destroy();
+      return;
+    }
     const conn = {
       socket: sock,
       decoder: new NdjsonDecoder(),

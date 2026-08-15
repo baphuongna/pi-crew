@@ -8,8 +8,8 @@ import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-s
 import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.ts";
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
+import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
@@ -61,9 +61,17 @@ export function transitionStaleAsyncUnderLock(
 	loaded: NonNullable<ReturnType<typeof loadRunManifestById>>,
 	runCwd: string,
 	runId: string,
-): { manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"]; tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"] } | undefined {
+):
+	| {
+			manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"];
+			tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"];
+	  }
+	| undefined {
 	let transitioned:
-		| { manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"]; tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"] }
+		| {
+				manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"];
+				tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"];
+		  }
 		| undefined;
 	withRunLockSync(loaded.manifest, () => {
 		const fresh = loadRunManifestById(runCwd, runId); // NOTE: inside withRunLockSync - consistent read

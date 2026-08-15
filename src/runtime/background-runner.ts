@@ -901,19 +901,23 @@ async function main(): Promise<void> {
 			// flip throws and is swallowed by the best-effort catch below). Keeping the
 			// write inside withRunLockSync prevents race with concurrent writers
 			// (e.g., stale reconciler) between the read and the subsequent save.
-			const manifestToUse = withRunLockSync(manifest, () => {
-				const loaded = loadRunManifestById(cwd, runId);
-				const fresh = loaded?.manifest ?? manifest;
-				if (fresh) {
-					manifest = updateRunStatus(fresh, "failed", message);
-					appendEvent(manifest.eventsPath, {
-						type: "async.failed",
-						runId: manifest.runId,
-						message,
-					});
-				}
-				return fresh;
-			}, { staleMs: 30_000 });
+			const manifestToUse = withRunLockSync(
+				manifest,
+				() => {
+					const loaded = loadRunManifestById(cwd, runId);
+					const fresh = loaded?.manifest ?? manifest;
+					if (fresh) {
+						manifest = updateRunStatus(fresh, "failed", message);
+						appendEvent(manifest.eventsPath, {
+							type: "async.failed",
+							runId: manifest.runId,
+							message,
+						});
+					}
+					return fresh;
+				},
+				{ staleMs: 30_000 },
+			);
 			if (manifestToUse) {
 				// LAZY: live-agent-manager only needed on failure cleanup path; avoid module load at hot path.
 				const { terminateLiveAgentsForRun } = await import("./live-session/live-agent-manager.ts");

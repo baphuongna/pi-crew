@@ -8,7 +8,13 @@ import { handleCleanup, handleForget } from "../../../../src/extension/team-tool
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
 import { clearHooksScoped, registerHook } from "../../../../src/hooks/registry.ts";
 import { readEvents } from "../../../../src/state/event-log/event-log.ts";
-import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
+import {
+	createRunManifest,
+	loadRunManifestById,
+	saveRunManifest,
+	saveRunTasks,
+	updateRunStatus,
+} from "../../../../src/state/stores/state-store.ts";
 
 function createRun(ownerSessionId = "session-a"): {
 	cwd: string;
@@ -379,10 +385,7 @@ describe("before_retry ownership re-check (Security S1)", () => {
 					return { outcome: "allow" as const };
 				},
 			});
-			const out = await handleRetry(
-				{ action: "retry", runId: run.runId, force: true },
-				{ cwd: run.cwd, sessionId: "session-a" },
-			);
+			const out = await handleRetry({ action: "retry", runId: run.runId, force: true }, { cwd: run.cwd, sessionId: "session-a" });
 			assert.equal(out.isError, false);
 			// force:true bypasses the ownership gate; the retry re-queues the task.
 			const after = loadRunManifestById(run.cwd, run.runId)!;

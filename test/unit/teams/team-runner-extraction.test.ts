@@ -38,12 +38,7 @@ import {
 import { mergeArtifacts } from "../../../src/runtime/team-runner-artifacts.ts";
 import type { WorkflowStateMachine } from "../../../src/runtime/workflow-state.ts";
 import { readEvents } from "../../../src/state/event-log/event-log.ts";
-import {
-	createRunManifest,
-	loadRunManifestById,
-	saveRunTasks,
-	updateRunStatus,
-} from "../../../src/state/stores/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks, updateRunStatus } from "../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
@@ -504,10 +499,7 @@ test("1.9b finalizeRun: disk 'cancelled' at finalize time is preserved (NOT flip
 		);
 		// and NO run.completed event may be appended (the completion branch must
 		// NOT run for a preserved-terminal run)
-		assert.ok(
-			!events.some((e) => e.type === "run.completed"),
-			"run.completed must NOT be emitted for a preserved-terminal run",
-		);
+		assert.ok(!events.some((e) => e.type === "run.completed"), "run.completed must NOT be emitted for a preserved-terminal run");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -529,7 +521,10 @@ test("1.9b finalizeRun: non-terminal disk status completes normally (control) â€
 
 		assert.equal(result.manifest.status, "completed", "non-terminal disk must still complete normally");
 		const events = readEvents(manifest.eventsPath);
-		assert.ok(events.some((e) => e.type === "run.completed"), "run.completed emitted on the normal path");
+		assert.ok(
+			events.some((e) => e.type === "run.completed"),
+			"run.completed emitted on the normal path",
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

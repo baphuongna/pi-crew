@@ -165,11 +165,7 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 		// the unbounded before_retry hook gap; ownership may have changed on disk
 		// in that window. This in-lock check is authoritative — the pre-lock check
 		// remains only as the fast-path UX message.
-		if (
-			typeof fresh.manifest.ownerSessionId === "string" &&
-			fresh.manifest.ownerSessionId !== ctx.sessionId &&
-			params.force !== true
-		) {
+		if (typeof fresh.manifest.ownerSessionId === "string" && fresh.manifest.ownerSessionId !== ctx.sessionId && params.force !== true) {
 			return result(
 				`Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
 				{ action: "retry", status: "error", runId: fresh.manifest.runId },

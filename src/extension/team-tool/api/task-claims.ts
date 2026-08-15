@@ -19,8 +19,8 @@ import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../
 import { appendEvent } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../state/types.ts";
-import type { ApiHandlerContext, ApiOperationHandler } from "./handler-context.ts";
 import { RUN_NOT_FOUND_HINT } from "../run-not-found.ts";
+import type { ApiHandlerContext, ApiOperationHandler } from "./handler-context.ts";
 
 /** Find a task by id OR stepId — the convention used by every claim op. */
 function findTaskByIdOrStepId(tasks: TeamTaskState[], taskId: string | undefined) {

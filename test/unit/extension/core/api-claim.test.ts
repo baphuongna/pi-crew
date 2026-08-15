@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
-import { handleClaimTask, handleReleaseTaskClaim, handleTransitionTaskStatus } from "../../../../src/extension/team-tool/api/task-claims.ts";
-import { handleWriteHeartbeat } from "../../../../src/extension/team-tool/api/heartbeat.ts";
 import type { ApiHandlerContext, ApiLoadedRun } from "../../../../src/extension/team-tool/api/handler-context.ts";
+import { handleWriteHeartbeat } from "../../../../src/extension/team-tool/api/heartbeat.ts";
+import {
+	handleClaimTask,
+	handleReleaseTaskClaim,
+	handleTransitionTaskStatus,
+} from "../../../../src/extension/team-tool/api/task-claims.ts";
 import { result, type TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { paramRequired } from "../../../../src/extension/team-tool/param-error.ts";
+import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
 import type { TeamToolParamsValue } from "../../../../src/schema/team-tool-schema.ts";
 import { claimTask } from "../../../../src/state/coordination/task-claims.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../../src/state/stores/state-store.ts";

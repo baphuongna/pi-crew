@@ -332,11 +332,7 @@ async function persistGroupHeartbeats(manifest: TeamRunManifest, taskIds: string
  * is re-applied, and a disk-terminal group task is never flipped (same
  * belt-and-suspenders guard as the heartbeat).
  */
-async function repairGroupTerminalWrite(
-	manifest: TeamRunManifest,
-	taskIds: string[],
-	updatedTasks: TeamTaskState[],
-): Promise<void> {
+async function repairGroupTerminalWrite(manifest: TeamRunManifest, taskIds: string[], updatedTasks: TeamTaskState[]): Promise<void> {
 	const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
 	if (!fresh) return; // run pruned mid-dispatch — best-effort only.
 	const groupById = new Map(updatedTasks.map((t) => [t.id, t] as const));

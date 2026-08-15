@@ -6323,7 +6323,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 10041,
+      "bytes": 10925,
       "imports": [
         {
           "path": "node:child_process",
@@ -7317,7 +7317,7 @@
       "format": "esm"
     },
     "src/runtime/crew-agent-records.ts": {
-      "bytes": 23849,
+      "bytes": 24104,
       "imports": [
         {
           "path": "node:fs",
@@ -7394,7 +7394,7 @@
       "format": "esm"
     },
     "src/state/contracts.ts": {
-      "bytes": 4674,
+      "bytes": 4701,
       "imports": [],
       "format": "esm"
     },
@@ -7421,7 +7421,7 @@
       "format": "esm"
     },
     "src/state/event-log/event-log-rotation.ts": {
-      "bytes": 20237,
+      "bytes": 20880,
       "imports": [
         {
           "path": "node:fs",
@@ -7452,7 +7452,7 @@
       "format": "esm"
     },
     "src/state/event-log/event-log.ts": {
-      "bytes": 64277,
+      "bytes": 83200,
       "imports": [
         {
           "path": "node:crypto",
@@ -8223,13 +8223,29 @@
       "imports": [],
       "format": "esm"
     },
+    "src/extension/team-tool/run-not-found.ts": {
+      "bytes": 2105,
+      "imports": [
+        {
+          "path": "src/extension/team-tool/context.ts",
+          "kind": "import-statement",
+          "original": "./context.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/team-tool/api/heartbeat.ts": {
-      "bytes": 2406,
+      "bytes": 3705,
       "imports": [
         {
           "path": "src/runtime/heartbeat/worker-heartbeat.ts",
           "kind": "import-statement",
           "original": "../../../runtime/heartbeat/worker-heartbeat.ts"
+        },
+        {
+          "path": "src/state/contracts.ts",
+          "kind": "import-statement",
+          "original": "../../../state/contracts.ts"
         },
         {
           "path": "src/state/coordination/locks.ts",
@@ -8245,6 +8261,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/extension/team-tool/run-not-found.ts",
+          "kind": "import-statement",
+          "original": "../run-not-found.ts"
         }
       ],
       "format": "esm"
@@ -10134,7 +10155,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/task-claims.ts": {
-      "bytes": 7081,
+      "bytes": 9572,
       "imports": [
         {
           "path": "src/state/contracts.ts",
@@ -10160,6 +10181,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/extension/team-tool/run-not-found.ts",
+          "kind": "import-statement",
+          "original": "../run-not-found.ts"
         }
       ],
       "format": "esm"
@@ -10171,17 +10197,6 @@
           "path": "node_modules/@sinclair/typebox/build/esm/value/index.mjs",
           "kind": "import-statement",
           "original": "@sinclair/typebox/value"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/team-tool/run-not-found.ts": {
-      "bytes": 2105,
-      "imports": [
-        {
-          "path": "src/extension/team-tool/context.ts",
-          "kind": "import-statement",
-          "original": "./context.ts"
         }
       ],
       "format": "esm"
@@ -10414,7 +10429,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/cancel.ts": {
-      "bytes": 16174,
+      "bytes": 18328,
       "imports": [
         {
           "path": "src/hooks/registry.ts",
@@ -11994,7 +12009,7 @@
       "format": "esm"
     },
     "src/runtime/recovery/crash-recovery.ts": {
-      "bytes": 28710,
+      "bytes": 30115,
       "imports": [
         {
           "path": "node:fs",
@@ -12852,7 +12867,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/status.ts": {
-      "bytes": 16253,
+      "bytes": 18972,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -12898,6 +12913,11 @@
           "path": "src/runtime/verification/completion-guard.ts",
           "kind": "import-statement",
           "original": "../../runtime/verification/completion-guard.ts"
+        },
+        {
+          "path": "src/state/coordination/locks.ts",
+          "kind": "import-statement",
+          "original": "../../state/coordination/locks.ts"
         },
         {
           "path": "src/state/coordination/mailbox.ts",
@@ -13545,7 +13565,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/run-coalesced-task-group.ts": {
-      "bytes": 15067,
+      "bytes": 18078,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -14518,7 +14538,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 121850,
+      "bytes": 127919,
       "imports": [
         {
           "path": "node:child_process",
@@ -15324,7 +15344,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 33623,
+      "bytes": 34832,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -15335,6 +15355,11 @@
           "path": "src/state/atomic-write.ts",
           "kind": "import-statement",
           "original": "../../state/atomic-write.ts"
+        },
+        {
+          "path": "src/state/coordination/locks.ts",
+          "kind": "import-statement",
+          "original": "../../state/coordination/locks.ts"
         },
         {
           "path": "src/state/stores/active-run-registry.ts",
@@ -16883,7 +16908,7 @@
       "format": "esm"
     },
     "src/runtime/subagent-manager.ts": {
-      "bytes": 20862,
+      "bytes": 21228,
       "imports": [
         {
           "path": "node:crypto",
@@ -17719,7 +17744,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 46857,
+      "bytes": 47127,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -18501,7 +18526,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6637926
+      "bytes": 6692167
     },
     "dist/index.mjs": {
       "imports": [
@@ -20920,7 +20945,7 @@
           "bytesInOutput": 2425
         },
         "src/runtime/pi-spawn.ts": {
-          "bytesInOutput": 6705
+          "bytesInOutput": 7019
         },
         "src/runtime/peer-dep.ts": {
           "bytesInOutput": 4943
@@ -21055,7 +21080,7 @@
           "bytesInOutput": 492
         },
         "src/runtime/crew-agent-records.ts": {
-          "bytesInOutput": 17565
+          "bytesInOutput": 17668
         },
         "src/errors.ts": {
           "bytesInOutput": 8105
@@ -21067,7 +21092,7 @@
           "bytesInOutput": 589
         },
         "src/state/contracts.ts": {
-          "bytesInOutput": 1977
+          "bytesInOutput": 2069
         },
         "src/ui/run-event-bus.ts": {
           "bytesInOutput": 10871
@@ -21076,10 +21101,10 @@
           "bytesInOutput": 3946
         },
         "src/state/event-log/event-log-rotation.ts": {
-          "bytesInOutput": 7563
+          "bytesInOutput": 7572
         },
         "src/state/event-log/event-log.ts": {
-          "bytesInOutput": 32013
+          "bytesInOutput": 37960
         },
         "src/state/event-log/event-reconstructor.ts": {
           "bytesInOutput": 3640
@@ -21195,8 +21220,11 @@
         "src/runtime/heartbeat/worker-heartbeat.ts": {
           "bytesInOutput": 590
         },
+        "src/extension/team-tool/run-not-found.ts": {
+          "bytesInOutput": 241
+        },
         "src/extension/team-tool/api/heartbeat.ts": {
-          "bytesInOutput": 2352
+          "bytesInOutput": 3592
         },
         "src/extension/team-tool/api/mailbox.ts": {
           "bytesInOutput": 7754
@@ -21469,13 +21497,10 @@
           "bytesInOutput": 1879
         },
         "src/extension/team-tool/api/task-claims.ts": {
-          "bytesInOutput": 6852
+          "bytesInOutput": 8807
         },
         "src/extension/team-tool/param-error.ts": {
           "bytesInOutput": 3579
-        },
-        "src/extension/team-tool/run-not-found.ts": {
-          "bytesInOutput": 241
         },
         "src/extension/team-tool/api.ts": {
           "bytesInOutput": 1856
@@ -21505,7 +21530,7 @@
           "bytesInOutput": 1245
         },
         "src/extension/team-tool/cancel.ts": {
-          "bytesInOutput": 12822
+          "bytesInOutput": 13591
         },
         "src/config/drift-detector.ts": {
           "bytesInOutput": 5777
@@ -21655,7 +21680,7 @@
           "bytesInOutput": 15781
         },
         "src/runtime/recovery/crash-recovery.ts": {
-          "bytesInOutput": 17854
+          "bytesInOutput": 18637
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2438
@@ -21745,7 +21770,7 @@
           "bytesInOutput": 5287
         },
         "src/extension/team-tool/status.ts": {
-          "bytesInOutput": 12958
+          "bytesInOutput": 13823
         },
         "src/extension/team-tool/dispatch/status.ts": {
           "bytesInOutput": 6689
@@ -21850,7 +21875,7 @@
           "bytesInOutput": 7290
         },
         "src/runtime/scheduling/run-coalesced-task-group.ts": {
-          "bytesInOutput": 9270
+          "bytesInOutput": 9929
         },
         "src/runtime/scheduling/task-graph.ts": {
           "bytesInOutput": 2747
@@ -21946,7 +21971,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 70218
+          "bytesInOutput": 72458
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -22006,7 +22031,7 @@
           "bytesInOutput": 7010
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 25037
+          "bytesInOutput": 25740
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 26378
@@ -22105,7 +22130,7 @@
           "bytesInOutput": 40806
         },
         "src/runtime/subagent-manager.ts": {
-          "bytesInOutput": 16910
+          "bytesInOutput": 17045
         },
         "src/extension/registration/subagent-helpers.ts": {
           "bytesInOutput": 4573
@@ -22249,7 +22274,7 @@
           "bytesInOutput": 25691
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 35602
+          "bytesInOutput": 35668
         },
         "src/runtime/broker/crew-broker-tokens.ts": {
           "bytesInOutput": 4886
@@ -22303,7 +22328,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2945382
+      "bytes": 2961262
     }
   }
 }

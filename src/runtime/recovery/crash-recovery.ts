@@ -150,11 +150,7 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 	withRunLockSync(loaded.manifest, () => {
 		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
 		if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
-		if (
-			fresh.manifest.status === "completed" ||
-			fresh.manifest.status === "failed" ||
-			fresh.manifest.status === "cancelled"
-		) {
+		if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
 			// Run reached a terminal status while the recovery hook was running —
 			// do NOT reset it (no task reset, no status change).
 			appendEvent(fresh.manifest.eventsPath, {

@@ -5,13 +5,13 @@
  * byte-identical to the inline `if` blocks they replace.
  */
 
-import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import { touchWorkerHeartbeat } from "../../../runtime/heartbeat/worker-heartbeat.ts";
+import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
 import { appendEvent } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../../../state/stores/state-store.ts";
-import type { ApiOperationHandler } from "./handler-context.ts";
 import { RUN_NOT_FOUND_HINT } from "../run-not-found.ts";
+import type { ApiOperationHandler } from "./handler-context.ts";
 
 export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result, paramRequired } = hctx;
