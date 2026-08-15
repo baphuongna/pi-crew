@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
@@ -28,7 +29,7 @@ let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
  *  aborts via the shared AbortController, then force-exits after a grace
  *  period in case the abort signal does not propagate to all execution paths. */
 const MAX_BACKGROUND_RUN_MS = (() => {
-	const env = Number.parseInt(process.env.PI_CREW_MAX_RUN_MS ?? "", 10);
+	const env = Number.parseInt(getCrewEnv("PI_CREW_MAX_RUN_MS") ?? "", 10);
 	return Number.isFinite(env) && env > 0 ? env : 2 * 60 * 60 * 1000;
 })();
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -60,7 +61,7 @@ import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.t
  * while keeping diagnostics available when explicitly enabled.
  */
 function debugLog(message: string): void {
-	if (process.env.PI_CREW_DEBUG) console.log(message);
+	if (getCrewEnv("PI_CREW_DEBUG")) console.log(message);
 }
 
 /**
@@ -214,7 +215,7 @@ export function startInterruptGuard(
 	const controlPath = path.join(manifest.stateRoot, "foreground-control.json");
 	// FIX: Made configurable via PI_CREW_INTERRUPT_GUARD_INTERVAL_MS env var.
 	// Default 250ms balances fast SIGINT response against filesystem overhead.
-	const interruptGuardInterval = Number(process.env.PI_CREW_INTERRUPT_GUARD_INTERVAL_MS) || 250;
+	const interruptGuardInterval = Number(getCrewEnv("PI_CREW_INTERRUPT_GUARD_INTERVAL_MS")) || 250;
 	// RT-4 FIX: Module-local gate so the interrupt body runs only once per
 	// interrupt request. Without this, the guard re-fires every
 	// interruptGuardInterval (250ms) — each tick does a full
@@ -623,7 +624,7 @@ async function main(): Promise<void> {
 	setupUnhandledRejectionGuard(rejectionGuardState, abortController, setExitFlag);
 
 	// Start parent guard — if parent is already dead, exit immediately
-	const parentPid = Number(process.env.PI_CREW_PARENT_PID);
+	const parentPid = Number(getCrewEnv("PI_CREW_PARENT_PID"));
 	if (parentPid > 0) startParentGuard(parentPid);
 	// NOTE: intentionally no unref() — the guard keeps the event loop alive
 	// to prevent premature worker exit. See parent-guard.ts:86 for rationale.

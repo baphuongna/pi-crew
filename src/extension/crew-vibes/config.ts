@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { hasCrewFontFile, isWebTerminal } from "./font-detect.ts";
 
 /**
@@ -13,7 +14,7 @@ export const CAPACITY_STATUS_ID = "pi-crew-bar";
 export const PROVIDER_STATUS_ID = "pi-crew-bar";
 
 function resolveHome(): string {
-	return (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim() || process.env.HOME || process.env.USERPROFILE || "";
+	return getCrewEnv("PI_CREW_HOME")?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 
 export function configPath(): string {

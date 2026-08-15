@@ -8533,10 +8533,556 @@ var init_config_schema = __esm({
   }
 });
 
+// src/config/env-vars.ts
+function getCrewEnv(name) {
+  const spec = CREW_ENV_VARS[name];
+  if (!spec || !spec.mirror || spec.mirrorPrecedence === "or") {
+    return process.env[name];
+  }
+  const crewName = name.startsWith("PI_TEAMS_") ? spec.mirror : name;
+  const teamsName = name.startsWith("PI_TEAMS_") ? name : spec.mirror;
+  if (spec.mirrorPrecedence === "teams") {
+    return process.env[teamsName] ?? process.env[crewName];
+  }
+  return process.env[crewName] ?? process.env[teamsName];
+}
+var CREW_ENV_VARS;
+var init_env_vars = __esm({
+  "src/config/env-vars.ts"() {
+    "use strict";
+    CREW_ENV_VARS = {
+      // ── Mirror pairs — PI_TEAMS_HOME wins ────────────────────────────────
+      PI_CREW_HOME: {
+        name: "PI_CREW_HOME",
+        mirror: "PI_TEAMS_HOME",
+        mirrorPrecedence: "teams",
+        doc: "pi-crew home dir; PI_TEAMS_HOME wins (config.ts:174, paths.ts:58, crew-vibes/config.ts:16)"
+      },
+      PI_TEAMS_HOME: {
+        name: "PI_TEAMS_HOME",
+        mirror: "PI_CREW_HOME",
+        mirrorPrecedence: "teams",
+        doc: "pi-crew home dir \u2014 primary of the TEAMS??CREW pair"
+      },
+      // ── Mirror pairs — PI_CREW wins ──────────────────────────────────────
+      PI_CREW_DEPTH: {
+        name: "PI_CREW_DEPTH",
+        mirror: "PI_TEAMS_DEPTH",
+        mirrorPrecedence: "crew",
+        default: "0",
+        parser: "int",
+        doc: "current crew depth (pi-args.ts:72 reads CREW ?? TEAMS ?? '0')"
+      },
+      PI_TEAMS_DEPTH: {
+        name: "PI_TEAMS_DEPTH",
+        mirror: "PI_CREW_DEPTH",
+        mirrorPrecedence: "crew",
+        default: "0",
+        parser: "int",
+        doc: "crew depth mirror (fallback of PI_CREW_DEPTH)"
+      },
+      PI_CREW_MAX_DEPTH: {
+        name: "PI_CREW_MAX_DEPTH",
+        mirror: "PI_TEAMS_MAX_DEPTH",
+        mirrorPrecedence: "crew",
+        parser: "int",
+        doc: "max crew depth, clamped 1..10 (pi-args.ts:78)"
+      },
+      PI_TEAMS_MAX_DEPTH: {
+        name: "PI_TEAMS_MAX_DEPTH",
+        mirror: "PI_CREW_MAX_DEPTH",
+        mirrorPrecedence: "crew",
+        parser: "int",
+        doc: "max crew depth mirror (fallback of PI_CREW_MAX_DEPTH)"
+      },
+      PI_CREW_ROLE: {
+        name: "PI_CREW_ROLE",
+        mirror: "PI_TEAMS_ROLE",
+        mirrorPrecedence: "crew",
+        doc: "crew role name (role-permission.ts:46 reads CREW?.trim() || TEAMS?.trim())"
+      },
+      PI_TEAMS_ROLE: {
+        name: "PI_TEAMS_ROLE",
+        mirror: "PI_CREW_ROLE",
+        mirrorPrecedence: "crew",
+        doc: "crew role mirror (fallback of PI_CREW_ROLE)"
+      },
+      PI_CREW_VERIFICATION_PRESERVE_ENV: {
+        name: "PI_CREW_VERIFICATION_PRESERVE_ENV",
+        mirror: "PI_TEAMS_VERIFICATION_PRESERVE_ENV",
+        mirrorPrecedence: "crew",
+        doc: "extra env keys to preserve in verification commands (CREW ?? TEAMS ?? '')"
+      },
+      PI_TEAMS_VERIFICATION_PRESERVE_ENV: {
+        name: "PI_TEAMS_VERIFICATION_PRESERVE_ENV",
+        mirror: "PI_CREW_VERIFICATION_PRESERVE_ENV",
+        mirrorPrecedence: "crew",
+        doc: "verification preserve-env mirror (fallback of PI_CREW_...)"
+      },
+      PI_CREW_VERIFICATION_WORKTREE: {
+        name: "PI_CREW_VERIFICATION_WORKTREE",
+        mirror: "PI_TEAMS_VERIFICATION_WORKTREE",
+        mirrorPrecedence: "crew",
+        doc: "enable verification worktree sandbox; '1'/'true' (CREW ?? TEAMS)"
+      },
+      PI_TEAMS_VERIFICATION_WORKTREE: {
+        name: "PI_TEAMS_VERIFICATION_WORKTREE",
+        mirror: "PI_CREW_VERIFICATION_WORKTREE",
+        mirrorPrecedence: "crew",
+        doc: "verification worktree mirror (fallback of PI_CREW_...)"
+      },
+      PI_CREW_INHERIT_PROJECT_CONTEXT: {
+        name: "PI_CREW_INHERIT_PROJECT_CONTEXT",
+        mirror: "PI_TEAMS_INHERIT_PROJECT_CONTEXT",
+        mirrorPrecedence: "crew",
+        parser: "boolean",
+        doc: "inherit project context in worker prompts; CREW checked first (prompt-runtime.ts readBooleanEnvAny)"
+      },
+      PI_TEAMS_INHERIT_PROJECT_CONTEXT: {
+        name: "PI_TEAMS_INHERIT_PROJECT_CONTEXT",
+        mirror: "PI_CREW_INHERIT_PROJECT_CONTEXT",
+        mirrorPrecedence: "crew",
+        parser: "boolean",
+        doc: "inherit project context mirror (fallback of PI_CREW_...)"
+      },
+      PI_CREW_INHERIT_SKILLS: {
+        name: "PI_CREW_INHERIT_SKILLS",
+        mirror: "PI_TEAMS_INHERIT_SKILLS",
+        mirrorPrecedence: "crew",
+        parser: "boolean",
+        doc: "inherit skills in worker prompts; CREW checked first (prompt-runtime.ts readBooleanEnvAny)"
+      },
+      PI_TEAMS_INHERIT_SKILLS: {
+        name: "PI_TEAMS_INHERIT_SKILLS",
+        mirror: "PI_CREW_INHERIT_SKILLS",
+        mirrorPrecedence: "crew",
+        parser: "boolean",
+        doc: "inherit skills mirror (fallback of PI_CREW_...)"
+      },
+      // ── Mirror pairs — OR semantics (dual reads, no collapse) ─────────────
+      PI_CREW_ADAPTIVE_REPAIR: {
+        name: "PI_CREW_ADAPTIVE_REPAIR",
+        mirror: "PI_TEAMS_ADAPTIVE_REPAIR",
+        mirrorPrecedence: "or",
+        doc: "'0' disables adaptive-plan repair; either name may disable (adaptive-plan.ts:434)"
+      },
+      PI_TEAMS_ADAPTIVE_REPAIR: {
+        name: "PI_TEAMS_ADAPTIVE_REPAIR",
+        mirror: "PI_CREW_ADAPTIVE_REPAIR",
+        mirrorPrecedence: "or",
+        doc: "adaptive-repair mirror (read independently, OR'd with PI_CREW_...)"
+      },
+      PI_CREW_BG_REPORT_ON_FATAL: {
+        name: "PI_CREW_BG_REPORT_ON_FATAL",
+        mirror: "PI_TEAMS_BG_REPORT_ON_FATAL",
+        mirrorPrecedence: "or",
+        doc: "'0' disables --report-on-fatalerror; either name may disable (async-runner.ts:127)"
+      },
+      PI_TEAMS_BG_REPORT_ON_FATAL: {
+        name: "PI_TEAMS_BG_REPORT_ON_FATAL",
+        mirror: "PI_CREW_BG_REPORT_ON_FATAL",
+        mirrorPrecedence: "or",
+        doc: "bg-report mirror (read independently, OR'd with PI_CREW_...)"
+      },
+      PI_CREW_EXECUTE_WORKERS: {
+        name: "PI_CREW_EXECUTE_WORKERS",
+        mirror: "PI_TEAMS_EXECUTE_WORKERS",
+        mirrorPrecedence: "or",
+        doc: "'0' disables real worker execution; either name disables (team-tool.ts:376, run.ts, runtime-resolver.ts:91)"
+      },
+      PI_TEAMS_EXECUTE_WORKERS: {
+        name: "PI_TEAMS_EXECUTE_WORKERS",
+        mirror: "PI_CREW_EXECUTE_WORKERS",
+        mirrorPrecedence: "or",
+        doc: "execute-workers mirror (read independently, OR'd with PI_CREW_...)"
+      },
+      PI_CREW_VERIFICATION_SANITIZE_ENV: {
+        name: "PI_CREW_VERIFICATION_SANITIZE_ENV",
+        mirror: "PI_TEAMS_VERIFICATION_SANITIZE_ENV",
+        mirrorPrecedence: "or",
+        doc: "'0' disables verification env sanitization; either name disables (verification-gates.ts:69)"
+      },
+      PI_TEAMS_VERIFICATION_SANITIZE_ENV: {
+        name: "PI_TEAMS_VERIFICATION_SANITIZE_ENV",
+        mirror: "PI_CREW_VERIFICATION_SANITIZE_ENV",
+        mirrorPrecedence: "or",
+        doc: "verification sanitize mirror (read independently, OR'd with PI_CREW_...)"
+      },
+      PI_CREW_WORKER_ATOMIC_WRITER: {
+        name: "PI_CREW_WORKER_ATOMIC_WRITER",
+        mirror: "PI_TEAMS_WORKER_ATOMIC_WRITER",
+        mirrorPrecedence: "or",
+        doc: "'1' enables the worker-thread atomic writer; either name enables (worker-atomic-writer.ts:166)"
+      },
+      PI_TEAMS_WORKER_ATOMIC_WRITER: {
+        name: "PI_TEAMS_WORKER_ATOMIC_WRITER",
+        mirror: "PI_CREW_WORKER_ATOMIC_WRITER",
+        mirrorPrecedence: "or",
+        doc: "worker-atomic-writer mirror (read independently, OR'd with PI_CREW_...)"
+      },
+      // ── Single names read via process.env (dot notation) ──────────────────
+      PI_CREW_ALLOW_MOCK: {
+        name: "PI_CREW_ALLOW_MOCK",
+        parser: "boolean",
+        doc: "'1'/'true' allows PI_TEAMS_MOCK_CHILD_PI mock mode (mock-fixtures.ts:40)"
+      },
+      PI_CREW_ASYNC_EARLY_EXIT_GUARD: {
+        name: "PI_CREW_ASYNC_EARLY_EXIT_GUARD",
+        doc: "'0' skips the async-run early-exit guard (team-tool/run.ts:103)"
+      },
+      PI_CREW_BACKGROUND_MODE: {
+        name: "PI_CREW_BACKGROUND_MODE",
+        doc: "background-runner marker; READ at child-executor.ts:616 ('1'), WRITTEN at background-runner.ts:713/833 (= '1')"
+      },
+      PI_CREW_BROKER: {
+        name: "PI_CREW_BROKER",
+        doc: "'1'/'0' force broker enabled/disabled (defaults.ts:187, lifecycle-handlers.ts:908)"
+      },
+      PI_CREW_DEBUG: {
+        name: "PI_CREW_DEBUG",
+        doc: "truthiness enables background debug logging (background-runner.ts:63)"
+      },
+      PI_CREW_DEBUG_BUDGET: {
+        name: "PI_CREW_DEBUG_BUDGET",
+        doc: "'1' logs token budget (team-tool/run.ts:498)"
+      },
+      PI_CREW_DWF_SCRIPT_TIMEOUT_MS: {
+        name: "PI_CREW_DWF_SCRIPT_TIMEOUT_MS",
+        parser: "int",
+        default: 18e5,
+        doc: "dynamic-workflow script timeout; default 30 min (dynamic-workflow-runner.ts:226)"
+      },
+      PI_CREW_DWF_SKIP_DETERMINISM_CHECK: {
+        name: "PI_CREW_DWF_SKIP_DETERMINISM_CHECK",
+        doc: "'1' disables the DWF determinism check (deterministic-ast.ts:60)"
+      },
+      PI_CREW_INTERRUPT_GUARD_INTERVAL_MS: {
+        name: "PI_CREW_INTERRUPT_GUARD_INTERVAL_MS",
+        parser: "int",
+        default: 250,
+        doc: "interrupt-guard poll interval; default 250ms (background-runner.ts:217)"
+      },
+      PI_CREW_MAX_RUN_MS: {
+        name: "PI_CREW_MAX_RUN_MS",
+        parser: "int",
+        default: 72e5,
+        doc: "max background run duration; default 2h (background-runner.ts:31)"
+      },
+      PI_CREW_MAX_WORKERS: {
+        name: "PI_CREW_MAX_WORKERS",
+        parser: "int",
+        doc: "max concurrent workers; unset/empty/invalid \u2192 default max(2, cpus-2) (global-worker-cap.ts:33)"
+      },
+      PI_CREW_MOCK_LIVE_SESSION: {
+        name: "PI_CREW_MOCK_LIVE_SESSION",
+        doc: "'success' mocks a successful live-session (live-session-runtime.ts:558, runtime-resolver.ts:38/116)"
+      },
+      PI_CREW_PARENT_GUARD_INTERVAL_MS: {
+        name: "PI_CREW_PARENT_GUARD_INTERVAL_MS",
+        parser: "int",
+        default: 500,
+        doc: "parent-guard poll interval; default 500ms (parent-guard.ts:73)"
+      },
+      PI_CREW_PARENT_PID: {
+        name: "PI_CREW_PARENT_PID",
+        parser: "int",
+        doc: "parent process pid; >0 starts the parent guard (background-runner.ts:626)"
+      },
+      PI_CREW_SCRATCHPAD_DEMOTE_BASH: {
+        name: "PI_CREW_SCRATCHPAD_DEMOTE_BASH",
+        doc: "'1' demotes bash for scratchpad roles (agent-config.ts:199)"
+      },
+      PI_CREW_SKIP_HOME_CHECK: {
+        name: "PI_CREW_SKIP_HOME_CHECK",
+        doc: "'1' skips the PI_TEAMS_HOME escape check (config.ts:185)"
+      },
+      PI_CREW_SUPPRESS_RPC_WARNING: {
+        name: "PI_CREW_SUPPRESS_RPC_WARNING",
+        doc: "'1' suppresses the missing-RPC-secret warning (rpc-hmac.ts:145)"
+      },
+      PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS: {
+        name: "PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS",
+        doc: "'1' trusts project/.pi agent extensions (discover-agents.ts:445/544)"
+      },
+      PI_CREW_TRUST_PROJECT_DWF: {
+        name: "PI_CREW_TRUST_PROJECT_DWF",
+        doc: "'1' allows project-sourced .dwf.ts workflows (dynamic-workflow-runner.ts:154)"
+      },
+      PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS: {
+        name: "PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS",
+        parser: "int",
+        doc: "child Pi response timeout, bounded 1s..3.6M ms (child-pi.ts:356)"
+      },
+      PI_TEAMS_DEBUG: {
+        name: "PI_TEAMS_DEBUG",
+        doc: "truthiness gates debug-severity internal-error logging (internal-error.ts:4)"
+      },
+      PI_TEAMS_MOCK_CHILD_PI: {
+        name: "PI_TEAMS_MOCK_CHILD_PI",
+        doc: "mock child-pi mode; values 'success'/'json-success'/'adaptive-plan' (mock-fixtures.ts:35)"
+      },
+      PI_TEAMS_PI_BIN: {
+        name: "PI_TEAMS_PI_BIN",
+        doc: "explicit pi binary path for spawned children (pi-spawn.ts:262)"
+      },
+      // ── Single names read via process.env[...] (const/bracket sites) ──────
+      PI_CREW_MAX_OUTPUT: {
+        name: "PI_CREW_MAX_OUTPUT",
+        parser: "int",
+        doc: "max output tokens cap for background workers (prompt-runtime.ts:228)"
+      },
+      PI_CREW_STEERING_FILE: {
+        name: "PI_CREW_STEERING_FILE",
+        doc: "steering JSONL path polled by the worker (prompt-runtime.ts:260)"
+      },
+      PI_CREW_KEYBINDINGS: {
+        name: "PI_CREW_KEYBINDINGS",
+        parser: "json",
+        doc: "JSON keybinding override map (keybinding-map.ts:314/347)"
+      },
+      PI_CREW_RPC_SECRET: {
+        name: "PI_CREW_RPC_SECRET",
+        doc: "shared HMAC secret; READ at rpc-hmac.ts:26/41, WRITTEN/cleared at :31/:36"
+      },
+      PI_CREW_PEER_DEP_DIR: {
+        name: "PI_CREW_PEER_DEP_DIR",
+        doc: "parent-provided pi-coding-agent package dir hint (peer-dep.ts:81)"
+      },
+      // ── Names read from a passed-in env object (child-spawned env) ────────
+      PI_CREW_SCRATCHPAD: {
+        name: "PI_CREW_SCRATCHPAD",
+        doc: "'1' enables the scratchpad engine (scratchpad-lifecycle.ts:486/679, written by child-pi-spawn.ts)"
+      },
+      PI_CREW_KIND: {
+        name: "PI_CREW_KIND",
+        doc: "'subagent' marks child workers (scratchpad-lifecycle.ts:679, lifecycle-handlers.ts:892, zombie-scanner.ts:183)"
+      },
+      PI_CREW_TASK_ID: {
+        name: "PI_CREW_TASK_ID",
+        doc: "current task id for scratchpad/events (scratchpad-lifecycle.ts:90/227/280)"
+      },
+      PI_CREW_EVENTS_PATH: {
+        name: "PI_CREW_EVENTS_PATH",
+        doc: "events JSONL path for fire-and-forget metric events (scratchpad-lifecycle.ts:80)"
+      },
+      PI_CREW_BROKER_RUN_ID: {
+        name: "PI_CREW_BROKER_RUN_ID",
+        doc: "broker run id; aliases PI_CREW_RUN_ID (scratchpad-lifecycle.ts:81, crew-broker-child.ts:51)"
+      },
+      PI_CREW_ARTIFACTS_ROOT: {
+        name: "PI_CREW_ARTIFACTS_ROOT",
+        doc: "artifacts root for scratchpad containment (scratchpad-lifecycle.ts:228/281)"
+      },
+      PI_CREW_SCRATCHPAD_SNAPSHOT: {
+        name: "PI_CREW_SCRATCHPAD_SNAPSHOT",
+        doc: "snapshot path for the post-cell snapshot (scratchpad-lifecycle.ts:229)"
+      },
+      PI_CREW_ATTEMPT: {
+        name: "PI_CREW_ATTEMPT",
+        default: "0",
+        doc: "current attempt number (scratchpad-lifecycle.ts:230 reads ?? '0')"
+      },
+      PI_CREW_SCRATCHPAD_RESTORE: {
+        name: "PI_CREW_SCRATCHPAD_RESTORE",
+        doc: "parent-set restore hint: previous attempt snapshot (scratchpad-lifecycle.ts:653)"
+      },
+      PI_CREW_SCRATCHPAD_RESTORE_MTIME: {
+        name: "PI_CREW_SCRATCHPAD_RESTORE_MTIME",
+        parser: "number",
+        doc: "swap-detection mtime pin for restore snapshots (scratchpad-lifecycle.ts:302)"
+      },
+      PI_CREW_MAX_AUTO_FALLBACKS: {
+        name: "PI_CREW_MAX_AUTO_FALLBACKS",
+        parser: "int",
+        doc: "max automatic model fallbacks (model-fallback.ts:527)"
+      },
+      PI_CREW_MODEL_FALLBACK_ORDER: {
+        name: "PI_CREW_MODEL_FALLBACK_ORDER",
+        doc: "'parentFirst' | 'asIs' fallback order (model-fallback.ts:555)"
+      },
+      PI_CREW_MODEL_REQUIRE_CREDENTIALS: {
+        name: "PI_CREW_MODEL_REQUIRE_CREDENTIALS",
+        parser: "boolean",
+        doc: "'1'/'0' override requireCredentials (model-fallback.ts:557/559)"
+      },
+      PI_CREW_MODEL: {
+        name: "PI_CREW_MODEL",
+        doc: "model override for subagents (model-fallback.ts:584)"
+      },
+      PI_CREW_BROKER_SOCKET: {
+        name: "PI_CREW_BROKER_SOCKET",
+        doc: "broker unix socket path for child handshake (crew-broker-child.ts:49)"
+      },
+      PI_CREW_BROKER_TOKEN: {
+        name: "PI_CREW_BROKER_TOKEN",
+        doc: "broker handshake token (crew-broker-child.ts:50)"
+      },
+      PI_CREW_BROKER_TASK_ID: {
+        name: "PI_CREW_BROKER_TASK_ID",
+        doc: "broker task id for child handshake (crew-broker-child.ts:51)"
+      },
+      PI_CREW_GUEST: {
+        name: "PI_CREW_GUEST",
+        doc: "'1' marks the guest scratchpad process (written by scratchpad-lifecycle.ts:167)"
+      },
+      // ── Docs/tests-only (best-effort; not read via process.env in src/) ───
+      PI_CREW_USE_BUNDLE: {
+        name: "PI_CREW_USE_BUNDLE",
+        doc: "read at root index.ts:78 (outside src/ gate scope): force strip-types loading when 0"
+      },
+      PI_CREW_SMOKE: {
+        name: "PI_CREW_SMOKE",
+        doc: "test-only: smoke-test helper flag (test/smoke/_helpers.ts)"
+      },
+      PI_CREW_RUN_PLATFORM_TESTS: {
+        name: "PI_CREW_RUN_PLATFORM_TESTS",
+        doc: "test-only: enables platform tests (test/platform)"
+      },
+      PI_CREW_HARD_KILL_GRACE_MS: {
+        name: "PI_CREW_HARD_KILL_GRACE_MS",
+        doc: "scripts-only: watchdog hard-kill grace (scripts/watchdog-harness.ts)"
+      },
+      PI_CREW_LIVE_MODEL: {
+        name: "PI_CREW_LIVE_MODEL",
+        doc: "docs/test-only: live-session model selection"
+      },
+      PI_CREW_ENABLE_EXPERIMENTAL_LIVE_SESSION: {
+        name: "PI_CREW_ENABLE_EXPERIMENTAL_LIVE_SESSION",
+        doc: "docs/test-only: experimental live-session opt-in"
+      },
+      PI_CREW_RUN_ID: {
+        name: "PI_CREW_RUN_ID",
+        doc: "test fixture name; src uses PI_CREW_BROKER_RUN_ID instead"
+      },
+      PI_TEAMS_CONFIG_KEYS: {
+        name: "PI_TEAMS_CONFIG_KEYS",
+        doc: "docs/test-only"
+      },
+      PI_TEAMS_MOCK: {
+        name: "PI_TEAMS_MOCK",
+        doc: "docs/test-only"
+      },
+      PI_CREW_VERIFICATION: {
+        name: "PI_CREW_VERIFICATION",
+        deprecated: "partial fixture name; real vars are PI_CREW_VERIFICATION_*",
+        doc: "docs/test-only"
+      },
+      PI_TEAMS_VERIFICATION: {
+        name: "PI_TEAMS_VERIFICATION",
+        deprecated: "partial fixture name; real vars are PI_TEAMS_VERIFICATION_*",
+        doc: "docs/test-only"
+      },
+      PI_CREW_ATOMIC_WRITER: {
+        name: "PI_CREW_ATOMIC_WRITER",
+        deprecated: "superseded by PI_CREW_WORKER_ATOMIC_WRITER",
+        doc: "docs/test-only"
+      },
+      PI_CREW_BROKER_DIAG_UI: {
+        name: "PI_CREW_BROKER_DIAG_UI",
+        deprecated: "removed",
+        doc: "docs/test-only"
+      },
+      PI_CREW_DEBUG_KILL: {
+        name: "PI_CREW_DEBUG_KILL",
+        doc: "docs/test-only"
+      },
+      PI_CREW_DWF_SANDBOX_DRY_RUN: {
+        name: "PI_CREW_DWF_SANDBOX_DRY_RUN",
+        doc: "docs/test-only"
+      },
+      PI_CREW_HOOK: {
+        name: "PI_CREW_HOOK",
+        doc: "docs/test-only"
+      },
+      PI_CREW_POOL_HEALTH: {
+        name: "PI_CREW_POOL_HEALTH",
+        doc: "docs/test-only"
+      },
+      PI_CREW_QUIET_PREFLIGHT: {
+        name: "PI_CREW_QUIET_PREFLIGHT",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SAFE_BASH: {
+        name: "PI_CREW_SAFE_BASH",
+        deprecated: "dead",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SCRATCHPAD_EXPERIMENT: {
+        name: "PI_CREW_SCRATCHPAD_EXPERIMENT",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SESSION_DEPTH: {
+        name: "PI_CREW_SESSION_DEPTH",
+        deprecated: "legacy name; code uses PI_CREW_DEPTH (ADR drift history 2026-08-09)",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SIG: {
+        name: "PI_CREW_SIG",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SNAPSHOT_HMAC_KEY: {
+        name: "PI_CREW_SNAPSHOT_HMAC_KEY",
+        deprecated: "reverted (2026-08-13)",
+        doc: "docs/test-only"
+      },
+      PI_CREW_SNAPSHOT_HMAC_STRICT: {
+        name: "PI_CREW_SNAPSHOT_HMAC_STRICT",
+        deprecated: "reverted (2026-08-13)",
+        doc: "docs/test-only"
+      },
+      PI_CREW_TEST_REAL_MODEL: {
+        name: "PI_CREW_TEST_REAL_MODEL",
+        doc: "docs/test-only"
+      },
+      PI_CREW_TOOLING_429_NOTE: {
+        name: "PI_CREW_TOOLING_429_NOTE",
+        doc: "docs/test-only"
+      },
+      PI_CREW_MAX_OUTPUT_TOKENS: {
+        name: "PI_CREW_MAX_OUTPUT_TOKENS",
+        deprecated: "legacy name; actual var is PI_CREW_MAX_OUTPUT (comment-only in src)",
+        doc: "docs/test-only"
+      },
+      PI_CREW_GOAL_OSCILLATION_EMBEDDINGS: {
+        name: "PI_CREW_GOAL_OSCILLATION_EMBEDDINGS",
+        doc: "docs/test-only"
+      },
+      PI_CREW_OPENAI_API_KEY: {
+        name: "PI_CREW_OPENAI_API_KEY",
+        doc: "comment-only in src (env-filter secret-name example)"
+      },
+      PI_CREW_SECRET_TOKEN: {
+        name: "PI_CREW_SECRET_TOKEN",
+        doc: "comment-only in src (env-filter secret-name example)"
+      },
+      PI_CREW_REFUSE_GATE_PATTERNS: {
+        name: "PI_CREW_REFUSE_GATE_PATTERNS",
+        doc: "docs-only"
+      },
+      PI_CREW_PROCEED_PATTERNS: {
+        name: "PI_CREW_PROCEED_PATTERNS",
+        doc: "docs-only"
+      },
+      PI_CREW_ENFORCEMENT_PATTERNS: {
+        name: "PI_CREW_ENFORCEMENT_PATTERNS",
+        doc: "docs-only"
+      },
+      // Pure test fixtures (placeholder names used by tests to prove isolation).
+      PI_CREW_DIR: { name: "PI_CREW_DIR", doc: "test fixture" },
+      PI_CREW_ROOT: { name: "PI_CREW_ROOT", doc: "test fixture" },
+      PI_CREW_FOO: { name: "PI_CREW_FOO", doc: "test fixture" },
+      PI_CREW_VAR: { name: "PI_CREW_VAR", doc: "test fixture" },
+      PI_CREW_X: { name: "PI_CREW_X", doc: "test fixture" },
+      PI_CREW_TEST_SECRET_VALUE: { name: "PI_CREW_TEST_SECRET_VALUE", doc: "test fixture" },
+      PI_TEAMS_BAR: { name: "PI_TEAMS_BAR", doc: "test fixture" }
+    };
+  }
+});
+
 // src/utils/internal-error.ts
 function logInternalError(scope, error, details, severity) {
   if (!severity || severity === "debug") {
-    if (!process.env.PI_TEAMS_DEBUG) return;
+    if (!getCrewEnv("PI_TEAMS_DEBUG")) return;
   }
   const message = error instanceof Error ? error.message : typeof error === "object" && error !== null ? JSON.stringify(error) : String(error);
   const suffix = details ? `: ${details}` : "";
@@ -8545,6 +9091,7 @@ function logInternalError(scope, error, details, severity) {
 var init_internal_error = __esm({
   "src/utils/internal-error.ts"() {
     "use strict";
+    init_env_vars();
   }
 });
 
@@ -8630,7 +9177,7 @@ function dispatch(kind, payload) {
   });
 }
 function isWorkerAtomicWriterEnabled() {
-  return process.env.PI_CREW_WORKER_ATOMIC_WRITER === "1" || process.env.PI_TEAMS_WORKER_ATOMIC_WRITER === "1";
+  return getCrewEnv("PI_CREW_WORKER_ATOMIC_WRITER") === "1" || getCrewEnv("PI_TEAMS_WORKER_ATOMIC_WRITER") === "1";
 }
 function atomicWriteFileViaWorker(filePath, content) {
   return dispatch("write", { filePath, content });
@@ -8642,6 +9189,7 @@ var require2, worker, nextRequestId, pending, WORKER_SOURCE, keepRefForTests;
 var init_worker_atomic_writer = __esm({
   "src/state/event-log/worker-atomic-writer.ts"() {
     "use strict";
+    init_env_vars();
     require2 = createRequire(import.meta.url);
     nextRequestId = 1;
     pending = /* @__PURE__ */ new Map();
@@ -9300,7 +9848,7 @@ var init_atomic_write = __esm({
 
 // src/config/defaults.ts
 function resolveBrokerEnvOverride(parsed) {
-  const override = process.env.PI_CREW_BROKER;
+  const override = getCrewEnv("PI_CREW_BROKER");
   if (override === "1" || override === "0") {
     const base = parsed ?? {};
     return { ...base, enabled: override === "1" };
@@ -9311,6 +9859,7 @@ var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, 
 var init_defaults = __esm({
   "src/config/defaults.ts"() {
     "use strict";
+    init_env_vars();
     DEFAULT_CHILD_PI = {
       postExitStdioGuardMs: 3e3,
       finalDrainMs: 5e3,
@@ -9798,7 +10347,7 @@ function packageRoot() {
   return cachedPackageRoot;
 }
 function userPiRoot() {
-  const rawHome = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
+  const rawHome = getCrewEnv("PI_CREW_HOME")?.trim();
   const home = rawHome && rawHome !== "undefined" ? rawHome : os2.homedir();
   if (cachedUserPiRoot?.home === home) return cachedUserPiRoot.value;
   const resolved = path4.join(home, ".pi", "agent");
@@ -9918,6 +10467,7 @@ var cachedPackageRoot, cachedUserPiRoot, PROJECT_DIR_MARKERS, PROJECT_FILE_MARKE
 var init_paths = __esm({
   "src/utils/paths.ts"() {
     "use strict";
+    init_env_vars();
     PROJECT_DIR_MARKERS = [".git", ".pi", ".crew", ".hg", ".svn", ".factory", ".omc"];
     PROJECT_FILE_MARKERS = [
       "package.json",
@@ -10078,10 +10628,10 @@ function invalidateConfigCache() {
   configCache.clear();
 }
 function resolveHomeDir() {
-  const envValue = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
+  const envValue = getCrewEnv("PI_CREW_HOME")?.trim();
   const defaultHome = os3.homedir();
   if (!envValue) return defaultHome;
-  if (process.env.PI_CREW_SKIP_HOME_CHECK === "1") {
+  if (getCrewEnv("PI_CREW_SKIP_HOME_CHECK") === "1") {
     return envValue;
   }
   try {
@@ -10982,6 +11532,7 @@ var init_config = __esm({
     init_internal_error();
     init_paths();
     init_defaults();
+    init_env_vars();
     init_suggestions();
     CONFIG_CACHE_TTL_MS = 2e3;
     configCache = /* @__PURE__ */ new Map();
@@ -11253,7 +11804,7 @@ function validateExplicitBin(explicit) {
   return resolved;
 }
 function getPiSpawnCommand(args) {
-  const explicit = process.env.PI_TEAMS_PI_BIN?.trim();
+  const explicit = getCrewEnv("PI_TEAMS_PI_BIN")?.trim();
   if (explicit) {
     const validated = validateExplicitBin(explicit);
     if (validated) {
@@ -11277,6 +11828,7 @@ var PI_PACKAGE_NAMES, cachedNpmGlobalRoot;
 var init_pi_spawn = __esm({
   "src/runtime/pi-spawn.ts"() {
     "use strict";
+    init_env_vars();
     init_internal_error();
     PI_PACKAGE_NAMES = ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"];
     cachedNpmGlobalRoot = null;
@@ -11290,7 +11842,7 @@ import * as path7 from "node:path";
 import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
 function peerDepResolutionBases() {
   const bases = [];
-  const envHint = process.env[PEER_DEP_DIR_ENV]?.trim();
+  const envHint = getCrewEnv(PEER_DEP_DIR_ENV)?.trim();
   if (envHint) bases.push(path7.resolve(envHint));
   bases.push(fileURLToPath3(import.meta.url));
   const argv1 = process.argv[1];
@@ -11434,6 +11986,7 @@ var PEER_DEP_NAMES, PEER_DEP_DIR_ENV, cachedResolve, cachedModule, primingPromis
 var init_peer_dep = __esm({
   "src/runtime/peer-dep.ts"() {
     "use strict";
+    init_env_vars();
     init_pi_spawn();
     PEER_DEP_NAMES = ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"];
     PEER_DEP_DIR_ENV = "PI_CREW_PEER_DEP_DIR";
@@ -11772,7 +12325,7 @@ function resolveToolPolicy(agent, role) {
   return { tools, excludeTools };
 }
 function shouldDemoteBashForScratchpad(role, agent) {
-  if (process.env.PI_CREW_SCRATCHPAD_DEMOTE_BASH !== "1") return false;
+  if (getCrewEnv("PI_CREW_SCRATCHPAD_DEMOTE_BASH") !== "1") return false;
   if (!role) return false;
   return isScratchpadEnabledForRole(role, { scratchpad: agent.scratchpad });
 }
@@ -11780,6 +12333,7 @@ var BUILTIN_TOOL_NAMES;
 var init_agent_config = __esm({
   "src/agents/agent-config.ts"() {
     "use strict";
+    init_env_vars();
     init_role_tools();
     BUILTIN_TOOL_NAMES = ["read", "edit", "write", "bash", "grep", "find", "ls"];
   }
@@ -11979,7 +12533,7 @@ function parseAgentFile(filePath, source) {
       // code. Bypass only when PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1 is
       // explicitly set. buildPiWorkerArgs also enforces this as
       // defense-in-depth.
-      ...(source === "project" || source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1" ? { extensions: [], excludeExtensions: [] } : {
+      ...(source === "project" || source === "project-pi") && getCrewEnv("PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS") !== "1" ? { extensions: [], excludeExtensions: [] } : {
         extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
         excludeExtensions: parseCsv(frontmatter.excludeExtensions ?? frontmatter.exclude_extensions)
       },
@@ -12041,7 +12595,7 @@ function applyAgentOverrides(agents, cwd, loadedConfig) {
   const overrides = agentsConfig?.overrides ?? {};
   const globalExtensions = [...discoverProviderExtensionPaths(), ...loaded.config.runtime?.agentExtensions ?? []];
   const deduped = [...new Set(globalExtensions.map((p) => path10.resolve(p)))];
-  const isUntrustedProject = (agent) => (agent.source === "project" || agent.source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1";
+  const isUntrustedProject = (agent) => (agent.source === "project" || agent.source === "project-pi") && getCrewEnv("PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS") !== "1";
   const withGlobalExtensions = (agent) => {
     if (isUntrustedProject(agent)) return agent;
     return deduped.length > 0 || agent.extensions !== void 0 ? { ...agent, extensions: [...deduped, ...agent.extensions ?? []] } : agent;
@@ -12148,6 +12702,7 @@ var init_discover_agents = __esm({
   "src/agents/discover-agents.ts"() {
     "use strict";
     init_config();
+    init_env_vars();
     init_provider_extensions();
     init_frontmatter();
     init_internal_error();
@@ -15899,9 +16454,9 @@ import * as fs21 from "node:fs";
 import * as os8 from "node:os";
 import * as path19 from "node:path";
 async function runMockChildPi(input, effectiveTask, observe) {
-  const mock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+  const mock = getCrewEnv("PI_TEAMS_MOCK_CHILD_PI");
   if (!mock) return void 0;
-  const allowMock = process.env.PI_CREW_ALLOW_MOCK === "1" || process.env.PI_CREW_ALLOW_MOCK === "true";
+  const allowMock = getCrewEnv("PI_CREW_ALLOW_MOCK") === "1" || getCrewEnv("PI_CREW_ALLOW_MOCK") === "true";
   if (!allowMock) {
     return {
       exitCode: 1,
@@ -16021,6 +16576,7 @@ ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-
 var init_mock_fixtures = __esm({
   "src/runtime/child-pi/mock-fixtures.ts"() {
     "use strict";
+    init_env_vars();
     init_atomic_write();
     init_internal_error();
   }
@@ -16318,7 +16874,7 @@ ${input.task}` : input.task;
       let finalAssistantEventMonotonicMs;
       const RESPONSE_TIMEOUT_MIN_MS = 1e3;
       const RESPONSE_TIMEOUT_MAX_MS = 36e5;
-      const responseTimeoutEnv = Number.parseInt(process.env.PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS ?? "", 10);
+      const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
       const envInRange = Number.isFinite(responseTimeoutEnv) && responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS && responseTimeoutEnv <= RESPONSE_TIMEOUT_MAX_MS;
       const responseTimeoutMs = envInRange ? responseTimeoutEnv : input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS;
       let responseTimeoutHit = false;
@@ -16803,6 +17359,7 @@ var init_child_pi = __esm({
   "src/runtime/child-pi/child-pi.ts"() {
     "use strict";
     init_defaults();
+    init_env_vars();
     init_crew_cleanup();
     init_internal_error();
     init_redaction();
@@ -16982,6 +17539,7 @@ var init_crew_agent_runtime = __esm({
 });
 
 // src/runtime/crew-agent-records.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
 import * as fs24 from "node:fs";
 import * as path20 from "node:path";
 function agentsPath(manifest) {
@@ -17072,9 +17630,34 @@ function removeStaleAgentsLock(lockPath2, staleMs) {
     return false;
   }
 }
+function releaseAgentsLock(filePath, token) {
+  try {
+    const stat2 = fs24.lstatSync(filePath);
+    if (stat2.isSymbolicLink()) return;
+  } catch {
+  }
+  let stored;
+  try {
+    const raw = fs24.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    stored = typeof parsed.token === "string" ? parsed.token : void 0;
+  } catch {
+  }
+  if (stored === void 0 || stored === token) {
+    try {
+      fs24.rmSync(filePath, { force: true });
+    } catch (error) {
+      const code = error.code;
+      if (code !== "ENOENT") {
+        logInternalError("crew-agents.release-lock", error, `lockPath=${filePath}`, "warn");
+      }
+    }
+  }
+}
 function withAgentsLock(manifest, fn) {
   const filePath = agentsLockPath(manifest);
   fs24.mkdirSync(path20.dirname(filePath), { recursive: true });
+  const token = randomUUID4();
   let attempt = 0;
   const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
   while (true) {
@@ -17085,7 +17668,8 @@ function withAgentsLock(manifest, fn) {
           fd,
           JSON.stringify({
             pid: process.pid,
-            createdAt: (/* @__PURE__ */ new Date()).toISOString()
+            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+            token
           })
         );
       } finally {
@@ -17111,10 +17695,7 @@ function withAgentsLock(manifest, fn) {
   try {
     return fn();
   } finally {
-    try {
-      fs24.rmSync(filePath, { force: true });
-    } catch {
-    }
+    releaseAgentsLock(filePath, token);
   }
 }
 function setAsyncAgentReaderCache(filePath, entry) {
@@ -34389,7 +34970,7 @@ async function runLiveSessionTask(input) {
   let streamOut;
   let customToolYieldResult;
   let customToolYieldResolved = false;
-  if (process.env.PI_CREW_MOCK_LIVE_SESSION === "success") {
+  if (getCrewEnv("PI_CREW_MOCK_LIVE_SESSION") === "success") {
     const agentId2 = `${input.manifest.runId}:${input.task.id}`;
     const inherited = input.runtimeConfig?.inheritContext === true && input.parentContext ? ` with inherited context: ${input.parentContext}` : "";
     const event = {
@@ -34955,6 +35536,7 @@ var init_live_session_runtime = __esm({
     init_agent_config();
     init_config();
     init_defaults();
+    init_env_vars();
     init_event_log();
     init_internal_error();
     init_redaction();
@@ -35416,11 +35998,11 @@ ${display}`);
 });
 
 // src/state/coordination/task-claims.ts
-import { randomUUID as randomUUID4, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
+import { randomUUID as randomUUID5, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 function createTaskClaim(owner, leaseMs = 5 * 6e4, now = /* @__PURE__ */ new Date()) {
   return {
     owner,
-    token: randomUUID4(),
+    token: randomUUID5(),
     leasedUntil: new Date(now.getTime() + leaseMs).toISOString()
   };
 }
@@ -42193,7 +42775,7 @@ function getBackgroundRunnerCommand(runnerPath, cwd, runId, loaderInput = resolv
   const loader = normalizeLoaderInput(loaderInput);
   if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
   const memoryLimit = "--max-old-space-size=512";
-  const reportOn = !(process.env.PI_CREW_BG_REPORT_ON_FATAL === "0" || process.env.PI_TEAMS_BG_REPORT_ON_FATAL === "0");
+  const reportOn = !(getCrewEnv("PI_CREW_BG_REPORT_ON_FATAL") === "0" || getCrewEnv("PI_TEAMS_BG_REPORT_ON_FATAL") === "0");
   const reportDir = reportDirectory ?? path48.dirname(runnerPath);
   const reportFlags = reportOn ? ["--report-on-fatalerror", "--report-compact", `--report-directory=${reportDir}`] : [];
   if (loader.kind === "jiti") {
@@ -42314,6 +42896,7 @@ var requireFromHere, STRIP_TYPES_MIN_MAJOR, STRIP_TYPES_MIN_MINOR, BACKGROUND_RU
 var init_async_runner = __esm({
   "src/runtime/async-runner.ts"() {
     "use strict";
+    init_env_vars();
     init_event_log();
     init_env_allowlist();
     init_env_filter();
@@ -49001,7 +49584,7 @@ var init_attention_events = __esm({
 });
 
 // src/runtime/agent-control.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
+import { randomUUID as randomUUID8 } from "node:crypto";
 function positiveInt(value) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : void 0;
 }
@@ -49064,7 +49647,7 @@ function applyAttentionState(manifest, agent, config, now = Date.now()) {
 function reserveControlChannel(taskId, runId) {
   return {
     reservedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    controllerId: `ctrl:${taskId}:${randomUUID7()}`,
+    controllerId: `ctrl:${taskId}:${randomUUID8()}`,
     acceptsControlEvents: true
   };
 }
@@ -51730,7 +52313,7 @@ var init_semaphore = __esm({
 // src/runtime/scheduling/global-worker-cap.ts
 import * as os15 from "node:os";
 function resolveCapacity() {
-  const env = process.env.PI_CREW_MAX_WORKERS;
+  const env = getCrewEnv("PI_CREW_MAX_WORKERS");
   if (env !== void 0 && env !== "") {
     const parsed = Number.parseInt(env, 10);
     if (Number.isFinite(parsed) && parsed > 0) {
@@ -51761,6 +52344,7 @@ var capacity, semaphore;
 var init_global_worker_cap = __esm({
   "src/runtime/scheduling/global-worker-cap.ts"() {
     "use strict";
+    init_env_vars();
     init_semaphore();
     capacity = resolveCapacity();
     semaphore = new Semaphore(capacity);
@@ -54307,7 +54891,7 @@ async function runChildProcessTask(ctx) {
               }
             }
             persistHeartbeat();
-            if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
+            if (getCrewEnv("PI_CREW_BACKGROUND_MODE") === "1" && event) {
               const bgLogPath = `${manifest.stateRoot}/background.log`;
               const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
               void appendBackgroundLogAsync(bgLogPath, eventLine);
@@ -54559,6 +55143,7 @@ var init_child_executor = __esm({
   "src/runtime/task-runner/child-executor.ts"() {
     "use strict";
     init_config();
+    init_env_vars();
     init_errors3();
     init_event_log();
     init_artifact_store();
@@ -55356,7 +55941,7 @@ import { spawn as spawn5 } from "node:child_process";
 import * as fs84 from "node:fs";
 import * as path70 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
-  if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
+  if (getCrewEnv("PI_CREW_VERIFICATION_SANITIZE_ENV") === "0" || getCrewEnv("PI_TEAMS_VERIFICATION_SANITIZE_ENV") === "0") {
     return false;
   }
   return true;
@@ -55365,7 +55950,7 @@ function buildVerificationEnv() {
   if (!isVerificationEnvSanitizeEnabled()) {
     return { ...process.env, FORCE_COLOR: "0" };
   }
-  const preserveRaw = process.env.PI_CREW_VERIFICATION_PRESERVE_ENV ?? process.env.PI_TEAMS_VERIFICATION_PRESERVE_ENV ?? "";
+  const preserveRaw = getCrewEnv("PI_CREW_VERIFICATION_PRESERVE_ENV") ?? "";
   const preserve = preserveRaw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
   const allowList = [...VERIFICATION_ENV_ALLOWLIST, ...preserve];
   return {
@@ -55576,6 +56161,7 @@ var VERIFICATION_ENV_ALLOWLIST, DANGEROUS_SHELL_PATTERNS, ALLOWED_GATE_COMMAND_P
 var init_verification_gates = __esm({
   "src/runtime/verification/verification-gates.ts"() {
     "use strict";
+    init_env_vars();
     init_artifact_store();
     init_env_allowlist();
     init_env_filter();
@@ -57183,7 +57769,7 @@ async function injectAdaptivePlanIfReady(input) {
   const allowedRoles = input.team.roles.map((role) => role.name);
   let plan = parseAdaptivePlan(text, allowedRoles);
   if (!plan) {
-    const repair = process.env.PI_CREW_ADAPTIVE_REPAIR === "0" || process.env.PI_TEAMS_ADAPTIVE_REPAIR === "0" ? { repaired: false, reason: "disabled" } : repairAdaptivePlan(text, allowedRoles);
+    const repair = getCrewEnv("PI_CREW_ADAPTIVE_REPAIR") === "0" || getCrewEnv("PI_TEAMS_ADAPTIVE_REPAIR") === "0" ? { repaired: false, reason: "disabled" } : repairAdaptivePlan(text, allowedRoles);
     if (repair.plan) {
       plan = repair.plan;
       const repairArtifact = writeArtifact(input.manifest.artifactsRoot, {
@@ -57307,6 +57893,7 @@ var MAX_ADAPTIVE_TASKS, __test__parseAdaptivePlan, __test__repairAdaptivePlan;
 var init_adaptive_plan = __esm({
   "src/runtime/goal-workflow/adaptive-plan.ts"() {
     "use strict";
+    init_env_vars();
     init_event_log();
     init_artifact_store();
     init_state_store();
@@ -61349,7 +61936,7 @@ function assertDeterministicScript(script) {
   assertDeterministicAst(ast);
 }
 function isDeterminismCheckEnabled() {
-  return process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK !== "1";
+  return getCrewEnv("PI_CREW_DWF_SKIP_DETERMINISM_CHECK") !== "1";
 }
 function asAstNode(value) {
   if (!value || typeof value !== "object") return void 0;
@@ -61430,6 +62017,7 @@ var NONDETERMINISM_ERROR, DeterminismError;
 var init_deterministic_ast = __esm({
   "src/runtime/deterministic-ast.ts"() {
     "use strict";
+    init_env_vars();
     NONDETERMINISM_ERROR = "Workflow scripts must be deterministic: Date.now()/Math.random()/new Date() are unavailable. These introduce non-reproducible behavior across runs. Use ctx.vars for cached state, or pass a fixed seed via ctx.setArgs(). To bypass this check (escape hatch), set PI_CREW_DWF_SKIP_DETERMINISM_CHECK=1.";
     DeterminismError = class extends Error {
       constructor() {
@@ -62337,7 +62925,7 @@ async function runDynamicWorkflow(input) {
   const { manifest, workflow, signal } = input;
   const eventsPath = manifest.eventsPath;
   const scriptPath = resolveScriptPath(workflow, manifest.cwd);
-  if (workflow.source === "project" && process.env.PI_CREW_TRUST_PROJECT_DWF !== "1") {
+  if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
     appendEvent(eventsPath, {
       type: "dwf.trust_denied",
       runId: manifest.runId,
@@ -62388,7 +62976,7 @@ async function runDynamicWorkflow(input) {
   const frozenCtx = Object.freeze(ctx);
   try {
     const script = await loadWorkflowModule(scriptPath);
-    const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 18e5;
+    const SCRIPT_TIMEOUT_MS = Number.parseInt(getCrewEnv("PI_CREW_DWF_SCRIPT_TIMEOUT_MS") ?? "", 10) || 18e5;
     let timeoutHandle;
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
@@ -62463,6 +63051,7 @@ function readFinalArtifact(artifactPath) {
 var init_dynamic_workflow_runner = __esm({
   "src/runtime/goal-workflow/dynamic-workflow-runner.ts"() {
     "use strict";
+    init_env_vars();
     init_event_log();
     init_artifact_store();
     init_internal_error();
@@ -62506,7 +63095,7 @@ function tailFile(filePath, maxBytes = 4096) {
   }
 }
 function scheduleBackgroundEarlyExitGuard(cwd, runId, pid, logPath) {
-  if (process.env.PI_CREW_ASYNC_EARLY_EXIT_GUARD === "0") return;
+  if (getCrewEnv("PI_CREW_ASYNC_EARLY_EXIT_GUARD") === "0") return;
   const timer = setTimeout(() => {
     const loaded = loadRunManifestById(cwd, runId);
     if (!loaded || !isActiveRunStatus(loaded.manifest.status)) return;
@@ -62784,7 +63373,7 @@ ${dwfResult.manifest.summary ?? ""}`,
   const executedConfig = effectiveRunConfig(loadedConfig.config, params.config);
   const runtime = await resolveCrewRuntime(executedConfig);
   const runtimeResolution = runtimeResolutionState(runtime);
-  if (process.env.PI_CREW_DEBUG_BUDGET === "1") {
+  if (getCrewEnv("PI_CREW_DEBUG_BUDGET") === "1") {
     console.log(
       "[DEBUG budget] params keys:",
       Object.keys(params),
@@ -62868,8 +63457,8 @@ ${dwfResult.manifest.summary ?? ""}`,
           diagnostics: {
             requestedMode: effectiveRuntime.requestedMode,
             workersDisabled: executedConfig.executeWorkers === false,
-            envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-            envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS
+            envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+            envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS")
           }
         }
       });
@@ -62880,7 +63469,7 @@ ${dwfResult.manifest.summary ?? ""}`,
           `Runtime: ${effectiveRuntime.kind} (requested ${effectiveRuntime.requestedMode})`,
           `Reason: ${effectiveRuntime.reason ?? "unknown"}`,
           `Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-          `Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`
+          `Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`
         ].join("\n"),
         {
           action: "run",
@@ -62960,8 +63549,8 @@ ${dwfResult.manifest.summary ?? ""}`,
         diagnostics: {
           requestedMode: runtime.requestedMode,
           workersDisabled: executedConfig.executeWorkers === false,
-          envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-          envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS
+          envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+          envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS")
         }
       }
     });
@@ -62972,7 +63561,7 @@ ${dwfResult.manifest.summary ?? ""}`,
         `Runtime: ${runtime.kind} (requested ${runtime.requestedMode})`,
         `Reason: ${runtime.reason ?? "unknown"}`,
         `Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-        `Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`,
+        `Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`,
         "",
         "To run effective subagents, remove executeWorkers=false / PI_CREW_EXECUTE_WORKERS=0 / PI_TEAMS_EXECUTE_WORKERS=0 or set runtime.mode=child-process.",
         "Use runtime.mode=scaffold only for explicit dry-run prompt/artifact generation."
@@ -63114,6 +63703,7 @@ var init_run2 = __esm({
   "src/extension/team-tool/run.ts"() {
     "use strict";
     init_config();
+    init_env_vars();
     init_atomic_write();
     init_locks();
     init_active_run_registry();
@@ -63416,7 +64006,7 @@ async function handleResume2(params, ctx) {
       ...effectiveRunConfig(loadedConfig.config, params.config)
     };
     if (!executedConfig.runtime?.mode && resumeManifest.runtimeResolution?.safety === "explicit_dry_run") {
-      const workersDisabled = executedConfig.executeWorkers === false || process.env.PI_CREW_EXECUTE_WORKERS === "0" || process.env.PI_TEAMS_EXECUTE_WORKERS === "0";
+      const workersDisabled = executedConfig.executeWorkers === false || getCrewEnv("PI_CREW_EXECUTE_WORKERS") === "0" || getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") === "0";
       if (!workersDisabled)
         executedConfig.runtime = {
           ...executedConfig.runtime,
@@ -63767,6 +64357,7 @@ var init_team_tool2 = __esm({
     "use strict";
     init_discover_agents();
     init_config();
+    init_env_vars();
     init_contracts();
     init_locks();
     init_mailbox();
@@ -65582,7 +66173,7 @@ function readConfigKeybindings(cwd) {
   }
 }
 function readEnvKeybindings() {
-  const raw = process.env[KEYBINDINGS_ENV];
+  const raw = getCrewEnv(KEYBINDINGS_ENV);
   if (!raw) return {};
   try {
     return parseKeybindingOverride(JSON.parse(raw));
@@ -65598,7 +66189,7 @@ function configKeybindingsMtime(cwd) {
   }
 }
 function getEffectiveBindings(cwd = process.cwd()) {
-  const envRaw = process.env[KEYBINDINGS_ENV];
+  const envRaw = getCrewEnv(KEYBINDINGS_ENV);
   const configMtime = configKeybindingsMtime(cwd);
   if (_effectiveCache && _effectiveCache.env === envRaw && _effectiveCache.configMtime === configMtime && _effectiveCache.cwd === cwd) {
     return _effectiveCache.bindings;
@@ -65629,6 +66220,7 @@ var DASHBOARD_KEYS, DEFAULT_BINDINGS, KEY_RESERVED, KEYBINDINGS_ENV, VALID_OVERR
 var init_keybinding_map = __esm({
   "src/ui/keybinding-map.ts"() {
     "use strict";
+    init_env_vars();
     init_key_utils();
     DASHBOARD_KEYS = {
       close: ["q", "escape", "\x1B"],
@@ -69423,7 +70015,7 @@ var init_commands = __esm({
 });
 
 // src/runtime/subagent-manager.ts
-import { randomUUID as randomUUID8 } from "node:crypto";
+import { randomUUID as randomUUID9 } from "node:crypto";
 import * as fs102 from "node:fs";
 import * as path82 from "node:path";
 function isValidSubagentId(id) {
@@ -69572,7 +70164,7 @@ var init_subagent_manager = __esm({
       }
       spawn(options, runner, signal) {
         const record = {
-          id: `agent_${Date.now().toString(36)}_${randomUUID8().slice(0, 8)}_${(++this.counter).toString(36)}`,
+          id: `agent_${Date.now().toString(36)}_${randomUUID9().slice(0, 8)}_${(++this.counter).toString(36)}`,
           type: options.type,
           description: options.description,
           prompt: options.prompt,
@@ -73301,6 +73893,7 @@ init_pi_ui_compat();
 init_internal_error();
 
 // src/extension/crew-vibes/config.ts
+init_env_vars();
 import { existsSync as existsSync75, mkdirSync as mkdirSync42, readFileSync as readFileSync75, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname40, join as join79 } from "node:path";
 
@@ -73361,7 +73954,7 @@ var SPEED_STATUS_ID = "pi-crew-speed";
 var CAPACITY_STATUS_ID = "pi-crew-bar";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
-  return (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim() || process.env.HOME || process.env.USERPROFILE || "";
+  return getCrewEnv("PI_CREW_HOME")?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
   return join79(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
@@ -76476,6 +77069,7 @@ async function configureDeliveryCoordinatorImpl(pi, ctx) {
 // src/extension/registration/lifecycle-handlers.ts
 init_config();
 init_defaults();
+init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
 import * as fs110 from "node:fs";
@@ -76491,9 +77085,9 @@ import * as fsp3 from "node:fs/promises";
 import * as net2 from "node:net";
 
 // src/runtime/broker/crew-broker-tokens.ts
-import { randomUUID as randomUUID9, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
+import { randomUUID as randomUUID10, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
 function newBrokerToken() {
-  return randomUUID9();
+  return randomUUID10();
 }
 var BrokerTokenRegistry = class _BrokerTokenRegistry {
   map = /* @__PURE__ */ new Map();
@@ -78629,7 +79223,7 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
   let starting = null;
   let cachedSessionId;
   function effectiveEnabled() {
-    const envOverride = process.env.PI_CREW_BROKER;
+    const envOverride = getCrewEnv("PI_CREW_BROKER");
     if (envOverride === "0") return false;
     try {
       const cfg = loadConfig().config.broker;
@@ -79488,16 +80082,18 @@ function registerPiTools(pi, ctx) {
 init_safe_paths();
 
 // src/extension/rpc-hmac.ts
+init_env_vars();
 import { createHmac, randomBytes as randomBytes5, timingSafeEqual as timingSafeEqual4 } from "node:crypto";
 var RPC_HMAC_VERSION = 1;
 var SECRET_ENV_VAR = "PI_CREW_RPC_SECRET";
 var CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1e3;
 var SIGNATURE_VALIDITY_MS = 10 * 60 * 1e3;
 function getRpcSecret() {
-  return process.env[SECRET_ENV_VAR];
+  return getCrewEnv(SECRET_ENV_VAR);
 }
 function isHmacEnabled() {
-  return typeof process.env[SECRET_ENV_VAR] === "string" && process.env[SECRET_ENV_VAR].length > 0;
+  const secret = getCrewEnv(SECRET_ENV_VAR);
+  return typeof secret === "string" && secret.length > 0;
 }
 var _rpcHmacSoftInfoEmitted = false;
 function rpcHmacSoftInfoOnce() {
@@ -79530,7 +80126,7 @@ function withHmacVerification(handler, _channel) {
   return (raw) => {
     const params = raw;
     if (!isHmacEnabled()) {
-      if (process.env.PI_CREW_SUPPRESS_RPC_WARNING !== "1") {
+      if (getCrewEnv("PI_CREW_SUPPRESS_RPC_WARNING") !== "1") {
         rpcHmacSoftInfoOnce();
       }
       return handler(params);

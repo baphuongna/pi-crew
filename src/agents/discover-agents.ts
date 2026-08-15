@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type LoadedPiTeamsConfig, loadConfig } from "../config/config.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { discoverProviderExtensionPaths } from "../runtime/model/provider-extensions.ts";
 import { parseCsv, parseFrontmatter } from "../utils/frontmatter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -442,7 +443,7 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 			// code. Bypass only when PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1 is
 			// explicitly set. buildPiWorkerArgs also enforces this as
 			// defense-in-depth.
-			...((source === "project" || source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
+			...((source === "project" || source === "project-pi") && getCrewEnv("PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS") !== "1"
 				? { extensions: [], excludeExtensions: [] }
 				: {
 						extensions: frontmatter.extensions === "" ? [] : parseCsv(frontmatter.extensions),
@@ -541,7 +542,7 @@ function applyAgentOverrides(agents: AgentConfig[], cwd: string, loadedConfig?: 
 	// user-trusted config knob (provider extensions like pi-commandcode-provider)
 	// and applies to builtin / user agents only.
 	const isUntrustedProject = (agent: AgentConfig) =>
-		(agent.source === "project" || agent.source === "project-pi") && process.env.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1";
+		(agent.source === "project" || agent.source === "project-pi") && getCrewEnv("PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS") !== "1";
 	const withGlobalExtensions = (agent: AgentConfig): AgentConfig => {
 		if (isUntrustedProject(agent)) return agent;
 		return deduped.length > 0 || agent.extensions !== undefined

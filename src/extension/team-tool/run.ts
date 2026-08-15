@@ -1,4 +1,5 @@
 import { loadConfig } from "../../config/config.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -100,7 +101,7 @@ function tailFile(filePath: string, maxBytes = 4096): string | undefined {
 }
 
 function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: number | undefined, logPath: string): void {
-	if (process.env.PI_CREW_ASYNC_EARLY_EXIT_GUARD === "0") return;
+	if (getCrewEnv("PI_CREW_ASYNC_EARLY_EXIT_GUARD") === "0") return;
 	const timer = setTimeout(() => {
 		const loaded = loadRunManifestById(cwd, runId);
 		if (!loaded || !isActiveRunStatus(loaded.manifest.status)) return;
@@ -495,7 +496,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const runtime = await resolveCrewRuntime(executedConfig);
 	const runtimeResolution = runtimeResolutionState(runtime);
 	// DEBUG: log what we received (gated to avoid stdout pollution in production)
-	if (process.env.PI_CREW_DEBUG_BUDGET === "1") {
+	if (getCrewEnv("PI_CREW_DEBUG_BUDGET") === "1") {
 		console.log(
 			"[DEBUG budget] params keys:",
 			Object.keys(params),
@@ -582,8 +583,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					diagnostics: {
 						requestedMode: effectiveRuntime.requestedMode,
 						workersDisabled: executedConfig.executeWorkers === false,
-						envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-						envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS,
+						envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+						envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS"),
 					},
 				},
 			});
@@ -594,7 +595,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					`Runtime: ${effectiveRuntime.kind} (requested ${effectiveRuntime.requestedMode})`,
 					`Reason: ${effectiveRuntime.reason ?? "unknown"}`,
 					`Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-					`Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`,
+					`Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`,
 				].join("\n"),
 				{
 					action: "run",
@@ -677,8 +678,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				diagnostics: {
 					requestedMode: runtime.requestedMode,
 					workersDisabled: executedConfig.executeWorkers === false,
-					envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-					envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS,
+					envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+					envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS"),
 				},
 			},
 		});
@@ -689,7 +690,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				`Runtime: ${runtime.kind} (requested ${runtime.requestedMode})`,
 				`Reason: ${runtime.reason ?? "unknown"}`,
 				`Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-				`Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`,
+				`Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`,
 				"",
 				"To run effective subagents, remove executeWorkers=false / PI_CREW_EXECUTE_WORKERS=0 / PI_TEAMS_EXECUTE_WORKERS=0 or set runtime.mode=child-process.",
 				"Use runtime.mode=scaffold only for explicit dry-run prompt/artifact generation.",

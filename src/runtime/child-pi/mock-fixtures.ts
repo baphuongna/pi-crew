@@ -13,6 +13,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi.ts";
@@ -32,12 +33,12 @@ export async function runMockChildPi(
 	effectiveTask: string,
 	observe: (input: ChildPiRunInput, text: string) => Promise<void>,
 ): Promise<ChildPiRunResult | undefined> {
-	const mock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	const mock = getCrewEnv("PI_TEAMS_MOCK_CHILD_PI");
 	if (!mock) return undefined;
 
 	// SECURITY (Issue #2): see module docstring — PI_CREW_ALLOW_MOCK is only
 	// checked in the parent process scope; it is never passed to children.
-	const allowMock = process.env.PI_CREW_ALLOW_MOCK === "1" || process.env.PI_CREW_ALLOW_MOCK === "true";
+	const allowMock = getCrewEnv("PI_CREW_ALLOW_MOCK") === "1" || getCrewEnv("PI_CREW_ALLOW_MOCK") === "true";
 	if (!allowMock) {
 		return {
 			exitCode: 1,

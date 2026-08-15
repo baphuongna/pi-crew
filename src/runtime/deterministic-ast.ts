@@ -18,6 +18,7 @@
  */
 
 import { parse } from "acorn";
+import { getCrewEnv } from "../config/env-vars.ts";
 
 const NONDETERMINISM_ERROR =
 	"Workflow scripts must be deterministic: Date.now()/Math.random()/new Date() are unavailable. These introduce non-reproducible behavior across runs. Use ctx.vars for cached state, or pass a fixed seed via ctx.setArgs(). To bypass this check (escape hatch), set PI_CREW_DWF_SKIP_DETERMINISM_CHECK=1.";
@@ -57,7 +58,7 @@ export function assertDeterministicScript(script: string): void {
  * (e.g. randomized benchmark scripts).
  */
 export function isDeterminismCheckEnabled(): boolean {
-	return process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK !== "1";
+	return getCrewEnv("PI_CREW_DWF_SKIP_DETERMINISM_CHECK") !== "1";
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { resolveNpmGlobalRoot } from "./pi-spawn.ts";
 
 /**
@@ -78,7 +79,7 @@ export function peerDepResolutionBases(): string[] {
 	const bases: string[] = [];
 
 	// 0. Parent-provided hint (fastest — no probe). Set by async-runner.
-	const envHint = process.env[PEER_DEP_DIR_ENV]?.trim();
+	const envHint = getCrewEnv(PEER_DEP_DIR_ENV)?.trim();
 	if (envHint) bases.push(path.resolve(envHint));
 
 	// 1. This file's location — works when pi-crew and pi-coding-agent share a

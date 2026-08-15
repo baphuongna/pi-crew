@@ -28,6 +28,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig } from "../../config/config.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
@@ -613,7 +614,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						persistHeartbeat();
 						// Bug #3 fix: Write worker JSON events to background.log for debugging when running in background mode.
 						// This supplements the event log so developers can see what the child Pi worker produced.
-						if (process.env.PI_CREW_BACKGROUND_MODE === "1" && event) {
+						if (getCrewEnv("PI_CREW_BACKGROUND_MODE") === "1" && event) {
 							const bgLogPath = `${manifest.stateRoot}/background.log`;
 							const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
 							// Fire-and-forget async write for background log

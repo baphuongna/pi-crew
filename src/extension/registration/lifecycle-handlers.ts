@@ -19,6 +19,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
@@ -905,7 +906,7 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 
 	function effectiveEnabled(): boolean {
 		// Env wins over config. PI_CREW_BROKER=1 forces on, =0 forces off.
-		const envOverride = process.env.PI_CREW_BROKER;
+		const envOverride = getCrewEnv("PI_CREW_BROKER");
 		if (envOverride === "0") return false;
 		// Config block: read fresh so a runtime config update takes effect.
 		try {

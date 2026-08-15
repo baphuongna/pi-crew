@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { atomicWriteJson, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "../state/atomic-write.ts";
@@ -151,9 +152,59 @@ function removeStaleAgentsLock(lockPath: string, staleMs: number): boolean {
 	}
 }
 
+/**
+ * Phase 3.1 (decision α): token-guarded release for the agents-record lock,
+ * mirroring `locks.ts` `releaseLock` semantics — only `rmSync` if the stored
+ * token still matches the token we wrote at acquisition. If the lock was
+ * stolen while our critical section ran (stale-steal replaced the file with a
+ * NEW owner's token), releasing must be a no-op — otherwise we would delete
+ * the new holder's lock and break mutual exclusion (the exact race the
+ * token guard in locks.ts fixes). Missing/corrupt files are handled safely:
+ * ENOENT is a no-op (lock already gone); a symlink is never removed (defense
+ * against attacker-planted symlinks, matching locks.ts); an unreadable/
+ * unparseable payload is treated like locks.ts `releaseLock` (stored token
+ * unknown → remove) so a torn write cannot strand the lock forever — the
+ * 30s stale-steal path remains the backstop for genuinely foreign locks.
+ */
+function releaseAgentsLock(filePath: string, token: string): void {
+	try {
+		const stat = fs.lstatSync(filePath);
+		if (stat.isSymbolicLink()) return;
+	} catch {
+		/* ENOENT — lock already gone, nothing to release */
+	}
+	let stored: string | undefined;
+	try {
+		const raw = fs.readFileSync(filePath, "utf-8");
+		const parsed = JSON.parse(raw) as { token?: unknown };
+		stored = typeof parsed.token === "string" ? parsed.token : undefined;
+	} catch {
+		/* unreadable/corrupt — see doc comment: remove, mirroring locks.ts */
+	}
+	if (stored === undefined || stored === token) {
+		try {
+			fs.rmSync(filePath, { force: true });
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT") {
+				logInternalError("crew-agents.release-lock", error, `lockPath=${filePath}`, "warn");
+			}
+		}
+	}
+	// stored !== token → lock stolen by another process; do NOT touch.
+}
+
 function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 	const filePath = agentsLockPath(manifest);
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	// Phase 3.1 (decision α): the agents lock file now carries a randomUUID
+	// `token` (format change explicitly accepted by the plan) so the release
+	// below is token-guarded — a stale-steal by another process can no longer
+	// be released by the wrong owner (previously PID-only release). Mirrors
+	// the `writeLockFile` payload shape in locks.ts ({kind,pid,createdAt,token}
+	// minus `kind`). Generated ONCE per call; only the successful O_EXCL write
+	// persists it, so a single token per acquisition is correct.
+	const token = randomUUID();
 	let attempt = 0;
 	const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
 	while (true) {
@@ -165,6 +216,7 @@ function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 					JSON.stringify({
 						pid: process.pid,
 						createdAt: new Date().toISOString(),
+						token,
 					}),
 				);
 			} finally {
@@ -191,11 +243,8 @@ function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 	try {
 		return fn();
 	} finally {
-		try {
-			fs.rmSync(filePath, { force: true });
-		} catch {
-			/* best-effort */
-		}
+		// Phase 3.1 (decision α): unconditional rmSync → token-guarded release.
+		releaseAgentsLock(filePath, token);
 	}
 }
 

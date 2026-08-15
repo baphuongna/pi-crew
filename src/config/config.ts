@@ -9,6 +9,7 @@ import { withFileLockSync } from "../state/coordination/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, projectPiRoot } from "../utils/paths.ts";
 import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "./defaults.ts";
+import { getCrewEnv } from "./env-vars.ts";
 import { suggestConfigKey } from "./suggestions.ts";
 
 // 2.9: interface types extracted to ./types.ts; re-export for back-compat.
@@ -171,7 +172,7 @@ export function invalidateConfigCache(): void {
 }
 
 function resolveHomeDir(): string {
-	const envValue = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
+	const envValue = getCrewEnv("PI_CREW_HOME")?.trim();
 	const defaultHome = os.homedir();
 	if (!envValue) return defaultHome;
 	// FIX (Round 14): When PI_TEAMS_HOME is explicitly set, validate that
@@ -182,7 +183,7 @@ function resolveHomeDir(): string {
 	// directory (e.g. withIsolatedHome) set PI_TEAMS_HOME to a tmp dir
 	// under /tmp; we skip the check in test environments (NODE_ENV=test)
 	// so existing tests don't break.
-	if (process.env.PI_CREW_SKIP_HOME_CHECK === "1") {
+	if (getCrewEnv("PI_CREW_SKIP_HOME_CHECK") === "1") {
 		return envValue;
 	}
 	// M-7 fix (code-review 2026-06-23): the previous `NODE_ENV === "test"` bypass

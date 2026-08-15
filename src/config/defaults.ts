@@ -1,3 +1,4 @@
+import { getCrewEnv } from "./env-vars.ts";
 import type { CrewBrokerConfig } from "./types.ts";
 
 export const DEFAULT_CHILD_PI: Readonly<{
@@ -184,7 +185,7 @@ export const DEFAULT_BROKER = {
  * bounds must go through the schema + parser path, not env.
  */
 export function resolveBrokerEnvOverride(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig | undefined {
-	const override = process.env.PI_CREW_BROKER;
+	const override = getCrewEnv("PI_CREW_BROKER");
 	if (override === "1" || override === "0") {
 		const base: CrewBrokerConfig = parsed ?? {};
 		return { ...base, enabled: override === "1" };

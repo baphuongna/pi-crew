@@ -5,6 +5,7 @@ import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_LIVE_SESSION } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEvent, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -555,7 +556,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	// G1: Capture yield result from custom tool callback
 	let customToolYieldResult: YieldResult | undefined;
 	let customToolYieldResolved = false;
-	if (process.env.PI_CREW_MOCK_LIVE_SESSION === "success") {
+	if (getCrewEnv("PI_CREW_MOCK_LIVE_SESSION") === "success") {
 		const agentId = `${input.manifest.runId}:${input.task.id}`;
 		const inherited =
 			input.runtimeConfig?.inheritContext === true && input.parentContext ? ` with inherited context: ${input.parentContext}` : "";

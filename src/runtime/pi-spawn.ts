@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 export interface PiSpawnCommand {
@@ -259,7 +260,7 @@ function validateExplicitBin(explicit: string): string | undefined {
 }
 
 export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
-	const explicit = process.env.PI_TEAMS_PI_BIN?.trim();
+	const explicit = getCrewEnv("PI_TEAMS_PI_BIN")?.trim();
 	if (explicit) {
 		const validated = validateExplicitBin(explicit);
 		if (validated) {

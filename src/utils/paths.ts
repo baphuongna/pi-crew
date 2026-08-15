@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getCrewEnv } from "../config/env-vars.ts";
 
 // NEW-P1/NEW-P2 (perf): packageRoot() and userPiRoot() are invariant for a
 // process lifetime but each call did statSync/readFileSync/lstatSync (10-15+
@@ -55,7 +56,7 @@ export function userPiRoot(): string {
 	// "undefined/.pi/agent" relative to cwd and silently create a junk "undefined/"
 	// tree. Treat the literal "undefined" (and empty) as unset and fall back to
 	// os.homedir().
-	const rawHome = (process.env.PI_TEAMS_HOME ?? process.env.PI_CREW_HOME)?.trim();
+	const rawHome = getCrewEnv("PI_CREW_HOME")?.trim();
 	const home = rawHome && rawHome !== "undefined" ? rawHome : os.homedir();
 	// NEW-P2: memoize but KEY ON HOME. Tests (withIsolatedHome / isolateHome)
 	// change PI_TEAMS_HOME mid-process; an unkeyed cache would leak the first

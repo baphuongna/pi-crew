@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -353,7 +354,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			// built-in default.
 			const RESPONSE_TIMEOUT_MIN_MS = 1_000;
 			const RESPONSE_TIMEOUT_MAX_MS = 3_600_000;
-			const responseTimeoutEnv = Number.parseInt(process.env.PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS ?? "", 10);
+			const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
 			const envInRange =
 				Number.isFinite(responseTimeoutEnv) &&
 				responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS &&

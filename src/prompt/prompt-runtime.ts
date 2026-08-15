@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { startChildBrokerClient } from "../runtime/broker/crew-broker-child.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -225,7 +226,7 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// ── Feature 1: maxTokens cap ──────────────────────────────────────────
 	// Cap output tokens per API call for background workers. Reads
 	// PI_CREW_MAX_OUTPUT_TOKENS env (set by pi-args.ts from agent.maxTokens).
-	const maxTokensEnv = process.env[PI_CREW_MAX_OUTPUT_ENV];
+	const maxTokensEnv = getCrewEnv(PI_CREW_MAX_OUTPUT_ENV);
 	const maxTokensCap = maxTokensEnv ? Number.parseInt(maxTokensEnv, 10) : undefined;
 	if (maxTokensCap && maxTokensCap > 0) {
 		pi.on("before_provider_request", (event) => {
@@ -257,7 +258,7 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// Poll the steering JSONL file for new steer messages. The parent (team
 	// tool) writes steers here in real-time; this reader injects them into
 	// the active session via pi.sendMessage with deliverAs:"steer".
-	const steeringFile = process.env[PI_CREW_STEERING_FILE_ENV];
+	const steeringFile = getCrewEnv(PI_CREW_STEERING_FILE_ENV);
 	if (steeringFile) {
 		// FIX-03: validate the steering file path once before first read.
 		const validation = validateSteeringFile(steeringFile);

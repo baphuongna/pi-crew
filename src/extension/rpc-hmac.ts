@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { getCrewEnv } from "../config/env-vars.ts";
 
 /**
  * HMAC-based origin signing for cross-extension RPC.
@@ -23,7 +24,7 @@ const SIGNATURE_VALIDITY_MS = 10 * 60 * 1000; // 10 min
 
 /** Get the shared secret. Returns undefined if not configured. */
 export function getRpcSecret(): string | undefined {
-	return process.env[SECRET_ENV_VAR];
+	return getCrewEnv(SECRET_ENV_VAR);
 }
 
 /** Set the shared secret (for testing or programmatic setup). */
@@ -38,7 +39,8 @@ export function clearRpcSecret(): void {
 
 /** Whether HMAC authentication is currently enabled. */
 export function isHmacEnabled(): boolean {
-	return typeof process.env[SECRET_ENV_VAR] === "string" && process.env[SECRET_ENV_VAR].length > 0;
+	const secret = getCrewEnv(SECRET_ENV_VAR);
+	return typeof secret === "string" && secret.length > 0;
 }
 
 // --- Types -------------------------------------------------------------------
@@ -142,7 +144,7 @@ export function withHmacVerification<P extends { requestId: string }>(
 			// Emit a soft info note (once per process) only when an actual RPC
 			// request is being processed — the prior registration-time warning
 			// was too noisy for users who never wire cross-extension RPC.
-			if (process.env.PI_CREW_SUPPRESS_RPC_WARNING !== "1") {
+			if (getCrewEnv("PI_CREW_SUPPRESS_RPC_WARNING") !== "1") {
 				rpcHmacSoftInfoOnce();
 			}
 			return handler(params);

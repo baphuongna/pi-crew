@@ -22,6 +22,7 @@
  */
 
 import * as os from "node:os";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { Semaphore } from "./semaphore.ts";
 
 /**
@@ -30,7 +31,7 @@ import { Semaphore } from "./semaphore.ts";
  * rather than silently disabling the cap.
  */
 function resolveCapacity(): number {
-	const env = process.env.PI_CREW_MAX_WORKERS;
+	const env = getCrewEnv("PI_CREW_MAX_WORKERS");
 	if (env !== undefined && env !== "") {
 		const parsed = Number.parseInt(env, 10);
 		if (Number.isFinite(parsed) && parsed > 0) {
