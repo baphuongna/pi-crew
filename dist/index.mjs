@@ -293,6 +293,10 @@ var init_env_vars = __esm({
         parser: "int",
         doc: "max concurrent workers; unset/empty/invalid \u2192 default max(2, cpus-2) (global-worker-cap.ts:33)"
       },
+      PI_CREW_DISABLE_RESULT_READ_CACHE: {
+        name: "PI_CREW_DISABLE_RESULT_READ_CACHE",
+        doc: "'1' bypasses the per-run result-artifact read cache (R10-1 bypass control; task-output-context.ts createResultArtifactReadCache)"
+      },
       PI_CREW_MOCK_LIVE_SESSION: {
         name: "PI_CREW_MOCK_LIVE_SESSION",
         doc: "'success' mocks a successful live-session (live-session-runtime.ts:558, runtime-resolver.ts:38/116)"
@@ -1313,11 +1317,15 @@ function cancelPendingCoalescedWrite(filePath) {
     pendingAtomicWrites.delete(filePath);
   }
 }
-function flushPendingAtomicWrites() {
+function flushPendingAtomicWrites(filePath) {
   if (flushInProgress > 0) return;
   flushInProgress++;
   try {
-    for (const filePath of [...pendingAtomicWrites.keys()]) flushOnePendingAtomicWrite(filePath);
+    if (filePath === void 0) {
+      for (const pending2 of [...pendingAtomicWrites.keys()]) flushOnePendingAtomicWrite(pending2);
+    } else if (pendingAtomicWrites.has(filePath)) {
+      flushOnePendingAtomicWrite(filePath);
+    }
   } finally {
     flushInProgress--;
   }
@@ -10210,7 +10218,12 @@ var init_config_schema = __esm({
         injectPolicy: Type.Optional(Type.Boolean({ sensitive: true })),
         preferAsyncForLongTasks: Type.Optional(Type.Boolean({ sensitive: true })),
         allowWorktreeSuggestion: Type.Optional(Type.Boolean({ sensitive: true })),
-        magicKeywords: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }))))
+        // S19-5 (Wave 1A): magicKeywords alone flips effective autonomous mode on
+        // (effectiveAutonomousConfig defaults profile "suggested" when only
+        // magicKeywords is present) — untrusted project config must not set it.
+        magicKeywords: Type.Optional(
+          Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 })), { sensitive: true })
+        )
       },
       { additionalProperties: false }
     );
@@ -10322,7 +10335,7 @@ var init_config_schema = __esm({
       },
       { additionalProperties: false }
     );
-    PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema);
+    PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema, { sensitive: true });
     AgentOverrideSchema = Type.Object(
       {
         disabled: Type.Optional(Type.Boolean()),
@@ -10942,7 +10955,11 @@ function parseNotificationsConfig(value) {
       Type.Array(Type.Union([Type.Literal("info"), Type.Literal("warning"), Type.Literal("error"), Type.Literal("critical")])),
       obj.severityFilter
     ),
-    dedupWindowMs: parsePositiveInteger(obj.dedupWindowMs, 24 * 60 * 60 * 1e3),
+    // F19-5 (Wave 1A): minimum 1000 aligns with PiTeamsNotificationsConfigSchema
+    // (config-schema.ts:208); values <1000 now parse to undefined like other
+    // bound violations (schema has no upper bound, so the old parser-only 24h
+    // ceiling is gone — schema wins).
+    dedupWindowMs: parseWithSchema(Type.Integer({ minimum: 1e3 }), obj.dedupWindowMs),
     batchWindowMs: parseWithSchema(Type.Integer({ minimum: 0, maximum: 6e4 }), obj.batchWindowMs),
     quietHours: parseWithSchema(Type.String({ pattern: "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$" }), obj.quietHours),
     sinkRetentionDays: parsePositiveInteger(obj.sinkRetentionDays, 90)
@@ -10955,7 +10972,9 @@ function parseObservabilityConfig(value) {
   const observability = {
     enabled: parseWithSchema(Type.Boolean(), obj.enabled),
     pollIntervalMs: parseWithSchema(Type.Integer({ minimum: 1e3, maximum: 6e4 }), obj.pollIntervalMs),
-    metricRetentionDays: parsePositiveInteger(obj.metricRetentionDays, 365)
+    // F19-5 (Wave 1A): 365 -> 90 aligns the parser ceiling with
+    // PiTeamsObservabilityConfigSchema max 90 (config-schema.ts:220).
+    metricRetentionDays: parsePositiveInteger(obj.metricRetentionDays, 90)
   };
   return Object.values(observability).some((entry) => entry !== void 0) ? observability : void 0;
 }
@@ -11001,7 +11020,9 @@ function parseOtlpConfig(value) {
     }
   const otlp = {
     enabled: parseWithSchema(Type.Boolean(), obj.enabled),
-    endpoint: parseWithSchema(Type.String({ minLength: 1 }), obj.endpoint),
+    // F19-5 (Wave 1A): ^https?:// pattern matches PiTeamsOtlpConfigSchema
+    // (config-schema.ts:258-265); non-http(s) endpoints parse to undefined.
+    endpoint: parseWithSchema(Type.String({ minLength: 1, pattern: "^https?://" }), obj.endpoint),
     headers: Object.keys(headers).length > 0 ? headers : void 0,
     intervalMs: parseWithSchema(Type.Integer({ minimum: 5e3 }), obj.intervalMs)
   };
@@ -11323,21 +11344,49 @@ function sanitizeProjectConfig(projectPath2, userConfig, config) {
       warnings.push(projectOverrideWarning(projectPath2, `${section2}.${key}`));
       changed = true;
     }
-    if (section2 === "runtime" && sectionConfig.requirePlanApproval === false) {
-      delete sectionConfig.requirePlanApproval;
-      warnings.push(projectOverrideWarning(projectPath2, "runtime.requirePlanApproval"));
+    if (!changed && !LEGACY_ALWAYS_COPY_SECTIONS.has(section2)) continue;
+    sanitizedRecord[section2] = Object.values(sectionConfig).some((entry) => entry !== void 0) ? sectionConfig : void 0;
+  }
+  const conditionalGroups = groupPathsBySection(Object.keys(CONDITIONAL_PROJECT_DROPS));
+  for (const section2 of sectionProcessingOrder([...conditionalGroups.keys()].filter((s) => s !== ""))) {
+    const sectionValue = sanitizedRecord[section2];
+    if (sectionValue === void 0 || typeof sectionValue !== "object") continue;
+    const sectionConfig = { ...sectionValue };
+    let changed = false;
+    for (const key of conditionalGroups.get(section2) ?? []) {
+      if (!CONDITIONAL_PROJECT_DROPS[`${section2}.${key}`](sectionConfig[key])) continue;
+      delete sectionConfig[key];
+      warnings.push(projectOverrideWarning(projectPath2, `${section2}.${key}`));
       changed = true;
     }
-    if (!changed && !LEGACY_ALWAYS_COPY_SECTIONS.has(section2)) continue;
+    if (!changed) continue;
     sanitizedRecord[section2] = Object.values(sectionConfig).some((entry) => entry !== void 0) ? sectionConfig : void 0;
   }
   return { config: sanitized, warnings };
 }
-var TOP_LEVEL_LEGACY_ORDER, SECTION_LEGACY_ORDER, LEGACY_ALWAYS_COPY_SECTIONS, ASSIGN_REDACT_SECTIONS, __test__sanitizeProjectConfig;
+var CONDITIONAL_PROJECT_DROPS, TOP_LEVEL_LEGACY_ORDER, SECTION_LEGACY_ORDER, LEGACY_ALWAYS_COPY_SECTIONS, ASSIGN_REDACT_SECTIONS, __test__sanitizeProjectConfig;
 var init_sanitize_project_config = __esm({
   "src/config/sanitize-project-config.ts"() {
     "use strict";
     init_sensitive_config_paths();
+    CONDITIONAL_PROJECT_DROPS = {
+      // Legacy exception (ADR Decision 3, folded in here): only `=== false`
+      // loosens plan approval; `true` tightens and survives.
+      "runtime.requirePlanApproval": (value) => value === false,
+      // S19-1: both guards are ACTIVE by default ("warn") — "off" silently
+      // disables them for every contributor who has not pinned the field in
+      // user config. "warn"/"block"/"fail" tighten or keep the guard and survive.
+      "runtime.completionMutationGuard": (value) => value === "off",
+      "runtime.effectivenessGuard": (value) => value === "off",
+      // S19-1: unbounded concurrency is a resource-exhaustion loosening.
+      "limits.allowUnboundedConcurrency": (value) => value === true,
+      // S19-1: disabling recovery / model scoping loosens reliability guards.
+      "reliability.autoRecover": (value) => value === false,
+      "reliability.scopeModels": (value) => value === false,
+      // F19-7 (availability-only): a project may ENABLE the broker, never
+      // disable it repo-wide. Other broker fields are unmarked (as-is).
+      "broker.enabled": (value) => value === false
+    };
     TOP_LEVEL_LEGACY_ORDER = ["executeWorkers", "asyncByDefault", "requireCleanWorktreeLeader"];
     SECTION_LEGACY_ORDER = ["runtime", "autonomous", "worktree", "otlp", "agents", "tools"];
     LEGACY_ALWAYS_COPY_SECTIONS = /* @__PURE__ */ new Set(["runtime", "autonomous"]);
@@ -11766,17 +11815,20 @@ function isWithinAllowedPrefixes(resolvedPath) {
   try {
     const projectBin = path6.resolve("node_modules", ".bin");
     allowedPrefixes.push(projectBin.toLowerCase());
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.allowlist-prefixes.project-bin", error, void 0, "debug");
   }
   try {
     const homeNpm = path6.join(os4.homedir(), ".npm-global", "bin");
     allowedPrefixes.push(homeNpm.toLowerCase());
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.allowlist-prefixes.npm-global", error, void 0, "debug");
   }
   try {
     const homeLocal = path6.join(os4.homedir(), ".local", "bin");
     allowedPrefixes.push(homeLocal.toLowerCase());
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, void 0, "debug");
   }
   return allowedPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
@@ -11789,11 +11841,13 @@ function resolvePiPackageRoot() {
       try {
         const pkg = JSON.parse(fs6.readFileSync(path6.join(dir, "package.json"), "utf-8"));
         if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return dir;
-      } catch {
+      } catch (error) {
+        logInternalError("pi-spawn.resolve-pi-package-root.probe", error, `dir=${dir}`, "debug");
       }
       dir = path6.dirname(dir);
     }
-  } catch {
+  } catch (error) {
+    logInternalError("pi-spawn.resolve-pi-package-root", error, `argv1=${process.argv[1] ?? ""}`, "debug");
     return void 0;
   }
   return void 0;
@@ -11817,7 +11871,8 @@ function findPiPackageJsonFrom(startDir) {
     try {
       const pkg = JSON.parse(fs6.readFileSync(direct, "utf-8"));
       if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return direct;
-    } catch {
+    } catch (error) {
+      logInternalError("pi-spawn.find-pi-package-json.probe", error, `dir=${dir}`, "debug");
     }
     for (const pkgName of PI_PACKAGE_NAMES) {
       const [scope, name] = pkgName.replace("@", "").split("/");
@@ -12189,6 +12244,10 @@ function discoverProviderExtensions(settingsPath2) {
   }
   try {
     cache.set(settingsFile, { mtimeMs: fs9.statSync(settingsFile).mtimeMs, result: out });
+    if (cache.size > MAX_PROVIDER_EXTENSION_CACHE) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== void 0) cache.delete(oldest);
+    }
   } catch {
     cache.delete(settingsFile);
   }
@@ -12197,12 +12256,13 @@ function discoverProviderExtensions(settingsPath2) {
 function discoverProviderExtensionPaths(settingsPath2) {
   return discoverProviderExtensions(settingsPath2).map((e) => e.entryPath);
 }
-var cache;
+var cache, MAX_PROVIDER_EXTENSION_CACHE;
 var init_provider_extensions = __esm({
   "src/runtime/model/provider-extensions.ts"() {
     "use strict";
     init_paths();
     cache = /* @__PURE__ */ new Map();
+    MAX_PROVIDER_EXTENSION_CACHE = 64;
   }
 });
 
@@ -12436,7 +12496,6 @@ var discover_agents_exports = {};
 __export(discover_agents_exports, {
   __test_resetForkWarnings: () => __test_resetForkWarnings,
   allAgents: () => allAgents,
-  clearSecurityEventLog: () => clearSecurityEventLog,
   discoverAgents: () => discoverAgents,
   getCacheVersion: () => getCacheVersion,
   getSecurityEventLog: () => getSecurityEventLog,
@@ -12472,9 +12531,6 @@ function logSecurityEvent(event) {
 }
 function getSecurityEventLog() {
   return securityEventLog;
-}
-function clearSecurityEventLog() {
-  securityEventLog.length = 0;
 }
 function assertAgentNameAllowed(name) {
   const key = name.toLowerCase();
@@ -12598,6 +12654,10 @@ function parseAgentFile(filePath, source) {
         "contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-flow.md."
       );
       warnedForkAgents.add(filePath);
+      if (warnedForkAgents.size > MAX_WARNED_FORK_AGENTS) {
+        const oldest = warnedForkAgents.values().next().value;
+        if (oldest !== void 0) warnedForkAgents.delete(oldest);
+      }
     }
     return {
       name,
@@ -12789,7 +12849,7 @@ function allAgents(discovery) {
   }
   return [...byName.values()].filter((agent) => !agent.disabled).sort((a, b) => a.name.localeCompare(b.name));
 }
-var cacheVersion, PROTECTED_AGENT_NAMES, PROTECTED_AGENT_PATTERNS, MAX_SECURITY_LOG_ENTRIES, securityEventLog, warnedForkAgents, MAX_AGENT_FILE_BYTES, DISCOVERY_CACHE_TTL_MS, discoveryCache, DISCOVERY_CACHE_MAX_ENTRIES, dynamicAgents;
+var cacheVersion, PROTECTED_AGENT_NAMES, PROTECTED_AGENT_PATTERNS, MAX_SECURITY_LOG_ENTRIES, securityEventLog, MAX_WARNED_FORK_AGENTS, warnedForkAgents, MAX_AGENT_FILE_BYTES, DISCOVERY_CACHE_TTL_MS, discoveryCache, DISCOVERY_CACHE_MAX_ENTRIES, dynamicAgents;
 var init_discover_agents = __esm({
   "src/agents/discover-agents.ts"() {
     "use strict";
@@ -12842,6 +12902,7 @@ var init_discover_agents = __esm({
     ];
     MAX_SECURITY_LOG_ENTRIES = 1e3;
     securityEventLog = [];
+    MAX_WARNED_FORK_AGENTS = 128;
     warnedForkAgents = /* @__PURE__ */ new Set();
     MAX_AGENT_FILE_BYTES = 256 * 1024;
     DISCOVERY_CACHE_TTL_MS = 5e3;
@@ -17891,7 +17952,7 @@ function setAsyncAgentReaderCache(filePath, entry) {
   }
 }
 function readCrewAgents(manifest) {
-  flushPendingAtomicWrites();
+  flushPendingAtomicWrites(agentsPath(manifest));
   try {
     const records = readJsonFileCoalesced(
       agentsPath(manifest),
@@ -17905,7 +17966,8 @@ function readCrewAgents(manifest) {
       seen.add(r.id);
       return true;
     });
-    if (deduped.length !== records.length) {
+    const changed = deduped.length !== records.length || records.some((record, index) => record !== deduped[index]);
+    if (changed) {
       saveCrewAgents(manifest, deduped);
     }
     return deduped;
@@ -17930,7 +17992,8 @@ async function readCrewAgentsAsync(manifest) {
         seen.add(r.id);
         return true;
       });
-      if (deduped.length !== raw.length) {
+      const changed = deduped.length !== raw.length || raw.some((record, index) => record !== deduped[index]);
+      if (changed) {
         try {
           saveCrewAgents(manifest, deduped);
         } catch {
@@ -17957,7 +18020,7 @@ async function readCrewAgentsAsync(manifest) {
   return inFlight;
 }
 function saveCrewAgents(manifest, records) {
-  flushPendingAgentWrites();
+  flushPendingAgentWrites(manifest, records);
   withAgentsLock(manifest, () => {
     fs24.mkdirSync(manifest.stateRoot, { recursive: true });
     const filePath = agentsPath(manifest);
@@ -18038,8 +18101,9 @@ function writeCrewAgentStatusCoalesced(manifest, record) {
     durability: "best-effort"
   });
 }
-function flushPendingAgentWrites() {
-  flushPendingAtomicWrites();
+function flushPendingAgentWrites(manifest, records) {
+  flushPendingAtomicWrites(agentsPath(manifest));
+  for (const record of records) flushPendingAtomicWrites(agentStatusPath(manifest, record.taskId));
 }
 function readCrewAgentStatus(manifest, taskOrAgentId) {
   try {
@@ -18114,6 +18178,7 @@ function nextAgentEventSeq(filePath) {
   return max + 1;
 }
 function appendCrewAgentEvent(manifest, taskId, event) {
+  flushCrewAgentRecordBuffer(manifest, taskId);
   ensureAgentStateDir(manifest, taskId);
   const filePath = agentStateFile(manifest, taskId, "events.jsonl");
   const seq = nextAgentEventSeq(filePath);
@@ -18183,9 +18248,95 @@ function readCrewAgentEventsCursor(manifest, taskId, options = {}) {
 }
 function appendCrewAgentOutput(manifest, taskId, text) {
   if (!text.trim()) return;
+  flushCrewAgentRecordBuffer(manifest, taskId);
   ensureAgentStateDir(manifest, taskId);
   fs24.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${redactSecretString(text)}
 `, "utf-8");
+}
+function agentRecordBufferKey(manifest, taskId) {
+  return `${manifest.stateRoot}\0${safeAgentTaskId(taskId)}`;
+}
+function flushAgentRecordBuffer(buffer) {
+  const { manifest, taskId } = buffer;
+  if (buffer.timer) {
+    clearTimeout(buffer.timer);
+    buffer.timer = void 0;
+  }
+  if (buffer.events.length > 0) {
+    const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+    try {
+      fs24.appendFileSync(filePath, buffer.events.join(""), "utf-8");
+      const stat2 = fs24.statSync(filePath);
+      setAgentEventSeqCache(filePath, {
+        size: stat2.size,
+        mtimeMs: stat2.mtimeMs,
+        seq: buffer.lastReservedSeq
+      });
+      writeSeqToSidecar(filePath, buffer.lastReservedSeq);
+    } catch (error) {
+      logInternalError("crew-agent-records.buffered-events-flush", error, `filePath=${filePath}`);
+    }
+  }
+  if (buffer.output.length > 0) {
+    try {
+      fs24.appendFileSync(agentStateFile(manifest, taskId, "output.log"), buffer.output.join(""), "utf-8");
+    } catch (error) {
+      logInternalError("crew-agent-records.buffered-output-flush", error, `taskId=${taskId}`);
+    }
+  }
+  buffer.events.length = 0;
+  buffer.output.length = 0;
+  buffer.lastReservedSeq = 0;
+  agentRecordBuffers.delete(agentRecordBufferKey(manifest, taskId));
+}
+function flushCrewAgentRecordBuffer(manifest, taskId) {
+  const buffer = agentRecordBuffers.get(agentRecordBufferKey(manifest, taskId));
+  if (buffer) flushAgentRecordBuffer(buffer);
+}
+function flushAllCrewAgentRecordBuffers() {
+  for (const buffer of [...agentRecordBuffers.values()]) flushAgentRecordBuffer(buffer);
+}
+function appendCrewAgentEventBuffered(manifest, taskId, event) {
+  const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+  const key = agentRecordBufferKey(manifest, taskId);
+  let buffer = agentRecordBuffers.get(key);
+  if (!buffer) {
+    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+    agentRecordBuffers.set(key, buffer);
+  }
+  if (buffer.lastReservedSeq === 0) {
+    buffer.lastReservedSeq = nextAgentEventSeq(filePath) - 1;
+  }
+  const seq = ++buffer.lastReservedSeq;
+  buffer.events.push(`${JSON.stringify(redactSecrets({ seq, time: (/* @__PURE__ */ new Date()).toISOString(), event }))}
+`);
+  scheduleAgentRecordBufferFlush(buffer);
+}
+function appendCrewAgentOutputBuffered(manifest, taskId, text) {
+  if (!text.trim()) return;
+  ensureAgentStateDir(manifest, taskId);
+  const key = agentRecordBufferKey(manifest, taskId);
+  let buffer = agentRecordBuffers.get(key);
+  if (!buffer) {
+    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+    agentRecordBuffers.set(key, buffer);
+  }
+  buffer.output.push(`${redactSecretString(text)}
+`);
+  scheduleAgentRecordBufferFlush(buffer);
+}
+function scheduleAgentRecordBufferFlush(buffer) {
+  if (buffer.events.length >= AGENT_RECORD_BUFFER_MAX_EVENTS || buffer.output.length >= AGENT_RECORD_BUFFER_MAX_EVENTS) {
+    flushAgentRecordBuffer(buffer);
+    return;
+  }
+  if (!buffer.timer) {
+    buffer.timer = setTimeout(() => {
+      buffer.timer = void 0;
+      flushAgentRecordBuffer(buffer);
+    }, AGENT_RECORD_BUFFER_WINDOW_MS);
+    buffer.timer.unref();
+  }
 }
 function emptyCrewAgentProgress() {
   return { recentTools: [], recentOutput: [], toolCount: 0 };
@@ -18220,7 +18371,7 @@ function recordFromTask(manifest, task, runtime) {
     error: task.error
   };
 }
-var ensuredAgentDirs, resolvedAgentFiles, AGENT_PATH_CACHE_MAX, AGENT_READER_TTL_MS, ASYNC_AGENT_READER_CACHE_MAX_ENTRIES, AGENTS_LOCK_STALE_MS, asyncAgentReaderCache, TERMINAL_AGENT_STATUSES, AGENT_COALESCE_MS, agentEventSeqCache, AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES, AGENT_EVENT_SEQ_SIDECAR;
+var ensuredAgentDirs, resolvedAgentFiles, AGENT_PATH_CACHE_MAX, AGENT_READER_TTL_MS, ASYNC_AGENT_READER_CACHE_MAX_ENTRIES, AGENTS_LOCK_STALE_MS, asyncAgentReaderCache, TERMINAL_AGENT_STATUSES, AGENT_COALESCE_MS, agentEventSeqCache, AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES, AGENT_EVENT_SEQ_SIDECAR, AGENT_RECORD_BUFFER_MAX_EVENTS, AGENT_RECORD_BUFFER_WINDOW_MS, agentRecordBuffers;
 var init_crew_agent_records = __esm({
   "src/runtime/crew-agent-records.ts"() {
     "use strict";
@@ -18243,6 +18394,12 @@ var init_crew_agent_records = __esm({
     agentEventSeqCache = /* @__PURE__ */ new Map();
     AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES = 1e3;
     AGENT_EVENT_SEQ_SIDECAR = ".seq";
+    AGENT_RECORD_BUFFER_MAX_EVENTS = 32;
+    AGENT_RECORD_BUFFER_WINDOW_MS = 250;
+    agentRecordBuffers = /* @__PURE__ */ new Map();
+    process.on("exit", () => flushAllCrewAgentRecordBuffers());
+    process.on("SIGTERM", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
+    process.on("SIGINT", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
   }
 });
 
@@ -19518,7 +19675,6 @@ __export(event_log_exports, {
   readEventsCursor: () => readEventsCursor,
   reserveSequence: () => reserveSequence,
   reserveSequenceUnderLockAsync: () => reserveSequenceUnderLockAsync,
-  resetEventLogMode: () => resetEventLogMode,
   scanSequence: () => scanSequence,
   seqCounters: () => seqCounters,
   sequenceCache: () => sequenceCache,
@@ -19688,11 +19844,6 @@ async function withEventLogLockAsync(eventsPath, fn, options) {
       asyncLocks.delete(queueKey);
     }
   }
-}
-function resetEventLogMode() {
-  asyncQueues.clear();
-  asyncLocks.clear();
-  seqCounters.clear();
 }
 async function appendEventAsync(eventsPath, event) {
   const queueKey = eventsPath;
@@ -19881,6 +20032,11 @@ async function appendEventAsync(eventsPath, event) {
       try {
         logInternalError("event-log.async-queue", error, eventsPath);
       } catch {
+      }
+      while (asyncQueues.size >= MAX_ASYNC_QUEUES) {
+        const oldestKey = asyncQueues.keys().next().value;
+        if (oldestKey === void 0) break;
+        asyncQueues.delete(oldestKey);
       }
       asyncQueues.set(queueKey, Promise.resolve());
     }
@@ -20200,7 +20356,7 @@ function dedupeTerminalEvents(events) {
   }
   return output;
 }
-var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS;
+var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, MAX_ASYNC_QUEUES, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS;
 var init_event_log = __esm({
   "src/state/event-log/event-log.ts"() {
     "use strict";
@@ -20221,6 +20377,7 @@ var init_event_log = __esm({
     appendCounters = /* @__PURE__ */ new Map();
     APPEND_COUNTER_MAX_ENTRIES = 256;
     overflowCounter = 0;
+    MAX_ASYNC_QUEUES = 256;
     asyncQueues = /* @__PURE__ */ new Map();
     asyncLocks = /* @__PURE__ */ new Map();
     bufferedQueues = /* @__PURE__ */ new Map();
@@ -20615,7 +20772,15 @@ function useProjectState(cwd) {
 }
 function invalidateRunCache(stateRoot) {
   manifestCache.delete(stateRoot);
-  manifestCacheGeneration.set(stateRoot, genOf(stateRoot) + 1);
+  const nextGen = genOf(stateRoot) + 1;
+  manifestCacheGeneration.delete(stateRoot);
+  manifestCacheGeneration.set(stateRoot, nextGen);
+  while (manifestCacheGeneration.size > MANIFEST_CACHE_GENERATION_MAX) {
+    const oldest = manifestCacheGeneration.keys().next().value;
+    if (oldest === void 0) break;
+    manifestCache.delete(oldest);
+    manifestCacheGeneration.delete(oldest);
+  }
 }
 function scopeBaseRoot(cwd) {
   return useProjectState(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
@@ -20945,9 +21110,10 @@ function __test__manifestCacheSize() {
 }
 function __test__clearManifestCache() {
   manifestCache.clear();
+  manifestCacheGeneration.clear();
 }
 async function unloadRun(stateRoot) {
-  flushPendingAtomicWrites();
+  flushPendingAtomicWrites(path25.join(stateRoot, "tasks.json"));
   invalidateRunCache(stateRoot);
 }
 function getManifestCacheStats() {
@@ -21157,7 +21323,7 @@ async function loadRunManifestByIdAsync(cwd, runId) {
   });
   return { manifest, tasks: tasks ?? [] };
 }
-var manifestCacheGeneration, MANIFEST_CACHE_TTL_MS, LOAD_MANIFEST_RETRY_LIMIT, manifestCache, MANIFEST_CACHE_TTL_MS_VALUE, runStateRootCache, RUN_STATE_ROOT_TTL_MS, RUN_STATE_ROOT_CACHE_MAX;
+var manifestCacheGeneration, MANIFEST_CACHE_GENERATION_MAX, MANIFEST_CACHE_TTL_MS, LOAD_MANIFEST_RETRY_LIMIT, manifestCache, MANIFEST_CACHE_TTL_MS_VALUE, runStateRootCache, RUN_STATE_ROOT_TTL_MS, RUN_STATE_ROOT_CACHE_MAX;
 var init_state_store = __esm({
   "src/state/stores/state-store.ts"() {
     "use strict";
@@ -21177,6 +21343,7 @@ var init_state_store = __esm({
     init_manifest_io();
     init_manifest_io();
     manifestCacheGeneration = /* @__PURE__ */ new Map();
+    MANIFEST_CACHE_GENERATION_MAX = 64;
     MANIFEST_CACHE_TTL_MS = 60 * 1e3;
     LOAD_MANIFEST_RETRY_LIMIT = 5;
     manifestCache = /* @__PURE__ */ new Map();
@@ -25466,6 +25633,10 @@ function warnOnce(key) {
   const tag = `${currentLocale}:${key}`;
   if (warnedMissing.has(tag)) return;
   warnedMissing.add(tag);
+  if (warnedMissing.size > MAX_WARNED_MISSING) {
+    const oldest = warnedMissing.values().next().value;
+    if (oldest !== void 0) warnedMissing.delete(oldest);
+  }
   logInternalError("i18n.missing", new Error(`Missing translation`), `key="${key}" locale="${currentLocale}"`);
 }
 function t(key, params) {
@@ -25506,7 +25677,7 @@ function initI18n(pi) {
     unsubscribe?.();
   };
 }
-var namespace, TEMPLATE_RE, fallback, translations, currentLocale, warnedMissing;
+var namespace, TEMPLATE_RE, fallback, translations, currentLocale, warnedMissing, MAX_WARNED_MISSING;
 var init_i18n = __esm({
   "src/i18n.ts"() {
     "use strict";
@@ -25614,6 +25785,7 @@ var init_i18n = __esm({
       }
     };
     warnedMissing = /* @__PURE__ */ new Set();
+    MAX_WARNED_MISSING = 128;
   }
 });
 
@@ -38578,10 +38750,67 @@ function applyCrewSettingsToConfig(config, settings) {
   if (settings.defaultJoinMode != null && config.runtime) config.runtime.groupJoin = settings.defaultJoinMode;
   if (settings.notifierIntervalMs != null) config.notifierIntervalMs = settings.notifierIntervalMs;
 }
+function loadCrewSettingsTiers(cwd = process.cwd(), globalFile = globalPath()) {
+  const user = readSettingsFile(globalFile);
+  const projectFilePath = projectPath(cwd);
+  const project = readSettingsFile(projectFilePath);
+  return { user, project, merged: { ...user, ...project }, projectPath: projectFilePath };
+}
+function applyCrewSettingsTiersToConfig(config, tiers) {
+  const warnings = [];
+  applyCrewSettingsToConfig(config, tiers.user);
+  const project = tiers.project;
+  if (project.maxConcurrent == null && project.defaultMaxTurns == null && project.graceTurns == null && project.defaultJoinMode == null && project.notifierIntervalMs == null) {
+    return warnings;
+  }
+  const fragment = {};
+  if (project.maxConcurrent != null) fragment.limits = { maxConcurrentWorkers: project.maxConcurrent };
+  if (project.defaultMaxTurns != null || project.graceTurns != null || project.defaultJoinMode != null) {
+    const runtime = {};
+    if (project.defaultMaxTurns != null) runtime.maxTurns = project.defaultMaxTurns;
+    if (project.graceTurns != null) runtime.graceTurns = project.graceTurns;
+    if (project.defaultJoinMode != null)
+      runtime.groupJoin = project.defaultJoinMode;
+    fragment.runtime = runtime;
+  }
+  if (project.notifierIntervalMs != null) fragment.notifierIntervalMs = project.notifierIntervalMs;
+  const sanitized = sanitizeProjectConfig(tiers.projectPath, config, fragment);
+  warnings.push(...sanitized.warnings);
+  const guards = [
+    {
+      dotted: "limits.maxConcurrentWorkers",
+      value: sanitized.config.limits?.maxConcurrentWorkers,
+      baseline: config.limits?.maxConcurrentWorkers
+    },
+    { dotted: "runtime.maxTurns", value: sanitized.config.runtime?.maxTurns, baseline: config.runtime?.maxTurns },
+    { dotted: "runtime.graceTurns", value: sanitized.config.runtime?.graceTurns, baseline: config.runtime?.graceTurns }
+  ];
+  const dropped = /* @__PURE__ */ new Set();
+  for (const guard of guards) {
+    if (guard.value === void 0) continue;
+    if (guard.baseline === void 0 || guard.value > guard.baseline) {
+      dropped.add(guard.dotted);
+      warnings.push(projectOverrideWarning(tiers.projectPath, guard.dotted));
+    }
+  }
+  if (!dropped.has("limits.maxConcurrentWorkers") && sanitized.config.limits?.maxConcurrentWorkers != null && config.limits) {
+    config.limits.maxConcurrentWorkers = sanitized.config.limits.maxConcurrentWorkers;
+  }
+  if (sanitized.config.runtime != null && config.runtime) {
+    if (!dropped.has("runtime.maxTurns") && sanitized.config.runtime.maxTurns != null)
+      config.runtime.maxTurns = sanitized.config.runtime.maxTurns;
+    if (!dropped.has("runtime.graceTurns") && sanitized.config.runtime.graceTurns != null)
+      config.runtime.graceTurns = sanitized.config.runtime.graceTurns;
+    if (sanitized.config.runtime.groupJoin != null) config.runtime.groupJoin = sanitized.config.runtime.groupJoin;
+  }
+  if (sanitized.config.notifierIntervalMs != null) config.notifierIntervalMs = sanitized.config.notifierIntervalMs;
+  return warnings;
+}
 var MAX_CONCURRENT_CEILING, MAX_TURNS_CEILING, GRACE_TURNS_CEILING, VALID_JOIN_MODES;
 var init_settings_store = __esm({
   "src/runtime/settings-store.ts"() {
     "use strict";
+    init_sanitize_project_config();
     init_atomic_write();
     init_locks();
     init_internal_error();
@@ -39819,7 +40048,10 @@ function validateWorkflowForTeam(workflow, team) {
   for (const step of workflow.steps) {
     if (stepIds.has(step.id)) errors2.push(`Duplicate workflow step id '${step.id}'.`);
     stepIds.add(step.id);
-    if (!roles.has(step.role)) errors2.push(`Step '${step.id}' references unknown team role '${step.role}'.`);
+    if (!roles.has(step.role)) {
+      const distillHint = workflow.name === "distill" ? " (run with team='implementation' \u2014 needs analyst+critic roles)" : "";
+      errors2.push(`Step '${step.id}' references unknown team role '${step.role}'.${distillHint}`);
+    }
   }
   for (const step of workflow.steps) {
     for (const dep of step.dependsOn ?? []) {
@@ -39993,6 +40225,10 @@ function commandExists(command, args) {
     };
   }
   commandExistsCache.set(cacheKey2, result4);
+  if (commandExistsCache.size > MAX_COMMAND_EXISTS_CACHE) {
+    const oldest = commandExistsCache.keys().next().value;
+    if (oldest !== void 0) commandExistsCache.delete(oldest);
+  }
   return result4;
 }
 function piCommandExists() {
@@ -40264,6 +40500,19 @@ function buildTeamDoctorReport(input) {
       return checks;
     })
   ];
+  const securityEvents = getSecurityEventLog();
+  const lastSecurityEvent = securityEvents.at(-1);
+  if (lastSecurityEvent) {
+    sections.push(
+      section("Security", () => [
+        {
+          label: "security events",
+          ok: true,
+          detail: `${securityEvents.length} logged; last ${lastSecurityEvent.type} agent="${lastSecurityEvent.name}" at ${new Date(lastSecurityEvent.timestamp).toISOString()}`
+        }
+      ])
+    );
+  }
   if (input.smokeChildPi) {
     sections.push([`Child check`, `- ${input.smokeChildPi.ok ? "OK" : "FAIL"} child Pi smoke: ${input.smokeChildPi.detail}`]);
   }
@@ -40340,7 +40589,7 @@ ${formatDriftReport(drift)}`;
   }
   return result(finalText, { action: "doctor", status: hasErrors ? "error" : "ok" }, hasErrors);
 }
-var commandExistsCache, piCommandExistsCache;
+var MAX_COMMAND_EXISTS_CACHE, commandExistsCache, piCommandExistsCache;
 var init_doctor = __esm({
   "src/extension/team-tool/doctor.ts"() {
     "use strict";
@@ -40360,6 +40609,7 @@ var init_doctor = __esm({
     init_discover_workflows();
     init_validate_resources();
     init_context();
+    MAX_COMMAND_EXISTS_CACHE = 128;
     commandExistsCache = /* @__PURE__ */ new Map();
   }
 });
@@ -42958,9 +43208,9 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs115 = __require("node:fs");
-    if (dir && fs115.existsSync(dir)) {
-      for (const file of fs115.readdirSync(dir)) {
+    const fs116 = __require("node:fs");
+    if (dir && fs116.existsSync(dir)) {
+      for (const file of fs116.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -42968,7 +43218,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs115.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs116.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -42989,29 +43239,29 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs115 = __require("node:fs");
+    const fs116 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs115.existsSync(p)) return void 0;
-    const json = JSON.parse(fs115.readFileSync(p, "utf8"));
+    if (!p || !fs116.existsSync(p)) return void 0;
+    const json = JSON.parse(fs116.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs115 = __require("node:fs");
+  const fs116 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs115.existsSync(p)) {
-      settings = JSON.parse(fs115.readFileSync(p, "utf8"));
+    if (fs116.existsSync(p)) {
+      settings = JSON.parse(fs116.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs115.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs116.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -44159,7 +44409,8 @@ function resolveJitiRegisterPath(packageRoot2 = packageRootFromRuntime(), exists
       path50.join(path50.dirname(pkgPath), "dist", "register.mjs")
     ];
     for (const c of candidates) if (exists(c)) return c;
-  } catch {
+  } catch (error) {
+    logInternalError("async-runner.jiti-resolve", error, "require.resolve('jiti/package.json') fallback failed", "debug");
   }
   return void 0;
 }
@@ -49190,14 +49441,12 @@ function getCacheStats(cwd) {
   }
   return { entries, sizeBytes };
 }
-var DEFAULT_CACHE_TTL_MS;
 var init_run_cache = __esm({
   "src/state/stores/run-cache.ts"() {
     "use strict";
     init_paths();
     init_atomic_write();
     init_locks();
-    DEFAULT_CACHE_TTL_MS = 60 * 60 * 1e3;
   }
 });
 
@@ -52632,12 +52881,16 @@ async function buildWorkspaceTree(cwd, options) {
       tree: result4,
       expiresAt: Date.now() + TREE_CACHE_TTL_MS
     });
+    if (treeCache.size > TREE_CACHE_MAX_ENTRIES) {
+      const oldest = treeCache.keys().next().value;
+      if (oldest !== void 0) treeCache.delete(oldest);
+    }
     return result4;
   } catch {
     return emptyResult(rootPath);
   }
 }
-var DEFAULT_MAX_DEPTH, DEFAULT_DIR_LIMIT, DEFAULT_LINE_CAP, DEFAULT_EXCLUDED_DIRS, emptyResult, TREE_CACHE_TTL_MS, treeCache;
+var DEFAULT_MAX_DEPTH, DEFAULT_DIR_LIMIT, DEFAULT_LINE_CAP, DEFAULT_EXCLUDED_DIRS, emptyResult, TREE_CACHE_TTL_MS, TREE_CACHE_MAX_ENTRIES, treeCache;
 var init_workspace_tree = __esm({
   "src/runtime/workspace-tree.ts"() {
     "use strict";
@@ -52662,6 +52915,7 @@ var init_workspace_tree = __esm({
       totalLines: 0
     });
     TREE_CACHE_TTL_MS = 3e4;
+    TREE_CACHE_MAX_ENTRIES = 64;
     treeCache = /* @__PURE__ */ new Map();
   }
 });
@@ -54666,14 +54920,14 @@ async function runChildProcessTask(ctx) {
           }).catch((error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`));
         },
         onStdoutLine: (line4) => {
-          appendCrewAgentOutput(manifest, task.id, line4);
+          appendCrewAgentOutputBuffered(manifest, task.id, line4);
           persistHeartbeat();
         },
         onJsonEvent: (event) => {
           try {
             const contact = supervisorContactFromEvent(event);
             if (contact) recordSupervisorContact(manifest, { runId: manifest.runId, ...contact });
-            appendCrewAgentEvent(manifest, task.id, event);
+            appendCrewAgentEventBuffered(manifest, task.id, event);
             if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
               collectedJsonEvents.push(event);
             if (collectedJsonEvents && collectedJsonEvents.length > 1e3) {
@@ -54725,6 +54979,7 @@ async function runChildProcessTask(ctx) {
         }
       });
     } finally {
+      flushCrewAgentRecordBuffer(manifest, task.id);
       if (timeoutHandle) clearTimeout(timeoutHandle);
       if (externalAbortListener && input.signal) {
         input.signal.removeEventListener("abort", externalAbortListener);
@@ -55070,6 +55325,10 @@ async function findGitRootAsync(cwd) {
   if (cached2) return cached2;
   const root = await gitAsync(cwd, ["rev-parse", "--show-toplevel"]);
   _gitRootCache.set(cwd, root);
+  if (_gitRootCache.size > MAX_GIT_ROOT_CACHE) {
+    const oldest = _gitRootCache.keys().next().value;
+    if (oldest !== void 0) _gitRootCache.delete(oldest);
+  }
   return root;
 }
 async function assertCleanLeaderAsync(repoRoot) {
@@ -55079,6 +55338,10 @@ async function assertCleanLeaderAsync(repoRoot) {
     throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
   }
   _cleanLeaderCache.add(repoRoot);
+  if (_cleanLeaderCache.size > MAX_CLEAN_LEADER_CACHE) {
+    const oldest = _cleanLeaderCache.values().next().value;
+    if (oldest !== void 0) _cleanLeaderCache.delete(oldest);
+  }
 }
 function linkNodeModulesIfPresent(repoRoot, worktreePath) {
   const source = path69.join(repoRoot, "node_modules");
@@ -55283,6 +55546,10 @@ async function pruneStaleWorktreesAsync(repoRoot) {
     } catch {
     }
     _prunedRepos.add(repoRoot);
+    if (_prunedRepos.size > MAX_PRUNED_REPOS) {
+      const oldest = _prunedRepos.values().next().value;
+      if (oldest !== void 0) _prunedRepos.delete(oldest);
+    }
     _pruneInFlight.delete(repoRoot);
   })();
   _pruneInFlight.set(repoRoot, p);
@@ -55661,7 +55928,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
     logInternalError("worktree.agent-cleanup.prune", error, `worktreePath=${worktreePath}`);
   }
 }
-var execFileAsync, _gitRootCache, _cleanLeaderCache, _prunedRepos, _pruneInFlight;
+var execFileAsync, MAX_GIT_ROOT_CACHE, MAX_CLEAN_LEADER_CACHE, _gitRootCache, _cleanLeaderCache, _prunedRepos, _pruneInFlight, MAX_PRUNED_REPOS;
 var init_worktree_manager = __esm({
   "src/worktree/worktree-manager.ts"() {
     "use strict";
@@ -55673,10 +55940,13 @@ var init_worktree_manager = __esm({
     init_internal_error();
     init_paths();
     execFileAsync = promisify(execFile);
+    MAX_GIT_ROOT_CACHE = 256;
+    MAX_CLEAN_LEADER_CACHE = 256;
     _gitRootCache = /* @__PURE__ */ new Map();
     _cleanLeaderCache = /* @__PURE__ */ new Set();
     _prunedRepos = /* @__PURE__ */ new Set();
     _pruneInFlight = /* @__PURE__ */ new Map();
+    MAX_PRUNED_REPOS = 128;
   }
 });
 
@@ -56339,11 +56609,54 @@ function writeTaskInputsArtifact(manifest, task, context) {
 `
   });
 }
-function aggregateTaskOutputs(tasks, manifest) {
+function resultArtifactCacheKey(descriptor) {
+  if (descriptor.sizeBytes === void 0 && descriptor.contentHash === void 0) return void 0;
+  return `${descriptor.path}|${descriptor.sizeBytes ?? ""}|${descriptor.contentHash ?? ""}`;
+}
+function createResultArtifactReadCache() {
+  if (getCrewEnv("PI_CREW_DISABLE_RESULT_READ_CACHE") === "1") {
+    return {
+      lookup: () => void 0,
+      store: () => void 0
+    };
+  }
+  const entries = /* @__PURE__ */ new Map();
+  return {
+    lookup(descriptor) {
+      const key = resultArtifactCacheKey(descriptor);
+      if (key === void 0) return void 0;
+      const hit = entries.get(key);
+      if (hit === void 0) {
+        __test__resultReadStats.misses += 1;
+        return void 0;
+      }
+      __test__resultReadStats.hits += 1;
+      return hit;
+    },
+    store(descriptor, outcome) {
+      const key = resultArtifactCacheKey(descriptor);
+      if (key !== void 0) entries.set(key, outcome);
+    }
+  };
+}
+function readTaskResultArtifact(descriptor, baseDir, cache3) {
+  const cached2 = cache3?.lookup(descriptor);
+  if (cached2 !== void 0) return cached2;
+  __test__resultReadStats.readFile += 1;
+  __test__resultReadStats.exists += 1;
+  const outcome = {
+    body: readIfSmall(descriptor.path, baseDir),
+    exists: containedExists(descriptor.path, baseDir)
+  };
+  cache3?.store(descriptor, outcome);
+  return outcome;
+}
+function aggregateTaskOutputs(tasks, manifest, cache3) {
   return tasks.map((task, index) => {
-    const body = task.resultArtifact ? readIfSmall(task.resultArtifact.path, manifest?.artifactsRoot) : void 0;
+    const read = task.resultArtifact ? readTaskResultArtifact(task.resultArtifact, manifest?.artifactsRoot, cache3) : void 0;
+    const body = read?.body;
     const hasBody = Boolean(body?.trim());
-    const expectedMissing = task.resultArtifact && !containedExists(task.resultArtifact.path, manifest?.artifactsRoot);
+    const expectedMissing = read ? !read.exists : void 0;
     const status = task.status === "skipped" ? "SKIPPED" : task.status === "failed" ? `FAILED${task.exitCode !== void 0 ? ` (exit code ${task.exitCode ?? "null"})` : ""}${task.error ? `: ${task.error}` : ""}` : expectedMissing ? `EMPTY OUTPUT (expected result artifact missing: ${task.resultArtifact?.path})` : !hasBody ? "EMPTY OUTPUT (no textual response returned)" : task.status.toUpperCase();
     return [
       `=== Task ${index + 1}: ${task.id} (${task.agent}) ===`,
@@ -56358,11 +56671,12 @@ function aggregateTaskOutputs(tasks, manifest) {
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 }
-var MAX_RESULT_INLINE_BYTES, MAX_TOTAL_DEP_INLINE_BYTES, TEE_THRESHOLD_MULTIPLIER;
+var MAX_RESULT_INLINE_BYTES, MAX_TOTAL_DEP_INLINE_BYTES, TEE_THRESHOLD_MULTIPLIER, __test__resultReadStats;
 var init_task_output_context = __esm({
   "src/runtime/task-output-context.ts"() {
     "use strict";
     init_defaults();
+    init_env_vars();
     init_atomic_write();
     init_artifact_store();
     init_safe_paths();
@@ -56372,6 +56686,18 @@ var init_task_output_context = __esm({
     MAX_RESULT_INLINE_BYTES = DEFAULT_OUTPUT_CONTEXT.maxResultInlineBytes;
     MAX_TOTAL_DEP_INLINE_BYTES = DEFAULT_OUTPUT_CONTEXT.maxTotalDepInlineBytes;
     TEE_THRESHOLD_MULTIPLIER = DEFAULT_OUTPUT_CONTEXT.teeThresholdMultiplier;
+    __test__resultReadStats = {
+      readFile: 0,
+      exists: 0,
+      hits: 0,
+      misses: 0,
+      reset() {
+        this.readFile = 0;
+        this.exists = 0;
+        this.hits = 0;
+        this.misses = 0;
+      }
+    };
   }
 });
 
@@ -59281,7 +59607,7 @@ function deliverGroupJoin(input) {
   const remaining = latest.filter((task) => task.status === "queued" || task.status === "running").map((task) => task.id);
   const partial = input.partial ?? remaining.length > 0;
   const batchId = batchIdFor(input.manifest.runId, taskIds);
-  const summary = aggregateTaskOutputs(latest, input.manifest);
+  const summary = aggregateTaskOutputs(latest, input.manifest, input.cache);
   const requestId3 = requestIdFor(input.manifest.runId, batchId, partial);
   const existingMailbox = findMailboxMessageByRequestId(input.manifest, requestId3);
   const existingStatus = existingMailbox ? readDeliveryState(input.manifest).messages[existingMailbox.id] ?? existingMailbox.status : void 0;
@@ -60695,9 +61021,13 @@ async function executeTeamRunCore(input, manifest, workflow) {
   let wfMachine = createWorkflowStateMachine(workflowPhases);
   const pendingUnits = /* @__PURE__ */ new Map();
   const runController = new AbortController();
+  let externalAbortListener;
   if (input.signal) {
     if (input.signal.aborted) runController.abort();
-    else input.signal.addEventListener("abort", () => runController.abort(), { once: true });
+    else {
+      externalAbortListener = () => runController.abort();
+      input.signal.addEventListener("abort", externalAbortListener, { once: true });
+    }
   }
   const ctx = {
     input,
@@ -60714,6 +61044,7 @@ async function executeTeamRunCore(input, manifest, workflow) {
     adaptivePlanMissing,
     settledMerge: null
   };
+  const resultReadCache = createResultArtifactReadCache();
   try {
     while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
       ctx.tasks = tasks;
@@ -60811,13 +61142,16 @@ async function executeTeamRunCore(input, manifest, workflow) {
         kind: "summary",
         relativePath: `batches/${batchSummarySlug(settledTaskIds)}.md`,
         producer: "team-runner",
-        content: aggregateTaskOutputs(completedBatch, manifest)
+        content: aggregateTaskOutputs(completedBatch, manifest, resultReadCache)
       });
       const groupDelivery = deliverGroupJoin({
         manifest,
         mode: resolveGroupJoinMode(input.runtimeConfig),
         batch: completedBatch,
-        allTasks: tasks
+        allTasks: tasks,
+        // R10-1: reuse the batch-summary reads for the group-join body
+        // (same settled batch → same artifacts → cache hits, zero disk ops).
+        cache: resultReadCache
       });
       manifest = {
         ...manifest,
@@ -60836,6 +61170,9 @@ async function executeTeamRunCore(input, manifest, workflow) {
     return finalResult;
   } finally {
     await drainPendingUnits(pendingUnits, runController);
+    if (externalAbortListener && input.signal) {
+      input.signal.removeEventListener("abort", externalAbortListener);
+    }
   }
 }
 var OBSERVABILITY_INTERVAL_MS, OBSERVABILITY_ANALYZE_DELAY_MS, __test__cancelPlanTasks;
@@ -60956,7 +61293,12 @@ function resolveRunDeadline(ctx, params, config) {
   const controller = new AbortController();
   if (ctx.signal) {
     if (ctx.signal.aborted) controller.abort();
-    else ctx.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    else {
+      const callerSignal = ctx.signal;
+      const onCallerAbort = () => controller.abort();
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+      controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
+    }
   }
   let timer;
   if (deadlineMs > 0) {
@@ -63057,7 +63399,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync74, mkdirSync as mkdirSync40, readFileSync as readFileSync70, unlinkSync as unlinkSync12 } from "node:fs";
+import { existsSync as existsSync74, mkdirSync as mkdirSync39, readFileSync as readFileSync70, unlinkSync as unlinkSync12 } from "node:fs";
 import { dirname as dirname40 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -63091,7 +63433,7 @@ var init_dwf_state_store = __esm({
         const path94 = this.path;
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync40(dirname40(path94), { recursive: true });
+          mkdirSync39(dirname40(path94), { recursive: true });
           atomicWriteJson(path94, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state2.runId}`);
@@ -71018,7 +71360,7 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks3(path94) {
+function readTasks2(path94) {
   const parse4 = () => {
     const parsed = JSON.parse(fs108.readFileSync(path94, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
@@ -71144,7 +71486,7 @@ var init_live_run_sidebar = __esm({
             );
           }
           run = loaded.manifest;
-          tasks = readTasks3(run.tasksPath);
+          tasks = readTasks2(run.tasksPath);
           rawAgents = readCrewAgents(run);
         }
         const controlConfig = resolveCrewControlConfig({ ui: this.config });
@@ -71456,6 +71798,14 @@ __export(async_notifier_exports, {
 function isFinished2(status) {
   return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
 }
+function addSeenFinishedRunId(state2, runId) {
+  state2.seenFinishedRunIds.add(runId);
+  while (state2.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
+    const oldest = state2.seenFinishedRunIds.values().next().value;
+    if (oldest === void 0) break;
+    state2.seenFinishedRunIds.delete(oldest);
+  }
+}
 function isAsyncTerminalEvent(event) {
   return event.type === "async.completed" || event.type === "async.failed" || event.type === "async.died";
 }
@@ -71537,8 +71887,9 @@ function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
   const sid = extractSessionId(ctx);
   const ownsRun = (run) => !sid || !run.ownerSessionId || run.ownerSessionId === sid;
   for (const run of listRuns(ctx.cwd).filter(ownsRun)) {
+    if (state2.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
     const updatedAtMs = timeMs(run.updatedAt) ?? 0;
-    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) state2.seenFinishedRunIds.add(run.runId);
+    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state2, run.runId);
   }
   let cachedRuns;
   state2.interval = setInterval(() => {
@@ -71552,7 +71903,7 @@ function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
       for (const run of cachedRuns) {
         const current = markDeadAsyncRunIfNeeded(run) ?? run;
         if (!isFinished2(current.status) || state2.seenFinishedRunIds.has(current.runId)) continue;
-        state2.seenFinishedRunIds.add(current.runId);
+        addSeenFinishedRunId(state2, current.runId);
         if (current.workflow === "goal-turn" && current.team.startsWith("goal-")) continue;
         const level = current.status === "completed" ? "info" : current.status === "cancelled" ? "warning" : "error";
         ctx.ui.notify(`pi-crew run ${current.status}: ${current.runId} (${current.team}/${current.workflow ?? "none"})`, level);
@@ -71570,10 +71921,11 @@ function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
 function stopAsyncRunNotifier(state2) {
   if (state2.interval) clearInterval(state2.interval);
   state2.interval = void 0;
+  state2.seenFinishedRunIds.clear();
   state2.generation = (state2.generation ?? 0) + 1;
   state2.lastStoppedAtMs = Date.now();
 }
-var LIST_RUNS_DEBOUNCE_MS;
+var MAX_SEEN_FINISHED_RUN_IDS, LIST_RUNS_DEBOUNCE_MS;
 var init_async_notifier = __esm({
   "src/extension/async-notifier.ts"() {
     "use strict";
@@ -71585,6 +71937,7 @@ var init_async_notifier = __esm({
     init_internal_error();
     init_session_utils();
     init_run_index();
+    MAX_SEEN_FINISHED_RUN_IDS = 256;
     LIST_RUNS_DEBOUNCE_MS = 3e4;
   }
 });
@@ -73866,10 +74219,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs115 = await import("node:fs/promises");
+    const fs116 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs115.readFile(filePath, "utf8");
+      content = await fs116.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -73879,7 +74232,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs115.writeFile(filePath, result4.content, "utf8");
+    await fs116.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -74336,7 +74689,7 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync43, readFileSync as readFileSync77, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync78, mkdirSync as mkdirSync42, readFileSync as readFileSync77, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname42, join as join83 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
@@ -74521,7 +74874,7 @@ function loadConfig2() {
 }
 function saveConfig(config) {
   const path94 = configPath2();
-  mkdirSync43(dirname42(path94), { recursive: true });
+  mkdirSync42(dirname42(path94), { recursive: true });
   writeFileSync9(path94, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
@@ -76276,14 +76629,6 @@ function sameStamp(a, b) {
 function sameStamps(a, b) {
   return sameStamp(a.manifest, b.manifest) && sameStamp(a.tasks, b.tasks) && sameStamp(a.agents, b.agents) && sameStamp(a.events, b.events) && sameStamp(a.mailbox, b.mailbox);
 }
-function readTasks2(tasksPath) {
-  try {
-    const parsed = JSON.parse(fs105.readFileSync(tasksPath, "utf-8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    throw new Error(`Failed to parse tasks at ${tasksPath}`);
-  }
-}
 function tailJsonlLines(filePath, limit, parse4) {
   if (limit <= 0) return [];
   try {
@@ -76799,7 +77144,7 @@ function createRunSnapshotCache(cwd, options = {}) {
     let tasks;
     let agents;
     try {
-      tasks = readTasks2(loaded.manifest.tasksPath);
+      tasks = loaded.tasks;
       agents = readCrewAgents(loaded.manifest);
     } catch {
       if (previous) return previous;
@@ -77514,7 +77859,7 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs114 from "node:fs";
+import * as fs115 from "node:fs";
 import * as path93 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
@@ -77805,6 +78150,81 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
   }
 }
 
+// src/runtime/broker/wait-status-cache.ts
+init_state_store();
+import * as fs113 from "node:fs";
+var WAIT_STATUS_CACHE_MAX = 128;
+function statStamp(manifestPath, tasksPath) {
+  let manifestMtimeMs = 0;
+  let manifestSize = 0;
+  let tasksMtimeMs = 0;
+  let tasksSize = 0;
+  try {
+    const st = fs113.statSync(manifestPath);
+    manifestMtimeMs = st.mtimeMs;
+    manifestSize = st.size;
+  } catch {
+  }
+  try {
+    const st = fs113.statSync(tasksPath);
+    tasksMtimeMs = st.mtimeMs;
+    tasksSize = st.size;
+  } catch {
+  }
+  return { manifestMtimeMs, manifestSize, tasksMtimeMs, tasksSize };
+}
+function sameStamp2(a, b) {
+  return a.manifestMtimeMs === b.manifestMtimeMs && a.manifestSize === b.manifestSize && a.tasksMtimeMs === b.tasksMtimeMs && a.tasksSize === b.tasksSize;
+}
+var WaitStatusCache = class {
+  entries = /* @__PURE__ */ new Map();
+  loader;
+  reloadsValue = 0;
+  constructor(options = {}) {
+    this.loader = options.loader ?? loadRunManifestById;
+  }
+  /** Diagnostic: number of times the (expensive) loader has been invoked. */
+  get reloads() {
+    return this.reloadsValue;
+  }
+  /** Diagnostic: number of cached runs. */
+  get size() {
+    return this.entries.size;
+  }
+  /**
+   * Stat-gated load. Fast path (stamp unchanged): 2 statSync calls, zero
+   * parses. Slow path (first sight or changed mtime/size): delegate to the
+   * loader, then record the POST-load stamp so a concurrent writer that
+   * landed between our pre-load stat and the parse forces the next tick to
+   * reload instead of serving a stale entry.
+   */
+  load(cwd, runId) {
+    const paths = createRunPaths(cwd, runId);
+    const before = statStamp(paths.manifestPath, paths.tasksPath);
+    const cached2 = this.entries.get(runId);
+    if (cached2 && sameStamp2(cached2, before)) {
+      return cached2.loaded;
+    }
+    const loaded = this.loader(cwd, runId);
+    this.reloadsValue += 1;
+    const after = statStamp(paths.manifestPath, paths.tasksPath);
+    if (this.entries.size >= WAIT_STATUS_CACHE_MAX && !this.entries.has(runId)) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest !== void 0) this.entries.delete(oldest);
+    }
+    this.entries.set(runId, { ...after, loaded });
+    return loaded;
+  }
+  /** Evict one run's entry (called when its last broker connection closes). */
+  delete(runId) {
+    this.entries.delete(runId);
+  }
+  /** Drop everything (tests / broker stop). */
+  clear() {
+    this.entries.clear();
+  }
+};
+
 // src/runtime/broker/crew-broker.ts
 var BROKER_PROTOCOL = 1;
 var HELLO_DEADLINE_MS = 1e3;
@@ -77825,6 +78245,9 @@ var CrewBroker = class {
   mailboxObserverUnsub = null;
   /** A single observable handshake counter (test/observability). */
   handshakeCount = 0;
+  /** R10-3: stat-gated manifest/tasks cache shared by all task.waitStatus
+   *  waiters on this broker (keyed by runId — the broker serves one cwd). */
+  waitStatusCache;
   constructor(options) {
     if (!options || typeof options !== "object") {
       throw new Error("CrewBroker: options is required");
@@ -77841,6 +78264,7 @@ var CrewBroker = class {
       cwd: options.cwd,
       netModule: options.netModule
     };
+    this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
   }
   /** Read the resolved socket path. Available after start() resolves. */
   get socketPath() {
@@ -78079,7 +78503,10 @@ var CrewBroker = class {
       const set = this.connectionsByRun.get(conn.runId);
       if (set) {
         set.delete(conn);
-        if (set.size === 0) this.connectionsByRun.delete(conn.runId);
+        if (set.size === 0) {
+          this.connectionsByRun.delete(conn.runId);
+          this.waitStatusCache.delete(conn.runId);
+        }
       }
     }
     const subs = this.subscriptionUnsubs.get(conn);
@@ -78587,7 +79014,7 @@ var CrewBroker = class {
           return;
         }
         try {
-          const loaded = loadRunManifestById(cwd, connRunId);
+          const loaded = this.waitStatusCache.load(cwd, connRunId);
           if (!loaded) {
             this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
             resolve25();
@@ -79050,13 +79477,13 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs113 from "node:fs";
+import * as fs114 from "node:fs";
 import * as path92 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs113.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs114.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
@@ -79064,7 +79491,7 @@ function collectArtifactDescriptors(runsDir) {
     if (!dir.isDirectory()) continue;
     const manifestPath = path92.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs113.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs114.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -79173,13 +79600,16 @@ function installSessionStartHandler(pi, ctx) {
       void runDeferredSessionCleanup(pi, ctx, ownerGeneration, currentSessionId, extensionCtx);
     }, 0);
     const loadedConfig = loadConfig(extensionCtx.cwd);
-    const crewSettings = loadCrewSettings(extensionCtx.cwd);
-    applyCrewSettingsToConfig(loadedConfig.config, crewSettings);
+    const crewSettingsTiers = loadCrewSettingsTiers(extensionCtx.cwd);
+    const settingsWarnings = applyCrewSettingsTiersToConfig(loadedConfig.config, crewSettingsTiers);
+    if (settingsWarnings.length > 0) {
+      (loadedConfig.warnings ??= []).push(...settingsWarnings);
+    }
     const sessionId = extensionCtx.sessionManager?.getSessionId?.() ?? (typeof extensionCtx === "object" && extensionCtx !== null && "sessionId" in extensionCtx ? extensionCtx.sessionId : void 0);
     ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
     registerCrewScheduler(ctx.crewScheduler);
-    if (Array.isArray(crewSettings.scheduledJobs)) {
-      for (const job of crewSettings.scheduledJobs) {
+    if (Array.isArray(crewSettingsTiers.merged.scheduledJobs)) {
+      for (const job of crewSettingsTiers.merged.scheduledJobs) {
         try {
           ctx.crewScheduler.add(job);
         } catch {
@@ -79631,7 +80061,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
     const crewRunsDir = path93.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs114.existsSync(crewRunsDir)) {
+    if (fs115.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -79642,7 +80072,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
     const userRunsDir = path93.join(userCrewRoot(), "state", "runs");
-    if (fs114.existsSync(userRunsDir)) {
+    if (fs115.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }

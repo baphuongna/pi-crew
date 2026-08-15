@@ -1,7 +1,7 @@
 {
   "inputs": {
     "src/config/env-vars.ts": {
-      "bytes": 23831,
+      "bytes": 24057,
       "imports": [],
       "format": "esm"
     },
@@ -59,7 +59,7 @@
       "format": "esm"
     },
     "src/state/atomic-write.ts": {
-      "bytes": 45637,
+      "bytes": 46502,
       "imports": [
         {
           "path": "node:crypto",
@@ -100,7 +100,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 6634,
+      "bytes": 7528,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 14400,
+      "bytes": 14980,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 29318,
+      "bytes": 29899,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6332,7 +6332,7 @@
       "format": "esm"
     },
     "src/config/sanitize-project-config.ts": {
-      "bytes": 5921,
+      "bytes": 9139,
       "imports": [
         {
           "path": "src/schema/sensitive-config-paths.ts",
@@ -6429,7 +6429,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 10979,
+      "bytes": 12414,
       "imports": [
         {
           "path": "node:child_process",
@@ -6532,7 +6532,7 @@
       "format": "esm"
     },
     "src/runtime/model/provider-extensions.ts": {
-      "bytes": 7679,
+      "bytes": 8152,
       "imports": [
         {
           "path": "node:fs",
@@ -6590,7 +6590,7 @@
       "format": "esm"
     },
     "src/agents/discover-agents.ts": {
-      "bytes": 30279,
+      "bytes": 30672,
       "imports": [
         {
           "path": "node:fs",
@@ -7463,7 +7463,7 @@
       "format": "esm"
     },
     "src/utils/file-coalescer.ts": {
-      "bytes": 2622,
+      "bytes": 2558,
       "imports": [
         {
           "path": "node:fs",
@@ -7479,7 +7479,7 @@
       "format": "esm"
     },
     "src/runtime/crew-agent-records.ts": {
-      "bytes": 26570,
+      "bytes": 36189,
       "imports": [
         {
           "path": "node:crypto",
@@ -7540,7 +7540,7 @@
       "format": "esm"
     },
     "src/utils/task-name-generator.ts": {
-      "bytes": 4282,
+      "bytes": 4155,
       "imports": [],
       "format": "esm"
     },
@@ -7686,7 +7686,7 @@
       "format": "esm"
     },
     "src/state/event-log/event-log.ts": {
-      "bytes": 56937,
+      "bytes": 57237,
       "imports": [
         {
           "path": "node:crypto",
@@ -7819,7 +7819,7 @@
       "format": "esm"
     },
     "src/state/stores/state-store.ts": {
-      "bytes": 45983,
+      "bytes": 47096,
       "imports": [
         {
           "path": "node:fs",
@@ -8481,7 +8481,7 @@
       "format": "esm"
     },
     "src/i18n.ts": {
-      "bytes": 10329,
+      "bytes": 10736,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -10812,7 +10812,7 @@
       "format": "esm"
     },
     "src/runtime/settings-store.ts": {
-      "bytes": 5720,
+      "bytes": 13904,
       "imports": [
         {
           "path": "node:fs",
@@ -10828,6 +10828,11 @@
           "path": "node:path",
           "kind": "import-statement",
           "external": true
+        },
+        {
+          "path": "src/config/sanitize-project-config.ts",
+          "kind": "import-statement",
+          "original": "../config/sanitize-project-config.ts"
         },
         {
           "path": "src/state/atomic-write.ts",
@@ -11050,7 +11055,7 @@
       "format": "esm"
     },
     "src/workflows/validate-workflow.ts": {
-      "bytes": 1826,
+      "bytes": 2142,
       "imports": [],
       "format": "esm"
     },
@@ -11081,7 +11086,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/doctor.ts": {
-      "bytes": 16628,
+      "bytes": 17923,
       "imports": [
         {
           "path": "node:child_process",
@@ -11974,7 +11979,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 15457,
+      "bytes": 15751,
       "imports": [
         {
           "path": "node:child_process",
@@ -12980,7 +12985,7 @@
       "format": "esm"
     },
     "src/runtime/recovery/checkpoint.ts": {
-      "bytes": 8900,
+      "bytes": 8388,
       "imports": [
         {
           "path": "node:fs",
@@ -13016,7 +13021,7 @@
       "format": "esm"
     },
     "src/state/stores/run-cache.ts": {
-      "bytes": 5168,
+      "bytes": 2856,
       "imports": [
         {
           "path": "node:crypto",
@@ -13824,7 +13829,7 @@
       "format": "esm"
     },
     "src/runtime/workspace-tree.ts": {
-      "bytes": 10201,
+      "bytes": 10690,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -14141,7 +14146,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 40872,
+      "bytes": 41831,
       "imports": [
         {
           "path": "node:fs",
@@ -14282,7 +14287,7 @@
       "format": "esm"
     },
     "src/worktree/worktree-manager.ts": {
-      "bytes": 49321,
+      "bytes": 50324,
       "imports": [
         {
           "path": "node:child_process",
@@ -14425,7 +14430,7 @@
       "format": "esm"
     },
     "src/runtime/task-output-context.ts": {
-      "bytes": 26930,
+      "bytes": 31973,
       "imports": [
         {
           "path": "node:fs",
@@ -14441,6 +14446,11 @@
           "path": "src/config/defaults.ts",
           "kind": "import-statement",
           "original": "../config/defaults.ts"
+        },
+        {
+          "path": "src/config/env-vars.ts",
+          "kind": "import-statement",
+          "original": "../config/env-vars.ts"
         },
         {
           "path": "src/state/atomic-write.ts",
@@ -15271,7 +15281,7 @@
       "format": "esm"
     },
     "src/runtime/group-join.ts": {
-      "bytes": 8252,
+      "bytes": 5484,
       "imports": [
         {
           "path": "src/state/coordination/mailbox.ts",
@@ -15381,7 +15391,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 52412,
+      "bytes": 54137,
       "imports": [
         {
           "path": "node:child_process",
@@ -15653,7 +15663,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run-deadline.ts": {
-      "bytes": 3188,
+      "bytes": 4133,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -17674,7 +17684,7 @@
       "format": "esm"
     },
     "src/ui/run-snapshot-cache.ts": {
-      "bytes": 37724,
+      "bytes": 36997,
       "imports": [
         {
           "path": "node:crypto",
@@ -18043,7 +18053,7 @@
       "format": "esm"
     },
     "src/runtime/per-write-validator.ts": {
-      "bytes": 8738,
+      "bytes": 8604,
       "imports": [
         {
           "path": "node:fs",
@@ -18105,7 +18115,7 @@
       "format": "esm"
     },
     "src/extension/async-notifier.ts": {
-      "bytes": 8305,
+      "bytes": 9509,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -18560,8 +18570,24 @@
       ],
       "format": "esm"
     },
+    "src/runtime/broker/wait-status-cache.ts": {
+      "bytes": 6097,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/stores/state-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 47127,
+      "bytes": 48038,
       "imports": [
         {
           "path": "node:fs/promises",
@@ -18622,6 +18648,11 @@
           "path": "src/runtime/broker/crew-broker-tokens.ts",
           "kind": "import-statement",
           "original": "./crew-broker-tokens.ts"
+        },
+        {
+          "path": "src/runtime/broker/wait-status-cache.ts",
+          "kind": "import-statement",
+          "original": "./wait-status-cache.ts"
         }
       ],
       "format": "esm"
@@ -18727,7 +18758,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 40839,
+      "bytes": 41952,
       "imports": [
         {
           "path": "node:fs",
@@ -19353,7 +19384,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6773691
+      "bytes": 6829527
     },
     "dist/index.mjs": {
       "imports": [
@@ -21023,6 +21054,11 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:path",
           "kind": "import-statement",
           "external": true
@@ -21046,7 +21082,7 @@
       "entryPoint": "index.bundle.ts",
       "inputs": {
         "src/config/env-vars.ts": {
-          "bytesInOutput": 21479
+          "bytesInOutput": 21726
         },
         "src/utils/internal-error.ts": {
           "bytesInOutput": 525
@@ -21058,7 +21094,7 @@
           "bytesInOutput": 5563
         },
         "src/state/atomic-write.ts": {
-          "bytesInOutput": 20396
+          "bytesInOutput": 20539
         },
         "src/config/defaults.ts": {
           "bytesInOutput": 4838
@@ -21808,13 +21844,13 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 15262
+          "bytesInOutput": 15567
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 24415
+          "bytesInOutput": 25012
         },
         "src/config/config-merge.ts": {
           "bytesInOutput": 4249
@@ -21823,7 +21859,7 @@
           "bytesInOutput": 1168
         },
         "src/config/sanitize-project-config.ts": {
-          "bytesInOutput": 3598
+          "bytesInOutput": 5383
         },
         "src/config/config.ts": {
           "bytesInOutput": 11761
@@ -21832,7 +21868,7 @@
           "bytesInOutput": 2425
         },
         "src/runtime/pi-spawn.ts": {
-          "bytesInOutput": 7042
+          "bytesInOutput": 7653
         },
         "src/runtime/peer-dep.ts": {
           "bytesInOutput": 4963
@@ -21841,7 +21877,7 @@
           "bytesInOutput": 856
         },
         "src/runtime/model/provider-extensions.ts": {
-          "bytesInOutput": 2739
+          "bytesInOutput": 2966
         },
         "src/utils/frontmatter.ts": {
           "bytesInOutput": 1900
@@ -21856,7 +21892,7 @@
           "bytesInOutput": 1721
         },
         "src/agents/discover-agents.ts": {
-          "bytesInOutput": 17951
+          "bytesInOutput": 18082
         },
         "src/utils/git.ts": {
           "bytesInOutput": 5951
@@ -21970,7 +22006,7 @@
           "bytesInOutput": 492
         },
         "src/runtime/crew-agent-records.ts": {
-          "bytesInOutput": 18392
+          "bytesInOutput": 22476
         },
         "src/errors.ts": {
           "bytesInOutput": 8105
@@ -22000,7 +22036,7 @@
           "bytesInOutput": 5133
         },
         "src/state/event-log/event-log.ts": {
-          "bytesInOutput": 27315
+          "bytesInOutput": 27414
         },
         "src/state/types.ts": {
           "bytesInOutput": 206
@@ -22012,7 +22048,7 @@
           "bytesInOutput": 4462
         },
         "src/state/stores/state-store.ts": {
-          "bytesInOutput": 23692
+          "bytesInOutput": 24159
         },
         "src/ui/pi-ui-compat.ts": {
           "bytesInOutput": 1068
@@ -22114,7 +22150,7 @@
           "bytesInOutput": 3479
         },
         "src/i18n.ts": {
-          "bytesInOutput": 8995
+          "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
           "bytesInOutput": 2254
@@ -22450,7 +22486,7 @@
           "bytesInOutput": 10288
         },
         "src/runtime/settings-store.ts": {
-          "bytesInOutput": 3512
+          "bytesInOutput": 6583
         },
         "src/extension/team-tool/handle-schedule.ts": {
           "bytesInOutput": 8894
@@ -22474,13 +22510,13 @@
           "bytesInOutput": 6432
         },
         "src/workflows/validate-workflow.ts": {
-          "bytesInOutput": 1927
+          "bytesInOutput": 2087
         },
         "src/extension/validate-resources.ts": {
           "bytesInOutput": 3006
         },
         "src/extension/team-tool/doctor.ts": {
-          "bytesInOutput": 13814
+          "bytesInOutput": 14512
         },
         "src/config/markers.ts": {
           "bytesInOutput": 3357
@@ -22549,7 +22585,7 @@
           "bytesInOutput": 7801
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 9187
+          "bytesInOutput": 9318
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
           "bytesInOutput": 6983
@@ -22639,7 +22675,7 @@
           "bytesInOutput": 2575
         },
         "src/state/stores/run-cache.ts": {
-          "bytesInOutput": 2133
+          "bytesInOutput": 2065
         },
         "src/state/stores/run-graph.ts": {
           "bytesInOutput": 847
@@ -22750,7 +22786,7 @@
           "bytesInOutput": 279
         },
         "src/runtime/workspace-tree.ts": {
-          "bytesInOutput": 7290
+          "bytesInOutput": 7511
         },
         "src/runtime/scheduling/run-coalesced-task-group.ts": {
           "bytesInOutput": 9929
@@ -22801,10 +22837,10 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 24405
+          "bytesInOutput": 24474
         },
         "src/worktree/worktree-manager.ts": {
-          "bytesInOutput": 25997
+          "bytesInOutput": 26666
         },
         "src/runtime/output/output-validator.ts": {
           "bytesInOutput": 2570
@@ -22831,7 +22867,7 @@
           "bytesInOutput": 5519
         },
         "src/runtime/task-output-context.ts": {
-          "bytesInOutput": 12696
+          "bytesInOutput": 14332
         },
         "src/runtime/verification/green-contract.ts": {
           "bytesInOutput": 1442
@@ -22891,7 +22927,7 @@
           "bytesInOutput": 2936
         },
         "src/runtime/group-join.ts": {
-          "bytesInOutput": 3968
+          "bytesInOutput": 3981
         },
         "src/runtime/workflow-phase-advance.ts": {
           "bytesInOutput": 3221
@@ -22909,7 +22945,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 25799
+          "bytesInOutput": 26284
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -22918,7 +22954,7 @@
           "bytesInOutput": 1529
         },
         "src/extension/team-tool/run-deadline.ts": {
-          "bytesInOutput": 908
+          "bytesInOutput": 1137
         },
         "src/extension/team-tool/goal-wrap.ts": {
           "bytesInOutput": 7085
@@ -23080,7 +23116,7 @@
           "bytesInOutput": 2662
         },
         "src/extension/async-notifier.ts": {
-          "bytesInOutput": 5740
+          "bytesInOutput": 6227
         },
         "src/extension/notification-router.ts": {
           "bytesInOutput": 5138
@@ -23185,7 +23221,7 @@
           "bytesInOutput": 3062
         },
         "src/ui/run-snapshot-cache.ts": {
-          "bytesInOutput": 29107
+          "bytesInOutput": 28842
         },
         "src/extension/registration/crash-recovery-cache.ts": {
           "bytesInOutput": 750
@@ -23206,10 +23242,10 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 25710
+          "bytesInOutput": 25888
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 35668
+          "bytesInOutput": 35998
         },
         "src/runtime/broker/crew-broker-tokens.ts": {
           "bytesInOutput": 4888
@@ -23219,6 +23255,9 @@
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3010
+        },
+        "src/runtime/broker/wait-status-cache.ts": {
+          "bytesInOutput": 2412
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -23263,7 +23302,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2996626
+      "bytes": 3016038
     }
   }
 }

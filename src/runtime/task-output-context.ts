@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_OUTPUT_CONTEXT } from "../config/defaults.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -650,7 +651,7 @@ function resultArtifactCacheKey(descriptor: ArtifactDescriptor): string | undefi
 export function createResultArtifactReadCache(): ResultArtifactReadCache {
 	// Read once at creation — the bypass decision is fixed for the cache's
 	// (per-run) lifetime, matching PI_CREW_USE_BUNDLE-style one-shot env reads.
-	if (process.env.PI_CREW_DISABLE_RESULT_READ_CACHE === "1") {
+	if (getCrewEnv("PI_CREW_DISABLE_RESULT_READ_CACHE") === "1") {
 		return {
 			lookup: () => undefined,
 			store: () => undefined,

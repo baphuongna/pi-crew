@@ -284,6 +284,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "int",
 		doc: "max concurrent workers; unset/empty/invalid → default max(2, cpus-2) (global-worker-cap.ts:33)",
 	},
+	PI_CREW_DISABLE_RESULT_READ_CACHE: {
+		name: "PI_CREW_DISABLE_RESULT_READ_CACHE",
+		doc: "'1' bypasses the per-run result-artifact read cache (R10-1 bypass control; task-output-context.ts createResultArtifactReadCache)",
+	},
 	PI_CREW_MOCK_LIVE_SESSION: {
 		name: "PI_CREW_MOCK_LIVE_SESSION",
 		doc: "'success' mocks a successful live-session (live-session-runtime.ts:558, runtime-resolver.ts:38/116)",
