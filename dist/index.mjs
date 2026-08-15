@@ -10201,11 +10201,15 @@ var init_config_schema = __esm({
     ]);
     PiTeamsAutonomousConfigSchema = Type.Object(
       {
-        profile: Type.Optional(PiTeamsAutonomyProfileSchema),
-        enabled: Type.Optional(Type.Boolean()),
-        injectPolicy: Type.Optional(Type.Boolean()),
-        preferAsyncForLongTasks: Type.Optional(Type.Boolean()),
-        allowWorktreeSuggestion: Type.Optional(Type.Boolean()),
+        profile: Type.Optional(
+          Type.Union([Type.Literal("manual"), Type.Literal("suggested"), Type.Literal("assisted"), Type.Literal("aggressive")], {
+            sensitive: true
+          })
+        ),
+        enabled: Type.Optional(Type.Boolean({ sensitive: true })),
+        injectPolicy: Type.Optional(Type.Boolean({ sensitive: true })),
+        preferAsyncForLongTasks: Type.Optional(Type.Boolean({ sensitive: true })),
+        allowWorktreeSuggestion: Type.Optional(Type.Boolean({ sensitive: true })),
         magicKeywords: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }))))
       },
       { additionalProperties: false }
@@ -10237,14 +10241,16 @@ var init_config_schema = __esm({
     PiTeamsRuntimeConfigSchema = Type.Object(
       {
         mode: Type.Optional(
-          Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")])
+          Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")], {
+            sensitive: true
+          })
         ),
-        preferLiveSession: Type.Optional(Type.Boolean()),
-        allowChildProcessFallback: Type.Optional(Type.Boolean()),
+        preferLiveSession: Type.Optional(Type.Boolean({ sensitive: true })),
+        allowChildProcessFallback: Type.Optional(Type.Boolean({ sensitive: true })),
         maxTurns: Type.Optional(Type.Integer({ minimum: 1 })),
         graceTurns: Type.Optional(Type.Integer({ minimum: 1 })),
         taskTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
-        inheritContext: Type.Optional(Type.Boolean()),
+        inheritContext: Type.Optional(Type.Boolean({ sensitive: true })),
         promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
         groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
         groupJoinAckTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -10264,14 +10270,14 @@ var init_config_schema = __esm({
           )
         ),
         excludeContextBash: Type.Optional(Type.Boolean()),
-        agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+        agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true })),
         isolationPolicy: Type.Optional(
           Type.Object(
             {
               isolatedRoles: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
               defaultRuntime: Type.Optional(Type.Union([Type.Literal("live-session"), Type.Literal("child-process")]))
             },
-            { additionalProperties: false }
+            { additionalProperties: false, sensitive: true }
           )
         ),
         modelFallback: Type.Optional(PiTeamsModelFallbackConfigSchema)
@@ -10281,16 +10287,19 @@ var init_config_schema = __esm({
     PiTeamsControlConfigSchema = Type.Object(
       {
         enabled: Type.Optional(Type.Boolean()),
-        needsAttentionAfterMs: Type.Optional(Type.Integer({ minimum: 1 }))
+        needsAttentionAfterMs: Type.Optional(Type.Integer({ minimum: 1 })),
+        // F19-3 (Round 19 parity): read at agent-control.ts with defaults 3/10.
+        consecutiveFailureThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
+        longRunningMinutes: Type.Optional(Type.Integer({ minimum: 1 }))
       },
       { additionalProperties: false }
     );
     PiTeamsWorktreeConfigSchema = Type.Object(
       {
-        setupHook: Type.Optional(Type.String({ minLength: 1 })),
+        setupHook: Type.Optional(Type.String({ minLength: 1, sensitive: true })),
         setupHookTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
         linkNodeModules: Type.Optional(Type.Boolean()),
-        seedPaths: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
+        seedPaths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true }))
       },
       { additionalProperties: false }
     );
@@ -10327,16 +10336,16 @@ var init_config_schema = __esm({
     );
     PiTeamsAgentsConfigSchema = Type.Object(
       {
-        disableBuiltins: Type.Optional(Type.Boolean()),
-        overrides: Type.Optional(Type.Record(Type.String({ minLength: 1 }), AgentOverrideSchema))
+        disableBuiltins: Type.Optional(Type.Boolean({ sensitive: true })),
+        overrides: Type.Optional(Type.Record(Type.String({ minLength: 1 }), AgentOverrideSchema, { sensitive: true }))
       },
       { additionalProperties: false }
     );
     PiTeamsToolsConfigSchema = Type.Object(
       {
         enableClaudeStyleAliases: Type.Optional(Type.Boolean()),
-        enableSteer: Type.Optional(Type.Boolean()),
-        terminateOnForeground: Type.Optional(Type.Boolean())
+        enableSteer: Type.Optional(Type.Boolean({ sensitive: true })),
+        terminateOnForeground: Type.Optional(Type.Boolean({ sensitive: true }))
       },
       { additionalProperties: false }
     );
@@ -10348,8 +10357,8 @@ var init_config_schema = __esm({
     );
     PiTeamsPolicyConfigSchema = Type.Object(
       {
-        requireIntentForDestructiveActions: Type.Optional(Type.Boolean()),
-        disabledCapabilities: Type.Optional(Type.Array(Type.String()))
+        requireIntentForDestructiveActions: Type.Optional(Type.Boolean({ sensitive: true })),
+        disabledCapabilities: Type.Optional(Type.Array(Type.String(), { sensitive: true }))
       },
       { additionalProperties: false }
     );
@@ -10384,7 +10393,10 @@ var init_config_schema = __esm({
               backoffMs: Type.Optional(Type.Integer({ minimum: 100, maximum: 6e4 })),
               jitterRatio: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
               exponentialFactor: Type.Optional(Type.Number({ minimum: 1, maximum: 5 })),
-              retryableErrors: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
+              retryableErrors: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+              // F19-2 (Round 19 parity): parsed at config-validation.ts but
+              // additionalProperties:false previously rejected it at the schema level.
+              maxTotalSpawns: Type.Optional(Type.Integer({ minimum: 0 }))
             },
             { additionalProperties: false }
           )
@@ -10407,10 +10419,13 @@ var init_config_schema = __esm({
           Type.String({
             minLength: 1,
             maxLength: 2048,
-            pattern: "^https?://"
+            pattern: "^https?://",
+            sensitive: true
           })
         ),
-        headers: Type.Optional(Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.String({ maxLength: 4096 }))),
+        headers: Type.Optional(
+          Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.String({ maxLength: 4096 }), { sensitive: true })
+        ),
         intervalMs: Type.Optional(Type.Integer({ minimum: 5e3 }))
       },
       { additionalProperties: false }
@@ -10458,10 +10473,10 @@ var init_config_schema = __esm({
     );
     PiTeamsConfigSchema = Type.Object(
       {
-        asyncByDefault: Type.Optional(Type.Boolean()),
-        executeWorkers: Type.Optional(Type.Boolean()),
+        asyncByDefault: Type.Optional(Type.Boolean({ sensitive: true })),
+        executeWorkers: Type.Optional(Type.Boolean({ sensitive: true })),
         notifierIntervalMs: Type.Optional(Type.Number({ minimum: 1e3 })),
-        requireCleanWorktreeLeader: Type.Optional(Type.Boolean()),
+        requireCleanWorktreeLeader: Type.Optional(Type.Boolean({ sensitive: true })),
         ignoreMethod: Type.Optional(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")])),
         autonomous: Type.Optional(PiTeamsAutonomousConfigSchema),
         limits: Type.Optional(PiTeamsLimitsConfigSchema),
@@ -10697,6 +10712,18 @@ function parseIsolationPolicy(value) {
     ...defaultRuntime !== void 0 ? { defaultRuntime } : {}
   };
 }
+function parseModelFallbackConfig(value) {
+  const obj = asRecord(value);
+  if (!obj) return void 0;
+  const modelFallback = {
+    maxAutoFallbacks: parseWithSchema(Type.Integer({ minimum: 0 }), obj.maxAutoFallbacks),
+    order: parseWithSchema(Type.Union([Type.Literal("parentFirst"), Type.Literal("asIs")]), obj.order),
+    requireCredentials: parseWithSchema(Type.Boolean(), obj.requireCredentials),
+    quotaAwareOrdering: parseWithSchema(Type.Boolean(), obj.quotaAwareOrdering),
+    defaultSubagentModel: parseWithSchema(Type.String({ minLength: 1 }), obj.defaultSubagentModel)
+  };
+  return Object.values(modelFallback).some((entry) => entry !== void 0) ? modelFallback : void 0;
+}
 function parseRuntimeConfig(value) {
   const obj = asRecord(value);
   if (!obj) return { inheritContext: true };
@@ -10735,7 +10762,8 @@ function parseRuntimeConfig(value) {
     })(),
     excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
     agentExtensions: parseStringList(obj.agentExtensions),
-    isolationPolicy: parseIsolationPolicy(obj.isolationPolicy)
+    isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
+    modelFallback: parseModelFallbackConfig(obj.modelFallback)
   };
   return Object.values(runtime).some((entry) => entry !== void 0) ? runtime : void 0;
 }
@@ -10744,7 +10772,11 @@ function parseControlConfig(value) {
   if (!obj) return void 0;
   const control = {
     enabled: parseWithSchema(Type.Boolean(), obj.enabled),
-    needsAttentionAfterMs: parsePositiveInteger(obj.needsAttentionAfterMs)
+    needsAttentionAfterMs: parsePositiveInteger(obj.needsAttentionAfterMs),
+    // F19-3 (Round 19 parity): read at agent-control.ts with defaults 3/10 —
+    // emit undefined when unset so the read-site defaults stay authoritative.
+    consecutiveFailureThreshold: parsePositiveInteger(obj.consecutiveFailureThreshold),
+    longRunningMinutes: parsePositiveInteger(obj.longRunningMinutes)
   };
   return Object.values(control).some((entry) => entry !== void 0) ? control : void 0;
 }
@@ -11078,6 +11110,12 @@ function mergeConfig(base, override) {
       ...base.runtime ?? {},
       ...withoutUndefined(override.runtime ?? {})
     };
+    if (base.runtime?.modelFallback || override.runtime?.modelFallback) {
+      merged.runtime.modelFallback = {
+        ...base.runtime?.modelFallback ?? {},
+        ...withoutUndefined(override.runtime?.modelFallback ?? {})
+      };
+    }
   }
   if (base.control || override.control) {
     merged.control = {
@@ -11190,98 +11228,120 @@ var init_config_merge = __esm({
   }
 });
 
+// src/schema/sensitive-config-paths.ts
+function isMarkedSensitive(property) {
+  if (property.sensitive === true) return true;
+  const members = property.anyOf;
+  if (Array.isArray(members) && members.some((member) => member.sensitive === true)) return true;
+  return false;
+}
+function walkProperties(schema, prefix, out) {
+  const properties = schema.properties;
+  if (!properties || typeof properties !== "object") return;
+  for (const [key, property] of Object.entries(properties)) {
+    if (!property || typeof property !== "object") continue;
+    const dotted = prefix === "" ? key : `${prefix}.${key}`;
+    if (isMarkedSensitive(property)) {
+      out.push(dotted);
+      continue;
+    }
+    const branches = Array.isArray(property.anyOf) ? property.anyOf : [property];
+    for (const branch of branches) {
+      if (branch && typeof branch === "object" && branch.properties) walkProperties(branch, dotted, out);
+    }
+  }
+}
+function collectSensitiveConfigPaths(schema = PiTeamsConfigSchema) {
+  const out = [];
+  walkProperties(schema, "", out);
+  return out;
+}
+var init_sensitive_config_paths = __esm({
+  "src/schema/sensitive-config-paths.ts"() {
+    "use strict";
+    init_config_schema();
+  }
+});
+
 // src/config/sanitize-project-config.ts
 function projectOverrideWarning(projectPath2, dottedPath) {
   return `${projectPath2}: project-level sensitive config '${dottedPath}' is ignored; set it in user config to trust it explicitly`;
 }
+function groupPathsBySection(dottedPaths) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const dotted of dottedPaths) {
+    const separator = dotted.indexOf(".");
+    const section2 = separator === -1 ? "" : dotted.slice(0, separator);
+    const key = separator === -1 ? dotted : dotted.slice(separator + 1);
+    const bucket = groups.get(section2);
+    if (bucket) bucket.push(key);
+    else groups.set(section2, [key]);
+  }
+  return groups;
+}
+function sectionProcessingOrder(sections) {
+  return [...sections].sort((a, b) => {
+    const rankA = SECTION_LEGACY_ORDER.indexOf(a);
+    const rankB = SECTION_LEGACY_ORDER.indexOf(b);
+    if (rankA === -1 && rankB === -1) return 0;
+    if (rankA === -1) return 1;
+    if (rankB === -1) return -1;
+    return rankA - rankB;
+  });
+}
 function sanitizeProjectConfig(projectPath2, userConfig, config) {
   const sanitized = { ...config };
   const warnings = [];
+  const groups = groupPathsBySection(collectSensitiveConfigPaths());
   const dropTopLevel = (key) => {
     if (config[key] === void 0) return;
     delete sanitized[key];
-    warnings.push(projectOverrideWarning(projectPath2, String(key)));
+    warnings.push(projectOverrideWarning(projectPath2, key));
   };
-  dropTopLevel("executeWorkers");
-  dropTopLevel("asyncByDefault");
-  dropTopLevel("requireCleanWorktreeLeader");
-  if (config.runtime) {
-    const runtime = { ...config.runtime };
-    for (const key of [
-      "mode",
-      "preferLiveSession",
-      "allowChildProcessFallback",
-      "inheritContext",
-      "isolationPolicy",
-      "agentExtensions"
-    ]) {
-      if (runtime[key] !== void 0) {
-        delete runtime[key];
-        warnings.push(projectOverrideWarning(projectPath2, `runtime.${key}`));
-      }
+  const topLevelKeys = groups.get("") ?? [];
+  for (const key of [...topLevelKeys].sort((a, b) => {
+    const rankA = TOP_LEVEL_LEGACY_ORDER.indexOf(a);
+    const rankB = TOP_LEVEL_LEGACY_ORDER.indexOf(b);
+    if (rankA === -1 && rankB === -1) return 0;
+    if (rankA === -1) return 1;
+    if (rankB === -1) return -1;
+    return rankA - rankB;
+  })) {
+    dropTopLevel(key);
+  }
+  const sanitizedRecord = sanitized;
+  const configRecord2 = config;
+  for (const section2 of sectionProcessingOrder([...groups.keys()].filter((s) => s !== ""))) {
+    const sectionValue = configRecord2[section2];
+    if (sectionValue === void 0 || typeof sectionValue !== "object") continue;
+    const sectionConfig = { ...sectionValue };
+    let changed = false;
+    for (const key of groups.get(section2) ?? []) {
+      if (sectionConfig[key] === void 0) continue;
+      if (ASSIGN_REDACT_SECTIONS.has(section2)) sectionConfig[key] = void 0;
+      else delete sectionConfig[key];
+      warnings.push(projectOverrideWarning(projectPath2, `${section2}.${key}`));
+      changed = true;
     }
-    if (runtime.requirePlanApproval === false) {
-      delete runtime.requirePlanApproval;
+    if (section2 === "runtime" && sectionConfig.requirePlanApproval === false) {
+      delete sectionConfig.requirePlanApproval;
       warnings.push(projectOverrideWarning(projectPath2, "runtime.requirePlanApproval"));
+      changed = true;
     }
-    sanitized.runtime = Object.values(runtime).some((entry) => entry !== void 0) ? runtime : void 0;
-  }
-  if (config.autonomous) {
-    const autonomous = { ...config.autonomous };
-    for (const key of ["profile", "enabled", "injectPolicy", "preferAsyncForLongTasks", "allowWorktreeSuggestion"]) {
-      if (autonomous[key] !== void 0) {
-        delete autonomous[key];
-        warnings.push(projectOverrideWarning(projectPath2, `autonomous.${key}`));
-      }
-    }
-    sanitized.autonomous = Object.values(autonomous).some((entry) => entry !== void 0) ? autonomous : void 0;
-  }
-  if (config.worktree?.setupHook !== void 0) {
-    sanitized.worktree = { ...config.worktree, setupHook: void 0 };
-    if (!Object.values(sanitized.worktree).some((entry) => entry !== void 0)) sanitized.worktree = void 0;
-    warnings.push(projectOverrideWarning(projectPath2, "worktree.setupHook"));
-  }
-  if (config.otlp?.headers !== void 0) {
-    sanitized.otlp = { ...config.otlp, headers: void 0 };
-    if (!Object.values(sanitized.otlp).some((entry) => entry !== void 0)) sanitized.otlp = void 0;
-    warnings.push(projectOverrideWarning(projectPath2, "otlp.headers"));
-  }
-  if (config.otlp?.endpoint !== void 0) {
-    if (!sanitized.otlp) sanitized.otlp = { ...config.otlp, endpoint: void 0 };
-    else sanitized.otlp = { ...sanitized.otlp, endpoint: void 0 };
-    if (!Object.values(sanitized.otlp).some((entry) => entry !== void 0)) sanitized.otlp = void 0;
-    warnings.push(projectOverrideWarning(projectPath2, "otlp.endpoint"));
-  }
-  if (config.agents?.disableBuiltins !== void 0 || config.agents?.overrides !== void 0) {
-    const agents = { ...config.agents };
-    if (agents.disableBuiltins !== void 0) {
-      delete agents.disableBuiltins;
-      warnings.push(projectOverrideWarning(projectPath2, "agents.disableBuiltins"));
-    }
-    if (agents.overrides !== void 0) {
-      delete agents.overrides;
-      warnings.push(projectOverrideWarning(projectPath2, "agents.overrides"));
-    }
-    sanitized.agents = Object.values(agents).some((entry) => entry !== void 0) ? agents : void 0;
-  }
-  if (config.tools?.enableSteer !== void 0 || config.tools?.terminateOnForeground !== void 0) {
-    const tools = { ...config.tools };
-    if (tools.enableSteer !== void 0) {
-      delete tools.enableSteer;
-      warnings.push(projectOverrideWarning(projectPath2, "tools.enableSteer"));
-    }
-    if (tools.terminateOnForeground !== void 0) {
-      delete tools.terminateOnForeground;
-      warnings.push(projectOverrideWarning(projectPath2, "tools.terminateOnForeground"));
-    }
-    sanitized.tools = Object.values(tools).some((entry) => entry !== void 0) ? tools : void 0;
+    if (!changed && !LEGACY_ALWAYS_COPY_SECTIONS.has(section2)) continue;
+    sanitizedRecord[section2] = Object.values(sectionConfig).some((entry) => entry !== void 0) ? sectionConfig : void 0;
   }
   return { config: sanitized, warnings };
 }
-var __test__sanitizeProjectConfig;
+var TOP_LEVEL_LEGACY_ORDER, SECTION_LEGACY_ORDER, LEGACY_ALWAYS_COPY_SECTIONS, ASSIGN_REDACT_SECTIONS, __test__sanitizeProjectConfig;
 var init_sanitize_project_config = __esm({
   "src/config/sanitize-project-config.ts"() {
     "use strict";
+    init_sensitive_config_paths();
+    TOP_LEVEL_LEGACY_ORDER = ["executeWorkers", "asyncByDefault", "requireCleanWorktreeLeader"];
+    SECTION_LEGACY_ORDER = ["runtime", "autonomous", "worktree", "otlp", "agents", "tools"];
+    LEGACY_ALWAYS_COPY_SECTIONS = /* @__PURE__ */ new Set(["runtime", "autonomous"]);
+    ASSIGN_REDACT_SECTIONS = /* @__PURE__ */ new Set(["worktree", "otlp"]);
     __test__sanitizeProjectConfig = sanitizeProjectConfig;
   }
 });
@@ -36316,6 +36376,15 @@ async function probeLiveSessionRuntime() {
 }
 async function runLiveSessionTask(input) {
   await awaitRuntimeWarmup();
+  if (!experimentalWarned) {
+    experimentalWarned = true;
+    logInternalError(
+      "live-session.experimental",
+      new Error("experimental path"),
+      "runtime.mode=live-session is EXPERIMENTAL and frozen (decision (a)); it diverges from child-process semantics (no worker-cap/depth guard, permissive tools) \u2014 see docs/decisions/2026-08-15-runtime-convergence.md",
+      "warn"
+    );
+  }
   const isCurrent = input.isCurrent ?? (() => true);
   let streamOut;
   let customToolYieldResult;
@@ -36879,7 +36948,7 @@ ${input.prompt}` : input.prompt;
     }
   }
 }
-var liveSessionModulePromise, ROLE_INTENSITY;
+var liveSessionModulePromise, experimentalWarned, ROLE_INTENSITY;
 var init_live_session_runtime = __esm({
   "src/runtime/live-session/live-session-runtime.ts"() {
     "use strict";
@@ -36908,6 +36977,7 @@ var init_live_session_runtime = __esm({
     init_live_control_realtime();
     init_live_extension_bridge();
     init_live_session_health();
+    experimentalWarned = false;
     ROLE_INTENSITY = {
       explorer: "ultra",
       analyst: "full",

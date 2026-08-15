@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 13380,
+      "bytes": 14400,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 27916,
+      "bytes": 29318,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6310,7 +6310,7 @@
       "format": "esm"
     },
     "src/config/config-merge.ts": {
-      "bytes": 5507,
+      "bytes": 6126,
       "imports": [
         {
           "path": "src/config/config-validation.ts",
@@ -6320,9 +6320,26 @@
       ],
       "format": "esm"
     },
+    "src/schema/sensitive-config-paths.ts": {
+      "bytes": 2834,
+      "imports": [
+        {
+          "path": "src/schema/config-schema.ts",
+          "kind": "import-statement",
+          "original": "./config-schema.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/config/sanitize-project-config.ts": {
-      "bytes": 4376,
-      "imports": [],
+      "bytes": 5921,
+      "imports": [
+        {
+          "path": "src/schema/sensitive-config-paths.ts",
+          "kind": "import-statement",
+          "original": "../schema/sensitive-config-paths.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/config/config.ts": {
@@ -10428,7 +10445,7 @@
       "format": "esm"
     },
     "src/runtime/live-session/live-session-runtime.ts": {
-      "bytes": 48415,
+      "bytes": 49398,
       "imports": [
         {
           "path": "node:fs",
@@ -19336,7 +19353,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6762671
+      "bytes": 6773691
     },
     "dist/index.mjs": {
       "imports": [
@@ -21791,19 +21808,22 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 14137
+          "bytesInOutput": 15262
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 23346
+          "bytesInOutput": 24415
         },
         "src/config/config-merge.ts": {
-          "bytesInOutput": 4008
+          "bytesInOutput": 4249
+        },
+        "src/schema/sensitive-config-paths.ts": {
+          "bytesInOutput": 1168
         },
         "src/config/sanitize-project-config.ts": {
-          "bytesInOutput": 4126
+          "bytesInOutput": 3598
         },
         "src/config/config.ts": {
           "bytesInOutput": 11761
@@ -22400,7 +22420,7 @@
           "bytesInOutput": 1356
         },
         "src/runtime/live-session/live-session-runtime.ts": {
-          "bytesInOutput": 33137
+          "bytesInOutput": 33593
         },
         "src/utils/glob-match.ts": {
           "bytesInOutput": 400
@@ -23243,7 +23263,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 2993054
+      "bytes": 2996626
     }
   }
 }

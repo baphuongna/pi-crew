@@ -27,7 +27,7 @@ export function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTea
 		merged.runtime = {
 			...(base.runtime ?? {}),
 			...withoutUndefined((override.runtime ?? {}) as Record<string, unknown>),
-	};
+		};
 		// F19-1 (Round 19 parity): deep-merge modelFallback like
 		// reliability.retryPolicy so a partial override cannot erase base fields
 		// (user-wins precedence per key). Assigned only when a side defines it —
