@@ -837,9 +837,18 @@ async function executeTeamRunCore(
 	// drainPendingUnits() so in-flight dispatch promises are settled (and
 	// their child processes torn down) on every early-return path.
 	const runController = new AbortController();
+	// R6-F2 (W2): store the listener reference so the finally block can
+	// removeEventListener() it — { once: true } alone only auto-removes when the
+	// listener FIRES; when the run finishes before the caller's signal aborts,
+	// the listener would otherwise stay attached to input.signal (long-lived
+	// session signal → leak accumulates per run). Mirrors child-executor.ts.
+	let externalAbortListener: (() => void) | undefined;
 	if (input.signal) {
 		if (input.signal.aborted) runController.abort();
-		else input.signal.addEventListener("abort", () => runController.abort(), { once: true });
+		else {
+			externalAbortListener = () => runController.abort();
+			input.signal.addEventListener("abort", externalAbortListener, { once: true });
+		}
 	}
 
 	// CORE-4: scheduler context — mutable state bag for extracted scheduler
@@ -1083,5 +1092,13 @@ async function executeTeamRunCore(
 		// only needs the drain side-effect (abort + await + clear); the return
 		// value is intentionally unused here.
 		await drainPendingUnits(pendingUnits, runController);
+		// R6-F2 (W2): release the caller-signal listener on every exit path.
+		// Removed AFTER the drain so caller-signal aborts during teardown still
+		// propagate to runController (exact pre-fix semantics); once the run is
+		// fully drained the listener is dead weight — { once: true } never
+		// auto-removes it when the signal never fired (child-executor.ts pattern).
+		if (externalAbortListener && input.signal) {
+			input.signal.removeEventListener("abort", externalAbortListener);
+		}
 	}
 }

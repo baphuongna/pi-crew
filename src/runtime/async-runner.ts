@@ -55,8 +55,11 @@ export function resolveJitiRegisterPath(packageRoot = packageRootFromRuntime(), 
 			path.join(path.dirname(pkgPath), "dist", "register.mjs"),
 		];
 		for (const c of candidates) if (exists(c)) return c;
-	} catch {
-		// Fall through.
+	} catch (error) {
+		// R17-B4 (LOW): fall-through is benign (undefined → next loader
+		// strategy), but keep the require.resolve root cause visible under
+		// PI_TEAMS_DEBUG instead of a bare catch.
+		logInternalError("async-runner.jiti-resolve", error, "require.resolve('jiti/package.json') fallback failed", "debug");
 	}
 	return undefined;
 }

@@ -32,7 +32,6 @@ import {
 	appendEventAsync,
 	readEvents,
 	readEventsCursor,
-	resetEventLogMode,
 } from "../../../../src/state/event-log/event-log.ts";
 import { currentGeneration, rotateEventLogUnlocked } from "../../../../src/state/event-log/event-log-rotation.ts";
 import { runEventBus } from "../../../../src/ui/run-event-bus.ts";
@@ -62,7 +61,6 @@ describe("R16-B1: .seqlock reservation (W1)", () => {
 	});
 
 	afterEach(() => {
-		resetEventLogMode();
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
@@ -101,7 +99,6 @@ describe("W2: archive-tail readers recover rotation-stranded events (R16-B1 effe
 	});
 
 	afterEach(() => {
-		resetEventLogMode();
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
@@ -178,7 +175,6 @@ describe("R17-S1: size-limit skip signals (W3)", () => {
 	});
 
 	afterEach(() => {
-		resetEventLogMode();
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 

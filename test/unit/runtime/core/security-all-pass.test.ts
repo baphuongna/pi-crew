@@ -12,7 +12,6 @@ import * as fs from "node:fs";
 import test from "node:test";
 import {
 	allAgents,
-	clearSecurityEventLog,
 	discoverAgents,
 	getCacheVersion,
 	getSecurityEventLog,
@@ -88,7 +87,8 @@ test("SEC-005: cache version is monotonic across discovery", () => {
 
 // SEC-006: Security events are logged when a protection fires.
 test("SEC-006: a blocked registration logs a security event", () => {
-	clearSecurityEventLog();
+	// Delta-based isolation: clearSecurityEventLog was removed (R7-13).
+	const before = getSecurityEventLog().length;
 	assert.throws(() =>
 		registerDynamicAgent({
 			name: "executor",
@@ -98,7 +98,7 @@ test("SEC-006: a blocked registration logs a security event", () => {
 			filePath: "dynamic://executor",
 		}),
 	);
-	const events = getSecurityEventLog();
+	const events = getSecurityEventLog().slice(before);
 	assert.ok(events.length > 0, "blocking a protected name must log a security event");
 });
 

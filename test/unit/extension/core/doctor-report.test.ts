@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { getSecurityEventLog, registerDynamicAgent } from "../../../../src/agents/discover-agents.ts";
 import { buildTeamDoctorReport } from "../../../../src/extension/team-tool/doctor.ts";
 
 test("doctor report includes structured sections", () => {
@@ -64,4 +65,37 @@ test("doctor report marks errors", () => {
 	assert.equal(report.hasErrors, true);
 	assert.match(report.text, /FAIL config/);
 	assert.match(report.text, /FAIL resource validation/);
+});
+
+test("doctor report surfaces security telemetry summary when events exist (R7-13)", () => {
+	// Trigger one security event: registering a protected builtin name is
+	// blocked and logged (SEC-001). Delta-based: the log is process-global
+	// and cannot be cleared (clearSecurityEventLog was removed as a dead
+	// export in R7-13).
+	const before = getSecurityEventLog().length;
+	assert.throws(
+		() =>
+			registerDynamicAgent({
+				name: "executor",
+				systemPrompt: "test",
+				description: "must be blocked",
+				source: "dynamic" as const,
+				filePath: "dynamic://executor",
+			}),
+		/protected builtin name/i,
+	);
+	assert.ok(getSecurityEventLog().length > before, "blocked registration must log a security event");
+
+	const report = buildTeamDoctorReport({
+		cwd: process.cwd(),
+		configPath: "/tmp/pi-crew-config.json",
+		configErrors: [],
+		configWarnings: [],
+		validationErrors: 0,
+		validationWarnings: 0,
+	});
+	// Compact summary section: total events + last event, informational only.
+	assert.match(report.text, /\nSecurity\n/);
+	assert.match(report.text, /OK security events: \d+ logged; last AGENT_REGISTRATION_BLOCKED/);
+	assert.equal(report.hasErrors, false, "security telemetry is informational, not a failure");
 });

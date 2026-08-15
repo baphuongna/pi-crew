@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
+import * as path from "node:path";
 import { describe, it } from "node:test";
-import {
-	type Checkpoint,
-	clearCheckpointStores,
-	FileCheckpointStore,
-	formatCheckpoint,
-	getCheckpointStore,
-} from "../../src/runtime/recovery/checkpoint.ts";
+import { type Checkpoint, FileCheckpointStore, formatCheckpoint, getCheckpointStore } from "../../src/runtime/recovery/checkpoint.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 function makeCheckpoint(overrides: Partial<Checkpoint> = {}): Checkpoint {
@@ -143,24 +138,21 @@ describe("FileCheckpointStore", () => {
 	});
 });
 
-// ── getCheckpointStore / clearCheckpointStores ──
+// ── getCheckpointStore (live caching behavior) ──
 
 describe("getCheckpointStore", () => {
 	it("returns same store for same stateRoot", () => {
-		clearCheckpointStores();
 		const dir = createTrackedTempDir("pi-crew-cp-");
 		try {
 			const s1 = getCheckpointStore(dir);
 			const s2 = getCheckpointStore(dir);
 			assert.strictEqual(s1, s2);
 		} finally {
-			clearCheckpointStores();
 			removeTrackedTempDir(dir);
 		}
 	});
 
 	it("returns different stores for different roots", () => {
-		clearCheckpointStores();
 		const dir1 = createTrackedTempDir("pi-crew-cp-");
 		const dir2 = createTrackedTempDir("pi-crew-cp-");
 		try {
@@ -168,22 +160,27 @@ describe("getCheckpointStore", () => {
 			const s2 = getCheckpointStore(dir2);
 			assert.notStrictEqual(s1, s2);
 		} finally {
-			clearCheckpointStores();
 			removeTrackedTempDir(dir1);
 			removeTrackedTempDir(dir2);
 		}
 	});
 
-	it("clearCheckpointStores resets cache", () => {
-		clearCheckpointStores();
+	// Replaces the old "clearCheckpointStores resets cache" test (helper
+	// removed in R7-3): the store cache is a live LRU — evicting the oldest
+	// entry is the production behavior that keeps it bounded.
+	it("evicts the oldest stateRoot once MAX_STORES is exceeded (LRU)", () => {
 		const dir = createTrackedTempDir("pi-crew-cp-");
 		try {
-			const s1 = getCheckpointStore(dir);
-			clearCheckpointStores();
-			const s2 = getCheckpointStore(dir);
-			assert.notStrictEqual(s1, s2);
+			const first = getCheckpointStore(dir);
+			// MAX_STORES is 100; distinct stateRoots under a tmp dir exercise the
+			// eviction without touching the filesystem (stores are lazy).
+			for (let i = 0; i < 100; i++) {
+				getCheckpointStore(path.join(dir, `srun-${i}`));
+			}
+			// `dir` was the first insertion → evicted by the 100 newer roots
+			const after = getCheckpointStore(dir);
+			assert.notStrictEqual(after, first);
 		} finally {
-			clearCheckpointStores();
 			removeTrackedTempDir(dir);
 		}
 	});

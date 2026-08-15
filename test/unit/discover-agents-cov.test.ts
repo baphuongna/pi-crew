@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import {
 	allAgents,
-	clearSecurityEventLog,
 	getCacheVersion,
 	getSecurityEventLog,
 	invalidateAgentDiscoveryCache,
@@ -25,7 +24,6 @@ function makeDynamicAgent(name: string): AgentConfig {
 
 describe("registerDynamicAgent", () => {
 	it("registers a valid dynamic agent", () => {
-		clearSecurityEventLog();
 		const agent = makeDynamicAgent("my-custom-bot");
 		registerDynamicAgent(agent);
 		const listed = listDynamicAgents();
@@ -37,40 +35,37 @@ describe("registerDynamicAgent", () => {
 	});
 
 	it("throws when registering a protected builtin name", () => {
-		clearSecurityEventLog();
 		assert.throws(() => registerDynamicAgent(makeDynamicAgent("executor")), /protected builtin name/i);
 	});
 
 	it("throws when registering a pattern-matching protected name", () => {
-		clearSecurityEventLog();
 		assert.throws(() => registerDynamicAgent(makeDynamicAgent("executor-v2")), /protected pattern/i);
 	});
 
 	it("throws when registering duplicate agent", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("unique-test-agent"));
 		assert.throws(() => registerDynamicAgent(makeDynamicAgent("unique-test-agent")), /already registered/i);
 		unregisterDynamicAgent("unique-test-agent");
 	});
 
 	it("logs security event on blocked registration", () => {
-		clearSecurityEventLog();
+		// clearSecurityEventLog was removed (R7-13 dead export); isolation via
+		// delta assertion on the shared process-level log instead.
+		const before = getSecurityEventLog().length;
 		try {
 			registerDynamicAgent(makeDynamicAgent("planner"));
 		} catch {
 			/* expected */
 		}
-		const events = getSecurityEventLog();
+		const events = getSecurityEventLog().slice(before);
 		assert.equal(events.length, 1);
 		assert.equal(events[0].type, "AGENT_REGISTRATION_BLOCKED");
 		assert.equal(events[0].name, "planner");
-		clearSecurityEventLog();
 	});
 });
 
 describe("unregisterDynamicAgent", () => {
 	it("removes a registered agent", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("temp-agent"));
 		unregisterDynamicAgent("temp-agent");
 		const listed = listDynamicAgents();
@@ -82,7 +77,6 @@ describe("unregisterDynamicAgent", () => {
 	});
 
 	it("is case-insensitive for lookup", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("CaseAgent"));
 		unregisterDynamicAgent("caseagent");
 		const listed = listDynamicAgents();
@@ -92,7 +86,6 @@ describe("unregisterDynamicAgent", () => {
 
 describe("listDynamicAgents", () => {
 	it("returns empty array after clearing all agents", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("list-test-a"));
 		unregisterDynamicAgent("list-test-a");
 		assert.deepEqual(
@@ -102,7 +95,6 @@ describe("listDynamicAgents", () => {
 	});
 
 	it("returns all registered agents", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("list-test-b"));
 		registerDynamicAgent(makeDynamicAgent("list-test-c"));
 		const listed = listDynamicAgents();
@@ -120,7 +112,6 @@ describe("allAgents", () => {
 	});
 
 	it("merges project, builtin, user agents with user priority", () => {
-		clearSecurityEventLog();
 		const makeAgent = (name: string, source: AgentConfig["source"]): AgentConfig => ({
 			name,
 			description: `${source} ${name}`,
@@ -140,7 +131,6 @@ describe("allAgents", () => {
 	});
 
 	it("excludes disabled agents", () => {
-		clearSecurityEventLog();
 		const makeAgent = (name: string, disabled: boolean): AgentConfig => ({
 			name,
 			description: name,
@@ -161,7 +151,6 @@ describe("allAgents", () => {
 	});
 
 	it("dynamic agents fill gaps but do not override existing", () => {
-		clearSecurityEventLog();
 		registerDynamicAgent(makeDynamicAgent("dynamic-only"));
 		const discovery = { project: [], builtin: [], user: [] };
 		const result = allAgents(discovery);

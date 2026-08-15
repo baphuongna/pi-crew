@@ -89,6 +89,10 @@ export interface ManifestCacheEntry {
 // (e.g., parent + child processes writing to the same run) relies on the
 // mtime/size checks in loadRunManifestById, not on this counter.
 const manifestCacheGeneration = new Map<string, number>();
+// R5-M1 (Round 5 MEDIUM-1): safety-net FIFO cap. stateRoots are few in
+// practice, but nothing else bounded this Map — it leaked ~1 entry per run
+// for the process lifetime (manifestCache itself has TTL + LRU eviction).
+const MANIFEST_CACHE_GENERATION_MAX = 64;
 function genOf(stateRoot: string): number {
 	return manifestCacheGeneration.get(stateRoot) ?? 0;
 }
@@ -153,7 +157,20 @@ function invalidateRunCache(stateRoot: string): void {
 	// F1: only bump the generation of THIS stateRoot — sibling runs keep their
 	// generation intact, so concurrent writes to run A no longer evict run B's
 	// hot cache.
-	manifestCacheGeneration.set(stateRoot, genOf(stateRoot) + 1);
+	// R5-M1: delete-then-set couples this generation entry to the cache entry it
+	// guards (same lifecycle point) and refreshes its insertion order, so the
+	// FIFO safety net below evicts the least-recently-invalidated stateRoot.
+	const nextGen = genOf(stateRoot) + 1;
+	manifestCacheGeneration.delete(stateRoot);
+	manifestCacheGeneration.set(stateRoot, nextGen);
+	while (manifestCacheGeneration.size > MANIFEST_CACHE_GENERATION_MAX) {
+		const oldest = manifestCacheGeneration.keys().next().value;
+		if (oldest === undefined) break;
+		// Dropping a generation entry makes genOf read 0 — also drop that root's
+		// manifest cache entry so a 0-stamped entry can never falsely match.
+		manifestCache.delete(oldest);
+		manifestCacheGeneration.delete(oldest);
+	}
 }
 
 function scopeBaseRoot(cwd: string): string {
@@ -700,6 +717,7 @@ export function __test__manifestCacheSize(): number {
 
 export function __test__clearManifestCache(): void {
 	manifestCache.clear();
+	manifestCacheGeneration.clear();
 }
 
 /**

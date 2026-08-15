@@ -163,14 +163,6 @@ function safeAgentOutputPath(manifest: TeamRunManifest, agent: CrewAgentRecord):
 	}
 }
 
-function outputStamp(manifest: TeamRunManifest, agents: CrewAgentRecord[]): FileStamp {
-	return combineStamps(agents.map((agent) => stampFile(safeAgentOutputPath(manifest, agent))));
-}
-
-async function outputStampAsync(manifest: TeamRunManifest, agents: CrewAgentRecord[]): Promise<FileStamp> {
-	return combineStamps(await Promise.all(agents.map((agent) => stampFileAsync(safeAgentOutputPath(manifest, agent)))));
-}
-
 function sameStamp(a: FileStamp, b: FileStamp): boolean {
 	return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
@@ -742,15 +734,6 @@ function signatureFor(
 		// Circular reference or non-serializable data — fall back to timestamp.
 		return String(Date.now());
 	}
-}
-
-/**
- * 1.6 / 1.7 — compute one short hash per logical slice of the snapshot so
- * dashboard panes / widget can short-circuit when their slice hasn't moved.
- * The slice contents must mirror what `signatureFor` packs into each branch.
- */
-function sliceSignaturesFor(sliceSignatures: SliceSignatures): SliceSignatures {
-	return sliceSignatures;
 }
 
 function stampsFor(manifest: TeamRunManifest, _agents: CrewAgentRecord[]): SnapshotStamps {

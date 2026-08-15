@@ -16,7 +16,6 @@ import {
 	persistSequenceMonotonic,
 	reserveSequence,
 	reserveSequenceUnderLockAsync,
-	seqCounters,
 	sequenceCache,
 } from "./sequence-cache.ts";
 import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
@@ -243,6 +242,10 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 }
 
 // --- Async write queue (non-blocking alternative to withEventLogLockSync) ---
+// R5-L4: safety cap for error-path reset entries (see the appendEventAsync
+// error handler) — a path whose queue is reset after an error and then never
+// re-accessed would otherwise retain its entry until process exit.
+const MAX_ASYNC_QUEUES = 256;
 const asyncQueues = new Map<string, Promise<unknown>>();
 
 // --- Async lock for flush operations (non-blocking alternative to withEventLogLockSync) ---
@@ -397,15 +400,6 @@ async function withEventLogLockAsync<T>(
 			asyncLocks.delete(queueKey);
 		}
 	}
-}
-
-/** Reset event log mode (for testing only). */
-export function resetEventLogMode(): void {
-	asyncQueues.clear();
-	asyncLocks.clear();
-	// B7: clear in-process sequence counters alongside async state so tests
-	// don't leak seq state between runs.
-	seqCounters.clear();
 }
 
 /**
@@ -710,6 +704,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			// FIX: Reset queue to a resolved state instead of deleting it.
 			// This prevents cascading failures where a single transient error
 			// (e.g., ENOSPC) causes all subsequent events on the same path to fail.
+			// R5-L4: cap the retained reset entries — evict oldest (Map insertion
+			// order) so paths that error and are never re-accessed cannot leak.
+			while (asyncQueues.size >= MAX_ASYNC_QUEUES) {
+				const oldestKey = asyncQueues.keys().next().value;
+				if (oldestKey === undefined) break;
+				asyncQueues.delete(oldestKey);
+			}
 			asyncQueues.set(queueKey, Promise.resolve());
 		},
 	);

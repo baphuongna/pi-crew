@@ -262,6 +262,11 @@ const emptyResult = (rootPath: string): WorkspaceTree => ({
  * long active runs while eliminating redundant walks.
  */
 const TREE_CACHE_TTL_MS = 30_000;
+// R5-L3 (Round 5 LOW-3): FIFO cap at insertion (mirrors knowledgeCache in
+// knowledge-injection.ts). Expired entries are only overwritten on re-access,
+// so distinct cwd/option keys would otherwise accumulate for the process
+// lifetime. A miss just re-walks the tree — same as a TTL expiry.
+const TREE_CACHE_MAX_ENTRIES = 64;
 interface CachedTree {
 	tree: WorkspaceTree;
 	expiresAt: number;
@@ -305,6 +310,10 @@ export async function buildWorkspaceTree(cwd: string, options?: WorkspaceTreeOpt
 			tree: result,
 			expiresAt: Date.now() + TREE_CACHE_TTL_MS,
 		});
+		if (treeCache.size > TREE_CACHE_MAX_ENTRIES) {
+			const oldest = treeCache.keys().next().value;
+			if (oldest !== undefined) treeCache.delete(oldest);
+		}
 		return result;
 	} catch {
 		return emptyResult(rootPath);

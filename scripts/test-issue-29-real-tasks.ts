@@ -254,9 +254,7 @@ async function main(): Promise<void> {
 	console.log();
 	console.log("Test 5: saveCheckpoint / loadCheckpoint round-trip");
 	console.log("-".repeat(72));
-	const { saveCheckpoint, loadCheckpoint, listCheckpoints, clearCheckpointStores } = await import(
-		path.join(piCrewRoot, "src/runtime/checkpoint.ts")
-	);
+	const { saveCheckpoint, loadCheckpoint, listCheckpoints } = await import(path.join(piCrewRoot, "src/runtime/recovery/checkpoint.ts"));
 	const ckRunId = `ck_real_${Date.now().toString(36)}`;
 	const ckTaskId = "task-real-1";
 	saveCheckpoint(ckRunId, ckTaskId, 1, "context", "progress", "agent-real", "model-real", tmpDir);
@@ -270,7 +268,6 @@ async function main(): Promise<void> {
 	check(`checkpoint file at .pi/teams/state/runs/${ckRunId}/checkpoints/${ckTaskId}.json`, fs.existsSync(ckPath));
 	const ckList = listCheckpoints(ckRunId, tmpDir);
 	check(`listCheckpoints returns 1 entry`, ckList.length === 1);
-	clearCheckpointStores();
 
 	// ── Test 6: recordSkillActivation / getSkillActivations ─────────────
 	console.log();

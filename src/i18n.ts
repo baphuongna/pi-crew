@@ -122,6 +122,11 @@ const translations: Record<string, Partial<Record<Key, string>>> = {
 let currentLocale: string | undefined;
 const warnedMissing = new Set<string>();
 
+// R5-L5/MISSED-1 (Round 5): warn-once dedupe Set — bounded naturally by the
+// translation-key count, but cap FIFO so a pathological locale/key space
+// cannot grow it unbounded in a long-lived host process.
+const MAX_WARNED_MISSING = 128;
+
 // --- Helpers ---
 
 function format(template: string, params: Params = {}): string {
@@ -132,6 +137,10 @@ function warnOnce(key: string): void {
 	const tag = `${currentLocale}:${key}`;
 	if (warnedMissing.has(tag)) return;
 	warnedMissing.add(tag);
+	if (warnedMissing.size > MAX_WARNED_MISSING) {
+		const oldest = warnedMissing.values().next().value;
+		if (oldest !== undefined) warnedMissing.delete(oldest);
+	}
 	logInternalError("i18n.missing", new Error(`Missing translation`), `key="${key}" locale="${currentLocale}"`);
 }
 

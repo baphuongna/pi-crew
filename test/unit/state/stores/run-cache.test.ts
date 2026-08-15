@@ -3,9 +3,66 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { clearCache, computeRunCacheKey, getCachedRun, getCacheStats, saveRunToCache } from "../../../../src/state/stores/run-cache.ts";
+import { computeRunCacheKey, getCachedRun, getCacheStats } from "../../../../src/state/stores/run-cache.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import { projectCrewRoot } from "../../../../src/utils/paths.ts";
+
+// Note: saveRunToCache/clearCache were removed (Round 7 R7-5: 0 production
+// callers; getCachedRun is the live read-only consumer). Cache state for these
+// tests is built by writing index.json + entry fixtures directly, exactly as
+// a previous saveRunToCache run would have laid them out on disk.
+
+interface FixtureEntry {
+	key: string;
+	runId: string;
+	status?: string;
+	tasks?: TeamTaskState[];
+	goal?: string;
+	team?: string;
+	cachedAt?: number;
+	expiresAt: number;
+}
+
+/**
+ * Write one cache entry fixture (entry JSON + index.json merge) under
+ * <projectCrewRoot(cwd)>/cache — mirroring the on-disk layout produced by
+ * the removed saveRunToCache writer.
+ */
+function writeCacheEntry(cwd: string, entry: FixtureEntry): string {
+	const dir = path.join(projectCrewRoot(cwd), "cache");
+	fs.mkdirSync(dir, { recursive: true });
+	const entryPath = path.join(dir, `${entry.key}.json`);
+	fs.writeFileSync(
+		entryPath,
+		JSON.stringify({
+			key: entry.key,
+			runId: entry.runId,
+			status: entry.status ?? "completed",
+			tasks: entry.tasks ?? [],
+			cachedAt: entry.cachedAt ?? Date.now(),
+			expiresAt: entry.expiresAt,
+			goal: entry.goal ?? "goal",
+			team: entry.team ?? "default",
+		}),
+		"utf-8",
+	);
+	const indexPath = path.join(dir, "index.json");
+	let index: Record<string, string> = {};
+	if (fs.existsSync(indexPath)) {
+		index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as Record<string, string>;
+	}
+	index[entry.key] = entryPath;
+	fs.writeFileSync(indexPath, JSON.stringify(index), "utf-8");
+	return entryPath;
+}
+
+function makeTmp(): string {
+	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-"));
+}
+
+function cleanup(dir: string): void {
+	fs.rmSync(dir, { recursive: true, force: true });
+}
 
 test("computeRunCacheKey: deterministic", () => {
 	const key1 = computeRunCacheKey("fix bug", "default", "default", "/tmp");
@@ -32,158 +89,132 @@ test("computeRunCacheKey: whitespace normalized", () => {
 });
 
 test("getCachedRun: cache miss returns null", () => {
-	const tmp = os.tmpdir();
-	const key = computeRunCacheKey("nonexistent goal", "default", "default", tmp);
-	const result = getCachedRun(tmp, key);
-	assert.equal(result, null);
-});
-
-test("saveRunToCache + getCachedRun: roundtrip", () => {
-	const tmp = os.tmpdir();
-	const goal = "create test file";
-	const team = "default";
-	const workflow = "fast-fix";
-	const key = computeRunCacheKey(goal, team, workflow, tmp);
-
-	const tasks = [
-		{
-			taskId: "01_test",
-			role: "test-engineer",
-			status: "completed",
-		} as unknown as TeamTaskState,
-	];
-
-	saveRunToCache(tmp, key, "run_123", "completed", tasks, goal, team);
-
-	const cached = getCachedRun(tmp, key);
-	assert.ok(cached !== null);
-	assert.equal(cached!.runId, "run_123");
-	assert.equal(cached!.status, "completed");
-	assert.equal(cached!.goal, goal);
-	assert.equal(cached!.team, team);
-	assert.equal(cached!.tasks.length, 1);
-	assert.equal((cached!.tasks[0] as unknown as { taskId?: string }).taskId, "01_test");
-
-	// Cleanup
-	clearCache(tmp);
-});
-
-test("getCachedRun: expired entry returns null", () => {
-	const tmp = os.tmpdir();
-	const goal = "expired test";
-	const key = computeRunCacheKey(goal, "default", "default", tmp);
-
-	// Save with 1ms TTL
-	const tasks = [{ taskId: "01", role: "agent", status: "completed" }] as unknown as TeamTaskState[];
-	saveRunToCache(tmp, key, "run_expired", "completed", tasks, goal, "default", 1);
-
-	// Wait for expiry
-	const start = Date.now();
-	while (Date.now() - start < 10) {
-		/* spin */
+	const tmp = makeTmp();
+	try {
+		const key = computeRunCacheKey("nonexistent goal", "default", "default", tmp);
+		assert.equal(getCachedRun(tmp, key), null);
+	} finally {
+		cleanup(tmp);
 	}
-
-	const cached = getCachedRun(tmp, key);
-	assert.equal(cached, null);
-
-	// Cleanup
-	clearCache(tmp);
 });
 
-test("clearCache: removes all entries", () => {
-	const tmp = os.tmpdir();
+test("getCachedRun: returns entry written by fixture", () => {
+	const tmp = makeTmp();
+	try {
+		const goal = "create test file";
+		const team = "default";
+		const key = computeRunCacheKey(goal, team, "fast-fix", tmp);
 
-	const key1 = computeRunCacheKey("goal1", "default", "default", tmp);
-	const key2 = computeRunCacheKey("goal2", "default", "default", tmp);
+		const tasks = [
+			{
+				taskId: "01_test",
+				role: "test-engineer",
+				status: "completed",
+			} as unknown as TeamTaskState,
+		];
+		writeCacheEntry(tmp, { key, runId: "run_123", status: "completed", tasks, goal, team, expiresAt: Date.now() + 60_000 });
 
-	saveRunToCache(tmp, key1, "run1", "completed", [], "goal1", "default");
-	saveRunToCache(tmp, key2, "run2", "completed", [], "goal2", "default");
+		const cached = getCachedRun(tmp, key);
+		assert.ok(cached !== null);
+		assert.equal(cached!.runId, "run_123");
+		assert.equal(cached!.status, "completed");
+		assert.equal(cached!.goal, goal);
+		assert.equal(cached!.team, team);
+		assert.equal(cached!.tasks.length, 1);
+		assert.equal((cached!.tasks[0] as unknown as { taskId?: string }).taskId, "01_test");
+	} finally {
+		cleanup(tmp);
+	}
+});
 
-	const statsBefore = getCacheStats(tmp);
-	assert.ok(statsBefore.entries >= 2);
+test("getCachedRun: expired entry returns null and is purged (live expiry path)", () => {
+	const tmp = makeTmp();
+	try {
+		const key = computeRunCacheKey("expired test", "default", "default", tmp);
+		const entryPath = writeCacheEntry(tmp, { key, runId: "run_expired", expiresAt: Date.now() - 1 });
 
-	clearCache(tmp);
+		assert.equal(getCachedRun(tmp, key), null);
 
-	const statsAfter = getCacheStats(tmp);
-	assert.equal(statsAfter.entries, 0);
+		// Expiry is destructive: the entry file is removed and the index no
+		// longer maps the key (atomic unlink + index rewrite under lock).
+		assert.ok(!fs.existsSync(entryPath), "expired entry file should be unlinked");
+		const indexPath = path.join(projectCrewRoot(tmp), "cache", "index.json");
+		const index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as Record<string, string>;
+		assert.equal(index[key], undefined);
+	} finally {
+		cleanup(tmp);
+	}
+});
 
-	const cached1 = getCachedRun(tmp, key1);
-	const cached2 = getCachedRun(tmp, key2);
-	assert.equal(cached1, null);
-	assert.equal(cached2, null);
+test("getCachedRun: corrupt index.json returns null instead of throwing", () => {
+	const tmp = makeTmp();
+	try {
+		const key = computeRunCacheKey("corrupt index", "default", "default", tmp);
+		const cacheDir = path.join(projectCrewRoot(tmp), "cache");
+		fs.mkdirSync(cacheDir, { recursive: true });
+		fs.writeFileSync(path.join(cacheDir, "index.json"), "{ not valid json", "utf-8");
+
+		assert.doesNotThrow(() => getCachedRun(tmp, key));
+		assert.equal(getCachedRun(tmp, key), null);
+	} finally {
+		cleanup(tmp);
+	}
+});
+
+test("getCachedRun: corrupt entry file returns null", () => {
+	const tmp = makeTmp();
+	try {
+		const key = computeRunCacheKey("corrupt entry", "default", "default", tmp);
+		const cacheDir = path.join(projectCrewRoot(tmp), "cache");
+		const entryPath = path.join(cacheDir, `${key}.json`);
+		fs.mkdirSync(cacheDir, { recursive: true });
+		fs.writeFileSync(entryPath, "{ not valid json", "utf-8");
+		fs.writeFileSync(path.join(cacheDir, "index.json"), JSON.stringify({ [key]: entryPath }), "utf-8");
+
+		assert.equal(getCachedRun(tmp, key), null);
+	} finally {
+		cleanup(tmp);
+	}
+});
+
+test("getCachedRun: index entry pointing at missing file returns null", () => {
+	const tmp = makeTmp();
+	try {
+		const key = computeRunCacheKey("missing entry file", "default", "default", tmp);
+		const cacheDir = path.join(projectCrewRoot(tmp), "cache");
+		fs.mkdirSync(cacheDir, { recursive: true });
+		const ghost = path.join(cacheDir, "ghost.json");
+		fs.writeFileSync(path.join(cacheDir, "index.json"), JSON.stringify({ [key]: ghost }), "utf-8");
+
+		assert.equal(getCachedRun(tmp, key), null);
+	} finally {
+		cleanup(tmp);
+	}
 });
 
 test("getCacheStats: empty cache returns zeros", () => {
-	const tmp = os.tmpdir();
-	clearCache(tmp);
-	const stats = getCacheStats(tmp);
-	assert.equal(stats.entries, 0);
-	assert.equal(stats.sizeBytes, 0);
+	const tmp = makeTmp();
+	try {
+		const stats = getCacheStats(tmp);
+		assert.equal(stats.entries, 0);
+		assert.equal(stats.sizeBytes, 0);
+	} finally {
+		cleanup(tmp);
+	}
 });
 
 test("getCacheStats: counts entries correctly", () => {
-	const tmp = os.tmpdir();
-	clearCache(tmp);
-
-	for (let i = 0; i < 5; i++) {
-		const key = computeRunCacheKey(`goal ${i}`, "default", "default", tmp);
-		saveRunToCache(tmp, key, `run_${i}`, "completed", [], `goal ${i}`, "default");
-	}
-
-	const stats = getCacheStats(tmp);
-	assert.ok(stats.entries >= 5);
-	assert.ok(stats.sizeBytes > 0);
-
-	clearCache(tmp);
-});
-
-// NEW-P4 (TOCTOU): saveRunToCache now reads index.json via readFileSync + ENOENT
-// catch instead of existsSync+read. These tests pin the three behaviors:
-// 1) missing index.json → falls back to {} without throwing,
-// 2) present index.json → parsed and merged correctly,
-// 3) corrupt-but-present index.json → SyntaxError still propagates (only ENOENT
-//    is swallowed — parse-error semantics unchanged from the existsSync era).
-test("saveRunToCache: missing index.json falls back to empty index without throwing (NEW-P4)", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
+	const tmp = makeTmp();
 	try {
-		const key = computeRunCacheKey("nop4 missing index", "default", "default", cwd);
-		assert.doesNotThrow(() => saveRunToCache(cwd, key, "run_nop4_missing", "completed", [], "nop4 missing index", "default"));
-		const cached = getCachedRun(cwd, key);
-		assert.ok(cached !== null);
-		assert.equal(cached!.runId, "run_nop4_missing");
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+		for (let i = 0; i < 5; i++) {
+			const key = computeRunCacheKey(`goal ${i}`, "default", "default", tmp);
+			writeCacheEntry(tmp, { key, runId: `run_${i}`, goal: `goal ${i}`, expiresAt: Date.now() + 60_000 });
+		}
 
-test("saveRunToCache: present index.json is parsed and merged (NEW-P4)", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
-	try {
-		const key1 = computeRunCacheKey("nop4 index present 1", "default", "default", cwd);
-		const key2 = computeRunCacheKey("nop4 index present 2", "default", "default", cwd);
-		saveRunToCache(cwd, key1, "run_nop4_1", "completed", [], "nop4 index present 1", "default");
-		// index.json exists now; second save must read + merge, not clobber
-		assert.doesNotThrow(() => saveRunToCache(cwd, key2, "run_nop4_2", "completed", [], "nop4 index present 2", "default"));
-		assert.equal(getCachedRun(cwd, key1)?.runId, "run_nop4_1");
-		assert.equal(getCachedRun(cwd, key2)?.runId, "run_nop4_2");
+		const stats = getCacheStats(tmp);
+		assert.equal(stats.entries, 5);
+		assert.ok(stats.sizeBytes > 0);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
-
-test("saveRunToCache: corrupt index.json still throws (NEW-P4 parse-error semantics preserved)", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-nop4-"));
-	try {
-		const key = computeRunCacheKey("nop4 corrupt index", "default", "default", cwd);
-		saveRunToCache(cwd, key, "run_nop4_corrupt", "completed", [], "nop4 corrupt index", "default");
-		// Corrupt the index at the SAME path saveRunToCache uses (cacheDir resolves via
-		// projectCrewRoot, which may diverge from cwd/.crew on symlinked tmpdirs like
-		// macOS /var/folders -> /private/var/folders). A SyntaxError must propagate
-		// (only ENOENT is swallowed).
-		const indexPath = path.join(projectCrewRoot(cwd), "cache", "index.json");
-		fs.writeFileSync(indexPath, "{ not valid json", "utf-8");
-		assert.throws(() => saveRunToCache(cwd, key, "run_nop4_corrupt2", "completed", [], "nop4 corrupt index", "default"));
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(tmp);
 	}
 });

@@ -32,8 +32,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
-import { readEvents, resetEventLogMode } from "../src/state/event-log/event-log.ts";
+import { readEvents } from "../src/state/event-log/event-log.ts";
 import { rotateEventLogUnlocked } from "../src/state/event-log/event-log-rotation.ts";
+import { seqCounters } from "../src/state/event-log/sequence-cache.ts";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-b9-"));
 const WORKER = path.resolve(import.meta.dirname, "b9-worker.ts");
@@ -68,7 +69,7 @@ async function effect1DuplicateSeq(): Promise<{
 }> {
 	const eventsPath = path.join(tmpRoot, "effect1", "events.jsonl");
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
-	resetEventLogMode();
+	seqCounters.clear();
 	const eventsPerChild = 150;
 	const start = performance.now();
 	const [syncChild, asyncChild] = [spawnWorker("sync", eventsPath, eventsPerChild), spawnWorker("async", eventsPath, eventsPerChild)];
@@ -91,7 +92,7 @@ async function effect2RotationStranding(): Promise<{
 }> {
 	const eventsPath = path.join(tmpRoot, "effect2", "events.jsonl");
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
-	resetEventLogMode();
+	seqCounters.clear();
 	const appended = 250;
 	const start = performance.now();
 	const child = spawnWorker("sync", eventsPath, appended);
@@ -171,6 +172,6 @@ async function main(): Promise<void> {
 try {
 	await main();
 } finally {
-	resetEventLogMode();
+	seqCounters.clear();
 	fs.rmSync(tmpRoot, { recursive: true, force: true });
 }

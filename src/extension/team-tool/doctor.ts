@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
+import { allAgents, discoverAgents, getSecurityEventLog } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { type DriftReport, detectDrift, formatDriftReport } from "../../config/drift-detector.ts";
@@ -43,6 +43,10 @@ function firstOutputLine(stdout: string | null | undefined, stderr: string | nul
 // file with 12 tests would take 20s+ even with empty cwd. The cache is
 // safe: a doctor check is informational, and a stale ok=true would
 // self-correct on the next process restart.
+// MISSED-2 (R5): FIFO cap so the memo cannot grow unbounded. Naturally
+// bounded by ~10-20 probed commands; the cap is a safety net (Map preserves
+// insertion order).
+const MAX_COMMAND_EXISTS_CACHE = 128;
 const commandExistsCache = new Map<string, { ok: boolean; detail: string }>();
 function commandExists(command: string, args: string[]): { ok: boolean; detail: string } {
 	const cacheKey = `${command} ${args.join(" ")}`;
@@ -74,6 +78,11 @@ function commandExists(command: string, args: string[]): { ok: boolean; detail: 
 		};
 	}
 	commandExistsCache.set(cacheKey, result);
+	// MISSED-2 (R5): FIFO eviction — drop the oldest entry past the cap.
+	if (commandExistsCache.size > MAX_COMMAND_EXISTS_CACHE) {
+		const oldest = commandExistsCache.keys().next().value;
+		if (oldest !== undefined) commandExistsCache.delete(oldest);
+	}
 	return result;
 }
 
@@ -393,6 +402,25 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 			return checks;
 		}),
 	];
+	// R7-13: surface security telemetry. The event log was previously
+	// write-only (0 production readers); doctor now reports a compact summary
+	// — total events plus the latest event's time and scope. Emitted only
+	// when events exist (cheap single line, no per-event dump). A non-empty
+	// log is informational, not a failure: blocked registrations mean the
+	// SEC-001 protection fired.
+	const securityEvents = getSecurityEventLog();
+	const lastSecurityEvent = securityEvents.at(-1);
+	if (lastSecurityEvent) {
+		sections.push(
+			section("Security", () => [
+				{
+					label: "security events",
+					ok: true,
+					detail: `${securityEvents.length} logged; last ${lastSecurityEvent.type} agent="${lastSecurityEvent.name}" at ${new Date(lastSecurityEvent.timestamp).toISOString()}`,
+				},
+			]),
+		);
+	}
 	if (input.smokeChildPi) {
 		sections.push([`Child check`, `- ${input.smokeChildPi.ok ? "OK" : "FAIL"} child Pi smoke: ${input.smokeChildPi.detail}`]);
 	}

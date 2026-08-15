@@ -288,7 +288,13 @@ export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
 			seen.add(r.id);
 			return true;
 		});
-		if (deduped.length !== records.length) {
+		// R10-7: write back only when the corrected list actually differs from
+		// the current content. A filter() only removes entries, so element
+		// identity + length is an exact (and cheap) change check — deep-equal is
+		// unnecessary, and this eliminates the redundant durable write + lock
+		// churn on unchanged reads.
+		const changed = deduped.length !== records.length || records.some((record, index) => record !== deduped[index]);
+		if (changed) {
 			// Schema mismatch or duplicates detected — save corrected state
 			saveCrewAgents(manifest, deduped);
 		}
@@ -316,7 +322,10 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 				seen.add(r.id);
 				return true;
 			});
-			if (deduped.length !== raw.length) {
+			// R10-7: write back only on actual change (element identity + length —
+			// see the sync readCrewAgents path for the reasoning).
+			const changed = deduped.length !== raw.length || raw.some((record, index) => record !== deduped[index]);
+			if (changed) {
 				try {
 					saveCrewAgents(manifest, deduped);
 				} catch {

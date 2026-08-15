@@ -26,6 +26,21 @@ function isFinished(status: string): boolean {
 	return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
 }
 
+// R5-M2 (Round 5 MEDIUM-2): FIFO cap for the dedupe Set. Set preserves
+// insertion order, so evicting .values().next().value drops the oldest-seen
+// runId. 256 >> the ~20 runs polled per tick; eviction only matters for a
+// long-lived host session that observes thousands of finished runs.
+const MAX_SEEN_FINISHED_RUN_IDS = 256;
+
+function addSeenFinishedRunId(state: AsyncNotifierState, runId: string): void {
+	state.seenFinishedRunIds.add(runId);
+	while (state.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
+		const oldest = state.seenFinishedRunIds.values().next().value;
+		if (oldest === undefined) break;
+		state.seenFinishedRunIds.delete(oldest);
+	}
+}
+
 export function isAsyncTerminalEvent(event: TeamEvent): boolean {
 	return event.type === "async.completed" || event.type === "async.failed" || event.type === "async.died";
 }
@@ -129,11 +144,15 @@ export function startAsyncRunNotifier(
 	const sid = extractSessionId(ctx);
 	const ownsRun = (run: TeamRunManifest): boolean => !sid || !run.ownerSessionId || run.ownerSessionId === sid;
 	for (const run of listRuns(ctx.cwd).filter(ownsRun)) {
+		// R5-M2: the seed scans the FULL listRuns() index (newest-first); stop
+		// seeding once the Set is at capacity so a huge historical index cannot
+		// push the newest finished runIds out via FIFO eviction.
+		if (state.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
 		// Suppress only terminal runs that were already finished before this owner
 		// session (or before the previous session switch). Active runs must remain
 		// un-seen so completions during auto-compaction/session restart are delivered.
 		const updatedAtMs = timeMs(run.updatedAt) ?? 0;
-		if (isFinished(run.status) && updatedAtMs < staleBeforeMs) state.seenFinishedRunIds.add(run.runId);
+		if (isFinished(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state, run.runId);
 	}
 	let cachedRuns: TeamRunManifest[] | undefined;
 	state.interval = setInterval(() => {
@@ -147,7 +166,7 @@ export function startAsyncRunNotifier(
 			for (const run of cachedRuns) {
 				const current = markDeadAsyncRunIfNeeded(run) ?? run;
 				if (!isFinished(current.status) || state.seenFinishedRunIds.has(current.runId)) continue;
-				state.seenFinishedRunIds.add(current.runId);
+				addSeenFinishedRunId(state, current.runId);
 				// Suppress notifications for INTERNAL goal-loop sub-runs.
 				// The outer goal-loop creates a synthetic 'goal-turn' workflow per turn
 				// (see buildTurnWorkflow in goal-loop-runner.ts). These runs are
@@ -182,6 +201,10 @@ export function startAsyncRunNotifier(
 export function stopAsyncRunNotifier(state: AsyncNotifierState): void {
 	if (state.interval) clearInterval(state.interval);
 	state.interval = undefined;
+	// R5-M2: clear the dedupe Set on stop so entries do not persist across
+	// stop/start cycles; startAsyncRunNotifier re-seeds from listRuns() using
+	// lastStoppedAtMs, so runs finished before the stop stay suppressed.
+	state.seenFinishedRunIds.clear();
 	state.generation = (state.generation ?? 0) + 1;
 	state.lastStoppedAtMs = Date.now();
 }

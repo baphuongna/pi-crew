@@ -54,24 +54,30 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 	try {
 		const projectBin = path.resolve("node_modules", ".bin");
 		allowedPrefixes.push(projectBin.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.project-bin", error, undefined, "debug");
 	}
 
 	// User home npm-global
 	try {
 		const homeNpm = path.join(os.homedir(), ".npm-global", "bin");
 		allowedPrefixes.push(homeNpm.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.npm-global", error, undefined, "debug");
 	}
 
 	// User home .local/bin
 	try {
 		const homeLocal = path.join(os.homedir(), ".local", "bin");
 		allowedPrefixes.push(homeLocal.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, undefined, "debug");
 	}
 
 	return allowedPrefixes.some((prefix) => normalized.startsWith(prefix));
@@ -86,12 +92,20 @@ function resolvePiPackageRoot(): string | undefined {
 			try {
 				const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8")) as { name?: string };
 				if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return dir;
-			} catch {
+			} catch (error) {
+				// R17-B3: the upward walk EXPECTS ENOENT probes (most dirs have no
+				// readable package.json) — debug-gated so the walk stays silent
+				// unless PI_TEAMS_DEBUG is set, but EACCES-style causes are visible.
+				logInternalError("pi-spawn.resolve-pi-package-root.probe", error, `dir=${dir}`, "debug");
 				// Continue walking upward.
 			}
 			dir = path.dirname(dir);
 		}
-	} catch {
+	} catch (error) {
+		// R17-B3: realpath failure on argv[1] is unexpected (not the normal
+		// missing-entry case, which is handled by the !entry guard above) —
+		// debug-gated visibility for the "cannot find pi" diagnosis.
+		logInternalError("pi-spawn.resolve-pi-package-root", error, `argv1=${process.argv[1] ?? ""}`, "debug");
 		return undefined;
 	}
 	return undefined;
@@ -123,7 +137,10 @@ function findPiPackageJsonFrom(startDir: string): string | undefined {
 				name?: string;
 			};
 			if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return direct;
-		} catch {
+		} catch (error) {
+			// R17-B3: same EXPECTED-ENOENT upward-walk probe as
+			// resolvePiPackageRoot — debug-gated, keeps walking either way.
+			logInternalError("pi-spawn.find-pi-package-json.probe", error, `dir=${dir}`, "debug");
 			// Continue searching upward and in node_modules.
 		}
 		for (const pkgName of PI_PACKAGE_NAMES) {

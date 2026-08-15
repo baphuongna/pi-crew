@@ -44,6 +44,12 @@ export interface DiscoveredProviderExtension {
  */
 const cache = new Map<string, { mtimeMs: number; result: DiscoveredProviderExtension[] }>();
 
+// R5-L3 (Round 5 LOW-3): FIFO cap at insertion (mirrors knowledgeCache in
+// knowledge-injection.ts). Entries are only removed when a re-access sees a
+// changed mtime, so distinct settings paths (e.g. per-test temp roots) would
+// otherwise accumulate for the process lifetime.
+const MAX_PROVIDER_EXTENSION_CACHE = 64;
+
 function cachedResult(settingsPath: string): { mtimeMs: number; result: DiscoveredProviderExtension[] } | undefined {
 	const entry = cache.get(settingsPath);
 	if (!entry) return undefined;
@@ -157,6 +163,10 @@ export function discoverProviderExtensions(settingsPath?: string): DiscoveredPro
 	// Cache the resolved result keyed on the settings.json path + mtime.
 	try {
 		cache.set(settingsFile, { mtimeMs: fs.statSync(settingsFile).mtimeMs, result: out });
+		if (cache.size > MAX_PROVIDER_EXTENSION_CACHE) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) cache.delete(oldest);
+		}
 	} catch {
 		cache.delete(settingsFile);
 	}
