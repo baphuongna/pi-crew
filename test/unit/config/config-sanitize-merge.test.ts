@@ -115,6 +115,7 @@ test("sanitizeProjectConfig: drops every key in the drop-list and warns per path
 			injectPolicy: true,
 			preferAsyncForLongTasks: true,
 			allowWorktreeSuggestion: true,
+			magicKeywords: { research: ["deep"] },
 		},
 		worktree: { setupHook: "npm install" },
 		otlp: { headers: { authorization: "Bearer super-secret" }, endpoint: "https://otel.internal" },
@@ -143,6 +144,7 @@ test("sanitizeProjectConfig: drops every key in the drop-list and warns per path
 	assert.equal(sanitized.autonomous?.injectPolicy, undefined, "autonomous.injectPolicy must be dropped");
 	assert.equal(sanitized.autonomous?.preferAsyncForLongTasks, undefined, "autonomous.preferAsyncForLongTasks must be dropped");
 	assert.equal(sanitized.autonomous?.allowWorktreeSuggestion, undefined, "autonomous.allowWorktreeSuggestion must be dropped");
+	assert.equal(sanitized.autonomous?.magicKeywords, undefined, "autonomous.magicKeywords must be dropped (S19-5, Wave 1A)");
 
 	// Nested sensitive keys.
 	assert.equal(sanitized.worktree?.setupHook, undefined, "worktree.setupHook must be dropped");
@@ -169,6 +171,7 @@ test("sanitizeProjectConfig: drops every key in the drop-list and warns per path
 		"autonomous.injectPolicy",
 		"autonomous.preferAsyncForLongTasks",
 		"autonomous.allowWorktreeSuggestion",
+		"autonomous.magicKeywords",
 		"worktree.setupHook",
 		"otlp.headers",
 		"otlp.endpoint",
@@ -185,7 +188,8 @@ test("sanitizeProjectConfig: drops every key in the drop-list and warns per path
 });
 
 test("sanitizeProjectConfig: requiresPlanApproval dropped only when === false", () => {
-	// requirePlanApproval: false → conditional drop.
+	// requirePlanApproval: false → conditional drop (Wave 1A: folded into
+	// CONDITIONAL_PROJECT_DROPS in sanitize-project-config.ts).
 	const withFalse = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
 		runtime: { requirePlanApproval: false },
 	} as PiTeamsConfig);
@@ -207,7 +211,7 @@ test("sanitizeProjectConfig: non-sensitive keys pass through unchanged", () => {
 		notifierIntervalMs: 30_000,
 		limits: { maxConcurrentWorkers: 4, maxTaskDepth: 5 },
 		runtime: { maxTurns: 50, taskTimeoutMs: 300_000 },
-		autonomous: { magicKeywords: { research: ["deep"] } },
+		autonomous: { magicKeywords: { research: ["deep"] } }, // S19-5 (Wave 1A): now dropped
 		worktree: { linkNodeModules: true, setupHookTimeoutMs: 120_000 },
 		otlp: { enabled: true, intervalMs: 60_000 },
 		agents: {},
@@ -215,13 +219,19 @@ test("sanitizeProjectConfig: non-sensitive keys pass through unchanged", () => {
 		ui: { widgetPlacement: "aboveEditor" },
 	} as PiTeamsConfig;
 
-	const { config: sanitized } = __test__sanitizeProjectConfig(PROJECT_PATH, {}, projectConfig);
+	const { config: sanitized, warnings } = __test__sanitizeProjectConfig(PROJECT_PATH, {}, projectConfig);
 
 	assert.equal(sanitized.notifierIntervalMs, 30_000);
 	assert.deepEqual(sanitized.limits, { maxConcurrentWorkers: 4, maxTaskDepth: 5 });
 	assert.equal(sanitized.runtime?.maxTurns, 50, "runtime.maxTurns is not on the drop-list");
 	assert.equal(sanitized.runtime?.taskTimeoutMs, 300_000, "runtime.taskTimeoutMs is not on the drop-list");
-	assert.deepEqual(sanitized.autonomous?.magicKeywords, { research: ["deep"] }, "magicKeywords is not dropped");
+	// Wave 1A (S19-5): magicKeywords flips autonomous mode on by itself — now
+	// project-tier dropped; every autonomous key is sensitive, so the section collapses.
+	assert.equal(sanitized.autonomous, undefined, "autonomous with only magicKeywords collapses");
+	assert.ok(
+		warnings.some((w) => w.includes("'autonomous.magicKeywords'") && w.includes(PROJECT_PATH)),
+		"magicKeywords drop warns with the standard format",
+	);
 	assert.equal(sanitized.worktree?.linkNodeModules, true, "worktree.linkNodeModules is not dropped");
 	assert.equal(sanitized.worktree?.setupHookTimeoutMs, 120_000, "worktree.setupHookTimeoutMs is not dropped");
 	assert.equal(sanitized.otlp?.enabled, true, "otlp.enabled is not dropped");
@@ -243,7 +253,8 @@ test("sanitizeProjectConfig: section with only dropped keys collapses to undefin
 		otlp: { headers: { authorization: "x" } },
 		agents: { overrides: { researcher: { model: "x" } } },
 		tools: { enableSteer: true },
-	} as PiTeamsConfig);
+		goalWrap: { implementation: { enabled: true, budgetUnlimited: true } },
+	} as unknown as PiTeamsConfig);
 
 	assert.equal(sanitized.runtime, undefined, "runtime with only dropped keys collapses");
 	assert.equal(sanitized.autonomous, undefined, "autonomous with only dropped keys collapses");
@@ -251,6 +262,7 @@ test("sanitizeProjectConfig: section with only dropped keys collapses to undefin
 	assert.equal(sanitized.otlp, undefined, "otlp with only dropped keys collapses");
 	assert.equal(sanitized.agents, undefined, "agents with only dropped keys collapses");
 	assert.equal(sanitized.tools, undefined, "tools with only dropped keys collapses");
+	assert.equal((sanitized as Record<string, unknown>).goalWrap, undefined, "goalWrap subtree collapses (S19-2, Wave 1A)");
 });
 
 test("sanitizeProjectConfig: section keeps surviving keys after partial drop", () => {
@@ -262,7 +274,9 @@ test("sanitizeProjectConfig: section keeps surviving keys after partial drop", (
 	} as PiTeamsConfig);
 
 	assert.deepEqual(sanitized.runtime, { maxTurns: 50, taskTimeoutMs: 300_000 }, "non-sensitive runtime keys survive");
-	assert.deepEqual(sanitized.autonomous, { magicKeywords: { research: ["deep"] } }, "non-sensitive autonomous keys survive");
+	// Wave 1A (S19-5): magicKeywords is now sensitive too — every autonomous
+	// key drops, so the section collapses instead of keeping survivors.
+	assert.equal(sanitized.autonomous, undefined, "autonomous fully dropped (magicKeywords now sensitive)");
 	// NOTE: worktree/otlp are redacted via `{ ...section, key: undefined }`
 	// (not `delete`), so the dropped key remains present as `undefined` —
 	// characterize that shape as-is so the Phase 2.2 split preserves it.

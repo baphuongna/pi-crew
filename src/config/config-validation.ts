@@ -527,7 +527,11 @@ function parseNotificationsConfig(value: unknown): CrewNotificationsConfig | und
 			Type.Array(Type.Union([Type.Literal("info"), Type.Literal("warning"), Type.Literal("error"), Type.Literal("critical")])),
 			obj.severityFilter,
 		),
-		dedupWindowMs: parsePositiveInteger(obj.dedupWindowMs, 24 * 60 * 60 * 1000),
+		// F19-5 (Wave 1A): minimum 1000 aligns with PiTeamsNotificationsConfigSchema
+		// (config-schema.ts:208); values <1000 now parse to undefined like other
+		// bound violations (schema has no upper bound, so the old parser-only 24h
+		// ceiling is gone — schema wins).
+		dedupWindowMs: parseWithSchema(Type.Integer({ minimum: 1000 }), obj.dedupWindowMs),
 		batchWindowMs: parseWithSchema(Type.Integer({ minimum: 0, maximum: 60_000 }), obj.batchWindowMs),
 		quietHours: parseWithSchema(Type.String({ pattern: "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$" }), obj.quietHours),
 		sinkRetentionDays: parsePositiveInteger(obj.sinkRetentionDays, 90),
@@ -541,7 +545,9 @@ function parseObservabilityConfig(value: unknown): CrewObservabilityConfig | und
 	const observability: CrewObservabilityConfig = {
 		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
 		pollIntervalMs: parseWithSchema(Type.Integer({ minimum: 1000, maximum: 60_000 }), obj.pollIntervalMs),
-		metricRetentionDays: parsePositiveInteger(obj.metricRetentionDays, 365),
+		// F19-5 (Wave 1A): 365 -> 90 aligns the parser ceiling with
+		// PiTeamsObservabilityConfigSchema max 90 (config-schema.ts:220).
+		metricRetentionDays: parsePositiveInteger(obj.metricRetentionDays, 90),
 	};
 	return Object.values(observability).some((entry) => entry !== undefined) ? observability : undefined;
 }
@@ -609,7 +615,9 @@ function parseOtlpConfig(value: unknown): CrewOtlpConfig | undefined {
 		}
 	const otlp: CrewOtlpConfig = {
 		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
-		endpoint: parseWithSchema(Type.String({ minLength: 1 }), obj.endpoint),
+		// F19-5 (Wave 1A): ^https?:// pattern matches PiTeamsOtlpConfigSchema
+		// (config-schema.ts:258-265); non-http(s) endpoints parse to undefined.
+		endpoint: parseWithSchema(Type.String({ minLength: 1, pattern: "^https?://" }), obj.endpoint),
 		headers: Object.keys(headers).length > 0 ? headers : undefined,
 		intervalMs: parseWithSchema(Type.Integer({ minimum: 5000 }), obj.intervalMs),
 	};

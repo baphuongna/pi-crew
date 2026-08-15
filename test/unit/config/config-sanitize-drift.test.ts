@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
-import { __test__sanitizeProjectConfig } from "../../../src/config/config.ts";
+import { __test__sanitizeProjectConfig, parseConfig } from "../../../src/config/config.ts";
+import { CONDITIONAL_PROJECT_DROPS } from "../../../src/config/sanitize-project-config.ts";
 import type { PiTeamsConfig } from "../../../src/config/types.ts";
 import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
@@ -17,7 +18,15 @@ import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-confi
  *   (ii)  every OLD hardcoded path is actually marked `sensitive: true`
  *   (iii) schema-derived drop-list is a SUPERSET of the old hardcoded list
  *   (iv)  every sensitive mark maps to an existing schema key (no orphans)
- * plus the runtime.requirePlanApproval conditional known-exception.
+ * plus Wave 1A extensions:
+ *   (v)   CONDITIONAL_PROJECT_DROPS — loosening values dropped, tightening
+ *         values survive (guard-tiering: project may only tighten)
+ *   (vi)  goalWrap subtree fully dropped from project tier
+ *   (vii) autonomous.magicKeywords dropped from project tier
+ *   (viii) broker.enabled === false dropped / === true + other broker fields
+ *         survive (availability-only tiering)
+ *   (ix)  F19-5 parser bounds match the schema (metricRetentionDays max 90,
+ *         dedupWindowMs min 1000, otlp.endpoint ^https?:// pattern)
  */
 
 const PROJECT_PATH = "/tmp/pi-crew-test/drift-gate.json";
@@ -49,7 +58,8 @@ const OLD_HARDCODED_DROP_LIST = [
 	"tools.terminateOnForeground",
 ] as const;
 
-/** The exact inventory intended by ADR 2026-08-15 (old 21 + S-R5 policy.* + S-R6 seedPaths).
+/** The exact inventory intended by ADR 2026-08-15 (old 21 + S-R5 policy.* +
+ * S-R6 seedPaths + Wave 1A goalWrap/magicKeywords = 26 paths).
  * Order follows schema property declaration order. */
 const EXPECTED_SENSITIVE_PATHS = [
 	"asyncByDefault",
@@ -60,6 +70,7 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"autonomous.injectPolicy",
 	"autonomous.preferAsyncForLongTasks",
 	"autonomous.allowWorktreeSuggestion",
+	"autonomous.magicKeywords",
 	"runtime.mode",
 	"runtime.preferLiveSession",
 	"runtime.allowChildProcessFallback",
@@ -68,6 +79,7 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"runtime.isolationPolicy",
 	"worktree.setupHook",
 	"worktree.seedPaths",
+	"goalWrap",
 	"agents.disableBuiltins",
 	"agents.overrides",
 	"tools.enableSteer",
@@ -76,6 +88,19 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"policy.disabledCapabilities",
 	"otlp.endpoint",
 	"otlp.headers",
+] as const;
+
+/** Wave 1A guard-tiering conditional inventory (frozen fixture — mirrors
+ * CONDITIONAL_PROJECT_DROPS in src/config/sanitize-project-config.ts). The
+ * legacy requirePlanApproval special-case is entry #1 of this table. */
+const EXPECTED_CONDITIONAL_DROPS = [
+	"runtime.requirePlanApproval",
+	"runtime.completionMutationGuard",
+	"runtime.effectivenessGuard",
+	"limits.allowUnboundedConcurrency",
+	"reliability.autoRecover",
+	"reliability.scopeModels",
+	"broker.enabled",
 ] as const;
 
 type SchemaLike = { sensitive?: unknown; properties?: Record<string, SchemaLike>; anyOf?: SchemaLike[] };
@@ -232,18 +257,174 @@ test("drift gate (iv): every sensitive mark maps to an existing schema key path 
 	assert.deepEqual(orphans, [], `sensitive marks that do not resolve to a schema key: ${orphans.join(", ")}`);
 });
 
-test("drift gate: known exception — runtime.requirePlanApproval drops only when === false", () => {
-	const withFalse = __test__sanitizeProjectConfig(PROJECT_PATH, {}, { runtime: { requirePlanApproval: false } } as PiTeamsConfig);
-	assert.equal(withFalse.config.runtime?.requirePlanApproval, undefined, "=== false must be dropped");
+test("drift gate (v): conditional drop table inventory pinned", () => {
+	assert.deepEqual(Object.keys(CONDITIONAL_PROJECT_DROPS), [...EXPECTED_CONDITIONAL_DROPS]);
+	// limits.maxConcurrentWorkers deliberately has NO conditional entry: the
+	// schema bounds it (Integer minimum 1 + reader ceilings) and a project can
+	// only lower it (tighten) — see the ADR Wave 1A section.
 	assert.ok(
-		withFalse.warnings.some((w) => w.includes("runtime.requirePlanApproval")),
-		"=== false drop warns",
+		!("limits.maxConcurrentWorkers" in CONDITIONAL_PROJECT_DROPS),
+		"maxConcurrentWorkers must not be conditionally dropped (tighten-only by bounds)",
+	);
+	// Every conditional path resolves to a real schema property (no orphans).
+	const root = PiTeamsConfigSchema as unknown as SchemaLike;
+	const orphans = EXPECTED_CONDITIONAL_DROPS.filter((dotted) => resolveSchemaProperty(root, dotted) === undefined);
+	assert.deepEqual(orphans, [], `conditional paths that do not resolve to a schema key: ${orphans.join(", ")}`);
+});
+
+test("drift gate (v): loosening values dropped with warning, tightening values survive", () => {
+	// [dotted, loosening value, tightening value] per CONDITIONAL_PROJECT_DROPS entry.
+	// The project tier may only TIGHTEN these guards — never loosen them.
+	const cases: ReadonlyArray<[string, unknown, unknown]> = [
+		["runtime.requirePlanApproval", false, true],
+		["runtime.completionMutationGuard", "off", "warn"],
+		["runtime.completionMutationGuard", "off", "fail"],
+		["runtime.effectivenessGuard", "off", "warn"],
+		["runtime.effectivenessGuard", "off", "block"],
+		["runtime.effectivenessGuard", "off", "fail"],
+		["limits.allowUnboundedConcurrency", true, false],
+		["reliability.autoRecover", false, true],
+		["reliability.scopeModels", false, true],
+		["broker.enabled", false, true],
+	];
+	for (const [dotted, loosening, tightening] of cases) {
+		const loosened = __test__sanitizeProjectConfig(PROJECT_PATH, {}, setPath({}, dotted, loosening) as PiTeamsConfig);
+		assert.equal(
+			getAtPath(loosened.config as unknown as Record<string, unknown>, dotted),
+			undefined,
+			`loosening value ${JSON.stringify(loosening)} for '${dotted}' must be dropped`,
+		);
+		assert.ok(
+			loosened.warnings.some((w) => w.includes(`'${dotted}'`) && w.includes(PROJECT_PATH)),
+			`expected a warning for '${dotted}' mentioning the project path`,
+		);
+
+		const tightened = __test__sanitizeProjectConfig(PROJECT_PATH, {}, setPath({}, dotted, tightening) as PiTeamsConfig);
+		assert.equal(
+			getAtPath(tightened.config as unknown as Record<string, unknown>, dotted),
+			tightening,
+			`tightening value ${JSON.stringify(tightening)} for '${dotted}' must survive`,
+		);
+		assert.equal(tightened.warnings.length, 0, `no warning when '${dotted}' only tightens`);
+	}
+});
+
+test("drift gate (v): conditional drop sections collapse when fully emptied, other keys survive", () => {
+	// limits: only the loosening key -> section collapses to undefined.
+	const collapsed = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
+		limits: { allowUnboundedConcurrency: true },
+	} as PiTeamsConfig);
+	assert.equal(collapsed.config.limits, undefined, "limits with only a dropped key collapses");
+
+	// Sibling keys survive; the section itself stays an object.
+	const partial = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
+		limits: { allowUnboundedConcurrency: true, maxConcurrentWorkers: 4 },
+		reliability: { autoRecover: false, scopeModels: false, autoRetry: true },
+		runtime: { completionMutationGuard: "off", effectivenessGuard: "off", requirePlanApproval: false, maxTurns: 50 },
+	} as PiTeamsConfig);
+	assert.deepEqual(partial.config.limits, { maxConcurrentWorkers: 4 }, "maxConcurrentWorkers always survives");
+	assert.deepEqual(partial.config.reliability, { autoRetry: true }, "surviving reliability keys kept");
+	assert.deepEqual(partial.config.runtime, { maxTurns: 50 }, "runtime keeps non-conditional keys");
+	for (const dotted of [
+		"limits.allowUnboundedConcurrency",
+		"reliability.autoRecover",
+		"reliability.scopeModels",
+		"runtime.completionMutationGuard",
+		"runtime.effectivenessGuard",
+		"runtime.requirePlanApproval",
+	]) {
+		assert.ok(
+			partial.warnings.some((w) => w.includes(`'${dotted}'`)),
+			`warning for '${dotted}'`,
+		);
+	}
+});
+
+test("drift gate (v): input config is not mutated by conditional drops", () => {
+	const input = { limits: { allowUnboundedConcurrency: true }, broker: { enabled: false } } as PiTeamsConfig;
+	__test__sanitizeProjectConfig(PROJECT_PATH, {}, input);
+	assert.equal(input.limits?.allowUnboundedConcurrency, true, "input limits must not be mutated");
+	assert.equal(input.broker?.enabled, false, "input broker must not be mutated");
+});
+
+test("drift gate (vi): goalWrap subtree fully dropped from project config", () => {
+	const { config: sanitized, warnings } = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
+		goalWrap: {
+			implementation: {
+				enabled: true,
+				budgetUnlimited: true,
+				evaluatorModel: "claude-opus-4",
+				verification: { commands: ["npm test"], mode: "text-only" },
+			},
+		},
+	} as unknown as PiTeamsConfig);
+	assert.equal((sanitized as Record<string, unknown>).goalWrap, undefined, "whole goalWrap subtree drops (top-level key)");
+	assert.ok(
+		warnings.some((w) => w.includes("'goalWrap'") && w.includes(PROJECT_PATH)),
+		"goalWrap drop warns with the standard format",
+	);
+});
+
+test("drift gate (vii): autonomous.magicKeywords dropped from project config", () => {
+	const { config: sanitized, warnings } = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
+		autonomous: { magicKeywords: { research: ["deep"] } },
+	} as PiTeamsConfig);
+	assert.equal(sanitized.autonomous, undefined, "autonomous with only magicKeywords collapses");
+	assert.ok(
+		warnings.some((w) => w.includes("'autonomous.magicKeywords'") && w.includes(PROJECT_PATH)),
+		"magicKeywords drop warns with the standard format",
+	);
+});
+
+test("drift gate (viii): broker.enabled === false dropped; === true and other broker fields survive", () => {
+	const disabled = __test__sanitizeProjectConfig(PROJECT_PATH, {}, {
+		broker: { enabled: false, pathHashLen: 8 },
+	} as PiTeamsConfig);
+	assert.equal(disabled.config.broker?.enabled, undefined, "broker.enabled === false must be dropped");
+	assert.equal(disabled.config.broker?.pathHashLen, 8, "non-availability broker fields survive");
+	assert.ok(
+		disabled.warnings.some((w) => w.includes("'broker.enabled'")),
+		"broker.enabled drop warns",
 	);
 
-	const withTrue = __test__sanitizeProjectConfig(PROJECT_PATH, {}, { runtime: { requirePlanApproval: true } } as PiTeamsConfig);
-	assert.equal(withTrue.config.runtime?.requirePlanApproval, true, "=== true must be preserved");
+	const enabled = __test__sanitizeProjectConfig(PROJECT_PATH, {}, { broker: { enabled: true } } as PiTeamsConfig);
+	assert.equal(enabled.config.broker?.enabled, true, "project may ENABLE the broker (=== true survives)");
+	assert.equal(enabled.warnings.length, 0, "no warning when the project only enables the broker");
 
-	const withUnset = __test__sanitizeProjectConfig(PROJECT_PATH, {}, { runtime: { maxTurns: 10 } } as PiTeamsConfig);
-	assert.equal(withUnset.config.runtime?.requirePlanApproval, undefined, "unset stays unset");
-	assert.equal(withUnset.warnings.length, 0, "no warning when requirePlanApproval is not explicitly false");
+	const bareDisabled = __test__sanitizeProjectConfig(PROJECT_PATH, {}, { broker: { enabled: false } } as PiTeamsConfig);
+	assert.equal(bareDisabled.config.broker, undefined, "broker with only the dropped key collapses");
 });
+
+test("drift gate (ix): F19-5 parser bounds match the schema (no parser/schema bound drift)", () => {
+	// The schema is the source of truth (ADR Wave 1A remediation). Violations parse
+	// to undefined via parseWithSchema. Asserted through parseConfig — the full bound
+	// matrix lives in config-validation-bounds.test.ts; this pins the alignment
+	// inside the drift gate itself.
+	// observability.metricRetentionDays: schema max 90. Absent is NOT defaulted by
+	// the parser (undefined); the effective runtime default is 7 days, applied at
+	// registration (extension/registration/observability.ts `?? 7`).
+	const retention = (metricRetentionDays: unknown): number | undefined =>
+		parseConfig({ observability: { enabled: true, metricRetentionDays } }).observability?.metricRetentionDays;
+	assert.equal(retention(undefined), undefined);
+	assert.equal(retention(90), 90);
+	assert.equal(retention(365), undefined);
+
+	// notifications.dedupWindowMs: schema minimum 1000 (the old parser-only 24h
+	// ceiling is gone — the schema has no maximum).
+	const dedup = (dedupWindowMs: unknown): number | undefined =>
+		parseConfig({ notifications: { enabled: true, dedupWindowMs } }).notifications?.dedupWindowMs;
+	assert.equal(dedup(999), undefined);
+	assert.equal(dedup(1000), 1000);
+
+	// otlp.endpoint: schema pattern ^https?:// (config-schema.ts).
+	const endpoint = (value: unknown): string | undefined =>
+		parseConfig({ otlp: { enabled: true, endpoint: value } }).otlp?.endpoint;
+	assert.equal(endpoint("unix:///tmp/x"), undefined);
+	assert.equal(endpoint("https://collector.local:4318"), "https://collector.local:4318");
+});
+
+/** Build a nested object from a dotted path (test-local helper). */
+function setPath(target: Record<string, unknown>, dotted: string, value: unknown): Record<string, unknown> {
+	setAtPath(target, dotted, value);
+	return target;
+}

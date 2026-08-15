@@ -26,7 +26,12 @@ export const PiTeamsAutonomousConfigSchema = Type.Object(
 		injectPolicy: Type.Optional(Type.Boolean({ sensitive: true })),
 		preferAsyncForLongTasks: Type.Optional(Type.Boolean({ sensitive: true })),
 		allowWorktreeSuggestion: Type.Optional(Type.Boolean({ sensitive: true })),
-		magicKeywords: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 })))),
+		// S19-5 (Wave 1A): magicKeywords alone flips effective autonomous mode on
+		// (effectiveAutonomousConfig defaults profile "suggested" when only
+		// magicKeywords is present) — untrusted project config must not set it.
+		magicKeywords: Type.Optional(
+			Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 })), { sensitive: true }),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -153,7 +158,11 @@ export const GoalWrapWorkflowConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema);
+// S19-2 (Wave 1A): the whole goalWrap subtree is user-only — a project config
+// must not enable silent auto-wrap, pick the evaluator model, or set
+// budgetUnlimited (unbounded provider spend). Marking the Record is terminal:
+// the walk collapses the subtree to the single top-level path `goalWrap`.
+export const PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema, { sensitive: true });
 
 export const AgentOverrideSchema = Type.Object(
 	{
