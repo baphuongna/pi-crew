@@ -8,7 +8,7 @@ import { handleCleanup, handleForget } from "../../../../src/extension/team-tool
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
 import { clearHooksScoped, registerHook } from "../../../../src/hooks/registry.ts";
 import { readEvents } from "../../../../src/state/event-log/event-log.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
 
 function createRun(ownerSessionId = "session-a"): {
 	cwd: string;
@@ -117,6 +117,47 @@ describe("before_cancel hook", () => {
 			const after = loadRunManifestById(run.cwd, run.runId)!;
 			assert.equal(after.manifest.status, "completed");
 			assert.equal(after.tasks[0].status, "completed");
+		} finally {
+			fs.rmSync(run.cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("aborts cancel when ownership moves to another session on disk during the before_cancel hook gap (in-lock re-check)", async () => {
+		const run = createRun();
+		try {
+			saveRunTasks(run.manifest, [
+				{
+					id: "task-1",
+					runId: run.runId,
+					role: "worker",
+					agent: "worker",
+					title: "task",
+					status: "running",
+					dependsOn: [],
+					cwd: run.cwd,
+				},
+			]);
+			updateRunStatus(run.manifest, "running", "started");
+			registerHook({
+				name: "before_cancel",
+				mode: "blocking",
+				handler: async () => {
+					// Concurrent writer: ownership moves to another session on disk
+					// while handleCancel is inside the (unbounded) hook gap. The
+					// PRE-lock check (abortOwned on the stale `loaded` snapshot) passed;
+					// only the IN-lock abortOwned on the fresh manifest can catch it.
+					const current = loadRunManifestById(run.cwd, run.runId)!;
+					saveRunManifest({ ...current.manifest, ownerSessionId: "session-b" });
+					return { outcome: "allow" as const };
+				},
+			});
+			const out = await handleCancel({ action: "cancel", runId: run.runId }, { cwd: run.cwd, sessionId: "session-a" });
+			assert.equal(out.isError, true);
+			assert.match(textFromToolResult(out), /belongs to another session/);
+			// The foreign-session cancel must NOT have cancelled the task or flipped the run.
+			const after = loadRunManifestById(run.cwd, run.runId)!;
+			assert.equal(after.tasks[0].status, "running");
+			assert.equal(after.manifest.status, "running");
 		} finally {
 			fs.rmSync(run.cwd, { recursive: true, force: true });
 		}
@@ -268,6 +309,84 @@ describe("before_retry hook gap regression (R13-1)", () => {
 			assert.equal(after.tasks[0].status, "completed");
 			assert.equal(after.tasks[0].finishedAt, "2026-08-13T00:01:00.000Z");
 			assert.ok(after.tasks[0].terminalEvidence?.some((e) => e.status === "completed"));
+		} finally {
+			fs.rmSync(run.cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("before_retry ownership re-check (Security S1)", () => {
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
+
+	function createFailedRun(): ReturnType<typeof createRun> {
+		const run = createRun("session-a");
+		saveRunTasks(run.manifest, [
+			{
+				id: "task-1",
+				runId: run.runId,
+				role: "worker",
+				agent: "worker",
+				title: "task",
+				status: "failed",
+				dependsOn: [],
+				cwd: run.cwd,
+				finishedAt: "2026-08-13T00:00:00.000Z",
+				error: "original failure",
+			},
+		]);
+		updateRunStatus(run.manifest, "running", "started");
+		return run;
+	}
+
+	it("aborts retry when ownership moves to another session on disk during the hook gap (in-lock re-check is authoritative)", async () => {
+		const run = createFailedRun();
+		try {
+			registerHook({
+				name: "before_retry",
+				mode: "blocking",
+				handler: async () => {
+					// Concurrent writer: ownership moves to another session on disk
+					// while handleRetry is inside the (unbounded) hook gap. The
+					// PRE-lock check ran on the stale `loaded` snapshot (still
+					// session-a) and passed; only the IN-lock re-check on the fresh
+					// manifest can catch the ownership change (Security S1).
+					const current = loadRunManifestById(run.cwd, run.runId)!;
+					saveRunManifest({ ...current.manifest, ownerSessionId: "session-b" });
+					return { outcome: "allow" as const };
+				},
+			});
+			const out = await handleRetry({ action: "retry", runId: run.runId }, { cwd: run.cwd, sessionId: "session-a" });
+			assert.equal(out.isError, true);
+			assert.match(textFromToolResult(out), /belongs to another session/);
+			// The foreign-session retry must NOT have re-queued the task.
+			const after = loadRunManifestById(run.cwd, run.runId)!;
+			assert.equal(after.tasks[0].status, "failed");
+		} finally {
+			fs.rmSync(run.cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("proceeds with force:true even when ownership moved during the hook gap", async () => {
+		const run = createFailedRun();
+		try {
+			registerHook({
+				name: "before_retry",
+				mode: "blocking",
+				handler: async () => {
+					const current = loadRunManifestById(run.cwd, run.runId)!;
+					saveRunManifest({ ...current.manifest, ownerSessionId: "session-b" });
+					return { outcome: "allow" as const };
+				},
+			});
+			const out = await handleRetry(
+				{ action: "retry", runId: run.runId, force: true },
+				{ cwd: run.cwd, sessionId: "session-a" },
+			);
+			assert.equal(out.isError, false);
+			// force:true bypasses the ownership gate; the retry re-queues the task.
+			const after = loadRunManifestById(run.cwd, run.runId)!;
+			assert.equal(after.tasks[0].status, "queued");
 		} finally {
 			fs.rmSync(run.cwd, { recursive: true, force: true });
 		}

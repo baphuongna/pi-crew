@@ -160,6 +160,23 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 		const fresh = loadRunManifestById(loaded.manifest.cwd, params.runId!); // NOTE: inside withRunLockSync - consistent read
 		if (!fresh) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "retry", status: "error" }, true);
 
+		// R15-S1 (2026-08-14): in-lock ownership re-check on the FRESH manifest.
+		// The pre-lock check above ran on the `loaded` snapshot captured BEFORE
+		// the unbounded before_retry hook gap; ownership may have changed on disk
+		// in that window. This in-lock check is authoritative — the pre-lock check
+		// remains only as the fast-path UX message.
+		if (
+			typeof fresh.manifest.ownerSessionId === "string" &&
+			fresh.manifest.ownerSessionId !== ctx.sessionId &&
+			params.force !== true
+		) {
+			return result(
+				`Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
+				{ action: "retry", status: "error", runId: fresh.manifest.runId },
+				true,
+			);
+		}
+
 		// Terminal-status check on FRESH in-lock state (R13-3 fold): a completed
 		// run has nothing to retry. Short-circuit with a clear message instead of
 		// surfacing a misleading "run.lock is locked by another operation" error

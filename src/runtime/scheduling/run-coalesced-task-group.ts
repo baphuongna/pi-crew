@@ -2,7 +2,7 @@ import type { AgentConfig } from "../../agents/agent-config.ts";
 import type { CrewReliabilityConfig, CrewRuntimeConfig } from "../../config/types.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
-import { saveRunTasksAsync, updateRunStatus } from "../../state/stores/state-store.ts";
+import { loadRunManifestById, saveRunTasksAsync, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
@@ -115,17 +115,12 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			heartbeatInFlight = true;
 			heartbeatPromise = (async () => {
 				try {
-					updatedTasks = updatedTasks.map((t) => {
-						if (!taskIds.includes(t.id)) return t;
-						// FIND-06 belt-and-suspenders: never replace terminal state or its
-						// resultArtifact with a heartbeat-only snapshot.
-						if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") return t;
-						return {
-							...t,
-							heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
-						};
-					});
-					await saveRunTasksAsync(manifest, updatedTasks);
+					// R15-3: persist heartbeats for ONLY this group's tasks via a fresh
+					// disk read. The old closure `updatedTasks` is a dispatch-time
+					// snapshot of the FULL task array — a sibling cancelled on disk after
+					// dispatch could be un-cancelled by a late heartbeat save (the map
+					// only mutated group tasks, but the SAVE wrote the whole stale array).
+					await persistGroupHeartbeats(manifest, taskIds);
 				} catch {
 					// Run may have been pruned mid-dispatch — best-effort only.
 				} finally {
@@ -134,9 +129,12 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 					// save was in flight, re-write the (now-terminal) updatedTasks so
 					// our late snapshot cannot leave stale pre-terminal state on disk.
 					// Runs after our own save resolves, so it always lands last.
+					// R15-3: the repair now fresh-reads disk and re-applies ONLY the
+					// group's terminal state — the old full-array write could resurrect
+					// a sibling cancelled on disk (same flaw as the heartbeat save).
 					if (finalWriteStarted) {
 						try {
-							await saveRunTasksAsync(manifest, updatedTasks);
+							await repairGroupTerminalWrite(manifest, taskIds, updatedTasks);
 						} catch {
 							// best-effort repair — same swallow policy as the heartbeat.
 						}
@@ -297,6 +295,63 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 
 	return { manifest: updatedManifest, tasks: updatedTasks, taskIds, rawOutput, success };
 }
+
+/**
+ * R15-3: heartbeat save scoped to this coalesced group only.
+ *
+ * Previously the heartbeat wrote the dispatch-time closure `updatedTasks` —
+ * the FULL task array including sibling tasks outside this group. A sibling
+ * cancelled on disk after dispatch (external cancel / reconciler) could be
+ * un-cancelled ("resurrected") by a late heartbeat save, because the map only
+ * mutated group tasks but the SAVE wrote the whole stale array. Fix: fresh
+ * re-read tasks from disk (loadRunManifestById — the established fresh-read
+ * pattern used by team-runner) and write back ONLY the group's own task ids
+ * with heartbeats touched; sibling tasks are preserved untouched from the
+ * fresh disk read. Keeps the FIND-06 'never replace terminal state' guard.
+ */
+async function persistGroupHeartbeats(manifest: TeamRunManifest, taskIds: string[]): Promise<void> {
+	const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+	if (!fresh) return; // run pruned mid-dispatch — best-effort only.
+	const merged = fresh.tasks.map((t) => {
+		if (!taskIds.includes(t.id)) return t; // sibling tasks: preserved untouched.
+		// FIND-06 belt-and-suspenders: never replace terminal state or its
+		// resultArtifact with a heartbeat-only snapshot.
+		if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") return t;
+		return {
+			...t,
+			heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
+		};
+	});
+	await saveRunTasksAsync(manifest, merged);
+}
+
+/**
+ * R15-3: FIND-06 P1 repair — re-apply the group's terminal state after a late
+ * heartbeat save may have landed last. Fresh-reads disk so sibling tasks are
+ * preserved untouched; only the group's own terminal state from `updatedTasks`
+ * is re-applied, and a disk-terminal group task is never flipped (same
+ * belt-and-suspenders guard as the heartbeat).
+ */
+async function repairGroupTerminalWrite(
+	manifest: TeamRunManifest,
+	taskIds: string[],
+	updatedTasks: TeamTaskState[],
+): Promise<void> {
+	const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+	if (!fresh) return; // run pruned mid-dispatch — best-effort only.
+	const groupById = new Map(updatedTasks.map((t) => [t.id, t] as const));
+	const merged = fresh.tasks.map((t) => {
+		if (!taskIds.includes(t.id)) return t; // sibling tasks: preserved untouched.
+		if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") return t;
+		return groupById.get(t.id) ?? t;
+	});
+	await saveRunTasksAsync(manifest, merged);
+}
+
+/** @internal 3.5 R15-3 test export — exercise the heartbeat/repair writes directly. */
+export const __test__persistGroupHeartbeats = persistGroupHeartbeats;
+/** @internal 3.5 R15-3 test export — exercise the terminal repair write directly. */
+export const __test__repairGroupTerminalWrite = repairGroupTerminalWrite;
 
 async function buildCoalescedPrompt(
 	manifest: TeamRunManifest,

@@ -577,6 +577,8 @@ export const __test__ensurePlanApprovalRequested = ensurePlanApprovalRequested;
 export const __test__selectDispatchBatch = selectDispatchBatch;
 /** @internal 1.9(b) test export — exercise mergeUnitResult directly. */
 export const __test__mergeUnitResult = mergeUnitResult;
+/** @internal R15-1 test export — exercise finalizeRun directly (disk-terminal preservation). */
+export const __test__finalizeRun = finalizeRun;
 /** @internal 1.9(b) test export — exercise advanceWorkflowPhases directly. */
 export const __test__advanceWorkflowPhases = advanceWorkflowPhases;
 
@@ -1946,6 +1948,14 @@ async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBatchDecis
  *
  * @param ctx  The scheduler context.
  */
+/** R15-2/R15-1: run statuses that must never be overwritten by an in-memory
+ * derived status (mergeUnitResult force-"running", finalizeRun "completed").
+ * "blocked" is deliberately EXCLUDED — a blocked run can be unblocked and the
+ * finalize chain may legitimately derive blocked from in-memory state. */
+function isRunTerminalPreserved(status: TeamRunManifest["status"]): boolean {
+	return status === "cancelled" || status === "failed" || status === "completed";
+}
+
 async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
 	// RT-12: race on pre-created wrapper promises (created once at dispatch
 	// time) instead of rebuilding a wrapper-promise array with new async
@@ -1985,11 +1995,17 @@ async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerDecision
 		const diskManifest = disk?.manifest ?? ctx.manifest;
 		const diskArtifacts = diskManifest.artifacts;
 		const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
-		const resultManifest = updateRunStatus(
-			{ ...diskManifest, artifacts: reconciledArtifacts },
-			"running",
-			"Merged task updates from parallel batch.",
-		);
+		// R15-2: only force "running" when the disk manifest is NON-terminal
+		// (queued/planning/running/blocked). If the disk status is already terminal
+		// (cancelled/failed/completed — an external cancel or reconciler write
+		// landing during the batch), PRESERVE that terminal status: forcing
+		// "running" would legally erase it (contracts.ts allows cancelled/failed/
+		// completed → running) and the loop would never observe the disk-terminal
+		// (CANCEL-1/CANCEL-2 only catch worker-reported cancel or signal abort).
+		const mergedBase = { ...diskManifest, artifacts: reconciledArtifacts };
+		const resultManifest = isRunTerminalPreserved(diskManifest.status)
+			? mergedBase
+			: updateRunStatus(mergedBase, "running", "Merged task updates from parallel batch.");
 		// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
 		// of the in-memory `tasks` closure variable. The in-memory tasks reflect
 		// only team-runner's view; an external cancel (handleCancel, background
@@ -2266,24 +2282,44 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 		});
 	}
 	const blockingDecision = manifest.policyDecisions?.find((item) => item.action === "block" || item.action === "escalate");
+	// R15-1: capture the entry status BEFORE the in-memory status-derivation
+	// chain. The chain below computes the final status in-memory ONLY — its
+	// updateRunStatus persistence calls are replaced with a pure in-memory
+	// status application so ALL persistence happens in the single locked save
+	// further below, which re-reads disk first and preserves a disk-terminal
+	// status (cancel → "cancelled", reconciler → "failed") instead of
+	// overwriting it with the derived status (typically "completed"). The
+	// DECISION LOGIC of the chain (branches, conditions, statuses, messages)
+	// is unchanged; only the persistence mechanism moved.
+	const entryStatus = manifest.status;
+	// R15-1: true when the chain applied a derived status via a status branch
+	// (mirrors the old chain's updateRunStatus call sites, INCLUDING the
+	// from===to cases like `if (failed)` on an already-failed manifest that
+	// re-emit run.<status>). The preserve branch below leaves it false so the
+	// locked save does NOT emit a status event (matching old behavior).
+	let chainAppliedStatus = false;
+	const applyStatusInMemory = (status: TeamRunManifest["status"], summary: string): TeamRunManifest => {
+		chainAppliedStatus = true;
+		return { ...manifest, status, summary, updatedAt: new Date().toISOString() };
+	};
 	if (failed) {
-		manifest = updateRunStatus(manifest, "failed", `Failed at task '${failed.id}'.`);
+		manifest = applyStatusInMemory("failed", `Failed at task '${failed.id}'.`);
 	} else if (waiting) {
-		manifest = updateRunStatus(manifest, "blocked", `Waiting for response to task '${waiting.id}'.`);
+		manifest = applyStatusInMemory("blocked", `Waiting for response to task '${waiting.id}'.`);
 	} else if (running) {
-		manifest = updateRunStatus(manifest, "blocked", `Task '${running.id}' is still running.`);
+		manifest = applyStatusInMemory("blocked", `Task '${running.id}' is still running.`);
 	} else if (effectiveness.severity === "failed") {
-		manifest = updateRunStatus(manifest, "failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
+		manifest = applyStatusInMemory("failed", effectivenessDecision?.message ?? "Run effectiveness guard failed.");
 	} else if (effectiveness.severity === "blocked") {
-		manifest = updateRunStatus(manifest, "blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
+		manifest = applyStatusInMemory("blocked", effectivenessDecision?.message ?? "Run effectiveness guard blocked completion.");
 	} else if (blockingDecision) {
-		manifest = updateRunStatus(manifest, "blocked", blockingDecision.message);
+		manifest = applyStatusInMemory("blocked", blockingDecision.message);
 	} else if (tasks.some((task) => task.status === "queued")) {
 		// F1 defense-in-depth: the loop exited with queued tasks still pending
 		// (e.g. a hook skipped all ready tasks and downstream tasks never became
 		// runnable). This is NOT a completed run — mark it blocked rather than
 		// false-green "completed".
-		manifest = updateRunStatus(manifest, "blocked", "Run exited with queued tasks still pending.");
+		manifest = applyStatusInMemory("blocked", "Run exited with queued tasks still pending.");
 	} else if (manifest.status === "failed" || manifest.status === "cancelled") {
 		// The run was already marked failed/cancelled mid-run (e.g. handleFailedTask
 		// on a coalesced-group race where the failing task's status was later
@@ -2293,56 +2329,107 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 		// (No updateRunStatus call: from===to is a no-op, but the intent here is
 		// explicitly "leave the earlier decision intact".)
 	} else {
-		manifest = updateRunStatus(
-			manifest,
+		manifest = applyStatusInMemory(
 			"completed",
 			input.executeWorkers ? "Team workflow completed." : "Team workflow scaffold completed without launching child workers.",
 		);
 	}
 	manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
-	await saveRunManifestAsync(manifest);
 	const usage = aggregateUsage(tasks);
-	const summaryArtifact = writeArtifact(manifest.artifactsRoot, {
-		kind: "summary",
-		relativePath: "summary.md",
-		producer: "team-runner",
-		content: [
-			`# pi-crew run ${manifest.runId}`,
-			"",
-			`Status: ${manifest.status}`,
-			`Team: ${manifest.team}`,
-			`Workflow: ${manifest.workflow ?? "(none)"}`,
-			`Goal: ${manifest.goal}`,
-			`Usage: ${formatUsage(usage)}`,
-			"",
-			"## Tasks",
-			...tasks.map(formatTaskProgress),
-			"",
-			"## Effectiveness",
-			...runEffectivenessLines(manifest, tasks, input.executeWorkers, input.runtimeConfig),
-			"",
-			"## Policy decisions",
-			...(manifest.policyDecisions?.length ? summarizePolicyDecisions(manifest.policyDecisions) : ["- (none)"]),
-			"",
-			...scratchpadSummaryLines(manifest),
-		].join("\n"),
+
+	// R15-1: ALL persistence inside ONE withRunLock that FIRST re-reads disk.
+	// The former unlocked `saveRunManifestAsync(manifest)` (pre-lock) is gone —
+	// the single locked write below (manifest + tasks via finalManifest) is now
+	// the ONLY persistence point, preserving crash-window atomicity. Disk is
+	// authoritative for terminal states: if a cancel/reconciler write landed
+	// between loop-exit and this save, its terminal status is preserved and the
+	// derived in-memory status (typically "completed") is NOT applied.
+	const finalManifest = await withRunLock(manifest, async () => {
+		flushPendingAtomicWrites();
+		const disk = loadRunManifestById(manifest.cwd, manifest.runId);
+		const diskManifest = disk?.manifest;
+		const diskTerminal = diskManifest && isRunTerminalPreserved(diskManifest.status);
+		const signalAborted = ctx.input.signal?.aborted === true;
+
+		let resolvedManifest: TeamRunManifest;
+		let resolvedTasks = tasks;
+		if (diskTerminal || signalAborted) {
+			// R15-1: preserve the disk terminal status — do NOT overwrite it with
+			// the in-memory derived status, do NOT run the completion branch.
+			// Signal-aborted also preserves (the run must not complete). Mirror
+			// CANCEL-1: disk is authoritative for terminal states — the final
+			// tasks write also uses the freshest disk tasks so a cancel that
+			// landed between the last merge and this save is not resurrected.
+			const preservedStatus = diskTerminal ? diskManifest!.status : "cancelled";
+			resolvedManifest = {
+				...manifest,
+				status: preservedStatus,
+				summary: diskTerminal ? (diskManifest!.summary ?? manifest.summary) : "Run cancelled during finalization.",
+				updatedAt: new Date().toISOString(),
+			};
+			resolvedTasks = disk?.tasks ?? tasks;
+			await appendEventAsync(manifest.eventsPath, {
+				type: "run.terminal_preserved",
+				runId: manifest.runId,
+				message: `Run terminal status '${preservedStatus}' preserved from disk; finalize did not overwrite it.`,
+				data: { preservedStatus, derivedStatus: manifest.status, signalAborted },
+			});
+		} else if (chainAppliedStatus) {
+			// Apply the derived in-memory status via updateRunStatus (validates
+			// the entryStatus→derived transition exactly as the pre-R15-1 chain
+			// did — from===to included — emits the run.<status> event, unregisters
+			// active-run, persists).
+			resolvedManifest = updateRunStatus({ ...manifest, status: entryStatus }, manifest.status, manifest.summary);
+		} else {
+			// preserve branch from the chain — leave the earlier decision intact
+			// (no status event, matching pre-R15-1 behavior).
+			resolvedManifest = { ...manifest, updatedAt: new Date().toISOString() };
+		}
+
+		// summaryArtifact + healthSnapshot run in ALL paths (preserved-terminal
+		// included) — the summary is written with the FINAL (possibly preserved)
+		// status so the run record is complete.
+		const summaryArtifact = writeArtifact(resolvedManifest.artifactsRoot, {
+			kind: "summary",
+			relativePath: "summary.md",
+			producer: "team-runner",
+			content: [
+				`# pi-crew run ${resolvedManifest.runId}`,
+				"",
+				`Status: ${resolvedManifest.status}`,
+				`Team: ${resolvedManifest.team}`,
+				`Workflow: ${resolvedManifest.workflow ?? "(none)"}`,
+				`Goal: ${resolvedManifest.goal}`,
+				`Usage: ${formatUsage(usage)}`,
+				"",
+				"## Tasks",
+				...resolvedTasks.map(formatTaskProgress),
+				"",
+				"## Effectiveness",
+				...runEffectivenessLines(resolvedManifest, tasks, input.executeWorkers, input.runtimeConfig),
+				"",
+				"## Policy decisions",
+				...(resolvedManifest.policyDecisions?.length ? summarizePolicyDecisions(resolvedManifest.policyDecisions) : ["- (none)"]),
+				"",
+				...scratchpadSummaryLines(resolvedManifest),
+			].join("\n"),
+		});
+		// Joint atomic save: wrap manifest + tasks in a single run lock so they are
+		// written together or not at all. Crash between separate saveRunManifestAsync
+		// and saveRunTasksAsync calls could leave manifest/tasks.json out of sync.
+		// R15-1: this is now the ONLY manifest+tasks write (the unlocked pre-lock
+		// saveRunManifestAsync was removed).
+		const final = {
+			...resolvedManifest,
+			updatedAt: new Date().toISOString(),
+			artifacts: [...resolvedManifest.artifacts, summaryArtifact],
+		};
+		await saveRunManifestAsync(final);
+		await saveRunTasksAsync(final, resolvedTasks);
+		return { manifest: final, tasks: resolvedTasks };
 	});
-	// Build the complete manifest BEFORE acquiring the lock so the artifacts array
-	// is already incorporated into the manifest object that will be atomically written.
-	// This prevents crash-between-mutation-and-lock from leaving inconsistent state.
-	const finalManifest = {
-		...manifest,
-		updatedAt: new Date().toISOString(),
-		artifacts: [...manifest.artifacts, summaryArtifact],
-	};
-	// Joint atomic save: wrap manifest + tasks in a single run lock so they are
-	// written together or not at all. Crash between separate saveRunManifestAsync
-	// and saveRunTasksAsync calls could leave manifest/tasks.json out of sync.
-	await withRunLock(finalManifest, async () => {
-		await saveRunManifestAsync(finalManifest);
-		await saveRunTasksAsync(finalManifest, tasks);
-	});
-	manifest = finalManifest;
+	manifest = finalManifest.manifest;
+	const finalTasks = finalManifest.tasks;
 	// Save health snapshot on run completion.
 	// BUG A (pts/2 hang investigation 2026-06-16): stateRoot = `<crewRoot>/state/runs/<runId>`,
 	// so the crew root is THREE dirnames up, not two. Two dirnames gave `<crewRoot>/state`
@@ -2352,16 +2439,16 @@ async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunMa
 	// health feature) AND created junk dirs that the recursive state watcher then
 	// attached extra inotify watches to. Fix: compute the real crew root (3 up)
 	// and make HEALTH_DIR relative to it.
-	const crewRoot = path.dirname(path.dirname(path.dirname(finalManifest.stateRoot)));
+	const crewRoot = path.dirname(path.dirname(path.dirname(finalManifest.manifest.stateRoot)));
 	const healthStore = new HealthStore(crewRoot);
 	healthStore.saveSnapshot({
-		runId: finalManifest.runId,
-		tasks: tasks.map((t) => ({ id: t.id, status: t.status })),
-		createdAt: finalManifest.createdAt,
+		runId: finalManifest.manifest.runId,
+		tasks: finalTasks.map((t) => ({ id: t.id, status: t.status })),
+		createdAt: finalManifest.manifest.createdAt,
 	});
 	ctx.manifest = manifest;
-	ctx.tasks = tasks;
-	return { manifest, tasks };
+	ctx.tasks = finalTasks;
+	return { manifest, tasks: finalTasks };
 }
 
 async function executeTeamRunCore(
@@ -2560,6 +2647,17 @@ async function executeTeamRunCore(
 			tasks = ctx.tasks;
 			manifest = ctx.manifest;
 			if (mergeDecision?.kind === "return") return mergeDecision.result;
+			// R15-2: a terminal status observed after the merge (the DISK manifest
+			// went terminal during the batch — external cancel/reconciler/finalizer
+			// write) must stop dispatching and route to finalizeRun so the disk
+			// terminal becomes the final status (run stops dispatching; final status
+			// = disk terminal). The CANCEL-2 block below handles worker-reported
+			// cancel / signal abort (where the merge forces "running" from a
+			// non-terminal disk) and is UNCHANGED; this only fires when the merged
+			// manifest carries a preserved disk-terminal status.
+			if (isRunTerminalPreserved(manifest.status)) {
+				break;
+			}
 			// Re-derive the merge outcome locals for the post-merge inline logic
 			// (cancel-during-exec check + batch summary artifact).
 			const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge!;

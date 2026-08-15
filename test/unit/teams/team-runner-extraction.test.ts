@@ -30,6 +30,7 @@ import { buildTaskGraphIndex } from "../../../src/runtime/scheduling/task-graph-
 import {
 	__test__advanceWorkflowPhases,
 	__test__ensurePlanApprovalRequested,
+	__test__finalizeRun,
 	__test__mergeUnitResult,
 	__test__requiresPlanApproval,
 	__test__selectDispatchBatch,
@@ -37,7 +38,12 @@ import {
 import { mergeArtifacts } from "../../../src/runtime/team-runner-artifacts.ts";
 import type { WorkflowStateMachine } from "../../../src/runtime/workflow-state.ts";
 import { readEvents } from "../../../src/state/event-log/event-log.ts";
-import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../src/state/stores/state-store.ts";
+import {
+	createRunManifest,
+	loadRunManifestById,
+	saveRunTasks,
+	updateRunStatus,
+} from "../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
@@ -156,6 +162,32 @@ function makeDispatchCtx(tasks: TeamTaskState[], limits?: { maxConcurrentWorkers
 		} as SchedulerCtx["input"],
 		workflow: makeWorkflow("implementation"),
 		manifest: makeInMemoryManifest(),
+		tasks,
+		queueIndex: buildTaskGraphIndex(tasks),
+		wfMachine: { phases: [], currentPhaseIndex: 0 } as WorkflowStateMachine,
+		pendingUnits: new Map<string, PendingUnitLike>(),
+		dispatchedTaskIds: new Set<string>(),
+		runController: new AbortController(),
+		runtimeKind: "child-process" as CrewRuntimeKind,
+		adaptivePlanInjected: false,
+		adaptivePlanMissing: false,
+		settledMerge: null,
+	} as unknown as SchedulerCtx;
+}
+
+/** Build a minimal SchedulerContext for finalizeRun (R15-1 seam). */
+function makeFinalizeCtx(manifest: TeamRunManifest, tasks: TeamTaskState[]): SchedulerCtx {
+	return {
+		input: {
+			team: { maxConcurrency: undefined } as SchedulerCtx["input"]["team"],
+			limits: undefined,
+			workflow: makeWorkflow("implementation"),
+			executeWorkers: false,
+			runtimeConfig: undefined,
+			signal: undefined,
+		} as SchedulerCtx["input"],
+		workflow: makeWorkflow("implementation"),
+		manifest,
 		tasks,
 		queueIndex: buildTaskGraphIndex(tasks),
 		wfMachine: { phases: [], currentPhaseIndex: 0 } as WorkflowStateMachine,
@@ -398,6 +430,106 @@ test("1.9b mergeUnitResult: external cancel on disk survives the merge (CANCEL-1
 		// CANCEL-1: merge base is disk.tasks (freshest committed state), so the
 		// stale completed result must NOT resurrect the cancelled task.
 		assert.equal(ctx.tasks.find((t) => t.id === "a")?.status, "cancelled");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("1.9b mergeUnitResult: disk-terminal MANIFEST is preserved (NOT forced back to running) — R15-2", async () => {
+	const { cwd, manifest } = makeRunFixture("merge-disk-terminal");
+	try {
+		// disk state: an external cancel already terminalised the RUN manifest
+		// (handleCancel writes 'cancelled' via updateRunStatus under lock). The
+		// in-memory ctx.manifest is STALE ('running' — as if a prior merge forced
+		// running before the cancel landed).
+		const diskTasks = [makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:00.000Z" })];
+		saveRunTasks(manifest, diskTasks);
+		updateRunStatus(manifest, "cancelled", "external cancel during batch");
+
+		const workerTasks = [makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:05.000Z" })];
+		const ctx = makeDispatchCtx(diskTasks, { maxConcurrentWorkers: 2 });
+		ctx.manifest = { ...manifest, status: "running" }; // stale in-memory view
+		ctx.tasks = diskTasks;
+		ctx.pendingUnits = new Map<string, PendingUnitLike>([["u1", makePendingUnit(["a"], { manifest, tasks: workerTasks })]]);
+
+		await __test__mergeUnitResult(ctx);
+		// R15-2: the disk terminal status must survive the merge — the merge must
+		// NOT force "running" (that would legally erase the external cancel and
+		// the loop would keep dispatching after a user cancel).
+		assert.equal(ctx.manifest.status, "cancelled", "disk-terminal status must be preserved through the merge");
+		// and the disk record itself is untouched
+		assert.equal(loadRunManifestById(cwd, manifest.runId)?.manifest.status, "cancelled");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// ─── finalizeRun (:2217) — disk-terminal preservation (R15-1) ───────
+
+test("1.9b finalizeRun: disk 'cancelled' at finalize time is preserved (NOT flipped to completed) — R15-1", async () => {
+	const { cwd, manifest } = makeRunFixture("finalize-disk-terminal");
+	try {
+		// disk state: all tasks completed on disk, but an external cancel already
+		// terminalised the RUN manifest ('cancelled' via direct state-store
+		// updateRunStatus — the race window between loop-exit and finalize save).
+		const diskTasks = [
+			makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" }),
+			makeTask("b", "step-2", "executor", "completed", { finishedAt: "2026-01-01T00:00:02.000Z" }),
+		];
+		saveRunTasks(manifest, diskTasks);
+		updateRunStatus(manifest, "cancelled", "user cancel raced finalize");
+
+		// in-memory view is STALE: mergeUnitResult had forced "running", tasks
+		// all completed in-memory → the status chain would derive "completed".
+		const ctx = makeFinalizeCtx({ ...manifest, status: "running" }, diskTasks);
+
+		const result = await __test__finalizeRun(ctx);
+
+		// R15-1: the disk terminal status must be preserved — NOT overwritten
+		// with the in-memory derived "completed".
+		assert.equal(result.manifest.status, "cancelled", "finalizeRun must preserve disk 'cancelled'");
+		assert.equal(ctx.manifest.status, "cancelled", "ctx.manifest must reflect the preserved status");
+		// disk record is authoritative and unchanged
+		assert.equal(loadRunManifestById(cwd, manifest.runId)?.manifest.status, "cancelled");
+		// summary artifact is STILL written, using the preserved terminal status
+		const summaryPath = path.join(manifest.artifactsRoot, "summary.md");
+		assert.equal(fs.existsSync(summaryPath), true, "summary.md must be written for preserved-terminal runs");
+		const summaryContent = fs.readFileSync(summaryPath, "utf-8");
+		assert.match(summaryContent, /Status: cancelled/, "summary artifact must record the preserved status");
+		// terminal-preserved event logged
+		const events = readEvents(manifest.eventsPath);
+		assert.ok(
+			events.some((e) => e.type === "run.terminal_preserved"),
+			"run.terminal_preserved event must be appended when disk terminal is preserved",
+		);
+		// and NO run.completed event may be appended (the completion branch must
+		// NOT run for a preserved-terminal run)
+		assert.ok(
+			!events.some((e) => e.type === "run.completed"),
+			"run.completed must NOT be emitted for a preserved-terminal run",
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("1.9b finalizeRun: non-terminal disk status completes normally (control) — R15-1", async () => {
+	const { cwd, manifest } = makeRunFixture("finalize-completed");
+	try {
+		const diskTasks = [
+			makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" }),
+			makeTask("b", "step-2", "executor", "completed", { finishedAt: "2026-01-01T00:00:02.000Z" }),
+		];
+		saveRunTasks(manifest, diskTasks);
+		// disk status stays non-terminal (running) — normal finalize path
+		updateRunStatus(manifest, "running", "normal run");
+
+		const ctx = makeFinalizeCtx({ ...manifest, status: "running" }, diskTasks);
+		const result = await __test__finalizeRun(ctx);
+
+		assert.equal(result.manifest.status, "completed", "non-terminal disk must still complete normally");
+		const events = readEvents(manifest.eventsPath);
+		assert.ok(events.some((e) => e.type === "run.completed"), "run.completed emitted on the normal path");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
