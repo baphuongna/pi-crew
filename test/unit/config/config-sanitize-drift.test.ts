@@ -417,8 +417,7 @@ test("drift gate (ix): F19-5 parser bounds match the schema (no parser/schema bo
 	assert.equal(dedup(1000), 1000);
 
 	// otlp.endpoint: schema pattern ^https?:// (config-schema.ts).
-	const endpoint = (value: unknown): string | undefined =>
-		parseConfig({ otlp: { enabled: true, endpoint: value } }).otlp?.endpoint;
+	const endpoint = (value: unknown): string | undefined => parseConfig({ otlp: { enabled: true, endpoint: value } }).otlp?.endpoint;
 	assert.equal(endpoint("unix:///tmp/x"), undefined);
 	assert.equal(endpoint("https://collector.local:4318"), "https://collector.local:4318");
 });

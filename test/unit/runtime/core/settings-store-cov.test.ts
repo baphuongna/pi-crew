@@ -3,10 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import {
+	applyCrewSettingsTiersToConfig,
 	applyCrewSettingsToConfig,
 	type CrewSettings,
 	loadCrewSettings,
+	loadCrewSettingsTiers,
 	saveCrewSettings,
+	updateCrewSettings,
 } from "../../../../src/runtime/settings-store.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
@@ -173,5 +176,90 @@ describe("applyCrewSettingsToConfig", () => {
 		});
 		assert.equal((config as Record<string, unknown>).limits, undefined);
 		assert.equal((config as Record<string, unknown>).runtime, undefined);
+	});
+});
+
+describe("loadCrewSettingsTiers / applyCrewSettingsTiersToConfig (Wave 2B tier split)", () => {
+	it("splits user and project tiers while preserving the merged view", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-tiers-");
+		try {
+			const globalFile = path.join(tmp, "user-crew-settings.json");
+			fs.writeFileSync(globalFile, JSON.stringify({ maxConcurrent: 3, notifierIntervalMs: 2000 }), "utf-8");
+			const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+			fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+			fs.writeFileSync(projectFile, JSON.stringify({ maxConcurrent: 2, schedulingEnabled: true }), "utf-8");
+
+			const tiers = loadCrewSettingsTiers(tmp, globalFile);
+			assert.equal(tiers.user.maxConcurrent, 3);
+			assert.equal(tiers.user.notifierIntervalMs, 2000);
+			assert.equal(tiers.project.maxConcurrent, 2);
+			assert.equal(tiers.project.schedulingEnabled, true);
+			assert.equal(tiers.projectPath, projectFile);
+			// Historical merge view: project wins over user.
+			assert.equal(tiers.merged.maxConcurrent, 2);
+			assert.equal(tiers.merged.notifierIntervalMs, 2000);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("applyCrewSettingsTiersToConfig: user tier applies freely, project tier tighten-only", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-tiering-");
+		try {
+			const globalFile = path.join(tmp, "user-crew-settings.json");
+			fs.writeFileSync(globalFile, JSON.stringify({ defaultMaxTurns: 200 }), "utf-8");
+			const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+			fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+			// Equal to the mirrored user value survives; a raise is dropped.
+			fs.writeFileSync(projectFile, JSON.stringify({ maxConcurrent: 4, defaultMaxTurns: 9999 }), "utf-8");
+
+			const tiers = loadCrewSettingsTiers(tmp, globalFile);
+			const config = { limits: { maxConcurrentWorkers: 8 }, runtime: { maxTurns: 50, graceTurns: 5 } };
+			const warnings = applyCrewSettingsTiersToConfig(config, tiers);
+			// maxConcurrent=4 lowers 8 AND equals the user-tier mirror → survives.
+			assert.equal(config.limits.maxConcurrentWorkers, 4);
+			// defaultMaxTurns=9999 raises the user-tier baseline 200 → dropped;
+			// user tier keeps 200.
+			assert.equal(config.runtime.maxTurns, 200);
+			assert.equal(warnings.length, 1);
+			assert.ok(warnings[0].startsWith(projectFile));
+			assert.ok(warnings[0].includes("runtime.maxTurns"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("updateCrewSettings round-trip still works after the tier split (scheduler persistence)", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-rw-");
+		try {
+			const persisted = updateCrewSettings(tmp, (settings) => ({
+				...settings,
+				scheduledJobs: [...(settings.scheduledJobs ?? []), { id: "job-1", scheduleType: "interval", enabled: true }],
+			}));
+			assert.equal(persisted.scheduledJobs?.length, 1);
+			const reloaded = loadCrewSettings(tmp);
+			assert.equal(reloaded.scheduledJobs?.length, 1);
+			const tiers = loadCrewSettingsTiers(tmp, path.join(tmp, "absent-global.json"));
+			assert.equal(tiers.project.scheduledJobs?.length, 1);
+			assert.equal(tiers.merged.scheduledJobs?.length, 1);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("malformed project file yields an empty project tier without throwing", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-bad-");
+		try {
+			const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+			fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+			fs.writeFileSync(projectFile, "{not json", "utf-8");
+			const tiers = loadCrewSettingsTiers(tmp, path.join(tmp, "absent-global.json"));
+			assert.deepEqual(tiers.project, {});
+			const config = { runtime: { maxTurns: 50 } };
+			assert.doesNotThrow(() => applyCrewSettingsTiersToConfig(config, tiers));
+			assert.equal(config.runtime.maxTurns, 50);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
 	});
 });

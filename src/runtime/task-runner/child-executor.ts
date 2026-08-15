@@ -37,9 +37,10 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
 import {
-	appendCrewAgentEvent,
-	appendCrewAgentOutput,
+	appendCrewAgentEventBuffered,
+	appendCrewAgentOutputBuffered,
 	emptyCrewAgentProgress,
+	flushCrewAgentRecordBuffer,
 	recordFromTask,
 	upsertCrewAgent,
 } from "../crew-agent-records.ts";
@@ -575,7 +576,10 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 					}).catch((error) => logInternalError("task-runner.lifecycle-event", error, `taskId=${task.id}, type=${event.type}`));
 				},
 				onStdoutLine: (line) => {
-					appendCrewAgentOutput(manifest, task.id, line);
+					// R10-5 (Wave 2B item 4): buffered — one appendFileSync per flush
+					// window instead of one per stdout line. Flushes at task boundary
+					// (finally below), process exit, 32-event cap, or 250ms window.
+					appendCrewAgentOutputBuffered(manifest, task.id, line);
 					persistHeartbeat();
 				},
 				onJsonEvent: (event) => {
@@ -586,7 +590,11 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						// the full payload through); was dead on the old displayLine path.
 						const contact = supervisorContactFromEvent(event);
 						if (contact) recordSupervisorContact(manifest, { runId: manifest.runId, ...contact });
-						appendCrewAgentEvent(manifest, task.id, event);
+						// R10-5 (Wave 2B item 4): buffered agent-record sink — collapses the
+						// per-event stat+append fanout into one appendFileSync per flush
+						// window. Seqs are reserved at buffer time (no collisions); the
+						// run-level events.jsonl, steering, and result.md stay unbuffered.
+						appendCrewAgentEventBuffered(manifest, task.id, event);
 						if (collectedJsonEvents && event && typeof event === "object" && !Array.isArray(event))
 							collectedJsonEvents.push(event as Record<string, unknown>);
 						if (collectedJsonEvents && collectedJsonEvents.length > 1000) {
@@ -651,6 +659,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				},
 			});
 		} finally {
+			// R10-5 (Wave 2B item 4): task-boundary flush — land every buffered
+			// agent-record line from this attempt's callbacks before terminal
+			// state is derived/read. Runs on completion, failure, AND throw, so
+			// the persisted events/output after a task always match what the
+			// unbuffered implementation would have written.
+			flushCrewAgentRecordBuffer(manifest, task.id);
 			if (timeoutHandle) clearTimeout(timeoutHandle);
 			// W2 fix — release the listener so it doesn't leak. {once:true}
 			// only auto-removes when the listener FIRES; if the timeout

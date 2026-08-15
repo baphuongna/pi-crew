@@ -732,17 +732,18 @@ export function __test__clearManifestCache(): void {
  * `fs.statSync`-based invalidation. It is a safe exit hatch for callers that
  * want a guaranteed cache drop (e.g. cleanup paths, end-of-run shutdown).
  *
- * Scope note: `flushPendingAtomicWrites()` flushes ALL pending coalesced
- * writes process-wide, not just those under `stateRoot`. The coalescer has no
- * per-stateRoot filter; flushing the whole queue is the simplest correct
- * behavior and matches the existing `flushPendingAtomicWrites()` contract
- * used by cleanupRuntime / process exit handlers.
+ * Scope note (R10-2): the flush is scoped to the run's `tasks.json` — the only
+ * file that (a) feeds this cache and (b) can have a pending coalesced write
+ * (`manifest.json` is only ever written through immediate/durable paths, and
+ * `agents.json`/`status.json` coalesced writes live outside this cache).
+ * Unrelated coalesced writes for OTHER runs stay pending on their own timers;
+ * unloading one run must not block on them.
  */
 export async function unloadRun(stateRoot: string): Promise<void> {
 	// Flush first so any in-flight buffered write lands on disk before we drop
 	// the cache entry. Otherwise a coalesced write could fire AFTER unloadRun
 	// returns, re-populate the cache from disk, and re-stale it.
-	flushPendingAtomicWrites();
+	flushPendingAtomicWrites(path.join(stateRoot, "tasks.json"));
 	// invalidateRunCache bumps the per-stateRoot generation counter so even if
 	// some in-process reader has a stale reference, the next cache lookup
 	// misses (generation mismatch) and re-reads from disk.

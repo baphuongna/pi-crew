@@ -34,7 +34,7 @@ import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts"
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
-import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
+import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
@@ -216,8 +216,18 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		}, 0);
 
 		const loadedConfig = loadConfig(extensionCtx.cwd);
-		const crewSettings = loadCrewSettings(extensionCtx.cwd);
-		applyCrewSettingsToConfig(loadedConfig.config, crewSettings);
+		// Wave 2B (P1 security): crew settings load as TIERS — the project-tier
+		// <cwd>/.pi/crew-settings.json is untrusted (a cloned repo can ship it)
+		// and now goes through sanitizeProjectConfig + tighten-only guard
+		// tiering instead of being applied raw over the sanitized config (the
+		// pre-2B `loadCrewSettings` + `applyCrewSettingsToConfig` bypass).
+		// See src/runtime/settings-store.ts for the tier pipeline + the
+		// scheduledJobs/schedulingEnabled boundary decision.
+		const crewSettingsTiers = loadCrewSettingsTiers(extensionCtx.cwd);
+		const settingsWarnings = applyCrewSettingsTiersToConfig(loadedConfig.config, crewSettingsTiers);
+		if (settingsWarnings.length > 0) {
+			(loadedConfig.warnings ??= []).push(...settingsWarnings);
+		}
 
 		// Start scheduler with event-based executor
 		const sessionId =
@@ -230,9 +240,15 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// Wire scheduler into handle-schedule.ts so handlers can add/list jobs.
 		// EXT-9: module-scoped setter (was globalThis[Symbol.for(...)]).
 		registerCrewScheduler(ctx.crewScheduler);
-		// Load scheduled jobs from settings if present
-		if (Array.isArray(crewSettings.scheduledJobs)) {
-			for (const job of crewSettings.scheduledJobs) {
+		// Load scheduled jobs from settings if present.
+		// BOUNDARY (Wave 2B ITEM 1.4): project-tier scheduledJobs stay honored —
+		// <cwd>/.pi/crew-settings.json is the persistence store for the user's
+		// own `crew schedule add/update/remove` commands (handle-schedule.ts),
+		// and jobs execute only while a session is open in this cwd. Residual
+		// risk (repo ships .pi/crew-settings.json with jobs) is documented in
+		// settings-store.ts; a user-tier opt-in gate is a flagged follow-up.
+		if (Array.isArray(crewSettingsTiers.merged.scheduledJobs)) {
+			for (const job of crewSettingsTiers.merged.scheduledJobs) {
 				try {
 					ctx.crewScheduler.add(job as ScheduledJob);
 				} catch {
