@@ -34,3 +34,40 @@ They are exposed through safe API operations (`read-mailbox`, `send-message`, `a
 - No automatic destructive cleanup of dirty worktrees.
 - No recursive team spawning by workers.
 - No mailbox mutation without locks and schema validation.
+
+---
+
+## Live-session runtime path — FROZEN EXPERIMENTAL (Phase 4, decision (a))
+
+> ADR: `docs/decisions/2026-08-15-runtime-convergence.md` (2026-08-15).
+> `runtime.mode=live-session` is a **permanently experimental** configuration.
+> It is frozen: no new features may be added without revisiting the ADR.
+
+The live-session path (`task-runner/live-executor.ts` →
+`live-session-runtime.ts`) delegates to the `@earendil-works/pi-coding-agent`
+SDK via `createAgentSession` (in-process). It is intentionally **divergent**
+from the supported child-process path (`task-runner/child-executor.ts`); a
+convergence attempt was assessed **RISKY (HIGH)** in refactor-plan.review.md
+§ROUND 4 P2 and rejected.
+
+### Gap matrix (sweep 3, 2026-08-13; re-confirmed 2026-08-15)
+
+| Concern | Child-process (supported) | Live-session (frozen) |
+|---|---|---|
+| Fallback execution | explicit multi-attempt loop over candidates | delegates to `createAgentSession`, single `modelFallbackMessage` |
+| Worker cap | `withWorkerSlot` global semaphore (`run-worker.ts`) | **bypassed** (zero references) |
+| Depth guard | enforced | **absent** (zero `depth` references) |
+| Progress persist | `state-helpers.ts` save paths | same `state-helpers.ts` save paths (already shared at executor layer) |
+| Tool filtering | restrictive `--tools` allowlist at spawn | permissive SDK `DefaultResourceLoader` (no per-extension allow/deny at handoff) |
+| Kill/abort | `killProcessTree` SIGTERM→3s→SIGKILL | `ac.abort()` + `session.abort?.()` |
+
+### Accepted divergences (frozen as-is)
+
+- Unconstrained fallback providers possible with `requireCredentials` set
+  (S19-3; F19-1 parser fix in Phase 5 made `modelFallback` effective, but the
+  single-message fallback report stays permissive by SDK design).
+- No global worker semaphore / depth guard on the live path.
+- Permissive tool surface by default.
+
+A warn-once startup notice is emitted on first live-session dispatch
+(`live-session.experimental`, severity warn).
