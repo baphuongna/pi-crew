@@ -1,3 +1,5 @@
+
+
 # pi-crew
 
 > ## ⚠️ IMPORTANT — Read before using
@@ -944,7 +946,7 @@ The watcher is the dev-loop companion to `check:bundle-staleness` (CI gate) — 
 cd pi-crew
 npm install          # dependencies
 npm test             # unit + integration tests (~6,500 tests)
-npm run test:critical # fast subset: 97 broker/UI tests in ~20s
+npm run test:critical # fast subset: 14 files / 97 tests in ~20s
 npm run typecheck    # tsc --noEmit
 npm run ci           # full CI-equivalent check
 npm pack --dry-run   # package verification
