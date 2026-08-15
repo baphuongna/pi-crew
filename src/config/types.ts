@@ -119,6 +119,10 @@ export interface CrewModelFallbackConfig {
 export interface CrewControlConfig {
 	enabled?: boolean;
 	needsAttentionAfterMs?: number;
+	/** Consecutive tool-failure threshold before a worker is flagged. Default 3 (applied at read site). */
+	consecutiveFailureThreshold?: number;
+	/** Minutes after which a running worker is flagged long-running. Default 10 (applied at read site). */
+	longRunningMinutes?: number;
 }
 
 export interface CrewWorktreeConfig {

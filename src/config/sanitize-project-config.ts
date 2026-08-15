@@ -1,92 +1,116 @@
+import { collectSensitiveConfigPaths } from "../schema/sensitive-config-paths.ts";
 import type { ConfigValidationResult, PiTeamsConfig } from "./types.ts";
+
+/**
+ * Phase 5.1 (ADR docs/decisions/2026-08-15-schema-driven-sanitize.md): the
+ * drop-list is derived from `sensitive: true` marks in the config schema
+ * (see src/schema/sensitive-config-paths.ts) instead of being hardcoded.
+ *
+ * Legacy shape preserved verbatim from the pre-Phase-5.1 implementation:
+ * - warning format: `${projectPath}: project-level sensitive config '<dotted>' is ignored; set it in user config to trust it explicitly`
+ * - warning order: top-level keys first (executeWorkers, asyncByDefault,
+ *   requireCleanWorktreeLeader), then sections runtime → autonomous →
+ *   worktree → otlp → agents → tools; newly-marked sections (policy) follow
+ *   in schema order. Within a section, keys follow schema property order.
+ * - empty-object collapse: a section whose defined keys were all dropped
+ *   becomes `undefined`.
+ * - worktree/otlp redact via `{ ...section, key: undefined }` (the dropped
+ *   key remains as an own `undefined` key) while other sections `delete` it —
+ *   pinned by config-sanitize-merge.test.ts.
+ * - runtime.requirePlanApproval is NOT schema-marked: it keeps the legacy
+ *   conditional drop (only when `=== false`) as an explicit hardcoded
+ *   special-case below (ADR "requirePlanApproval exception").
+ */
 
 function projectOverrideWarning(projectPath: string, dottedPath: string): string {
 	return `${projectPath}: project-level sensitive config '${dottedPath}' is ignored; set it in user config to trust it explicitly`;
 }
 
+/** Legacy top-level warning order (kept byte-identical to the pre-5.1 code). */
+const TOP_LEVEL_LEGACY_ORDER = ["executeWorkers", "asyncByDefault", "requireCleanWorktreeLeader"] as const;
+
+/** Legacy section processing order; unlisted sections (e.g. policy) follow in schema order. */
+const SECTION_LEGACY_ORDER = ["runtime", "autonomous", "worktree", "otlp", "agents", "tools"] as const;
+
+/** Sections where the pre-5.1 code always replaced `sanitized.<section>` with a
+ * shallow copy, even when nothing was dropped (runtime/autonomous). */
+const LEGACY_ALWAYS_COPY_SECTIONS = new Set<string>(["runtime", "autonomous"]);
+
+/** Sections redacting via assignment (`key: undefined`, own key remains) instead
+ * of `delete` — legacy quirk pinned by config-sanitize-merge.test.ts. */
+const ASSIGN_REDACT_SECTIONS = new Set<string>(["worktree", "otlp"]);
+
+function groupPathsBySection(dottedPaths: string[]): Map<string, string[]> {
+	const groups = new Map<string, string[]>();
+	for (const dotted of dottedPaths) {
+		const separator = dotted.indexOf(".");
+		const section = separator === -1 ? "" : dotted.slice(0, separator);
+		const key = separator === -1 ? dotted : dotted.slice(separator + 1);
+		const bucket = groups.get(section);
+		if (bucket) bucket.push(key);
+		else groups.set(section, [key]);
+	}
+	return groups;
+}
+
+function sectionProcessingOrder(sections: string[]): string[] {
+	return [...sections].sort((a, b) => {
+		const rankA = (SECTION_LEGACY_ORDER as readonly string[]).indexOf(a);
+		const rankB = (SECTION_LEGACY_ORDER as readonly string[]).indexOf(b);
+		// Unlisted sections (new sensitive marks) sort after legacy ones,
+		// preserving their schema-walk order (stable sort).
+		if (rankA === -1 && rankB === -1) return 0;
+		if (rankA === -1) return 1;
+		if (rankB === -1) return -1;
+		return rankA - rankB;
+	});
+}
+
 export function sanitizeProjectConfig(projectPath: string, userConfig: PiTeamsConfig, config: PiTeamsConfig): ConfigValidationResult {
 	const sanitized: PiTeamsConfig = { ...config };
 	const warnings: string[] = [];
-	const dropTopLevel = (key: keyof PiTeamsConfig): void => {
-		if (config[key] === undefined) return;
-		delete sanitized[key];
-		warnings.push(projectOverrideWarning(projectPath, String(key)));
+	const groups = groupPathsBySection(collectSensitiveConfigPaths());
+
+	const dropTopLevel = (key: string): void => {
+		if ((config as Record<string, unknown>)[key] === undefined) return;
+		delete (sanitized as Record<string, unknown>)[key];
+		warnings.push(projectOverrideWarning(projectPath, key));
 	};
-	dropTopLevel("executeWorkers");
-	dropTopLevel("asyncByDefault");
-	dropTopLevel("requireCleanWorktreeLeader");
-	if (config.runtime) {
-		const runtime = { ...config.runtime };
-		for (const key of [
-			"mode",
-			"preferLiveSession",
-			"allowChildProcessFallback",
-			"inheritContext",
-			"isolationPolicy",
-			"agentExtensions",
-		] as const) {
-			if (runtime[key] !== undefined) {
-				delete runtime[key];
-				warnings.push(projectOverrideWarning(projectPath, `runtime.${key}`));
-			}
+	const topLevelKeys = groups.get("") ?? [];
+	for (const key of [...topLevelKeys].sort((a, b) => {
+		const rankA = (TOP_LEVEL_LEGACY_ORDER as readonly string[]).indexOf(a);
+		const rankB = (TOP_LEVEL_LEGACY_ORDER as readonly string[]).indexOf(b);
+		if (rankA === -1 && rankB === -1) return 0;
+		if (rankA === -1) return 1;
+		if (rankB === -1) return -1;
+		return rankA - rankB;
+	})) {
+		dropTopLevel(key);
+	}
+
+	const sanitizedRecord = sanitized as Record<string, unknown>;
+	const configRecord = config as Record<string, unknown>;
+	for (const section of sectionProcessingOrder([...groups.keys()].filter((s) => s !== ""))) {
+		const sectionValue = configRecord[section];
+		if (sectionValue === undefined || typeof sectionValue !== "object") continue;
+		const sectionConfig = { ...(sectionValue as Record<string, unknown>) };
+		let changed = false;
+		for (const key of groups.get(section) ?? []) {
+			if (sectionConfig[key] === undefined) continue;
+			if (ASSIGN_REDACT_SECTIONS.has(section)) sectionConfig[key] = undefined;
+			else delete sectionConfig[key];
+			warnings.push(projectOverrideWarning(projectPath, `${section}.${key}`));
+			changed = true;
 		}
-		if (runtime.requirePlanApproval === false) {
-			delete runtime.requirePlanApproval;
+		// Known exception (ADR): requirePlanApproval is only dropped when the
+		// project explicitly disables plan approval (`=== false`).
+		if (section === "runtime" && sectionConfig.requirePlanApproval === false) {
+			delete sectionConfig.requirePlanApproval;
 			warnings.push(projectOverrideWarning(projectPath, "runtime.requirePlanApproval"));
+			changed = true;
 		}
-		sanitized.runtime = Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
-	}
-	if (config.autonomous) {
-		const autonomous = { ...config.autonomous };
-		for (const key of ["profile", "enabled", "injectPolicy", "preferAsyncForLongTasks", "allowWorktreeSuggestion"] as const) {
-			if (autonomous[key] !== undefined) {
-				delete autonomous[key];
-				warnings.push(projectOverrideWarning(projectPath, `autonomous.${key}`));
-			}
-		}
-		sanitized.autonomous = Object.values(autonomous).some((entry) => entry !== undefined) ? autonomous : undefined;
-	}
-	if (config.worktree?.setupHook !== undefined) {
-		sanitized.worktree = { ...config.worktree, setupHook: undefined };
-		if (!Object.values(sanitized.worktree).some((entry) => entry !== undefined)) sanitized.worktree = undefined;
-		warnings.push(projectOverrideWarning(projectPath, "worktree.setupHook"));
-	}
-	if (config.otlp?.headers !== undefined) {
-		sanitized.otlp = { ...config.otlp, headers: undefined };
-		if (!Object.values(sanitized.otlp).some((entry) => entry !== undefined)) sanitized.otlp = undefined;
-		warnings.push(projectOverrideWarning(projectPath, "otlp.headers"));
-	}
-	// FIX: Block project config from setting otlp.endpoint — it controls where
-	// OTLP headers (potentially containing credentials) are sent.
-	if (config.otlp?.endpoint !== undefined) {
-		if (!sanitized.otlp) sanitized.otlp = { ...config.otlp, endpoint: undefined };
-		else sanitized.otlp = { ...sanitized.otlp, endpoint: undefined };
-		if (!Object.values(sanitized.otlp).some((entry) => entry !== undefined)) sanitized.otlp = undefined;
-		warnings.push(projectOverrideWarning(projectPath, "otlp.endpoint"));
-	}
-	if (config.agents?.disableBuiltins !== undefined || config.agents?.overrides !== undefined) {
-		const agents = { ...config.agents };
-		if (agents.disableBuiltins !== undefined) {
-			delete agents.disableBuiltins;
-			warnings.push(projectOverrideWarning(projectPath, "agents.disableBuiltins"));
-		}
-		if (agents.overrides !== undefined) {
-			delete agents.overrides;
-			warnings.push(projectOverrideWarning(projectPath, "agents.overrides"));
-		}
-		sanitized.agents = Object.values(agents).some((entry) => entry !== undefined) ? agents : undefined;
-	}
-	if (config.tools?.enableSteer !== undefined || config.tools?.terminateOnForeground !== undefined) {
-		const tools = { ...config.tools };
-		if (tools.enableSteer !== undefined) {
-			delete tools.enableSteer;
-			warnings.push(projectOverrideWarning(projectPath, "tools.enableSteer"));
-		}
-		if (tools.terminateOnForeground !== undefined) {
-			delete tools.terminateOnForeground;
-			warnings.push(projectOverrideWarning(projectPath, "tools.terminateOnForeground"));
-		}
-		sanitized.tools = Object.values(tools).some((entry) => entry !== undefined) ? tools : undefined;
+		if (!changed && !LEGACY_ALWAYS_COPY_SECTIONS.has(section)) continue;
+		sanitizedRecord[section] = Object.values(sectionConfig).some((entry) => entry !== undefined) ? sectionConfig : undefined;
 	}
 	return { config: sanitized, warnings };
 }

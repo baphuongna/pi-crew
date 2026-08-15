@@ -267,6 +267,24 @@ function parseIsolationPolicy(value: unknown): CrewRuntimeConfig["isolationPolic
 	};
 }
 
+/**
+ * F19-1 (Round 19 parity): runtime.modelFallback was declared in types.ts and the
+ * schema (PiTeamsModelFallbackConfigSchema) but parseRuntimeConfig never emitted
+ * it, so user config was silently dropped. Mirrors the schema field-for-field.
+ */
+function parseModelFallbackConfig(value: unknown): CrewRuntimeConfig["modelFallback"] {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const modelFallback: NonNullable<CrewRuntimeConfig["modelFallback"]> = {
+		maxAutoFallbacks: parseWithSchema(Type.Integer({ minimum: 0 }), obj.maxAutoFallbacks),
+		order: parseWithSchema(Type.Union([Type.Literal("parentFirst"), Type.Literal("asIs")]), obj.order),
+		requireCredentials: parseWithSchema(Type.Boolean(), obj.requireCredentials),
+		quotaAwareOrdering: parseWithSchema(Type.Boolean(), obj.quotaAwareOrdering),
+		defaultSubagentModel: parseWithSchema(Type.String({ minLength: 1 }), obj.defaultSubagentModel),
+	};
+	return Object.values(modelFallback).some((entry) => entry !== undefined) ? modelFallback : undefined;
+}
+
 function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return { inheritContext: true } as CrewRuntimeConfig;
@@ -306,6 +324,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
 		agentExtensions: parseStringList(obj.agentExtensions),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
+		modelFallback: parseModelFallbackConfig(obj.modelFallback),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
 }
@@ -316,6 +335,10 @@ function parseControlConfig(value: unknown): CrewControlConfig | undefined {
 	const control: CrewControlConfig = {
 		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
 		needsAttentionAfterMs: parsePositiveInteger(obj.needsAttentionAfterMs),
+		// F19-3 (Round 19 parity): read at agent-control.ts with defaults 3/10 —
+		// emit undefined when unset so the read-site defaults stay authoritative.
+		consecutiveFailureThreshold: parsePositiveInteger(obj.consecutiveFailureThreshold),
+		longRunningMinutes: parsePositiveInteger(obj.longRunningMinutes),
 	};
 	return Object.values(control).some((entry) => entry !== undefined) ? control : undefined;
 }
