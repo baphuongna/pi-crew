@@ -3,7 +3,7 @@ import { appendMailboxMessage, findMailboxMessageByRequestId, readDeliveryState 
 import { appendEvent } from "../state/event-log/event-log.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { aggregateTaskOutputs } from "./task-output-context.ts";
+import { aggregateTaskOutputs, type ResultArtifactReadCache } from "./task-output-context.ts";
 
 export type CrewGroupJoinMode = "off" | "group" | "smart";
 
@@ -51,6 +51,11 @@ export function deliverGroupJoin(input: {
 	batch: TeamTaskState[];
 	allTasks: TeamTaskState[];
 	partial?: boolean;
+	/** R10-1: optional per-run result-artifact read cache. The closeout
+	 *  aggregates the same settled batch for the batch-summary artifact
+	 *  immediately before this call — passing that cache here turns the
+	 *  group-join aggregation into cache hits (byte-identical output). */
+	cache?: ResultArtifactReadCache;
 }): CrewGroupJoinDelivery | undefined {
 	if (!shouldGroupJoin(input.mode, input.batch)) return undefined;
 	const taskIds = input.batch.map((task) => task.id);
@@ -63,7 +68,7 @@ export function deliverGroupJoin(input: {
 	const remaining = latest.filter((task) => task.status === "queued" || task.status === "running").map((task) => task.id);
 	const partial = input.partial ?? remaining.length > 0;
 	const batchId = batchIdFor(input.manifest.runId, taskIds);
-	const summary = aggregateTaskOutputs(latest, input.manifest);
+	const summary = aggregateTaskOutputs(latest, input.manifest, input.cache);
 	const requestId = requestIdFor(input.manifest.runId, batchId, partial);
 	const existingMailbox = findMailboxMessageByRequestId(input.manifest, requestId);
 	const existingStatus = existingMailbox

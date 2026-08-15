@@ -177,15 +177,6 @@ function sameStamps(a: SnapshotStamps, b: SnapshotStamps): boolean {
 	);
 }
 
-function readTasks(tasksPath: string): TeamTaskState[] {
-	try {
-		const parsed = JSON.parse(fs.readFileSync(tasksPath, "utf-8")) as unknown;
-		return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
-	} catch {
-		throw new Error(`Failed to parse tasks at ${tasksPath}`);
-	}
-}
-
 /** Tail-read JSONL lines from a file, returning parsed objects (limited). */
 function tailJsonlLines<T>(filePath: string, limit: number, parse: (line: string) => T | undefined): T[] {
 	if (limit <= 0) return [];
@@ -817,7 +808,12 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		let tasks: TeamTaskState[];
 		let agents: CrewAgentRecord[];
 		try {
-			tasks = readTasks(loaded.manifest.tasksPath);
+			// R10-4 (docs/refactor-plan.review.md §ROUND 10): sync/async parity.
+			// loadRunManifestById already returns tasks validated against the
+			// current tasks.json (mtime+size+generation check in state-store),
+			// so the old readTasks() re-read only doubled tasks.json I/O per
+			// sync rebuild. buildAsync() has always used loaded.tasks.
+			tasks = loaded.tasks;
 			agents = readCrewAgents(loaded.manifest);
 		} catch {
 			if (previous) return previous;

@@ -34,7 +34,7 @@ import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-t
 import type { PendingUnit, SchedulerContext, SchedulerDecision } from "./scheduler-context.ts";
 import { buildTaskGraphIndex, refreshTaskGraphQueues } from "./scheduling/task-graph-scheduler.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
-import { aggregateTaskOutputs } from "./task-output-context.ts";
+import { aggregateTaskOutputs, createResultArtifactReadCache } from "./task-output-context.ts";
 import { clearStablePrefixCache } from "./task-runner/prompt-builder.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { clearTrackedTaskUsage } from "./usage-tracker.ts";
@@ -870,6 +870,14 @@ async function executeTeamRunCore(
 		settledMerge: null,
 	};
 
+	// R10-1: per-run result-artifact read cache. The batch closeout below
+	// aggregates every settled batch TWICE (batch-summary artifact + group-join
+	// delivery) — the second aggregation re-reads each `results/<taskId>.txt`
+	// from disk for no benefit. Keyed by artifact path + descriptor identity
+	// (sizeBytes|contentHash), so a retry that rewrites the artifact misses and
+	// re-reads. Passed to both closeout call sites; see task-output-context.ts.
+	const resultReadCache = createResultArtifactReadCache();
+
 	// CORE-1: single drain point — all early returns + normal exit settle pendingUnits via finally block.
 	try {
 		while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
@@ -1058,13 +1066,16 @@ async function executeTeamRunCore(
 				kind: "summary",
 				relativePath: `batches/${batchSummarySlug(settledTaskIds)}.md`,
 				producer: "team-runner",
-				content: aggregateTaskOutputs(completedBatch, manifest),
+				content: aggregateTaskOutputs(completedBatch, manifest, resultReadCache),
 			});
 			const groupDelivery = deliverGroupJoin({
 				manifest,
 				mode: resolveGroupJoinMode(input.runtimeConfig),
 				batch: completedBatch,
 				allTasks: tasks,
+				// R10-1: reuse the batch-summary reads for the group-join body
+				// (same settled batch → same artifacts → cache hits, zero disk ops).
+				cache: resultReadCache,
 			});
 			manifest = {
 				...manifest,

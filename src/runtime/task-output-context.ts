@@ -570,12 +570,143 @@ export function writeTaskInputsArtifact(
 	});
 }
 
-export function aggregateTaskOutputs(tasks: TeamTaskState[], manifest?: TeamRunManifest): string {
+/**
+ * R10-1: outcome of one aggregated result-artifact read (the pair of disk
+ * ops {@link aggregateTaskOutputs} performs per task: readIfSmall +
+ * containedExists). Cached as a unit so a cache hit replaces BOTH ops.
+ */
+export interface ResultArtifactReadOutcome {
+	/** Truncated body from readIfSmall; undefined when the read failed/missing. */
+	body: string | undefined;
+	/** containedExists() result for the same artifact path. */
+	exists: boolean;
+}
+
+/**
+ * R10-1: per-run memoization for result-artifact reads inside
+ * {@link aggregateTaskOutputs} (batch summary + group-join both aggregate the
+ * SAME settled batch every closeout — the second aggregation re-reads each
+ * `results/<taskId>.txt` from disk for no benefit).
+ *
+ * Cache key = artifact path + descriptor identity (`sizeBytes|contentHash`).
+ * writeArtifact computes both on every write (STATE-9: in-memory,
+ * post-redaction), so a retry that rewrites `results/<taskId>.txt` produces a
+ * NEW descriptor → new key → automatic miss. Descriptors missing BOTH fields
+ * bypass the cache entirely (cannot distinguish a rewrite from unchanged
+ * content). "Missing" outcomes are cached too (result artifacts use the
+ * default `retention: "run"` and are not pruned mid-run, so a miss is stable
+ * within a run). Path is used as-is (producer/taskId-keyed, stable absolute
+ * path from the manifest — no per-lookup realpath needed).
+ *
+ * Lifetime: one run (closure-level in executeTeamRunCore) — no cross-run
+ * leakage, no invalidation beyond the descriptor-identity key.
+ *
+ * Env bypass: `PI_CREW_DISABLE_RESULT_READ_CACHE=1` (read ONCE at creation)
+ * returns a cache whose lookups always miss — control mode for benches/tests
+ * that need the uncached behavior while still routing through the counting
+ * wrapper below.
+ */
+export interface ResultArtifactReadCache {
+	/** Cached outcome for the artifact identity, or undefined on miss/bypass. */
+	lookup(descriptor: ArtifactDescriptor): ResultArtifactReadOutcome | undefined;
+	/** Store an outcome. No-op when the descriptor lacks identity fields. */
+	store(descriptor: ArtifactDescriptor, outcome: ResultArtifactReadOutcome): void;
+}
+
+/**
+ * R10-1 test/bench counters for the result-artifact read path. Track disk ops
+ * ACTUALLY ISSUED through {@link readTaskResultArtifact} (incremented in the
+ * miss branch right before the real readIfSmall/containedExists calls) plus
+ * cache hits/misses. The disabled-control mode still routes through the
+ * counting wrapper (map simply not consulted) so cached-vs-uncached
+ * comparisons are honest.
+ */
+export interface ResultArtifactReadStats {
+	readFile: number;
+	exists: number;
+	hits: number;
+	misses: number;
+	reset(): void;
+}
+
+export const __test__resultReadStats: ResultArtifactReadStats = {
+	readFile: 0,
+	exists: 0,
+	hits: 0,
+	misses: 0,
+	reset() {
+		this.readFile = 0;
+		this.exists = 0;
+		this.hits = 0;
+		this.misses = 0;
+	},
+};
+
+function resultArtifactCacheKey(descriptor: ArtifactDescriptor): string | undefined {
+	if (descriptor.sizeBytes === undefined && descriptor.contentHash === undefined) return undefined;
+	return `${descriptor.path}|${descriptor.sizeBytes ?? ""}|${descriptor.contentHash ?? ""}`;
+}
+
+export function createResultArtifactReadCache(): ResultArtifactReadCache {
+	// Read once at creation — the bypass decision is fixed for the cache's
+	// (per-run) lifetime, matching PI_CREW_USE_BUNDLE-style one-shot env reads.
+	if (process.env.PI_CREW_DISABLE_RESULT_READ_CACHE === "1") {
+		return {
+			lookup: () => undefined,
+			store: () => undefined,
+		};
+	}
+	const entries = new Map<string, ResultArtifactReadOutcome>();
+	return {
+		lookup(descriptor) {
+			const key = resultArtifactCacheKey(descriptor);
+			if (key === undefined) return undefined;
+			const hit = entries.get(key);
+			if (hit === undefined) {
+				__test__resultReadStats.misses += 1;
+				return undefined;
+			}
+			__test__resultReadStats.hits += 1;
+			return hit;
+		},
+		store(descriptor, outcome) {
+			const key = resultArtifactCacheKey(descriptor);
+			if (key !== undefined) entries.set(key, outcome);
+		},
+	};
+}
+
+/**
+ * Single read seam for {@link aggregateTaskOutputs}. Without a cache this is
+ * byte-for-byte the old behavior: readIfSmall + containedExists issued in the
+ * same order. With a cache, a hit returns the memoized pair (zero disk ops);
+ * a miss issues the same disk ops as the uncached path, counts them, and
+ * memoizes the outcome.
+ */
+function readTaskResultArtifact(
+	descriptor: ArtifactDescriptor,
+	baseDir: string | undefined,
+	cache: ResultArtifactReadCache | undefined,
+): ResultArtifactReadOutcome {
+	const cached = cache?.lookup(descriptor);
+	if (cached !== undefined) return cached;
+	__test__resultReadStats.readFile += 1;
+	__test__resultReadStats.exists += 1;
+	const outcome: ResultArtifactReadOutcome = {
+		body: readIfSmall(descriptor.path, baseDir),
+		exists: containedExists(descriptor.path, baseDir),
+	};
+	cache?.store(descriptor, outcome);
+	return outcome;
+}
+
+export function aggregateTaskOutputs(tasks: TeamTaskState[], manifest?: TeamRunManifest, cache?: ResultArtifactReadCache): string {
 	return tasks
 		.map((task, index) => {
-			const body = task.resultArtifact ? readIfSmall(task.resultArtifact.path, manifest?.artifactsRoot) : undefined;
+			const read = task.resultArtifact ? readTaskResultArtifact(task.resultArtifact, manifest?.artifactsRoot, cache) : undefined;
+			const body = read?.body;
 			const hasBody = Boolean(body?.trim());
-			const expectedMissing = task.resultArtifact && !containedExists(task.resultArtifact.path, manifest?.artifactsRoot);
+			const expectedMissing = read ? !read.exists : undefined;
 			const status =
 				task.status === "skipped"
 					? "SKIPPED"
