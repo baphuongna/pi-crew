@@ -8,23 +8,18 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import { sleep, sleepSync } from "../../utils/sleep.ts";
 import { atomicWriteFile } from "../atomic-write.ts";
+import { applyCompactionUnlocked, needsRotation, prepareCompaction, rotateEventLogUnlocked } from "./event-log-rotation.ts";
 import {
-	applyCompactionUnlocked,
-	needsRotation,
-	prepareCompaction,
-	rotateEventLogUnlocked,
-} from "./event-log-rotation.ts";
-import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
-import {
-	MAX_SEQUENCE_CACHE_ENTRIES,
 	advanceSequenceCounter,
 	evictOldestSequenceCacheEntries,
+	MAX_SEQUENCE_CACHE_ENTRIES,
 	persistSequenceMonotonic,
 	reserveSequence,
 	reserveSequenceUnderLockAsync,
 	seqCounters,
 	sequenceCache,
 } from "./sequence-cache.ts";
+import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
 
 export type TeamEventProvenance = "live_worker" | "test" | "healthcheck" | "replay" | "api" | "background" | "team_runner";
 export type TeamWatcherAction = "act" | "observe" | "ignore";
@@ -218,7 +213,6 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 		}
 	}
 }
-
 
 export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" | "taskId" | "data">): string {
 	return createHash("sha256")
@@ -1263,7 +1257,6 @@ process.on("uncaughtException", (error) => {
 	// Re-throw to preserve default uncaught exception behavior (process exit)
 	throw error;
 });
-
 
 export function dedupeTerminalEvents(events: TeamEvent[]): TeamEvent[] {
 	const seen = new Set<string>();

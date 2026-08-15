@@ -598,7 +598,7 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
  */
 export function getCrewEnv(name: string): string | undefined {
 	const spec = CREW_ENV_VARS[name];
-	if (!spec || !spec.mirror || spec.mirrorPrecedence === "or") {
+	if (!spec?.mirror || spec.mirrorPrecedence === "or") {
 		return process.env[name];
 	}
 	const crewName = name.startsWith("PI_TEAMS_") ? spec.mirror : name;

@@ -6,12 +6,11 @@ import { loadRunManifestById } from "../../../state/stores/state-store.ts";
 import { requestRenderTarget } from "../../../ui/pi-ui-compat.ts";
 import { suggestRunIds, suggestTaskIds } from "../../command-completions.ts";
 import { commandText, notifyCommandResult } from "../command-utils.ts";
-import { handleTeamTool, openTeamDashboard, teamCommandContext, ui } from "./shared.ts";
 import { openTranscriptViewer, selectAgentTask } from "../viewers.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
+import { handleTeamTool, openTeamDashboard, teamCommandContext, ui } from "./shared.ts";
 
 export function registerDashboardCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
-
 	pi.registerCommand("team-result", {
 		description: "Open a pi-crew agent result viewer: <runId> [taskId]",
 		getArgumentCompletions: async (argumentPrefix: string) => {

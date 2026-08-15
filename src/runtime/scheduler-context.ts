@@ -5,16 +5,17 @@
  * CORE-4 scheduler context, resolves RT-15). Pure type motion: SettledUnit /
  * PendingUnit / SchedulerContext / SchedulerDecision moved verbatim.
  */
+
+import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import type { BatchConcurrencyDecision } from "./scheduling/concurrency.ts";
 import type { TaskGraphIndex, TaskGraphSchedulerSnapshot } from "./scheduling/task-graph-scheduler.ts";
-import type { WorkflowStateMachine } from "./workflow-state.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 // ExecuteTeamRunInput is defined in team-runner.ts — import type ONLY so the
 // type-level team-runner↔scheduler-context reference is erased at runtime
 // (no runtime import cycle; team-runner.ts imports these types back).
 import type { ExecuteTeamRunInput } from "./team-runner.ts";
+import type { WorkflowStateMachine } from "./workflow-state.ts";
 
 /** RT-12: result shape from a settled dispatch unit (pre-created wrapper). */
 export type SettledUnit = {

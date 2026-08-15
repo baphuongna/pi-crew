@@ -5,11 +5,11 @@ import { atomicWriteFile } from "../state/atomic-write.ts";
 import { withFileLockSync } from "../state/coordination/locks.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, projectPiRoot } from "../utils/paths.ts";
+import { mergeConfig } from "./config-merge.ts";
+import { parseConfig, parseConfigWithWarnings } from "./config-validation.ts";
 import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "./defaults.ts";
 import { getCrewEnv } from "./env-vars.ts";
-import { mergeConfig } from "./config-merge.ts";
 import { sanitizeProjectConfig } from "./sanitize-project-config.ts";
-import { parseConfig, parseConfigWithWarnings } from "./config-validation.ts";
 
 // 2.9: interface types extracted to ./types.ts; re-export for back-compat.
 export type {
@@ -40,6 +40,7 @@ export type {
 	SavedPiTeamsConfig,
 	UpdateConfigOptions,
 } from "./types.ts";
+
 import type {
 	CrewBrokerConfig,
 	LoadedPiTeamsConfig,
@@ -49,10 +50,10 @@ import type {
 	UpdateConfigOptions,
 } from "./types.ts";
 
+export { __test__mergeConfig } from "./config-merge.ts";
 // Phase 2.2 split: config.ts is the loader + public re-export shim.
 // Public surface moved to sub-modules is re-exported here unchanged.
 export { asRecord, effectiveAutonomousConfig } from "./config-validation.ts";
-export { __test__mergeConfig } from "./config-merge.ts";
 export { __test__sanitizeProjectConfig } from "./sanitize-project-config.ts";
 export { parseConfig, parseConfigWithWarnings };
 

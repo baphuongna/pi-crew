@@ -235,4 +235,3 @@ export async function loadTasksWithRecoveryAsync(tasksPath: string, eventsPath: 
 	}
 	return migrateTasksFile(parsed, runId);
 }
-

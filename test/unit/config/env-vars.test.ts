@@ -393,10 +393,10 @@ test("unregistered names fall back to raw process.env reads", () => {
 });
 
 test("registry metadata: mirror pairs and defaults are declared", () => {
-	assert.equal(CREW_ENV_VARS["PI_CREW_HOME"].mirror, "PI_TEAMS_HOME");
-	assert.equal(CREW_ENV_VARS["PI_CREW_HOME"].mirrorPrecedence, "teams");
-	assert.equal(CREW_ENV_VARS["PI_CREW_VERIFICATION_WORKTREE"].mirrorPrecedence, "crew");
-	assert.equal(CREW_ENV_VARS["PI_CREW_EXECUTE_WORKERS"].mirrorPrecedence, "or");
-	assert.equal(CREW_ENV_VARS["PI_CREW_DWF_SCRIPT_TIMEOUT_MS"].parser, "int");
-	assert.equal(CREW_ENV_VARS["PI_CREW_MAX_RUN_MS"].default, 7_200_000);
+	assert.equal(CREW_ENV_VARS.PI_CREW_HOME.mirror, "PI_TEAMS_HOME");
+	assert.equal(CREW_ENV_VARS.PI_CREW_HOME.mirrorPrecedence, "teams");
+	assert.equal(CREW_ENV_VARS.PI_CREW_VERIFICATION_WORKTREE.mirrorPrecedence, "crew");
+	assert.equal(CREW_ENV_VARS.PI_CREW_EXECUTE_WORKERS.mirrorPrecedence, "or");
+	assert.equal(CREW_ENV_VARS.PI_CREW_DWF_SCRIPT_TIMEOUT_MS.parser, "int");
+	assert.equal(CREW_ENV_VARS.PI_CREW_MAX_RUN_MS.default, 7_200_000);
 });

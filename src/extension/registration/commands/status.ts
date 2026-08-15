@@ -2,11 +2,10 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { suggestRunIds } from "../../command-completions.ts";
 import { piTeamsHelp } from "../../help.ts";
 import { commandText, notifyCommandResult } from "../command-utils.ts";
-import { handleTeamTool, teamCommandContext } from "./shared.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
+import { handleTeamTool, teamCommandContext } from "./shared.ts";
 
 export function registerStatusCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
-
 	pi.registerCommand("teams", {
 		description: "List pi-crew teams, workflows, and agents",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
@@ -58,5 +57,4 @@ export function registerStatusCommands(pi: ExtensionAPI, deps: RegisterTeamComma
 			await notifyCommandResult(ctx, piTeamsHelp());
 		},
 	});
-
 }

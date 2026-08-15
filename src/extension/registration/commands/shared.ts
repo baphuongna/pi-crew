@@ -1,8 +1,6 @@
+import * as path from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../../config/config.ts";
-// Lazy-loaded: team-tool.ts pulls in entire runtime chain (1.4s+).
-import type { handleTeamTool as HandleTeamToolFn } from "../../team-tool.ts";
-import * as path from "node:path";
 import { DEFAULT_UI } from "../../../config/defaults.ts";
 import type { MetricRegistry } from "../../../observability/metric-registry.ts";
 import { listRecentDiagnostic } from "../../../runtime/diagnostic-export.ts";
@@ -30,10 +28,12 @@ import {
 import type { RunDashboardSelection, RunDashboard as RunDashboardType } from "../../../ui/run-dashboard.ts";
 import type { createRunSnapshotCache } from "../../../ui/run-snapshot-cache.ts";
 import type { DurableTextViewer as DurableTextViewerType } from "../../../ui/transcript-viewer.ts";
-import { commandText, notifyCommandResult } from "../command-utils.ts";
 import { withSessionId } from "../../team-tool/context.ts";
+// Lazy-loaded: team-tool.ts pulls in entire runtime chain (1.4s+).
+import type { handleTeamTool as HandleTeamToolFn } from "../../team-tool.ts";
+import { commandText, notifyCommandResult } from "../command-utils.ts";
 import type { UiState } from "../ui.ts";
-import { openLiveConversation, openTranscriptViewer, selectAgentTask } from "../viewers.ts";
+import { openLiveConversation, openTranscriptViewer } from "../viewers.ts";
 
 let _cachedHandleTeamTool: typeof HandleTeamToolFn | undefined;
 let _handleTeamToolPromise: Promise<typeof HandleTeamToolFn> | undefined;
@@ -555,4 +555,3 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 	}
 	if (deps.uiState) deps.uiState.dashboardOpen = false;
 }
-

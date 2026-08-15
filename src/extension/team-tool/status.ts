@@ -75,7 +75,7 @@ export function transitionStaleAsyncUnderLock(
 		| undefined;
 	withRunLockSync(loaded.manifest, () => {
 		const fresh = loadRunManifestById(runCwd, runId); // NOTE: inside withRunLockSync - consistent read
-		if (!fresh || !fresh.manifest.async || !isActiveRunStatus(fresh.manifest.status)) return;
+		if (!fresh?.manifest.async || !isActiveRunStatus(fresh.manifest.status)) return;
 		const freshLiveness = checkProcessLiveness(fresh.manifest.async.pid);
 		if (freshLiveness.alive) return;
 		const failed = updateRunStatus(fresh.manifest, "failed", `Async process stale: ${freshLiveness.detail}`);

@@ -1,16 +1,15 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { atomicWriteFile } from "../../../state/atomic-write.ts";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../../skills/skill-templates.ts";
+import { atomicWriteFile } from "../../../state/atomic-write.ts";
 import { suggestRunIds } from "../../command-completions.ts";
 import { handleTeamManagerCommand } from "../../team-manager-command.ts";
 import { commandText, notifyCommandResult, parseScalar, pushUnset, setNestedConfig } from "../command-utils.ts";
-import { handleTeamTool, openTeamSettingsOverlay, teamCommandContext } from "./shared.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
+import { handleTeamTool, openTeamSettingsOverlay, teamCommandContext } from "./shared.ts";
 
 export function registerManageCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
-
 	pi.registerCommand("team-prune", {
 		description: "Prune old finished pi-crew runs, keeping the newest N",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {

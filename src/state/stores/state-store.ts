@@ -23,12 +23,8 @@ import { appendEvent } from "../event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../types.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
-import {
-	extractTaskArray,
-	loadTasksWithRecovery,
-	loadTasksWithRecoveryAsync,
-	quarantineCorruptFile,
-} from "./manifest-io.ts";
+import { extractTaskArray, loadTasksWithRecovery, loadTasksWithRecoveryAsync, quarantineCorruptFile } from "./manifest-io.ts";
+
 export { loadManifestWithRecovery, loadTasksWithRecovery } from "./manifest-io.ts";
 
 /**

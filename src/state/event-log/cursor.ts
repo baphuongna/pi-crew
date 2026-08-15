@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../../utils/incremental-reader.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { currentGeneration } from "./event-log-rotation.ts";
 import type { TeamEvent } from "./event-log.ts";
+import { currentGeneration } from "./event-log-rotation.ts";
 
 // --- R18 / R16-B1 effect 2 (Phase 3.6): archive-tail readers ----------------
 // Rotation stranding: a sync append that was mid-appendFileSync holding an fd

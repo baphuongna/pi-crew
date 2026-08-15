@@ -6,8 +6,8 @@
  * verbatim.
  */
 import { appendEventAsync } from "../state/event-log/event-log.ts";
-import { transitionPhase, type PhaseGuardContext } from "./workflow-state.ts";
 import type { SchedulerContext } from "./scheduler-context.ts";
+import { type PhaseGuardContext, transitionPhase } from "./workflow-state.ts";
 
 /**
  * CORE-4 extraction 6: advance workflow phases whose tasks are all in

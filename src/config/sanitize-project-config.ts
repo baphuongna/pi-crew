@@ -1,7 +1,4 @@
-import type {
-	ConfigValidationResult,
-	PiTeamsConfig,
-} from "./types.ts";
+import type { ConfigValidationResult, PiTeamsConfig } from "./types.ts";
 
 function projectOverrideWarning(projectPath: string, dottedPath: string): string {
 	return `${projectPath}: project-level sensitive config '${dottedPath}' is ignored; set it in user config to trust it explicitly`;

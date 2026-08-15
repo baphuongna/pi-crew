@@ -4,69 +4,42 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewReliabilityConfig, CrewRuntimeConfig } from "../config/config.ts";
-import { CrewError, ErrorCode } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
-import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { canTransitionRunStatus } from "../state/contracts.ts";
-import {
-	appendEvent,
-	appendEventAsync,
-	appendEventBuffered,
-	flushEventLogBuffer,
-} from "../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, flushEventLogBuffer } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
-import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
-import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
-import { readCrewAgents, saveCrewAgents, saveCrewAgentsCoalesced } from "./crew-agent-records.ts";
+import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { drainPendingUnits, enforceRunBudget, terminaliseRunWithDrain } from "./budget-enforcement.ts";
+import { readCrewAgents, saveCrewAgents, saveCrewAgentsCoalesced } from "./crew-agent-records.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { crewHooks } from "./crew-hooks.ts";
-import { appendDeadletter } from "./deadletter.ts";
+import { cancelNonTerminalTasks, dispatchBatch, markBlocked, selectDispatchBatch } from "./dispatch-batch.ts";
+import { finalizeRun, lastProgressContentHash, writeProgress } from "./finalize-run.ts";
 import { applyGoalAchievement, assessGoalAchievement } from "./goal-workflow/goal-achievement.ts";
 import { deliverGroupJoin, resolveGroupJoinMode } from "./group-join.ts";
 import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts";
-import { mergeUnitResult, isRunTerminalPreserved } from "./merge-loop.ts";
-import { finalizeRun, lastProgressContentHash, writeProgress } from "./finalize-run.ts";
-import type { PendingUnit, SchedulerContext, SchedulerDecision, SettledUnit } from "./scheduler-context.ts";
+import { isRunTerminalPreserved, mergeUnitResult } from "./merge-loop.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./model/runtime-resolver.ts";
-import { filterReadyByWriteOverlap } from "./path-overlap.ts";
-import { ensurePlanApprovalRequested, isMutatingTask, isPlanApprovalPending, requiresPlanApproval } from "./plan-approval.ts";
-import { selectDispatchBatch, dispatchBatch, markBlocked, cancelNonTerminalTasks } from "./dispatch-batch.ts";
-import { advanceWorkflowPhases } from "./workflow-phase-advance.ts";
-import { buildSyntheticTerminalEvidence, CrewCancellationError, cancellationReasonFromSignal } from "./process/cancellation.ts";
+import { ensurePlanApprovalRequested, isMutatingTask, requiresPlanApproval } from "./plan-approval.ts";
+import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "./process/cancellation.ts";
 import { shouldRerunFailedTask } from "./recovery/recovery-recipes.ts";
-import { permissionForRole } from "./role-permission.ts";
 import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-tracker.ts";
-import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./scheduling/coalesce-tasks.ts";
-import { type BatchConcurrencyDecision, resolveBatchConcurrency } from "./scheduling/concurrency.ts";
-import { runCoalescedTaskGroup } from "./scheduling/run-coalesced-task-group.ts";
-import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./scheduling/task-graph.ts";
-import {
-	buildTaskGraphIndex,
-	refreshTaskGraphQueues,
-	type TaskGraphIndex,
-	type TaskGraphSchedulerSnapshot,
-} from "./scheduling/task-graph-scheduler.ts";
+import type { PendingUnit, SchedulerContext, SchedulerDecision } from "./scheduler-context.ts";
+import { buildTaskGraphIndex, refreshTaskGraphQueues } from "./scheduling/task-graph-scheduler.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
 import { aggregateTaskOutputs } from "./task-output-context.ts";
-import { clearStablePrefixCache, computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
-import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
+import { clearStablePrefixCache } from "./task-runner/prompt-builder.ts";
 import { mergeArtifacts } from "./team-runner-artifacts.ts";
 import { clearTrackedTaskUsage } from "./usage-tracker.ts";
-import {
-	createWorkflowStateMachine,
-	type PhaseGuardContext,
-	type PhaseState,
-	transitionPhase,
-	validatePhasePreconditions,
-	type WorkflowStateMachine,
-} from "./workflow-state.ts";
+import { advanceWorkflowPhases } from "./workflow-phase-advance.ts";
+import { createWorkflowStateMachine, type PhaseState } from "./workflow-state.ts";
 
 /**
  * Start a periodic heartbeat for the team-level run.
@@ -293,12 +266,20 @@ import { injectAdaptivePlanIfReady } from "./goal-workflow/adaptive-plan.ts";
 // re-exported below so existing test imports still resolve.
 
 /** @internal RT-7 test export — verify cache is keyed on runId (stable string). */
-export { __test__lastProgressContentHash } from "./finalize-run.ts";
 /** @internal RT-7 test export — exercise writeProgress directly. */
-export { __test__writeProgress } from "./finalize-run.ts";
+export { __test__lastProgressContentHash, __test__writeProgress } from "./finalize-run.ts";
 /** @internal RT-14 test export — verify cancelPlanTasks preserves graph mutation after consolidation. */
 export const __test__cancelPlanTasks = cancelPlanTasks;
 
+// Budget-enforcement family moved to ./budget-enforcement.ts (2026-08 Phase 2.6).
+// Re-export the public + test-only helpers so existing test imports still resolve.
+export { checkPerTaskBudget, type DrainOutcome, drainPendingUnits, type PerTaskBudgetCheckResult } from "./budget-enforcement.ts";
+/** @internal 1.9(b) test export — exercise selectDispatchBatch directly. */
+export { __test__selectDispatchBatch } from "./dispatch-batch.ts";
+/** @internal R15-1 test export — exercise finalizeRun directly (disk-terminal preservation). */
+export { __test__finalizeRun } from "./finalize-run.ts";
+/** @internal 1.9(b) test export — exercise mergeUnitResult directly. */
+export { __test__mergeUnitResult } from "./merge-loop.ts";
 // 1.9(b): characterization test seams for the Phase 2.6 extraction targets
 // (selectDispatchBatch / mergeUnitResult / advanceWorkflowPhases /
 // requiresPlanApproval / ensurePlanApprovalRequested). These functions are
@@ -306,18 +287,9 @@ export const __test__cancelPlanTasks = cancelPlanTasks;
 // BEFORE the CORE-4 extraction moves them into scheduler/ modules.
 // Plan-approval family extracted to ./plan-approval.ts (2026-08 Phase 2.6).
 // Re-export the test-only helpers so existing test imports still resolve.
-export { __test__requiresPlanApproval, __test__ensurePlanApprovalRequested } from "./plan-approval.ts";
-/** @internal 1.9(b) test export — exercise selectDispatchBatch directly. */
-export { __test__selectDispatchBatch } from "./dispatch-batch.ts";
-/** @internal 1.9(b) test export — exercise mergeUnitResult directly. */
-export { __test__mergeUnitResult } from "./merge-loop.ts";
-/** @internal R15-1 test export — exercise finalizeRun directly (disk-terminal preservation). */
-export { __test__finalizeRun } from "./finalize-run.ts";
+export { __test__ensurePlanApprovalRequested, __test__requiresPlanApproval } from "./plan-approval.ts";
 /** @internal 1.9(b) test export — exercise advanceWorkflowPhases directly. */
 export { __test__advanceWorkflowPhases } from "./workflow-phase-advance.ts";
-// Budget-enforcement family moved to ./budget-enforcement.ts (2026-08 Phase 2.6).
-// Re-export the public + test-only helpers so existing test imports still resolve.
-export { checkPerTaskBudget, drainPendingUnits, type DrainOutcome, type PerTaskBudgetCheckResult } from "./budget-enforcement.ts";
 
 // applyPolicy moved to ./finalize-run.ts (2026-08 Phase 2.6) — it is only
 // used by finalizeRun, which also moved there.
@@ -353,7 +325,6 @@ export function hasPendingMutatingTaskAtBoundary(tasks: TeamTaskState[]): boolea
 	const hasPendingMutating = tasks.some((t) => t.status === "queued" && isMutatingTask(t));
 	return hasCompletedReadOnly && hasPendingMutating;
 }
-
 
 // drainPendingUnits / DrainOutcome moved to ./budget-enforcement.ts (2026-08
 // Phase 2.6) — re-exported below so existing test imports still resolve.
@@ -771,9 +742,6 @@ async function handleFailedTask(ctx: SchedulerContext): Promise<SchedulerDecisio
 	});
 	return { kind: "return", result };
 }
-
-
-
 
 // mergeUnitResult / isRunTerminalPreserved moved to ./merge-loop.ts (2026-08
 // Phase 2.6) — re-imported above for the core-loop merge + terminal break.

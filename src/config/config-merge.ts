@@ -1,8 +1,5 @@
 import { DANGEROUS_OBJECT_KEYS } from "./config-validation.ts";
-import type {
-	AgentOverrideConfig,
-	PiTeamsConfig,
-} from "./types.ts";
+import type { AgentOverrideConfig, PiTeamsConfig } from "./types.ts";
 
 function withoutUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;

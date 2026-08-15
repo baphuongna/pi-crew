@@ -27,19 +27,15 @@ import { isMutatingTask, isPlanApprovalPending } from "./plan-approval.ts";
 import { CrewCancellationError, cancellationReasonFromSignal } from "./process/cancellation.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry, type RetryPolicy } from "./recovery/retry-executor.ts";
 import type { SchedulerContext, SchedulerDecision, SettledUnit } from "./scheduler-context.ts";
-import { buildDispatchUnits, planCoalescedGroups, type DispatchUnit } from "./scheduling/coalesce-tasks.ts";
+import { buildDispatchUnits, type DispatchUnit, planCoalescedGroups } from "./scheduling/coalesce-tasks.ts";
 import { resolveBatchConcurrency } from "./scheduling/concurrency.ts";
 import { runCoalescedTaskGroup } from "./scheduling/run-coalesced-task-group.ts";
-import {
-	buildExecutionPlan as buildDagExecutionPlan,
-	getReadyTasks as getDagReadyTasks,
-	type TaskNode,
-} from "./scheduling/task-graph.ts";
+import { buildExecutionPlan as buildDagExecutionPlan, getReadyTasks as getDagReadyTasks, type TaskNode } from "./scheduling/task-graph.ts";
 import { taskGraphSnapshot } from "./scheduling/task-graph-scheduler.ts";
 import { recordsForMaterializedTasks } from "./task-display.ts";
 import { computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
-import { validatePhasePreconditions, type PhaseGuardContext } from "./workflow-state.ts";
+import { type PhaseGuardContext, validatePhasePreconditions } from "./workflow-state.ts";
 
 function findStep(workflow: WorkflowConfig, task: TeamTaskState): WorkflowStep {
 	const step = workflow.steps.find((candidate) => candidate.id === task.stepId);
@@ -129,7 +125,6 @@ export function shouldUseRetry(reliability: CrewReliabilityConfig | undefined): 
 function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): TeamTaskState | undefined {
 	return result.tasks.find((item) => item.id === taskId && item.status === "failed");
 }
-
 
 /**
  * Check whether any task uses explicit `dependsOn` that would benefit from DAG-based

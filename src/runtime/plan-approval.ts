@@ -7,12 +7,13 @@
  * verbatim from team-runner.ts. cancelPlanTasks stays in team-runner.ts
  * (RT-14 structural source-pin test requires it defined there).
  */
+
+import type { CrewRuntimeConfig } from "../config/config.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
 import { saveRunManifestAsync } from "../state/stores/state-store.ts";
-import { permissionForRole } from "./role-permission.ts";
-import type { CrewRuntimeConfig } from "../config/config.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
+import { permissionForRole } from "./role-permission.ts";
 
 export function requiresPlanApproval(_workflow: WorkflowConfig, runtimeConfig: CrewRuntimeConfig | undefined): boolean {
 	// ROADMAP T1.2: plan-level HITL applies to ANY workflow when

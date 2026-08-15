@@ -1,11 +1,10 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { suggestRunIds, suggestTeams } from "../../command-completions.ts";
 import { commandText, notifyCommandResult, parseRunArgs, parseScalar } from "../command-utils.ts";
-import { handleTeamTool, teamCommandContext } from "./shared.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
+import { handleTeamTool, teamCommandContext } from "./shared.ts";
 
 export function registerRunCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
-
 	pi.registerCommand("team-run", {
 		description: "Manually start a pi-crew run (agent may also use the team tool autonomously)",
 		// Round 13 UX: suggest team names for Tab-completion of the first positional arg.
