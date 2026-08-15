@@ -31,8 +31,11 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 		const execDir = path.dirname(fs.realpathSync.native(process.execPath));
 		allowedPrefixes.push(execDir.toLowerCase());
 		allowedPrefixes.push(path.join(path.dirname(execDir), "lib", "node_modules").toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3 (LOW): execPath realpath failure is genuinely unexpected (the
+		// running binary vanished / permission issue) — surface it so the
+		// "cannot find pi" fallback is diagnosable.
+		logInternalError("pi-spawn.allowlist-prefixes", error, "execPath realpath failed", "warn");
 	}
 
 	// npm global bin via APPDATA
@@ -102,7 +105,10 @@ function packageBinScript(packageJsonPath: string): string | undefined {
 		if (!binPath) return undefined;
 		const candidate = path.resolve(path.dirname(packageJsonPath), binPath);
 		return isRunnableNodeScript(candidate) ? candidate : undefined;
-	} catch {
+	} catch (error) {
+		// R17-B3 (LOW): a package.json that EXISTS but fails to parse is corrupt —
+		// not the expected ENOENT of the upward-walk probes.
+		logInternalError("pi-spawn.package-bin-script", error, `packageJsonPath=${packageJsonPath}`, "warn");
 		return undefined;
 	}
 }
@@ -164,7 +170,12 @@ export function resolveNpmGlobalRoot(): string | undefined {
 			windowsHide: true,
 		}).trim();
 		resolved = out.length > 0 ? out : undefined;
-	} catch {
+	} catch (error) {
+		// R17-B3 (LOW): `npm root -g` failing (npm not on PATH / timeout) means
+		// Windows non-APPDATA installs fall back to the static roots and often
+		// fail with ENOENT downstream — surface the root cause here. Memoized,
+		// so at most one warn per process.
+		logInternalError("pi-spawn.npm-root-g", error, "npm root -g probe failed", "warn");
 		resolved = undefined;
 	}
 	cachedNpmGlobalRoot = resolved ?? null;

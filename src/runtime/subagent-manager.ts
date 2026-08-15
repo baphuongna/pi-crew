@@ -185,7 +185,13 @@ export function readPersistedSubagentRecord(cwd: string, id: string): SubagentRe
 	try {
 		const raw = JSON.parse(fs.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
 		return sanitizePersistedRecord(raw);
-	} catch {
+	} catch (error) {
+		// R17-B5: parse/read failures were fully silent, hiding lost records
+		// (see NEW-R3 note in savePersistedSubagentRecord). ENOENT stays quiet —
+		// a legitimately removed record (cancel) is not an error.
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+			logInternalError("subagent-manager.read-persisted", error, `id=${id}`, "warn");
+		}
 		return undefined;
 	}
 }

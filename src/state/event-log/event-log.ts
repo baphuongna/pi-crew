@@ -48,6 +48,14 @@ export interface TeamEventMetadata {
 	appended?: boolean;
 	fingerprint?: string;
 	confidence?: "low" | "medium" | "high";
+	/** R17-S1 (Phase 3.8): set to `true` when the append was SKIPPED because the
+	 *  events file exceeded MAX_EVENTS_BYTES after compaction+rotation and the
+	 *  event is non-terminal. The returned TeamEvent then represents an event
+	 *  that was NOT persisted (and NOT emitted to the run-event-bus) — callers
+	 *  can detect the silent drop instead of treating it as success. Never
+	 *  written to disk (skipped events are not appended), so this is not an
+	 *  on-disk format change. */
+	skippedDueToSize?: boolean;
 }
 
 export interface TeamEvent {
@@ -347,6 +355,141 @@ function persistSequence(eventsPath: string, seq: number): void {
 	}
 }
 
+// R16-B1 (Phase 3.6): THIRD lock namespace `${eventsPath}.seqlock` — a tiny
+// cross-process lock that serializes ONLY the .seq sidecar read-compute-write
+// in reserveSequenceUnderLock. Empirically justified by Round 17: 3000 events
+// across 2 processes on the same eventsPath produced 527 duplicate seq values
+// (75% duplicate events) because the sync family (.mkdirlock) and async family
+// (.alock) are DISJOINT lock namespaces that both trust the sidecar with no
+// mutual exclusion (read sidecar=N → both reserve N+1).
+//
+// Lock-ordering contract (Round 18 Part C): L1(run) → L2(event-log family:
+// .mkdirlock/.alock) → L3(.seqlock). The .seqlock is a PURE-SYNC, SHORT
+// critical section (sidecar read + counter update + best-effort persist —
+// ~2 atomic writes). NEVER acquire L1/L2 while holding L3.
+//
+// Do NOT naively merge .mkdirlock+.alock instead — that reintroduces the
+// v0.9.26 sleepSync-vs-async-timer deadlock (see the withEventLogLockAsync
+// docblock): the sync retry loop's sleepSync starves the async path's
+// event-loop-dependent acquire. The family split is intentional; .seqlock
+// closes the seq race WITHOUT coupling the two families' retry loops.
+//
+// Two acquire wrappers share ONE lock dir + pid file:
+//   - withSeqLock:      sync acquire (sleepSync backoff) — ALL families.
+//   - withSeqLockAsync:  thin alias of withSeqLock (see below).
+// Bounds are tighter than the family locks because the section is tiny:
+// timeout 2s / stale 1s / retry 5ms. NOTE: staleMs MUST be < timeoutMs — a
+// crashed holder leaves the lock dir behind, and the acquirer must get the
+// chance to stale-steal it BEFORE its own timeout throws (observed flake:
+// mailbox-api symlink test, killed scaffold holder → 2s spin → throw). The
+// 1s staleness is still ~1000x the sub-millisecond critical section; the only
+// theoretical over-run is a missing-.seq sidecar forcing scanSequence over a
+// multi-MB file, which is far below 1s at the 4MB rotation threshold.
+const SEQ_LOCK_TIMEOUT_MS = 2000;
+const SEQ_LOCK_STALE_MS = 1000;
+const SEQ_LOCK_RETRY_MS = 5;
+
+function seqLockPath(eventsPath: string): string {
+	return `${eventsPath}.seqlock`;
+}
+
+function reserveSequenceLocked(eventsPath: string, count: number): number {
+	let stored = readStoredSequence(eventsPath);
+	if (stored === undefined) {
+		stored = scanSequence(eventsPath);
+	}
+	const inProcess = seqCounters.get(eventsPath) ?? 0;
+	const last = Math.max(stored, inProcess);
+	const start = last + 1;
+	seqCounters.set(eventsPath, start + count - 1);
+	enforceSeqCountersCap();
+	// R16-B1: advance-on-reserve. The sidecar MUST be persisted INSIDE the
+	// .seqlock — persisting only after the append would leave the window where
+	// two processes in different family locks both read sidecar=N and both
+	// reserve N+1 (the exact Round-17-confirmed race). Inverting the old
+	// "persist only after successful append" ordering (see the sync :persist
+	// and async :persist comments) is strictly safer: a failed append after
+	// reservation yields a seq GAP, never a duplicate, and the
+	// event-reconstructor already tolerates a sidecar ahead of the data
+	// (lossless recovery ignores appends beyond the claimed seq — F3a).
+	persistSequence(eventsPath, start + count - 1);
+	return start;
+}
+
+function withSeqLock<T>(eventsPath: string, fn: () => T): T {
+	const lockDir = seqLockPath(eventsPath);
+	const pidFile = path.join(lockDir, "pid");
+	const start = Date.now();
+	let acquired = false;
+	while (!acquired) {
+		try {
+			fs.mkdirSync(lockDir);
+			try {
+				// P0-4: the lock pid file is disposable stale-lock state; best-effort.
+				atomicWriteFile(pidFile, String(process.pid), { durability: "best-effort" });
+			} catch {
+				/* best-effort */
+			}
+			acquired = true;
+		} catch {
+			// Stale detection: mtime-first (handles crash between mkdir and pidFile).
+			try {
+				if (Date.now() - fs.statSync(lockDir).mtimeMs > SEQ_LOCK_STALE_MS) {
+					fs.rmSync(lockDir, { recursive: true, force: true });
+					continue;
+				}
+			} catch {
+				/* dir vanished — let loop retry */
+			}
+			if (Date.now() - start > SEQ_LOCK_TIMEOUT_MS) {
+				throw errors.eventLogLockTimeout(eventsPath, SEQ_LOCK_TIMEOUT_MS);
+			}
+			sleepSync(SEQ_LOCK_RETRY_MS);
+		}
+	}
+	try {
+		return fn();
+	} finally {
+		// PID-guarded release: don't delete a stealer's dir if fn exceeded staleMs.
+		try {
+			if (fs.readFileSync(pidFile, "utf-8").trim() === String(process.pid)) {
+				fs.rmSync(lockDir, { recursive: true, force: true });
+			}
+		} catch {
+			/* lock stolen or already gone — do not touch */
+		}
+	}
+}
+
+async function withSeqLockAsync<T>(eventsPath: string, fn: () => T): Promise<T> {
+	// DELIBERATELY delegates to the SYNC acquire — this is NOT a v0.9.26
+	// repeat. The v0.9.26 deadlock was the async family AWAITING a lock whose
+	// in-process holder needed event-loop iterations (promise-chain family
+	// lock) while the sync path sleepSync-spinned. Here the ENTIRE
+	// acquire+body+release is one synchronous block with no internal awaits,
+	// so within one process (single JS thread) the lock can never be held
+	// across an await — in-process sync-vs-async contention is IMPOSSIBLE,
+	// and a spin only ever waits on ANOTHER PROCESS (sub-millisecond section,
+	// stale-steal at 1s). An earlier draft gave this wrapper its own
+	// `await sleep` backoff; that REINTRODUCED starvation: a sync spinner's
+	// sleepSync blocked the loop while the in-process async holder's
+	// `await`-based release could never run (mailbox-api 30s timeout flake).
+	return withSeqLock(eventsPath, fn);
+}
+
+/** Monotonic sidecar persist under the .seqlock (L2→L3). Used where a value
+ *  is persisted OUTSIDE reservation (e.g. batch lastSeq after the fact) so a
+ *  lower explicit seq can never REGRESS the sidecar below values another
+ *  process may have already reserved. Writes max(stored, inProcess, seq). */
+function persistSequenceMonotonic(eventsPath: string, seq: number): void {
+	withSeqLock(eventsPath, () => {
+		const stored = readStoredSequence(eventsPath) ?? 0;
+		const inProcess = seqCounters.get(eventsPath) ?? 0;
+		const value = Math.max(stored, inProcess, seq);
+		if (value !== stored) persistSequence(eventsPath, value);
+	});
+}
+
 // B7: single in-process monotonic sequence counter per eventsPath. The three
 // append paths — sync appendEvent (withEventLogLockSync file lock), buffered
 // flush (asyncLocks promise chain), and direct appendEventAsync (asyncQueues
@@ -381,9 +524,19 @@ const SEQ_COUNTERS_MAX_ENTRIES = 256;
  *  lags behind a sidecar advanced by another process can never assign a
  *  regressed (duplicate) seq. Every call site already holds a cross-process
  *  file lock (`withEventLogLockSync` for sync/buffered, `withEventLogLockAsync`
- *  for async), so the sidecar re-read is race-free within each lock class. */
-function reserveSequence(eventsPath: string): number {
-	return reserveSequenceUnderLock(eventsPath);
+ *  for async), so the sidecar re-read is race-free within each lock class.
+ *
+ *  R16-B1/R17 CORRECTION (Phase 3.6): the claim above — "race-free within
+ *  each lock class" — is TRUE but INSUFFICIENT: the sync (.mkdirlock) and
+ *  async (.alock) families are DISJOINT cross-process namespaces, so a sync
+ *  appender in one process and an async appender in another still both read
+ *  sidecar=N and both reserve N+1. Round 17 proved this empirically (527 dup
+ *  seq / 75% dup events over 3000 events across 2 processes). reserveSequence
+ *  UnderLock now additionally wraps the sidecar read-compute-write in the
+ *  shared `.seqlock` (L3) and persists ADVANCE-ON-RESERVE inside it, so no
+ *  two processes can ever reserve the same seq regardless of lock family. */
+function reserveSequence(eventsPath: string, count = 1): number {
+	return reserveSequenceUnderLock(eventsPath, count);
 }
 
 /** Keep the in-process counter monotonic w.r.t. an explicitly-provided seq
@@ -408,18 +561,19 @@ function enforceSeqCountersCap(): void {
  *  sidecar (.seq file) for the last seq persisted by ANY process, ensuring
  *  cross-process uniqueness. Falls back to scanSequence if no sidecar exists.
  *  The in-process seqCounters is kept monotonic via Math.max for defensive
- *  consistency with any in-process sequencing that hasn't been persisted yet. */
-function reserveSequenceUnderLock(eventsPath: string): number {
-	let stored = readStoredSequence(eventsPath);
-	if (stored === undefined) {
-		stored = scanSequence(eventsPath);
-	}
-	const inProcess = seqCounters.get(eventsPath) ?? 0;
-	const last = Math.max(stored, inProcess);
-	const next = last + 1;
-	seqCounters.set(eventsPath, next);
-	enforceSeqCountersCap();
-	return next;
+ *  consistency with any in-process sequencing that hasn't been persisted yet.
+ *  R16-B1 (Phase 3.6): the body now runs under the shared `.seqlock` (L3,
+ *  acquired L2→L3) and persists the reserved end value inside it
+ *  (advance-on-reserve) — see reserveSequenceLocked for the rationale.
+ *  `count` lets the buffered batch reserve a contiguous range in one acquire.
+ *  Callers on the async family use reserveSequenceUnderLockAsync (same lock
+ *  dir, async acquire backoff — never sleepSync on the event loop). */
+function reserveSequenceUnderLock(eventsPath: string, count = 1): number {
+	return withSeqLock(eventsPath, () => reserveSequenceLocked(eventsPath, count));
+}
+
+async function reserveSequenceUnderLockAsync(eventsPath: string, count = 1): Promise<number> {
+	return withSeqLockAsync(eventsPath, () => reserveSequenceLocked(eventsPath, count));
 }
 
 export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" | "taskId" | "data">): string {
@@ -492,6 +646,16 @@ async function drainAsyncQueues(): Promise<void> {
  *  on the same eventsPath is mitigated by `O_APPEND` atomic writes + the
  *  shared sidecar (extremely unlikely scenario — workers write to their own
  *  run-scoped events.jsonl, not the parent's).
+ *
+ *  R16-B1/R17 CORRECTION (Phase 3.6): the "extremely unlikely" claim above
+ *  was REFUTED empirically — 14 parent-side sync appendEvent sites write the
+ *  live run's eventsPath while child async appends run, and Round 17 measured
+ *  75% duplicate events / 527 duplicate seqs over 3000 events with the natural
+ *  (unwidened) rate. The family split itself is UNCHANGED (merging the two
+ *  lock dirs would reintroduce the sleepSync-vs-async-timer deadlock this
+ *  comment documents); the seq race is instead closed by the shared
+ *  `.seqlock` (L3) around the .seq sidecar reservation in
+ *  reserveSequenceUnderLock/Async — see the R16-B1 block near persistSequence.
  *
  *  NOT re-entrant: callers inside this lock must use unlocked compaction
  *  variants (prepareCompaction + applyCompactionUnlocked, rotateEventLogUnlocked)
@@ -644,16 +808,25 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		// the event is definitively written. If appendFile fails, the sidecar is
 		// not updated and nextSequence() will re-scan on next call, returning the
 		// correct value without reuse.
+		// R16-B1 (Phase 3.6) PARTIAL SUPERSESSION: the sidecar IS now advanced at
+		// reservation time INSIDE the .seqlock (advance-on-reserve, gap-not-dup —
+		// see reserveSequenceLocked); the post-append persist below is kept and is
+		// idempotent (writes the same value the reservation already persisted).
 		const baseMetadata = event.metadata;
 		let seq: number;
 		if (baseMetadata?.seq !== undefined) {
 			seq = baseMetadata.seq;
 			advanceSequenceCounter(eventsPath, seq);
 		} else {
-			seq = reserveSequenceUnderLock(eventsPath);
-			// NOTE: We do NOT call persistSequence here. It will be called AFTER
-			// successful appendFile below to ensure sidecar is only updated when
-			// the event is actually written.
+			// R16-B1 (Phase 3.6): reservation now acquires the shared `.seqlock`
+			// (async acquire wrapper — never sleepSync on the event loop) and
+			// PERSISTS the reserved seq inside it (advance-on-reserve). The old
+			// "do NOT call persistSequence here" note is superseded: without the
+			// in-lock persist, two processes in different family locks both read
+			// sidecar=N and both reserve N+1 (Round 17: 75% dup events). A failed
+			// append after reservation now yields a seq GAP (tolerated by the
+			// event-reconstructor's lossless recovery), never a duplicate.
+			seq = await reserveSequenceUnderLockAsync(eventsPath);
 		}
 		let metadata: TeamEventMetadata = {
 			seq,
@@ -711,7 +884,18 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				}
 				if (afterCompactStat) {
 					if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-						rotateEventLogUnlocked(eventsPath);
+						// R17-S1 (Phase 3.8): a failed rotation leaves the file over the
+						// limit — the next non-terminal appends would be silently skipped.
+						// Check the boolean (previously ignored) and surface severity
+						// "error" so the chain signals at EVERY step.
+						if (!rotateEventLogUnlocked(eventsPath)) {
+							logInternalError(
+								"event-log.rotate-failed",
+								new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+								`eventsPath=${eventsPath}`,
+								"error",
+							);
+						}
 					}
 				}
 			}
@@ -734,8 +918,17 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 					"event-log.size-limit",
 					new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
 					`eventsPath=${eventsPath}`,
+					// R17-S1 (Phase 3.8, Round 18 escalation to HIGH): this was default
+					// severity "debug" (PI_TEAMS_DEBUG-gated) → fully silent drop in
+					// production. "error" always emits.
+					"error",
 				);
 				skippedDueToSize = true;
+				// R17-S1: surface the drop on the returned event itself — resolve
+				// with an indicator instead of as-if-persisted success. Never
+				// throw on the skip path (Round 18 caution), and never emit a
+				// non-persisted event to the run-event-bus (gate below).
+				metadata.skippedDueToSize = true;
 			}
 		} catch (error) {
 			logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -784,11 +977,14 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 					await fd.close();
 				}
 			}
-			// FIX: Persist sequence AFTER successful appendFile to ensure sidecar
-			// is only updated when the event is definitively written. If appendFile
-			// threw, we would not reach here and the sidecar would not be updated,
-			// preventing sequence reuse on restart.
-			persistSequence(eventsPath, seq);
+			// R16-B1 (Phase 3.6): advance-on-reserve already persisted this exact
+			// value INSIDE the .seqlock — re-persisting it here (outside the lock)
+			// can REGRESS the sidecar after another process reserved further
+			// (observed: re-reserved duplicate seqs in the b9 cross-process bench).
+			// Only EXPLICIT (pre-assigned) seqs bypassed the reservation — persist
+			// those, monotonically and under the .seqlock, so a lower explicit seq
+			// can never roll the sidecar back either.
+			if (baseMetadata?.seq !== undefined) persistSequenceMonotonic(eventsPath, seq);
 		}
 		// FIND-10: track whether compaction happened after the append so the
 		// cache-update stat can safely reuse postAppendStat (file unchanged).
@@ -802,10 +998,15 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
 			}
 		}
-		try {
-			emitFromTeamEvent(fullEvent);
-		} catch (error) {
-			logInternalError("event-log.emit", error);
+		// R17-S1 (Phase 3.8): gate the UI-bus emit on !skippedDueToSize — the bus
+		// must never receive events that were NOT persisted (live-UI vs
+		// reconstructed-state divergence, Round 18 reviewer addendum).
+		if (!skippedDueToSize) {
+			try {
+				emitFromTeamEvent(fullEvent);
+			} catch (error) {
+				logInternalError("event-log.emit", error);
+			}
 		}
 
 		// FIX: Sequence was persisted AFTER appendFile in the append block above.
@@ -911,7 +1112,17 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 					logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
 				}
 				if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-					rotateEventLogUnlocked(eventsPath);
+					// R17-S1 (Phase 3.8): check the rotation boolean (previously ignored)
+					// and surface severity "error" — a failed rotation leaves the file
+					// over the limit and the batch below will be rejected as a result.
+					if (!rotateEventLogUnlocked(eventsPath)) {
+						logInternalError(
+							"event-log.rotate-failed",
+							new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+							`eventsPath=${eventsPath}`,
+							"error",
+						);
+					}
 				}
 			}
 		}
@@ -927,7 +1138,11 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	// seq, breaking the "unique monotonic seq" contract. The cache update +
 	// persistSequence at the end refreshes the sidecar to the last assigned seq.
 	// B7: use reserveSequence for atomic seq assignment across all paths.
-	const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath);
+	// R16-B1 (Phase 3.6): reserve the WHOLE batch range (count = queue.length)
+	// under the .seqlock in one acquire — the locally incremented nextSeq below
+	// then stays inside the reserved range even when explicit baseMetadata.seq
+	// values skip some of the reserved slots (those become gaps, never dups).
+	const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath, queue.length);
 	let nextSeq = startingSeq;
 	const finalized: { item: BufferedAppend; line: string; fullEvent: TeamEvent }[] = [];
 	let lastSeq = 0;
@@ -992,7 +1207,11 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	} finally {
 		fs.closeSync(fd);
 	}
-	persistSequence(eventsPath, lastSeq);
+	// R16-B1 (Phase 3.6): monotonic persist under the .seqlock — the reservation
+	// already persisted the batch range end; this covers explicit (pre-assigned)
+	// seqs that may exceed it and can never REGRESS the sidecar (the old bare
+	// persistSequence could write a lower lastSeq over a higher reserved value).
+	persistSequenceMonotonic(eventsPath, lastSeq);
 
 	// Phase 3: cache update + resolve all promises.
 	try {
@@ -1069,7 +1288,18 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 			if (fs.existsSync(eventsPath)) {
 				const afterCompact = fs.statSync(eventsPath);
 				if (afterCompact.size > MAX_EVENTS_BYTES) {
-					rotateEventLogUnlocked(eventsPath);
+					// R17-S1 (Phase 3.8): check the rotation boolean (previously
+					// ignored) and surface severity "error" — a failed rotation
+					// leaves the file over the limit and the size check below will
+					// silently skip every subsequent non-terminal append.
+					if (!rotateEventLogUnlocked(eventsPath)) {
+						logInternalError(
+							"event-log.rotate-failed",
+							new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+							`eventsPath=${eventsPath}`,
+							"error",
+						);
+					}
 				}
 			}
 		}
@@ -1082,8 +1312,18 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 				"event-log.size-limit",
 				new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
 				`eventsPath=${eventsPath}`,
+				// R17-S1 (Phase 3.8, Round 18 escalation to HIGH): was default "debug"
+				// (PI_TEAMS_DEBUG-gated) → fully silent drop in production. "error"
+				// always emits.
+				"error",
 			);
 			skippedDueToSize = true;
+			// R17-S1: surface the drop on the RETURNED event (never throw — callers
+			// run inside withRunLockSync and a throw would fail cancel/save critical
+			// sections; Round 18 fix-design caution). The returned TeamEvent carries
+			// skippedDueToSize=true so live-path callers can detect the drop; the
+			// event is NOT persisted and NOT emitted (gate below).
+			metadata.skippedDueToSize = true;
 		}
 	} catch (error) {
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -1111,7 +1351,13 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 		}
 		// FIX: Persist sequence AFTER the event append to prevent sequence reuse
 		// on crash. Only update the sidecar when the event is definitively written.
-		persistSequence(eventsPath, seq);
+		// R16-B1 (Phase 3.6): advance-on-reserve already persisted this exact
+		// value INSIDE the .seqlock — re-persisting it here (outside the lock)
+		// can REGRESS the sidecar after another process reserved further
+		// (observed: re-reserved duplicate seqs in the b9 cross-process bench).
+		// Only EXPLICIT (pre-assigned) seqs bypassed the reservation — persist
+		// those, monotonically and under the .seqlock.
+		if (explicitSeq !== undefined) persistSequenceMonotonic(eventsPath, seq);
 		// FIX: Update cache AFTER append so cache and log are consistent with each other.
 		// This matches the async path behavior where cache is updated after the append.
 		// If a crash occurs after append but before cache update, the .seq file is
@@ -1144,10 +1390,15 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 			logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
 		}
 	}
-	try {
-		emitFromTeamEvent(fullEvent);
-	} catch (error) {
-		logInternalError("event-log.emit", error);
+	// R17-S1 (Phase 3.8): gate the UI-bus emit on !skippedDueToSize — the bus
+	// must never receive events that were NOT persisted (live-UI vs
+	// reconstructed-state divergence, Round 18 reviewer addendum).
+	if (!skippedDueToSize) {
+		try {
+			emitFromTeamEvent(fullEvent);
+		} catch (error) {
+			logInternalError("event-log.emit", error);
+		}
 	}
 	return fullEvent;
 }
@@ -1369,20 +1620,111 @@ process.on("uncaughtException", (error) => {
 	throw error;
 });
 
+// --- R18 / R16-B1 effect 2 (Phase 3.6): archive-tail readers ----------------
+// Rotation stranding: a sync append that was mid-appendFileSync holding an fd
+// on the RENAMED inode (ST-8 rename+create) lands in the archive file, not the
+// live file. Round 18 measured 5.43% stranded events under max-contention
+// zero-lock repro. Previously readers saw ONLY the live file, so stranded
+// events were invisible — and sweepOldArchives unlinked them after 7 days
+// (gone forever). Fix (Round 18 option (a)): mirror the mailbox
+// safeReadMailboxFile archive-walk — readers also drain archive TAILS,
+// deduped by seq, merged ahead of the live file's events.
+
+/** List `<eventsPath>.<ts>.archive.jsonl` siblings (matches rotateEventLogUnlocked's
+ *  naming), sorted by name (timestamp) so older generations come first. */
+function listEventArchivePaths(eventsPath: string): string[] {
+	const dir = path.dirname(eventsPath);
+	const base = path.basename(eventsPath);
+	try {
+		return fs
+			.readdirSync(dir)
+			.filter((entry) => entry.startsWith(`${base}.`) && entry.endsWith(".archive.jsonl"))
+			.sort()
+			.map((entry) => path.join(dir, entry));
+	} catch {
+		// Directory missing — nothing to read.
+		return [];
+	}
+}
+
+/** Parse a JSONL file into TeamEvents, skipping corrupt/blank lines (mirrors
+ *  the legacy readEvents parser). Returns [] when the file is unreadable. */
+function parseJsonlEvents(filePath: string): TeamEvent[] {
+	let raw: string;
+	try {
+		raw = fs.readFileSync(filePath, "utf-8");
+	} catch {
+		return [];
+	}
+	const events: TeamEvent[] = [];
+	for (const line of raw.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		try {
+			events.push(JSON.parse(trimmed) as TeamEvent);
+		} catch {
+			/* skip corrupt lines */
+		}
+	}
+	return events;
+}
+
+const ARCHIVE_TAIL_BYTES = 4 * 1024 * 1024; // 4 MB — mirrors readEventsCursor's TAIL_BYTES
+
+/** Drain archive TAILS: events with seq > sinceSeq from every archive of
+ *  eventsPath, deduped by seq, sorted by seq. Stranded in-flight-fd appends
+ *  land at the END of the archive (the renamed pre-rotation inode), so a
+ *  bounded tail read per archive is sufficient and keeps this O(tail bytes). */
+function readArchiveTailEvents(eventsPath: string, sinceSeq: number): TeamEvent[] {
+	const archives = listEventArchivePaths(eventsPath);
+	if (archives.length === 0) return [];
+	const bySeq = new Map<number, TeamEvent>();
+	for (const archivePath of archives) {
+		const tail = readJsonlTail<TeamEvent>(archivePath, ARCHIVE_TAIL_BYTES);
+		for (const event of tail.items) {
+			const seq = event.metadata?.seq;
+			if (typeof seq !== "number" || seq <= sinceSeq) continue;
+			if (!bySeq.has(seq)) bySeq.set(seq, event);
+		}
+	}
+	return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+
+/** Merge drained archive-tail events with live-file events: dedup by seq
+ *  (live wins on collision — it is the persisted survivor), seq-sorted. */
+function mergeArchiveTailEvents(archiveEvents: TeamEvent[], liveEvents: TeamEvent[]): TeamEvent[] {
+	if (archiveEvents.length === 0) return liveEvents;
+	const bySeq = new Map<number, TeamEvent>();
+	for (const event of archiveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+	for (const event of liveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+	return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+
 export function readEvents(eventsPath: string): TeamEvent[] {
-	if (!fs.existsSync(eventsPath)) return [];
-	return fs
-		.readFileSync(eventsPath, "utf-8")
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.flatMap((line) => {
-			try {
-				return [JSON.parse(line) as TeamEvent];
-			} catch {
-				return [];
-			}
-		});
+	// R18 / R16-B1 effect 2 (Phase 3.6): FULL-HISTORY semantics — merge every
+	// archive (pre-rotation generations, including stranded in-flight appends)
+	// with the live file, dedup by seq, ordered by seq. Callers needing the
+	// full history (team-runner recovery, run-export, inspect, read, and the
+	// event-reconstructor, whose only read entry is this function) now see
+	// archived events too — this is the intended fix for "no event stranded".
+	const archives = listEventArchivePaths(eventsPath);
+	const events: TeamEvent[] = [];
+	const seenSeqs = new Set<number>();
+	const push = (event: TeamEvent): void => {
+		const seq = event.metadata?.seq;
+		if (typeof seq === "number" && seq > 0) {
+			if (seenSeqs.has(seq)) return;
+			seenSeqs.add(seq);
+		}
+		events.push(event);
+	};
+	for (const archivePath of archives) {
+		for (const event of parseJsonlEvents(archivePath)) push(event);
+	}
+	if (fs.existsSync(eventsPath)) {
+		for (const event of parseJsonlEvents(eventsPath)) push(event);
+	}
+	return events.sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
 }
 
 export interface EventCursorOptions {
@@ -1420,22 +1762,31 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		// `<eventsPath>.<ts>.archive.jsonl`) and is growing again from 0 — the
 		// caller's offset now points past EOF, so post-rotation events would be
 		// silently missed. Reset to offset 0 to re-read the current file from its
-		// start. Re-reading from 0 re-delivers no previously-returned events:
-		// those live in the archive, not the (now fresh) current file.
+		// start.
+		// R18 (Phase 3.6): re-reading from 0 re-delivers no previously-returned
+		// events FROM THE LIVE FILE — but events STRANDED into the archive by the
+		// rotation (in-flight fd appends on the renamed inode) were never
+		// delivered and, before this fix, were lost forever once sweepOldArchives
+		// unlinked them. On a detected generation bump we therefore FIRST drain
+		// the previous generations' archive TAILS (events with seq > sinceSeq,
+		// deduped by seq — mailbox safeReadMailboxFile archive-walk pattern)
+		// ahead of the fresh live file's events.
 		const liveGen = currentGeneration(eventsPath);
 		const staleCursor = options.generation !== undefined && options.generation !== liveGen;
+		const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
+		const archiveEvents = staleCursor ? readArchiveTailEvents(eventsPath, sinceSeq) : [];
 		const byteOffset = staleCursor ? 0 : (positiveInteger(options.fromByteOffset) ?? 0);
 		const initialState: IncrementalReadState = { byteOffset, lineCount: 0 };
 		const { items, state: newState, eof } = readJsonlSince<TeamEvent>(eventsPath, initialState);
-		const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
 		const filtered = items.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
+		const merged = mergeArchiveTailEvents(archiveEvents, filtered);
 		const limit = positiveInteger(options.limit);
-		const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
+		const events = limit !== undefined ? merged.slice(0, limit) : merged;
 		const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
 		return {
 			events,
 			nextSeq: returnedMaxSeq,
-			total: filtered.length,
+			total: merged.length,
 			nextByteOffset: newState.byteOffset,
 			generation: liveGen,
 		};
@@ -1475,9 +1826,15 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		all = all.slice(-TAIL_EVENT_CAP);
 	}
 	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
+	// R18 (Phase 3.6): rotation stranding — prepend archive-tail events (seq >
+	// sinceSeq, deduped, seq-sorted) ahead of the live tail slice, so events
+	// stranded into an archive by a rotation are still delivered to sinceSeq
+	// streaming consumers. No-rotation case: no archives exist → behavior is
+	// byte-identical to before (mergeArchiveTailEvents returns liveEvents).
+	const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
+	const events = limit !== undefined ? merged.slice(0, limit) : merged;
 	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-	return { events, nextSeq: returnedMaxSeq, total: filtered.length };
+	return { events, nextSeq: returnedMaxSeq, total: merged.length };
 }
 
 export function dedupeTerminalEvents(events: TeamEvent[]): TeamEvent[] {

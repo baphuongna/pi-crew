@@ -143,7 +143,10 @@ function removeStaleAgentsLock(lockPath: string, staleMs: number): boolean {
 		}
 		fs.rmSync(lockPath, { force: true });
 		return true;
-	} catch {
+	} catch (error) {
+		// R17-B1 (HIGH): a bare catch here swallowed parse/stat/rm failures, so the
+		// root cause became invisible after withAgentsLock's 60s "locked" error.
+		logInternalError("crew-agents.remove-stale-lock", error, `lockPath=${lockPath}`, "warn");
 		return false;
 	}
 }
