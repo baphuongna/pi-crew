@@ -505,6 +505,61 @@ test("1.9b finalizeRun: disk 'cancelled' at finalize time is preserved (NOT flip
 	}
 });
 
+// ─── finalizeRun (:289) — bug-027 stale non-terminal snapshot heal ────
+
+test("finalizeRun: phantom 'running' with empty pendingUnits heals from disk terminal (bug-027)", async () => {
+	const { cwd, manifest } = makeRunFixture("finalize-bug027-heal");
+	try {
+		// Durable truth: worker completed and persisted (with artifact path so the
+		// completed-integrity guards see a real completion).
+		const diskTasks = [
+			makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" }),
+			makeTask("b", "step-2", "test-engineer", "completed", { finishedAt: "2026-01-01T00:00:02.000Z" }),
+		];
+		saveRunTasks(manifest, diskTasks);
+		updateRunStatus(manifest, "running", "bug-027 scenario");
+		// In-memory view is the STALE merged snapshot: task b still 'running'
+		// (settled unit carried a pre-completion snapshot — PR #46 ubuntu CI).
+		const staleMemory = [diskTasks[0]!, { ...diskTasks[1]!, status: "running" as const, finishedAt: undefined }];
+		const ctx = makeFinalizeCtx({ ...manifest, status: "running" }, staleMemory);
+
+		const result = await __test__finalizeRun(ctx);
+
+		// Without the heal this derived "blocked: Task 'b' is still running."
+		assert.equal(result.manifest.status, "completed", "phantom running must heal from disk terminal → completed");
+		const events = readEvents(manifest.eventsPath);
+		assert.ok(
+			events.some((e) => e.type === "task.reconciled_from_disk"),
+			"task.reconciled_from_disk event must be appended for the heal",
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("finalizeRun: genuinely-running task (pendingUnits non-empty) is NOT healed from disk (bug-027 guard)", async () => {
+	const { cwd, manifest } = makeRunFixture("finalize-bug027-guard");
+	try {
+		const diskTasks = [
+			makeTask("a", "step-1", "executor", "completed", { finishedAt: "2026-01-01T00:00:01.000Z" }),
+			makeTask("b", "step-2", "executor", "completed", { finishedAt: "2026-01-01T00:00:02.000Z" }),
+		];
+		saveRunTasks(manifest, diskTasks);
+		updateRunStatus(manifest, "running", "bug-027 guard");
+		const staleMemory = [diskTasks[0]!, { ...diskTasks[1]!, status: "running" as const, finishedAt: undefined }];
+		const ctx = makeFinalizeCtx({ ...manifest, status: "running" }, staleMemory);
+		// A unit is still in-flight — the disk write for 'b' may itself be the
+		// stale one; heal must NOT run.
+		(ctx.pendingUnits as Map<string, PendingUnitLike>).set("unit-1", { taskIds: ["b"] } as PendingUnitLike);
+
+		const result = await __test__finalizeRun(ctx);
+
+		assert.equal(result.manifest.status, "blocked", "in-flight guard: phantom-running path stays blocked (no heal)");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("1.9b finalizeRun: non-terminal disk status completes normally (control) — R15-1", async () => {
 	const { cwd, manifest } = makeRunFixture("finalize-completed");
 	try {

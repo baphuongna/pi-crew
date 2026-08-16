@@ -59560,8 +59560,36 @@ function applyPolicy(manifest, tasks, limits) {
 }
 async function finalizeRun(ctx) {
   const input = ctx.input;
-  const tasks = ctx.tasks;
+  let tasks = ctx.tasks;
   let manifest = ctx.manifest;
+  if (ctx.pendingUnits.size === 0 && tasks.some((task) => task.status === "running" || task.status === "waiting")) {
+    try {
+      flushPendingAtomicWrites();
+      const diskTasks = JSON.parse(fs91.readFileSync(manifest.tasksPath, "utf8"));
+      const diskById = new Map(diskTasks.map((task) => [task.id, task]));
+      const healed = [];
+      tasks = tasks.map((task) => {
+        if (task.status !== "running" && task.status !== "waiting") return task;
+        const disk = diskById.get(task.id);
+        if (disk && TEAM_TERMINAL_TASK_STATUSES.has(disk.status)) {
+          healed.push(`${task.id}:${task.status}->${disk.status}`);
+          return disk;
+        }
+        return task;
+      });
+      if (healed.length > 0) {
+        ctx.tasks = tasks;
+        appendEventFireAndForget(manifest.eventsPath, {
+          type: "task.reconciled_from_disk",
+          runId: manifest.runId,
+          message: `Finalize healed stale non-terminal snapshot(s) from durable tasks.json: ${healed.join(", ")}`,
+          data: { healed }
+        });
+      }
+    } catch (error) {
+      logInternalError("finalize-run.disk-reconcile", error, manifest.runId, "debug");
+    }
+  }
   const failed = tasks.find((task) => task.status === "failed");
   const waiting = tasks.find((task) => task.status === "waiting");
   const running = tasks.find((task) => task.status === "running");
@@ -59715,12 +59743,14 @@ var init_finalize_run = __esm({
   "src/runtime/finalize-run.ts"() {
     "use strict";
     init_atomic_write();
+    init_contracts();
     init_locks();
     init_event_log();
     init_artifact_store();
     init_health_store();
     init_state_store();
     init_usage();
+    init_internal_error();
     init_branch_freshness();
     init_effectiveness();
     init_merge_loop();
@@ -63628,7 +63658,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync74, mkdirSync as mkdirSync39, readFileSync as readFileSync72, unlinkSync as unlinkSync12 } from "node:fs";
+import { existsSync as existsSync74, mkdirSync as mkdirSync39, readFileSync as readFileSync73, unlinkSync as unlinkSync12 } from "node:fs";
 import { dirname as dirname40 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -63649,7 +63679,7 @@ var init_dwf_state_store = __esm({
         const path94 = this.path;
         try {
           if (!existsSync74(path94)) return void 0;
-          const raw = readFileSync72(path94, "utf-8");
+          const raw = readFileSync73(path94, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -64478,7 +64508,7 @@ var dynamic_workflow_runner_exports = {};
 __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
-import { readFileSync as readFileSync73 } from "node:fs";
+import { readFileSync as readFileSync74 } from "node:fs";
 import { join as join76 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
@@ -64504,7 +64534,7 @@ function resolveScriptPath(workflow, cwd) {
   );
 }
 async function loadWorkflowModule(scriptPath) {
-  const scriptSource = readFileSync73(scriptPath, "utf-8");
+  const scriptSource = readFileSync74(scriptPath, "utf-8");
   if (isDeterminismCheckEnabled()) {
     const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
@@ -64641,7 +64671,7 @@ async function runDynamicWorkflow(input) {
 }
 function readFinalArtifact(artifactPath) {
   try {
-    return readFileSync73(artifactPath, "utf-8");
+    return readFileSync74(artifactPath, "utf-8");
   } catch (error) {
     logInternalError("dynamic-workflow-runner.readFinal", error, `artifactPath=${artifactPath}`);
     return `(failed to read final artifact ${artifactPath})`;
@@ -74920,11 +74950,11 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync42, readFileSync as readFileSync79, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync78, mkdirSync as mkdirSync42, readFileSync as readFileSync80, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname42, join as join83 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync77, readFileSync as readFileSync78 } from "node:fs";
+import { existsSync as existsSync77, readFileSync as readFileSync79 } from "node:fs";
 import { homedir as homedir11, platform } from "node:os";
 import { join as join82 } from "node:path";
 function fontPath() {
@@ -74959,13 +74989,13 @@ function isWebTerminal() {
   try {
     let pid = process.pid;
     for (let i = 0; i < 6 && pid > 1; i++) {
-      const cgroup = readFileSync78(`/proc/${pid}/cgroup`, "utf8");
+      const cgroup = readFileSync79(`/proc/${pid}/cgroup`, "utf8");
       if (cgroup.includes("gotty") || cgroup.includes("wetty")) {
         _isWebTerminal = true;
         return true;
       }
       const match = cgroup.match(/\d+:.*:(.*)/);
-      const status = readFileSync78(`/proc/${pid}/status`, "utf8");
+      const status = readFileSync79(`/proc/${pid}/status`, "utf8");
       const ppid = status.match(/^PPid:\s+(\d+)/m);
       pid = ppid ? Number.parseInt(ppid[1], 10) : 1;
     }
@@ -75098,7 +75128,7 @@ function loadConfig2() {
   try {
     const path94 = configPath2();
     if (!existsSync78(path94)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync79(path94, "utf8")));
+    return normalizeConfig(JSON.parse(readFileSync80(path94, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -75481,7 +75511,7 @@ function createCrewVibesFooter(deps) {
 }
 
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync80 } from "node:fs";
+import { readFileSync as readFileSync81 } from "node:fs";
 import { homedir as homedir12 } from "node:os";
 import { join as join84 } from "node:path";
 function withTimeout(ms, fn) {
@@ -75496,7 +75526,7 @@ function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync81(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -75507,7 +75537,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync81(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -75518,7 +75548,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync81(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -75539,7 +75569,7 @@ function loadLegacyCopilotToken() {
   const candidates = [join84(configHome, "github-copilot", "hosts.json"), join84(homedir12(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync80(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync81(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -75560,7 +75590,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync81(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -77868,7 +77898,7 @@ import * as path87 from "node:path";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync86 } from "node:fs";
+import { readFileSync as readFileSync87 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -77912,7 +77942,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync86(filePath, "utf-8");
+    content = readFileSync87(filePath, "utf-8");
   } catch {
     return null;
   }

@@ -6429,7 +6429,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 13256,
+      "bytes": 13257,
       "imports": [
         {
           "path": "node:child_process",
@@ -15214,7 +15214,7 @@
       "format": "esm"
     },
     "src/runtime/finalize-run.ts": {
-      "bytes": 23797,
+      "bytes": 25922,
       "imports": [
         {
           "path": "node:fs",
@@ -15230,6 +15230,11 @@
           "path": "src/state/atomic-write.ts",
           "kind": "import-statement",
           "original": "../state/atomic-write.ts"
+        },
+        {
+          "path": "src/state/contracts.ts",
+          "kind": "import-statement",
+          "original": "../state/contracts.ts"
         },
         {
           "path": "src/state/coordination/locks.ts",
@@ -15260,6 +15265,11 @@
           "path": "src/state/usage.ts",
           "kind": "import-statement",
           "original": "../state/usage.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/worktree/branch-freshness.ts",
@@ -19419,7 +19429,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6864972
+      "bytes": 6868107
     },
     "dist/index.mjs": {
       "imports": [
@@ -22964,7 +22974,7 @@
           "bytesInOutput": 3916
         },
         "src/runtime/finalize-run.ts": {
-          "bytesInOutput": 13502
+          "bytesInOutput": 14726
         },
         "src/runtime/goal-workflow/goal-achievement.ts": {
           "bytesInOutput": 2936
@@ -23345,7 +23355,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3026605
+      "bytes": 3027829
     }
   }
 }

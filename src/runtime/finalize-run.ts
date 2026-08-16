@@ -17,6 +17,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
 import { flushPendingAtomicWrites } from "../state/atomic-write.ts";
+import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
 import { appendEvent, appendEventAsync, appendEventFireAndForget, readEvents } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
@@ -24,6 +25,7 @@ import { HealthStore } from "../state/stores/health-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, PolicyDecision, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatUsage } from "../state/usage.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { checkBranchFreshness } from "../worktree/branch-freshness.ts";
 import { effectivenessPolicyDecision, evaluateRunEffectiveness, formatRunEffectivenessLines } from "./effectiveness.ts";
 import { isRunTerminalPreserved } from "./merge-loop.ts";
@@ -288,8 +290,48 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
  */
 export async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
 	const input = ctx.input;
-	const tasks = ctx.tasks;
+	let tasks = ctx.tasks;
 	let manifest = ctx.manifest;
+	// Bug-027 (PR #46 ubuntu CI, 3 consecutive runs): under heavy contention a
+	// settled unit's merged result can carry a STALE non-terminal snapshot while
+	// the worker's durable completion has already landed in tasks.json — the
+	// status-derivation chain below would then flip a phantom 'running' into a
+	// false 'blocked: still running' (events: reviewer task.completed 18.184 →
+	// batch merge 18.190 → run.blocked 18.223, with the "running" task completed
+	// on disk the whole time). Disk is the authority at finalize — the same
+	// principle as the R15-1 locked save. Reconcile in-memory non-terminal tasks
+	// against a fresh tasks.json read, but ONLY when nothing is in-flight
+	// (pendingUnits empty) so a genuinely running worker is never clobbered.
+	if (ctx.pendingUnits.size === 0 && tasks.some((task) => task.status === "running" || task.status === "waiting")) {
+		try {
+			flushPendingAtomicWrites();
+			const diskTasks = JSON.parse(fs.readFileSync(manifest.tasksPath, "utf8")) as TeamTaskState[];
+			const diskById = new Map(diskTasks.map((task) => [task.id, task] as const));
+			const healed: string[] = [];
+			tasks = tasks.map((task) => {
+				if (task.status !== "running" && task.status !== "waiting") return task;
+				const disk = diskById.get(task.id);
+				if (disk && TEAM_TERMINAL_TASK_STATUSES.has(disk.status)) {
+					healed.push(`${task.id}:${task.status}->${disk.status}`);
+					return disk;
+				}
+				return task;
+			});
+			if (healed.length > 0) {
+				ctx.tasks = tasks;
+				appendEventFireAndForget(manifest.eventsPath, {
+					type: "task.reconciled_from_disk",
+					runId: manifest.runId,
+					message: `Finalize healed stale non-terminal snapshot(s) from durable tasks.json: ${healed.join(", ")}`,
+					data: { healed },
+				});
+			}
+		} catch (error) {
+			// Unreadable/missing tasks.json — keep the in-memory view; the chain
+			// below decides as before.
+			logInternalError("finalize-run.disk-reconcile", error, manifest.runId, "debug");
+		}
+	}
 	const failed = tasks.find((task) => task.status === "failed");
 	const waiting = tasks.find((task) => task.status === "waiting");
 	const running = tasks.find((task) => task.status === "running");
