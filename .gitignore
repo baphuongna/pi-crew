@@ -38,3 +38,8 @@ fallow-audit-report/
 __pycache__/
 *.pyc
 .claude/
+# Per-run generated perf reports (259+ files, runtime output — curated ones
+# live in docs/perf-report.md / docs/perf-analysis.md)
+docs/perf-report-team_*
+# Benchmark result output (bench sources b*.bench.ts ARE tracked)
+bench/results/
