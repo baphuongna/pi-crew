@@ -1,5 +1,6 @@
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { classifyHeartbeat, heartbeatAgeMs } from "../runtime/heartbeat/heartbeat-gradient.ts";
+import { isTerminalRunStatus } from "../state/contracts.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 
@@ -45,8 +46,15 @@ export function summarizeHeartbeats(snapshot: RunUiSnapshot, opts: HeartbeatSumm
 		worstStaleMs: 0,
 		gradient: { healthy: 0, warn: 0, stale: 0, dead: 0 },
 	};
+	// bug-026 sub-issue C: a terminal run must never report dead/missing/stale
+	// workers. isActiveTask below already skips terminal tasks (the primary
+	// task-level gate — locked in by regression tests), but a stale snapshot can
+	// carry "running" task statuses that lag the run manifest's terminal
+	// transition. Defense-in-depth: skip ALL task counting when the run manifest
+	// itself is terminal. Runs with a non-terminal manifest are unaffected.
+	const runTerminal = isTerminalRunStatus(snapshot.manifest.status);
 	for (const task of snapshot.tasks) {
-		if (!isActiveTask(task)) continue;
+		if (runTerminal || !isActiveTask(task)) continue;
 		const heartbeat = task.heartbeat;
 		if (!heartbeat) {
 			summary.missing += 1;

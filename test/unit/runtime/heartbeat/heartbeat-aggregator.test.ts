@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TeamTaskState } from "../../../../src/state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 import { summarizeHeartbeats } from "../../../../src/ui/heartbeat-aggregator.ts";
 import type { RunUiSnapshot } from "../../../../src/ui/snapshot-types.ts";
 
@@ -18,7 +18,7 @@ function task(id: string, status: TeamTaskState["status"], lastSeenAt?: string, 
 	};
 }
 
-function snapshot(tasks: TeamTaskState[]): RunUiSnapshot {
+function snapshot(tasks: TeamTaskState[], manifestStatus: TeamRunManifest["status"] = "running"): RunUiSnapshot {
 	return {
 		runId: "run",
 		cwd: process.cwd(),
@@ -31,7 +31,7 @@ function snapshot(tasks: TeamTaskState[]): RunUiSnapshot {
 			team: "t",
 			workflow: "w",
 			goal: "g",
-			status: "running",
+			status: manifestStatus,
 			createdAt: "",
 			updatedAt: "",
 			stateRoot: "",
@@ -122,11 +122,12 @@ test("summarizeHeartbeats uses strict greater-than thresholds", () => {
 });
 
 test("summarizeHeartbeats regression: running task with >5min stale heartbeat is dead", () => {
-	// Pin the invariant: a GENUINELY running task whose heartbeat aged past
-	// the dead threshold (default 5 min) MUST still be classified as dead so
-	// the health alert fires. The terminal-run suppression lives at the
-	// renderTick gate (fresh-manifest re-verify), NOT here — summarizeHeartbeats
-	// must never be weakened to silently drop real dead-worker alerts.
+	// Pin the invariant: a GENUINELY running task (running manifest) whose
+	// heartbeat aged past the dead threshold (default 5 min) MUST still be
+	// classified as dead so the health alert fires. The bug-026 sub-issue C
+	// run-level gate only suppresses counting when the manifest itself is
+	// terminal; for a running manifest summarizeHeartbeats must never be
+	// weakened to silently drop real dead-worker alerts.
 	const now = Date.parse("2026-01-01T00:10:00.000Z");
 	const summary = summarizeHeartbeats(snapshot([task("running-stale", "running", "2026-01-01T00:03:00.000Z")]), {
 		now,
@@ -135,4 +136,37 @@ test("summarizeHeartbeats regression: running task with >5min stale heartbeat is
 	});
 	// heartbeat is 7 min old -> older than deadMs (5 min) -> dead.
 	assert.ok(summary.dead >= 1, `expected dead >= 1, got ${summary.dead}`);
+});
+
+test("summarizeHeartbeats ignores terminal tasks with ancient heartbeats (bug-026 sub-issue C)", () => {
+	// Lock in the task-level gate: isActiveTask() only counts status "running",
+	// so a terminal task must never land in dead/missing/stale counters no
+	// matter how old its heartbeat is (opts.now far in the future).
+	const statuses: TeamTaskState["status"][] = ["completed", "failed", "cancelled", "skipped"];
+	for (const status of statuses) {
+		const summary = summarizeHeartbeats(snapshot([task(`t-${status}`, status, "2026-01-01T00:00:00.000Z", true)]), {
+			now: Date.parse("2026-01-02T00:00:00.000Z"), // heartbeat is a day old
+		});
+		assert.equal(summary.dead, 0, `dead for ${status}`);
+		assert.equal(summary.missing, 0, `missing for ${status}`);
+		assert.equal(summary.stale, 0, `stale for ${status}`);
+		assert.equal(summary.healthy, 0, `healthy for ${status}`);
+	}
+});
+
+test("summarizeHeartbeats run-level gate: terminal manifest suppresses lagging running tasks (bug-026 sub-issue C)", () => {
+	// Defense-in-depth: a stale snapshot whose task statuses lag the manifest's
+	// terminal transition (task still says "running" with an ancient heartbeat)
+	// must not report dead/stale workers for a finished run.
+	const terminalStatuses = ["blocked", "completed", "failed", "cancelled"] as const;
+	for (const manifestStatus of terminalStatuses) {
+		const summary = summarizeHeartbeats(snapshot([task("lagging", "running", "2026-01-01T00:00:00.000Z")], manifestStatus), {
+			now: Date.parse("2026-01-01T00:10:00.000Z"), // heartbeat 10 min old -> would be dead
+		});
+		assert.equal(summary.dead, 0, `dead for ${manifestStatus}`);
+		assert.equal(summary.missing, 0, `missing for ${manifestStatus}`);
+		assert.equal(summary.stale, 0, `stale for ${manifestStatus}`);
+		assert.equal(summary.healthy, 0, `healthy for ${manifestStatus}`);
+		assert.equal(summary.worstStaleMs, 0, `worstStaleMs for ${manifestStatus}`);
+	}
 });

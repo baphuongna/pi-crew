@@ -557,6 +557,44 @@ export function filterManifestsForHealthNotifications(
 	return manifests.filter((run) => !run.ownerSessionId || run.ownerSessionId === currentSessionId);
 }
 
+/**
+ * bug-026 sub-issue C: runEventBus event types that mark a run TERMINAL,
+ * across BOTH type namespaces seen on the bus — dotted `run.*` strings (kept
+ * for parity with classifyEventChannel's WORKER_LIFECYCLE_TYPES, see
+ * src/ui/run-event-bus.ts:31-44) and underscore `run_*` (the native
+ * RunEventType namespace actually emitted by team-runner, e.g.
+ * `run_completed`). Exported for unit testing.
+ */
+export const TERMINAL_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
+	"run.completed",
+	"run.failed",
+	"run.cancelled",
+	"run_completed",
+	"run_failed",
+	"run_cancelled",
+]);
+
+/** True when a runEventBus event type marks the run terminal (either namespace). */
+export function isTerminalRunEventType(type: string): boolean {
+	return TERMINAL_RUN_EVENT_TYPES.has(type);
+}
+
+/** Pure filter: drop `runId` from a preloaded-manifest frame (bug-026 sub-issue C eviction). */
+export function evictRunFromManifests(manifests: TeamRunManifest[], runId: string): TeamRunManifest[] {
+	return manifests.filter((m) => m.runId !== runId);
+}
+
+/**
+ * Apply a runEventBus payload to a preloaded-manifest frame: evict the run on
+ * terminal events, pass through unchanged otherwise. This is the exact logic
+ * wired into the setupRenderLoop `runEventBus.onAny` subscription (bug-026
+ * sub-issue C); exported so tests can exercise it end-to-end against the
+ * real bus without spinning up the full render loop.
+ */
+export function applyTerminalRunEventToManifests(manifests: TeamRunManifest[], event: { type: string; runId: string }): TeamRunManifest[] {
+	return isTerminalRunEventType(event.type) ? evictRunFromManifests(manifests, event.runId) : manifests;
+}
+
 function setupRenderLoop(
 	pi: ExtensionAPI,
 	ctx: RegistrationContext,
@@ -820,6 +858,12 @@ function setupRenderLoop(
 	// re-renders within debounceMs of any agent lifecycle event.
 	const sched = ctx.renderScheduler;
 	const unsubscribeRunEvents = runEventBus.onAny((event) => {
+		// bug-026 sub-issue C: evict terminal runs from the preloaded manifest
+		// frame so a stale "running" entry cannot persist for the session
+		// lifetime. Additive to the renderTick GATE 1 / FIX #1 / GATE 2 snapshot
+		// purges (which invalidate the snapshot cache) — those gates do not
+		// touch lastPreloadedManifests itself.
+		lastPreloadedManifests = applyTerminalRunEventToManifests(lastPreloadedManifests, event);
 		sched.schedule({
 			runId: event.runId,
 			source: "runEventBus",

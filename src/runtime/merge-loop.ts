@@ -16,6 +16,7 @@ import { flushPendingAtomicWrites } from "../state/atomic-write.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import { classifyFatalFsError } from "../utils/fs-errno.ts";
 import { cancelNonTerminalTasks } from "./dispatch-batch.ts";
 import { mergeTaskUpdatesPreservingTerminal } from "./merge-gate.ts";
 import type { SchedulerContext, SchedulerDecision } from "./scheduler-context.ts";
@@ -59,9 +60,17 @@ export async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerD
 
 	// Build the single result to merge. On rejection, synthesize a failed
 	// result so the run continues (mirrors the old validResults guard).
+	// bug-026 sub-issue B: a rejected unit means runTeamTask itself threw —
+	// typically an atomicWriteFile/persistSingleTaskUpdate ENOSPC mid-run.
+	// Classify the errno and stamp failureCause on the synthesized failed
+	// tasks so the operator sees "failed (disk full)", not a generic write
+	// error string.
+	const thrownFailureCause = settled.result ? undefined : classifyFatalFsError(settled.error);
 	const resultToMerge: { manifest: TeamRunManifest; tasks: TeamTaskState[] } = settled.result ?? {
 		manifest: ctx.manifest,
-		tasks: cancelNonTerminalTasks(ctx.tasks, "failed", settled.error!.message, (t) => completedUnit.taskIds.includes(t.id)),
+		tasks: cancelNonTerminalTasks(ctx.tasks, "failed", settled.error!.message, (t) => completedUnit.taskIds.includes(t.id)).map((t) =>
+			thrownFailureCause && t.status === "failed" ? { ...t, failureCause: thrownFailureCause } : t,
+		),
 	};
 	const validResults = [resultToMerge];
 	// Reconstruct manifest from the last worker's snapshot. The .artifacts field

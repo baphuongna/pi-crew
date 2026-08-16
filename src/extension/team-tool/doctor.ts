@@ -14,6 +14,7 @@ import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { TeamToolParams } from "../../schema/team-tool-schema.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
+import { type FatalFsCause, fsFailureLabel } from "../../utils/fs-errno.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -24,6 +25,71 @@ interface DoctorCheck {
 	label: string;
 	ok: boolean;
 	detail: string;
+}
+
+/** bug-026 sub-issue B: how many of the most recent runs to scan for tasks
+ *  carrying a fatal-fs failureCause. Bounded so doctor stays fast on projects
+ *  with long run histories. */
+const FS_FAILURE_SCAN_RUN_LIMIT = 10;
+
+function relativeTimeAgo(iso: string): string {
+	const ms = Date.now() - Date.parse(iso);
+	if (!Number.isFinite(ms)) return iso;
+	const minutes = Math.floor(ms / 60_000);
+	if (minutes < 1) return "just now";
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** bug-026 sub-issue B: scan the most recent runs (by mtime, capped) for
+ *  tasks with a fatal-fs failureCause (enospc/edquot/emfile/enfile). Reads
+ *  tasks.json directly (no state-store import) and never throws — doctor is
+ *  a diagnostic tool; unreadable runs are simply skipped. */
+function scanRecentFsFailureCauses(cwd: string): string {
+	const runsRoot = path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+	let recentRunIds: string[];
+	try {
+		recentRunIds = fs
+			.readdirSync(runsRoot, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => {
+				let mtimeMs = 0;
+				try {
+					mtimeMs = fs.statSync(path.join(runsRoot, entry.name)).mtimeMs;
+				} catch {
+					/* unreadable run dir — mtime 0 sorts last */
+				}
+				return { runId: entry.name, mtimeMs };
+			})
+			.sort((a, b) => b.mtimeMs - a.mtimeMs)
+			.slice(0, FS_FAILURE_SCAN_RUN_LIMIT)
+			.map((entry) => entry.runId);
+	} catch {
+		return "no run history";
+	}
+	let count = 0;
+	let last: { runId: string; cause: FatalFsCause; finishedAt?: string } | undefined;
+	for (const runId of recentRunIds) {
+		let tasks: unknown;
+		try {
+			tasks = JSON.parse(fs.readFileSync(path.join(runsRoot, runId, "tasks.json"), "utf-8"));
+		} catch {
+			continue;
+		}
+		if (!Array.isArray(tasks)) continue;
+		for (const task of tasks) {
+			const failureCause = (task as { failureCause?: FatalFsCause }).failureCause;
+			if (!failureCause) continue;
+			count += 1;
+			const finishedAt = (task as { finishedAt?: string }).finishedAt;
+			if (!last || (finishedAt ?? "") > (last.finishedAt ?? "")) last = { runId, cause: failureCause, finishedAt };
+		}
+	}
+	if (count === 0) return `none in last ${FS_FAILURE_SCAN_RUN_LIMIT} runs`;
+	const when = last?.finishedAt ? `, ${relativeTimeAgo(last.finishedAt)}` : "";
+	return `${count} task(s) in last ${FS_FAILURE_SCAN_RUN_LIMIT} runs (last: ${last?.runId}${when}, ${fsFailureLabel(last!.cause)})`;
 }
 
 function firstOutputLine(stdout: string | null | undefined, stderr: string | null | undefined): string {
@@ -243,6 +309,14 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 					label: "artifacts root",
 					ok: true,
 					detail: path.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir),
+				},
+				{
+					// bug-026 sub-issue B: INFORMATIONAL (ok always true) — a historical
+					// disk-full incident must not permanently fail doctor. The line makes
+					// fs failureCauses discoverable without digging through run logs.
+					label: "fs failure causes",
+					ok: true,
+					detail: scanRecentFsFailureCauses(input.cwd),
 				},
 			];
 		}),

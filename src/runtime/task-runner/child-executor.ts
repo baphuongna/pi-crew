@@ -33,6 +33,7 @@ import { errors } from "../../errors.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
+import { type FatalFsCause, failureCauseForAttempt } from "../../utils/fs-errno.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
@@ -382,6 +383,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	}
 	const logs: string[] = [];
 	let finalStderr = "";
+	// bug-026 sub-issue B: fatal-fs cause (enospc/edquot/emfile/enfile)
+	// derived per attempt from the attempt error / stderr tail.
+	let failureCause: FatalFsCause | undefined;
 	// One-shot: the re-resolve is a safety net for a chain that was computed
 	// before the registry was complete, not a retry loop of its own.
 	let reResolveUsed = false;
@@ -727,6 +731,13 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		rawFinalText = childResult.rawFinalText;
 		intermediateFindings = childResult.intermediateFindings;
 		error = attemptErrorFor(childResult, parsedOutput, task.id);
+		// bug-026 sub-issue B: classify fatal fs errnos (ENOSPC/EDQUOT/EMFILE/
+		// ENFILE). During the 2026-08-15 disk-full window the errno only surfaced
+		// inside E007 stderr-tail strings, never as a raw errno object in the
+		// parent — so match the message text too. Recomputed every attempt;
+		// stamped on the task record immediately so a crash before loop exit
+		// still persists the cause. Only meaningful on failure.
+		failureCause = error ? failureCauseForAttempt(error, finalStderr) : undefined;
 		persistHeartbeat(true);
 		persistChildProgress({ type: "attempt_finished" }, true);
 		const attempt: ModelAttemptSummary = {
@@ -736,7 +747,11 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			error,
 		};
 		modelAttempts.push(attempt);
-		task = { ...task, modelAttempts: [...modelAttempts] };
+		task = {
+			...task,
+			modelAttempts: [...modelAttempts],
+			...(failureCause ? { failureCause } : {}),
+		};
 		tasks = updateTask(tasks, task);
 		logs.push(
 			`MODEL ATTEMPT ${i + 1}: ${attempt.model}`,
@@ -806,6 +821,11 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			error,
 		).message;
 	}
+	// bug-026 sub-issue B: reclassify after the E008 modelExhausted rewrite —
+	// its message embeds the last attempt's error (incl. stderr tails), so the
+	// errno survives the rewrite. Cleared on success (a task that recovered on
+	// retry is not an fs failure).
+	failureCause = error ? failureCauseForAttempt(error, finalStderr) : undefined;
 	// NEW-8 fix: register all attempt transcripts as artifacts, not just the used one.
 	// Earlier failed attempts' transcripts exist on disk but were invisible to the artifact system.
 	const successfulAttemptIndex = modelAttempts.findIndex((attempt) => attempt.success);
@@ -865,6 +885,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	const fallbackReason = usedAttempt > 0 ? modelAttempts[usedAttempt - 1]?.error : undefined;
 	task = {
 		...task,
+		...(failureCause ? { failureCause } : {}),
 		modelRouting: {
 			requested: modelRoutingPlan.requested,
 			resolved: resolvedModel,

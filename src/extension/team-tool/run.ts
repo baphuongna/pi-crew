@@ -12,6 +12,7 @@ import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../s
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
+import { fsFailureLabel } from "../../utils/fs-errno.ts";
 import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -280,8 +281,12 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 			}
 			const shortResult = resultExcerpt.slice(0, 500);
 			const statusTag = task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
+			// bug-026 sub-issue B: surface the classified fatal-fs cause in the
+			// final report — "failed (disk full)" instead of a bare "failed".
+			const statusText =
+				task.status === "failed" && task.failureCause ? `${task.status} (${fsFailureLabel(task.failureCause)})` : task.status;
 			taskLines.push(
-				`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
+				`- ${statusTag} ${task.id} [${task.role}]: ${statusText}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
 			);
 			if (task.status === "failed" || task.status === "needs_attention") {
 				failedCount++;
