@@ -41,6 +41,29 @@ finding-by-finding sweep → full remediation of every open finding (Waves
   heartbeat aggregator terminal-task defense (kills phantom dead-worker
   alerts on long-lived sessions).
 
+### Runner reliability (bug-027 / bug-028 — post-Wave-D, found via real-test + CI)
+- bug-027 (`f6e605ef`): `finalizeRun` heals stale non-terminal in-memory
+  snapshots from disk (in-flight guard) — a run whose disk manifest is
+  terminal but whose preloaded snapshot says "running" no longer blocks
+  finalize with a misleading in-flight error.
+- bug-028 (`e9586aca`): fan-out stale-fallback resurrection —
+  `persistSingleTaskUpdate` previously wrote the dispatch-time
+  `fallbackTasks` array (the O(1) "F4" shortcut), which could resurrect
+  disk-terminal sibling tasks back to "running". It now always re-reads
+  the latest manifest from disk inside the run lock. Deterministic
+  regression test:
+  `test/unit/runtime/task-runner/state-helpers-bug028-stale-fallback.test.ts`
+  (verified fail-before-fix via git stash).
+
+### Verification (real-test 9-tier, v0.10.0 premerge)
+- Full 9-tier real-test battery incl. the live mid-run battery: steer into
+  a running task, live cancel (cross-session ownership guard + force),
+  plan-approval waiting flow, and respond handler — run via a second pi
+  session in tmux. Report:
+  `docs/real-test/reports/real-test-2026-08-16-v0.10.0-premerge.md`.
+- macOS CI teardown hardening (`8197f054`): retry recursive rmSync against
+  the worker-write/rmdir ENOTEMPTY race in `resume-cancel.test.ts`.
+
 ### Repo hygiene
 - bench suite b1–b11 tracked; per-run perf reports + bench results
   gitignored; package.json-referenced scripts committed (fresh-clone fix).
