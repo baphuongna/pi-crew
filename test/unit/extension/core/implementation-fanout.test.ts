@@ -86,6 +86,22 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 			);
 			try {
 				const allEvents = readEvents(loaded!.manifest.eventsPath);
+				// Full tail with timestamps — the blocked outcome follows a lost/late
+				// completion merge (merge-gate skip / "still running") for one of the
+				// parallel-settling adaptive tasks; ordering + timestamps pinpoint it.
+				console.error(
+					"[fanout-diag] last events:",
+					JSON.stringify(
+						allEvents.slice(-60).map((event) => ({
+							ts: (event as { time?: string }).time,
+							type: event.type,
+							taskId: event.taskId,
+							msg: typeof event.message === "string" ? event.message.slice(0, 100) : undefined,
+						})),
+						null,
+						1,
+					),
+				);
 				const interesting = allEvents.filter(
 					(event) =>
 						/adaptive|blocked|plan_missing|hook/.test(event.type) ||
