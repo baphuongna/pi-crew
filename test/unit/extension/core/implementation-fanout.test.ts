@@ -57,23 +57,52 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 			// at concurrency 2 AND 4, clean HOME). Dump the run's own state so the
 			// next CI failure pinpoints WHICH blocked-path fired (adaptive.plan_missing
 			// with which message, before_run_start hook, or after-batch injection).
-			console.error("[fanout-diag] manifest:", JSON.stringify({
-				status: loaded?.manifest.status,
-				workflow: loaded?.manifest.workflow,
-				updatedAt: loaded?.manifest.updatedAt,
-			}, null, 1));
-			console.error("[fanout-diag] tasks:", JSON.stringify((loaded?.tasks ?? []).map((t) => ({
-				id: t.id, stepId: t.stepId, status: t.status, attempts: t.attempts?.length,
-				hasResult: Boolean(t.resultArtifact?.path), resultPath: t.resultArtifact?.path,
-			})), null, 1));
+			console.error(
+				"[fanout-diag] manifest:",
+				JSON.stringify(
+					{
+						status: loaded?.manifest.status,
+						workflow: loaded?.manifest.workflow,
+						updatedAt: loaded?.manifest.updatedAt,
+					},
+					null,
+					1,
+				),
+			);
+			console.error(
+				"[fanout-diag] tasks:",
+				JSON.stringify(
+					(loaded?.tasks ?? []).map((t) => ({
+						id: t.id,
+						stepId: t.stepId,
+						status: t.status,
+						attempts: t.attempts?.length,
+						hasResult: Boolean(t.resultArtifact?.path),
+						resultPath: t.resultArtifact?.path,
+					})),
+					null,
+					1,
+				),
+			);
 			try {
 				const allEvents = readEvents(loaded!.manifest.eventsPath);
-				const interesting = allEvents.filter((event) =>
-					/adaptive|blocked|plan_missing|hook/.test(event.type) ||
-					(typeof event.message === "string" && /adaptive|blocked|plan/i.test(event.message)));
-				console.error("[fanout-diag] events:", JSON.stringify(interesting.slice(-25).map((event) => ({
-					type: event.type, taskId: event.taskId, message: String(event.message).slice(0, 140),
-				})), null, 1));
+				const interesting = allEvents.filter(
+					(event) =>
+						/adaptive|blocked|plan_missing|hook/.test(event.type) ||
+						(typeof event.message === "string" && /adaptive|blocked|plan/i.test(event.message)),
+				);
+				console.error(
+					"[fanout-diag] events:",
+					JSON.stringify(
+						interesting.slice(-25).map((event) => ({
+							type: event.type,
+							taskId: event.taskId,
+							message: String(event.message).slice(0, 140),
+						})),
+						null,
+						1,
+					),
+				);
 				const assess = loaded?.tasks.find((t) => t.stepId === "assess" || t.stepId === "01_assess");
 				if (assess?.resultArtifact?.path) {
 					try {
