@@ -520,6 +520,11 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 			onJsonEvent: input.onJsonEvent,
 			workspaceId: input.workspaceId,
 			spawnBudget,
+			// R10-1 residual: same per-run cache instance as the closeout — one
+			// object reference spread into EVERY runTeamTask call (initial + every
+			// retry attempt via `...baseInput`), so dep-context reads and closeout
+			// aggregation share memoized artifacts.
+			resultReadCache: ctx.resultReadCache,
 		};
 		// #1 (assessment): autoRetry now defaults ON (opt-out via reliability.autoRetry=false).
 		// The dominant v0.9.13 failure was ChildTimeout ("worker became unresponsive") with

@@ -11,6 +11,7 @@ import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import type { BatchConcurrencyDecision } from "./scheduling/concurrency.ts";
 import type { TaskGraphIndex, TaskGraphSchedulerSnapshot } from "./scheduling/task-graph-scheduler.ts";
+import type { ResultArtifactReadCache } from "./task-output-context.ts";
 // ExecuteTeamRunInput is defined in team-runner.ts — import type ONLY so the
 // type-level team-runner↔scheduler-context reference is erased at runtime
 // (no runtime import cycle; team-runner.ts imports these types back).
@@ -69,6 +70,10 @@ export interface SchedulerContext {
 	 * taskIds and the merged result object. Read by the post-merge inline
 	 * logic (cancel-during-exec check + batch summary). Set by extraction 5. */
 	settledMerge: { taskIds: string[]; result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } } | null;
+	/** R10-1: per-run result-artifact read cache (single instance, created in
+	 *  executeTeamRunCore). Shared by closeout aggregation and — via baseInput
+	 *  in dispatch-batch.ts — dependency-context reads in prepareTaskExecutionContext. */
+	resultReadCache: ResultArtifactReadCache;
 }
 
 /**

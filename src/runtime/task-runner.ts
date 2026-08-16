@@ -8,6 +8,7 @@ import { registerStreamBridge } from "./event-stream-bridge.ts";
 import type { ModelAttemptSummary } from "./model/model-fallback.ts";
 import { awaitRuntimeWarmup } from "./model/runtime-warmup.ts";
 import type { ParsedPiJsonOutput } from "./output/pi-json-output.ts";
+import type { ResultArtifactReadCache } from "./task-output-context.ts";
 import { runChildProcessTask } from "./task-runner/child-executor.ts";
 import { finalizeTaskResult, type TaskExecutionResult } from "./task-runner/post-execution.ts";
 import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";
@@ -74,6 +75,16 @@ export interface TaskRunnerInput {
 	 * into every runTeamTask call).
 	 */
 	spawnBudget?: SpawnBudget;
+	/**
+	 * R10-1 residual: per-run result-artifact read cache shared with the
+	 * closeout aggregation. Threading it here lets collectDependencyOutputContext
+	 * reuse reads the closeout already performed (fan-in graphs re-read the same
+	 * `results/<taskId>.txt` once per downstream dispatch + retry). ONE instance
+	 * per RUN (created in executeTeamRunCore, spread through baseInput so
+	 * retries inherit it by reference) — never per call. Optional: undefined
+	 * keeps the uncached behavior.
+	 */
+	resultReadCache?: ResultArtifactReadCache;
 }
 
 export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {

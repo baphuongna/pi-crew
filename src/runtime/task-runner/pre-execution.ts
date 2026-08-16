@@ -116,7 +116,10 @@ export async function prepareTaskExecutionContext(
 		cwd: workspace.cwd,
 		worktreePath: worktree?.path,
 	});
-	const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step);
+	// R10-1 residual: thread the per-run result-artifact read cache (if the
+	// caller provided one) into the dep-context collection — cache hits reuse
+	// the closeout's reads byte-identically; undefined keeps uncached behavior.
+	const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step, input.resultReadCache);
 	const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
 	let task: TeamTaskState = {
 		...input.task,

@@ -851,6 +851,16 @@ async function executeTeamRunCore(
 		}
 	}
 
+	// R10-1: per-run result-artifact read cache. The batch closeout below
+	// aggregates every settled batch TWICE (batch-summary artifact + group-join
+	// delivery) — the second aggregation re-reads each `results/<taskId>.txt`
+	// from disk for no benefit. Keyed by artifact path + descriptor identity
+	// (sizeBytes|contentHash), so a retry that rewrites the artifact misses and
+	// re-reads. Passed to both closeout call sites AND (via SchedulerContext →
+	// baseInput) to collectDependencyOutputContext's dep reads; see
+	// task-output-context.ts.
+	const resultReadCache = createResultArtifactReadCache();
+
 	// CORE-4: scheduler context — mutable state bag for extracted scheduler
 	// functions. Fields are synced from closure locals at the top of each
 	// loop iteration; extracted functions mutate ctx in-place.
@@ -868,15 +878,8 @@ async function executeTeamRunCore(
 		adaptivePlanInjected,
 		adaptivePlanMissing,
 		settledMerge: null,
+		resultReadCache,
 	};
-
-	// R10-1: per-run result-artifact read cache. The batch closeout below
-	// aggregates every settled batch TWICE (batch-summary artifact + group-join
-	// delivery) — the second aggregation re-reads each `results/<taskId>.txt`
-	// from disk for no benefit. Keyed by artifact path + descriptor identity
-	// (sizeBytes|contentHash), so a retry that rewrites the artifact misses and
-	// re-reads. Passed to both closeout call sites; see task-output-context.ts.
-	const resultReadCache = createResultArtifactReadCache();
 
 	// CORE-1: single drain point — all early returns + normal exit settle pendingUnits via finally block.
 	try {
