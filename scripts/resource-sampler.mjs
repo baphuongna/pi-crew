@@ -147,9 +147,16 @@ function readProcStatus(pid) {
 
 // ---------- fallback via ps (non-Linux) ----------
 function readPs(pid) {
-	const res = spawnSync("ps", ["-o", "rss=,pcpu=", "-p", String(pid)], { encoding: "utf8" });
+	// state= makes zombie detection possible on BSD ps (macOS): a dead child
+	// stays listed by ps until reaped — without the state check, watch-parent
+	// (R4) never sees the watched PID die and live-warn (proc_died) never fires
+	// (CI incident: resource-sampler-audit.test.ts on macos-latest). Linux ps
+	// also supports state=. Z/X (and empty) = dead.
+	const res = spawnSync("ps", ["-o", "rss=,pcpu=,state=", "-p", String(pid)], { encoding: "utf8" });
 	if (res.status !== 0 || !res.stdout.trim()) return null;
 	const parts = res.stdout.trim().split(/\s+/);
+	const state = parts.length >= 3 ? parts[2] : "";
+	if (state.startsWith("Z") || state.startsWith("X")) return null;
 	return {
 		pid,
 		ppid: 0,
@@ -163,7 +170,34 @@ function readPs(pid) {
 // ---------- child discovery ----------
 function findDescendants(rootPid) {
 	// BFS over /proc to find all PIDs whose ppid chain leads to rootPid.
-	if (!existsSync("/proc")) return [rootPid];
+	// Non-Linux (macOS/BSD): no /proc — build the ppid map from `ps -eo pid=,ppid=`
+	// instead (R3 on macos-latest CI: /proc-less platforms previously returned
+	// [rootPid] only, so descendants were never sampled).
+	if (!existsSync("/proc")) {
+		try {
+			const res = spawnSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8" });
+			if (res.status !== 0 || !res.stdout.trim()) return [rootPid];
+			const ppidOf = new Map();
+			for (const line of res.stdout.trim().split("\n")) {
+				const parts = line.trim().split(/\s+/);
+				if (parts.length >= 2) ppidOf.set(Number.parseInt(parts[0], 10), Number.parseInt(parts[1], 10));
+			}
+			const result = new Set([rootPid]);
+			let grew = true;
+			while (grew) {
+				grew = false;
+				for (const [pid, ppid] of ppidOf) {
+					if (result.has(ppid) && !result.has(pid)) {
+						result.add(pid);
+						grew = true;
+					}
+				}
+			}
+			return [...result];
+		} catch {
+				return [rootPid];
+			}
+	}
 	const all = [];
 	try {
 		for (const name of readdirSync("/proc")) {

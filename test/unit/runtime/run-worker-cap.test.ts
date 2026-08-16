@@ -187,7 +187,10 @@ async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): 
 test("T-4: runWorker blocks at the configured cap and releases on settle (real module, real spawn)", async () => {
 	const envSnap = snapshotEnv(ENV_KEYS);
 	const prevCap = getWorkerCapCapacity();
-	const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-"));
+	// Canonicalize (macOS: /var/folders/... → /private/var/folders/...) so the
+	// npm_config_prefix allowlist prefix matches what pi-spawn's
+	// validateExplicitBin() sees after fs.realpathSync on the bin path.
+	const scriptDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-")));
 	const cwd = makeTmpCwd();
 	try {
 		useValidPiBin(writeFakePi(scriptDir, 200), scriptDir);
@@ -233,7 +236,10 @@ test("T-4: runWorker blocks at the configured cap and releases on settle (real m
 test("T-4: cap:false bypasses the global worker cap (goal-judge exemption, RFC MAJ#3)", async () => {
 	const envSnap = snapshotEnv(ENV_KEYS);
 	const prevCap = getWorkerCapCapacity();
-	const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-"));
+	// Canonicalize (macOS: /var/folders/... → /private/var/folders/...) so the
+	// npm_config_prefix allowlist prefix matches what pi-spawn's
+	// validateExplicitBin() sees after fs.realpathSync on the bin path.
+	const scriptDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-")));
 	const bypassCwd = makeTmpCwd();
 	const cappedCwd = makeTmpCwd();
 	try {
@@ -280,7 +286,10 @@ test("T-4: cap:false bypasses the global worker cap (goal-judge exemption, RFC M
 test("T-4: release-on-throw — a rejecting spawn frees its slot (withWorkerSlot try/finally)", async () => {
 	const envSnap = snapshotEnv(ENV_KEYS);
 	const prevCap = getWorkerCapCapacity();
-	const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-"));
+	// Canonicalize (macOS: /var/folders/... → /private/var/folders/...) so the
+	// npm_config_prefix allowlist prefix matches what pi-spawn's
+	// validateExplicitBin() sees after fs.realpathSync on the bin path.
+	const scriptDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-")));
 	const escapeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-escape-"));
 	const cwd = makeTmpCwd();
 	try {

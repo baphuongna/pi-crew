@@ -6429,7 +6429,7 @@
       "format": "esm"
     },
     "src/runtime/pi-spawn.ts": {
-      "bytes": 12414,
+      "bytes": 13256,
       "imports": [
         {
           "path": "node:child_process",
@@ -19419,7 +19419,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6863858
+      "bytes": 6864972
     },
     "dist/index.mjs": {
       "imports": [
@@ -21908,7 +21908,7 @@
           "bytesInOutput": 2425
         },
         "src/runtime/pi-spawn.ts": {
-          "bytesInOutput": 7653
+          "bytesInOutput": 7920
         },
         "src/runtime/peer-dep.ts": {
           "bytesInOutput": 4963
@@ -23345,7 +23345,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3026338
+      "bytes": 3026605
     }
   }
 }

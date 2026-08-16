@@ -11830,6 +11830,13 @@ function isWithinAllowedPrefixes(resolvedPath) {
   } catch (error) {
     logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, void 0, "debug");
   }
+  for (let i = 0; i < allowedPrefixes.length; i++) {
+    try {
+      const real = fs6.realpathSync.native(allowedPrefixes[i]).toLowerCase();
+      if (real !== allowedPrefixes[i] && !allowedPrefixes.includes(real)) allowedPrefixes.push(real);
+    } catch {
+    }
+  }
   return allowedPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 function resolvePiPackageRoot() {

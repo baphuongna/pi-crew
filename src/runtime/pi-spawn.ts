@@ -80,6 +80,22 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 		logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, undefined, "debug");
 	}
 
+	// Canonicalize prefixes (macOS: /var/folders/... realpath → /private/var/folders/...).
+	// validateExplicitBin() compares fs.realpathSync(resolved) against this list —
+	// without the canonical forms, any prefix reached through a symlink (macOS
+	// tmpdir, ~/.npm-global as symlink) rejects its own realpath'd target
+	// (CI incident: run-worker-cap.test.ts on macos-latest). Additive: original
+	// forms stay, so Windows \\?\-prefixed realpaths simply never match.
+	for (let i = 0; i < allowedPrefixes.length; i++) {
+		try {
+			const real = fs.realpathSync.native(allowedPrefixes[i]!).toLowerCase();
+			if (real !== allowedPrefixes[i] && !allowedPrefixes.includes(real)) allowedPrefixes.push(real);
+		} catch {
+			// Prefix path doesn't exist (env var points nowhere) — the original form
+		// stays; nothing to canonicalize.
+		}
+	}
+
 	return allowedPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
