@@ -7767,7 +7767,7 @@
       "format": "esm"
     },
     "src/state/types.ts": {
-      "bytes": 16861,
+      "bytes": 17159,
       "imports": [],
       "format": "esm"
     },
@@ -8201,12 +8201,17 @@
       "format": "esm"
     },
     "src/ui/heartbeat-aggregator.ts": {
-      "bytes": 2403,
+      "bytes": 3003,
       "imports": [
         {
           "path": "src/runtime/heartbeat/heartbeat-gradient.ts",
           "kind": "import-statement",
           "original": "../runtime/heartbeat/heartbeat-gradient.ts"
+        },
+        {
+          "path": "src/state/contracts.ts",
+          "kind": "import-statement",
+          "original": "../state/contracts.ts"
         }
       ],
       "format": "esm"
@@ -10812,7 +10817,7 @@
       "format": "esm"
     },
     "src/runtime/settings-store.ts": {
-      "bytes": 13904,
+      "bytes": 17707,
       "imports": [
         {
           "path": "node:fs",
@@ -11054,6 +11059,11 @@
       ],
       "format": "esm"
     },
+    "src/utils/fs-errno.ts": {
+      "bytes": 3050,
+      "imports": [],
+      "format": "esm"
+    },
     "src/workflows/validate-workflow.ts": {
       "bytes": 2142,
       "imports": [],
@@ -11086,7 +11096,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/doctor.ts": {
-      "bytes": 17923,
+      "bytes": 20884,
       "imports": [
         {
           "path": "node:child_process",
@@ -11162,6 +11172,11 @@
           "path": "src/teams/discover-teams.ts",
           "kind": "import-statement",
           "original": "../../teams/discover-teams.ts"
+        },
+        {
+          "path": "src/utils/fs-errno.ts",
+          "kind": "import-statement",
+          "original": "../../utils/fs-errno.ts"
         },
         {
           "path": "src/utils/paths.ts",
@@ -13359,7 +13374,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/status.ts": {
-      "bytes": 18963,
+      "bytes": 19027,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -14146,7 +14161,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 41831,
+      "bytes": 43047,
       "imports": [
         {
           "path": "node:fs",
@@ -14182,6 +14197,11 @@
           "path": "src/state/stores/artifact-store.ts",
           "kind": "import-statement",
           "original": "../../state/stores/artifact-store.ts"
+        },
+        {
+          "path": "src/utils/fs-errno.ts",
+          "kind": "import-statement",
+          "original": "../../utils/fs-errno.ts"
         },
         {
           "path": "src/utils/internal-error.ts",
@@ -14353,7 +14373,7 @@
       "format": "esm"
     },
     "src/runtime/output/output-validator.ts": {
-      "bytes": 8011,
+      "bytes": 10301,
       "imports": [],
       "format": "esm"
     },
@@ -14430,7 +14450,7 @@
       "format": "esm"
     },
     "src/runtime/task-output-context.ts": {
-      "bytes": 31973,
+      "bytes": 36859,
       "imports": [
         {
           "path": "node:fs",
@@ -14553,8 +14573,13 @@
       "format": "esm"
     },
     "src/runtime/task-runner/post-execution.ts": {
-      "bytes": 19863,
+      "bytes": 23174,
       "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/hooks/registry.ts",
           "kind": "import-statement",
@@ -14659,7 +14684,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/pre-execution.ts": {
-      "bytes": 15287,
+      "bytes": 15540,
       "imports": [
         {
           "path": "src/errors.ts",
@@ -14832,7 +14857,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner.ts": {
-      "bytes": 9339,
+      "bytes": 9957,
       "imports": [
         {
           "path": "src/state/stores/artifact-store.ts",
@@ -14898,7 +14923,7 @@
       "format": "esm"
     },
     "src/runtime/dispatch-batch.ts": {
-      "bytes": 32250,
+      "bytes": 32559,
       "imports": [
         {
           "path": "src/errors.ts",
@@ -15132,7 +15157,7 @@
       "format": "esm"
     },
     "src/runtime/merge-loop.ts": {
-      "bytes": 7244,
+      "bytes": 7823,
       "imports": [
         {
           "path": "src/state/atomic-write.ts",
@@ -15148,6 +15173,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/fs-errno.ts",
+          "kind": "import-statement",
+          "original": "../utils/fs-errno.ts"
         },
         {
           "path": "src/runtime/dispatch-batch.ts",
@@ -15391,7 +15421,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 54137,
+      "bytes": 54251,
       "imports": [
         {
           "path": "node:child_process",
@@ -16187,7 +16217,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 34907,
+      "bytes": 35253,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -16223,6 +16253,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/fs-errno.ts",
+          "kind": "import-statement",
+          "original": "../../utils/fs-errno.ts"
         },
         {
           "path": "src/utils/guards.ts",
@@ -18758,7 +18793,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 41952,
+      "bytes": 44120,
       "imports": [
         {
           "path": "node:fs",
@@ -19384,7 +19419,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6829527
+      "bytes": 6863858
     },
     "dist/index.mjs": {
       "imports": [
@@ -20605,6 +20640,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -22018,7 +22058,7 @@
           "bytesInOutput": 589
         },
         "src/state/contracts.ts": {
-          "bytesInOutput": 2069
+          "bytesInOutput": 2294
         },
         "src/ui/run-event-bus.ts": {
           "bytesInOutput": 10871
@@ -22105,7 +22145,7 @@
           "bytesInOutput": 961
         },
         "src/ui/heartbeat-aggregator.ts": {
-          "bytesInOutput": 1796
+          "bytesInOutput": 1902
         },
         "src/runtime/recovery/recovery-recipes.ts": {
           "bytesInOutput": 3873
@@ -22486,7 +22526,7 @@
           "bytesInOutput": 10288
         },
         "src/runtime/settings-store.ts": {
-          "bytesInOutput": 6583
+          "bytesInOutput": 7351
         },
         "src/extension/team-tool/handle-schedule.ts": {
           "bytesInOutput": 8894
@@ -22509,6 +22549,9 @@
         "src/runtime/process/zombie-scanner.ts": {
           "bytesInOutput": 6432
         },
+        "src/utils/fs-errno.ts": {
+          "bytesInOutput": 1120
+        },
         "src/workflows/validate-workflow.ts": {
           "bytesInOutput": 2087
         },
@@ -22516,7 +22559,7 @@
           "bytesInOutput": 3006
         },
         "src/extension/team-tool/doctor.ts": {
-          "bytesInOutput": 14512
+          "bytesInOutput": 16816
         },
         "src/config/markers.ts": {
           "bytesInOutput": 3357
@@ -22726,7 +22769,7 @@
           "bytesInOutput": 5289
         },
         "src/extension/team-tool/status.ts": {
-          "bytesInOutput": 13814
+          "bytesInOutput": 13878
         },
         "src/extension/team-tool/dispatch/status.ts": {
           "bytesInOutput": 6689
@@ -22837,13 +22880,13 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 24474
+          "bytesInOutput": 24781
         },
         "src/worktree/worktree-manager.ts": {
           "bytesInOutput": 26666
         },
         "src/runtime/output/output-validator.ts": {
-          "bytesInOutput": 2570
+          "bytesInOutput": 3347
         },
         "src/runtime/compaction/compact-stages/ansi-strip-stage.ts": {
           "bytesInOutput": 476
@@ -22867,7 +22910,7 @@
           "bytesInOutput": 5519
         },
         "src/runtime/task-output-context.ts": {
-          "bytesInOutput": 14332
+          "bytesInOutput": 15372
         },
         "src/runtime/verification/green-contract.ts": {
           "bytesInOutput": 1442
@@ -22882,10 +22925,10 @@
           "bytesInOutput": 1966
         },
         "src/runtime/task-runner/post-execution.ts": {
-          "bytesInOutput": 13879
+          "bytesInOutput": 16133
         },
         "src/runtime/task-runner/pre-execution.ts": {
-          "bytesInOutput": 9192
+          "bytesInOutput": 9215
         },
         "src/runtime/task-runner/scaffold-executor.ts": {
           "bytesInOutput": 576
@@ -22900,7 +22943,7 @@
           "bytesInOutput": 2471
         },
         "src/runtime/dispatch-batch.ts": {
-          "bytesInOutput": 21750
+          "bytesInOutput": 22074
         },
         "src/runtime/budget-enforcement.ts": {
           "bytesInOutput": 6473
@@ -22915,7 +22958,7 @@
           "bytesInOutput": 2373
         },
         "src/runtime/merge-loop.ts": {
-          "bytesInOutput": 2019
+          "bytesInOutput": 2253
         },
         "src/runtime/policy-engine.ts": {
           "bytesInOutput": 3916
@@ -22945,7 +22988,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 26284
+          "bytesInOutput": 26305
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -23005,7 +23048,7 @@
           "bytesInOutput": 7035
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 25781
+          "bytesInOutput": 25945
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 26403
@@ -23242,7 +23285,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 25888
+          "bytesInOutput": 26431
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 35998
@@ -23302,7 +23345,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3016038
+      "bytes": 3026338
     }
   }
 }

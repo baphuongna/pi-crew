@@ -18592,6 +18592,9 @@ function isTeamRunStatus(value) {
 function isTeamTaskStatus(value) {
   return typeof value === "string" && TEAM_TASK_STATUSES.includes(value);
 }
+function isTerminalRunStatus(status) {
+  return TEAM_TERMINAL_RUN_STATUSES.has(status);
+}
 function isTerminalTaskStatus(status) {
   return TEAM_TERMINAL_TASK_STATUSES.has(status);
 }
@@ -18601,7 +18604,7 @@ function canTransitionRunStatus(from, to) {
 function canTransitionTaskStatus(from, to) {
   return from === to || (TEAM_TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
 }
-var TEAM_RUN_STATUSES, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_RUN_STATUS_TRANSITIONS, TEAM_TASK_STATUS_TRANSITIONS;
+var TEAM_RUN_STATUSES, TEAM_TASK_STATUSES, TEAM_TERMINAL_RUN_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_RUN_STATUS_TRANSITIONS, TEAM_TASK_STATUS_TRANSITIONS;
 var init_contracts = __esm({
   "src/state/contracts.ts"() {
     "use strict";
@@ -18616,6 +18619,7 @@ var init_contracts = __esm({
       "skipped",
       "needs_attention"
     ];
+    TEAM_TERMINAL_RUN_STATUSES = /* @__PURE__ */ new Set(["blocked", "completed", "failed", "cancelled"]);
     TEAM_TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set([
       "completed",
       "failed",
@@ -23504,8 +23508,9 @@ function summarizeHeartbeats(snapshot, opts = {}) {
     worstStaleMs: 0,
     gradient: { healthy: 0, warn: 0, stale: 0, dead: 0 }
   };
+  const runTerminal = isTerminalRunStatus(snapshot.manifest.status);
   for (const task of snapshot.tasks) {
-    if (!isActiveTask(task)) continue;
+    if (runTerminal || !isActiveTask(task)) continue;
     const heartbeat = task.heartbeat;
     if (!heartbeat) {
       summary.missing += 1;
@@ -23533,6 +23538,7 @@ var init_heartbeat_aggregator = __esm({
   "src/ui/heartbeat-aggregator.ts"() {
     "use strict";
     init_heartbeat_gradient();
+    init_contracts();
   }
 });
 
@@ -38704,6 +38710,9 @@ function sanitizeSettings(raw) {
   if (typeof r.schedulingEnabled === "boolean") {
     out.schedulingEnabled = r.schedulingEnabled;
   }
+  if (typeof r.allowProjectScheduledJobs === "boolean") {
+    out.allowProjectScheduledJobs = r.allowProjectScheduledJobs;
+  }
   if (typeof r.notifierIntervalMs === "number" && r.notifierIntervalMs >= 1e3) {
     out.notifierIntervalMs = r.notifierIntervalMs;
   }
@@ -38750,16 +38759,29 @@ function applyCrewSettingsToConfig(config, settings) {
   if (settings.defaultJoinMode != null && config.runtime) config.runtime.groupJoin = settings.defaultJoinMode;
   if (settings.notifierIntervalMs != null) config.notifierIntervalMs = settings.notifierIntervalMs;
 }
+function projectScheduledJobsOptIn(user) {
+  return user.schedulingEnabled === true && user.allowProjectScheduledJobs === true;
+}
 function loadCrewSettingsTiers(cwd = process.cwd(), globalFile = globalPath()) {
   const user = readSettingsFile(globalFile);
   const projectFilePath = projectPath(cwd);
   const project = readSettingsFile(projectFilePath);
-  return { user, project, merged: { ...user, ...project }, projectPath: projectFilePath };
+  const effectiveScheduledJobs = [
+    ...user.scheduledJobs ?? [],
+    ...projectScheduledJobsOptIn(user) ? project.scheduledJobs ?? [] : []
+  ];
+  return { user, project, merged: { ...user, ...project }, effectiveScheduledJobs, projectPath: projectFilePath };
 }
 function applyCrewSettingsTiersToConfig(config, tiers) {
   const warnings = [];
   applyCrewSettingsToConfig(config, tiers.user);
   const project = tiers.project;
+  if (project.schedulingEnabled !== void 0) {
+    warnings.push(projectOverrideWarning(tiers.projectPath, "schedulingEnabled"));
+  }
+  if (!projectScheduledJobsOptIn(tiers.user) && Array.isArray(project.scheduledJobs) && project.scheduledJobs.length > 0) {
+    warnings.push(projectOverrideWarning(tiers.projectPath, "scheduledJobs"));
+  }
   if (project.maxConcurrent == null && project.defaultMaxTurns == null && project.graceTurns == null && project.defaultJoinMode == null && project.notifierIntervalMs == null) {
     return warnings;
   }
@@ -40036,6 +40058,39 @@ var init_zombie_scanner = __esm({
   }
 });
 
+// src/utils/fs-errno.ts
+function classifyCode(code) {
+  if (typeof code !== "string") return void 0;
+  const normalized = code.toLowerCase();
+  return FATAL_FS_CODES.has(normalized) ? normalized : void 0;
+}
+function classifyText(text) {
+  if (typeof text !== "string") return void 0;
+  const match = FATAL_FS_TEXT.exec(text);
+  return match ? match[1]?.toLowerCase() : void 0;
+}
+function classifyFatalFsError(err2) {
+  if (typeof err2 === "string") return classifyText(err2);
+  if (err2 === null || err2 === void 0) return void 0;
+  const code = classifyCode(err2.code);
+  if (code) return code;
+  return classifyText(err2.message);
+}
+function failureCauseForAttempt(error, stderr) {
+  return classifyFatalFsError(error) ?? classifyFatalFsError(stderr);
+}
+function fsFailureLabel(cause) {
+  return cause === "enospc" || cause === "edquot" ? "disk full" : "too many open files";
+}
+var FATAL_FS_CODES, FATAL_FS_TEXT;
+var init_fs_errno = __esm({
+  "src/utils/fs-errno.ts"() {
+    "use strict";
+    FATAL_FS_CODES = /* @__PURE__ */ new Set(["enospc", "edquot", "emfile", "enfile"]);
+    FATAL_FS_TEXT = /\b(ENOSPC|EDQUOT|EMFILE|ENFILE)\b/;
+  }
+});
+
 // src/workflows/validate-workflow.ts
 var validate_workflow_exports = {};
 __export(validate_workflow_exports, {
@@ -40190,6 +40245,53 @@ var init_validate_resources = __esm({
 import { execFileSync as execFileSync2, spawnSync } from "node:child_process";
 import * as fs52 from "node:fs";
 import * as path40 from "node:path";
+function relativeTimeAgo(iso) {
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const minutes = Math.floor(ms / 6e4);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+function scanRecentFsFailureCauses(cwd) {
+  const runsRoot = path40.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+  let recentRunIds;
+  try {
+    recentRunIds = fs52.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+      let mtimeMs = 0;
+      try {
+        mtimeMs = fs52.statSync(path40.join(runsRoot, entry.name)).mtimeMs;
+      } catch {
+      }
+      return { runId: entry.name, mtimeMs };
+    }).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, FS_FAILURE_SCAN_RUN_LIMIT).map((entry) => entry.runId);
+  } catch {
+    return "no run history";
+  }
+  let count2 = 0;
+  let last;
+  for (const runId of recentRunIds) {
+    let tasks;
+    try {
+      tasks = JSON.parse(fs52.readFileSync(path40.join(runsRoot, runId, "tasks.json"), "utf-8"));
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(tasks)) continue;
+    for (const task of tasks) {
+      const failureCause = task.failureCause;
+      if (!failureCause) continue;
+      count2 += 1;
+      const finishedAt = task.finishedAt;
+      if (!last || (finishedAt ?? "") > (last.finishedAt ?? "")) last = { runId, cause: failureCause, finishedAt };
+    }
+  }
+  if (count2 === 0) return `none in last ${FS_FAILURE_SCAN_RUN_LIMIT} runs`;
+  const when = last?.finishedAt ? `, ${relativeTimeAgo(last.finishedAt)}` : "";
+  return `${count2} task(s) in last ${FS_FAILURE_SCAN_RUN_LIMIT} runs (last: ${last?.runId}${when}, ${fsFailureLabel(last.cause)})`;
+}
 function firstOutputLine(stdout, stderr) {
   const output = `${stdout ?? ""}
 ${stderr ?? ""}`.trim();
@@ -40360,6 +40462,14 @@ function buildTeamDoctorReport(input) {
           label: "artifacts root",
           ok: true,
           detail: path40.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir)
+        },
+        {
+          // bug-026 sub-issue B: INFORMATIONAL (ok always true) — a historical
+          // disk-full incident must not permanently fail doctor. The line makes
+          // fs failureCauses discoverable without digging through run logs.
+          label: "fs failure causes",
+          ok: true,
+          detail: scanRecentFsFailureCauses(input.cwd)
         }
       ];
     }),
@@ -40589,7 +40699,7 @@ ${formatDriftReport(drift)}`;
   }
   return result(finalText, { action: "doctor", status: hasErrors ? "error" : "ok" }, hasErrors);
 }
-var MAX_COMMAND_EXISTS_CACHE, commandExistsCache, piCommandExistsCache;
+var FS_FAILURE_SCAN_RUN_LIMIT, MAX_COMMAND_EXISTS_CACHE, commandExistsCache, piCommandExistsCache;
 var init_doctor = __esm({
   "src/extension/team-tool/doctor.ts"() {
     "use strict";
@@ -40605,10 +40715,12 @@ var init_doctor = __esm({
     init_team_tool_schema();
     init_atomic_write();
     init_discover_teams();
+    init_fs_errno();
     init_paths();
     init_discover_workflows();
     init_validate_resources();
     init_context();
+    FS_FAILURE_SCAN_RUN_LIMIT = 10;
     MAX_COMMAND_EXISTS_CACHE = 128;
     commandExistsCache = /* @__PURE__ */ new Map();
   }
@@ -43767,7 +43879,7 @@ var init_handle_settings = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync44, readFileSync as readFileSync43, rmSync as rmSync15, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync44, readFileSync as readFileSync44, rmSync as rmSync15, writeFileSync as writeFileSync7 } from "node:fs";
 import { dirname as dirname30, join as join48 } from "node:path";
 function allowedWorkflowDirs(cwd) {
   return [join48(projectCrewRoot(cwd), "workflows"), join48(userPiRoot(), "workflows"), join48(packageRoot(), "workflows")];
@@ -43839,7 +43951,7 @@ function handleWorkflowGet(params, ctx) {
   let source = "(static workflow \u2014 no script source)";
   if (isDynamic && wf.filePath && existsSync44(wf.filePath)) {
     try {
-      source = readFileSync43(wf.filePath, "utf-8").slice(0, 8e3);
+      source = readFileSync44(wf.filePath, "utf-8").slice(0, 8e3);
     } catch (error) {
       logInternalError("workflow-manage.get", error, `filePath=${wf.filePath}`);
     }
@@ -44641,7 +44753,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync11, existsSync as existsSync47, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync22, readFileSync as readFileSync45, statSync as statSync35, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync11, existsSync as existsSync47, mkdirSync as mkdirSync27, openSync as openSync11, readdirSync as readdirSync23, readFileSync as readFileSync46, statSync as statSync35, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname33 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -44675,7 +44787,7 @@ var init_goal_state_store = __esm({
         const path94 = goalFilePath(this.cwd, goalId);
         try {
           if (!existsSync47(path94)) return void 0;
-          const raw = readFileSync45(path94, "utf-8");
+          const raw = readFileSync46(path94, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -44801,7 +44913,7 @@ var init_goal_state_store = __esm({
         try {
           const root = resolveGoalsRoot(this.cwd);
           if (!existsSync47(root)) return [];
-          const entries = readdirSync22(root);
+          const entries = readdirSync23(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -44865,7 +44977,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash7 } from "node:crypto";
-import { closeSync as closeSync12, existsSync as existsSync48, mkdirSync as mkdirSync28, openSync as openSync12, readdirSync as readdirSync23, readFileSync as readFileSync47, statSync as statSync37, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
+import { closeSync as closeSync12, existsSync as existsSync48, mkdirSync as mkdirSync28, openSync as openSync12, readdirSync as readdirSync24, readFileSync as readFileSync48, statSync as statSync37, unlinkSync as unlinkSync8, writeFileSync as writeFileSync8 } from "node:fs";
 import * as path52 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path52.resolve(cwd);
@@ -44877,7 +44989,7 @@ function workspaceLockPath(cwd) {
 function readLock(lockPath2) {
   if (!existsSync48(lockPath2)) return void 0;
   try {
-    const parsed = JSON.parse(readFileSync47(lockPath2, "utf-8"));
+    const parsed = JSON.parse(readFileSync48(lockPath2, "utf-8"));
     if (!parsed || typeof parsed !== "object") return void 0;
     return parsed;
   } catch {
@@ -44916,7 +45028,7 @@ var init_workspace_lock = __esm({
     DEFAULT_HEARTBEAT_STALE_MS = 6e4;
     defaultStartTimeResolver = (pid) => {
       try {
-        const stat2 = readFileSync47(`/proc/${pid}/stat`, "utf-8");
+        const stat2 = readFileSync48(`/proc/${pid}/stat`, "utf-8");
         const lastParen = stat2.lastIndexOf(")");
         if (lastParen === -1) return void 0;
         const fieldsAfterComm = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -51417,7 +51529,7 @@ function handleStatus2(params, ctx) {
       (task) => `- ${task.id} [${task.status}] ${task.role} -> ${task.agent}${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.modelAttempts?.length ? ` attempts=${task.modelAttempts.length}` : ""}${task.modelRouting ? ` modelRouting=${task.modelRouting.requested ? `${task.modelRouting.requested}->` : ""}${task.modelRouting.resolved}${task.modelRouting.usedAttempt ? ` attempt=${task.modelRouting.usedAttempt + 1}` : ""}` : ""}${task.agentProgress?.activityState ? ` activityState=${task.agentProgress.activityState}` : ""}${(() => {
         const t2 = extractCommandTrace(task.agentProgress?.recentTools);
         return t2.summary ? ` ${t2.summary}` : "";
-      })()}${attentionByTask.get(task.id)?.data?.reason ? ` attention=${String(attentionByTask.get(task.id)?.data?.reason)}` : ""}${task.jsonEvents !== void 0 ? ` jsonEvents=${task.jsonEvents}` : ""}${task.usage ? ` usage=${JSON.stringify(task.usage)}` : ""}${task.resultArtifact ? ` result=${task.resultArtifact.path}` : ""}${task.transcriptArtifact ? ` transcript=${task.transcriptArtifact.path}` : ""}${task.worktree ? ` worktree=${task.worktree.path}` : ""}${task.error ? ` error=${task.error}` : ""}`
+      })()}${attentionByTask.get(task.id)?.data?.reason ? ` attention=${String(attentionByTask.get(task.id)?.data?.reason)}` : ""}${task.jsonEvents !== void 0 ? ` jsonEvents=${task.jsonEvents}` : ""}${task.usage ? ` usage=${JSON.stringify(task.usage)}` : ""}${task.resultArtifact ? ` result=${task.resultArtifact.path}` : ""}${task.transcriptArtifact ? ` transcript=${task.transcriptArtifact.path}` : ""}${task.worktree ? ` worktree=${task.worktree.path}` : ""}${task.error ? ` error=${task.error}` : ""}${task.failureCause ? ` failureCause=${task.failureCause}` : ""}`
     ) : ["- (none)"],
     `Task counts: ${[...counts.entries()].map(([status, count2]) => `${status}=${count2}`).join(", ") || "none"}`,
     "Effectiveness:",
@@ -54768,6 +54880,7 @@ async function runChildProcessTask(ctx) {
   }
   const logs = [];
   let finalStderr = "";
+  let failureCause;
   let reResolveUsed = false;
   modelAttempts = [];
   let finalCheckpointWritten = false;
@@ -55032,6 +55145,7 @@ async function runChildProcessTask(ctx) {
     rawFinalText = childResult.rawFinalText;
     intermediateFindings = childResult.intermediateFindings;
     error = attemptErrorFor(childResult, parsedOutput, task.id);
+    failureCause = error ? failureCauseForAttempt(error, finalStderr) : void 0;
     persistHeartbeat(true);
     persistChildProgress({ type: "attempt_finished" }, true);
     const attempt = {
@@ -55041,7 +55155,11 @@ async function runChildProcessTask(ctx) {
       error
     };
     modelAttempts.push(attempt);
-    task = { ...task, modelAttempts: [...modelAttempts] };
+    task = {
+      ...task,
+      modelAttempts: [...modelAttempts],
+      ...failureCause ? { failureCause } : {}
+    };
     tasks = updateTask(tasks, task);
     logs.push(
       `MODEL ATTEMPT ${i + 1}: ${attempt.model}`,
@@ -55084,6 +55202,7 @@ async function runChildProcessTask(ctx) {
       error
     ).message;
   }
+  failureCause = error ? failureCauseForAttempt(error, finalStderr) : void 0;
   const successfulAttemptIndex = modelAttempts.findIndex((attempt) => attempt.success);
   const usedAttempt = successfulAttemptIndex === -1 ? Math.max(0, modelAttempts.length - 1) : successfulAttemptIndex;
   for (let attemptIdx = 0; attemptIdx < modelAttempts.length; attemptIdx++) {
@@ -55137,6 +55256,7 @@ async function runChildProcessTask(ctx) {
   const fallbackReason = usedAttempt > 0 ? modelAttempts[usedAttempt - 1]?.error : void 0;
   task = {
     ...task,
+    ...failureCause ? { failureCause } : {},
     modelRouting: {
       requested: modelRoutingPlan.requested,
       resolved: resolvedModel,
@@ -55207,6 +55327,7 @@ var init_child_executor = __esm({
     init_errors3();
     init_event_log();
     init_artifact_store();
+    init_fs_errno();
     init_internal_error();
     init_safe_paths();
     init_crew_agent_records();
@@ -55988,7 +56109,19 @@ function validateWorkerOutput(role, output) {
     issues
   };
 }
-var MARKDOWN_STRUCTURED, STRICT_ROLE_PATTERNS, ROLE_PATTERN_DEFS, makeUrlRe;
+function isStderrOnlyResult(text) {
+  if (!text?.trim()) return false;
+  let noiseLines = 0;
+  for (const line4 of text.split("\n")) {
+    const trimmed = line4.trim();
+    if (!trimmed) continue;
+    const isNoise = BRACKET_TAG_LOG_LINE.test(trimmed) || PYTHON_WARNING_LINE.test(trimmed) || TIMESTAMPED_LOG_LINE.test(trimmed);
+    if (!isNoise) return false;
+    noiseLines++;
+  }
+  return noiseLines > 0;
+}
+var MARKDOWN_STRUCTURED, STRICT_ROLE_PATTERNS, ROLE_PATTERN_DEFS, makeUrlRe, BRACKET_TAG_LOG_LINE, PYTHON_WARNING_LINE, TIMESTAMPED_LOG_LINE;
 var init_output_validator = __esm({
   "src/runtime/output/output-validator.ts"() {
     "use strict";
@@ -56008,6 +56141,9 @@ var init_output_validator = __esm({
       verifier: () => new RegExp(`(?:${STRICT_ROLE_PATTERNS.verifier.source})|(?:${MARKDOWN_STRUCTURED.source})`, "m")
     };
     makeUrlRe = () => /\bhttps?:\/\/[^\s<>)\]"',;]+/gi;
+    BRACKET_TAG_LOG_LINE = /^\[[a-z0-9][a-z0-9_.-]*\](?:\s*\[(?:core|mcp|stderr|stdout|warn|info|error|debug)\])*(?:\s.*)?$/;
+    PYTHON_WARNING_LINE = /(?:^|\s)warnings\.warn\(/;
+    TIMESTAMPED_LOG_LINE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?\s+[A-Za-z]+\b/;
   }
 });
 
@@ -56390,9 +56526,9 @@ function readIfSmallWithTee(filePath, opts = {}) {
           }
         })
       ]);
-      return fullOutputPath ? { content: result4.text, fullOutputPath } : { content: result4.text };
+      return fullOutputPath ? { content: result4.text, fullOutputPath, originalLength: content.length } : { content: result4.text, originalLength: content.length };
     }
-    return { content };
+    return { content, originalLength: content.length };
   } catch {
     return void 0;
   }
@@ -56496,7 +56632,7 @@ function pruneSharedReads(reads, dependencies, artifactsRoot) {
     content: entry.content
   }));
 }
-function collectDependencyOutputContext(manifest, tasks, task, step) {
+function collectDependencyOutputContext(manifest, tasks, task, step, cache3) {
   const byStep = new Map(tasks.map((item) => [item.stepId, item]).filter((entry) => Boolean(entry[0])));
   const byId = new Map(tasks.map((item) => [item.id, item]));
   const declaredOrder = /* @__PURE__ */ new Map();
@@ -56511,10 +56647,12 @@ function collectDependencyOutputContext(manifest, tasks, task, step) {
   }
   const dependencies = task.dependsOn.map((dep) => byStep.get(dep) ?? byId.get(dep)).filter((item) => Boolean(item)).map((item) => {
     const fullOutputPath = item.resultArtifact ? teePathForArtifact(manifest.artifactsRoot, task.id, item.id) : void 0;
-    const teeResult = item.resultArtifact ? readIfSmallWithTee(item.resultArtifact.path, {
-      baseDir: manifest.artifactsRoot,
-      ...fullOutputPath ? { tee: { fullOutputPath } } : {}
-    }) : void 0;
+    const teeResult = item.resultArtifact ? readTaskResultArtifactWithTee(
+      item.resultArtifact,
+      manifest.artifactsRoot,
+      fullOutputPath ? { fullOutputPath } : void 0,
+      cache3
+    ) : void 0;
     const resultText2 = teeResult?.content;
     const inlineBytes = resultText2?.length ?? 0;
     const position = declaredOrder.get(item.id) ?? declaredOrder.get(item.stepId ?? "") ?? 0;
@@ -56644,12 +56782,34 @@ function readTaskResultArtifact(descriptor, baseDir, cache3) {
   if (cached2 !== void 0) return cached2;
   __test__resultReadStats.readFile += 1;
   __test__resultReadStats.exists += 1;
+  const raw = readIfSmallWithTee(descriptor.path, { baseDir });
   const outcome = {
-    body: readIfSmall(descriptor.path, baseDir),
-    exists: containedExists(descriptor.path, baseDir)
+    body: raw?.content,
+    exists: containedExists(descriptor.path, baseDir),
+    ...raw?.originalLength !== void 0 ? { originalLength: raw.originalLength } : {}
   };
   cache3?.store(descriptor, outcome);
   return outcome;
+}
+function readTaskResultArtifactWithTee(descriptor, baseDir, tee, cache3) {
+  const cached2 = cache3?.lookup(descriptor);
+  if (cached2 !== void 0) {
+    if (cached2.body === void 0) return void 0;
+    if (cached2.originalLength !== void 0 && cached2.originalLength <= MAX_RESULT_INLINE_BYTES * TEE_THRESHOLD_MULTIPLIER) {
+      return { content: cached2.body };
+    }
+  }
+  __test__resultReadStats.readFile += 1;
+  const result4 = readIfSmallWithTee(descriptor.path, { baseDir, ...tee ? { tee } : {} });
+  if (cache3) {
+    __test__resultReadStats.exists += 1;
+    cache3.store(descriptor, {
+      body: result4?.content,
+      exists: containedExists(descriptor.path, baseDir),
+      ...result4?.originalLength !== void 0 ? { originalLength: result4.originalLength } : {}
+    });
+  }
+  return result4;
 }
 function aggregateTaskOutputs(tasks, manifest, cache3) {
   return tasks.map((task, index) => {
@@ -57135,6 +57295,7 @@ var init_prompt_pipeline = __esm({
 });
 
 // src/runtime/task-runner/post-execution.ts
+import { readFileSync as readFileSync66 } from "node:fs";
 async function finalizeTaskResult(ctx, execResult) {
   const input = ctx.input;
   let manifest = ctx.manifest;
@@ -57272,6 +57433,53 @@ ${input.step.task}`,
           }
         };
         tasks = updateTask(tasks, task);
+      }
+    }
+  }
+  if (!error) {
+    const finalTextEmpty = !parsedOutput?.finalText?.trim();
+    const finalStdoutEmpty = !finalStdout?.trim();
+    if (finalTextEmpty && finalStdoutEmpty && resultArtifact?.path) {
+      let artifactContent;
+      try {
+        artifactContent = readFileSync66(resultArtifact.path, "utf8");
+      } catch {
+        artifactContent = void 0;
+      }
+      if (artifactContent !== void 0) {
+        const trimmedArtifact = artifactContent.trim();
+        const emptyArtifact = trimmedArtifact === "" || trimmedArtifact === "(no output)";
+        const stderrOnlyArtifact = !emptyArtifact && isStderrOnlyResult(artifactContent);
+        if (emptyArtifact || stderrOnlyArtifact) {
+          error = "Result artifact is empty or stderr-only (failureCause: empty-or-stderr-only-result)";
+          exitCode = exitCode === 0 ? 1 : exitCode;
+          if (modelAttempts?.length) {
+            modelAttempts = modelAttempts.map(
+              (attempt, index) => index === modelAttempts.length - 1 ? { ...attempt, success: false, exitCode, error } : attempt
+            );
+          }
+          outputValidation = {
+            valid: false,
+            formatMatch: false,
+            structurePreserved: false,
+            issues: [
+              `empty-or-stderr-only-result: ${emptyArtifact ? "result artifact is empty" : "result artifact contains only stderr/session-log noise"}`
+            ]
+          };
+          await appendEventAsync(manifest.eventsPath, {
+            type: "task.output_validation",
+            runId: manifest.runId,
+            taskId: task.id,
+            data: {
+              valid: false,
+              formatMatch: false,
+              structurePreserved: false,
+              issues: outputValidation.issues,
+              failureCause: "empty-or-stderr-only-result",
+              resultPath: resultArtifact.path
+            }
+          });
+        }
       }
     }
   }
@@ -57439,7 +57647,11 @@ ${input.step.task}`,
     type: error ? "task.failed" : noYield ? "task.needs_attention" : "task.completed",
     runId: manifest.runId,
     taskId: task.id,
-    message: error
+    message: error,
+    // bug-026 sub-issue B: surface the classified fatal-fs cause (enospc/
+    // edquot/emfile/enfile) on the failure event so operators see "disk
+    // full" instead of a generic timeout diagnostic.
+    ...task.failureCause ? { data: { failureCause: task.failureCause } } : {}
   });
   const afterTaskReport = await executeHook("after_task_complete", {
     runId: manifest.runId,
@@ -57491,7 +57703,7 @@ async function prepareTaskExecutionContext(input, manifest, streamBridge) {
     cwd: workspace.cwd,
     worktreePath: worktree?.path
   });
-  const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step);
+  const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step, input.resultReadCache);
   const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
   let task = {
     ...input.task,
@@ -58456,7 +58668,12 @@ async function dispatchBatch(ctx, decision2) {
       limits: input.limits,
       onJsonEvent: input.onJsonEvent,
       workspaceId: input.workspaceId,
-      spawnBudget
+      spawnBudget,
+      // R10-1 residual: same per-run cache instance as the closeout — one
+      // object reference spread into EVERY runTeamTask call (initial + every
+      // retry attempt via `...baseInput`), so dep-context reads and closeout
+      // aggregation share memoized artifacts.
+      resultReadCache: ctx.resultReadCache
     };
     if (!shouldUseRetry(input.reliability))
       return withCorrelation(childCorrelation(ctx.manifest.runId, task.id), () => runTeamTask(baseInput));
@@ -59027,9 +59244,12 @@ async function mergeUnitResult(ctx) {
   const settled = await Promise.race([...ctx.pendingUnits.values()].map((u) => u.wrapped));
   const completedUnit = ctx.pendingUnits.get(settled.unitKey);
   ctx.pendingUnits.delete(settled.unitKey);
+  const thrownFailureCause = settled.result ? void 0 : classifyFatalFsError(settled.error);
   const resultToMerge = settled.result ?? {
     manifest: ctx.manifest,
-    tasks: cancelNonTerminalTasks(ctx.tasks, "failed", settled.error.message, (t2) => completedUnit.taskIds.includes(t2.id))
+    tasks: cancelNonTerminalTasks(ctx.tasks, "failed", settled.error.message, (t2) => completedUnit.taskIds.includes(t2.id)).map(
+      (t2) => thrownFailureCause && t2.status === "failed" ? { ...t2, failureCause: thrownFailureCause } : t2
+    )
   };
   const validResults = [resultToMerge];
   const mergeResult = await withRunLock(ctx.manifest, async () => {
@@ -59057,6 +59277,7 @@ var init_merge_loop = __esm({
     init_atomic_write();
     init_locks();
     init_state_store();
+    init_fs_errno();
     init_dispatch_batch();
     init_merge_gate();
     init_team_runner_artifacts();
@@ -61029,6 +61250,7 @@ async function executeTeamRunCore(input, manifest, workflow) {
       input.signal.addEventListener("abort", externalAbortListener, { once: true });
     }
   }
+  const resultReadCache = createResultArtifactReadCache();
   const ctx = {
     input,
     workflow,
@@ -61042,9 +61264,9 @@ async function executeTeamRunCore(input, manifest, workflow) {
     runtimeKind,
     adaptivePlanInjected,
     adaptivePlanMissing,
-    settledMerge: null
+    settledMerge: null,
+    resultReadCache
   };
-  const resultReadCache = createResultArtifactReadCache();
   try {
     while (tasks.some((task) => task.status === "queued") || pendingUnits.size > 0) {
       ctx.tasks = tasks;
@@ -63399,7 +63621,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync74, mkdirSync as mkdirSync39, readFileSync as readFileSync70, unlinkSync as unlinkSync12 } from "node:fs";
+import { existsSync as existsSync74, mkdirSync as mkdirSync39, readFileSync as readFileSync72, unlinkSync as unlinkSync12 } from "node:fs";
 import { dirname as dirname40 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -63420,7 +63642,7 @@ var init_dwf_state_store = __esm({
         const path94 = this.path;
         try {
           if (!existsSync74(path94)) return void 0;
-          const raw = readFileSync70(path94, "utf-8");
+          const raw = readFileSync72(path94, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -64249,7 +64471,7 @@ var dynamic_workflow_runner_exports = {};
 __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
-import { readFileSync as readFileSync71 } from "node:fs";
+import { readFileSync as readFileSync73 } from "node:fs";
 import { join as join76 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
@@ -64275,7 +64497,7 @@ function resolveScriptPath(workflow, cwd) {
   );
 }
 async function loadWorkflowModule(scriptPath) {
-  const scriptSource = readFileSync71(scriptPath, "utf-8");
+  const scriptSource = readFileSync73(scriptPath, "utf-8");
   if (isDeterminismCheckEnabled()) {
     const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
@@ -64412,7 +64634,7 @@ async function runDynamicWorkflow(input) {
 }
 function readFinalArtifact(artifactPath) {
   try {
-    return readFileSync71(artifactPath, "utf-8");
+    return readFileSync73(artifactPath, "utf-8");
   } catch (error) {
     logInternalError("dynamic-workflow-runner.readFinal", error, `artifactPath=${artifactPath}`);
     return `(failed to read final artifact ${artifactPath})`;
@@ -64569,8 +64791,9 @@ function formatRunResult(manifest, options) {
       }
       const shortResult = resultExcerpt.slice(0, 500);
       const statusTag = task.status === "completed" ? "\u2713" : task.status === "failed" ? "\u2717" : task.status === "cancelled" ? "\u2298" : "\xB7";
+      const statusText = task.status === "failed" && task.failureCause ? `${task.status} (${fsFailureLabel(task.failureCause)})` : task.status;
       taskLines.push(
-        `- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " \u2014 " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`
+        `- ${statusTag} ${task.id} [${task.role}]: ${statusText}${shortResult ? " \u2014 " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`
       );
       if (task.status === "failed" || task.status === "needs_attention") {
         failedCount++;
@@ -65079,6 +65302,7 @@ var init_run2 = __esm({
     init_active_run_registry();
     init_artifact_store();
     init_state_store();
+    init_fs_errno();
     init_guards();
     init_internal_error();
     init_safe_paths();
@@ -74689,11 +74913,11 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync42, readFileSync as readFileSync77, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync78, mkdirSync as mkdirSync42, readFileSync as readFileSync79, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname42, join as join83 } from "node:path";
 
 // src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync77, readFileSync as readFileSync76 } from "node:fs";
+import { existsSync as existsSync77, readFileSync as readFileSync78 } from "node:fs";
 import { homedir as homedir11, platform } from "node:os";
 import { join as join82 } from "node:path";
 function fontPath() {
@@ -74728,13 +74952,13 @@ function isWebTerminal() {
   try {
     let pid = process.pid;
     for (let i = 0; i < 6 && pid > 1; i++) {
-      const cgroup = readFileSync76(`/proc/${pid}/cgroup`, "utf8");
+      const cgroup = readFileSync78(`/proc/${pid}/cgroup`, "utf8");
       if (cgroup.includes("gotty") || cgroup.includes("wetty")) {
         _isWebTerminal = true;
         return true;
       }
       const match = cgroup.match(/\d+:.*:(.*)/);
-      const status = readFileSync76(`/proc/${pid}/status`, "utf8");
+      const status = readFileSync78(`/proc/${pid}/status`, "utf8");
       const ppid = status.match(/^PPid:\s+(\d+)/m);
       pid = ppid ? Number.parseInt(ppid[1], 10) : 1;
     }
@@ -74867,7 +75091,7 @@ function loadConfig2() {
   try {
     const path94 = configPath2();
     if (!existsSync78(path94)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync77(path94, "utf8")));
+    return normalizeConfig(JSON.parse(readFileSync79(path94, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -75250,7 +75474,7 @@ function createCrewVibesFooter(deps) {
 }
 
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync78 } from "node:fs";
+import { readFileSync as readFileSync80 } from "node:fs";
 import { homedir as homedir12 } from "node:os";
 import { join as join84 } from "node:path";
 function withTimeout(ms, fn) {
@@ -75265,7 +75489,7 @@ function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync78(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -75276,7 +75500,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync78(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -75287,7 +75511,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync78(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -75308,7 +75532,7 @@ function loadLegacyCopilotToken() {
   const candidates = [join84(configHome, "github-copilot", "hosts.json"), join84(homedir12(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync78(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync80(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -75329,7 +75553,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync78(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync80(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -77637,7 +77861,7 @@ import * as path87 from "node:path";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync84 } from "node:fs";
+import { readFileSync as readFileSync86 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -77681,7 +77905,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync84(filePath, "utf-8");
+    content = readFileSync86(filePath, "utf-8");
   } catch {
     return null;
   }
@@ -79608,12 +79832,10 @@ function installSessionStartHandler(pi, ctx) {
     const sessionId = extensionCtx.sessionManager?.getSessionId?.() ?? (typeof extensionCtx === "object" && extensionCtx !== null && "sessionId" in extensionCtx ? extensionCtx.sessionId : void 0);
     ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
     registerCrewScheduler(ctx.crewScheduler);
-    if (Array.isArray(crewSettingsTiers.merged.scheduledJobs)) {
-      for (const job of crewSettingsTiers.merged.scheduledJobs) {
-        try {
-          ctx.crewScheduler.add(job);
-        } catch {
-        }
+    for (const job of crewSettingsTiers.effectiveScheduledJobs) {
+      try {
+        ctx.crewScheduler.add(job);
+      } catch {
       }
     }
     ctx.autoRecoveryLast.clear();
@@ -79838,6 +80060,23 @@ function setupCrewScheduler(pi, ctx, extensionCtx, sessionId) {
 function filterManifestsForHealthNotifications(manifests, currentSessionId) {
   return manifests.filter((run) => !run.ownerSessionId || run.ownerSessionId === currentSessionId);
 }
+var TERMINAL_RUN_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+  "run_completed",
+  "run_failed",
+  "run_cancelled"
+]);
+function isTerminalRunEventType(type) {
+  return TERMINAL_RUN_EVENT_TYPES.has(type);
+}
+function evictRunFromManifests(manifests, runId) {
+  return manifests.filter((m) => m.runId !== runId);
+}
+function applyTerminalRunEventToManifests(manifests, event) {
+  return isTerminalRunEventType(event.type) ? evictRunFromManifests(manifests, event.runId) : manifests;
+}
 function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   ctx.disposeRenderSchedulerSubscriptions();
   ctx.renderScheduler?.dispose();
@@ -80037,6 +80276,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   });
   const sched = ctx.renderScheduler;
   const unsubscribeRunEvents = runEventBus.onAny((event) => {
+    lastPreloadedManifests = applyTerminalRunEventToManifests(lastPreloadedManifests, event);
     sched.schedule({
       runId: event.runId,
       source: "runEventBus",
