@@ -116,6 +116,51 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
 }
 
 /**
+ * bug-026 sub-issue A: strict log-noise line shapes observed in the corrupted
+ * `02_explore-core.txt` result artifact (run team_20260815144514) — extension/
+ * MCP session-log stderr that the child-executor result fallback chain leaked
+ * into the result artifact when the worker payload was corrupted/empty.
+ *
+ * A trimmed non-empty line counts as log noise ONLY if it matches one of:
+ *  1. a bracket-tag extension log line: `[oc-go] ...`, `[pi-qwen-mm] ...`,
+ *     `[pi-qwen-mm] [core] [stderr] ...` — the leading tag is a lowercase
+ *     identifier (deliberately excludes capitalized bracketed prose like
+ *     `[Note] ...`), optionally followed by known sub-tags
+ *     (core/mcp/stderr/stdout/warn/info/error/debug);
+ *  2. a Python `warnings.warn(` line (deprecation-warning continuation);
+ *  3. a timestamped logging line: `2026-08-15 21:49:02,986 WARNING ...`.
+ *
+ * Anything else — prose, markdown, file:line results, `OK done.` — is NOT
+ * noise, so a single such line marks the artifact as usable content.
+ *
+ * NOTE: a `true` return is NOT by itself failure evidence; the caller
+ * (post-execution.ts) applies the two-gate rule (authoritative output
+ * sources empty AND artifact log-noise-only) before failing a task.
+ */
+const BRACKET_TAG_LOG_LINE = /^\[[a-z0-9][a-z0-9_.-]*\](?:\s*\[(?:core|mcp|stderr|stdout|warn|info|error|debug)\])*(?:\s.*)?$/;
+const PYTHON_WARNING_LINE = /(?:^|\s)warnings\.warn\(/;
+const TIMESTAMPED_LOG_LINE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?\s+[A-Za-z]+\b/;
+
+/**
+ * Detect a "stderr-only" result artifact: every non-empty trimmed line is
+ * strict log noise (see the pattern docs above). Empty/whitespace-only input
+ * returns false — emptiness is the caller's separate, explicit check.
+ * Conservative by design: any prose/markdown line makes it return false.
+ */
+export function isStderrOnlyResult(text: string): boolean {
+	if (!text?.trim()) return false;
+	let noiseLines = 0;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		const isNoise = BRACKET_TAG_LOG_LINE.test(trimmed) || PYTHON_WARNING_LINE.test(trimmed) || TIMESTAMPED_LOG_LINE.test(trimmed);
+		if (!isNoise) return false;
+		noiseLines++;
+	}
+	return noiseLines > 0;
+}
+
+/**
  * Extract structured findings from reviewer output.
  * Returns array of { file, line, severity, message } objects.
  */

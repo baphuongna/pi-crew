@@ -6,6 +6,8 @@ Context: ENOSPC incident (disk 100% full → 91 GB freed mid-session), loadavg ~
 
 ## Sub-issue A — stderr-only result artifact persisted as "completed"
 
+**Status A: FIXED (two-gate stderr-only heuristic at the post-execution seam, 2026-08-16).** finalizeTaskResult now fails the task (`failureCause: empty-or-stderr-only-result`, exit 1, last modelAttempt success:false → normal retry path) when BOTH authoritative output sources (parsed finalText + finalStdout) are empty AND the persisted artifact is empty/`'(no output)'` or matches `isStderrOnlyResult` strict log-noise shapes. Detector: `src/runtime/output/output-validator.ts`; gate: `src/runtime/task-runner/post-execution.ts`; regression: `test/unit/runtime/task-runner/post-execution-stderr-only.test.ts`. Sub-issues B/C unchanged.
+
 **Symptom.** Explorer task `02_explore-core` of run
 `team_20260815144514_3e60a1596271897c` reported `completed` with zero usable
 output; its result artifact contained pure stderr (corrupted/empty payload).

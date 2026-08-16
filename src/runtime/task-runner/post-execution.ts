@@ -14,6 +14,7 @@
  * mutation guard (warn/fail/off) and verification contract are preserved
  * exactly (char scenarios 5-7, 9, 10 cover them).
  */
+import { readFileSync } from "node:fs";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import { withRunLock } from "../../state/coordination/locks.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
@@ -33,7 +34,7 @@ import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew
 import { crewHooks } from "../crew-hooks.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
 import type { ModelAttemptSummary } from "../model/model-fallback.ts";
-import { type OutputValidationResult, validateWorkerOutput } from "../output/output-validator.ts";
+import { isStderrOnlyResult, type OutputValidationResult, validateWorkerOutput } from "../output/output-validator.ts";
 import type { ParsedPiJsonOutput } from "../output/pi-json-output.ts";
 import { writeTaskSharedOutput } from "../task-output-context.ts";
 import { evaluateCompletionMutationGuard } from "../verification/completion-guard.ts";
@@ -254,6 +255,72 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		}
 	}
 
+	// --- Result artifact usability check (bug-026 sub-issue A) ---
+	// A corrupted/empty worker payload leaves BOTH authoritative output sources
+	// (parsed finalText + finalStdout) empty while the child-executor result
+	// fallback chain persists session-log stderr noise as the result artifact.
+	// Existence-only validation then marks the task "completed" and downstream
+	// tasks silently consume garbage (evidence: run team_20260815144514,
+	// results/02_explore-core.txt). Two-gate auto-fail — a gate-1 miss alone
+	// (legitimate short result "OK done.") or a gate-2 miss alone (real content
+	// in the artifact) keeps the pre-existing outcome:
+	//   gate 1 — finalText AND finalStdout are both trimmed-empty (a legitimate
+	//            result ALWAYS surfaces in at least one authoritative source);
+	//   gate 2 — the persisted artifact is empty/'(no output)'/whitespace OR
+	//            isStderrOnlyResult says every line is strict log noise.
+	// A read error on the artifact is NOT a failure (conservative). Mirrors the
+	// mutation-guard fail-mode precedent: error marker + exitCode bump + last
+	// modelAttempt success:false → status flips to "failed" (retryable).
+	if (!error) {
+		const finalTextEmpty = !parsedOutput?.finalText?.trim();
+		const finalStdoutEmpty = !finalStdout?.trim();
+		if (finalTextEmpty && finalStdoutEmpty && resultArtifact?.path) {
+			let artifactContent: string | undefined;
+			try {
+				artifactContent = readFileSync(resultArtifact.path, "utf8");
+			} catch {
+				artifactContent = undefined; // unreadable artifact — do not fail on read errors
+			}
+			if (artifactContent !== undefined) {
+				const trimmedArtifact = artifactContent.trim();
+				const emptyArtifact = trimmedArtifact === "" || trimmedArtifact === "(no output)";
+				const stderrOnlyArtifact = !emptyArtifact && isStderrOnlyResult(artifactContent);
+				if (emptyArtifact || stderrOnlyArtifact) {
+					error = "Result artifact is empty or stderr-only (failureCause: empty-or-stderr-only-result)";
+					exitCode = exitCode === 0 ? 1 : exitCode;
+					if (modelAttempts?.length) {
+						modelAttempts = modelAttempts.map((attempt, index) =>
+							index === modelAttempts!.length - 1 ? { ...attempt, success: false, exitCode, error } : attempt,
+						);
+					}
+					outputValidation = {
+						valid: false,
+						formatMatch: false,
+						structurePreserved: false,
+						issues: [
+							`empty-or-stderr-only-result: ${
+								emptyArtifact ? "result artifact is empty" : "result artifact contains only stderr/session-log noise"
+							}`,
+						],
+					};
+					await appendEventAsync(manifest.eventsPath, {
+						type: "task.output_validation",
+						runId: manifest.runId,
+						taskId: task.id,
+						data: {
+							valid: false,
+							formatMatch: false,
+							structurePreserved: false,
+							issues: outputValidation.issues,
+							failureCause: "empty-or-stderr-only-result",
+							resultPath: resultArtifact.path,
+						},
+					});
+				}
+			}
+		}
+	}
+
 	// --- ECC VERIFICATION_LOOP: Compute verification evidence before building task object ---
 	// Compute verification evidence (may be async if verification commands need to run)
 	const baseEvidence = createVerificationEvidence(
@@ -465,6 +532,10 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		runId: manifest.runId,
 		taskId: task.id,
 		message: error,
+		// bug-026 sub-issue B: surface the classified fatal-fs cause (enospc/
+		// edquot/emfile/enfile) on the failure event so operators see "disk
+		// full" instead of a generic timeout diagnostic.
+		...(task.failureCause ? { data: { failureCause: task.failureCause } } : {}),
 	});
 
 	// Execute after_task_complete lifecycle hook (non-blocking)
