@@ -91,6 +91,21 @@ function readSettingsFile(filePath: string): CrewSettings {
 	}
 }
 
+/**
+ * LEGACY merged view — USER-TIER-ONLY ingestion path (P1 fix follow-up, bug-026 adjacent).
+ *
+ * Merges the user-tier global file OVER the project file into one flat object.
+ * This view is trusted and MUST NOT be applied to live config anymore: the
+ * project fragment bypasses `sanitizeProjectConfig`. The current consumer
+ * path is `loadCrewSettingsTiers()` + `applyCrewSettingsTiersToConfig()`
+ * (project fragment routed through the schema-driven tiering, Wave 2B).
+ *
+ * If you need to read crew settings for CONFIG APPLICATION, use the tiers
+ * API — never this function. Kept exported for back-compat reads/tests;
+ * adding a new consumer that writes into loadedConfig re-introduces the
+ * fixed P1 bypass (see docs/decisions/2026-08-15-schema-driven-sanitize.md
+ * and the Wave 2B execution log in docs/refactor-plan.md).
+ */
 export function loadCrewSettings(cwd: string = process.cwd()): CrewSettings {
 	return {
 		...readSettingsFile(globalPath()),
@@ -137,6 +152,21 @@ export function updateCrewSettings(cwd: string, mutator: (settings: CrewSettings
 	});
 }
 
+/**
+ * LEGACY direct-apply — USER-TIER-ONLY (P1 fix follow-up).
+ *
+ * Writes settings straight into a config object with NO sanitize tiering.
+ * Applying a merged (user+project) `CrewSettings` through this function is
+ * exactly the P1 bypass fixed in Wave 2B: project-tier values would land in
+ * guard fields (`limits.maxConcurrentWorkers`, `runtime.maxTurns`, ...) with
+ * no conditional drops. The tiered replacement is
+ * `applyCrewSettingsTiersToConfig()` which routes the project fragment
+ * through `sanitizeProjectConfig` + tighten-only comparison.
+ *
+ * Do NOT add new call sites that pass a merged/project-influenced settings
+ * object. Acceptable use: tests, and user-tier-only tooling that has already
+ * separated tiers.
+ */
 export function applyCrewSettingsToConfig(
 	config: {
 		limits?: { maxConcurrentWorkers?: number };
