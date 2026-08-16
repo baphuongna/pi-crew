@@ -240,6 +240,49 @@ subtree dropped, (vii) `autonomous.magicKeywords` dropped, (viii)
 `broker.enabled === false` dropped while `=== true` and non-availability
 fields survive, (ix) F19-5 parser bounds asserted through `parseConfig`.
 
+## Wave B2 update (2026-08-15): crew-settings project-tier `scheduledJobs` opt-in gate
+
+Wave 2B of the maintainability refactor closed the P1 crew-settings bypass
+(`loadCrewSettings` + `applyCrewSettingsToConfig` applied a project-tier
+`<cwd>/.pi/crew-settings.json` fragment raw over the sanitized config); the
+sanitizer now routes the project fragment through `sanitizeProjectConfig` +
+tight-only guard tiering (`src/runtime/settings-store.ts`,
+`loadCrewSettingsTiers` / `applyCrewSettingsTiersToConfig`). One residual was
+documented then and is now closed by an explicit gate: project-tier
+`scheduledJobs` (and `schedulingEnabled`) still passed through after basic
+validation, so a malicious repo shipping `.pi/crew-settings.json` could get
+background jobs registered on session_start.
+
+**Gate (leader decision, final):** project-tier `scheduledJobs` are DROPPED
+(standard `projectOverrideWarning` with dotted path `scheduledJobs`) unless
+the user-tier global file (`~/.pi/crew-settings.json`) explicitly opts in
+with BOTH `schedulingEnabled: true` AND `allowProjectScheduledJobs: true`
+(new optional `CrewSettings` field). `schedulingEnabled` itself is
+user-tier-only: a project value is always dropped with a warning, whether
+`true` or `false` — the project can neither enable nor disable scheduling.
+The gate lives in the TIERS layer: `loadCrewSettingsTiers` exposes a gated
+`effectiveScheduledJobs` view (user jobs always; project jobs only when
+opted in, user-first concat) that the scheduler registration consumer
+(`src/extension/registration/lifecycle-handlers.ts`) loops instead of the raw
+`merged` view; `merged` semantics are unchanged (the write-path round-trip
+depends on them). `allowProjectScheduledJobs` is user-tier-only SEMANTICS
+enforced at the tiers layer — the flat `sanitizeSettings` allowlist merely
+preserves the boolean so the opt-in survives the user-tier file read (a
+project-tier `allowProjectScheduledJobs: true` is therefore meaningless).
+The tighten-only philosophy of Wave 1A is intentionally NOT applied here:
+jobs are not numeric bounds — allowing them is an availability decision the
+human user makes in their global file.
+
+**UX consequence (accepted):** `crew schedule add/update/remove` persists
+jobs into the PROJECT file (`handle-schedule.ts` → `updateCrewSettings`).
+Consequently, users of `crew schedule` must set BOTH flags in
+`~/.pi/crew-settings.json` or their own previously-registered jobs stop
+registering on session_start. This needs a README/CHANGELOG note
+(follow-up; out of scope here).
+
+**Non-relation:** the `docs/bugs/bug-026` follow-up is UNRELATED to this
+gate and remains untouched.
+
 ## Out of scope — remaining follow-ups
 
 The two ACCEPTED-FOR-NOW items of the original ADR (F19-4/S19-1/S19-2

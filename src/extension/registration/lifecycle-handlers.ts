@@ -241,19 +241,19 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// EXT-9: module-scoped setter (was globalThis[Symbol.for(...)]).
 		registerCrewScheduler(ctx.crewScheduler);
 		// Load scheduled jobs from settings if present.
-		// BOUNDARY (Wave 2B ITEM 1.4): project-tier scheduledJobs stay honored —
-		// <cwd>/.pi/crew-settings.json is the persistence store for the user's
-		// own `crew schedule add/update/remove` commands (handle-schedule.ts),
-		// and jobs execute only while a session is open in this cwd. Residual
-		// risk (repo ships .pi/crew-settings.json with jobs) is documented in
-		// settings-store.ts; a user-tier opt-in gate is a flagged follow-up.
-		if (Array.isArray(crewSettingsTiers.merged.scheduledJobs)) {
-			for (const job of crewSettingsTiers.merged.scheduledJobs) {
-				try {
-					ctx.crewScheduler.add(job as ScheduledJob);
-				} catch {
-					/* skip invalid */
-				}
+		// BOUNDARY (Wave B2): project-tier scheduledJobs are OPT-IN GATED — the
+		// registration loop reads the gated `effectiveScheduledJobs` view (user
+		// jobs always; project jobs ONLY when the user-tier global file has BOTH
+		// schedulingEnabled:true AND allowProjectScheduledJobs:true).
+		// <cwd>/.pi/crew-settings.json remains the persistence store for the
+		// user's own `crew schedule add/update/remove` commands (handle-schedule.ts),
+		// so crew-schedule users must set both flags in ~/.pi/crew-settings.json.
+		// `schedulingEnabled` is user-tier-only (project values always dropped).
+		for (const job of crewSettingsTiers.effectiveScheduledJobs) {
+			try {
+				ctx.crewScheduler.add(job as ScheduledJob);
+			} catch {
+				/* skip invalid */
 			}
 		}
 		ctx.autoRecoveryLast.clear();

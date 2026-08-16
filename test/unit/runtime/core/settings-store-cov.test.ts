@@ -242,6 +242,15 @@ describe("loadCrewSettingsTiers / applyCrewSettingsTiersToConfig (Wave 2B tier s
 			const tiers = loadCrewSettingsTiers(tmp, path.join(tmp, "absent-global.json"));
 			assert.equal(tiers.project.scheduledJobs?.length, 1);
 			assert.equal(tiers.merged.scheduledJobs?.length, 1);
+			// Wave B2: persisted (project-tier) jobs only register when the user
+			// tier opts in — the documented UX consequence for crew-schedule users.
+			assert.deepEqual(tiers.effectiveScheduledJobs, []);
+			const globalFile = path.join(tmp, "user-crew-settings.json");
+			fs.writeFileSync(globalFile, JSON.stringify({ schedulingEnabled: true, allowProjectScheduledJobs: true }), "utf-8");
+			assert.deepEqual(
+				loadCrewSettingsTiers(tmp, globalFile).effectiveScheduledJobs.map((j) => (j as { id: string }).id),
+				["job-1"],
+			);
 		} finally {
 			removeTrackedTempDir(tmp);
 		}
@@ -258,6 +267,88 @@ describe("loadCrewSettingsTiers / applyCrewSettingsTiersToConfig (Wave 2B tier s
 			const config = { runtime: { maxTurns: 50 } };
 			assert.doesNotThrow(() => applyCrewSettingsTiersToConfig(config, tiers));
 			assert.equal(config.runtime.maxTurns, 50);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	// -----------------------------------------------------------------------
+	// Wave B2: scheduledJobs user-tier opt-in gate (project tier untrusted).
+	// -----------------------------------------------------------------------
+
+	it("project-tier scheduledJobs are dropped from the gated view with a warning when not opted in", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-gate-");
+		try {
+			const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+			fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+			fs.writeFileSync(projectFile, JSON.stringify({ scheduledJobs: [{ id: "pj1", scheduleType: "cron", enabled: true }] }), "utf-8");
+			const tiers = loadCrewSettingsTiers(tmp, path.join(tmp, "absent-global.json"));
+			assert.deepEqual(tiers.effectiveScheduledJobs, []);
+			// merged stays the raw historical merge (write-path semantics).
+			assert.equal(tiers.merged.scheduledJobs?.length, 1);
+			const config = { runtime: { maxTurns: 50 } };
+			const warnings = applyCrewSettingsTiersToConfig(config, tiers);
+			assert.equal(warnings.length, 1);
+			assert.ok(warnings[0].startsWith(projectFile));
+			assert.ok(warnings[0].includes("project-level sensitive config 'scheduledJobs' is ignored"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("both user-tier opt-in flags enable project jobs; each flag alone does not", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-optin-");
+		try {
+			const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+			fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+			fs.writeFileSync(projectFile, JSON.stringify({ scheduledJobs: [{ id: "pj1", scheduleType: "cron", enabled: true }] }), "utf-8");
+			const writeGlobal = (data: Record<string, unknown>): string => {
+				const gf = path.join(tmp, "user-crew-settings.json");
+				fs.writeFileSync(gf, JSON.stringify(data), "utf-8");
+				return gf;
+			};
+			const gatedIds = (globalFile: string): string[] =>
+				loadCrewSettingsTiers(tmp, globalFile).effectiveScheduledJobs.map((j) => (j as { id: string }).id);
+			assert.deepEqual(gatedIds(writeGlobal({})), []);
+			assert.deepEqual(gatedIds(writeGlobal({ schedulingEnabled: true })), []);
+			assert.deepEqual(gatedIds(writeGlobal({ allowProjectScheduledJobs: true })), []);
+			const optedIn = writeGlobal({ schedulingEnabled: true, allowProjectScheduledJobs: true });
+			assert.deepEqual(gatedIds(optedIn), ["pj1"]);
+			const warnings = applyCrewSettingsTiersToConfig({ runtime: { maxTurns: 50 } }, loadCrewSettingsTiers(tmp, optedIn));
+			assert.deepEqual(warnings, []);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("project-tier schedulingEnabled is always dropped with a warning (true and false)", () => {
+		for (const value of [true, false]) {
+			const tmp = createTrackedTempDir("pi-crew-settings-schedflag-");
+			try {
+				const projectFile = path.join(tmp, ".pi", "crew-settings.json");
+				fs.mkdirSync(path.dirname(projectFile), { recursive: true });
+				fs.writeFileSync(projectFile, JSON.stringify({ schedulingEnabled: value }), "utf-8");
+				const tiers = loadCrewSettingsTiers(tmp, path.join(tmp, "absent-global.json"));
+				const warnings = applyCrewSettingsTiersToConfig({ runtime: { maxTurns: 50 } }, tiers);
+				assert.equal(warnings.length, 1, `schedulingEnabled:${value}`);
+				assert.ok(warnings[0].startsWith(projectFile));
+				assert.ok(warnings[0].includes("project-level sensitive config 'schedulingEnabled' is ignored"));
+			} finally {
+				removeTrackedTempDir(tmp);
+			}
+		}
+	});
+
+	it("user-tier scheduledJobs stay registered in the gated view regardless of opt-in flags", () => {
+		const tmp = createTrackedTempDir("pi-crew-settings-userjobs-");
+		try {
+			const globalFile = path.join(tmp, "user-crew-settings.json");
+			fs.writeFileSync(globalFile, JSON.stringify({ scheduledJobs: [{ id: "uj1", scheduleType: "cron", enabled: true }] }), "utf-8");
+			const tiers = loadCrewSettingsTiers(tmp, globalFile);
+			assert.deepEqual(
+				tiers.effectiveScheduledJobs.map((j) => (j as { id: string }).id),
+				["uj1"],
+			);
 		} finally {
 			removeTrackedTempDir(tmp);
 		}

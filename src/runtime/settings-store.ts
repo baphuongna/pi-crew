@@ -14,6 +14,11 @@ export interface CrewSettings {
 	graceTurns?: number;
 	defaultJoinMode?: JoinMode;
 	schedulingEnabled?: boolean;
+	/** Wave B2: user-tier-only opt-in for project-tier scheduledJobs. Semantics
+	 *  are enforced at the tiers layer (loadCrewSettingsTiers), NOT here — the
+	 *  flat sanitizeSettings allowlist must merely preserve the flag so the
+	 *  opt-in survives the read of the user-tier global file. */
+	allowProjectScheduledJobs?: boolean;
 	notifierIntervalMs?: number;
 	/** Scheduled jobs loaded from settings — opaque, passed to crewScheduler */
 	scheduledJobs?: unknown[];
@@ -62,6 +67,9 @@ function sanitizeSettings(raw: unknown): CrewSettings {
 	}
 	if (typeof r.schedulingEnabled === "boolean") {
 		out.schedulingEnabled = r.schedulingEnabled;
+	}
+	if (typeof r.allowProjectScheduledJobs === "boolean") {
+		out.allowProjectScheduledJobs = r.allowProjectScheduledJobs;
 	}
 	if (typeof r.notifierIntervalMs === "number" && r.notifierIntervalMs >= 1000) {
 		out.notifierIntervalMs = r.notifierIntervalMs;
@@ -206,11 +214,23 @@ export interface CrewSettingsTiers {
 	/** Project-tier `<cwd>/.pi/crew-settings.json` — UNTRUSTED input. */
 	project: CrewSettings;
 	/** Historical merge view (project wins over user). Kept for the write-path
-	 *  round-trip (`updateCrewSettings`) and for non-guard consumers
-	 *  (scheduledJobs — see BOUNDARY note in applyCrewSettingsTiersToConfig). */
+	 *  round-trip (`updateCrewSettings`). NOT the registration source for
+	 *  scheduledJobs anymore — use `effectiveScheduledJobs` (Wave B2 gate). */
 	merged: CrewSettings;
+	/** Wave B2 GATE — what consumers register: user-tier scheduledJobs plus
+	 *  project-tier scheduledJobs ONLY when the user tier explicitly opted in
+	 *  (user.schedulingEnabled === true && user.allowProjectScheduledJobs ===
+	 *  true). User-first concat order. */
+	effectiveScheduledJobs: unknown[];
 	/** Absolute path of the project-tier file (used in warnings). */
 	projectPath: string;
+}
+
+/** Wave B2 gate predicate: the user tier opts in to project-tier scheduledJobs
+ *  only when BOTH flags are explicitly `true` in the user-tier global file.
+ *  Any other combination (flags absent, either false) opts OUT. */
+function projectScheduledJobsOptIn(user: CrewSettings): boolean {
+	return user.schedulingEnabled === true && user.allowProjectScheduledJobs === true;
 }
 
 /**
@@ -222,7 +242,11 @@ export function loadCrewSettingsTiers(cwd: string = process.cwd(), globalFile: s
 	const user = readSettingsFile(globalFile);
 	const projectFilePath = projectPath(cwd);
 	const project = readSettingsFile(projectFilePath);
-	return { user, project, merged: { ...user, ...project }, projectPath: projectFilePath };
+	const effectiveScheduledJobs: unknown[] = [
+		...(user.scheduledJobs ?? []),
+		...(projectScheduledJobsOptIn(user) ? (project.scheduledJobs ?? []) : []),
+	];
+	return { user, project, merged: { ...user, ...project }, effectiveScheduledJobs, projectPath: projectFilePath };
 }
 
 /**
@@ -253,18 +277,20 @@ export function loadCrewSettingsTiers(cwd: string = process.cwd(), globalFile: s
  *  3. Survivors are applied over the user tier — safe by construction since
  *     survivors can only be equal-or-lower guard values.
  *
- * BOUNDARY (ITEM 1.4) — schedulingEnabled / scheduledJobs are NOT mapped into
- * the config fragment: `<cwd>/.pi/crew-settings.json` is the designated
- * persistence store for the user's own `crew schedule add/update/remove`
- * commands (handle-schedule.ts), and jobs execute only while a session is
- * open in that cwd, so project-tier scheduledJobs stay honored (consumed via
- * the `merged` view). `schedulingEnabled` currently has NO consumer anywhere
- * in src/ — if one is added it MUST be user-tier-only (project must not be
- * able to toggle background scheduling). Residual risk documented for the
- * security reviewer: a malicious repo shipping .pi/crew-settings.json with
- * scheduledJobs gets them registered on session_start; the hardening follow-up
- * (gate project-tier jobs behind a user-tier opt-in) is intentionally out of
- * scope here because it changes feature semantics.
+ * BOUNDARY (Wave B2 — was ITEM 1.4): scheduling is a USER-TIER decision.
+ * `schedulingEnabled` is never honored from the project tier — a project file
+ * can neither enable nor disable scheduling (no consumer reads it in src/
+ * today; if one is added it MUST read only the user tier). Project-tier
+ * `scheduledJobs` are DROPPED (warning emitted below + left out of the gated
+ * `effectiveScheduledJobs` view that the scheduler registration consumer
+ * loops) unless the user-tier global file explicitly opts in with BOTH
+ * `schedulingEnabled: true` AND `allowProjectScheduledJobs: true`. The
+ * tighten-only philosophy is intentionally NOT applied here: jobs are not
+ * numeric bounds — allowing them is an availability decision the human user
+ * makes in their global file. UX consequence (accepted): `crew schedule
+ * add/update/remove` persists jobs into the PROJECT file (handle-schedule.ts),
+ * so crew-schedule users must set both flags in ~/.pi/crew-settings.json or
+ * their own jobs stop registering on session_start.
  *
  * `notifierIntervalMs` (UI poll cadence) and `runtime.groupJoin` (join
  * semantics) are not guard fields and ride the choke point only.
@@ -275,6 +301,18 @@ export function applyCrewSettingsTiersToConfig(config: PiTeamsConfig, tiers: Cre
 	applyCrewSettingsToConfig(config, tiers.user);
 
 	const project = tiers.project;
+	// Wave B2 scheduling gate — MUST run BEFORE the empty-fragment early return
+	// below: a project file containing ONLY scheduling fields would otherwise
+	// skip the warnings entirely. Both warnings are warning-only: neither field
+	// maps into PiTeamsConfig; registration consumers read the gated
+	// `effectiveScheduledJobs` view instead.
+	if (project.schedulingEnabled !== undefined) {
+		// Project can neither enable nor disable scheduling — always dropped.
+		warnings.push(projectOverrideWarning(tiers.projectPath, "schedulingEnabled"));
+	}
+	if (!projectScheduledJobsOptIn(tiers.user) && Array.isArray(project.scheduledJobs) && project.scheduledJobs.length > 0) {
+		warnings.push(projectOverrideWarning(tiers.projectPath, "scheduledJobs"));
+	}
 	if (
 		project.maxConcurrent == null &&
 		project.defaultMaxTurns == null &&
