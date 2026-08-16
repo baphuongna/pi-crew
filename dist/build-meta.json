@@ -14114,7 +14114,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/state-helpers.ts": {
-      "bytes": 7884,
+      "bytes": 8281,
       "imports": [
         {
           "path": "node:fs",
@@ -19429,7 +19429,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 6868107
+      "bytes": 6868462
     },
     "dist/index.mjs": {
       "imports": [
@@ -22884,7 +22884,7 @@
           "bytesInOutput": 767
         },
         "src/runtime/task-runner/state-helpers.ts": {
-          "bytesInOutput": 2897
+          "bytesInOutput": 2791
         },
         "src/runtime/task-runner/tail-read.ts": {
           "bytesInOutput": 810
@@ -23355,7 +23355,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3027829
+      "bytes": 3027723
     }
   }
 }

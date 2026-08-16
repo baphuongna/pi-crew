@@ -54636,12 +54636,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
     return withRunLockSync(manifest, () => {
       for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
         flushPendingAtomicWrites();
-        let latest;
-        if (attempt === 0) {
-          latest = fallbackTasks;
-        } else {
-          latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
-        }
+        const latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
         merged = updateTask(latest, taskWithCheckpoint);
         let currentMtime;
         try {
