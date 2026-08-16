@@ -92,7 +92,7 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 			if (real !== allowedPrefixes[i] && !allowedPrefixes.includes(real)) allowedPrefixes.push(real);
 		} catch {
 			// Prefix path doesn't exist (env var points nowhere) — the original form
-		// stays; nothing to canonicalize.
+			// stays; nothing to canonicalize.
 		}
 	}
 
