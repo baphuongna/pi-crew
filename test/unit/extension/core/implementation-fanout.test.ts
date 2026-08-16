@@ -59,8 +59,8 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 			// with which message, before_run_start hook, or after-batch injection).
 			console.error("[fanout-diag] manifest:", JSON.stringify({
 				status: loaded?.manifest.status,
-				statusMessage: loaded?.manifest.statusMessage,
-				cancelRequested: loaded?.manifest.cancelRequested,
+				workflow: loaded?.manifest.workflow,
+				updatedAt: loaded?.manifest.updatedAt,
 			}, null, 1));
 			console.error("[fanout-diag] tasks:", JSON.stringify((loaded?.tasks ?? []).map((t) => ({
 				id: t.id, stepId: t.stepId, status: t.status, attempts: t.attempts?.length,
