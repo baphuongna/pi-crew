@@ -9,7 +9,13 @@ export function validateWorkflowForTeam(workflow: WorkflowConfig, team: TeamConf
 	for (const step of workflow.steps) {
 		if (stepIds.has(step.id)) errors.push(`Duplicate workflow step id '${step.id}'.`);
 		stepIds.add(step.id);
-		if (!roles.has(step.role)) errors.push(`Step '${step.id}' references unknown team role '${step.role}'.`);
+		if (!roles.has(step.role)) {
+			// F19-9: the distill adapter needs roles the default team lacks
+			// (analyst/critic) — hint the correct invocation instead of a bare
+			// unknown-role error.
+			const distillHint = workflow.name === "distill" ? " (run with team='implementation' — needs analyst+critic roles)" : "";
+			errors.push(`Step '${step.id}' references unknown team role '${step.role}'.${distillHint}`);
+		}
 	}
 
 	for (const step of workflow.steps) {

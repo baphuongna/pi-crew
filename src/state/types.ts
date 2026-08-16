@@ -1,6 +1,7 @@
 import type { CrewAgentProgress } from "../runtime/crew-agent-runtime.ts";
 import type { WorkerHeartbeatState } from "../runtime/heartbeat/worker-heartbeat.ts";
 import type { CrashClass } from "../runtime/recovery/crash-classification.ts";
+import type { FatalFsCause } from "../utils/fs-errno.ts";
 import type { TeamRunStatus, TeamTaskStatus } from "./contracts.ts";
 import type { TaskClaimState } from "./coordination/task-claims.ts";
 import type { CoherenceMark, RolloutEntry } from "./decision-ledger.ts";
@@ -422,6 +423,10 @@ export interface TeamTaskState {
 	jsonEvents?: number;
 	agentProgress?: CrewAgentProgress;
 	error?: string;
+	/** Fatal fs failure cause (bug-026 sub-issue B): set when the failure was
+	 *  classified as enospc/edquot/emfile/enfile so operators see "failed
+	 *  (disk full)" instead of a generic timeout diagnostic. */
+	failureCause?: FatalFsCause;
 	claim?: TaskClaimState;
 	heartbeat?: WorkerHeartbeatState;
 	checkpoint?: TaskCheckpointState;

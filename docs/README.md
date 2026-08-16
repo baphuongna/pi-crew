@@ -30,6 +30,8 @@ stay at the root of this directory; historical/retired docs live in
 | [`COVERAGE-ASSESSMENT-2026-08-01.md`](./COVERAGE-ASSESSMENT-2026-08-01.md) | v0.9.56 coverage assessment + source-reorg history |
 | [`AUDIT-2026-07-30.md`](./AUDIT-2026-07-30.md) | v0.9.56 comprehensive audit (6 parallel streams) |
 | [`REMEDIATION-PLAN-2026-07-30.md`](./REMEDIATION-PLAN-2026-07-30.md) | v0.9.56 remediation plan |
+| [`refactor-plan.md`](./refactor-plan.md) | Maintainability refactor plan (phased, v0.9.68) |
+| [`refactor-plan.review.md`](./refactor-plan.review.md) | Verification sweep 3 (vòng 4) audit trail — 3 large-file baselines CONFIRMED, 6 corrections, Phase 4 reframe |
 
 ## Subdirectories
 

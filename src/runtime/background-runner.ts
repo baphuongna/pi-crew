@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
 import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
@@ -10,6 +11,7 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { errorMessage } from "../utils/guards.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
+import { assertSafePathId } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 // Heavy runtime — lazy-loaded to avoid pulling team-runner into background-runner
 // at module load time. Only needed when a background run actually starts.
@@ -27,7 +29,7 @@ let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
  *  aborts via the shared AbortController, then force-exits after a grace
  *  period in case the abort signal does not propagate to all execution paths. */
 const MAX_BACKGROUND_RUN_MS = (() => {
-	const env = Number.parseInt(process.env.PI_CREW_MAX_RUN_MS ?? "", 10);
+	const env = Number.parseInt(getCrewEnv("PI_CREW_MAX_RUN_MS") ?? "", 10);
 	return Number.isFinite(env) && env > 0 ? env : 2 * 60 * 60 * 1000;
 })();
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
@@ -59,7 +61,7 @@ import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.t
  * while keeping diagnostics available when explicitly enabled.
  */
 function debugLog(message: string): void {
-	if (process.env.PI_CREW_DEBUG) console.log(message);
+	if (getCrewEnv("PI_CREW_DEBUG")) console.log(message);
 }
 
 /**
@@ -213,7 +215,7 @@ export function startInterruptGuard(
 	const controlPath = path.join(manifest.stateRoot, "foreground-control.json");
 	// FIX: Made configurable via PI_CREW_INTERRUPT_GUARD_INTERVAL_MS env var.
 	// Default 250ms balances fast SIGINT response against filesystem overhead.
-	const interruptGuardInterval = Number(process.env.PI_CREW_INTERRUPT_GUARD_INTERVAL_MS) || 250;
+	const interruptGuardInterval = Number(getCrewEnv("PI_CREW_INTERRUPT_GUARD_INTERVAL_MS")) || 250;
 	// RT-4 FIX: Module-local gate so the interrupt body runs only once per
 	// interrupt request. Without this, the guard re-fires every
 	// interruptGuardInterval (250ms) — each tick does a full
@@ -410,6 +412,13 @@ async function main(): Promise<void> {
 	const _cwd = argValue("--cwd");
 	const _runId = argValue("--run-id");
 	if (_cwd && _runId) {
+		// R11-2 (LOW, §ROUND 11 security hardening): assert the argv-supplied
+		// runId at the argValue boundary BEFORE any path construction — the
+		// background.log join would otherwise embed an untrusted runId (future
+		// user-supplied --resume) → path traversal outside the run root. Throws
+		// at startup for unsafe ids (intended fail-fast; placed OUTSIDE the
+		// best-effort try/catch so the hardening is never silently swallowed).
+		assertSafePathId("runId", _runId);
 		try {
 			// Use projectCrewRoot() so the background log lives next to the
 			// manifest in either .crew/state/runs/ or .pi/teams/state/runs/
@@ -464,6 +473,10 @@ async function main(): Promise<void> {
 		const cwd = argValue("--cwd");
 		const runId = argValue("--run-id");
 		if (!cwd || !runId) return undefined;
+		// R11-2 (LOW, §ROUND 11): same argv boundary hardening as main() — this
+		// IIFE runs at MODULE LOAD, so an unsafe runId throws before the runner
+		// starts (intended fail-fast, matching run-import.ts:105 pattern).
+		assertSafePathId("runId", runId);
 		// Use projectCrewRoot() to honour the .pi/teams/ fallback (issue #29).
 		return path.join(projectCrewRoot(cwd), "state", "runs", runId, "exit-code.txt");
 	})();
@@ -611,7 +624,7 @@ async function main(): Promise<void> {
 	setupUnhandledRejectionGuard(rejectionGuardState, abortController, setExitFlag);
 
 	// Start parent guard — if parent is already dead, exit immediately
-	const parentPid = Number(process.env.PI_CREW_PARENT_PID);
+	const parentPid = Number(getCrewEnv("PI_CREW_PARENT_PID"));
 	if (parentPid > 0) startParentGuard(parentPid);
 	// NOTE: intentionally no unref() — the guard keeps the event loop alive
 	// to prevent premature worker exit. See parent-guard.ts:86 for rationale.
@@ -880,10 +893,32 @@ async function main(): Promise<void> {
 		if (manifest.status === "failed" || manifest.status === "cancelled" || manifest.status === "blocked") process.exitCode = 1;
 	} catch (error) {
 		// Terminate live agents on failure too — agents are done when the run fails
+		const message = errorMessage(error);
 		try {
-			const loaded = withRunLockSync(manifest, () => loadRunManifestById(cwd, runId), { staleMs: 30_000 }); // Use withRunLockSync to prevent race with concurrent writers (e.g., stale reconciler)
-			// between the read and the subsequent save.
-			const manifestToUse = loaded?.manifest ?? manifest;
+			// R14-2: re-read INSIDE the lock and derive the failed-status write from the
+			// FRESH manifest. The outer `manifest` is a pre-throw snapshot — using it
+			// here could flip a concurrently completed/cancelled run back to "failed"
+			// (updateRunStatus validates against the fresh on-disk status; an illegal
+			// flip throws and is swallowed by the best-effort catch below). Keeping the
+			// write inside withRunLockSync prevents race with concurrent writers
+			// (e.g., stale reconciler) between the read and the subsequent save.
+			const manifestToUse = withRunLockSync(
+				manifest,
+				() => {
+					const loaded = loadRunManifestById(cwd, runId);
+					const fresh = loaded?.manifest ?? manifest;
+					if (fresh) {
+						manifest = updateRunStatus(fresh, "failed", message);
+						appendEvent(manifest.eventsPath, {
+							type: "async.failed",
+							runId: manifest.runId,
+							message,
+						});
+					}
+					return fresh;
+				},
+				{ staleMs: 30_000 },
+			);
 			if (manifestToUse) {
 				// LAZY: live-agent-manager only needed on failure cleanup path; avoid module load at hot path.
 				const { terminateLiveAgentsForRun } = await import("./live-session/live-agent-manager.ts");
@@ -894,13 +929,6 @@ async function main(): Promise<void> {
 		} catch {
 			/* best-effort */
 		}
-		const message = errorMessage(error);
-		manifest = updateRunStatus(manifest, "failed", message);
-		appendEvent(manifest.eventsPath, {
-			type: "async.failed",
-			runId: manifest.runId,
-			message,
-		});
 		process.exitCode = 1;
 		console.log(`[background-runner] catch block, error=${errorMessage(error)}`);
 	} finally {

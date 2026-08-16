@@ -7,12 +7,24 @@
  * warnings never fired for any owned run. The fix derives the real session id
  * and keeps only the CURRENT session's owned runs (+ ownerless runs).
  *
- * See docs/cross-session-leak-fix-plan.md "Phase 5".
+ * Also covers the bug-026 sub-issue C stale-snapshot eviction helpers:
+ * TERMINAL_RUN_EVENT_TYPES / isTerminalRunEventType / evictRunFromManifests /
+ * applyTerminalRunEventToManifests, plus an end-to-end check against the real
+ * runEventBus mirroring the setupRenderLoop onAny wiring.
+ *
+ * See docs/cross-session-leak-fix-plan.md "Phase 5" and
+ * docs/bugs/bug-026-runner-reliability-gaps.md sub-issue C.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterManifestsForHealthNotifications } from "../../../../src/extension/registration/lifecycle-handlers.ts";
+import {
+	applyTerminalRunEventToManifests,
+	evictRunFromManifests,
+	filterManifestsForHealthNotifications,
+	isTerminalRunEventType,
+} from "../../../../src/extension/registration/lifecycle-handlers.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import { runEventBus } from "../../../../src/ui/run-event-bus.ts";
 
 /** Minimal manifest stub — the filter only inspects `ownerSessionId`. */
 function makeRun(runId: string, ownerSessionId?: string): TeamRunManifest {
@@ -58,4 +70,74 @@ test("health filter: unknown currentSessionId drops all owned runs (back-compat/
 		result.map((r) => r.runId),
 		["orphan"],
 	);
+});
+
+test("eviction: isTerminalRunEventType accepts all 6 terminal run event types across both namespaces", () => {
+	for (const type of ["run.completed", "run.failed", "run.cancelled", "run_completed", "run_failed", "run_cancelled"]) {
+		assert.ok(isTerminalRunEventType(type), `expected terminal: ${type}`);
+	}
+});
+
+test("eviction: isTerminalRunEventType rejects non-terminal event types", () => {
+	for (const type of ["run.started", "run_started", "task.failed", "task_failed", "run_blocked", "worker_status"]) {
+		assert.ok(!isTerminalRunEventType(type), `expected NOT terminal: ${type}`);
+	}
+});
+
+test("eviction: evictRunFromManifests removes the runId and leaves the rest (immutable)", () => {
+	const manifests = [makeRun("run-a"), makeRun("run-b"), makeRun("run-c")];
+	const result = evictRunFromManifests(manifests, "run-b");
+	assert.deepEqual(
+		result.map((r) => r.runId),
+		["run-a", "run-c"],
+	);
+	// Pure filter: the input frame is untouched.
+	assert.equal(manifests.length, 3);
+	// Evicting an absent runId is a no-op pass-through.
+	assert.deepEqual(
+		evictRunFromManifests(manifests, "missing").map((r) => r.runId),
+		["run-a", "run-b", "run-c"],
+	);
+});
+
+test("eviction: applyTerminalRunEventToManifests evicts on terminal events, passes through otherwise", () => {
+	const manifests = [makeRun("run-a"), makeRun("run-b")];
+	assert.deepEqual(
+		applyTerminalRunEventToManifests(manifests, { type: "run_completed", runId: "run-a" }).map((r) => r.runId),
+		["run-b"],
+	);
+	assert.deepEqual(
+		applyTerminalRunEventToManifests(manifests, { type: "run.failed", runId: "run-a" }).map((r) => r.runId),
+		["run-b"],
+	);
+	// Non-terminal events leave the frame untouched (same reference).
+	assert.equal(applyTerminalRunEventToManifests(manifests, { type: "task_completed", runId: "run-a" }), manifests);
+});
+
+test("eviction: runEventBus terminal events evict the runId from the preloaded frame (integration)", async () => {
+	// Mirror the exact setupRenderLoop runEventBus.onAny wiring (bug-026
+	// sub-issue C): the production handler is
+	//   lastPreloadedManifests = applyTerminalRunEventToManifests(lastPreloadedManifests, event);
+	let frame: TeamRunManifest[] = [makeRun("run-x"), makeRun("run-y")];
+	const scheduled: string[] = [];
+	const unsub = runEventBus.onAny((event) => {
+		frame = applyTerminalRunEventToManifests(frame, event);
+		scheduled.push(`${event.type}:${event.runId}`);
+	});
+	try {
+		// Underscore namespace — what team-runner actually emits (src/runtime/team-runner.ts:441).
+		runEventBus.emit({ type: "run_completed", runId: "run-x" });
+		await Promise.resolve(); // emit fan-out is microtask-batched
+		assert.deepEqual(
+			frame.map((r) => r.runId),
+			["run-y"],
+		);
+		runEventBus.emit({ type: "run_cancelled", runId: "run-y" });
+		runEventBus.emit({ type: "task_completed", runId: "run-y" });
+		await Promise.resolve();
+		assert.equal(frame.length, 0);
+		assert.deepEqual(scheduled, ["run_completed:run-x", "run_cancelled:run-y", "task_completed:run-y"]);
+	} finally {
+		unsub();
+	}
 });

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_OUTPUT_CONTEXT } from "../config/defaults.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -124,6 +125,13 @@ export interface ReadIfSmallTeeResult {
 	content: string;
 	/** Set only when tee was actually written (file size > 2× threshold + write succeeded). */
 	fullOutputPath?: string;
+	/** R10-1 (dep-context cache tee-safety): character length of the RAW file
+	 *  content BEFORE the truncation pipeline ran. Populated on every
+	 *  successful read; lets callers tell whether a cached no-tee read
+	 *  (`readIfSmall`) would have teed
+	 *  (length > TEE_THRESHOLD_MULTIPLIER × MAX_RESULT_INLINE_BYTES) without
+	 *  re-reading the file — no heuristics on the truncated body. */
+	originalLength?: number;
 }
 
 /**
@@ -211,9 +219,11 @@ export function readIfSmallWithTee(
 					},
 				}),
 			]);
-			return fullOutputPath ? { content: result.text, fullOutputPath } : { content: result.text };
+			return fullOutputPath
+				? { content: result.text, fullOutputPath, originalLength: content.length }
+				: { content: result.text, originalLength: content.length };
 		}
-		return { content };
+		return { content, originalLength: content.length };
 	} catch {
 		return undefined;
 	}
@@ -401,6 +411,12 @@ export function collectDependencyOutputContext(
 	tasks: TeamTaskState[],
 	task: TeamTaskState,
 	step: WorkflowStep,
+	/** R10-1 residual: per-run result-artifact read cache (same instance the
+	 *  closeout aggregation uses — created once in executeTeamRunCore, threaded
+	 *  SchedulerContext → baseInput → TaskRunnerInput). Optional: undefined
+	 *  keeps the previous uncached per-dep readIfSmallWithTee behavior
+	 *  byte-for-byte. NEVER pass a per-call cache instance. */
+	cache?: ResultArtifactReadCache,
 ): DependencyOutputContext {
 	const byStep = new Map(tasks.map((item) => [item.stepId, item]).filter((entry): entry is [string, TeamTaskState] => Boolean(entry[0])));
 	const byId = new Map(tasks.map((item) => [item.id, item]));
@@ -424,11 +440,19 @@ export function collectDependencyOutputContext(
 		.filter((item): item is TeamTaskState => Boolean(item))
 		.map((item) => {
 			const fullOutputPath = item.resultArtifact ? teePathForArtifact(manifest.artifactsRoot, task.id, item.id) : undefined;
+			// R10-1 residual: route the dep result read through the same per-run
+			// cache the closeout aggregation populated (readTaskResultArtifactWithTee).
+			// Without a cache this issues the identical readIfSmallWithTee call as
+			// before (byte-identical output); with one, a non-tee-band hit returns
+			// the memoized body while tee-band truncations still do the real read
+			// (tee file + fullOutputPath preserved per consumer).
 			const teeResult = item.resultArtifact
-				? readIfSmallWithTee(item.resultArtifact.path, {
-						baseDir: manifest.artifactsRoot,
-						...(fullOutputPath ? { tee: { fullOutputPath } } : {}),
-					})
+				? readTaskResultArtifactWithTee(
+						item.resultArtifact,
+						manifest.artifactsRoot,
+						fullOutputPath ? { fullOutputPath } : undefined,
+						cache,
+					)
 				: undefined;
 			const resultText = teeResult?.content;
 			const inlineBytes = resultText?.length ?? 0;
@@ -570,12 +594,209 @@ export function writeTaskInputsArtifact(
 	});
 }
 
-export function aggregateTaskOutputs(tasks: TeamTaskState[], manifest?: TeamRunManifest): string {
+/**
+ * R10-1: outcome of one aggregated result-artifact read (the pair of disk
+ * ops {@link aggregateTaskOutputs} performs per task: readIfSmall +
+ * containedExists). Cached as a unit so a cache hit replaces BOTH ops.
+ */
+export interface ResultArtifactReadOutcome {
+	/** Truncated body from readIfSmall; undefined when the read failed/missing. */
+	body: string | undefined;
+	/** containedExists() result for the same artifact path. */
+	exists: boolean;
+	/** R10-1 (dep-context tee-safety): character length of the raw file content
+	 *  at miss time. Present whenever the read succeeded; used by the
+	 *  dependency-context seam to decide whether a cache hit is byte-identical
+	 *  (no tee would have been written) or must fall through to a real
+	 *  readIfSmallWithTee. Undefined when the read failed. */
+	originalLength?: number;
+}
+
+/**
+ * R10-1: per-run memoization for result-artifact reads inside
+ * {@link aggregateTaskOutputs} (batch summary + group-join both aggregate the
+ * SAME settled batch every closeout — the second aggregation re-reads each
+ * `results/<taskId>.txt` from disk for no benefit).
+ *
+ * Cache key = artifact path + descriptor identity (`sizeBytes|contentHash`).
+ * writeArtifact computes both on every write (STATE-9: in-memory,
+ * post-redaction), so a retry that rewrites `results/<taskId>.txt` produces a
+ * NEW descriptor → new key → automatic miss. Descriptors missing BOTH fields
+ * bypass the cache entirely (cannot distinguish a rewrite from unchanged
+ * content). "Missing" outcomes are cached too (result artifacts use the
+ * default `retention: "run"` and are not pruned mid-run, so a miss is stable
+ * within a run). Path is used as-is (producer/taskId-keyed, stable absolute
+ * path from the manifest — no per-lookup realpath needed).
+ *
+ * Lifetime: one run (closure-level in executeTeamRunCore) — no cross-run
+ * leakage, no invalidation beyond the descriptor-identity key.
+ *
+ * Env bypass: `PI_CREW_DISABLE_RESULT_READ_CACHE=1` (read ONCE at creation)
+ * returns a cache whose lookups always miss — control mode for benches/tests
+ * that need the uncached behavior while still routing through the counting
+ * wrapper below.
+ */
+export interface ResultArtifactReadCache {
+	/** Cached outcome for the artifact identity, or undefined on miss/bypass. */
+	lookup(descriptor: ArtifactDescriptor): ResultArtifactReadOutcome | undefined;
+	/** Store an outcome. No-op when the descriptor lacks identity fields. */
+	store(descriptor: ArtifactDescriptor, outcome: ResultArtifactReadOutcome): void;
+}
+
+/**
+ * R10-1 test/bench counters for the result-artifact read path. Track disk ops
+ * ACTUALLY ISSUED through {@link readTaskResultArtifact} (incremented in the
+ * miss branch right before the real readIfSmall/containedExists calls) plus
+ * cache hits/misses. The disabled-control mode still routes through the
+ * counting wrapper (map simply not consulted) so cached-vs-uncached
+ * comparisons are honest.
+ */
+export interface ResultArtifactReadStats {
+	readFile: number;
+	exists: number;
+	hits: number;
+	misses: number;
+	reset(): void;
+}
+
+export const __test__resultReadStats: ResultArtifactReadStats = {
+	readFile: 0,
+	exists: 0,
+	hits: 0,
+	misses: 0,
+	reset() {
+		this.readFile = 0;
+		this.exists = 0;
+		this.hits = 0;
+		this.misses = 0;
+	},
+};
+
+function resultArtifactCacheKey(descriptor: ArtifactDescriptor): string | undefined {
+	if (descriptor.sizeBytes === undefined && descriptor.contentHash === undefined) return undefined;
+	return `${descriptor.path}|${descriptor.sizeBytes ?? ""}|${descriptor.contentHash ?? ""}`;
+}
+
+export function createResultArtifactReadCache(): ResultArtifactReadCache {
+	// Read once at creation — the bypass decision is fixed for the cache's
+	// (per-run) lifetime, matching PI_CREW_USE_BUNDLE-style one-shot env reads.
+	if (getCrewEnv("PI_CREW_DISABLE_RESULT_READ_CACHE") === "1") {
+		return {
+			lookup: () => undefined,
+			store: () => undefined,
+		};
+	}
+	const entries = new Map<string, ResultArtifactReadOutcome>();
+	return {
+		lookup(descriptor) {
+			const key = resultArtifactCacheKey(descriptor);
+			if (key === undefined) return undefined;
+			const hit = entries.get(key);
+			if (hit === undefined) {
+				__test__resultReadStats.misses += 1;
+				return undefined;
+			}
+			__test__resultReadStats.hits += 1;
+			return hit;
+		},
+		store(descriptor, outcome) {
+			const key = resultArtifactCacheKey(descriptor);
+			if (key !== undefined) entries.set(key, outcome);
+		},
+	};
+}
+
+/**
+ * Single read seam for {@link aggregateTaskOutputs}. Without a cache this is
+ * byte-for-byte the old behavior: readIfSmall + containedExists issued in the
+ * same order. With a cache, a hit returns the memoized pair (zero disk ops);
+ * a miss issues the same disk ops as the uncached path, counts them, and
+ * memoizes the outcome.
+ */
+function readTaskResultArtifact(
+	descriptor: ArtifactDescriptor,
+	baseDir: string | undefined,
+	cache: ResultArtifactReadCache | undefined,
+): ResultArtifactReadOutcome {
+	const cached = cache?.lookup(descriptor);
+	if (cached !== undefined) return cached;
+	__test__resultReadStats.readFile += 1;
+	__test__resultReadStats.exists += 1;
+	// readIfSmall is a thin wrapper over readIfSmallWithTee(...).content — the
+	// direct call is byte-identical and also captures originalLength (R10-1
+	// tee-safety metadata consumed by readTaskResultArtifactWithTee).
+	const raw = readIfSmallWithTee(descriptor.path, { baseDir });
+	const outcome: ResultArtifactReadOutcome = {
+		body: raw?.content,
+		exists: containedExists(descriptor.path, baseDir),
+		...(raw?.originalLength !== undefined ? { originalLength: raw.originalLength } : {}),
+	};
+	cache?.store(descriptor, outcome);
+	return outcome;
+}
+
+/**
+ * R10-1 residual: cached read seam for the dependency-context path
+ * ({@link collectDependencyOutputContext}). Mirrors {@link readTaskResultArtifact}
+ * while preserving the tee-recovery semantics of the direct
+ * `readIfSmallWithTee(path, { tee })` call it replaces:
+ *
+ * - A cache hit is reusable ONLY when the memoized read proves the uncached
+ *   call would NOT have teed: `originalLength` is known AND
+ *   `originalLength <= TEE_THRESHOLD_MULTIPLIER × MAX_RESULT_INLINE_BYTES`.
+ *   In that band readIfSmallWithTee().content is byte-identical to the
+ *   memoized body (same file, same truncation pipeline) and fullOutputPath is
+ *   unset, so returning the memoized body cannot change the rendered prompt.
+ * - A memoized read that FAILED (body undefined) is also returned as-is: the
+ *   direct readIfSmallWithTee would have thrown and returned undefined for
+ *   the same descriptor identity.
+ * - Otherwise (miss, bypass, or tee-band truncation) the real
+ *   readIfSmallWithTee runs — WITH tee, so the per-consumer
+ *   `tee/<taskId>-<depId>.full.txt` write and `fullOutputPath` survive — and
+ *   the disk ops are counted in `__test__resultReadStats` exactly like
+ *   readTaskResultArtifact's miss branch (honest cached-vs-bypass benches).
+ *   When a cache is provided the miss ALSO populates it with the SAME
+ *   outcome readTaskResultArtifact would have stored (body = teeResult.content
+ *   — byte-identical to readIfSmall's output since tee never alters content —
+ *   exists via containedExists, originalLength), so the next dep collect /
+ *   closeout aggregation hits. Truncation checks in later consumers use
+ *   originalLength, never heuristics on the truncated body.
+ */
+function readTaskResultArtifactWithTee(
+	descriptor: ArtifactDescriptor,
+	baseDir: string | undefined,
+	tee: TeeRecoveryOptions | undefined,
+	cache: ResultArtifactReadCache | undefined,
+): ReadIfSmallTeeResult | undefined {
+	const cached = cache?.lookup(descriptor);
+	if (cached !== undefined) {
+		if (cached.body === undefined) return undefined;
+		if (cached.originalLength !== undefined && cached.originalLength <= MAX_RESULT_INLINE_BYTES * TEE_THRESHOLD_MULTIPLIER) {
+			return { content: cached.body };
+		}
+	}
+	__test__resultReadStats.readFile += 1;
+	const result = readIfSmallWithTee(descriptor.path, { baseDir, ...(tee ? { tee } : {}) });
+	if (cache) {
+		// Populate with the outcome the closeout seam would have stored. The op
+		// order (read → existsSync) matches readTaskResultArtifact's miss branch.
+		__test__resultReadStats.exists += 1;
+		cache.store(descriptor, {
+			body: result?.content,
+			exists: containedExists(descriptor.path, baseDir),
+			...(result?.originalLength !== undefined ? { originalLength: result.originalLength } : {}),
+		});
+	}
+	return result;
+}
+
+export function aggregateTaskOutputs(tasks: TeamTaskState[], manifest?: TeamRunManifest, cache?: ResultArtifactReadCache): string {
 	return tasks
 		.map((task, index) => {
-			const body = task.resultArtifact ? readIfSmall(task.resultArtifact.path, manifest?.artifactsRoot) : undefined;
+			const read = task.resultArtifact ? readTaskResultArtifact(task.resultArtifact, manifest?.artifactsRoot, cache) : undefined;
+			const body = read?.body;
 			const hasBody = Boolean(body?.trim());
-			const expectedMissing = task.resultArtifact && !containedExists(task.resultArtifact.path, manifest?.artifactsRoot);
+			const expectedMissing = read ? !read.exists : undefined;
 			const status =
 				task.status === "skipped"
 					? "SKIPPED"

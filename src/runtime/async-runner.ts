@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { appendEventAsync } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
@@ -54,8 +55,11 @@ export function resolveJitiRegisterPath(packageRoot = packageRootFromRuntime(), 
 			path.join(path.dirname(pkgPath), "dist", "register.mjs"),
 		];
 		for (const c of candidates) if (exists(c)) return c;
-	} catch {
-		// Fall through.
+	} catch (error) {
+		// R17-B4 (LOW): fall-through is benign (undefined → next loader
+		// strategy), but keep the require.resolve root cause visible under
+		// PI_TEAMS_DEBUG instead of a bare catch.
+		logInternalError("async-runner.jiti-resolve", error, "require.resolve('jiti/package.json') fallback failed", "debug");
 	}
 	return undefined;
 }
@@ -124,7 +128,7 @@ export function getBackgroundRunnerCommand(
 	// default precisely so silent runner deaths (like the explore→code-review
 	// transition crash) leave a native stack/heap/environment trace. Users who
 	// don't want report files can opt out with PI_CREW_BG_REPORT_ON_FATAL=0.
-	const reportOn = !(process.env.PI_CREW_BG_REPORT_ON_FATAL === "0" || process.env.PI_TEAMS_BG_REPORT_ON_FATAL === "0");
+	const reportOn = !(getCrewEnv("PI_CREW_BG_REPORT_ON_FATAL") === "0" || getCrewEnv("PI_TEAMS_BG_REPORT_ON_FATAL") === "0");
 	const reportDir = reportDirectory ?? path.dirname(runnerPath);
 	const reportFlags = reportOn ? ["--report-on-fatalerror", "--report-compact", `--report-directory=${reportDir}`] : [];
 	if (loader.kind === "jiti") {

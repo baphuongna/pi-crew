@@ -63,10 +63,6 @@ function evictOldestCacheEntry(): void {
 	if (oldestKey !== undefined) readCache.delete(oldestKey);
 }
 
-export function clearReadCache(): void {
-	readCache.clear();
-}
-
 export function readJsonFileCoalesced<T>(filePath: string, ttlMs: number, read: () => T): T {
 	const now = Date.now();
 	const stat = (() => {

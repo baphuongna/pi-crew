@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearHooks, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
+import { clearHooksScoped, executeHook, getHooks, registerHook } from "../../../src/hooks/registry.ts";
 import type { HookDefinition, HookResult } from "../../../src/hooks/types.ts";
 
 test("blocking hook can allow execution", async () => {
@@ -16,7 +16,7 @@ test("blocking hook can allow execution", async () => {
 		});
 		assert.equal(report.outcome, "allow");
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
@@ -34,7 +34,7 @@ test("blocking hook can block execution", async () => {
 		assert.equal(report.outcome, "block");
 		assert.equal(report.reason, "test block");
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
@@ -55,7 +55,7 @@ test("non-blocking hook error records diagnostic and does not crash", async () =
 		assert.equal(report.outcome, "diagnostic");
 		assert.ok(report.reason?.includes("hook crash"));
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
@@ -75,7 +75,7 @@ test("blocking hook error blocks the run", async () => {
 		assert.equal(report.outcome, "block");
 		assert.ok(report.reason?.includes("blocking hook crash"));
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
@@ -96,12 +96,12 @@ test("modify hook updates context", async () => {
 		assert.equal((ctx as Record<string, unknown>).extraKey, "extra");
 		assert.deepEqual(report.modifiedData, { extraKey: "extra" });
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
 test("no registered hooks returns allow", async () => {
-	clearHooks();
+	clearHooksScoped();
 	const report = await executeHook("before_run_start", {
 		runId: "test-6",
 		cwd: "/tmp",
@@ -121,7 +121,7 @@ test("getHooks returns registered hooks by name", () => {
 		assert.equal(getHooks("before_cancel").length, 1);
 		assert.equal(getHooks("before_run_start").length, 0);
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 test("multiple non-blocking hooks all execute even when first throws", async () => {
@@ -151,7 +151,7 @@ test("multiple non-blocking hooks all execute even when first throws", async () 
 		assert.equal(report.outcome, "diagnostic");
 		assert.ok(report.reason?.includes("first hook crash"), "diagnostic reason should include first hook error");
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
@@ -183,12 +183,12 @@ test("blocking hook in chain stops subsequent hooks", async () => {
 		assert.equal(report.outcome, "block");
 		assert.equal(report.reason, "first hook blocks");
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 	}
 });
 
 test("no registered hooks report has no modifiedData", async () => {
-	clearHooks();
+	clearHooksScoped();
 	const report = await executeHook("before_run_start", {
 		runId: "test-9",
 		cwd: "/tmp",

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import type { AgentConfig } from "../../agents/agent-config.ts";
-import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -14,6 +14,8 @@ import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-s
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
 import { ChildPiLineObserver } from "./child-pi-streams.ts";
+// Phase 2.3: the six timer constructs moved to child-pi-timers.ts (pure motion).
+import { createChildPiTimers } from "./child-pi-timers.ts";
 import { runMockChildPi } from "./mock-fixtures.ts";
 
 // ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
@@ -328,9 +330,6 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let settled = false;
 			let childExited = false;
 			let postExitGuardCleanup: (() => void) | undefined;
-			let finalDrainTimer: NodeJS.Timeout | undefined;
-			let hardKillTimer: NodeJS.Timeout | undefined;
-			let noResponseTimer: NodeJS.Timeout | undefined;
 			const finalDrainMs = input.finalDrainMs ?? FINAL_DRAIN_MS;
 			const hardKillMs = input.hardKillMs ?? HARD_KILL_MS;
 			// Phase-0 diagnostic (HB-003a): track the final-drain race that produces
@@ -353,7 +352,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			// built-in default.
 			const RESPONSE_TIMEOUT_MIN_MS = 1_000;
 			const RESPONSE_TIMEOUT_MAX_MS = 3_600_000;
-			const responseTimeoutEnv = Number.parseInt(process.env.PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS ?? "", 10);
+			const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
 			const envInRange =
 				Number.isFinite(responseTimeoutEnv) &&
 				responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS &&
@@ -382,82 +381,52 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			input.signal?.addEventListener("abort", onParentAbort, {
 				once: true,
 			});
-			const restartNoResponseTimer = (): void => {
-				if (responseTimeoutMs <= 0) return;
-				if (noResponseTimer) clearTimeout(noResponseTimer);
-				noResponseTimer = setTimeout(() => {
-					responseTimeoutHit = true;
-					// P0-1: snapshot the bounded stderr accumulator once for this timer fire.
-					const stderr = stderrTail.value();
-					// Capture stderr at timeout moment for debugging
-					// SEC-1: redact secrets before embedding in lifecycle event so
-					// worker-emitted secrets (API keys etc.) don't bypass redaction.
-					const timeoutStderr = redactStderrExcerpt(stderr, 1024); // Last 1KB of stderr (redacted, SEC-1)
-					input.onLifecycleEvent?.({
-						type: "response_timeout",
-						pid: child.pid,
-						error: `No output for ${responseTimeoutMs}ms`,
-						ts: new Date().toISOString(),
-						stderr: timeoutStderr || undefined,
-					});
-					killProcessTree(child.pid, child);
-					try {
-						child.kill(process.platform === "win32" ? undefined : "SIGTERM");
-					} catch (error) {
-						logInternalError("child-pi.response-timeout-term", error, `pid=${child.pid}`);
-					}
-					// #3 hardening: if the child never exits (zombie) and neither the
-					// 'exit' nor 'close' event ever fires, the promise would hang forever.
-					// SIGKILL fires ~3s after SIGTERM via hardKillTimer in killProcessPid,
-					// but on platforms where SIGKILL also fails (e.g. permission issues),
-					// add a bounded safety settle so the promise always resolves. Using
-					// hardKillMs + 2s as the safety window: enough for SIGKILL to work
-					// normally, but forces settle if the process is truly immortal.
-					// NOTE: we do NOT clear hardKillTimer here (that would defeat its purpose);
-					// we intentionally add a parallel safety path.
-					const SAFETY_SETTLE_MS = HARD_KILL_MS + 2000;
-					const safetyTimer = setTimeout(() => {
-						if (settled || childExited) return;
-						logInternalError(
-							"child-pi.settle-safety-fired",
-							new Error(`Child did not exit within ${SAFETY_SETTLE_MS}ms of kill; forcing settle`),
-							`pid=${child.pid}, responseTimeoutMs=${responseTimeoutMs}`,
-						);
-						// Verify the child is still alive before forcing settle.
-						// If it somehow exited between childExited=false and here, the
-						// settled/childExited guard prevents double-settle (harmless but noisy).
-						try {
-							process.kill(child.pid!, 0);
-							// Child still alive — force settle with timeout error.
-							const timeoutErr = `Child Pi produced no new output for ${responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
-							void settle({
-								exitCode: null,
-								stdout: stdoutTail.value(),
-								stderr: stderrTail.value(),
-								error: timeoutErr,
-								exitStatus: {
-									exitCode: null,
-									cancelled: abortRequested,
-									timedOut: true,
-									killed: hardKilled,
-									cleanupErrors,
-									finalDrainMs,
-									crashClass: "timeout",
-								},
-							});
-						} catch {
-							// ESRCH / EPERM — child is already gone. The 'exit'/'close' handler
-							// will fire shortly (or already fired in a race). Let it settle normally.
-						}
-					}, SAFETY_SETTLE_MS);
-					safetyTimer.unref();
-				}, responseTimeoutMs);
-				noResponseTimer.unref();
-			};
-			const clearNoResponseTimer = (): void => {
-				if (noResponseTimer) clearTimeout(noResponseTimer);
-				noResponseTimer = undefined;
-			};
+			// Phase 2.3: the six timer constructs (noResponseTimer, finalDrainTimer,
+			// hardKillTimer, safetyTimer, cancelHardKill, pollHandle) live in
+			// child-pi-timers.ts. Mutable flags are shared via getters/setters so
+			// the timer callbacks observe the same values as the handlers below.
+			// The methods are destructured so the call sites keep their original
+			// source shape (HB-003a source-contract test asserts the steering guard
+			// directly precedes `restartNoResponseTimer()`).
+			const {
+				restartNoResponseTimer,
+				clearNoResponseTimer,
+				clearFinalDrainTimers,
+				armFinalDrain,
+				hasFinalDrainTimer,
+				armCancelHardKill,
+				clearAll,
+			} = createChildPiTimers({
+				child,
+				input,
+				responseTimeoutMs,
+				finalDrainMs,
+				hardKillMs,
+				stdoutTail,
+				stderrTail,
+				cleanupErrors,
+				getSettle: () => settle,
+				redactStderrExcerpt,
+				state: {
+					getSettled: () => settled,
+					getChildExited: () => childExited,
+					setResponseTimeoutHit: (value) => {
+						responseTimeoutHit = value;
+					},
+					getHardKilled: () => hardKilled,
+					setHardKilled: (value) => {
+						hardKilled = value;
+					},
+					setForcedFinalDrain: (value) => {
+						forcedFinalDrain = value;
+					},
+					getLastStdoutActivityMonotonicMs: () => lastStdoutActivityMonotonicMs,
+					setFinalDrainFiredMonotonicMs: (value) => {
+						finalDrainFiredMonotonicMs = value;
+					},
+					getAbortRequested: () => abortRequested,
+				},
+			});
 			restartNoResponseTimer();
 			const lineObserver = new ChildPiLineObserver({
 				...input,
@@ -483,114 +452,13 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 					// regardless of what onJsonEvent does.
 					lastStdoutActivityMonotonicMs = performance.now();
 					input.onJsonEvent?.(event);
-					if (!isFinalAssistantEvent(event) || childExited || settled || finalDrainTimer) return;
+					if (!isFinalAssistantEvent(event) || childExited || settled || hasFinalDrainTimer()) return;
 					finalAssistantEventMonotonicMs = performance.now();
 					finalDrainArmed = true; // Phase-0 diagnostic: track that a drain timer was created.
-					// F12: alongside the 5 s ceiling timer, start a polling watcher
-					// that fires the drain early if stdout goes quiet for `quietMs`
-					// after the final assistant event. Heavy children that emit a
-					// stopReason=stop message_end and then sit idle will exit in
-					// ~quietMs (default 800 ms) instead of up to up to 5 s. unref() so
-					// the poller never holds the event loop on shutdown.
-					// NOTE: The polling watcher is NOT explicitly cleared on process exit.
-					// This is safe because: (1) it's unref()'d, so it won't prevent exit;
-					// (2) the `settled || childExited` guard at the top prevents firing
-					// after the child has exited; (3) sending SIGTERM to an already-
-					// exiting process is harmless. The `finalDrainQuietMs` config allows
-					// disabling this behavior (set >= finalDrainMs, e.g., 10000).
-					const quietMs = input.finalDrainQuietMs ?? DEFAULT_CHILD_PI.finalDrainQuietMs;
-					if (quietMs < (input.finalDrainMs ?? DEFAULT_CHILD_PI.finalDrainMs)) {
-						const pollHandle = setInterval(() => {
-							if (settled || childExited) {
-								clearInterval(pollHandle);
-								pollHandle.unref();
-								return;
-							}
-							const sinceLast = performance.now() - lastStdoutActivityMonotonicMs;
-							if (sinceLast >= quietMs) {
-								clearInterval(pollHandle);
-								pollHandle.unref();
-								// Trigger the same drain path as the 5 s timer:
-								// mark forced, fire final_drain lifecycle, SIGTERM.
-								forcedFinalDrain = true;
-								finalDrainFiredMonotonicMs = performance.now();
-								input.onLifecycleEvent?.({
-									type: "final_drain",
-									pid: child.pid,
-									ts: new Date().toISOString(),
-									reason: "stdout-quiet",
-								});
-								try {
-									child.kill(process.platform === "win32" ? undefined : "SIGTERM");
-								} catch (error) {
-									logInternalError("child-pi.quiet-drain-term", error, `pid=${child.pid}`);
-								}
-								// Mark for hard kill fallback so the existing timer is
-								// still reaped if it ever fires later.
-								hardKillTimer = setTimeout(() => {
-									if (settled || childExited) return;
-									try {
-										hardKilled = true;
-										input.onLifecycleEvent?.({
-											type: "hard_kill",
-											pid: child.pid,
-											ts: new Date().toISOString(),
-										});
-										child.kill(process.platform === "win32" ? undefined : "SIGKILL");
-									} catch (error) {
-										logInternalError("child-pi.quiet-drain-hard-kill", error, `pid=${child.pid}`);
-									}
-								}, hardKillMs);
-								hardKillTimer.unref();
-								// Cancel the 5 s ceiling so we don't double-fire.
-								if (finalDrainTimer) {
-									clearTimeout(finalDrainTimer);
-									finalDrainTimer = undefined;
-								}
-							}
-						}, 200);
-						pollHandle.unref();
-					}
-					finalDrainTimer = setTimeout(() => {
-						if (settled || childExited) return;
-						forcedFinalDrain = true;
-						finalDrainFiredMonotonicMs = performance.now(); // Phase-0 diagnostic: race timing.
-						input.onLifecycleEvent?.({
-							type: "final_drain",
-							pid: child.pid,
-							ts: new Date().toISOString(),
-						});
-						try {
-							child.kill(process.platform === "win32" ? undefined : "SIGTERM");
-						} catch (error) {
-							logInternalError("child-pi.final-drain-term", error, `pid=${child.pid}`);
-						}
-						hardKillTimer = setTimeout(() => {
-							if (settled || childExited) return;
-							try {
-								hardKilled = true;
-								input.onLifecycleEvent?.({
-									type: "hard_kill",
-									pid: child.pid,
-									ts: new Date().toISOString(),
-								});
-								child.kill(process.platform === "win32" ? undefined : "SIGKILL");
-							} catch (error) {
-								logInternalError("child-pi.final-drain-kill", error, `pid=${child.pid}`);
-							}
-						}, hardKillMs);
-						hardKillTimer.unref();
-					}, finalDrainMs);
-					finalDrainTimer.unref();
+					armFinalDrain();
 				},
 			});
 
-			const clearFinalDrainTimers = (): void => {
-				if (finalDrainTimer) clearTimeout(finalDrainTimer);
-				if (hardKillTimer) clearTimeout(hardKillTimer);
-				finalDrainTimer = undefined;
-				hardKillTimer = undefined;
-			};
 			const clearPostExitGuard = (): void => {
 				if (postExitGuardCleanup) {
 					postExitGuardCleanup();
@@ -598,8 +466,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				}
 			};
 			const clearChildPiTimeouts = (): void => {
-				clearNoResponseTimer();
-				clearFinalDrainTimers();
+				// R6-F1: clearAll() covers all six timer constructs
+				// (incl. cancelHardKill — previously a local const inside abort()
+				// that leaked past settle on short-lived children).
+				clearAll();
 				clearPostExitGuard();
 			};
 
@@ -720,17 +590,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				// 3.5 — fast-escalate to SIGKILL within 200ms on explicit cancel
 				// so /team-cancel completes round-trip well under the operator
 				// expectation. The standard finalDrainMs / HARD_KILL_MS paths
-				// are for graceful drain, not user-initiated cancel.
-				const cancelHardKill = setTimeout(() => {
-					if (settled || childExited) return;
-					try {
-						hardKilled = true;
-						child.kill(process.platform === "win32" ? undefined : "SIGKILL");
-					} catch (error) {
-						logInternalError("child-pi.cancel-fast-kill", error, `pid=${child.pid}`);
-					}
-				}, 200);
-				cancelHardKill.unref();
+				// are for graceful drain, not user-initiated cancel. R6-F1: the
+				// timer handle is owned by child-pi-timers.ts and cleared by
+				// clearAll() on settle (was previously an unreachable local const).
+				armCancelHardKill();
 			};
 
 			input.signal?.addEventListener("abort", abort, { once: true });

@@ -1,5 +1,5 @@
 import { PiTeamsConfigSchema } from "../schema/config-schema.ts";
-import type { PiTeamsConfig } from "./config.ts";
+import type { PiTeamsConfig } from "./types.ts";
 
 /**
  * A single drift finding between discovered resources and config expectations.

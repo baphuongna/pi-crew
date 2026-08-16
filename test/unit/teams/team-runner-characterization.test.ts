@@ -20,7 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { clearHooks, registerHook } from "../../../src/hooks/registry.ts";
+import { clearHooksScoped, registerHook } from "../../../src/hooks/registry.ts";
 import { executeTeamRun } from "../../../src/runtime/team-runner.ts";
 import { readEvents } from "../../../src/state/event-log/event-log.ts";
 import { createRunManifest, saveRunTasks } from "../../../src/state/stores/state-store.ts";
@@ -240,7 +240,7 @@ test("[char-2] retry: failed task is re-queued when maxRetriesPerTask=1 (recover
 	// NOTE: "fail then succeed" is hard to test reliably because the built-in
 	// retryable-failure-then-success mock triggers MODEL-LEVEL fallback inside
 	// runTeamTask (not the task-level retry path). A hook-based mock switcher
-	// caused test contamination via clearHooks(). This approach is reliable and
+	// caused test contamination via clearHooksScoped(). This approach is reliable and
 	// characterizes the same retry-trigger code path.
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-char-retry-"));
 	const prevEnv = saveMockEnv();
@@ -837,7 +837,7 @@ test("[char-10] hook-skip: before_task_start blocking all tasks → run terminat
 			`run should reach terminal status, got: ${result.manifest.status}`,
 		);
 	} finally {
-		clearHooks();
+		clearHooksScoped();
 		restoreMockEnv(prevEnv);
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

@@ -8,6 +8,7 @@ import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-s
 import { formatTaskGraphLines, waitingReason } from "../../runtime/task-display.ts";
 import { verifyTaskCompletion } from "../../runtime/verification/completion-guard.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
@@ -38,6 +39,71 @@ function markStaleAsync(runId: string): boolean {
 	return true;
 }
 
+/**
+ * R14-1 (Phase 3.4): the ONLY state mutation on the status read path — the
+ * stale-async transition — executed under the run lock with a FRESH re-read
+ * (respond.ts:43 pattern). handleStatus's `loaded` snapshot is best-effort
+ * (no lock): a concurrent writer can commit a terminal status between that
+ * load and this lock, and `updateRunStatus`'s transition guard would validate
+ * against the STALE status (running→failed legal) and clobber the fresh
+ * terminal state. Inside the lock we re-read and short-circuit when the fresh
+ * state no longer warrants the transition (run gone, async entry gone, status
+ * no longer active, process alive).
+ *
+ * Returns the transitioned manifest+tasks so the caller's read view reflects
+ * the write (same-poll visibility, matching pre-fix behavior), or undefined
+ * when the transition was skipped.
+ *
+ * Exported for unit testing (R14-1 regression: a run that completed on disk
+ * between load and lock must NOT be re-flipped to failed).
+ */
+export function transitionStaleAsyncUnderLock(
+	loaded: NonNullable<ReturnType<typeof loadRunManifestById>>,
+	runCwd: string,
+	runId: string,
+):
+	| {
+			manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"];
+			tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"];
+	  }
+	| undefined {
+	let transitioned:
+		| {
+				manifest: NonNullable<ReturnType<typeof loadRunManifestById>>["manifest"];
+				tasks: NonNullable<ReturnType<typeof loadRunManifestById>>["tasks"];
+		  }
+		| undefined;
+	withRunLockSync(loaded.manifest, () => {
+		const fresh = loadRunManifestById(runCwd, runId); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh?.manifest.async || !isActiveRunStatus(fresh.manifest.status)) return;
+		const freshLiveness = checkProcessLiveness(fresh.manifest.async.pid);
+		if (freshLiveness.alive) return;
+		const failed = updateRunStatus(fresh.manifest, "failed", `Async process stale: ${freshLiveness.detail}`);
+		const freshTasks = fresh.tasks.map((task) =>
+			task.status === "running"
+				? {
+						...task,
+						status: "cancelled" as const,
+						finishedAt: new Date().toISOString(),
+						error: "Async process died; task was not completed.",
+					}
+				: task,
+		);
+		saveRunTasks(failed, freshTasks);
+		// async.stale (2026-08-10): sync append (byte-identical to pre-extract
+		// api.ts) so callers reading eventsPath immediately after status see
+		// the event — async fire-and-forget would race.
+		appendEvent(failed.eventsPath, {
+			type: "async.stale",
+			runId: failed.runId,
+			message: freshLiveness.detail,
+			data: { pid: fresh.manifest.async.pid },
+		});
+		transitioned = { manifest: failed, tasks: freshTasks };
+	});
+	return transitioned;
+}
+
 export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	if (!params.runId)
 		return result(
@@ -60,31 +126,23 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const liveness = checkProcessLiveness(asyncState.pid);
 		asyncLivenessLine = `Async: pid=${asyncState.pid ?? "unknown"} alive=${liveness.alive ? "true" : "false"} detail=${liveness.detail} log=${asyncState.logPath} spawnedAt=${asyncState.spawnedAt}`;
 		if (!liveness.alive && isActiveRunStatus(manifest.status)) {
-			// H5: only transition once per runId. Repeated status polls of a
-			// dead async run previously re-ran saveRunTasks + sync appendEvent
-			// on every call (~30ms blocking each).
-			if (markStaleAsync(manifest.runId)) {
-				manifest = updateRunStatus(manifest, "failed", `Async process stale: ${liveness.detail}`);
-				tasks = tasks.map((task) =>
-					task.status === "running"
-						? {
-								...task,
-								status: "cancelled" as const,
-								finishedAt: new Date().toISOString(),
-								error: "Async process died; task was not completed.",
-							}
-						: task,
-				);
-				saveRunTasks(manifest, tasks);
-				// async.stale (2026-08-10): sync append (byte-identical to pre-extract
-				// api.ts) so callers reading eventsPath immediately after status see
-				// the event — async fire-and-forget would race.
-				appendEvent(manifest.eventsPath, {
-					type: "async.stale",
-					runId: manifest.runId,
-					message: liveness.detail,
-					data: { pid: asyncState.pid },
-				});
+			// R14-1 (Phase 3.4): ownership gate — a foreign session must NOT
+			// trigger the stale-async transition on a read path; the owning
+			// session's poll handles it. Mirrors handleResume (team-tool.ts R1).
+			// Backward compat: only applies when ownerSessionId is a non-empty
+			// string — legacy runs without an owner are not gated.
+			const foreignRun = typeof manifest.ownerSessionId === "string" && manifest.ownerSessionId !== ctx.sessionId;
+			if (!foreignRun || params.force) {
+				// H5: only transition once per runId. Repeated status polls of a
+				// dead async run previously re-ran saveRunTasks + sync appendEvent
+				// on every call (~30ms blocking each).
+				if (markStaleAsync(manifest.runId)) {
+					const transitioned = transitionStaleAsyncUnderLock(loaded, runCwd, params.runId);
+					if (transitioned) {
+						manifest = transitioned.manifest;
+						tasks = transitioned.tasks;
+					}
+				}
 			}
 		}
 	}
@@ -193,7 +251,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 						`- ${task.id} [${task.status}] ${task.role} -> ${task.agent}${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.modelAttempts?.length ? ` attempts=${task.modelAttempts.length}` : ""}${task.modelRouting ? ` modelRouting=${task.modelRouting.requested ? `${task.modelRouting.requested}->` : ""}${task.modelRouting.resolved}${task.modelRouting.usedAttempt ? ` attempt=${task.modelRouting.usedAttempt + 1}` : ""}` : ""}${task.agentProgress?.activityState ? ` activityState=${task.agentProgress.activityState}` : ""}${(() => {
 							const t = extractCommandTrace(task.agentProgress?.recentTools);
 							return t.summary ? ` ${t.summary}` : "";
-						})()}${attentionByTask.get(task.id)?.data?.reason ? ` attention=${String(attentionByTask.get(task.id)?.data?.reason)}` : ""}${task.jsonEvents !== undefined ? ` jsonEvents=${task.jsonEvents}` : ""}${task.usage ? ` usage=${JSON.stringify(task.usage)}` : ""}${task.resultArtifact ? ` result=${task.resultArtifact.path}` : ""}${task.transcriptArtifact ? ` transcript=${task.transcriptArtifact.path}` : ""}${task.worktree ? ` worktree=${task.worktree.path}` : ""}${task.error ? ` error=${task.error}` : ""}`,
+						})()}${attentionByTask.get(task.id)?.data?.reason ? ` attention=${String(attentionByTask.get(task.id)?.data?.reason)}` : ""}${task.jsonEvents !== undefined ? ` jsonEvents=${task.jsonEvents}` : ""}${task.usage ? ` usage=${JSON.stringify(task.usage)}` : ""}${task.resultArtifact ? ` result=${task.resultArtifact.path}` : ""}${task.transcriptArtifact ? ` transcript=${task.transcriptArtifact.path}` : ""}${task.worktree ? ` worktree=${task.worktree.path}` : ""}${task.error ? ` error=${task.error}` : ""}${task.failureCause ? ` failureCause=${task.failureCause}` : ""}`,
 				)
 			: ["- (none)"]),
 		`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,

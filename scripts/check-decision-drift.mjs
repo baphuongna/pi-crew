@@ -70,9 +70,21 @@ for (const file of listDecisionFiles()) {
 	}
 	// Skip ADRs that are explicitly Planned/Proposed — they describe
 	// future implementations whose env vars may not exist in src/ yet.
+	// Also skip SUPERSEDED/REVERTED ADRs — they record a decision that
+	// was reverted (e.g. a feature deleted after shipping), so their
+	// env-var tokens legitimately no longer exist in src/. The retained
+	// design spec serves as a re-introduction reference, not a live
+	// contract. (2026-08-13: scratchpad-snapshot-hmac was reverted with
+	// the helper module deleted; without this skip the gate would fail
+	// on every ADR whose reverted design mentions env vars.)
 	const statusMatch = text.match(/^## Status\s*\n\s*([^\n]+)/m);
 	const status = statusMatch ? statusMatch[1].toLowerCase() : "";
-	if (status.includes("proposed") || status.includes("planned")) {
+	if (
+		status.includes("proposed") ||
+		status.includes("planned") ||
+		status.includes("superseded") ||
+		status.includes("reverted")
+	) {
 		continue;
 	}
 	// Lines that mention a token only as a historical/legacy reference

@@ -1,3 +1,4 @@
+import { getCrewEnv } from "./env-vars.ts";
 import type { CrewBrokerConfig } from "./types.ts";
 
 export const DEFAULT_CHILD_PI: Readonly<{
@@ -51,6 +52,20 @@ export const DEFAULT_LOCKS = {
 	staleMs: 30_000,
 };
 
+/**
+ * Workflow concurrency fallbacks (F19-6 / Wave 1A).
+ * Precedence when resolving a team's concurrency — see
+ * src/runtime/scheduling/concurrency.ts:25-32 (`defaultWorkflowConcurrency`):
+ *   1. team/workflow frontmatter `maxConcurrency` (workflowMaxConcurrency) — wins first;
+ *   2. `DEFAULT_CONCURRENCY.workflow[workflowName]` — teams without frontmatter;
+ *   3. `DEFAULT_CONCURRENCY.fallback` — unknown workflow names.
+ * Every workflow entry has a live reader in concurrency.ts (parallelResearch/
+ * research/implementation/review/default) — none are dead; do not remove.
+ * (Scheduler-level `resolveBatchConcurrency` additionally lets
+ * `limits.maxConcurrentWorkers` override all of the above, then applies
+ * `hardCap` + the global worker cap.) The DEFAULT_CONCURRENCY=4 constant at
+ * src/extension/team-tool/parallel-dispatch.ts:26 is an unrelated local constant.
+ */
 export const DEFAULT_CONCURRENCY = {
 	hardCap: 8,
 	workflow: {
@@ -184,7 +199,7 @@ export const DEFAULT_BROKER = {
  * bounds must go through the schema + parser path, not env.
  */
 export function resolveBrokerEnvOverride(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig | undefined {
-	const override = process.env.PI_CREW_BROKER;
+	const override = getCrewEnv("PI_CREW_BROKER");
 	if (override === "1" || override === "0") {
 		const base: CrewBrokerConfig = parsed ?? {};
 		return { ...base, enabled: override === "1" };

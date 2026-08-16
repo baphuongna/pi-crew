@@ -17,12 +17,21 @@ export const PiTeamsAutonomyProfileSchema = Type.Union([
 
 export const PiTeamsAutonomousConfigSchema = Type.Object(
 	{
-		profile: Type.Optional(PiTeamsAutonomyProfileSchema),
-		enabled: Type.Optional(Type.Boolean()),
-		injectPolicy: Type.Optional(Type.Boolean()),
-		preferAsyncForLongTasks: Type.Optional(Type.Boolean()),
-		allowWorktreeSuggestion: Type.Optional(Type.Boolean()),
-		magicKeywords: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 })))),
+		profile: Type.Optional(
+			Type.Union([Type.Literal("manual"), Type.Literal("suggested"), Type.Literal("assisted"), Type.Literal("aggressive")], {
+				sensitive: true,
+			}),
+		),
+		enabled: Type.Optional(Type.Boolean({ sensitive: true })),
+		injectPolicy: Type.Optional(Type.Boolean({ sensitive: true })),
+		preferAsyncForLongTasks: Type.Optional(Type.Boolean({ sensitive: true })),
+		allowWorktreeSuggestion: Type.Optional(Type.Boolean({ sensitive: true })),
+		// S19-5 (Wave 1A): magicKeywords alone flips effective autonomous mode on
+		// (effectiveAutonomousConfig defaults profile "suggested" when only
+		// magicKeywords is present) — untrusted project config must not set it.
+		magicKeywords: Type.Optional(
+			Type.Record(Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 })), { sensitive: true }),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -56,14 +65,16 @@ export const PiTeamsModelFallbackConfigSchema = Type.Object(
 export const PiTeamsRuntimeConfigSchema = Type.Object(
 	{
 		mode: Type.Optional(
-			Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")]),
+			Type.Union([Type.Literal("auto"), Type.Literal("scaffold"), Type.Literal("child-process"), Type.Literal("live-session")], {
+				sensitive: true,
+			}),
 		),
-		preferLiveSession: Type.Optional(Type.Boolean()),
-		allowChildProcessFallback: Type.Optional(Type.Boolean()),
+		preferLiveSession: Type.Optional(Type.Boolean({ sensitive: true })),
+		allowChildProcessFallback: Type.Optional(Type.Boolean({ sensitive: true })),
 		maxTurns: Type.Optional(Type.Integer({ minimum: 1 })),
 		graceTurns: Type.Optional(Type.Integer({ minimum: 1 })),
 		taskTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
-		inheritContext: Type.Optional(Type.Boolean()),
+		inheritContext: Type.Optional(Type.Boolean({ sensitive: true })),
 		promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 		groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
 		groupJoinAckTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -83,14 +94,14 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 			),
 		),
 		excludeContextBash: Type.Optional(Type.Boolean()),
-		agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+		agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true })),
 		isolationPolicy: Type.Optional(
 			Type.Object(
 				{
 					isolatedRoles: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 					defaultRuntime: Type.Optional(Type.Union([Type.Literal("live-session"), Type.Literal("child-process")])),
 				},
-				{ additionalProperties: false },
+				{ additionalProperties: false, sensitive: true },
 			),
 		),
 		modelFallback: Type.Optional(PiTeamsModelFallbackConfigSchema),
@@ -102,16 +113,19 @@ export const PiTeamsControlConfigSchema = Type.Object(
 	{
 		enabled: Type.Optional(Type.Boolean()),
 		needsAttentionAfterMs: Type.Optional(Type.Integer({ minimum: 1 })),
+		// F19-3 (Round 19 parity): read at agent-control.ts with defaults 3/10.
+		consecutiveFailureThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
+		longRunningMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
 	},
 	{ additionalProperties: false },
 );
 
 export const PiTeamsWorktreeConfigSchema = Type.Object(
 	{
-		setupHook: Type.Optional(Type.String({ minLength: 1 })),
+		setupHook: Type.Optional(Type.String({ minLength: 1, sensitive: true })),
 		setupHookTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
 		linkNodeModules: Type.Optional(Type.Boolean()),
-		seedPaths: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+		seedPaths: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -144,7 +158,11 @@ export const GoalWrapWorkflowConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema);
+// S19-2 (Wave 1A): the whole goalWrap subtree is user-only — a project config
+// must not enable silent auto-wrap, pick the evaluator model, or set
+// budgetUnlimited (unbounded provider spend). Marking the Record is terminal:
+// the walk collapses the subtree to the single top-level path `goalWrap`.
+export const PiTeamsGoalWrapConfigSchema = Type.Record(Type.String({ minLength: 1 }), GoalWrapWorkflowConfigSchema, { sensitive: true });
 
 export const AgentOverrideSchema = Type.Object(
 	{
@@ -160,8 +178,8 @@ export const AgentOverrideSchema = Type.Object(
 
 export const PiTeamsAgentsConfigSchema = Type.Object(
 	{
-		disableBuiltins: Type.Optional(Type.Boolean()),
-		overrides: Type.Optional(Type.Record(Type.String({ minLength: 1 }), AgentOverrideSchema)),
+		disableBuiltins: Type.Optional(Type.Boolean({ sensitive: true })),
+		overrides: Type.Optional(Type.Record(Type.String({ minLength: 1 }), AgentOverrideSchema, { sensitive: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -169,8 +187,8 @@ export const PiTeamsAgentsConfigSchema = Type.Object(
 export const PiTeamsToolsConfigSchema = Type.Object(
 	{
 		enableClaudeStyleAliases: Type.Optional(Type.Boolean()),
-		enableSteer: Type.Optional(Type.Boolean()),
-		terminateOnForeground: Type.Optional(Type.Boolean()),
+		enableSteer: Type.Optional(Type.Boolean({ sensitive: true })),
+		terminateOnForeground: Type.Optional(Type.Boolean({ sensitive: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -184,8 +202,8 @@ export const PiTeamsTelemetryConfigSchema = Type.Object(
 
 export const PiTeamsPolicyConfigSchema = Type.Object(
 	{
-		requireIntentForDestructiveActions: Type.Optional(Type.Boolean()),
-		disabledCapabilities: Type.Optional(Type.Array(Type.String())),
+		requireIntentForDestructiveActions: Type.Optional(Type.Boolean({ sensitive: true })),
+		disabledCapabilities: Type.Optional(Type.Array(Type.String(), { sensitive: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -224,6 +242,9 @@ export const PiTeamsReliabilityConfigSchema = Type.Object(
 					jitterRatio: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 					exponentialFactor: Type.Optional(Type.Number({ minimum: 1, maximum: 5 })),
 					retryableErrors: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+					// F19-2 (Round 19 parity): parsed at config-validation.ts but
+					// additionalProperties:false previously rejected it at the schema level.
+					maxTotalSpawns: Type.Optional(Type.Integer({ minimum: 0 })),
 				},
 				{ additionalProperties: false },
 			),
@@ -248,9 +269,12 @@ export const PiTeamsOtlpConfigSchema = Type.Object(
 				minLength: 1,
 				maxLength: 2048,
 				pattern: "^https?://",
+				sensitive: true,
 			}),
 		),
-		headers: Type.Optional(Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.String({ maxLength: 4096 }))),
+		headers: Type.Optional(
+			Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.String({ maxLength: 4096 }), { sensitive: true }),
+		),
 		intervalMs: Type.Optional(Type.Integer({ minimum: 5000 })),
 	},
 	{ additionalProperties: false },
@@ -304,10 +328,10 @@ export const CrewBrokerConfigSchema = Type.Object(
 
 export const PiTeamsConfigSchema = Type.Object(
 	{
-		asyncByDefault: Type.Optional(Type.Boolean()),
-		executeWorkers: Type.Optional(Type.Boolean()),
+		asyncByDefault: Type.Optional(Type.Boolean({ sensitive: true })),
+		executeWorkers: Type.Optional(Type.Boolean({ sensitive: true })),
 		notifierIntervalMs: Type.Optional(Type.Number({ minimum: 1000 })),
-		requireCleanWorktreeLeader: Type.Optional(Type.Boolean()),
+		requireCleanWorktreeLeader: Type.Optional(Type.Boolean({ sensitive: true })),
 		ignoreMethod: Type.Optional(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")])),
 		autonomous: Type.Optional(PiTeamsAutonomousConfigSchema),
 		limits: Type.Optional(PiTeamsLimitsConfigSchema),

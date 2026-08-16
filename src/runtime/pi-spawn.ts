@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getCrewEnv } from "../config/env-vars.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 export interface PiSpawnCommand {
 	command: string;
@@ -30,8 +32,11 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 		const execDir = path.dirname(fs.realpathSync.native(process.execPath));
 		allowedPrefixes.push(execDir.toLowerCase());
 		allowedPrefixes.push(path.join(path.dirname(execDir), "lib", "node_modules").toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3 (LOW): execPath realpath failure is genuinely unexpected (the
+		// running binary vanished / permission issue) — surface it so the
+		// "cannot find pi" fallback is diagnosable.
+		logInternalError("pi-spawn.allowlist-prefixes", error, "execPath realpath failed", "warn");
 	}
 
 	// npm global bin via APPDATA
@@ -49,24 +54,46 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 	try {
 		const projectBin = path.resolve("node_modules", ".bin");
 		allowedPrefixes.push(projectBin.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.project-bin", error, undefined, "debug");
 	}
 
 	// User home npm-global
 	try {
 		const homeNpm = path.join(os.homedir(), ".npm-global", "bin");
 		allowedPrefixes.push(homeNpm.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.npm-global", error, undefined, "debug");
 	}
 
 	// User home .local/bin
 	try {
 		const homeLocal = path.join(os.homedir(), ".local", "bin");
 		allowedPrefixes.push(homeLocal.toLowerCase());
-	} catch {
-		/* ignore */
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed; keep the cause
+		// visible under PI_TEAMS_DEBUG.
+		logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, undefined, "debug");
+	}
+
+	// Canonicalize prefixes (macOS: /var/folders/... realpath → /private/var/folders/...).
+	// validateExplicitBin() compares fs.realpathSync(resolved) against this list —
+	// without the canonical forms, any prefix reached through a symlink (macOS
+	// tmpdir, ~/.npm-global as symlink) rejects its own realpath'd target
+	// (CI incident: run-worker-cap.test.ts on macos-latest). Additive: original
+	// forms stay, so Windows \\?\-prefixed realpaths simply never match.
+	for (let i = 0; i < allowedPrefixes.length; i++) {
+		try {
+			const real = fs.realpathSync.native(allowedPrefixes[i]!).toLowerCase();
+			if (real !== allowedPrefixes[i] && !allowedPrefixes.includes(real)) allowedPrefixes.push(real);
+		} catch {
+			// Prefix path doesn't exist (env var points nowhere) — the original form
+			// stays; nothing to canonicalize.
+		}
 	}
 
 	return allowedPrefixes.some((prefix) => normalized.startsWith(prefix));
@@ -81,12 +108,20 @@ function resolvePiPackageRoot(): string | undefined {
 			try {
 				const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8")) as { name?: string };
 				if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return dir;
-			} catch {
+			} catch (error) {
+				// R17-B3: the upward walk EXPECTS ENOENT probes (most dirs have no
+				// readable package.json) — debug-gated so the walk stays silent
+				// unless PI_TEAMS_DEBUG is set, but EACCES-style causes are visible.
+				logInternalError("pi-spawn.resolve-pi-package-root.probe", error, `dir=${dir}`, "debug");
 				// Continue walking upward.
 			}
 			dir = path.dirname(dir);
 		}
-	} catch {
+	} catch (error) {
+		// R17-B3: realpath failure on argv[1] is unexpected (not the normal
+		// missing-entry case, which is handled by the !entry guard above) —
+		// debug-gated visibility for the "cannot find pi" diagnosis.
+		logInternalError("pi-spawn.resolve-pi-package-root", error, `argv1=${process.argv[1] ?? ""}`, "debug");
 		return undefined;
 	}
 	return undefined;
@@ -101,7 +136,10 @@ function packageBinScript(packageJsonPath: string): string | undefined {
 		if (!binPath) return undefined;
 		const candidate = path.resolve(path.dirname(packageJsonPath), binPath);
 		return isRunnableNodeScript(candidate) ? candidate : undefined;
-	} catch {
+	} catch (error) {
+		// R17-B3 (LOW): a package.json that EXISTS but fails to parse is corrupt —
+		// not the expected ENOENT of the upward-walk probes.
+		logInternalError("pi-spawn.package-bin-script", error, `packageJsonPath=${packageJsonPath}`, "warn");
 		return undefined;
 	}
 }
@@ -115,7 +153,10 @@ function findPiPackageJsonFrom(startDir: string): string | undefined {
 				name?: string;
 			};
 			if (pkg.name && PI_PACKAGE_NAMES.includes(pkg.name)) return direct;
-		} catch {
+		} catch (error) {
+			// R17-B3: same EXPECTED-ENOENT upward-walk probe as
+			// resolvePiPackageRoot — debug-gated, keeps walking either way.
+			logInternalError("pi-spawn.find-pi-package-json.probe", error, `dir=${dir}`, "debug");
 			// Continue searching upward and in node_modules.
 		}
 		for (const pkgName of PI_PACKAGE_NAMES) {
@@ -163,7 +204,12 @@ export function resolveNpmGlobalRoot(): string | undefined {
 			windowsHide: true,
 		}).trim();
 		resolved = out.length > 0 ? out : undefined;
-	} catch {
+	} catch (error) {
+		// R17-B3 (LOW): `npm root -g` failing (npm not on PATH / timeout) means
+		// Windows non-APPDATA installs fall back to the static roots and often
+		// fail with ENOENT downstream — surface the root cause here. Memoized,
+		// so at most one warn per process.
+		logInternalError("pi-spawn.npm-root-g", error, "npm root -g probe failed", "warn");
 		resolved = undefined;
 	}
 	cachedNpmGlobalRoot = resolved ?? null;
@@ -240,14 +286,14 @@ function validateExplicitBin(explicit: string): string | undefined {
 		}
 	} catch (e) {
 		if (e instanceof Error && e.message.includes("allowed prefixes")) throw e;
-		console.error("[pi-spawn] validateExplicitBin: unexpected realpathSync error:", e);
+		logInternalError("pi-spawn", e, "validateExplicitBin: unexpected realpathSync error", "error");
 		return undefined;
 	}
 	return resolved;
 }
 
 export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
-	const explicit = process.env.PI_TEAMS_PI_BIN?.trim();
+	const explicit = getCrewEnv("PI_TEAMS_PI_BIN")?.trim();
 	if (explicit) {
 		const validated = validateExplicitBin(explicit);
 		if (validated) {

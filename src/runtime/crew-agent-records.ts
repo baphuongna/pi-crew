@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { atomicWriteJson, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "../state/atomic-write.ts";
@@ -143,25 +144,79 @@ function removeStaleAgentsLock(lockPath: string, staleMs: number): boolean {
 		}
 		fs.rmSync(lockPath, { force: true });
 		return true;
-	} catch {
+	} catch (error) {
+		// R17-B1 (HIGH): a bare catch here swallowed parse/stat/rm failures, so the
+		// root cause became invisible after withAgentsLock's 60s "locked" error.
+		logInternalError("crew-agents.remove-stale-lock", error, `lockPath=${lockPath}`, "warn");
 		return false;
 	}
+}
+
+/**
+ * Phase 3.1 (decision α): token-guarded release for the agents-record lock,
+ * mirroring `locks.ts` `releaseLock` semantics — only `rmSync` if the stored
+ * token still matches the token we wrote at acquisition. If the lock was
+ * stolen while our critical section ran (stale-steal replaced the file with a
+ * NEW owner's token), releasing must be a no-op — otherwise we would delete
+ * the new holder's lock and break mutual exclusion (the exact race the
+ * token guard in locks.ts fixes). Missing/corrupt files are handled safely:
+ * ENOENT is a no-op (lock already gone); a symlink is never removed (defense
+ * against attacker-planted symlinks, matching locks.ts); an unreadable/
+ * unparseable payload is treated like locks.ts `releaseLock` (stored token
+ * unknown → remove) so a torn write cannot strand the lock forever — the
+ * 30s stale-steal path remains the backstop for genuinely foreign locks.
+ */
+function releaseAgentsLock(filePath: string, token: string): void {
+	try {
+		const stat = fs.lstatSync(filePath);
+		if (stat.isSymbolicLink()) return;
+	} catch {
+		/* ENOENT — lock already gone, nothing to release */
+	}
+	let stored: string | undefined;
+	try {
+		const raw = fs.readFileSync(filePath, "utf-8");
+		const parsed = JSON.parse(raw) as { token?: unknown };
+		stored = typeof parsed.token === "string" ? parsed.token : undefined;
+	} catch {
+		/* unreadable/corrupt — see doc comment: remove, mirroring locks.ts */
+	}
+	if (stored === undefined || stored === token) {
+		try {
+			fs.rmSync(filePath, { force: true });
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT") {
+				logInternalError("crew-agents.release-lock", error, `lockPath=${filePath}`, "warn");
+			}
+		}
+	}
+	// stored !== token → lock stolen by another process; do NOT touch.
 }
 
 function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 	const filePath = agentsLockPath(manifest);
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	// Phase 3.1 (decision α): the agents lock file now carries a randomUUID
+	// `token` (format change explicitly accepted by the plan) so the release
+	// below is token-guarded — a stale-steal by another process can no longer
+	// be released by the wrong owner (previously PID-only release). Mirrors
+	// the `writeLockFile` payload shape in locks.ts ({kind,pid,createdAt,token}
+	// minus `kind`). Generated ONCE per call; only the successful O_EXCL write
+	// persists it, so a single token per acquisition is correct.
+	const token = randomUUID();
 	let attempt = 0;
 	const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
 	while (true) {
 		try {
-			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
 			try {
 				fs.writeSync(
 					fd,
 					JSON.stringify({
 						pid: process.pid,
 						createdAt: new Date().toISOString(),
+						token,
 					}),
 				);
 			} finally {
@@ -188,11 +243,8 @@ function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 	try {
 		return fn();
 	} finally {
-		try {
-			fs.rmSync(filePath, { force: true });
-		} catch {
-			/* best-effort */
-		}
+		// Phase 3.1 (decision α): unconditional rmSync → token-guarded release.
+		releaseAgentsLock(filePath, token);
 	}
 }
 
@@ -221,7 +273,10 @@ export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
 	// 2.5: ensure intra-process coalesced writes are visible to subsequent
 	// readers in the same process. Cross-process readers still see the file
 	// after at most one coalesce window (250 ms).
-	flushPendingAtomicWrites();
+	// R10-2: scoped flush — readCrewAgents only reads agents.json, so it must
+	// not drain unrelated coalesced writes (tasks.json of live runs, other
+	// runs' agents.json) process-wide on every read.
+	flushPendingAtomicWrites(agentsPath(manifest));
 	try {
 		const records = readJsonFileCoalesced(
 			agentsPath(manifest),
@@ -236,7 +291,13 @@ export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
 			seen.add(r.id);
 			return true;
 		});
-		if (deduped.length !== records.length) {
+		// R10-7: write back only when the corrected list actually differs from
+		// the current content. A filter() only removes entries, so element
+		// identity + length is an exact (and cheap) change check — deep-equal is
+		// unnecessary, and this eliminates the redundant durable write + lock
+		// churn on unchanged reads.
+		const changed = deduped.length !== records.length || records.some((record, index) => record !== deduped[index]);
+		if (changed) {
 			// Schema mismatch or duplicates detected — save corrected state
 			saveCrewAgents(manifest, deduped);
 		}
@@ -264,7 +325,10 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 				seen.add(r.id);
 				return true;
 			});
-			if (deduped.length !== raw.length) {
+			// R10-7: write back only on actual change (element identity + length —
+			// see the sync readCrewAgents path for the reasoning).
+			const changed = deduped.length !== raw.length || raw.some((record, index) => record !== deduped[index]);
+			if (changed) {
 				try {
 					saveCrewAgents(manifest, deduped);
 				} catch {
@@ -295,7 +359,7 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
 	// P0-3: flush any pending coalesced (best-effort) write first so a stale
 	// debounced progress snapshot can't clobber this durable write.
-	flushPendingAgentWrites();
+	flushPendingAgentWrites(manifest, records);
 	withAgentsLock(manifest, () => {
 		fs.mkdirSync(manifest.stateRoot, { recursive: true });
 		const filePath = agentsPath(manifest);
@@ -430,9 +494,14 @@ export function writeCrewAgentStatusCoalesced(manifest: TeamRunManifest, record:
 	});
 }
 
-/** @internal Flush all coalesced agent writes synchronously. Hook into cleanup paths. */
-function flushPendingAgentWrites(): void {
-	flushPendingAtomicWrites();
+/** @internal Flush coalesced agent-record writes synchronously. Hook into cleanup paths. */
+function flushPendingAgentWrites(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
+	// R10-2: scope the pre-durable-save flush to the agent-record files this
+	// save can be clobbered by (agents.json + the per-task status.json files).
+	// Unrelated coalesced writes (tasks.json, other runs) stay pending on their
+	// own timers — draining them here only added latency to this path.
+	flushPendingAtomicWrites(agentsPath(manifest));
+	for (const record of records) flushPendingAtomicWrites(agentStatusPath(manifest, record.taskId));
 }
 
 export function readCrewAgentStatus(manifest: TeamRunManifest, taskOrAgentId: string): CrewAgentRecord | undefined {
@@ -528,6 +597,10 @@ function nextAgentEventSeq(filePath: string): number {
 }
 
 export function appendCrewAgentEvent(manifest: TeamRunManifest, taskId: string, event: unknown): void {
+	// Mixed-usage guard: if a buffered batch is pending for this task, land it
+	// first so seq allocation stays monotonic and file order matches seq order
+	// (reader cursors advance by seq in file order).
+	flushCrewAgentRecordBuffer(manifest, taskId);
 	ensureAgentStateDir(manifest, taskId);
 	const filePath = agentStateFile(manifest, taskId, "events.jsonl");
 	const seq = nextAgentEventSeq(filePath);
@@ -617,9 +690,181 @@ export function readCrewAgentEventsCursor(
 
 export function appendCrewAgentOutput(manifest: TeamRunManifest, taskId: string, text: string): void {
 	if (!text.trim()) return;
+	// Mixed-usage guard (see appendCrewAgentEvent): land any pending buffered
+	// lines first so buffered/direct lines never interleave out of order.
+	flushCrewAgentRecordBuffer(manifest, taskId);
 	ensureAgentStateDir(manifest, taskId);
 	fs.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${redactSecretString(text)}\n`, "utf-8");
 }
+
+// ---------------------------------------------------------------------------
+// R10-5 (Wave 2B item 4): per-task batching for the agent-record append sinks.
+// ---------------------------------------------------------------------------
+// child-executor's hot path previously did, PER CHILD EVENT:
+//   appendCrewAgentEvent  -> nextAgentEventSeq (stat + sidecar read) + appendFileSync
+//   appendCrewAgentOutput -> appendFileSync
+// (~4 syscalls/event after the P1-5 path memo, ×N events/task). The buffered
+// variants below collapse adjacent appends into ONE appendFileSync per flush.
+// Flush triggers: task boundary (child-executor finally), process exit / signal,
+// 32-event cap, or the 250ms window timer — whichever comes first.
+//
+// CRASH-WINDOW TRADEOFF (deliberate, documented): buffering widens the SIGKILL
+// loss window for AGENT PROGRESS events to <=250ms (AGENT_RECORD_BUFFER_WINDOW_MS
+// below) instead of 0. Precedent: the event-log coalescer already accepts a
+// documented 50ms loss window for non-terminal task.progress events; agent
+// events.jsonl/output.log lines are the same class of re-derivable progress
+// telemetry — authoritative terminal state lives in tasks.json/agents.json,
+// which stay on their existing durable/coalesced-atomic paths. Durable
+// artifacts (result.md, steering, run-level events.jsonl) are NOT routed
+// through this buffer.
+//
+// SEQUENCE-NUMBER CORRECTNESS: seqs are RESERVED from nextAgentEventSeq() at
+// the first buffered event and incremented in memory, so buffered events can
+// never collide with each other, and the post-flush seq cache + sidecar are
+// updated with the last reserved seq exactly like a direct append. The direct
+// appendCrewAgentEvent()/appendCrewAgentOutput() flush any pending buffer for
+// the task BEFORE appending, so a mixed buffered/direct caller can neither
+// double-allocate a seq nor land a higher-seq line before lower-seq buffered
+// lines. Within pi-crew a task's sinks have exactly one writer at a time
+// (child-executor OR live-executor, never both), so that guard is
+// defense-in-depth, not a load-bearing lock.
+//
+// v0.9.26 lesson (event-log.ts:237,416-425): this buffer is for the AGENT
+// record sinks ONLY — core run events.jsonl appends must NOT be routed
+// through buffered machinery.
+const AGENT_RECORD_BUFFER_MAX_EVENTS = 32;
+const AGENT_RECORD_BUFFER_WINDOW_MS = 250;
+
+interface AgentRecordBuffer {
+	manifest: TeamRunManifest;
+	taskId: string;
+	events: string[];
+	output: string[];
+	lastReservedSeq: number; // 0 = not yet reserved from disk state
+	timer?: NodeJS.Timeout;
+}
+const agentRecordBuffers = new Map<string, AgentRecordBuffer>();
+
+function agentRecordBufferKey(manifest: TeamRunManifest, taskId: string): string {
+	return `${manifest.stateRoot}\0${safeAgentTaskId(taskId)}`;
+}
+
+function flushAgentRecordBuffer(buffer: AgentRecordBuffer): void {
+	const { manifest, taskId } = buffer;
+	if (buffer.timer) {
+		clearTimeout(buffer.timer);
+		buffer.timer = undefined;
+	}
+	if (buffer.events.length > 0) {
+		const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+		try {
+			fs.appendFileSync(filePath, buffer.events.join(""), "utf-8");
+			// Mirror appendCrewAgentEvent's post-append bookkeeping so subsequent
+			// nextAgentEventSeq calls (direct or buffered) see the reserved seqs.
+			const stat = fs.statSync(filePath);
+			setAgentEventSeqCache(filePath, {
+				size: stat.size,
+				mtimeMs: stat.mtimeMs,
+				seq: buffer.lastReservedSeq,
+			});
+			writeSeqToSidecar(filePath, buffer.lastReservedSeq);
+		} catch (error) {
+			// Best-effort progress telemetry: a fs failure here (e.g. run dir
+			// deleted by prune/forget) must not fail the task; drop the batch.
+			logInternalError("crew-agent-records.buffered-events-flush", error, `filePath=${filePath}`);
+		}
+	}
+	if (buffer.output.length > 0) {
+		try {
+			fs.appendFileSync(agentStateFile(manifest, taskId, "output.log"), buffer.output.join(""), "utf-8");
+		} catch (error) {
+			logInternalError("crew-agent-records.buffered-output-flush", error, `taskId=${taskId}`);
+		}
+	}
+	buffer.events.length = 0;
+	buffer.output.length = 0;
+	buffer.lastReservedSeq = 0;
+	agentRecordBuffers.delete(agentRecordBufferKey(manifest, taskId));
+}
+
+/**
+ * Flush any pending buffered agent-record appends for `taskId` synchronously.
+ * Task-boundary hook — child-executor calls this at attempt completion/failure
+ * and process exit so no buffered line outlives the task.
+ */
+export function flushCrewAgentRecordBuffer(manifest: TeamRunManifest, taskId: string): void {
+	const buffer = agentRecordBuffers.get(agentRecordBufferKey(manifest, taskId));
+	if (buffer) flushAgentRecordBuffer(buffer);
+}
+
+/** @internal Flush ALL buffered agent-record writes (process-exit / signal hook). */
+export function flushAllCrewAgentRecordBuffers(): void {
+	for (const buffer of [...agentRecordBuffers.values()]) flushAgentRecordBuffer(buffer);
+}
+
+export function appendCrewAgentEventBuffered(manifest: TeamRunManifest, taskId: string, event: unknown): void {
+	const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+	const key = agentRecordBufferKey(manifest, taskId);
+	let buffer = agentRecordBuffers.get(key);
+	if (!buffer) {
+		buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+		agentRecordBuffers.set(key, buffer);
+	}
+	if (buffer.lastReservedSeq === 0) {
+		// Reserve the next seq ONCE from the on-disk state; further buffered
+		// events increment in memory (no per-event stat/sidecar read).
+		buffer.lastReservedSeq = nextAgentEventSeq(filePath) - 1;
+	}
+	const seq = ++buffer.lastReservedSeq;
+	buffer.events.push(`${JSON.stringify(redactSecrets({ seq, time: new Date().toISOString(), event }))}\n`);
+	scheduleAgentRecordBufferFlush(buffer);
+}
+
+export function appendCrewAgentOutputBuffered(manifest: TeamRunManifest, taskId: string, text: string): void {
+	if (!text.trim()) return;
+	// Ensure the state dir at BUFFER time (the event variant gets this for free
+	// via agentStateFile): fs.appendFileSync at flush time does NOT create parent
+	// dirs, so an output-only task with no events buffered yet would drop its
+	// whole batch on ENOENT. Memoized (ensuredAgentDirs) — one mkdir per task,
+	// not per line — preserving the R10-5 batching win.
+	ensureAgentStateDir(manifest, taskId);
+	const key = agentRecordBufferKey(manifest, taskId);
+	let buffer = agentRecordBuffers.get(key);
+	if (!buffer) {
+		buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+		agentRecordBuffers.set(key, buffer);
+	}
+	buffer.output.push(`${redactSecretString(text)}\n`);
+	scheduleAgentRecordBufferFlush(buffer);
+}
+
+function scheduleAgentRecordBufferFlush(buffer: AgentRecordBuffer): void {
+	// Cap: flush now so buffer memory and the crash window stay bounded.
+	if (buffer.events.length >= AGENT_RECORD_BUFFER_MAX_EVENTS || buffer.output.length >= AGENT_RECORD_BUFFER_MAX_EVENTS) {
+		flushAgentRecordBuffer(buffer);
+		return;
+	}
+	// Window: a REAL (unref'd) timer enforces the <=250ms loss-window bound even
+	// when no further events arrive (lazy check-on-next-append would not).
+	if (!buffer.timer) {
+		buffer.timer = setTimeout(() => {
+			buffer.timer = undefined;
+			flushAgentRecordBuffer(buffer);
+		}, AGENT_RECORD_BUFFER_WINDOW_MS);
+		buffer.timer.unref();
+	}
+}
+
+// Defense-in-depth (mirrors atomic-write.ts): land buffered agent-record lines
+// on normal process exit and best-effort on termination signals.
+/** @internal Test-only: number of pending buffered agent-record batches. */
+export function __test__agentRecordBufferCount(): number {
+	return agentRecordBuffers.size;
+}
+
+process.on("exit", () => flushAllCrewAgentRecordBuffers());
+process.on("SIGTERM", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
+process.on("SIGINT", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
 
 export function emptyCrewAgentProgress(): CrewAgentProgress {
 	return { recentTools: [], recentOutput: [], toolCount: 0 };

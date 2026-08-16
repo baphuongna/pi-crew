@@ -15,6 +15,7 @@
 // `__test__parseAdaptivePlan` and `__test__repairAdaptivePlan` are re-exported
 // from team-runner.ts so existing test imports keep working.
 import * as fs from "node:fs";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
@@ -431,7 +432,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 	let plan = parseAdaptivePlan(text, allowedRoles);
 	if (!plan) {
 		const repair =
-			process.env.PI_CREW_ADAPTIVE_REPAIR === "0" || process.env.PI_TEAMS_ADAPTIVE_REPAIR === "0"
+			getCrewEnv("PI_CREW_ADAPTIVE_REPAIR") === "0" || getCrewEnv("PI_TEAMS_ADAPTIVE_REPAIR") === "0"
 				? { repaired: false, reason: "disabled" }
 				: repairAdaptivePlan(text, allowedRoles);
 		if (repair.plan) {

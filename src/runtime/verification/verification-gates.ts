@@ -12,6 +12,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { GreenLevel, VerificationCommandResult, VerificationContract } from "../../state/types.ts";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../../utils/env-allowlist.ts";
@@ -66,7 +67,7 @@ const VERIFICATION_ENV_ALLOWLIST: readonly string[] = [
 /** Whether env sanitization for verification is enabled (opt-out: enabled by default). */
 export function isVerificationEnvSanitizeEnabled(): boolean {
 	// Opt-out: explicitly disabled via env var set to '0'.
-	if (process.env.PI_CREW_VERIFICATION_SANITIZE_ENV === "0" || process.env.PI_TEAMS_VERIFICATION_SANITIZE_ENV === "0") {
+	if (getCrewEnv("PI_CREW_VERIFICATION_SANITIZE_ENV") === "0" || getCrewEnv("PI_TEAMS_VERIFICATION_SANITIZE_ENV") === "0") {
 		return false;
 	}
 	return true;
@@ -82,7 +83,7 @@ function buildVerificationEnv(): Record<string, string> {
 	if (!isVerificationEnvSanitizeEnabled()) {
 		return { ...process.env, FORCE_COLOR: "0" };
 	}
-	const preserveRaw = process.env.PI_CREW_VERIFICATION_PRESERVE_ENV ?? process.env.PI_TEAMS_VERIFICATION_PRESERVE_ENV ?? "";
+	const preserveRaw = getCrewEnv("PI_CREW_VERIFICATION_PRESERVE_ENV") ?? "";
 	const preserve = preserveRaw
 		.split(",")
 		.map((s) => s.trim())

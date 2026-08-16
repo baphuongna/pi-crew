@@ -19,6 +19,7 @@ import {
 	DEFAULT_SUBAGENT,
 	DEFAULT_UI,
 } from "../../../src/config/defaults.ts";
+import { defaultWorkflowConcurrency } from "../../../src/runtime/scheduling/concurrency.ts";
 
 describe("DEFAULT_CHILD_PI", () => {
 	it("has all expected timeout fields with positive numeric values", () => {
@@ -121,6 +122,27 @@ describe("DEFAULT_CONCURRENCY", () => {
 	it("has fallback as a positive integer", () => {
 		assert.equal(typeof DEFAULT_CONCURRENCY.fallback, "number");
 		assert.ok(DEFAULT_CONCURRENCY.fallback > 0);
+	});
+});
+
+describe("DEFAULT_CONCURRENCY precedence (defaultWorkflowConcurrency)", () => {
+	// F19-6 (Wave 1A): pin the resolution order documented at DEFAULT_CONCURRENCY
+	// in src/config/defaults.ts — team frontmatter maxConcurrency wins over the
+	// workflow-name default; unknown workflow names fall back (concurrency.ts:25-32).
+	it("team frontmatter maxConcurrency wins over the workflow-name default", () => {
+		assert.equal(defaultWorkflowConcurrency("implementation", 5), 5);
+	});
+
+	it("workflow-name defaults resolve per DEFAULT_CONCURRENCY.workflow", () => {
+		assert.equal(defaultWorkflowConcurrency("implementation"), 4);
+		assert.equal(defaultWorkflowConcurrency("research"), 3);
+		assert.equal(defaultWorkflowConcurrency("review"), 3);
+		assert.equal(defaultWorkflowConcurrency("default"), 3);
+	});
+
+	it("unknown workflow names fall back to DEFAULT_CONCURRENCY.fallback", () => {
+		assert.equal(defaultWorkflowConcurrency("nonexistent-workflow"), DEFAULT_CONCURRENCY.fallback);
+		assert.equal(DEFAULT_CONCURRENCY.fallback, 2);
 	});
 });
 

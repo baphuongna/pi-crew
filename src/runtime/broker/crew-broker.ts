@@ -40,6 +40,7 @@ import { redactSecretString } from "../../utils/redaction.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../../utils/socket-path.ts";
 import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
+import { WaitStatusCache } from "./wait-status-cache.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */
 const BROKER_PROTOCOL = 1;
@@ -69,6 +70,10 @@ export interface CrewBrokerOptions {
 	cwd?: string;
 	/** Optional test seam: override the `net` module (allows fake-server tests). */
 	netModule?: typeof net;
+	/** Optional test seam: inject a pre-configured WaitStatusCache (e.g. one
+	 *  wrapping a loader spy). Production uses a plain cache — see
+	 *  wait-status-cache.ts (R10-3). */
+	waitStatusCache?: WaitStatusCache;
 }
 
 /** Per-connection server-side state. */
@@ -97,7 +102,7 @@ interface ServerConnection {
 
 export class CrewBroker {
 	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled">> &
-		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "cwd" | "netModule">;
+		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "cwd" | "netModule" | "waitStatusCache">;
 	private readonly tokens = new BrokerTokenRegistry();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
@@ -112,6 +117,9 @@ export class CrewBroker {
 	private mailboxObserverUnsub: (() => void) | null = null;
 	/** A single observable handshake counter (test/observability). */
 	private handshakeCount = 0;
+	/** R10-3: stat-gated manifest/tasks cache shared by all task.waitStatus
+	 *  waiters on this broker (keyed by runId — the broker serves one cwd). */
+	private readonly waitStatusCache: WaitStatusCache;
 
 	constructor(options: CrewBrokerOptions) {
 		if (!options || typeof options !== "object") {
@@ -129,6 +137,7 @@ export class CrewBroker {
 			cwd: options.cwd,
 			netModule: options.netModule,
 		};
+		this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
 	}
 
 	/** Read the resolved socket path. Available after start() resolves. */
@@ -362,6 +371,13 @@ export class CrewBroker {
 	// ------------------------------------------------------------------------
 
 	private async handleConnection(sock: net.Socket): Promise<void> {
+		// B1 (Round 14): a connection event queued after stop() must not be
+		// processed — the broker is shutting down and the token registry is
+		// already cleared. Destroy (not end) since the server is stopping.
+		if (this.stopped) {
+			sock.destroy();
+			return;
+		}
 		const conn: ServerConnection = {
 			socket: sock,
 			decoder: new NdjsonDecoder(),
@@ -425,7 +441,12 @@ export class CrewBroker {
 			const set = this.connectionsByRun.get(conn.runId);
 			if (set) {
 				set.delete(conn);
-				if (set.size === 0) this.connectionsByRun.delete(conn.runId);
+				if (set.size === 0) {
+					this.connectionsByRun.delete(conn.runId);
+					// R10-3: no more waiters for this run — drop its stat-gated
+					// manifest cache entry so the Map stays bounded across runs.
+					this.waitStatusCache.delete(conn.runId);
+				}
 			}
 		}
 		// Phase 2: tear down any per-connection event subscriptions.
@@ -1012,7 +1033,9 @@ export class CrewBroker {
 						return;
 					}
 					try {
-						const loaded = loadRunManifestById(cwd, connRunId);
+						// R10-3: stat-gated cache — parse only when manifest/tasks
+						// mtime/size changed; identical observable behavior per poll.
+						const loaded = this.waitStatusCache.load(cwd, connRunId);
 						if (!loaded) {
 							this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
 							resolve();

@@ -1,3 +1,5 @@
+import { getCrewEnv } from "../config/env-vars.ts";
+
 /**
  * Parent liveness guard for pi-crew background-runner process.
  *
@@ -70,7 +72,7 @@
  * polling approach for near-instantaneous parent-death detection on Unix
  * systems, avoiding the polling overhead entirely.
  */
-const POLL_INTERVAL_MS = Number(process.env.PI_CREW_PARENT_GUARD_INTERVAL_MS) || 500;
+const POLL_INTERVAL_MS = Number(getCrewEnv("PI_CREW_PARENT_GUARD_INTERVAL_MS")) || 500;
 
 const guardIntervals = new Map<number, ReturnType<typeof setInterval>>();
 

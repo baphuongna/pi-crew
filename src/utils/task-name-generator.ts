@@ -295,7 +295,7 @@ function capitalize(s: string): string {
 	return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-let usedNames = new Set<string>();
+const usedNames = new Set<string>();
 
 /**
  * Generate a unique two-word identifier (e.g., "SwiftFalcon").
@@ -327,11 +327,4 @@ export function generateTaskName(): string {
 	// All combinations exhausted — reset and start over
 	usedNames.clear();
 	return generateTaskName();
-}
-
-/**
- * Reset name generator state (for testing).
- */
-export function resetTaskNames(): void {
-	usedNames = new Set<string>();
 }

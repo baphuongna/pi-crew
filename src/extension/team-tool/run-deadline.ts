@@ -55,9 +55,24 @@ export function resolveRunDeadline<T extends object>(
 
 	const controller = new AbortController();
 	// Propagate caller abort (ctx.signal) to the shared controller.
+	// R6-F2 (W2/RC-03 consistency): named handler instead of an anonymous
+	// { once: true } closure. resolveRunDeadline returns immediately (there is
+	// no run-lifetime finally scope inside this module — callers in run.ts only
+	// clearTimeout the timer), so removal is wired to the deadline controller's
+	// own abort: once the run controller aborts for ANY cause (deadline timer
+	// fire, caller-signal propagation, or an explicit controller.abort() from a
+	// linked path such as startForegroundRun), the propagation listener is dead
+	// weight on ctx.signal and is removed. Behavior-neutral: if the caller's
+	// signal fired afterwards, the listener would only call abort() on an
+	// already-aborted controller — a no-op.
 	if (ctx.signal) {
 		if (ctx.signal.aborted) controller.abort();
-		else ctx.signal.addEventListener("abort", () => controller.abort(), { once: true });
+		else {
+			const callerSignal = ctx.signal;
+			const onCallerAbort = () => controller.abort();
+			callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+			controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
+		}
 	}
 	// Arm the deadline timer (unref'd so it never blocks process exit).
 	// RC-02: expose the timer so callers can clearTimeout on normal completion —

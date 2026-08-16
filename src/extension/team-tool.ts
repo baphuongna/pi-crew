@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { allAgents, discoverAgents, listDynamicAgents, registerDynamicAgent, unregisterDynamicAgent } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 // executeTeamRun is only called when a team run actually executes.
 import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner.ts";
@@ -373,8 +374,8 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		if (!executedConfig.runtime?.mode && resumeManifest.runtimeResolution?.safety === "explicit_dry_run") {
 			const workersDisabled =
 				executedConfig.executeWorkers === false ||
-				process.env.PI_CREW_EXECUTE_WORKERS === "0" ||
-				process.env.PI_TEAMS_EXECUTE_WORKERS === "0";
+				getCrewEnv("PI_CREW_EXECUTE_WORKERS") === "0" ||
+				getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") === "0";
 			if (!workersDisabled)
 				executedConfig.runtime = {
 					...executedConfig.runtime,

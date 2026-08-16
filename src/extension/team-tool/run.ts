@@ -1,8 +1,10 @@
 import { loadConfig } from "../../config/config.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runner.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
@@ -10,6 +12,7 @@ import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../s
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- type-only import for TS inference
 const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamRunFn;
 
+import { fsFailureLabel } from "../../utils/fs-errno.ts";
 import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -99,7 +102,7 @@ function tailFile(filePath: string, maxBytes = 4096): string | undefined {
 }
 
 function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: number | undefined, logPath: string): void {
-	if (process.env.PI_CREW_ASYNC_EARLY_EXIT_GUARD === "0") return;
+	if (getCrewEnv("PI_CREW_ASYNC_EARLY_EXIT_GUARD") === "0") return;
 	const timer = setTimeout(() => {
 		const loaded = loadRunManifestById(cwd, runId);
 		if (!loaded || !isActiveRunStatus(loaded.manifest.status)) return;
@@ -112,15 +115,38 @@ function scheduleBackgroundEarlyExitGuard(cwd: string, runId: string, pid: numbe
 			return;
 		const liveness = checkProcessLiveness(pid);
 		if (liveness.alive) return;
-		const tail = tailFile(logPath);
-		const message = `Background runner exited within 3s; see background.log${tail ? `\n${tail}` : ""}`;
-		const failed = updateRunStatus(loaded.manifest, "failed", "Background runner exited within 3s; see background.log");
-		void appendEventAsync(failed.eventsPath, {
-			type: "async.failed",
-			runId: failed.runId,
-			message,
-			data: { pid, detail: liveness.detail },
-		});
+		// R14-3 (Round 14): stale-snapshot RMW — the failed-status write used the
+		// pre-lock `loaded` snapshot, so a concurrent non-terminal write (e.g.
+		// runtime.resolved) could be clobbered. Re-read fresh inside the run lock
+		// and re-verify the guard checks so a run that completed/cancelled since
+		// the initial load is not flipped to failed.
+		try {
+			withRunLockSync(loaded.manifest, () => {
+				const fresh = loadRunManifestById(cwd, runId);
+				if (!fresh) return;
+				if (!isActiveRunStatus(fresh.manifest.status)) return;
+				if (hasAsyncStartMarker(fresh.manifest)) return;
+				if (
+					readEventsCursor(fresh.manifest.eventsPath).events.some(
+						(event) => event.type === "async.started" || event.type === "async.completed" || event.type === "async.failed",
+					)
+				)
+					return;
+				const tail = tailFile(logPath);
+				const message = `Background runner exited within 3s; see background.log${tail ? `\n${tail}` : ""}`;
+				const failed = updateRunStatus(fresh.manifest, "failed", "Background runner exited within 3s; see background.log");
+				void appendEventAsync(failed.eventsPath, {
+					type: "async.failed",
+					runId: failed.runId,
+					message,
+					data: { pid, detail: liveness.detail },
+				});
+			});
+		} catch (error) {
+			// One-shot unref'd timer — a lock-contention error must not escape and
+			// crash the process; the owning session's poll will surface the failure.
+			logInternalError("team-tool.run.earlyExitGuard", error instanceof Error ? error : new Error(String(error)), `runId=${runId}`);
+		}
 	}, 3000);
 	timer.unref();
 }
@@ -255,8 +281,12 @@ function formatRunResult(manifest: TeamRunManifest, options: FormatRunResultOpti
 			}
 			const shortResult = resultExcerpt.slice(0, 500);
 			const statusTag = task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : task.status === "cancelled" ? "⊘" : "·";
+			// bug-026 sub-issue B: surface the classified fatal-fs cause in the
+			// final report — "failed (disk full)" instead of a bare "failed".
+			const statusText =
+				task.status === "failed" && task.failureCause ? `${task.status} (${fsFailureLabel(task.failureCause)})` : task.status;
 			taskLines.push(
-				`- ${statusTag} ${task.id} [${task.role}]: ${task.status}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
+				`- ${statusTag} ${task.id} [${task.role}]: ${statusText}${shortResult ? " — " + shortResult : ""}${task.error ? ` | Error: ${task.error.slice(0, 200)}` : ""}`,
 			);
 			if (task.status === "failed" || task.status === "needs_attention") {
 				failedCount++;
@@ -471,7 +501,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const runtime = await resolveCrewRuntime(executedConfig);
 	const runtimeResolution = runtimeResolutionState(runtime);
 	// DEBUG: log what we received (gated to avoid stdout pollution in production)
-	if (process.env.PI_CREW_DEBUG_BUDGET === "1") {
+	if (getCrewEnv("PI_CREW_DEBUG_BUDGET") === "1") {
 		console.log(
 			"[DEBUG budget] params keys:",
 			Object.keys(params),
@@ -558,8 +588,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					diagnostics: {
 						requestedMode: effectiveRuntime.requestedMode,
 						workersDisabled: executedConfig.executeWorkers === false,
-						envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-						envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS,
+						envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+						envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS"),
 					},
 				},
 			});
@@ -570,7 +600,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					`Runtime: ${effectiveRuntime.kind} (requested ${effectiveRuntime.requestedMode})`,
 					`Reason: ${effectiveRuntime.reason ?? "unknown"}`,
 					`Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-					`Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`,
+					`Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`,
 				].join("\n"),
 				{
 					action: "run",
@@ -653,8 +683,8 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				diagnostics: {
 					requestedMode: runtime.requestedMode,
 					workersDisabled: executedConfig.executeWorkers === false,
-					envCrew: process.env.PI_CREW_EXECUTE_WORKERS,
-					envTeams: process.env.PI_TEAMS_EXECUTE_WORKERS,
+					envCrew: getCrewEnv("PI_CREW_EXECUTE_WORKERS"),
+					envTeams: getCrewEnv("PI_TEAMS_EXECUTE_WORKERS"),
 				},
 			},
 		});
@@ -665,7 +695,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 				`Runtime: ${runtime.kind} (requested ${runtime.requestedMode})`,
 				`Reason: ${runtime.reason ?? "unknown"}`,
 				`Config: executeWorkers=${executedConfig.executeWorkers ?? "<default>"}, runtime.mode=${executedConfig.runtime?.mode ?? "<default>"}`,
-				`Env: PI_CREW_EXECUTE_WORKERS=${process.env.PI_CREW_EXECUTE_WORKERS ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${process.env.PI_TEAMS_EXECUTE_WORKERS ?? "<unset>"}`,
+				`Env: PI_CREW_EXECUTE_WORKERS=${getCrewEnv("PI_CREW_EXECUTE_WORKERS") ?? "<unset>"}, PI_TEAMS_EXECUTE_WORKERS=${getCrewEnv("PI_TEAMS_EXECUTE_WORKERS") ?? "<unset>"}`,
 				"",
 				"To run effective subagents, remove executeWorkers=false / PI_CREW_EXECUTE_WORKERS=0 / PI_TEAMS_EXECUTE_WORKERS=0 or set runtime.mode=child-process.",
 				"Use runtime.mode=scaffold only for explicit dry-run prompt/artifact generation.",

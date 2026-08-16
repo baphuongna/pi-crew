@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../../config/defaults.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { userCrewRoot } from "../../utils/paths.ts";
 import { isSafePathId } from "../../utils/safe-paths.ts";
 import { sharedScanCache } from "../../utils/scan-cache.ts";
@@ -68,7 +69,7 @@ function withRegistryLock<T>(fn: () => T): T {
 	const deadline = Date.now() + 10_000;
 	while (true) {
 		try {
-			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+			const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
 			try {
 				fs.writeSync(
 					fd,
@@ -371,7 +372,7 @@ export function registerActiveRun(manifest: TeamRunManifest): void {
 
 export function unregisterActiveRun(runId: string): void {
 	if (!isSafePathId(runId)) {
-		console.warn(`unregisterActiveRun: invalid runId ignored: ${runId}`);
+		logInternalError("active-run-registry", new Error(`unregisterActiveRun: invalid runId ignored: ${runId}`), undefined, "warn");
 		return;
 	}
 	withRegistryLock(() => {

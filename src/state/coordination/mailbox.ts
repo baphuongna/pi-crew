@@ -487,8 +487,11 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 		}
 		// NEW-R4: prominent (ungated) error so corrupt-delivery re-delivery risk is
 		// visible even without PI_TEAMS_DEBUG — messages may be re-delivered.
-		console.error(
-			`[pi-crew:mailbox.readDeliveryState] corrupt delivery.json quarantined to ${quarantinePath} — delivery state reset to empty; messages may be re-delivered. Error: ${error instanceof Error ? error.message : String(error)}`,
+		logInternalError(
+			"mailbox.readDeliveryState",
+			error,
+			`corrupt delivery.json quarantined to ${quarantinePath} — delivery state reset to empty; messages may be re-delivered`,
+			"error",
 		);
 		deliveryCache.delete(filePath);
 		return { messages: {}, updatedAt: new Date().toISOString() };

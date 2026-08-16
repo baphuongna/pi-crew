@@ -2,6 +2,49 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.10.0] — maintainability refactor: full remediation + reliability (2026-08-16)
+
+Branch `refactor/maintainability`: 16-round audit → 5-phase refactor →
+finding-by-finding sweep → full remediation of every open finding (Waves
+1A/1B/2A/2B/B/C). Full execution log with commit map:
+`docs/refactor-plan.md`. Audit inventory: `docs/refactor-plan.review.md`.
+
+### Security (config tiering)
+- Schema-driven project-config sanitize: `sensitive:true` drop-list +
+  CONDITIONAL drops — project config may only TIGHTEN (guards `off`/
+  loosening dropped). goalWrap subtree + magicKeywords user-only.
+  ADR: `docs/decisions/2026-08-15-schema-driven-sanitize.md`.
+- P1 fix: project-tier `.pi/crew-settings.json` no longer bypasses sanitize
+  (tiers API; legacy flat fns JSDoc'd user-tier-only).
+- scheduledJobs user-tier opt-in gate (both `schedulingEnabled:true` AND
+  `allowProjectScheduledJobs:true` required for project jobs).
+
+### Performance
+- R10-1 O(B²) batch closeout → per-run `ResultArtifactReadCache`
+  (bench b10: −50% fs reads, byte-identical outputs; b11 extends to
+  dependency-context path).
+- R10-2 path-scoped flush; R10-3 broker mtime-gated manifest parse cache
+  (N waiters ≤2 parses); R10-4 sync/async snapshot parity; R10-5
+  child-executor fs batching (≤250ms documented window).
+
+### Hygiene / dead code
+- FIFO caps on all unbounded collections (10 sites); named+removed abort
+  listeners; dead GroupJoinManager + 7 dead fns removed; security telemetry
+  wired into doctor; parser/schema bounds aligned (schema wins).
+
+### Runner reliability (bug-026)
+- Sub-A: stderr-only result artifacts now FAIL the task
+  (`empty-or-stderr-only-result`) instead of persisting noise as completed.
+- Sub-B: fatal-fs errno classifier — ENOSPC/EDQUOT/EMFILE surfaced as
+  `failed (disk full)`-style failureCause in task/run/status/doctor.
+- Sub-C: terminal runs evicted from in-memory preloaded manifests +
+  heartbeat aggregator terminal-task defense (kills phantom dead-worker
+  alerts on long-lived sessions).
+
+### Repo hygiene
+- bench suite b1–b11 tracked; per-run perf reports + bench results
+  gitignored; package.json-referenced scripts committed (fresh-clone fix).
+
 ## [0.9.68] — RLM fixes after deep-review verification (2026-08-12)
 
 Fixes from `docs/rlm-deep-review-2026-08-12.md` (verified) +

@@ -25,6 +25,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getCrewEnv } from "../../config/env-vars.ts";
 
 export interface VerificationWorktree {
 	/** Absolute path to the pristine worktree directory. */
@@ -37,7 +38,7 @@ export interface VerificationWorktree {
 
 /** Whether the worktree sandbox is enabled (env var opt-in). */
 export function isWorktreeSandboxEnabled(): boolean {
-	const v = process.env.PI_CREW_VERIFICATION_WORKTREE ?? process.env.PI_TEAMS_VERIFICATION_WORKTREE;
+	const v = getCrewEnv("PI_CREW_VERIFICATION_WORKTREE");
 	return v === "1" || v === "true";
 }
 

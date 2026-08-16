@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { appendEvent, appendEventAsync, resetEventLogMode } from "../../../../src/state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync } from "../../../../src/state/event-log/event-log.ts";
 
 describe("H2: Event log sync/async coordination", () => {
 	let tmpDir: string;
@@ -12,12 +12,10 @@ describe("H2: Event log sync/async coordination", () => {
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "event-log-race-"));
 		eventsPath = path.join(tmpDir, "events.jsonl");
-		resetEventLogMode();
 	});
 
 	afterEach(() => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
-		resetEventLogMode();
 	});
 
 	it("should route sync appendEvent through async queue after appendEventAsync is called", async () => {
@@ -80,27 +78,6 @@ describe("H2: Event log sync/async coordination", () => {
 			assert.doesNotThrow(() => JSON.parse(line), `Invalid JSON line: ${line.slice(0, 100)}`);
 		}
 		assert.ok(lines.length >= 2, `Expected at least 2 events, got ${lines.length}`);
-	});
-
-	it("resetEventLogMode should allow sync writes again", async () => {
-		// Activate async mode
-		await appendEventAsync(eventsPath, {
-			type: "test.async",
-			runId: "test-run",
-		});
-
-		// Reset mode
-		resetEventLogMode();
-
-		// Sync write should use direct path again
-		appendEvent(eventsPath, {
-			type: "test.sync.direct",
-			runId: "test-run",
-		});
-
-		const content = fs.readFileSync(eventsPath, "utf-8");
-		const lines = content.trim().split("\n").filter(Boolean);
-		assert.ok(lines.length >= 1, "Should have at least the sync event");
 	});
 
 	it("assigns unique seqs to many concurrent async appends (C7 regression)", async () => {

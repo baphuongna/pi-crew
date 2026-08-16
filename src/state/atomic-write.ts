@@ -962,12 +962,29 @@ function cancelPendingCoalescedWrite(filePath: string): void {
 	}
 }
 
-/** Flush every queued coalesced write synchronously. Safe to call any time. */
-export function flushPendingAtomicWrites(): void {
+/**
+ * Flush every queued coalesced write synchronously. Safe to call any time.
+ *
+ * R10-2: pass `filePath` to flush ONLY the pending coalesced entry for that
+ * exact file. Hot read paths that know which file they are about to read
+ * (e.g. readCrewAgents) no longer wait on unrelated coalesced writes for
+ * OTHER files — previously this drained the entire process-wide queue on
+ * every such read. Omitted → exact previous global-drain behavior
+ * (backward compatible: merge-loop / budget-enforcement / finalize-run /
+ * state-helpers / process-exit handlers all rely on the global drain).
+ * Re-entrancy guard (`flushInProgress`) applies to both modes: a scoped flush
+ * triggered while a global flush is running is a no-op (the global flush
+ * already covers this file), and vice versa.
+ */
+export function flushPendingAtomicWrites(filePath?: string): void {
 	if (flushInProgress > 0) return;
 	flushInProgress++;
 	try {
-		for (const filePath of [...pendingAtomicWrites.keys()]) flushOnePendingAtomicWrite(filePath);
+		if (filePath === undefined) {
+			for (const pending of [...pendingAtomicWrites.keys()]) flushOnePendingAtomicWrite(pending);
+		} else if (pendingAtomicWrites.has(filePath)) {
+			flushOnePendingAtomicWrite(filePath);
+		}
 	} finally {
 		flushInProgress--;
 	}

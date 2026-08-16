@@ -23,13 +23,8 @@ export function registerHook(definition: HookDefinition): number {
 	return hookId;
 }
 
-export function clearHooks(): void {
-	registry.clear();
-	_piCrewHookIds.clear();
-	_nextHookId = 1;
-}
-
 // Scope-aware hook clearing: only removes hooks registered by pi-crew
+// (keeps hooks registered by other extensions/hosts intact).
 export function clearHooksScoped(): void {
 	for (const [name, hooks] of registry) {
 		const remaining = hooks.filter((h) => !("_hookId" in h && _piCrewHookIds.has((h as { _hookId?: number })._hookId ?? -1)));

@@ -167,13 +167,6 @@ export function getCheckpointStore(stateRoot: string): CheckpointStore {
 }
 
 /**
- * Clear all checkpoint stores (for testing).
- */
-export function clearCheckpointStores(): void {
-	_stores.clear();
-}
-
-/**
  * Save a checkpoint during agent execution.
  */
 export function saveCheckpoint(
@@ -217,17 +210,6 @@ export function loadCheckpoint(runId: string, taskId: string, cwd?: string): Che
 	const stateRoot = path.join(projectCrewRoot(cwd ?? process.cwd()), "state", "runs", runId);
 	const store = getCheckpointStore(stateRoot);
 	return store.load(runId, taskId);
-}
-
-/**
- * Delete a checkpoint after successful completion.
- */
-export function clearCheckpoint(runId: string, taskId: string, cwd?: string): void {
-	assertSafePathId("runId", runId);
-	assertSafePathId("taskId", taskId);
-	const stateRoot = path.join(projectCrewRoot(cwd ?? process.cwd()), "state", "runs", runId);
-	const store = getCheckpointStore(stateRoot);
-	store.delete(runId, taskId);
 }
 
 /**

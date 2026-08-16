@@ -19,6 +19,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
@@ -33,7 +34,7 @@ import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts"
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
-import { applyCrewSettingsToConfig, loadCrewSettings } from "../../runtime/settings-store.ts";
+import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
@@ -215,8 +216,18 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		}, 0);
 
 		const loadedConfig = loadConfig(extensionCtx.cwd);
-		const crewSettings = loadCrewSettings(extensionCtx.cwd);
-		applyCrewSettingsToConfig(loadedConfig.config, crewSettings);
+		// Wave 2B (P1 security): crew settings load as TIERS — the project-tier
+		// <cwd>/.pi/crew-settings.json is untrusted (a cloned repo can ship it)
+		// and now goes through sanitizeProjectConfig + tighten-only guard
+		// tiering instead of being applied raw over the sanitized config (the
+		// pre-2B `loadCrewSettings` + `applyCrewSettingsToConfig` bypass).
+		// See src/runtime/settings-store.ts for the tier pipeline + the
+		// scheduledJobs/schedulingEnabled boundary decision.
+		const crewSettingsTiers = loadCrewSettingsTiers(extensionCtx.cwd);
+		const settingsWarnings = applyCrewSettingsTiersToConfig(loadedConfig.config, crewSettingsTiers);
+		if (settingsWarnings.length > 0) {
+			(loadedConfig.warnings ??= []).push(...settingsWarnings);
+		}
 
 		// Start scheduler with event-based executor
 		const sessionId =
@@ -229,14 +240,20 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// Wire scheduler into handle-schedule.ts so handlers can add/list jobs.
 		// EXT-9: module-scoped setter (was globalThis[Symbol.for(...)]).
 		registerCrewScheduler(ctx.crewScheduler);
-		// Load scheduled jobs from settings if present
-		if (Array.isArray(crewSettings.scheduledJobs)) {
-			for (const job of crewSettings.scheduledJobs) {
-				try {
-					ctx.crewScheduler.add(job as ScheduledJob);
-				} catch {
-					/* skip invalid */
-				}
+		// Load scheduled jobs from settings if present.
+		// BOUNDARY (Wave B2): project-tier scheduledJobs are OPT-IN GATED — the
+		// registration loop reads the gated `effectiveScheduledJobs` view (user
+		// jobs always; project jobs ONLY when the user-tier global file has BOTH
+		// schedulingEnabled:true AND allowProjectScheduledJobs:true).
+		// <cwd>/.pi/crew-settings.json remains the persistence store for the
+		// user's own `crew schedule add/update/remove` commands (handle-schedule.ts),
+		// so crew-schedule users must set both flags in ~/.pi/crew-settings.json.
+		// `schedulingEnabled` is user-tier-only (project values always dropped).
+		for (const job of crewSettingsTiers.effectiveScheduledJobs) {
+			try {
+				ctx.crewScheduler.add(job as ScheduledJob);
+			} catch {
+				/* skip invalid */
 			}
 		}
 		ctx.autoRecoveryLast.clear();
@@ -540,6 +557,44 @@ export function filterManifestsForHealthNotifications(
 	return manifests.filter((run) => !run.ownerSessionId || run.ownerSessionId === currentSessionId);
 }
 
+/**
+ * bug-026 sub-issue C: runEventBus event types that mark a run TERMINAL,
+ * across BOTH type namespaces seen on the bus — dotted `run.*` strings (kept
+ * for parity with classifyEventChannel's WORKER_LIFECYCLE_TYPES, see
+ * src/ui/run-event-bus.ts:31-44) and underscore `run_*` (the native
+ * RunEventType namespace actually emitted by team-runner, e.g.
+ * `run_completed`). Exported for unit testing.
+ */
+export const TERMINAL_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
+	"run.completed",
+	"run.failed",
+	"run.cancelled",
+	"run_completed",
+	"run_failed",
+	"run_cancelled",
+]);
+
+/** True when a runEventBus event type marks the run terminal (either namespace). */
+export function isTerminalRunEventType(type: string): boolean {
+	return TERMINAL_RUN_EVENT_TYPES.has(type);
+}
+
+/** Pure filter: drop `runId` from a preloaded-manifest frame (bug-026 sub-issue C eviction). */
+export function evictRunFromManifests(manifests: TeamRunManifest[], runId: string): TeamRunManifest[] {
+	return manifests.filter((m) => m.runId !== runId);
+}
+
+/**
+ * Apply a runEventBus payload to a preloaded-manifest frame: evict the run on
+ * terminal events, pass through unchanged otherwise. This is the exact logic
+ * wired into the setupRenderLoop `runEventBus.onAny` subscription (bug-026
+ * sub-issue C); exported so tests can exercise it end-to-end against the
+ * real bus without spinning up the full render loop.
+ */
+export function applyTerminalRunEventToManifests(manifests: TeamRunManifest[], event: { type: string; runId: string }): TeamRunManifest[] {
+	return isTerminalRunEventType(event.type) ? evictRunFromManifests(manifests, event.runId) : manifests;
+}
+
 function setupRenderLoop(
 	pi: ExtensionAPI,
 	ctx: RegistrationContext,
@@ -803,6 +858,12 @@ function setupRenderLoop(
 	// re-renders within debounceMs of any agent lifecycle event.
 	const sched = ctx.renderScheduler;
 	const unsubscribeRunEvents = runEventBus.onAny((event) => {
+		// bug-026 sub-issue C: evict terminal runs from the preloaded manifest
+		// frame so a stale "running" entry cannot persist for the session
+		// lifetime. Additive to the renderTick GATE 1 / FIX #1 / GATE 2 snapshot
+		// purges (which invalidate the snapshot cache) — those gates do not
+		// touch lastPreloadedManifests itself.
+		lastPreloadedManifests = applyTerminalRunEventToManifests(lastPreloadedManifests, event);
 		sched.schedule({
 			runId: event.runId,
 			source: "runEventBus",
@@ -905,7 +966,7 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 
 	function effectiveEnabled(): boolean {
 		// Env wins over config. PI_CREW_BROKER=1 forces on, =0 forces off.
-		const envOverride = process.env.PI_CREW_BROKER;
+		const envOverride = getCrewEnv("PI_CREW_BROKER");
 		if (envOverride === "0") return false;
 		// Config block: read fresh so a runtime config update takes effect.
 		try {

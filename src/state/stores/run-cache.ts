@@ -6,8 +6,6 @@ import { atomicWriteJson } from "../atomic-write.ts";
 import { withFileLockSync } from "../coordination/locks.ts";
 import type { TeamTaskState } from "../types.ts";
 
-const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
 export interface CacheEntry {
 	key: string;
 	runId: string;
@@ -75,94 +73,6 @@ export function getCachedRun(cwd: string, cacheKey: string): CacheEntry | null {
 		return entry;
 	} catch {
 		return null;
-	}
-}
-
-/**
- * Save run result to cache.
- */
-export function saveRunToCache(
-	cwd: string,
-	cacheKey: string,
-	runId: string,
-	status: string,
-	tasks: TeamTaskState[],
-	goal: string,
-	team: string,
-	ttlMs: number = DEFAULT_CACHE_TTL_MS,
-): void {
-	const dir = cacheDir(cwd);
-
-	if (!fs.existsSync(dir)) {
-		fs.mkdirSync(dir, { recursive: true });
-	}
-
-	const entry: CacheEntry = {
-		key: cacheKey,
-		runId,
-		status,
-		tasks,
-		cachedAt: Date.now(),
-		expiresAt: Date.now() + ttlMs,
-		goal,
-		team,
-	};
-
-	const entryPath = path.join(dir, `${cacheKey}.json`);
-	// ST-4: atomic entry write (was raw writeFileSync — inverted priority vs the index).
-	atomicWriteJson(entryPath, entry);
-
-	// Update index under a file lock (prevents concurrent saveCache from racing on the
-	// RMW) and write atomically (unique temp + rename — fixes the fixed "index.json.tmp"
-	// name collision the old manual temp+rename had).
-	const indexPath = path.join(dir, "index.json");
-	withFileLockSync(indexPath, () => {
-		// NEW-P4: TOCTOU fix — readFileSync + ENOENT catch instead of existsSync+read
-		// (1 syscall, no race). Only ENOENT falls back to {}; a corrupt-but-present
-		// index still throws, matching the old existsSync → JSON.parse behavior.
-		let index: CacheIndex = {};
-		try {
-			index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as CacheIndex;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-		index[cacheKey] = entryPath;
-		atomicWriteJson(indexPath, index);
-	});
-}
-
-/**
- * Clear all cache entries.
- */
-export function clearCache(cwd: string): void {
-	const dir = cacheDir(cwd);
-	if (!fs.existsSync(dir)) return;
-
-	const indexPath = path.join(dir, "index.json");
-	if (fs.existsSync(indexPath)) {
-		try {
-			const index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as CacheIndex;
-			for (const entryPath of Object.values(index)) {
-				try {
-					fs.unlinkSync(entryPath);
-				} catch {
-					/* ignore */
-				}
-			}
-			fs.unlinkSync(indexPath);
-		} catch {
-			/* ignore */
-		}
-	}
-
-	// Remove entry files not in index
-	const entries = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-	for (const entry of entries) {
-		try {
-			fs.unlinkSync(path.join(dir, entry));
-		} catch {
-			/* ignore */
-		}
 	}
 }
 

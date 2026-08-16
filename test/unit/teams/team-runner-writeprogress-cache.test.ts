@@ -352,6 +352,81 @@ test("[RT-7b] lastProgressContentHash entry is cleared after run completion", as
 	}
 });
 
+// ─── RT-7b-exc: entry cleared even when the run throws mid-flight ──
+
+test("[RT-7b-exc] lastProgressContentHash entry is cleared even when the run throws mid-flight", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rt7b-exc-"));
+	const prevEnv = saveMockEnv();
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	const prevCap = getWorkerCapCapacity();
+	__test_resetCap(2);
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, "package.json"), "{}", "utf-8");
+
+		const team = {
+			name: "rt7b-exc",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		// NOTE: no step with id "missing" in workflow.steps — the dispatched task
+		// lookup findStep() throws CrewError mid-flight (after writeProgress
+		// populated the cache), exercising the exception path of executeTeamRun's
+		// finally. A single task keeps the throw on the wrapped dispatchUnit path
+		// (no unhandled rejection); a multi-task prewarm throw would propagate to
+		// rejectRunPromise instead.
+		const workflow = {
+			name: "rt7b-exc",
+			description: "",
+			steps: [{ id: "a", role: "worker", task: "A" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const agents = [{ name: "worker", description: "", source: "test", filePath: "builtin", systemPrompt: "test" }] as never;
+
+		const created = createRunManifest({ cwd, team, workflow, goal: "RT-7b exception-path test" });
+		const runId = created.manifest.runId;
+		// Single queued task referencing step "missing" (not in workflow.steps) —
+		// findStep() throws CrewError mid-flight during dispatch.
+		const tasks: TeamTaskState[] = [makeRunTask("01_a", "missing", runId, cwd)];
+		saveRunTasks(created.manifest, tasks);
+
+		// Simulate a mid-flight set: the cache entry exists (as writeProgress
+		// would have populated it) before the run throws.
+		__test__lastProgressContentHash.set(runId, "mid-flight-hash");
+		assert.equal(__test__lastProgressContentHash.has(runId), true, "precondition: cache entry exists before the run");
+
+		// The run throws mid-flight (findStep CrewError). executeTeamRun catches
+		// it internally and returns a failed result — the finally block must still
+		// delete the cache entry (exception-path cleanup, not just happy path).
+		const result = await executeTeamRun({
+			manifest: { ...created.manifest, status: "running" },
+			tasks,
+			team,
+			workflow,
+			agents,
+			executeWorkers: true,
+			limits: { maxRetriesPerTask: 0, maxConcurrentWorkers: 1 },
+			reliability: { autoRetry: false },
+			workspaceId: cwd,
+		});
+		assert.equal(result.manifest.status, "failed", "run should be marked failed after mid-flight throw");
+
+		assert.equal(
+			__test__lastProgressContentHash.has(runId),
+			false,
+			"cache entry must be cleared even when the run throws mid-flight (RT-7b-exc) — finally must run on the exception path",
+		);
+	} finally {
+		__test_resetCap(prevCap);
+		restoreMockEnv(prevEnv);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 // ─── RT-14: consolidation preserves site-specific logic ──────────
 
 test("[RT-14] cancelPlanTasks cancels only non-terminal tasks and preserves graph mutation", () => {

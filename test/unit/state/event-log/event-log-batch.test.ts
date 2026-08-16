@@ -3,17 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import {
-	appendEvent,
-	appendEventAsync,
-	appendEventBuffered,
-	readEvents,
-	resetEventLogMode,
-} from "../../../../src/state/event-log/event-log.ts";
-
-test.beforeEach(() => {
-	resetEventLogMode();
-});
+import { appendEvent, appendEventAsync, appendEventBuffered, readEvents } from "../../../../src/state/event-log/event-log.ts";
 
 test("non-terminal events via appendEventAsync are written directly (no buffering since v0.9.26)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-batch-async-"));

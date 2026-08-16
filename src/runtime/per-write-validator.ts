@@ -87,11 +87,6 @@ function rememberSeen(path: string, content: string): void {
 	}
 }
 
-/** Test seam: reset the dedup cache between tests. */
-export function resetPerWriteValidatorCache(): void {
-	seenContent.clear();
-}
-
 /**
  * Replace the validator registry (test seam). Production uses
  * DEFAULT_VALIDATORS; tests inject a custom map to exercise specific extensions.

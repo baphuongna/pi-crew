@@ -25,6 +25,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { Worker } from "node:worker_threads";
+import { getCrewEnv } from "../../config/env-vars.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -163,7 +164,7 @@ function dispatch(kind: "write" | "mkdir" | "append", payload: Record<string, un
 
 /** Whether the worker writer is enabled (env var opt-in). */
 export function isWorkerAtomicWriterEnabled(): boolean {
-	return process.env.PI_CREW_WORKER_ATOMIC_WRITER === "1" || process.env.PI_TEAMS_WORKER_ATOMIC_WRITER === "1";
+	return getCrewEnv("PI_CREW_WORKER_ATOMIC_WRITER") === "1" || getCrewEnv("PI_TEAMS_WORKER_ATOMIC_WRITER") === "1";
 }
 
 /** Atomic-write a file via the worker thread. Sync fs ops inside worker. */

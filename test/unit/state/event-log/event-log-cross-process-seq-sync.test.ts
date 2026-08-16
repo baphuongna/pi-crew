@@ -41,7 +41,6 @@ import {
 	__test__clearSeqCounters as clearSeqCounters,
 	__test__clearSequenceCache as clearSequenceCache,
 	readEvents,
-	resetEventLogMode,
 	scanSequence,
 	sequencePath,
 } from "../../../../src/state/event-log/event-log.ts";
@@ -88,7 +87,6 @@ describe("ST-5: cross-process seq uniqueness (sync locked append)", () => {
 	});
 
 	afterEach(() => {
-		resetEventLogMode();
 		clearSequenceCache();
 		clearSeqCounters();
 		fs.rmSync(tmpDir, { recursive: true, force: true });

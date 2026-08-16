@@ -4,18 +4,20 @@ import * as path from "node:path";
 import { DEFAULT_EVENT_LOG } from "../../config/defaults.ts";
 import { errors } from "../../errors.ts";
 import { emitFromTeamEvent } from "../../ui/run-event-bus.ts";
-import { type IncrementalReadState, readJsonlSince, readJsonlTail } from "../../utils/incremental-reader.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import { sleep, sleepSync } from "../../utils/sleep.ts";
 import { atomicWriteFile } from "../atomic-write.ts";
+import { applyCompactionUnlocked, needsRotation, prepareCompaction, rotateEventLogUnlocked } from "./event-log-rotation.ts";
 import {
-	applyCompactionUnlocked,
-	currentGeneration,
-	needsRotation,
-	prepareCompaction,
-	rotateEventLogUnlocked,
-} from "./event-log-rotation.ts";
+	advanceSequenceCounter,
+	evictOldestSequenceCacheEntries,
+	MAX_SEQUENCE_CACHE_ENTRIES,
+	persistSequenceMonotonic,
+	reserveSequence,
+	reserveSequenceUnderLockAsync,
+	sequenceCache,
+} from "./sequence-cache.ts";
 import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
 
 export type TeamEventProvenance = "live_worker" | "test" | "healthcheck" | "replay" | "api" | "background" | "team_runner";
@@ -48,6 +50,14 @@ export interface TeamEventMetadata {
 	appended?: boolean;
 	fingerprint?: string;
 	confidence?: "low" | "medium" | "high";
+	/** R17-S1 (Phase 3.8): set to `true` when the append was SKIPPED because the
+	 *  events file exceeded MAX_EVENTS_BYTES after compaction+rotation and the
+	 *  event is non-terminal. The returned TeamEvent then represents an event
+	 *  that was NOT persisted (and NOT emitted to the run-event-bus) — callers
+	 *  can detect the silent drop instead of treating it as success. Never
+	 *  written to disk (skipped events are not appended), so this is not an
+	 *  on-disk format change. */
+	skippedDueToSize?: boolean;
 }
 
 export interface TeamEvent {
@@ -67,8 +77,6 @@ export type AppendTeamEvent = Omit<TeamEvent, "time" | "metadata"> & {
 const TERMINAL_EVENT_TYPES = new Set<string>(DEFAULT_EVENT_LOG.terminalEventTypes);
 const MAX_EVENTS_BYTES = 50 * 1024 * 1024;
 
-const sequenceCache = new Map<string, { size: number; mtimeMs: number; seq: number; lastAccessMs: number }>();
-const MAX_SEQUENCE_CACHE_ENTRIES = 256;
 // P0-2: per-eventsPath append counter. Previously a single module-global shared
 // across all runs AND never incremented on the async path, so the async rotation
 // gate (`0 % 100 === 0`) was always true → needsRotation ran on EVERY async append
@@ -205,223 +213,6 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 	}
 }
 
-function evictOldestSequenceCacheEntries(): void {
-	// FIX: Evict by lastAccessMs (access time), not insertion order.
-	// Frequently accessed entries should be retained even if older.
-	const toEvict = Math.ceil(MAX_SEQUENCE_CACHE_ENTRIES / 2);
-	// Sort entries by lastAccessMs ascending (oldest first)
-	const entries = [...sequenceCache.entries()].sort((a, b) => a[1].lastAccessMs - b[1].lastAccessMs);
-	// Evict the oldest half
-	for (let i = 0; i < toEvict && i < entries.length; i++) {
-		sequenceCache.delete(entries[i][0]);
-	}
-}
-
-/** @internal — exported for sequence-cache LRU testing (Round 19). */
-export function __test__sequenceCacheSize(): number {
-	return sequenceCache.size;
-}
-
-/** @internal — seed an entry into the sequence cache for testing. */
-export function __test__seedSequenceCache(eventsPath: string, lastAccessMs: number): void {
-	sequenceCache.set(eventsPath, {
-		size: 1,
-		mtimeMs: 0,
-		seq: 0,
-		lastAccessMs,
-	});
-}
-
-/** @internal — expose eviction for testing. */
-export function __test__evictOldestSequenceCacheEntries(): void {
-	evictOldestSequenceCacheEntries();
-}
-
-/** @internal — clear the sequence cache. */
-export function __test__clearSequenceCache(): void {
-	sequenceCache.clear();
-}
-
-/** @internal — clear the in-process seqCounters Map so nextSequence seeds
- *  fresh from the sidecar/file (simulates a process restart for testing). */
-export function __test__clearSeqCounters(): void {
-	seqCounters.clear();
-}
-
-/** @internal — the raw nextSequence for testing (forces re-seed from disk
- *  by requiring the caller to have already cleared both caches). */
-export function __test__nextSequence(eventsPath: string): number {
-	return nextSequence(eventsPath);
-}
-
-/** @internal — the max sequence cache entries bound. */
-export const MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
-
-export function sequencePath(eventsPath: string): string {
-	return `${eventsPath}.seq`;
-}
-
-function parseSequence(raw: string): number | undefined {
-	const value = Number.parseInt(raw.trim(), 10);
-	return Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-export function scanSequence(eventsPath: string): number {
-	if (!fs.existsSync(eventsPath)) return 0;
-	let max = 0;
-	let skipped = 0;
-	for (const line of fs.readFileSync(eventsPath, "utf-8").split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const event = JSON.parse(line) as TeamEvent;
-			max = Math.max(max, event.metadata?.seq ?? 0);
-		} catch {
-			skipped++;
-		}
-	}
-	if (skipped > 0) {
-		logInternalError("event-log.scanSequence.corrupt_lines", undefined, `${eventsPath}: skipped ${skipped} corrupt line(s)`);
-	}
-	return max;
-}
-
-function readStoredSequence(eventsPath: string): number | undefined {
-	try {
-		return parseSequence(fs.readFileSync(sequencePath(eventsPath), "utf-8"));
-	} catch {
-		return undefined;
-	}
-}
-
-function nextSequence(eventsPath: string): number {
-	if (!fs.existsSync(eventsPath)) return 1;
-	const stat = fs.statSync(eventsPath);
-	const cached = sequenceCache.get(eventsPath);
-	if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
-		return cached.seq + 1;
-	}
-	// FIX: Trust the sidecar seq file if it exists and the file is non-empty.
-	// Explicitly check for file shrinkage (stat.size < cached.size) to trigger
-	// re-scan when rotation or compaction has occurred.
-	const stored = readStoredSequence(eventsPath);
-	const fileShrunk = cached && stat.size < cached.size;
-	if (stored !== undefined && !fileShrunk) {
-		// Trust the sidecar, but guard against a REGRESSED sidecar (e.g. the
-		// async path persisted a lower seq, rolling the sidecar back below the
-		// file's true max). Take max with a full scan so a regressed sidecar
-		// cannot produce a duplicate sequence number (EL-1 regression guard).
-		// NOTE (ST-12): a full scan here is acceptable because all three append
-		// paths now allocate seqs via reserveSequence/reserveSequenceUnderLock
-		// (ST-5: re-read sidecar under lock + max with in-process counter);
-		// nextSequence is only consulted for seeding/test helpers, NOT on the
-		// production append path. ST-12's perf goal (avoid 4MB scan on first
-		// append) is therefore met by ST-5 at the reserveSequence layer.
-		const fileMax = scanSequence(eventsPath);
-		const safeSeq = Math.max(stored, fileMax);
-		sequenceCache.set(eventsPath, {
-			size: stat.size,
-			mtimeMs: stat.mtimeMs,
-			seq: safeSeq,
-			lastAccessMs: Date.now(),
-		});
-		return safeSeq + 1;
-	}
-	const current = scanSequence(eventsPath);
-	sequenceCache.set(eventsPath, {
-		size: stat.size,
-		mtimeMs: stat.mtimeMs,
-		seq: current,
-		lastAccessMs: Date.now(),
-	});
-	persistSequence(eventsPath, current);
-	return current + 1;
-}
-
-function persistSequence(eventsPath: string, seq: number): void {
-	try {
-		// P0-4: the .seq sidecar is disposable (event-reconstructor tolerates an
-		// inconsistent tail); best-effort avoids 2 fsyncs per event append.
-		atomicWriteFile(sequencePath(eventsPath), String(seq), { durability: "best-effort" });
-	} catch (error) {
-		logInternalError("event-log.persist-sequence-file", error, `eventsPath=${eventsPath}`);
-	}
-}
-
-// B7: single in-process monotonic sequence counter per eventsPath. The three
-// append paths — sync appendEvent (withEventLogLockSync file lock), buffered
-// flush (asyncLocks promise chain), and direct appendEventAsync (asyncQueues
-// promise chain) — use DIFFERENT locks, so the old read-sidecar / compute /
-// persist-sidecar sequence logic in nextSequence() raced ACROSS paths and
-// produced duplicate sequence numbers (observed live: distinct events sharing
-// a seq; no data loss — only the counter collided). A single in-process counter
-// makes assignment atomic (JS is single-threaded); persistSequence() keeps the
-// sidecar durable for crash recovery across restarts.
-const seqCounters = new Map<string, number>();
-// H6 (2026-08-10): FIFO cap — mirrors appendCounters (APPEND_COUNTER_MAX_ENTRIES = 256)
-// and agentEventSeqCache (cap at :434). Without this, a long-lived parent pi process
-// that observes many runs (dev sessions with hundreds of background runs over a week)
-// accumulates one entry per distinct eventsPath forever. Eviction is safe: the next
-// append re-seeds from the `.seq` sidecar via reserveSequenceUnderLock.
-const SEQ_COUNTERS_MAX_ENTRIES = 256;
-
-/** Atomically reserve the next sequence number for `eventsPath`.
- *
- *  ST-5 (v0.9.56): previously this seeded the in-process `seqCounters` counter
- *  ONCE per process (reading the `.seq` sidecar a single time via
- *  `nextSequence`) and then served every subsequent call purely from that
- *  process-local counter. Two processes that both seeded before either had
- *  persisted ended up sharing the same counter base -> duplicate sequence
- *  numbers -> `sinceSeq` streaming readers silently dropped the second event.
- *  The async path was already fixed via `reserveSequenceUnderLock` (which
- *  re-reads the sidecar every call); the sync (`appendEvent`) and buffered
- *  (`appendEventBatchInsideLock`) paths were NOT.
- *
- *  Now ALL three append paths share one body: re-read the authoritative `.seq`
- *  sidecar on EVERY call and take `max(sidecar, inProcess)` so a counter that
- *  lags behind a sidecar advanced by another process can never assign a
- *  regressed (duplicate) seq. Every call site already holds a cross-process
- *  file lock (`withEventLogLockSync` for sync/buffered, `withEventLogLockAsync`
- *  for async), so the sidecar re-read is race-free within each lock class. */
-function reserveSequence(eventsPath: string): number {
-	return reserveSequenceUnderLock(eventsPath);
-}
-
-/** Keep the in-process counter monotonic w.r.t. an explicitly-provided seq
- *  (e.g. baseMetadata.seq) so a later auto-assigned seq never collides with it. */
-function advanceSequenceCounter(eventsPath: string, seq: number): void {
-	const last = seqCounters.get(eventsPath);
-	if (last === undefined || seq > last) {
-		seqCounters.set(eventsPath, seq);
-		enforceSeqCountersCap();
-	}
-}
-
-/** H6: FIFO eviction when the seqCounters map exceeds its bounded size. */
-function enforceSeqCountersCap(): void {
-	if (seqCounters.size > SEQ_COUNTERS_MAX_ENTRIES) {
-		const oldest = seqCounters.keys().next().value;
-		if (oldest !== undefined) seqCounters.delete(oldest);
-	}
-}
-
-/** C-01: Reserve sequence INSIDE the cross-process lock. Reads the authoritative
- *  sidecar (.seq file) for the last seq persisted by ANY process, ensuring
- *  cross-process uniqueness. Falls back to scanSequence if no sidecar exists.
- *  The in-process seqCounters is kept monotonic via Math.max for defensive
- *  consistency with any in-process sequencing that hasn't been persisted yet. */
-function reserveSequenceUnderLock(eventsPath: string): number {
-	let stored = readStoredSequence(eventsPath);
-	if (stored === undefined) {
-		stored = scanSequence(eventsPath);
-	}
-	const inProcess = seqCounters.get(eventsPath) ?? 0;
-	const last = Math.max(stored, inProcess);
-	const next = last + 1;
-	seqCounters.set(eventsPath, next);
-	enforceSeqCountersCap();
-	return next;
-}
-
 export function computeEventFingerprint(event: Pick<TeamEvent, "type" | "runId" | "taskId" | "data">): string {
 	return createHash("sha256")
 		.update(
@@ -451,6 +242,10 @@ export function appendEvent(eventsPath: string, event: AppendTeamEvent): TeamEve
 }
 
 // --- Async write queue (non-blocking alternative to withEventLogLockSync) ---
+// R5-L4: safety cap for error-path reset entries (see the appendEventAsync
+// error handler) — a path whose queue is reset after an error and then never
+// re-accessed would otherwise retain its entry until process exit.
+const MAX_ASYNC_QUEUES = 256;
 const asyncQueues = new Map<string, Promise<unknown>>();
 
 // --- Async lock for flush operations (non-blocking alternative to withEventLogLockSync) ---
@@ -492,6 +287,16 @@ async function drainAsyncQueues(): Promise<void> {
  *  on the same eventsPath is mitigated by `O_APPEND` atomic writes + the
  *  shared sidecar (extremely unlikely scenario — workers write to their own
  *  run-scoped events.jsonl, not the parent's).
+ *
+ *  R16-B1/R17 CORRECTION (Phase 3.6): the "extremely unlikely" claim above
+ *  was REFUTED empirically — 14 parent-side sync appendEvent sites write the
+ *  live run's eventsPath while child async appends run, and Round 17 measured
+ *  75% duplicate events / 527 duplicate seqs over 3000 events with the natural
+ *  (unwidened) rate. The family split itself is UNCHANGED (merging the two
+ *  lock dirs would reintroduce the sleepSync-vs-async-timer deadlock this
+ *  comment documents); the seq race is instead closed by the shared
+ *  `.seqlock` (L3) around the .seq sidecar reservation in
+ *  reserveSequenceUnderLock/Async — see the R16-B1 block near persistSequence.
  *
  *  NOT re-entrant: callers inside this lock must use unlocked compaction
  *  variants (prepareCompaction + applyCompactionUnlocked, rotateEventLogUnlocked)
@@ -597,15 +402,6 @@ async function withEventLogLockAsync<T>(
 	}
 }
 
-/** Reset event log mode (for testing only). */
-export function resetEventLogMode(): void {
-	asyncQueues.clear();
-	asyncLocks.clear();
-	// B7: clear in-process sequence counters alongside async state so tests
-	// don't leak seq state between runs.
-	seqCounters.clear();
-}
-
 /**
  * Append an event to the event log using non-blocking async I/O.
  *
@@ -644,16 +440,25 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 		// the event is definitively written. If appendFile fails, the sidecar is
 		// not updated and nextSequence() will re-scan on next call, returning the
 		// correct value without reuse.
+		// R16-B1 (Phase 3.6) PARTIAL SUPERSESSION: the sidecar IS now advanced at
+		// reservation time INSIDE the .seqlock (advance-on-reserve, gap-not-dup —
+		// see reserveSequenceLocked); the post-append persist below is kept and is
+		// idempotent (writes the same value the reservation already persisted).
 		const baseMetadata = event.metadata;
 		let seq: number;
 		if (baseMetadata?.seq !== undefined) {
 			seq = baseMetadata.seq;
 			advanceSequenceCounter(eventsPath, seq);
 		} else {
-			seq = reserveSequenceUnderLock(eventsPath);
-			// NOTE: We do NOT call persistSequence here. It will be called AFTER
-			// successful appendFile below to ensure sidecar is only updated when
-			// the event is actually written.
+			// R16-B1 (Phase 3.6): reservation now acquires the shared `.seqlock`
+			// (async acquire wrapper — never sleepSync on the event loop) and
+			// PERSISTS the reserved seq inside it (advance-on-reserve). The old
+			// "do NOT call persistSequence here" note is superseded: without the
+			// in-lock persist, two processes in different family locks both read
+			// sidecar=N and both reserve N+1 (Round 17: 75% dup events). A failed
+			// append after reservation now yields a seq GAP (tolerated by the
+			// event-reconstructor's lossless recovery), never a duplicate.
+			seq = await reserveSequenceUnderLockAsync(eventsPath);
 		}
 		let metadata: TeamEventMetadata = {
 			seq,
@@ -711,7 +516,18 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				}
 				if (afterCompactStat) {
 					if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-						rotateEventLogUnlocked(eventsPath);
+						// R17-S1 (Phase 3.8): a failed rotation leaves the file over the
+						// limit — the next non-terminal appends would be silently skipped.
+						// Check the boolean (previously ignored) and surface severity
+						// "error" so the chain signals at EVERY step.
+						if (!rotateEventLogUnlocked(eventsPath)) {
+							logInternalError(
+								"event-log.rotate-failed",
+								new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+								`eventsPath=${eventsPath}`,
+								"error",
+							);
+						}
 					}
 				}
 			}
@@ -734,8 +550,17 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 					"event-log.size-limit",
 					new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
 					`eventsPath=${eventsPath}`,
+					// R17-S1 (Phase 3.8, Round 18 escalation to HIGH): this was default
+					// severity "debug" (PI_TEAMS_DEBUG-gated) → fully silent drop in
+					// production. "error" always emits.
+					"error",
 				);
 				skippedDueToSize = true;
+				// R17-S1: surface the drop on the returned event itself — resolve
+				// with an indicator instead of as-if-persisted success. Never
+				// throw on the skip path (Round 18 caution), and never emit a
+				// non-persisted event to the run-event-bus (gate below).
+				metadata.skippedDueToSize = true;
 			}
 		} catch (error) {
 			logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -784,11 +609,14 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 					await fd.close();
 				}
 			}
-			// FIX: Persist sequence AFTER successful appendFile to ensure sidecar
-			// is only updated when the event is definitively written. If appendFile
-			// threw, we would not reach here and the sidecar would not be updated,
-			// preventing sequence reuse on restart.
-			persistSequence(eventsPath, seq);
+			// R16-B1 (Phase 3.6): advance-on-reserve already persisted this exact
+			// value INSIDE the .seqlock — re-persisting it here (outside the lock)
+			// can REGRESS the sidecar after another process reserved further
+			// (observed: re-reserved duplicate seqs in the b9 cross-process bench).
+			// Only EXPLICIT (pre-assigned) seqs bypassed the reservation — persist
+			// those, monotonically and under the .seqlock, so a lower explicit seq
+			// can never roll the sidecar back either.
+			if (baseMetadata?.seq !== undefined) persistSequenceMonotonic(eventsPath, seq);
 		}
 		// FIND-10: track whether compaction happened after the append so the
 		// cache-update stat can safely reuse postAppendStat (file unchanged).
@@ -802,10 +630,15 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 				logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
 			}
 		}
-		try {
-			emitFromTeamEvent(fullEvent);
-		} catch (error) {
-			logInternalError("event-log.emit", error);
+		// R17-S1 (Phase 3.8): gate the UI-bus emit on !skippedDueToSize — the bus
+		// must never receive events that were NOT persisted (live-UI vs
+		// reconstructed-state divergence, Round 18 reviewer addendum).
+		if (!skippedDueToSize) {
+			try {
+				emitFromTeamEvent(fullEvent);
+			} catch (error) {
+				logInternalError("event-log.emit", error);
+			}
 		}
 
 		// FIX: Sequence was persisted AFTER appendFile in the append block above.
@@ -871,6 +704,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			// FIX: Reset queue to a resolved state instead of deleting it.
 			// This prevents cascading failures where a single transient error
 			// (e.g., ENOSPC) causes all subsequent events on the same path to fail.
+			// R5-L4: cap the retained reset entries — evict oldest (Map insertion
+			// order) so paths that error and are never re-accessed cannot leak.
+			while (asyncQueues.size >= MAX_ASYNC_QUEUES) {
+				const oldestKey = asyncQueues.keys().next().value;
+				if (oldestKey === undefined) break;
+				asyncQueues.delete(oldestKey);
+			}
 			asyncQueues.set(queueKey, Promise.resolve());
 		},
 	);
@@ -911,7 +751,17 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 					logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
 				}
 				if (fs.existsSync(eventsPath) && fs.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-					rotateEventLogUnlocked(eventsPath);
+					// R17-S1 (Phase 3.8): check the rotation boolean (previously ignored)
+					// and surface severity "error" — a failed rotation leaves the file
+					// over the limit and the batch below will be rejected as a result.
+					if (!rotateEventLogUnlocked(eventsPath)) {
+						logInternalError(
+							"event-log.rotate-failed",
+							new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+							`eventsPath=${eventsPath}`,
+							"error",
+						);
+					}
 				}
 			}
 		}
@@ -927,7 +777,11 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	// seq, breaking the "unique monotonic seq" contract. The cache update +
 	// persistSequence at the end refreshes the sidecar to the last assigned seq.
 	// B7: use reserveSequence for atomic seq assignment across all paths.
-	const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath);
+	// R16-B1 (Phase 3.6): reserve the WHOLE batch range (count = queue.length)
+	// under the .seqlock in one acquire — the locally incremented nextSeq below
+	// then stays inside the reserved range even when explicit baseMetadata.seq
+	// values skip some of the reserved slots (those become gaps, never dups).
+	const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath, queue.length);
 	let nextSeq = startingSeq;
 	const finalized: { item: BufferedAppend; line: string; fullEvent: TeamEvent }[] = [];
 	let lastSeq = 0;
@@ -992,7 +846,11 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	} finally {
 		fs.closeSync(fd);
 	}
-	persistSequence(eventsPath, lastSeq);
+	// R16-B1 (Phase 3.6): monotonic persist under the .seqlock — the reservation
+	// already persisted the batch range end; this covers explicit (pre-assigned)
+	// seqs that may exceed it and can never REGRESS the sidecar (the old bare
+	// persistSequence could write a lower lastSeq over a higher reserved value).
+	persistSequenceMonotonic(eventsPath, lastSeq);
 
 	// Phase 3: cache update + resolve all promises.
 	try {
@@ -1069,7 +927,18 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 			if (fs.existsSync(eventsPath)) {
 				const afterCompact = fs.statSync(eventsPath);
 				if (afterCompact.size > MAX_EVENTS_BYTES) {
-					rotateEventLogUnlocked(eventsPath);
+					// R17-S1 (Phase 3.8): check the rotation boolean (previously
+					// ignored) and surface severity "error" — a failed rotation
+					// leaves the file over the limit and the size check below will
+					// silently skip every subsequent non-terminal append.
+					if (!rotateEventLogUnlocked(eventsPath)) {
+						logInternalError(
+							"event-log.rotate-failed",
+							new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+							`eventsPath=${eventsPath}`,
+							"error",
+						);
+					}
 				}
 			}
 		}
@@ -1082,8 +951,18 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 				"event-log.size-limit",
 				new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
 				`eventsPath=${eventsPath}`,
+				// R17-S1 (Phase 3.8, Round 18 escalation to HIGH): was default "debug"
+				// (PI_TEAMS_DEBUG-gated) → fully silent drop in production. "error"
+				// always emits.
+				"error",
 			);
 			skippedDueToSize = true;
+			// R17-S1: surface the drop on the RETURNED event (never throw — callers
+			// run inside withRunLockSync and a throw would fail cancel/save critical
+			// sections; Round 18 fix-design caution). The returned TeamEvent carries
+			// skippedDueToSize=true so live-path callers can detect the drop; the
+			// event is NOT persisted and NOT emitted (gate below).
+			metadata.skippedDueToSize = true;
 		}
 	} catch (error) {
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
@@ -1111,7 +990,13 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 		}
 		// FIX: Persist sequence AFTER the event append to prevent sequence reuse
 		// on crash. Only update the sidecar when the event is definitively written.
-		persistSequence(eventsPath, seq);
+		// R16-B1 (Phase 3.6): advance-on-reserve already persisted this exact
+		// value INSIDE the .seqlock — re-persisting it here (outside the lock)
+		// can REGRESS the sidecar after another process reserved further
+		// (observed: re-reserved duplicate seqs in the b9 cross-process bench).
+		// Only EXPLICIT (pre-assigned) seqs bypassed the reservation — persist
+		// those, monotonically and under the .seqlock.
+		if (explicitSeq !== undefined) persistSequenceMonotonic(eventsPath, seq);
 		// FIX: Update cache AFTER append so cache and log are consistent with each other.
 		// This matches the async path behavior where cache is updated after the append.
 		// If a crash occurs after append but before cache update, the .seq file is
@@ -1144,10 +1029,15 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 			logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
 		}
 	}
-	try {
-		emitFromTeamEvent(fullEvent);
-	} catch (error) {
-		logInternalError("event-log.emit", error);
+	// R17-S1 (Phase 3.8): gate the UI-bus emit on !skippedDueToSize — the bus
+	// must never receive events that were NOT persisted (live-UI vs
+	// reconstructed-state divergence, Round 18 reviewer addendum).
+	if (!skippedDueToSize) {
+		try {
+			emitFromTeamEvent(fullEvent);
+		} catch (error) {
+			logInternalError("event-log.emit", error);
+		}
 	}
 	return fullEvent;
 }
@@ -1369,117 +1259,6 @@ process.on("uncaughtException", (error) => {
 	throw error;
 });
 
-export function readEvents(eventsPath: string): TeamEvent[] {
-	if (!fs.existsSync(eventsPath)) return [];
-	return fs
-		.readFileSync(eventsPath, "utf-8")
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.flatMap((line) => {
-			try {
-				return [JSON.parse(line) as TeamEvent];
-			} catch {
-				return [];
-			}
-		});
-}
-
-export interface EventCursorOptions {
-	sinceSeq?: number;
-	limit?: number;
-	fromByteOffset?: number;
-	/** R-03: generation the caller captured on its previous read. When set, a
-	 * mismatch with the live generation signals the file was rotated/truncated
-	 * and the byte offset is stale — the cursor resets to 0 so the new file is
-	 * re-read from its start instead of missing post-rotation events. */
-	generation?: number;
-}
-
-export interface EventCursorResult {
-	events: TeamEvent[];
-	nextSeq: number;
-	total: number;
-	nextByteOffset?: number;
-	/** R-03: live generation of the events file at read time. Callers doing
-	 * streaming byte-offset reads should echo this back as `generation` on the
-	 * next call so rotation is detected and the cursor resets. */
-	generation?: number;
-}
-
-function positiveInteger(value: number | undefined): number | undefined {
-	return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): EventCursorResult {
-	// Incremental byte-offset path: read only new bytes since last known offset
-	if (options.fromByteOffset !== undefined) {
-		// R-03: detect file rotation/truncation via the generation sidecar BEFORE
-		// reusing the byte offset. If the file was rotated since the caller last
-		// read, it was truncated to empty (pre-rotation content archived to
-		// `<eventsPath>.<ts>.archive.jsonl`) and is growing again from 0 — the
-		// caller's offset now points past EOF, so post-rotation events would be
-		// silently missed. Reset to offset 0 to re-read the current file from its
-		// start. Re-reading from 0 re-delivers no previously-returned events:
-		// those live in the archive, not the (now fresh) current file.
-		const liveGen = currentGeneration(eventsPath);
-		const staleCursor = options.generation !== undefined && options.generation !== liveGen;
-		const byteOffset = staleCursor ? 0 : (positiveInteger(options.fromByteOffset) ?? 0);
-		const initialState: IncrementalReadState = { byteOffset, lineCount: 0 };
-		const { items, state: newState, eof } = readJsonlSince<TeamEvent>(eventsPath, initialState);
-		const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
-		const filtered = items.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-		const limit = positiveInteger(options.limit);
-		const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
-		const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-		return {
-			events,
-			nextSeq: returnedMaxSeq,
-			total: filtered.length,
-			nextByteOffset: newState.byteOffset,
-			generation: liveGen,
-		};
-	}
-
-	// FIND-05 default path: byte-level tail read (last 4MB) instead of
-	// full-file read. Bounds CPU to O(tail bytes) instead of O(total
-	// events). The legacy readEvents() full parse path is preserved for
-	// callers that explicitly need the full history (e.g. tests that
-	// assert exact contents) and as a small-file fallback.
-	//
-	// The 5000-event tail cap and the "event-log.cursor-full-read"
-	// warning are preserved. A separate cursor-tail-truncated warning is
-	// emitted whenever the file exceeds the 4MB tail budget, signalling
-	// that a prefix was dropped and callers should pass fromByteOffset for
-	// streaming reads.
-	const TAIL_BYTES = 4 * 1024 * 1024; // 4 MB
-	const TAIL_EVENT_CAP = 5000;
-	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
-	const limit = positiveInteger(options.limit);
-
-	const tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
-	let all = tail.items;
-	if (tail.truncated) {
-		logInternalError("event-log.cursor-tail-truncated", {
-			eventsPath,
-			returned: all.length,
-			tailBytes: TAIL_BYTES,
-		});
-	}
-	if (all.length > TAIL_EVENT_CAP) {
-		logInternalError(
-			"event-log.cursor-full-read",
-			new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
-			`eventsPath=${eventsPath}`,
-		);
-		all = all.slice(-TAIL_EVENT_CAP);
-	}
-	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
-	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-	return { events, nextSeq: returnedMaxSeq, total: filtered.length };
-}
-
 export function dedupeTerminalEvents(events: TeamEvent[]): TeamEvent[] {
 	const seen = new Set<string>();
 	const output: TeamEvent[] = [];
@@ -1493,3 +1272,7 @@ export function dedupeTerminalEvents(events: TeamEvent[]): TeamEvent[] {
 	}
 	return output;
 }
+
+// --- Re-export shim (Phase 2.4): moved modules stay reachable from this path ---
+export * from "./cursor.ts";
+export * from "./sequence-cache.ts";

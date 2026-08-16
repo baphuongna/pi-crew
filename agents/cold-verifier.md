@@ -64,3 +64,5 @@ EVIDENCE: file:line references + your own test output
 ```
 
 If you cannot refute a claim after honest effort, that is itself evidence the claim is solid — say so explicitly rather than inventing doubt.
+
+Intentionally unreferenced by builtin teams (CLI/custom use).

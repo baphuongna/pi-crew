@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	clearSecurityEventLog,
-	getSecurityEventLog,
-	registerDynamicAgent,
-	sanitizeAgentSystemPrompt,
-} from "../../src/agents/discover-agents.ts";
+import { getSecurityEventLog, registerDynamicAgent, sanitizeAgentSystemPrompt } from "../../src/agents/discover-agents.ts";
 
 /**
  * Round 24 (test coverage gaps): `discover-agents.ts` is security-critical
@@ -157,9 +152,11 @@ test("sanitizeAgentSystemPrompt: idempotent for clean content", () => {
 	assert.equal(out1, clean);
 });
 
-test("getSecurityEventLog / clearSecurityEventLog: work as documented", () => {
-	clearSecurityEventLog();
-	assert.equal(getSecurityEventLog().length, 0);
+test("getSecurityEventLog: records blocked registrations (delta-based)", () => {
+	// clearSecurityEventLog was removed (R7-13 dead export, 0 production
+	// callers); the log itself is capped at 1000 entries. Isolation is via
+	// delta assertion instead of clearing.
+	const before = getSecurityEventLog().length;
 
 	// Trigger an event by calling an internal path: registerDynamicAgent with a
 	// protected name throws and logs an event. This is the only public path
@@ -176,11 +173,8 @@ test("getSecurityEventLog / clearSecurityEventLog: work as documented", () => {
 		/protected builtin name/i,
 	);
 
-	const events = getSecurityEventLog();
+	const events = getSecurityEventLog().slice(before);
 	assert.equal(events.length, 1);
 	assert.equal(events[0]?.type, "AGENT_REGISTRATION_BLOCKED");
 	assert.equal(events[0]?.name, "executor");
-
-	clearSecurityEventLog();
-	assert.equal(getSecurityEventLog().length, 0);
 });

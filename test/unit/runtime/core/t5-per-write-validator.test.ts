@@ -15,7 +15,6 @@ import {
 	buildValidationBlocker,
 	extensionKey,
 	extractPathFromInput,
-	resetPerWriteValidatorCache,
 	setPerWriteValidatorsForTest,
 	validateJson,
 	validateWrittenFile,
@@ -26,7 +25,6 @@ let dir: string;
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "t5-pwv-"));
 	setPerWriteValidatorsForTest(undefined); // default registry (json)
-	resetPerWriteValidatorCache();
 });
 
 afterEach(() => {
@@ -36,7 +34,6 @@ afterEach(() => {
 		// ignore
 	}
 	setPerWriteValidatorsForTest(undefined);
-	resetPerWriteValidatorCache();
 });
 
 describe("T5: validateJson", () => {

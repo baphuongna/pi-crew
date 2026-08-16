@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { clearReadCache, createFileCoalescer, readJsonFileCoalesced } from "../../../src/utils/file-coalescer.ts";
+import { createFileCoalescer, readJsonFileCoalesced } from "../../../src/utils/file-coalescer.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 describe("createFileCoalescer", () => {
@@ -76,11 +76,9 @@ describe("readJsonFileCoalesced", () => {
 
 	beforeEach(() => {
 		tmpDir = createTrackedTempDir("pi-crew-coalescer-");
-		clearReadCache();
 	});
 
 	afterEach(() => {
-		clearReadCache();
 		removeTrackedTempDir(tmpDir);
 	});
 

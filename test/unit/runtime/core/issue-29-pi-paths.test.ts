@@ -172,9 +172,7 @@ test("issue #29 — checkpoint save/load round-trips through .pi/teams/state/run
 		// And NOT at .crew/state/runs/...
 		const wrongDir = path.join(dir, ".crew", "state", "runs", runId, "checkpoints");
 		assert.ok(!fs.existsSync(wrongDir), `Checkpoint file should NOT exist at the wrong path: ${wrongDir}`);
-		// Cleanup
-		ck.clearCheckpoint(runId, taskId, dir);
-		ck.clearCheckpointStores();
+		// Cleanup: rmTemp(dir) in the finally block removes the whole tree
 	} finally {
 		rmTemp(dir);
 	}

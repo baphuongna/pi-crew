@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { appendEvent, appendEventAsync, appendEventBuffered, resetEventLogMode } from "../../../../src/state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered } from "../../../../src/state/event-log/event-log.ts";
 
 function makeEvent(taskId: string) {
 	return { type: "task.progress" as const, runId: "b7-test", taskId, data: {} };
@@ -32,7 +32,6 @@ describe("B7: cross-path seq uniqueness", () => {
 	});
 
 	afterEach(() => {
-		resetEventLogMode();
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 

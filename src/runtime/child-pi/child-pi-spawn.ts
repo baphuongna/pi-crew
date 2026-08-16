@@ -71,8 +71,9 @@ export const BASE_ALLOWLIST: string[] = [
  *   1. Validate cwd (realpath + isDirectory) — fall back to lexical path on ENOENT.
  *   2. Filter env vars to the allowlist (model-aware provider key scoping).
  *   3. Validate NODE_PATH against safe prefixes (/opt, /lib, /usr, /home).
- *   4. Add PI_CREW_PARENT_PID for the child-side parent-guard (currently UNUSED —
- *      see note at the PI_CREW_PARENT_PID assignment below).
+ *   4. Add PI_CREW_PARENT_PID for the child-side parent-guard (consumed by the
+ *      reactive zombie-scanner + background-runner parent-guard; unused only by
+ *      the pi dist binary — see note at the PI_CREW_PARENT_PID assignment below).
  */
 export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, model?: string): SpawnOptions {
 	// SECURITY FIX (Issue #1): Validate cwd before passing to spawn.
@@ -137,11 +138,20 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 		cwd: validatedCwd,
 		env: {
 			...filteredEnv,
-			// PI_CREW_PARENT_PID is set so that child pi workers could theoretically
-			// run a parent-guard (parent-guard.ts). However, as of RT-19/RT-2, this
-			// env var has ZERO consumers: child workers are the external `pi` binary
-			// (@earendil-works/pi-coding-agent) which does NOT read
-			// PI_CREW_PARENT_PID or call startParentGuard (grep of Pi dist = 0 matches).
+			// PI_CREW_PARENT_PID is set so child workers can run a parent-guard
+			// (parent-guard.ts). Consumers (NOT dead):
+			//   1. zombie-scanner.ts:185 — reads PI_CREW_PARENT_PID from
+			//      /proc/<pid>/environ (readProcEnviron) to detect orphaned/zombie
+			//      workers whose leader died.
+			//   2. background-runner.ts:615 — startParentGuard(parentPid)
+			//      self-terminates the orchestrator when its own parent dies.
+			//   3. scratchpad-lifecycle.ts:50,166 — propagates the leader pid into
+			//      scratchpad guest env for guest-zombie detection.
+			// The var is unused ONLY by the external `pi` binary
+			// (@earendil-works/pi-coding-agent): it does NOT read PI_CREW_PARENT_PID
+			// or call startParentGuard (grep of Pi dist = 0 matches), so child-pi
+			// workers cannot self-terminate on leader death — they rely on the
+			// reactive zombie scanner (see docs/decisions/2026-08-14-parent-guard-reactive-scanner.md).
 			// The deeper fix (wiring startParentGuard into the pi worker entry point)
 			// is DEFERRED because workers are an external binary pi-crew doesn't control.
 			//
@@ -158,7 +168,7 @@ export function buildChildPiSpawnOptions(cwd: string, env: NodeJS.ProcessEnv, mo
 		// NOTE: setsid creates a new session; the child process becomes the session leader
 		// and its parent becomes that session leader (still the team-runner in the same
 		// process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner),
-		// but see the comment above — child pi workers do NOT actually consume it. The
+		// but see the comment above — the pi worker binary does NOT actually consume it. The
 		// parent-guard model would check direct parent liveness via process.kill(pid, 0),
 		// but this is only implemented in background-runner.ts, not in the worker binary.
 		windowsHide: true,

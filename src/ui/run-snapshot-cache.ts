@@ -163,14 +163,6 @@ function safeAgentOutputPath(manifest: TeamRunManifest, agent: CrewAgentRecord):
 	}
 }
 
-function outputStamp(manifest: TeamRunManifest, agents: CrewAgentRecord[]): FileStamp {
-	return combineStamps(agents.map((agent) => stampFile(safeAgentOutputPath(manifest, agent))));
-}
-
-async function outputStampAsync(manifest: TeamRunManifest, agents: CrewAgentRecord[]): Promise<FileStamp> {
-	return combineStamps(await Promise.all(agents.map((agent) => stampFileAsync(safeAgentOutputPath(manifest, agent)))));
-}
-
 function sameStamp(a: FileStamp, b: FileStamp): boolean {
 	return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
@@ -183,15 +175,6 @@ function sameStamps(a: SnapshotStamps, b: SnapshotStamps): boolean {
 		sameStamp(a.events, b.events) &&
 		sameStamp(a.mailbox, b.mailbox)
 	);
-}
-
-function readTasks(tasksPath: string): TeamTaskState[] {
-	try {
-		const parsed = JSON.parse(fs.readFileSync(tasksPath, "utf-8")) as unknown;
-		return Array.isArray(parsed) ? (parsed as TeamTaskState[]) : [];
-	} catch {
-		throw new Error(`Failed to parse tasks at ${tasksPath}`);
-	}
 }
 
 /** Tail-read JSONL lines from a file, returning parsed objects (limited). */
@@ -744,15 +727,6 @@ function signatureFor(
 	}
 }
 
-/**
- * 1.6 / 1.7 — compute one short hash per logical slice of the snapshot so
- * dashboard panes / widget can short-circuit when their slice hasn't moved.
- * The slice contents must mirror what `signatureFor` packs into each branch.
- */
-function sliceSignaturesFor(sliceSignatures: SliceSignatures): SliceSignatures {
-	return sliceSignatures;
-}
-
 function stampsFor(manifest: TeamRunManifest, _agents: CrewAgentRecord[]): SnapshotStamps {
 	// 1.4: use events sequence file instead of stat-ing the events log directly.
 	// 1.5: drop per-agent output.log stamping; rely on event-bus invalidation
@@ -834,7 +808,12 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		let tasks: TeamTaskState[];
 		let agents: CrewAgentRecord[];
 		try {
-			tasks = readTasks(loaded.manifest.tasksPath);
+			// R10-4 (docs/refactor-plan.review.md §ROUND 10): sync/async parity.
+			// loadRunManifestById already returns tasks validated against the
+			// current tasks.json (mtime+size+generation check in state-store),
+			// so the old readTasks() re-read only doubled tasks.json I/O per
+			// sync rebuild. buildAsync() has always used loaded.tasks.
+			tasks = loaded.tasks;
 			agents = readCrewAgents(loaded.manifest);
 		} catch {
 			if (previous) return previous;

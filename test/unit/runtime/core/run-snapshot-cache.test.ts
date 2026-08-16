@@ -101,16 +101,24 @@ test("RunSnapshotCache reuses fresh entries and updates signature after file cha
 	}
 });
 
-test("RunSnapshotCache returns previous valid snapshot on parse errors", () => {
+test("RunSnapshotCache stays functional on parse errors (R10-4 parity: recovers like async)", () => {
 	const cwd = tempCwd("pi-crew-snapshot-parse-");
 	try {
 		const { manifest } = fixtures(cwd);
 		const cache = createRunSnapshotCache(cwd, { ttlMs: 0 });
 		const first = cache.refresh(manifest.runId);
 		fs.writeFileSync(manifest.tasksPath, "{not json", "utf-8");
-		const afterError = cache.refreshIfStale(manifest.runId);
-		assert.equal(afterError, first);
-		assert.equal(afterError.progress.total, first.progress.total);
+		// R10-4 (Wave 2A): the sync build() now uses loaded.tasks from
+		// loadRunManifestById (same as buildAsync since v0.1) — when tasks.json is
+		// corrupt, the manifest-io load-with-recovery family (Phase 2.5) quarantines
+		// the bad file and recovers a valid task list, so the cache returns a FRESH
+		// recovered snapshot instead of holding the stale one. Stale-keep was the
+		// old sync-only behavior; async never had it. Contract now: no throw, valid
+		// snapshot, progress structurally sound.
+		const recovered = cache.refreshIfStale(manifest.runId);
+		assert.ok(recovered, "refreshIfStale must not throw on corrupt tasks.json");
+		assert.ok(typeof recovered.progress.total === "number", "recovered snapshot must have valid progress");
+		assert.deepEqual(Object.keys(recovered).sort(), Object.keys(first).sort(), "same snapshot shape");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

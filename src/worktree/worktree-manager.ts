@@ -146,6 +146,12 @@ export function assertCleanLeader(repoRoot: string): void {
 
 // --- Async versions ---
 
+// R5-L1 (Round 5 LOW-1): the exported clear*() fns below stay unwired by
+// leader decision (rewiring run-start/lock-release paths is riskier than the
+// leak); the FIFO caps bound these caches instead.
+const MAX_GIT_ROOT_CACHE = 256;
+const MAX_CLEAN_LEADER_CACHE = 256;
+
 /** Cache for findGitRoot results keyed by cwd. Cleared per-run. */
 const _gitRootCache = new Map<string, string>();
 
@@ -159,6 +165,10 @@ export async function findGitRootAsync(cwd: string): Promise<string> {
 	if (cached) return cached;
 	const root = await gitAsync(cwd, ["rev-parse", "--show-toplevel"]);
 	_gitRootCache.set(cwd, root);
+	if (_gitRootCache.size > MAX_GIT_ROOT_CACHE) {
+		const oldest = _gitRootCache.keys().next().value;
+		if (oldest !== undefined) _gitRootCache.delete(oldest);
+	}
 	return root;
 }
 
@@ -179,6 +189,10 @@ export async function assertCleanLeaderAsync(repoRoot: string): Promise<void> {
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
 	}
 	_cleanLeaderCache.add(repoRoot);
+	if (_cleanLeaderCache.size > MAX_CLEAN_LEADER_CACHE) {
+		const oldest = _cleanLeaderCache.values().next().value;
+		if (oldest !== undefined) _cleanLeaderCache.delete(oldest);
+	}
 }
 
 function linkNodeModulesIfPresent(repoRoot: string, worktreePath: string): boolean {
@@ -469,6 +483,10 @@ async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ lo
 // run no new stale worktrees appear, so one prune suffices).
 const _prunedRepos = new Set<string>();
 const _pruneInFlight = new Map<string, Promise<void>>();
+// R5-L2 (Round 5 LOW-2): FIFO cap — dedupe-only Set, never cleared in
+// production; eviction just means a re-prune for that repo later, which is
+// harmless (prune is idempotent and coalesced).
+const MAX_PRUNED_REPOS = 128;
 async function pruneStaleWorktreesAsync(repoRoot: string): Promise<void> {
 	if (_prunedRepos.has(repoRoot)) return;
 	const inFlight = _pruneInFlight.get(repoRoot);
@@ -483,6 +501,10 @@ async function pruneStaleWorktreesAsync(repoRoot: string): Promise<void> {
 			/* best-effort */
 		}
 		_prunedRepos.add(repoRoot);
+		if (_prunedRepos.size > MAX_PRUNED_REPOS) {
+			const oldest = _prunedRepos.values().next().value;
+			if (oldest !== undefined) _prunedRepos.delete(oldest);
+		}
 		_pruneInFlight.delete(repoRoot);
 	})();
 	_pruneInFlight.set(repoRoot, p);

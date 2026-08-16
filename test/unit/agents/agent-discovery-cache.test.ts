@@ -5,7 +5,6 @@ import test from "node:test";
 import type { AgentConfig } from "../../../src/agents/agent-config.ts";
 import {
 	allAgents,
-	clearSecurityEventLog,
 	discoverAgents,
 	getSecurityEventLog,
 	invalidateAgentDiscoveryCache,
@@ -97,7 +96,8 @@ test("unregisterDynamicAgent throws when agent not found", () => {
 });
 
 test("dynamic agents cannot shadow protected builtin agents (SEC-001 security fix)", () => {
-	clearSecurityEventLog();
+	// Delta-based isolation: clearSecurityEventLog was removed (R7-13).
+	const before = getSecurityEventLog().length;
 	// Protected names are blocked at registration time
 	const protectedNames = [
 		"executor",
@@ -119,13 +119,14 @@ test("dynamic agents cannot shadow protected builtin agents (SEC-001 security fi
 		);
 	}
 	// Verify security events were logged
-	const events = getSecurityEventLog();
+	const events = getSecurityEventLog().slice(before);
 	const blockedEvents = events.filter((e) => e.type === "AGENT_REGISTRATION_BLOCKED");
 	assert.equal(blockedEvents.length, protectedNames.length, "All blocked registrations should be logged");
 });
 
 test("pattern-based protection blocks similar names (SEC-001)", () => {
-	clearSecurityEventLog();
+	// Delta-based isolation: clearSecurityEventLog was removed (R7-13).
+	const before = getSecurityEventLog().length;
 	// Pattern variations that should be blocked
 	const blockedPatterns = [
 		"executor-v2",
@@ -148,13 +149,14 @@ test("pattern-based protection blocks similar names (SEC-001)", () => {
 	}
 
 	// Verify security events for pattern matches
-	const events = getSecurityEventLog();
+	const events = getSecurityEventLog().slice(before);
 	const patternBlockedEvents = events.filter((e) => e.type === "AGENT_REGISTRATION_BLOCKED" && e.reason.includes("pattern_match"));
 	assert.equal(patternBlockedEvents.length, blockedPatterns.length, "All pattern matches should be logged");
 });
 
 test("allowed names are not blocked (SEC-001)", () => {
-	clearSecurityEventLog();
+	// Delta-based isolation: clearSecurityEventLog was removed (R7-13).
+	const before = getSecurityEventLog().length;
 	const allowedNames = [
 		"my-custom-agent",
 		"data-processor",
@@ -176,7 +178,7 @@ test("allowed names are not blocked (SEC-001)", () => {
 	}
 
 	// Should have no blocked events
-	const events = getSecurityEventLog();
+	const events = getSecurityEventLog().slice(before);
 	const blockedEvents = events.filter((e) => e.type === "AGENT_REGISTRATION_BLOCKED");
 	assert.equal(blockedEvents.length, 0, "Allowed names should not be blocked");
 });

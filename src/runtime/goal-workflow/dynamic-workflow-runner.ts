@@ -20,6 +20,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { transformSync } from "esbuild";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
@@ -151,7 +152,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// require, fs, child_process). Cloning a hostile repo and running its workflow = arbitrary
 	// code execution. Default-deny project workflows unless the user explicitly opts in via
 	// PI_CREW_TRUST_PROJECT_DWF=1. Builtin and user workflows proceed without restriction.
-	if (workflow.source === "project" && process.env.PI_CREW_TRUST_PROJECT_DWF !== "1") {
+	if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
 		appendEvent(eventsPath, {
 			type: "dwf.trust_denied",
 			runId: manifest.runId,
@@ -223,7 +224,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		// it does NOT kill the script. Promise.race with a hard timeout at least returns an
 		// error so the runner doesn't hang. The spawned child process is leaked, but the
 		// dynamic-workflow returns failure promptly. (v1.5: use Worker threads to actually kill.)
-		const SCRIPT_TIMEOUT_MS = Number.parseInt(process.env.PI_CREW_DWF_SCRIPT_TIMEOUT_MS ?? "", 10) || 1_800_000; // 30 min default (was 10 min; raised for distill-dwf + similar long pipelines)
+		const SCRIPT_TIMEOUT_MS = Number.parseInt(getCrewEnv("PI_CREW_DWF_SCRIPT_TIMEOUT_MS") ?? "", 10) || 1_800_000; // 30 min default (was 10 min; raised for distill-dwf + similar long pipelines)
 		let timeoutHandle: NodeJS.Timeout | undefined;
 		const timeoutPromise = new Promise<never>((_, reject) => {
 			timeoutHandle = setTimeout(() => {

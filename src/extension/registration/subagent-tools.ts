@@ -365,7 +365,7 @@ export function registerSubagentTools(
 		name: "steer_subagent",
 		label: "Steer Agent",
 		description:
-			"Send a steering note to a running pi-crew subagent. Live-session steering is planned; child-process runs expose durable status and can be cancelled if needed.",
+			"Send a steering note to a running pi-crew subagent. PLANNED, NOT IMPLEMENTED: live tool-level steering is a stub (the subagent record has no taskId linkage, so the tool layer cannot resolve the live run's steering file). Use team action=steer (runId+taskId+message) for the working run-level steering path, or team cancel for interruption.",
 		parameters: Type.Object({
 			agent_id: Type.String(),
 			message: Type.String(),
@@ -376,6 +376,11 @@ export function registerSubagentTools(
 				? (subagentManager.getRecord(p.agent_id) ?? readPersistedSubagentRecord(ctx.cwd, p.agent_id))
 				: undefined;
 			if (!record) return subagentToolResult(t("result.notFound", { id: p.agent_id ?? "" }), {}, true);
+			// Phase 1.3 (2026-08-14): stub — tool-level live steering is PLANNED,
+			// NOT IMPLEMENTED. SubagentRecord carries no taskId, so this tool cannot
+			// resolve the live run's steering file (artifacts/steering/<taskId>.jsonl).
+			// Working alternatives: team action=steer (handleSteer, team-tool.ts) for
+			// run-level steering, or team cancel runId=... for interruption.
 			return subagentToolResult(
 				[
 					t("steer.noted", { id: record.id }),
@@ -410,7 +415,8 @@ export function registerSubagentTools(
 		...steerSubagentTool,
 		name: "crew_agent_steer",
 		label: "Steer Crew Agent",
-		description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name.",
+		description:
+			"Send a steering note to a pi-crew subagent using the conflict-safe tool name. PLANNED, NOT IMPLEMENTED (stub — see steer_subagent); use team action=steer for the working run-level steering path.",
 	};
 	const toolConfig = loadConfig(process.cwd()).config.tools;
 	const enableSteer = toolConfig?.enableSteer !== false;

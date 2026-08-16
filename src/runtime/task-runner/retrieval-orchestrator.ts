@@ -135,43 +135,97 @@ export function reasonFor(file: string, keywords: string[]): string {
 	return `keyword match: ${hits.join(", ")}`;
 }
 
+/** Overrides for runRipgrep — exported for the regression test (R11-1). */
+export interface RipgrepRunOptions {
+	/** Binary to execute (default "rg"). Test-only override. */
+	command?: string;
+	/** Kill the child with SIGKILL after this many ms (default 30s). */
+	timeoutMs?: number;
+	/** Reject (and SIGKILL the child) when accumulated stdout exceeds this many bytes (default 10MB). */
+	maxStdoutBytes?: number;
+}
+
+// R11-1 (MEDIUM, §ROUND 11 security hardening): `rg --files` on a very large
+// repo previously accumulated unbounded stdout (OOM risk) and had no timeout.
+const DEFAULT_RG_TIMEOUT_MS = 30_000;
+const DEFAULT_RG_MAX_STDOUT_BYTES = 10 * 1024 * 1024; // 10MB
+
 /**
  * Run ripgrep with the given args, returning stdout as a string.
  * Throws on ENOENT / non-zero exit. Caller handles fallback.
+ *
+ * Hardening (R11-1): enforces a timeout (SIGKILL on expiry) and a stdout cap
+ * (kill + reject when exceeded). Exit code 1 keeps its "no matches" semantics.
  */
-function runRipgrep(args: string[], cwd: string): Promise<string> {
+export function runRipgrep(args: string[], cwd: string, opts: RipgrepRunOptions = {}): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
+		const command = opts.command ?? "rg";
+		const timeoutMs = opts.timeoutMs ?? DEFAULT_RG_TIMEOUT_MS;
+		const maxStdoutBytes = opts.maxStdoutBytes ?? DEFAULT_RG_MAX_STDOUT_BYTES;
 		let settled = false;
 		let stdout = "";
 		let stderr = "";
+		let stdoutBytes = 0;
+		let timer: NodeJS.Timeout | undefined;
+		// Settle-once guard (mirrors verification-gates.ts SIGKILL pattern): the
+		// timeout kill, stdout-cap kill, 'error' and 'close' all race — only the
+		// first one wins and the timer is cleared so it can't fire on a done child.
+		const settleOnce = (fn: () => void): void => {
+			if (settled) return;
+			settled = true;
+			if (timer !== undefined) clearTimeout(timer);
+			fn();
+		};
 		try {
-			const child = spawn("rg", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+			const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+			timer = setTimeout(() => {
+				settleOnce(() => {
+					try {
+						child.kill("SIGKILL");
+					} catch {
+						/* already reaped */
+					}
+					reject(new Error(`rg timed out after ${timeoutMs}ms`));
+				});
+			}, timeoutMs);
+			timer.unref();
 			child.stdout?.on("data", (chunk) => {
-				stdout += chunk.toString("utf-8");
+				if (settled) return;
+				const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+				stdoutBytes += buf.length;
+				if (stdoutBytes > maxStdoutBytes) {
+					settleOnce(() => {
+						try {
+							child.kill("SIGKILL");
+						} catch {
+							/* already reaped */
+						}
+						reject(new Error(`rg stdout exceeded ${maxStdoutBytes} bytes`));
+					});
+					return;
+				}
+				stdout += buf.toString("utf-8");
 			});
 			child.stderr?.on("data", (chunk) => {
+				if (settled) return;
 				stderr += chunk.toString("utf-8");
 			});
 			child.on("error", (err) => {
-				if (settled) return;
-				settled = true;
-				reject(err);
+				settleOnce(() => reject(err));
 			});
 			child.on("close", (code) => {
-				if (settled) return;
-				settled = true;
-				// rg exit code 1 = "no matches" (NOT an error). Any other
-				// non-zero exit IS an error.
-				if (code === 0 || code === 1) {
-					resolve(stdout);
-				} else {
-					reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
-				}
+				settleOnce(() => {
+					// rg exit code 1 = "no matches" (NOT an error). Any other
+					// non-zero exit IS an error.
+					if (code === 0 || code === 1) {
+						resolve(stdout);
+					} else {
+						reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
+					}
+				});
 			});
 		} catch (e) {
-			if (settled) return;
-			settled = true;
-			reject(e);
+			settleOnce(() => reject(e));
 		}
 	});
 }

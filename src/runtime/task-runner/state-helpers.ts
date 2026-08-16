@@ -43,12 +43,12 @@ export function persistSingleTaskUpdate(
 ): TeamTaskState[] {
 	// H5 (2026-08-10): lowered from 100 → 10. Each retry does
 	// flushPendingAtomicWrites (global) + loadRunManifestById (stat + parse)
-	// + statSync, ~5ms each. The first attempt uses fallbackTasks directly
-	// (no disk read); retries only fire under real contention from best-effort
-	// writers that don't hold the run lock (async-notifier, crash-recovery).
-	// If 10 retries cannot converge, the system is in a pathological state
-	// where 100 would not help either — the explicit error below surfaces it
-	// instead of blocking the event loop for 500ms.
+	// + statSync, ~5ms each. Every attempt now loads from disk (BUG-028);
+	// retries only fire under real contention from best-effort writers that
+	// don't hold the run lock (async-notifier, crash-recovery). If 10 retries
+	// cannot converge, the system is in a pathological state where 100 would
+	// not help either — the explicit error below surfaces it instead of
+	// blocking the event loop for 500ms.
 	const MAX_CAS_ATTEMPTS = 10;
 	let baseMtime = 0;
 	try {
@@ -83,24 +83,26 @@ export function persistSingleTaskUpdate(
 				// overwrite our buffered write between our load and our (async)
 				// fsync, silently losing the intermediate update.
 				flushPendingAtomicWrites();
-				// FIX (perf): on the first attempt, reuse the caller-supplied
-				// fallbackTasks directly instead of calling loadRunManifestById.
-				// The caller already obtained the latest tasks via
-				// loadRunManifestById and handed them in as fallbackTasks, so a
-				// second load here is pure waste — it's another statSync pair
-				// (manifest + tasks) plus a possible JSON.parse. The CAS check
-				// below (currentMtime !== baseMtime) catches any concurrent
-				// writer that committed between fallbackTasks capture and now;
-				// when that fires we fall into the retry path which DOES call
-				// loadRunManifestById to pull the fresh state from disk. So we
-				// only pay the disk-read cost on actual contention, not on the
-				// common single-writer happy path.
-				let latest: TeamTaskState[];
-				if (attempt === 0) {
-					latest = fallbackTasks;
-				} else {
-					latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
-				}
+				// BUG-028 (2026-08-16): ALWAYS load the committed tasks from disk
+				// inside the lock — never trust fallbackTasks on attempt 0. The
+				// old F4 perf shortcut assumed "the caller already obtained the
+				// latest tasks via loadRunManifestById and handed them in as
+				// fallbackTasks", but that assumption is FALSE for fan-out
+				// workers: dispatch-batch.ts hands every unit the SAME dispatch-
+				// time snapshot (ctx.tasks), and the worker's array is only ever
+				// updated with its OWN task (updateTask). When the LAST unit of
+				// a batch terminal-persists, attempt 0 wrote the FULL stale array
+				// (siblings still "running") over disk where siblings were already
+				// terminal — resurrecting them and blocking finalize ("task is
+				// still running"). The mtime CAS below cannot catch this: it only
+				// detects writers between the entry stat and the in-lock stat,
+				// i.e. staleness acquired AFTER function entry — not fallback
+				// staleness that predates it. Loading disk here makes sibling
+				// state authoritative (matching mergeUnitResult / bug-027 policy)
+				// while `updated` still wins for THIS task via updateTask.
+				// fallbackTasks remains the fallback when the run state is absent
+				// (fresh run, manifest not yet on disk).
+				const latest = loadRunManifestById(manifest.cwd, manifest.runId)?.tasks ?? fallbackTasks;
 				merged = updateTask(latest, taskWithCheckpoint);
 
 				// F2: collapsed from 3 redundant statSync calls into 1. The previous

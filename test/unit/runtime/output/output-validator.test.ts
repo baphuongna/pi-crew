@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	isStderrOnlyResult,
 	parseExplorerResults,
 	parseReviewerFindings,
 	validateCompressionPreservation,
@@ -99,6 +100,82 @@ describe("output-validator", () => {
 			// whose strict pattern also fails (e.g. reviewer).
 			const result = validateWorkerOutput("reviewer", "lorem ipsum dolor sit amet consectetur");
 			assert.equal(result.formatMatch, false);
+		});
+	});
+
+	describe("isStderrOnlyResult (bug-026 sub-issue A)", () => {
+		const evidenceArtifact = [
+			"[oc-go] hidden 40 model(s) from /model by visibility config",
+			"[pi-qwen-mm] [core] [stderr] /home/bom/.cache/uv/archive-v0/x/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition.",
+			"[pi-qwen-mm] [core] [stderr]   warnings.warn(",
+			"[pi-qwen-mm] [core] [stderr] 2026-08-15 21:49:02,986 WARNING system tool missing — install: apt install blender",
+			"[pi-qwen-mm] [core] [mcp] handshake complete with uvx",
+			"[pi-qwen-mm] [core] [stderr] 2026-08-15 21:49:02,994 INFO Processing request of type ListToolsRequest",
+			"[pi-qwen-mm] registered 7 tool(s) from 1 capability(ies)",
+			"[pi-qwen-mm] disposed 1 MCP client(s)",
+		].join("\n");
+
+		it("matches the real corrupted evidence artifact (all log-noise lines)", () => {
+			assert.equal(isStderrOnlyResult(evidenceArtifact), true);
+		});
+
+		it("matches bracket-tag lines without sub-tags", () => {
+			assert.equal(isStderrOnlyResult("[oc-go] hidden 40 model(s)"), true);
+			assert.equal(isStderrOnlyResult("[pi-qwen-mm] disposed 1 MCP client(s)"), true);
+		});
+
+		it("matches a standalone python warnings.warn line", () => {
+			assert.equal(isStderrOnlyResult("  warnings.warn("), true);
+			assert.equal(
+				isStderrOnlyResult("/pkg/mod.py:47: DeprecationWarning: x\n  warnings.warn("),
+				false,
+				"bare warning header line is not in the noise set",
+			);
+		});
+
+		it("matches a standalone timestamped logging line", () => {
+			assert.equal(isStderrOnlyResult("2026-08-15 21:49:02,986 WARNING system tool missing"), true);
+			assert.equal(isStderrOnlyResult("2026-08-15T21:49:02.986Z INFO request processed"), true);
+		});
+
+		it("ignores blank lines between noise lines", () => {
+			assert.equal(isStderrOnlyResult("[oc-go] hidden 40 model(s)\n\n[pi-qwen-mm] disposed 1 MCP client(s)\n"), true);
+		});
+
+		it("returns false for empty / whitespace-only input (emptiness is the caller's check)", () => {
+			assert.equal(isStderrOnlyResult(""), false);
+			assert.equal(isStderrOnlyResult("   \n \n"), false);
+			assert.equal(isStderrOnlyResult("(no output)"), false);
+		});
+
+		it("returns false for legitimate short results", () => {
+			assert.equal(isStderrOnlyResult("OK done."), false);
+			assert.equal(isStderrOnlyResult("No match."), false);
+			assert.equal(isStderrOnlyResult("No issues."), false);
+			assert.equal(isStderrOnlyResult("PASS: typecheck — tsc --noEmit clean."), false);
+		});
+
+		it("returns false for markdown handoffs and prose", () => {
+			assert.equal(isStderrOnlyResult("## Handoff\n\n### Summary\n- did X\n\n## Follow-ups\n- item"), false);
+			assert.equal(isStderrOnlyResult("# Result\n\nSome prose paragraphs with `inline code`."), false);
+			assert.equal(isStderrOnlyResult("lorem ipsum dolor sit amet"), false);
+		});
+
+		it("returns false for explorer file:line result lines", () => {
+			assert.equal(isStderrOnlyResult("src/auth.ts:42 — `validateToken` — JWT expiry check"), false);
+		});
+
+		it("returns false when a single prose line mixes with log noise", () => {
+			assert.equal(isStderrOnlyResult("[pi-qwen-mm] disposed 1 MCP client(s)\nFound 3 sites, see above."), false);
+		});
+
+		it("returns false for capitalized bracketed prose (bracket-tag must be a lowercase identifier)", () => {
+			assert.equal(isStderrOnlyResult("[Note] this is important context for downstream tasks"), false);
+			assert.equal(isStderrOnlyResult("[TODO] finish the remaining sweep"), false);
+		});
+
+		it("returns false for markdown lines that merely contain brackets/links", () => {
+			assert.equal(isStderrOnlyResult("- see [docs](https://example.com) for details"), false);
 		});
 	});
 

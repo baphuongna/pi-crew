@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { CrewRuntimeConfig } from "../../../../src/config/config.ts";
-import type { CrewAgentRecord } from "../../../../src/runtime/crew-agent-runtime.ts";
-import { GroupJoinManager, resolveGroupJoinMode, shouldGroupJoin } from "../../../../src/runtime/group-join.ts";
+import { deliverGroupJoin, resolveGroupJoinMode, shouldGroupJoin } from "../../../../src/runtime/group-join.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
-// Note: deliverGroupJoin requires file I/O and is tested in the existing
-// test/unit/group-join.test.ts. Here we add additional coverage for pure
-// functions and the GroupJoinManager class.
+// Note: additional coverage for the live exported surface of group-join.ts.
+// The dead GroupJoinManager class was removed (Round 6 F3); the tests below
+// cover the pure functions plus deliverGroupJoin's status classification.
+
+function makeTask(id: string, status: string): any {
+	return { id, status, title: `task ${id}` };
+}
+
+function makeManifest(dir: string): TeamRunManifest {
+	const stateRoot = path.join(dir, "state");
+	const artifactsRoot = path.join(dir, "artifacts");
+	fs.mkdirSync(stateRoot, { recursive: true });
+	fs.mkdirSync(artifactsRoot, { recursive: true });
+	return {
+		schemaVersion: "1.0" as any,
+		runId: "run_gj_cov",
+		team: "default",
+		goal: "cov group join",
+		status: "running",
+		workspaceMode: "single",
+		createdAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString(),
+		cwd: dir,
+		stateRoot,
+		artifactsRoot,
+		tasksPath: path.join(stateRoot, "tasks.json"),
+		eventsPath: path.join(stateRoot, "events.jsonl"),
+		artifacts: [],
+	} as unknown as TeamRunManifest;
+}
 
 describe("group-join (cov)", () => {
 	describe("resolveGroupJoinMode", () => {
@@ -55,71 +85,49 @@ describe("group-join (cov)", () => {
 		});
 	});
 
-	describe("GroupJoinManager", () => {
-		function makeRecord(taskId: string): CrewAgentRecord {
-			return {
-				id: taskId,
-				runId: "run_1",
-				taskId,
-				agent: "test-agent",
-				role: "executor",
-				runtime: "scaffold",
-				status: "completed",
-				startedAt: new Date().toISOString(),
-			} as CrewAgentRecord;
-		}
+	describe("deliverGroupJoin", () => {
+		it("classifies completed, failed, and skipped tasks in the delivery", () => {
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-group-join-cov-"));
+			try {
+				const manifest = makeManifest(dir);
+				const batch = [makeTask("01", "completed"), makeTask("02", "failed"), makeTask("03", "skipped")];
+				const delivery = deliverGroupJoin({ manifest, mode: "smart", batch, allTasks: batch });
 
-		it("returns 'pass' for unregistered agent", () => {
-			const mgr = new GroupJoinManager(() => undefined);
-			assert.equal(mgr.onAgentComplete(makeRecord("unknown")), "pass");
-			mgr.dispose();
+				assert.ok(delivery);
+				assert.deepEqual(delivery.completed, ["01"]);
+				assert.deepEqual(delivery.failed, ["02"]);
+				assert.deepEqual(delivery.skipped, ["03"]);
+				assert.equal(delivery.partial, false);
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
 		});
 
-		it("delivers when all agents in group complete", () => {
-			let delivered = false;
-			let deliveredRecords: CrewAgentRecord[] = [];
-			const mgr = new GroupJoinManager((records, partial) => {
-				delivered = true;
-				deliveredRecords = records;
-				assert.equal(partial, false);
-			});
-			mgr.registerGroup("g1", ["a", "b"]);
-			assert.equal(mgr.onAgentComplete(makeRecord("a")), "held");
-			assert.equal(mgr.onAgentComplete(makeRecord("b")), "delivered");
-			assert.ok(delivered);
-			assert.equal(deliveredRecords.length, 2);
-			mgr.dispose();
+		it("'group' mode delivers a single-task batch (no smart threshold)", () => {
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-group-join-cov-"));
+			try {
+				const manifest = makeManifest(dir);
+				const batch = [makeTask("01", "completed")];
+				const delivery = deliverGroupJoin({ manifest, mode: "group", batch, allTasks: batch });
+
+				assert.ok(delivery);
+				assert.deepEqual(delivery.completed, ["01"]);
+				assert.equal(delivery.mode, "group");
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
 		});
 
-		it("isGrouped returns true for registered agents", () => {
-			const mgr = new GroupJoinManager(() => undefined);
-			mgr.registerGroup("g2", ["x", "y"]);
-			assert.equal(mgr.isGrouped("x"), true);
-			assert.equal(mgr.isGrouped("z"), false);
-			mgr.dispose();
-		});
-
-		it("returns 'pass' for already delivered group", () => {
-			const mgr = new GroupJoinManager(() => undefined);
-			mgr.registerGroup("g3", ["c"]);
-			assert.equal(mgr.onAgentComplete(makeRecord("c")), "delivered");
-			assert.equal(mgr.onAgentComplete(makeRecord("c")), "pass");
-			mgr.dispose();
-		});
-
-		it("timeout delivers partial results", (_, done) => {
-			let partialDelivered = false;
-			const mgr = new GroupJoinManager((records, partial) => {
-				if (partial) {
-					partialDelivered = true;
-					assert.equal(records.length, 1);
-					mgr.dispose();
-					done();
-				}
-			}, 50);
-			mgr.registerGroup("g4", ["d", "e"]);
-			mgr.onAgentComplete(makeRecord("d"));
-			// "e" never completes, timeout should fire
+		it("'off' mode never delivers", () => {
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-group-join-cov-"));
+			try {
+				const manifest = makeManifest(dir);
+				const batch = [makeTask("01", "completed"), makeTask("02", "completed")];
+				const delivery = deliverGroupJoin({ manifest, mode: "off", batch, allTasks: batch });
+				assert.equal(delivery, undefined);
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
 		});
 	});
 });

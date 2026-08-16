@@ -340,8 +340,13 @@ function bumpGenerationUnlocked(eventsPath: string): number {
  * Rotate an event log file by archiving it with a timestamp.
  * The current file is renamed to `<eventsPath>.<timestamp>.archive.jsonl`
  * and a fresh empty file is created in its place.
- * Readers using `readEvents` will see the new file; archived files can be
- * picked up by snapshot replay if needed.
+ * Readers using `readEvents`/`readEventsCursor` see the new file; archive
+ * files are read back by the archive-tail readers in event-log.ts
+ * (R18 / R16-B1 effect 2, Phase 3.6): on a detected `.gen` generation bump
+ * the cursor drains the previous generations' archive TAILS (events with
+ * seq > sinceSeq, deduped by seq) ahead of the fresh live file, so events
+ * stranded into an archive by an in-flight fd append during the rename are
+ * still delivered instead of being swept away after the retention window.
  */
 export function rotateEventLog(eventsPath: string): boolean {
 	if (!fs.existsSync(eventsPath)) return false;
@@ -423,7 +428,7 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		//     our rename and here, we leave their data intact (EEXIST → skip).
 		fs.renameSync(eventsPath, archivePath);
 		try {
-			const fd = fs.openSync(eventsPath, "wx", 0o644);
+			const fd = fs.openSync(eventsPath, "wx", 0o600);
 			fs.closeSync(fd);
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
@@ -438,7 +443,10 @@ export function rotateEventLogUnlocked(eventsPath: string): boolean {
 		sweepOldArchives(eventsPath);
 		return true;
 	} catch (error) {
-		logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`);
+		// R17-S1 (Phase 3.8): severity "error" (was default "debug", PI_TEAMS_DEBUG-
+		// gated) — a failed rotation leaves the file over the size limit and the
+		// next non-terminal appends are silently skipped; the chain must signal.
+		logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`, "error");
 		return false;
 	}
 }

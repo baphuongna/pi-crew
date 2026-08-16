@@ -25,10 +25,28 @@ function tmpCwd(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goalwrap-"));
 }
 
-function writeConfig(cwd: string, config: unknown): void {
-	const crewRoot = path.join(cwd, ".crew");
-	fs.mkdirSync(crewRoot, { recursive: true });
-	fs.writeFileSync(path.join(crewRoot, "config.json"), JSON.stringify(config));
+// Wave 1A (S19-2, ADR 2026-08-15-schema-driven-sanitize.md): the whole goalWrap
+// subtree is user-only — a project `.crew/config.json` goalWrap block is now
+// dropped by sanitizeProjectConfig (pinned in test/unit/config/config-sanitize-drift.test.ts
+// drift gate (vi)). These decision-logic tests therefore write the USER config
+// under an isolated PI_TEAMS_HOME (same pattern as withTempConfig in
+// test/unit/config/agent-extensions-config.test.ts) and return a restore fn.
+function writeUserConfig(config: unknown): () => void {
+	const previousHome = process.env.PI_TEAMS_HOME;
+	const previousSkip = process.env.PI_CREW_SKIP_HOME_CHECK;
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goalwrap-home-"));
+	process.env.PI_TEAMS_HOME = home;
+	process.env.PI_CREW_SKIP_HOME_CHECK = "1";
+	const filePath = path.join(home, ".pi", "agent", "pi-crew.json");
+	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	fs.writeFileSync(filePath, JSON.stringify(config), "utf-8");
+	return () => {
+		if (previousHome !== undefined) process.env.PI_TEAMS_HOME = previousHome;
+		else delete process.env.PI_TEAMS_HOME;
+		if (previousSkip !== undefined) process.env.PI_CREW_SKIP_HOME_CHECK = previousSkip;
+		else delete process.env.PI_CREW_SKIP_HOME_CHECK;
+		fs.rmSync(home, { recursive: true, force: true });
+	};
 }
 
 test("GOAL_WRAP_ELIGIBLE_BUILTINS includes implementation, fast-fix, default", () => {
@@ -182,19 +200,18 @@ test("GOAL_WRAP_MAX_STEPS is 1 (single-step only — multi-step crashes non-dete
 
 test("SAFETY: shouldGoalWrap returns {enabled:false, reason:'multi-step'} for multi-step workflows", async () => {
 	const cwd = tmpCwd();
-	try {
-		writeConfig(cwd, {
-			goalWrap: {
-				"fast-fix": {
-					enabled: true,
-					maxTurns: 1,
-					evaluatorModel: "minimax/MiniMax-M3",
-					verification: { commands: ["npm test"] },
-					budgetUnlimited: true,
-				},
+	const restoreUserHome = writeUserConfig({
+		goalWrap: {
+			"fast-fix": {
+				enabled: true,
+				maxTurns: 1,
+				evaluatorModel: "minimax/MiniMax-M3",
+				verification: { commands: ["npm test"] },
+				budgetUnlimited: true,
 			},
-		});
-
+		},
+	});
+	try {
 		// Load the real fast-fix workflow (3 steps: explore, execute, verify).
 		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
@@ -212,25 +229,25 @@ test("SAFETY: shouldGoalWrap returns {enabled:false, reason:'multi-step'} for mu
 		assert.equal(decision.reason, "multi-step", "refusal reason must be 'multi-step'");
 		assert.match((decision as { message?: string }).message ?? "", /multi-step/i, "message must explain multi-step crash");
 	} finally {
+		restoreUserHome();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
 
 test("SAFETY: shouldGoalWrap returns {enabled:true} for single-step workflows (implementation)", async () => {
 	const cwd = tmpCwd();
-	try {
-		writeConfig(cwd, {
-			goalWrap: {
-				implementation: {
-					enabled: true,
-					maxTurns: 1,
-					evaluatorModel: "minimax/MiniMax-M3",
-					verification: { commands: ["npm test"] },
-					budgetUnlimited: true,
-				},
+	const restoreUserHome = writeUserConfig({
+		goalWrap: {
+			implementation: {
+				enabled: true,
+				maxTurns: 1,
+				evaluatorModel: "minimax/MiniMax-M3",
+				verification: { commands: ["npm test"] },
+				budgetUnlimited: true,
 			},
-		});
-
+		},
+	});
+	try {
 		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "implementation");
@@ -244,6 +261,7 @@ test("SAFETY: shouldGoalWrap returns {enabled:true} for single-step workflows (i
 		const decision = gw.shouldGoalWrap(cwd, wf);
 		assert.equal(decision.enabled, true, "single-step goal-wrap must be accepted");
 	} finally {
+		restoreUserHome();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
@@ -268,11 +286,11 @@ test("shouldGoalWrap returns {enabled:false, reason:'config-off'} when goal-wrap
 
 test("shouldGoalWrap returns {enabled:false, reason:'invalid-config'} for malformed config", async () => {
 	const cwd = tmpCwd();
-	try {
+	const restoreUserHome = writeUserConfig({
 		// Missing evaluatorModel + missing budget → invalid config.
-		writeConfig(cwd, {
-			goalWrap: { "fast-fix": { enabled: true } },
-		});
+		goalWrap: { "fast-fix": { enabled: true } },
+	});
+	try {
 		const dwMod: any = await import("../../../../src/workflows/discover-workflows.ts");
 		const dw = dwMod.default ?? dwMod;
 		const wf = dw.allWorkflows(dw.discoverWorkflows(cwd)).find((w: { name: string }) => w.name === "fast-fix");
@@ -284,6 +302,7 @@ test("shouldGoalWrap returns {enabled:false, reason:'invalid-config'} for malfor
 		assert.equal(decision.reason, "invalid-config");
 		assert.ok((decision as { message?: string }).message, "invalid-config must carry a message");
 	} finally {
+		restoreUserHome();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

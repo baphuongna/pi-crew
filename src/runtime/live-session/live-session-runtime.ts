@@ -5,6 +5,7 @@ import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_LIVE_SESSION } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEvent, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -81,6 +82,13 @@ import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "./live-s
  * explorer subagents launched together; 3 of 4 crashed.)
  */
 let liveSessionModulePromise: Promise<LiveSessionModule> | undefined;
+
+/**
+ * Phase 4 (ADR 2026-08-15-runtime-convergence, decision (a) — freeze):
+ * warn-once flag so the experimental-path notice fires at most once per
+ * process, not per task.
+ */
+let experimentalWarned = false;
 function loadLiveSessionModule(): Promise<LiveSessionModule> {
 	if (!liveSessionModulePromise) {
 		liveSessionModulePromise = import("@earendil-works/pi-coding-agent") as unknown as Promise<LiveSessionModule>;
@@ -549,13 +557,30 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	// any module. Under tsx, concurrent first-imports race module-record
 	// instantiation; awaiting the registration-time warmup eliminates the window.
 	await awaitRuntimeWarmup();
+
+	// Phase 4 (ADR 2026-08-15-runtime-convergence, decision (a) — freeze):
+	// the live-session path is permanently EXPERIMENTAL and intentionally
+	// diverges from the supported child-process path (no worker-cap semaphore,
+	// no depth guard, permissive SDK tool surface, single-model-fallback
+	// report). Warn once per process so operators see the notice without
+	// per-task spam.
+	if (!experimentalWarned) {
+		experimentalWarned = true;
+		logInternalError(
+			"live-session.experimental",
+			new Error("experimental path"),
+			"runtime.mode=live-session is EXPERIMENTAL and frozen (decision (a)); it diverges from child-process semantics (no worker-cap/depth guard, permissive tools) — see docs/decisions/2026-08-15-runtime-convergence.md",
+			"warn",
+		);
+	}
+
 	const isCurrent = input.isCurrent ?? (() => true);
 	let streamOut: StreamingOutputHandle | undefined;
 
 	// G1: Capture yield result from custom tool callback
 	let customToolYieldResult: YieldResult | undefined;
 	let customToolYieldResolved = false;
-	if (process.env.PI_CREW_MOCK_LIVE_SESSION === "success") {
+	if (getCrewEnv("PI_CREW_MOCK_LIVE_SESSION") === "success") {
 		const agentId = `${input.manifest.runId}:${input.task.id}`;
 		const inherited =
 			input.runtimeConfig?.inheritContext === true && input.parentContext ? ` with inherited context: ${input.parentContext}` : "";

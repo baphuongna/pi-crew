@@ -53,6 +53,7 @@ export const TEAM_EVENT_TYPES = [
 	"run.completed",
 	"run.failed",
 	"run.cancelled",
+	"run.terminal_preserved",
 	"task.created",
 	"task.started",
 	"task.progress",

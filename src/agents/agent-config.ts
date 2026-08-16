@@ -1,3 +1,4 @@
+import { getCrewEnv } from "../config/env-vars.ts";
 import type { RoleToolConfig } from "../config/role-tools.ts";
 import { getToolConfig, isScratchpadEnabledForRole } from "../config/role-tools.ts";
 
@@ -196,7 +197,7 @@ export function resolveToolPolicy(agent: AgentConfig, role?: string): ResolvedTo
  * live-session filterActiveTools) via the unified policy.
  */
 function shouldDemoteBashForScratchpad(role: string | undefined, agent: AgentConfig): boolean {
-	if (process.env.PI_CREW_SCRATCHPAD_DEMOTE_BASH !== "1") return false;
+	if (getCrewEnv("PI_CREW_SCRATCHPAD_DEMOTE_BASH") !== "1") return false;
 	if (!role) return false;
 	return isScratchpadEnabledForRole(role, { scratchpad: agent.scratchpad });
 }

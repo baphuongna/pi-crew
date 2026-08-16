@@ -26,6 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { keyOf } from "./key-utils.ts";
 
 export const DASHBOARD_KEYS = {
@@ -311,7 +312,7 @@ function readConfigKeybindings(cwd: string): KeybindingOverride {
 
 /** Read the `PI_CREW_KEYBINDINGS` env var (JSON object string). */
 function readEnvKeybindings(): KeybindingOverride {
-	const raw = process.env[KEYBINDINGS_ENV];
+	const raw = getCrewEnv(KEYBINDINGS_ENV);
 	if (!raw) return {};
 	try {
 		return parseKeybindingOverride(JSON.parse(raw));
@@ -344,7 +345,7 @@ let _overrideWarnings: readonly string[] = [];
  * mtime, cwd); a single `statSync` per call detects on-disk config changes.
  */
 function getEffectiveBindings(cwd: string = process.cwd()): readonly KeyBinding[] {
-	const envRaw = process.env[KEYBINDINGS_ENV];
+	const envRaw = getCrewEnv(KEYBINDINGS_ENV);
 	const configMtime = configKeybindingsMtime(cwd);
 	if (_effectiveCache && _effectiveCache.env === envRaw && _effectiveCache.configMtime === configMtime && _effectiveCache.cwd === cwd) {
 		return _effectiveCache.bindings;
