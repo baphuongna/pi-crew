@@ -1,6 +1,6 @@
 # pi-crew Subagent v2 — Implementation Plan
 
-**Status:** v1.1 — plan review round 1 applied (run team_20260817043433: 1 P0 + 10 P1 + P2/P3; all closed — see §9) (`subagent-v2-design.md` @ `75cf294d`, CONVERGED after 3 review rounds, 30 findings closed)
+**Status:** v1.2 — plan review rounds 1-2 applied (round 1 run team_20260817043433: 1 P0 + 10 P1 + P2/P3, all closed; round 2 run team_20260817052210: 7 findings, all closed — see §9) (`subagent-v2-design.md` @ `75cf294d`, CONVERGED after 3 review rounds, 30 findings closed)
 **Date:** 2026-08-17 · **Base branch:** `main` @ `75cf294d` (v0.10.0+docs)
 **Companion docs:** audit (`2026-08-16-subagent-v2-audit.md`, erratum header), design §12 decisions (5 opens — defaults assumed below, flagged ⚑ where user override possible)
 
