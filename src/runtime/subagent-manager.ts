@@ -25,11 +25,26 @@ export interface SubagentSpawnOptions {
 	/** Optional batch grouping id (Rule 1). Agents sharing a batchId coalesce
 	 * completion notifications into one. undefined => individual (default). */
 	batchId?: string;
+	/** WP-1/R1 (H6): owning team-run task id. Set by the one-shot Agent-tool
+	 * route once the run manifest resolves (taskId is only knowable after the
+	 * run is dispatched). undefined for unlinked/legacy spawns. */
+	taskId?: string;
+	/** WP-1/R1 (H6): ownership depth in the task tree (0 for a root one-shot).
+	 * Optional for back-compat; defaults to 0 at spawn. WP-5 owns depth
+	 * semantics for nested runs. */
+	depth?: number;
 }
 
 export interface SubagentRecord {
 	id: string;
 	runId?: string;
+	/** WP-1/R1 (H6): owning team-run task id (task ⇄ subagentId link).
+	 * Optional for back-compat — records without it render as today and steer
+	 * returns the existing "not linked" message (no throw). */
+	taskId?: string;
+	/** WP-1/R1 (H6): ownership depth (0 for root one-shot). Optional for
+	 * back-compat — legacy records without it render as today. */
+	depth?: number;
 	type: string;
 	description: string;
 	prompt: string;
@@ -144,6 +159,7 @@ const ALLOWED_RECORD_FIELDS = new Set([
 	"runId",
 	"cwd",
 	"taskId",
+	"depth",
 	"result",
 	"error",
 	"resultConsumed",
@@ -260,6 +276,8 @@ export class SubagentManager {
 			ownerSessionGeneration: options.ownerSessionGeneration,
 			ownerSessionId: options.ownerSessionId,
 			batchId: options.batchId,
+			taskId: options.taskId,
+			depth: options.depth ?? 0,
 		};
 		this.records.set(record.id, record);
 		this.cwdByRecord.set(record.id, options.cwd);

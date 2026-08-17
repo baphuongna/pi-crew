@@ -32,6 +32,7 @@ import { getCrewEnv } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { type FatalFsCause, failureCauseForAttempt } from "../../utils/fs-errno.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -555,6 +556,25 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {
 					try {
+						// WP-1/R1 (H6): dispatch-time ownership writer — record the
+						// task ⇄ pid ⇄ artifactsDir leg of the ownership map as soon as
+						// a real worker spawns. The one-shot Agent-tool path fills the
+						// subagentId leg on the same taskId; the store merges per field
+						// under the run lock. Best-effort: never throws into the spawn
+						// path. onSpawn fires per spawn attempt (model-fallback loop), so
+						// the pid is overwritten with the latest attempt's live pid —
+						// correct, that is the worker steer targets.
+						try {
+							upsertOwnershipEntry(manifest, {
+								taskId: task.id,
+								runId: manifest.runId,
+								pid,
+								artifactsDir: manifest.artifactsRoot,
+								updatedAt: new Date().toISOString(),
+							});
+						} catch (err) {
+							logInternalError("task-runner.ownership-write", err, `pid=${pid}, taskId=${task.id}`);
+						}
 						({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
 						if (task.pendingSteers?.length) {
 							const steeringDir = `${manifest.artifactsRoot}/steering`;

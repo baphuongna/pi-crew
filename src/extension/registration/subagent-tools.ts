@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -28,14 +29,17 @@ import type { BatchBarrier } from "../../runtime/scheduling/batch-barrier.ts";
 import {
 	readPersistedSubagentRecord,
 	type SubagentManager,
+	type SubagentRecord,
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
 } from "../../runtime/subagent-manager.ts";
+import { resolveEntryBySubagentId, upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { agentToolRenderer, type ToolRenderContext } from "../../ui/tool-renderers/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import {
 	__test__subagentSpawnParams,
 	formatSubagentRecord,
@@ -140,8 +144,50 @@ export function registerSubagentTools(
 			// by the Agent tool have proper session ownership for isolation.
 			const ctxWithSession = withSessionId(ctx);
 			spawnOptions.ownerSessionId = ctxWithSession.sessionId;
-			const runner = async (currentOptions: SubagentSpawnOptions, childSignal?: AbortSignal) =>
-				handleTeamTool(
+			// WP-1/R1 (H6): the one-shot identity link. taskId is NOT knowable at
+			// spawn() time — handleTeamTool(action:"run") resolves only after the
+			// run is dispatched (scaffold/mock returns immediately; real runs at
+			// completion), and runId comes from the result details. So the link is
+			// written in the runner wrapper once the manifest resolves: the record
+			// gains taskId/depth, the persisted copy is refreshed, and the
+			// ownership-map entry (task ⇄ subagentId ⇄ artifactsDir) is upserted
+			// under the run lock. Best-effort: a failure logs but never throws
+			// into the spawn path. `spawnedRecord` is assigned right after spawn()
+			// returns; the runner's continuation runs on a later microtask, so the
+			// assignment is always visible when the identity-link block executes.
+			let spawnedRecord: SubagentRecord | undefined;
+			const runner = async (currentOptions: SubagentSpawnOptions, childSignal?: AbortSignal) => {
+				// WP-1/R1 (H6 fix, review round): mid-run steer requires the identity
+				// link AT DISPATCH TIME, not after completion. `handleTeamTool` awaits
+				// the full run; the only mid-run signal we have is `onRunStarted`
+				// (fired in run.ts with updatedManifest.runId as the run starts). Hook
+				// it so the subagentId leg of the ownership map lands while the worker
+				// is live — steer_subagent can then resolve taskId mid-run instead of
+				// saying "not linked". The completion-time block below remains as a
+				// fallback for runs that complete between dispatch and this hook.
+				const linkAtDispatch = (runId?: string): void => {
+					if (typeof runId !== "string" || !spawnedRecord || spawnedRecord.taskId) return;
+					try {
+						const loaded = loadRunManifestById(currentOptions.cwd, runId);
+						const taskId = loaded?.tasks[0]?.id;
+						if (taskId && loaded) {
+							spawnedRecord.taskId = taskId;
+							spawnedRecord.depth = currentOptions.depth ?? 0;
+							savePersistedSubagentRecord(currentOptions.cwd, spawnedRecord);
+							upsertOwnershipEntry(loaded.manifest, {
+								taskId,
+								runId,
+								subagentId: spawnedRecord.id,
+								artifactsDir: loaded.manifest.artifactsRoot,
+								depth: spawnedRecord.depth,
+								updatedAt: new Date().toISOString(),
+							});
+						}
+					} catch (err) {
+						logInternalError("subagent-tools.identity-dispatch", err, `runId=${runId ?? "(unknown)"}`);
+					}
+				};
+				const result = await handleTeamTool(
 					{
 						action: "run",
 						agent: currentOptions.type,
@@ -153,6 +199,7 @@ export function registerSubagentTools(
 					} as TeamToolParamsValue,
 					{
 						...ctxWithSession,
+						onRunStarted: (runId: string) => linkAtDispatch(runId), // mid-run capture (FIX)
 						signal: childSignal,
 						...(options.startForegroundRun
 							? {
@@ -162,7 +209,56 @@ export function registerSubagentTools(
 							: {}),
 					},
 				);
+				// WP-1/R1 (H6): identity link — record taskId/depth + ownership entry
+				// once the run manifest resolves. Direct-agent one-shot runs have
+				// exactly one task (direct-agent workflow); resolve from the manifest
+				// rather than hardcoding the id. The ownership upsert is verified and
+				// retried: a concurrently-completing run holds the run lock during its
+				// terminal writes, so a single upsert can lose the lock race
+				// (acquireLockWithRetry throws on a fresh foreign lock) and the
+				// store swallows that best-effort. taskId is already on the record at
+				// that point, so steer still resolves — but the map's subagentId leg
+				// would be missing for widget/status attribution. Ride out the
+				// contention window, then verify; still never throw.
+				let runId: string | undefined;
+				try {
+					const detailsRunId = (result.details as { runId?: unknown } | undefined)?.runId;
+					runId = typeof detailsRunId === "string" ? detailsRunId : undefined;
+					if (typeof runId === "string" && spawnedRecord) {
+						const loaded = loadRunManifestById(currentOptions.cwd, runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+						const taskId = loaded?.tasks[0]?.id;
+						// Skip if onRunStarted already linked this record at dispatch time
+						// (mid-run steer fix) — idempotent completion-time backfill only.
+						if (taskId && loaded && !spawnedRecord.taskId) {
+							spawnedRecord.taskId = taskId;
+							spawnedRecord.depth = currentOptions.depth ?? 0;
+							savePersistedSubagentRecord(currentOptions.cwd, spawnedRecord);
+							const entry = {
+								taskId,
+								runId,
+								subagentId: spawnedRecord.id,
+								artifactsDir: loaded.manifest.artifactsRoot,
+								depth: spawnedRecord.depth,
+								updatedAt: new Date().toISOString(),
+							};
+							for (let attempt = 0; attempt < 5; attempt++) {
+								try {
+									upsertOwnershipEntry(loaded.manifest, entry);
+								} catch (err) {
+									logInternalError("subagent-tools.identity-link", err, `taskId=${taskId}, attempt=${attempt}`);
+								}
+								if (resolveEntryBySubagentId(loaded.manifest, spawnedRecord.id)?.taskId === taskId) break;
+								if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+							}
+						}
+					}
+				} catch (err) {
+					logInternalError("subagent-tools.identity-link", err, `runId=${runId ?? "(unknown)"}`);
+				}
+				return result;
+			};
 			const record = subagentManager.spawn(spawnOptions, runner, spawnOptions.background ? undefined : signal);
+			spawnedRecord = record;
 			// Rule 1: register batch membership so completions can be coalesced.
 			if (spawnOptions.batchId && spawnOptions.background) {
 				options.batchBarrier?.register(spawnOptions.batchId, record.id, { description: record.description, type: record.type });
@@ -365,33 +461,77 @@ export function registerSubagentTools(
 		name: "steer_subagent",
 		label: "Steer Agent",
 		description:
-			"Send a steering note to a running pi-crew subagent. PLANNED, NOT IMPLEMENTED: live tool-level steering is a stub (the subagent record has no taskId linkage, so the tool layer cannot resolve the live run's steering file). Use team action=steer (runId+taskId+message) for the working run-level steering path, or team cancel for interruption.",
+			"Send a steering note to a running pi-crew subagent. Resolves the subagent record → ownership map → appends artifacts/steering/<taskId>.jsonl, which the child worker polls at its next turn boundary. Use team action=steer (runId+taskId+message) for run-level steering, or team cancel for interruption.",
 		parameters: Type.Object({
 			agent_id: Type.String(),
 			message: Type.String(),
 		}) as never,
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const p = params as { agent_id?: string; message?: string };
+			if (!p.message?.trim()) return subagentToolResult(t("agent.requiresPrompt"), {}, true);
 			const record = p.agent_id
 				? (subagentManager.getRecord(p.agent_id) ?? readPersistedSubagentRecord(ctx.cwd, p.agent_id))
 				: undefined;
 			if (!record) return subagentToolResult(t("result.notFound", { id: p.agent_id ?? "" }), {}, true);
-			// Phase 1.3 (2026-08-14): stub — tool-level live steering is PLANNED,
-			// NOT IMPLEMENTED. SubagentRecord carries no taskId, so this tool cannot
-			// resolve the live run's steering file (artifacts/steering/<taskId>.jsonl).
-			// Working alternatives: team action=steer (handleSteer, team-tool.ts) for
-			// run-level steering, or team cancel runId=... for interruption.
+			// P2.3: Cross-session ownership check — refuse to steer a record owned by
+			// a different session. Legacy records (no ownerSessionId) still pass.
+			const currentSessionId = withSessionId(ctx).sessionId;
+			if (record.ownerSessionId && record.ownerSessionId !== currentSessionId) {
+				return subagentToolResult("Agent belongs to another session.", {}, true);
+			}
+			// Resolve the live run's taskId + artifactsRoot: prefer the record's
+			// taskId link (set by the Agent-tool spawn route), falling back to the
+			// per-run ownership map (resolve by subagentId) when the record predates
+			// the link.
+			let taskId = record.taskId;
+			let artifactsRoot: string | undefined;
+			if (record.runId) {
+				const loaded = loadRunManifestById(ctx.cwd, record.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+				if (loaded) {
+					artifactsRoot = loaded.manifest.artifactsRoot;
+					taskId ??= resolveEntryBySubagentId(loaded.manifest, record.id)?.taskId;
+				}
+			}
+			// Back-compat: no taskId/link (legacy record or run never dispatched) →
+			// the existing "not linked" structured message, NO throw, NO file write.
+			if (!taskId || !artifactsRoot) {
+				return subagentToolResult(
+					[t("steer.unavailable"), record.runId ? t("steer.cancelHint", { runId: record.runId }) : undefined]
+						.filter((line): line is string => Boolean(line))
+						.join("\n"),
+					{
+						agentId: record.id,
+						runId: record.runId,
+						status: record.status,
+					},
+				);
+			}
+			// Real steer — best-effort append to artifacts/steering/<taskId>.jsonl,
+			// same writer util + JSONL schema as `team steer` (handleSteer,
+			// team-tool.ts): {type:"steer", message, ts}. The child worker polls
+			// this file every 500ms and picks the message up at its next turn
+			// boundary. No throw: a write failure logs and the tool still returns
+			// the "noted" acknowledgement.
+			try {
+				const steeringDir = `${artifactsRoot}/steering`;
+				fs.mkdirSync(steeringDir, { recursive: true });
+				const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
+				fs.appendFileSync(
+					safeSteeringPath,
+					JSON.stringify({ type: "steer", message: p.message, ts: new Date().toISOString() }) + "\n",
+				);
+			} catch (err) {
+				logInternalError("subagent-tools.steer-write-failed", err, `taskId=${taskId}`);
+			}
 			return subagentToolResult(
 				[
 					t("steer.noted", { id: record.id }),
-					t("steer.unavailable"),
-					record.runId ? t("steer.cancelHint", { runId: record.runId }) : undefined,
-				]
-					.filter((line): line is string => Boolean(line))
-					.join("\n"),
+					`Steer delivered to task '${taskId}'; it will be picked up at the next turn boundary.`,
+				].join("\n"),
 				{
 					agentId: record.id,
 					runId: record.runId,
+					taskId,
 					status: record.status,
 				},
 			);
@@ -415,8 +555,7 @@ export function registerSubagentTools(
 		...steerSubagentTool,
 		name: "crew_agent_steer",
 		label: "Steer Crew Agent",
-		description:
-			"Send a steering note to a pi-crew subagent using the conflict-safe tool name. PLANNED, NOT IMPLEMENTED (stub — see steer_subagent); use team action=steer for the working run-level steering path.",
+		description: "Send a steering note to a pi-crew subagent using the conflict-safe tool name (same behavior as steer_subagent).",
 	};
 	const toolConfig = loadConfig(process.cwd()).config.tools;
 	const enableSteer = toolConfig?.enableSteer !== false;
