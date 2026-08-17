@@ -583,6 +583,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						// files re-deliver every accumulated line — including stale steers
 						// written after the run went terminal — into the next spawn
 						// attempt's first-turn context. Best-effort; never throws.
+						// ACCEPTED TRADE-OFF (security review round 2): a steer appended
+						// directly by steer_subagent to a worker that dies BEFORE its 500ms
+						// poll reads it is lost when the respawn truncates here. The reliable
+						// cross-attempt channel is task.pendingSteers (survives in the task
+						// record and is re-appended after truncation); the direct file append
+						// is best-effort live-delivery only.
 						{
 							const steeringDir = `${manifest.artifactsRoot}/steering`;
 							try {
