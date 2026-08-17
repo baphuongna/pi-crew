@@ -33,6 +33,7 @@ import {
 	type SubagentSpawnOptions,
 	savePersistedSubagentRecord,
 } from "../../runtime/subagent-manager.ts";
+import { TEAM_TERMINAL_TASK_STATUSES } from "../../state/contracts.ts";
 import { resolveEntryBySubagentId, upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
@@ -172,6 +173,11 @@ export function registerSubagentTools(
 						const taskId = loaded?.tasks[0]?.id;
 						if (taskId && loaded) {
 							spawnedRecord.taskId = taskId;
+							// runId too: the manager only back-fills record.runId from the
+							// awaited result (waitForRun — i.e. at COMPLETION for background
+							// runs). Linking it here keeps taskId+runId landing together at
+							// dispatch so mid-run consumers (steer) resolve both immediately.
+							spawnedRecord.runId = runId;
 							spawnedRecord.depth = currentOptions.depth ?? 0;
 							savePersistedSubagentRecord(currentOptions.cwd, spawnedRecord);
 							upsertOwnershipEntry(loaded.manifest, {
@@ -227,12 +233,20 @@ export function registerSubagentTools(
 					if (typeof runId === "string" && spawnedRecord) {
 						const loaded = loadRunManifestById(currentOptions.cwd, runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 						const taskId = loaded?.tasks[0]?.id;
-						// Skip if onRunStarted already linked this record at dispatch time
-						// (mid-run steer fix) — idempotent completion-time backfill only.
-						if (taskId && loaded && !spawnedRecord.taskId) {
-							spawnedRecord.taskId = taskId;
-							spawnedRecord.depth = currentOptions.depth ?? 0;
-							savePersistedSubagentRecord(currentOptions.cwd, spawnedRecord);
+						// P3 hardening (T1 review round 1): base the completion-time retry on
+						// the MAP LEG, not on record.taskId. A dispatch-time upsert
+						// (linkAtDispatch) that lost the lock race would leave the map's
+						// subagentId leg missing; the old `!spawnedRecord.taskId` guard then
+						// skipped the verify+retry entirely. Now: write record fields once
+						// (idempotent), then verify+retry the MAP until the subagentId leg
+						// is present or budget exhausted. Upsert is merge-idempotent, so
+						// double-writing is safe.
+						if (taskId && loaded) {
+							if (!spawnedRecord.taskId) {
+								spawnedRecord.taskId = taskId;
+								spawnedRecord.depth = currentOptions.depth ?? 0;
+								savePersistedSubagentRecord(currentOptions.cwd, spawnedRecord);
+							}
 							const entry = {
 								taskId,
 								runId,
@@ -485,8 +499,9 @@ export function registerSubagentTools(
 			// the link.
 			let taskId = record.taskId;
 			let artifactsRoot: string | undefined;
+			let loaded: ReturnType<typeof loadRunManifestById> | undefined;
 			if (record.runId) {
-				const loaded = loadRunManifestById(ctx.cwd, record.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+				loaded = loadRunManifestById(ctx.cwd, record.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 				if (loaded) {
 					artifactsRoot = loaded.manifest.artifactsRoot;
 					taskId ??= resolveEntryBySubagentId(loaded.manifest, record.id)?.taskId;
@@ -506,20 +521,54 @@ export function registerSubagentTools(
 					},
 				);
 			}
-			// Real steer — best-effort append to artifacts/steering/<taskId>.jsonl,
-			// same writer util + JSONL schema as `team steer` (handleSteer,
-			// team-tool.ts): {type:"steer", message, ts}. The child worker polls
-			// this file every 500ms and picks the message up at its next turn
-			// boundary. No throw: a write failure logs and the tool still returns
-			// the "noted" acknowledgement.
+			// Real steer — append to artifacts/steering/<taskId>.jsonl, same writer util
+			// + JSONL schema as `team steer` (handleSteer, team-tool.ts):
+			// {type:"steer", message, ts}. The child worker polls this file every
+			// 500ms and picks the message up at its next turn boundary.
+			// Security review (T1/WP-1 round 1, security 1-3): mirror handleSteer's
+			// hardening — (a) T-S1 terminal-task refusal + taskId-belongs-to-manifest
+			// validation; (b) cap steering-file growth (unbounded files force a
+			// Buffer.alloc(fileSize) on the next worker's first poll and re-deliver
+			// every line to each incarnation — see P2 replay finding); (c) no throw.
+			if (!loaded) return subagentToolResult("Run manifest unavailable for steer.", {}, true);
+			const manifestTask = loaded.tasks.find((t) => t.id === taskId);
+			if (!manifestTask) {
+				return subagentToolResult(
+					`Task '${taskId}' not found in the owning run; cannot steer.`,
+					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					true,
+				);
+			}
+			if (TEAM_TERMINAL_TASK_STATUSES.has(manifestTask.status)) {
+				return subagentToolResult(
+					`Task '${taskId}' is ${manifestTask.status}; cannot steer.`,
+					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					true,
+				);
+			}
 			try {
 				const steeringDir = `${artifactsRoot}/steering`;
 				fs.mkdirSync(steeringDir, { recursive: true });
 				const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
-				fs.appendFileSync(
-					safeSteeringPath,
-					JSON.stringify({ type: "steer", message: p.message, ts: new Date().toISOString() }) + "\n",
-				);
+				// Security 3: cap file growth — refuse when the file exceeds a byte
+				// threshold (drop-oldest semantics are not feasible for a plain JSONL
+				// append; refuse loudly instead of poisoning the next incarnation).
+				const MAX_STEERING_BYTES = 256 * 1024;
+				let existingBytes = 0;
+				try {
+					existingBytes = fs.statSync(safeSteeringPath).size;
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				}
+				const line = JSON.stringify({ type: "steer", message: p.message, ts: new Date().toISOString() }) + "\n";
+				if (existingBytes + Buffer.byteLength(line) > MAX_STEERING_BYTES) {
+					return subagentToolResult(
+						`Steering file for task '${taskId}' has reached its size cap (${(MAX_STEERING_BYTES / 1024).toFixed(0)}KiB); steer refused.`,
+						{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+						true,
+					);
+				}
+				fs.appendFileSync(safeSteeringPath, line);
 			} catch (err) {
 				logInternalError("subagent-tools.steer-write-failed", err, `taskId=${taskId}`);
 			}

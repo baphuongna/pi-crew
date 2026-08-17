@@ -576,9 +576,27 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							logInternalError("task-runner.ownership-write", err, `pid=${pid}, taskId=${task.id}`);
 						}
 						({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+						// Security review (T1/WP-1 round 1, security-1 replay fix): scope the
+						// steering file to ONE worker incarnation on EVERY spawn. Steering
+						// lines are id-less; each new worker process reads the file from
+						// byte 0 (prompt-runtime poll `lastOffset = 0`), so un-truncated
+						// files re-deliver every accumulated line — including stale steers
+						// written after the run went terminal — into the next spawn
+						// attempt's first-turn context. Best-effort; never throws.
+						{
+							const steeringDir = `${manifest.artifactsRoot}/steering`;
+							try {
+								const safeSteeringPath = resolveRealContainedPath(steeringDir, `${task.id}.jsonl`);
+								fs.writeFileSync(safeSteeringPath, "");
+							} catch (truncateErr) {
+								logInternalError("task-runner.steering-truncate", truncateErr, `taskId=${task.id}`);
+							}
+						}
 						if (task.pendingSteers?.length) {
 							const steeringDir = `${manifest.artifactsRoot}/steering`;
-							// Fire-and-forget async write for steering events
+							// Fire-and-forget async write for steering events (the file was
+							// truncated just above; this incarnation receives only its own
+							// pending steers).
 							void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
 							// RT-8: spread before clearing pendingSteers instead of mutating
 							// in place — preserves the immutable-snapshot invariant (the same

@@ -31,12 +31,26 @@ import * as path from "node:path";
 import test from "node:test";
 import { registerSubagentTools } from "../../../../src/extension/registration/subagent-tools.ts";
 import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import type { SubagentRecord } from "../../../../src/runtime/subagent-manager.ts";
 import { SubagentManager, savePersistedSubagentRecord } from "../../../../src/runtime/subagent-manager.ts";
+import { atomicWriteJson } from "../../../../src/state/atomic-write.ts";
 import { resolveEntryBySubagentId } from "../../../../src/state/stores/ownership-map.ts";
-import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
+import { createRunManifest, loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
+import type { TeamTaskState } from "../../../../src/state/types.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import { sleepSync } from "../../../../src/utils/sleep.ts";
 import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 import { firstText, textFromToolResult } from "../../../fixtures/tool-result-helpers.ts";
+
+// Minimal team for createRunManifest-backed tests (no workflow → zero starter
+// tasks; the terminal-guard test seeds its own task state directly).
+const testTeam: TeamConfig = {
+	name: "test-team",
+	description: "Test team",
+	source: "builtin",
+	filePath: "test.team.md",
+	roles: [{ name: "executor", agent: "executor" }],
+};
 
 // ── Harness (subagent-cross-session.test.ts pattern) ──────────────────────
 
@@ -131,7 +145,7 @@ test("dispatch one-shot → identity link → steer resolves → steering file a
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
-	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-slow-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
 
@@ -207,7 +221,11 @@ test("dispatch one-shot → identity link → steer resolves → steering file a
 
 		// Steer mid-run (tool-side): resolve → append artifacts/steering/<taskId>.jsonl.
 		const steered = await steerTool.execute("call-2", { agent_id: agentId, message: "Focus on edge cases" }, undefined, undefined, ctx);
-		assert.equal(steered.isError, false, "steer on a linked record must not error");
+		assert.equal(
+			steered.isError,
+			false,
+			`steer on a linked record must not error (taskStatus debug: steerText=${firstText(steered).slice(0, 300)})`,
+		);
 		const steerText = firstText(steered);
 		assert.match(steerText, /Steering request noted/);
 		assert.doesNotMatch(steerText, /not available yet/, "linked record must not hit the 'not linked' branch");
@@ -312,6 +330,60 @@ test("steer on a missing message returns the requires-prompt error (no throw)", 
 		assert.ok(textFromToolResult(result).length > 0, "must return a prompt-required message");
 	} finally {
 		void manager.abortAll();
+		removeDirWithRetry(cwd);
+	}
+});
+
+test("steer refuses a terminal task (T-S1 parity with handleSteer, no file write)", async () => {
+	// Security review (T1/WP-1 round 1, security-2): the new steer tool must
+	// mirror handleSteer's terminal-task refusal and task-existence validation —
+	// steering a completed/failed/cancelled task would otherwise append a
+	// permanent line that poisons the task's file for a later retry.
+	const cwd = createTrackedTempDir("pi-crew-steer-terminal-");
+	try {
+		const { manifest } = createRunManifest({ cwd, team: testTeam, goal: "terminal steer test" });
+		// Seed a single terminal task directly (no-workflow team → empty tasks).
+		const task: TeamTaskState = {
+			id: "01-ter",
+			runId: manifest.runId,
+			stepId: "01",
+			role: "executor",
+			agent: "executor",
+			title: "terminal task",
+			status: "completed", // terminal — steer must refuse
+			dependsOn: [],
+			cwd: "/tmp",
+		};
+		atomicWriteJson(manifest.tasksPath, [task]);
+		const manager = new SubagentManager();
+		const fake = createFakePi();
+		registerSubagentTools(fake.api as never, manager);
+		const steer = fake.tools.get("steer_subagent");
+		assert.ok(steer, "steer_subagent tool must be registered");
+		// needs a real persisted record linked to the run
+		const record: SubagentRecord = {
+			id: "agent_term",
+			runId: manifest.runId,
+			taskId: "01-ter",
+			depth: 0,
+			type: "explorer",
+			description: "t",
+			prompt: "p",
+			status: "running",
+			background: false,
+			startedAt: Date.now(),
+			ownerSessionId: "session-A",
+		};
+		savePersistedSubagentRecord(cwd, record);
+		const ctx = fakeCtx(cwd, "session-A");
+		const result = await steer.execute("call", { agent_id: "agent_term", message: "STOP" }, undefined, undefined, ctx);
+		assert.equal(result.isError, true, "terminal task must refuse steer");
+		const text = textFromToolResult(result);
+		assert.match(text, /completed; cannot steer/, `expected terminal refusal in: ${text}`);
+		// no steering file written
+		const steeringPath = path.join(manifest.artifactsRoot, "steering", "01-ter.jsonl");
+		assert.equal(fs.existsSync(steeringPath), false, "no steering file must be written for a terminal task");
+	} finally {
 		removeDirWithRetry(cwd);
 	}
 });
