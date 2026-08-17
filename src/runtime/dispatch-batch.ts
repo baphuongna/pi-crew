@@ -15,7 +15,7 @@ import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
 import { appendEventAsync, appendEventBuffered } from "../state/event-log/event-log.ts";
-import { loadRunManifestById, saveRunTasks, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
@@ -171,6 +171,13 @@ export async function sweepExpiredWaitingTasks(
 		}
 		saveRunTasks(fresh.manifest, tasks);
 		let manifest = fresh.manifest;
+		// WP-2 review round 1 (P3): clear manifest.waitState when its park was
+		// requeued — mirror the broker's clearWaitState guard, else the stale
+		// pointer shields the run from staleness repair for the full 24h TTL.
+		if (manifest.waitState && requeuedTaskIds.includes(manifest.waitState.taskId)) {
+			manifest = { ...manifest, waitState: undefined, updatedAt: new Date().toISOString() };
+			saveRunManifest(manifest);
+		}
 		if (
 			manifest.status === "blocked" ||
 			manifest.status === "completed" ||

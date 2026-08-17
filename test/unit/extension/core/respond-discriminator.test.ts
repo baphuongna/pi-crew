@@ -185,7 +185,7 @@ test("respond discriminator: dead → requeued + fenced answer injected, no mail
 		const injected = task.pendingSteers ?? [];
 		assert.equal(injected.length, 1);
 		assert.ok(injected[0]!.includes("<dependency-context>"), "injected answer must be fenced as untrusted");
-		assert.ok(injected[0]!.includes(`questionId=${fixture.questionId}`));
+		assert.ok(injected[0]!.includes(`questionId: ${fixture.questionId}`));
 		assert.ok(injected[0]!.includes("the answer is 42"));
 
 		// Exactly-one-dispatch: NO questionId-tagged mailbox response on the dead path.

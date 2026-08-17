@@ -1005,6 +1005,11 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					socketPath: getBrokerSocketPath(sessionId),
 					maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
 					outboundQueueCap: cfg?.outboundQueueCap ?? 256,
+					// WP-2 review round 1 (P1): thread the capability gate into the
+					// PRODUCTION broker — the constructor default (false) made
+					// config.broker.waitMethodsEnabled a dead knob and the ADR-0
+					// "then true" flip a silent no-op. Fail-closed when unset.
+					waitMethodsEnabled: cfg?.waitMethodsEnabled ?? false,
 					enabled: true,
 					cwd: process.cwd(),
 				});

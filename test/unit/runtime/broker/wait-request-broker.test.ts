@@ -551,3 +551,30 @@ test("wait.resolve: flag off → policy-disabled error AND policy.action event",
 		fs.rmSync(scaff.cwd, { recursive: true, force: true });
 	}
 });
+
+test("P1 wiring: disabled waitMethodsEnabled rejects wait.request with the policy message (production fail-closed path)", async () => {
+	// WP-2 review round 1 (P1): lifecycle-handlers now threads
+	// cfg?.waitMethodsEnabled ?? false into the production CrewBroker. The
+	// constructor default (false) previously made the flag a dead knob. This
+	// pins the fail-closed contract end-to-end: valid compound token + hello
+	// + flag OFF -> structured policy rejection, nothing parked.
+	const scaff = await scaffoldRunningTask("wiring");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: false });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, token);
+		client.socket.write(
+			encodeBrokerFrame({ id: "wr-1", method: "wait.request", params: { to: scaff.taskId, question: "wiring?", timeoutSec: 30 } }),
+		);
+		const frame = (await client.waitForFrame((f) => (f as { id?: string })?.id === "wr-1")) as {
+			error?: { code?: string; message?: string };
+		};
+		assert.ok(frame?.error, "disabled waitMethodsEnabled must reject wait.request");
+		assert.match(frame.error.message ?? frame.error.code ?? "", /disabled|policy/i);
+		client.socket.destroy();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
