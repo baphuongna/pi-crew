@@ -40,19 +40,19 @@
 
 | Train | Contents | Version | Exit gate |
 |---|---|---|---|
-| T1 | P0: R1 + R2 + R3 | **0.10.1** | full CI matrix + real-test battery B1 (below) |
-| T2 | ADR-plan + R4 | 0.10.2 | CI + B2 (plan object battery) |
-| T3 | ADR-nesting + R5 | 0.10.3 | CI + B3 (nesting battery, security-weighted) |
-| T4 | ADR-spec + R6 | 0.10.4 | CI + B4 (spec battery) |
-| T5 | P2: R7 + R8 + R9 + R10 | 0.10.5 | CI + B5 (full 9-tier real-test re-run) |
+| T1 | P0: R1 + R2 + R3 | internal phase | full CI matrix + real-test battery B1 (below) |
+| T2 | ADR-plan + R4 | internal phase | CI + B2 (plan object battery) |
+| T3 | ADR-nesting + R5 | internal phase | CI + B3 (nesting battery, security-weighted) |
+| T4 | ADR-spec + R6 | internal phase | CI + B4 (spec battery) |
+| T5 | P2: R7 + R8 + R9 + R10 | **0.10.1** (single release) | CI + B5 (full 9-tier real-test re-run) — then the ONE version bump + tag + publish |
 
-Each train: feature branch → PR → review gate (team `review`: reviewer + security-reviewer for R5/R6, cold-verifier pass) → CI green on HEAD → merge (merge commit) → version bump (PATCH line only — 0.10.x per user directive 2026-08-17, no minor bumps) + CHANGELOG + bundle commit → tag + publish.
+Each train: feature branch → PR → review gate (team `review`: reviewer + security-reviewer for R5/R6, cold-verifier pass) → CI green on HEAD → merge (merge commit). **Version discipline (user directive 2026-08-17, amended same day): the ENTIRE v2 effort ships as ONE release — `0.10.1`.** No per-train bumps, no minor bumps: trains merge to main as internal phases; after T5's B5 battery passes, do the single `npm version patch` → 0.10.1 → CHANGELOG (all trains' entries under `## [0.10.1]`) → `npm run build:bundle` + `git add -f dist/` → tag `v0.10.1` → publish. Intermediate main stays on 0.10.0 until that point.
 
 ⚑ Design §12 decisions assumed: (1) R1+R3 approved now, R2 after mini-ADR; (2) ADR order Plan→Nesting→Spec; (3) maxDepth stays 2; (4) spec gate non-strict default; (5) pane 7 behind `PI_CREW_PLAN_UI=1`. Any user override changes only the flagged items below.
 
 ---
 
-## 2. Phase 0 — T1 (v0.10.1)
+## 2. Phase 0 — T1
 
 ### WP-1 · R1 Unified agent identity (H6) — ADR-less, back-compat
 **Goal:** one ownership map; `steer_subagent`/`crew_agent_steer` become real.
@@ -97,7 +97,7 @@ Extra cases beyond the standard tiers: (a) live ask→respond E2E in 2-session t
 
 ## 3. Phase 1 — T2/T3/T4 (ADR-first, one object per train)
 
-### ADR-4 + WP-4 · R4 Plan object (H3) → v0.10.2
+### ADR-4 + WP-4 · R4 Plan object (H3)
 **ADR-4:** `docs/decisions/2026-08-17-plan-object.md` — schema (PlanRecord §5), migration policy (dual-read, manifest field never dropped), single-writer rule (scheduler maintains `items[].taskIds` inside run lock), re-plan semantics (new revision + soft-cancel dropped-item tasks via wrap-up steer grace `child-pi/child-pi-steering.ts:25-75`), per-phase cap replacing adaptive cap-12.
 **Files:**
 - NEW `src/state/stores/plan-store.ts` — `state/runs/<id>/plans/plans.json`, atomic write, run-locked, revision list; migration dual-read helper (manifest fallback).
@@ -111,7 +111,7 @@ Extra cases beyond the standard tiers: (a) live ask→respond E2E in 2-session t
 **Tests (new):** `plan-store.test.ts` (revision append, atomicity, lock), `plan-producers.test.ts` (orchestrate parse → items; adaptive phases; planner tagged contract), `plan-migration.test.ts` (**negative AC: pre-v2 run with planApproval pending stays protected post-upgrade**), `plan-diff.test.ts`, `plan-action.test.ts` (get/list/diff/approve + auth), integration: re-plan mid-run drops item → in-flight task soft-cancelled.
 **ACs (design §5):** revision diff queryable; per-item progress = derived linked task statuses; approval references plan id+version; adaptive runs keep working via items; migration negative AC.
 
-### ADR-5 + WP-5 · R5 Governed nesting (H1) → v0.10.3 — security-weighted review
+### ADR-5 + WP-5 · R5 Governed nesting (H1) — security-weighted review
 **ADR-5:** `docs/decisions/2026-08-17-governed-nesting.md` — pins (design §7 + NEW-6): (i) grandchild spawn = direct `runChildPi` call-site bypassing global sem (`cap:false` MAJ#3 precedent, `scheduling/global-worker-cap.ts:14-19`) + separate nested-slot budget `max(1, floor(globalSem/2))`, fail-fast never queue; (ii) issuer depth gate ≤1 (`registration/lifecycle-handlers.ts:1024-1036` call-site); (iii) task-scoped tokens mandatory for `delegate`; (iv) schema additions `task.depth`, `allocation{}`; (v) workspace: serialize-on-overlap default for executor-class delegate; (vi) alternative (full extension in child) rejected + revisit conditions.
 **Files:**
 - NEW `src/runtime/spawn-policy.ts` — THE single gate: depth (`depthOverride` from parent task record, never env/self-report — fixes P0-2), role (executor-class only), nested-budget slots, parent-allocation sufficiency, model catalog validation (kills `model-fallback.ts:282` passthrough on this surface), trust. Fail-fast policy messages, all logged `events.jsonl`.
@@ -126,7 +126,7 @@ Extra cases beyond the standard tiers: (a) live ask→respond E2E in 2-session t
 **Tests (new):** `spawn-policy.test.ts` (each gate dimension × fail-fast message; depth-3 blocked default; maxDepth config raise → depth-3 works), `nested-slots-deadlock.test.ts` (2 delegates on sem-2 box complete; exhaustion rejects immediately), `delegate-broker.test.ts` (auth matrix incl. legacy-token ✗ cross-task `to` ✗), `delegate-e2e.test.ts` (depth-1 delegates → depth-2 grandchild: namespaced artifacts, budget deducted+visible in parent task usage, **no `PI_CREW_BROKER_SOCKET`/`PI_CREW_BROKER_TOKEN` in grandchild env** (identity-routing `BROKER_RUN_ID`/`BROKER_TASK_ID` stay — design §7 erratum D-2, ADR-5), heartbeat+deadletter registered), `model-validation.test.ts` (invalid `provider/model` rejected at admission), socket-close resilience (kill broker socket mid-grandchild → parent still gets result via durable mailbox); graceful degradation: worker without broker creds (broker-gated spawn, `child-pi.ts:277-285` logs-and-continues) → `delegate` returns structured notice, no hang.
 **ACs (design §7):** all of the above + read-only roles' delegate rejected + timeout soft-cancel. **Security gate:** WP-5 PR requires security-reviewer sign-off (team `review` with security role) + cold-verifier.
 
-### ADR-6 + WP-6 · R6 Spec system (H2) → v0.10.4
+### ADR-6 + WP-6 · R6 Spec system (H2)
 **ADR-6:** `docs/decisions/2026-08-17-spec-system.md` — SpecRecord/Snapshot schema (design §6), strict-mode policy (⚑ non-strict default, opt-in per workflow), **sandbox parameters** (concrete values: env = BASE_ALLOWLIST-minus-credentials; cwd = run workspace root; `ulimit -v 262144` KB + `ulimit -t 30`s; wall-clock 60s SIGKILL escalation; `unshare -n` Linux/best-effort macOS; digest file per run), `idempotent` flag semantics, reject-start rule, revision machinery shared with PlanRecord.
 **Files:**
 - NEW `src/state/stores/spec-store.ts` — workspace-level `state/specs/<id>.json` + SpecSnapshot freeze at dispatch.
@@ -144,7 +144,7 @@ Extra cases beyond the standard tiers: (a) live ask→respond E2E in 2-session t
 
 ---
 
-## 4. Phase 2 — T5 (v0.10.5)
+## 4. Phase 2 — T5 (ships 0.10.1)
 
 ### WP-7 · R7 Plan UI (H4) — flag `PI_CREW_PLAN_UI=1` ⚑
 **Files:** `src/ui/run-snapshot-cache.ts:28,650+` — new slice `plans` + `sliceSignatures.plans` (inside existing cache+coalescer; NO new cache layer); `src/ui/run-dashboard.ts` — pane 7 "Plan" (tree phase→item→tasks w/ status + depth badge; `A`/`n` when pending; `X` diff multi-revision (pane-scoped; `V` collides with root `liveConversation`, `e` with root `events` — `keybinding-map.ts:42,44`; `X` verified free — parity test updated with PR)); `src/ui/powerbar-publisher.ts:137-178` — steps consume plan phases (fallback workflow steps); `keybinding-map.ts` — pane key + `V`.
@@ -204,7 +204,7 @@ Cross-train reuse (`crew-broker.ts` T1→T3, `types.ts` T2→T3→T4, `stale-rec
 2. CI 3-OS green on merge-commit HEAD (not just branch HEAD).
 3. Real-test battery Bx report committed, honest NOT-run section.
 4. ADR(s) merged before code PRs (P1 trains).
-5. CHANGELOG + version bump + bundle rebuilt & committed.
+5. CHANGELOG entries + bundle rebuilt & committed (version bump happens ONCE, at T5 exit: 0.10.1).
 6. Cold-verifier pass recorded.
 7. Knowledge.md updated with durable lessons.
 8. For T2–T5: the train's battery (B2–B5) case list is derived from that train's WP ACs + negative ACs and committed with the ADR BEFORE the train's first PR (B1's list is §2 above).
@@ -213,3 +213,5 @@ Cross-train reuse (`crew-broker.ts` T1→T3, `types.ts` T2→T3→T4, `stale-rec
 - **Round 1** (2026-08-17, run `team_20260817043433_33195c60442b1600`, team `review`, 4 tasks incl. security-reviewer + verifier; gates re-run clean 101/101 + tsc 0): 13 code findings (F1 P0 ask-env dead-on-arrival — no `PI_CREW_STATE_ROOT` exists and scratchpad-gating excludes read-only roles; F2 action `plan` collision; F3 specRefs producer unowned; F4 illusory kill-switch; F5 incomplete ownership map; F6 keybinding collisions `V`/`D`; F7 step order; F8 events-path gating; F9 gate-list vs `npm run ci`; F10 B2–B5 undefined; F11 MailboxMessage lacks questionId; F12 fidelity nits; F13 anchor drift) + security pass (P1-2 strict-mode prompt-injection→RCE trust gate; P1-3 overbroad broker-env AC; P1-4 unfenced ask channel; P1-5 fail-closed capabilities; P1-6 dropped token-TTL pin). Verdict: APPROVE-WITH-CHANGES gated on F1. **All applied in v1.1** (env plumbing + unconditional vars + registry; `plans` action; producer files; real config capabilities with flag-off negative tests; exhaustive per-train map; `A`/`n`/`e` pane-scoped keys; step reorder; events-path unconditional; `npm run ci` gate + anticipated updates; B-battery discipline; mailbox schema pinned; read-only-ask + degradation ACs; anchors fixed; trust gate `manual`-only; AC scoped to SOCKET/TOKEN; fencing; ADR-5 pin vii TTL).
 
 - **Round 2** (2026-08-17, run `team_20260817052210_8c6986992d3c64cc`, team `review`; verifier gates 101/101 + tsc 0): fix-verification + consistency focus. 18/18 round-1 items verified (15 CLOSED; 3 PARTIAL residuals = findings below). 6+1 real findings, all applied in rev 1.2: N1 B1-case(d) still said `A/D` → `A`/`n`; N2 WP-4 step 6 still said `team plan` → `team plans` + routing files named; N3 WP-5 duplicate step "3)" → renumbered 3-10; N4 `prompt-runtime.ts` missing from T3 map; N5 `spec-evidence.ts` missing from T4 map; N6 `dispatch/index.ts`+`dispatch/run.ts` missing from T2 map; security lead: WP-7 diff key `e` collides `root.events:["e"]` → `X` (verified free vs keybinding-map.ts:37-66). False-positives filtered per skill discipline (mailbox `A`, ci enumeration, enabled:false prose). Verdict FINDINGS-REMAIN → round 3.
+
+- **Version amendment (2026-08-17, user):** all trains ship as ONE release `0.10.1` (not 0.10.1→0.10.5 increments). Applied to train table, release paragraph, section headers, DoD #5. Battery report names read `real-test-<date>-v0.10.1.md` (final battery); intermediate battery reports use the train tag (e.g. `-t1-`, `-t3-`) in the filename instead of a version.
