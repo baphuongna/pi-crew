@@ -382,6 +382,14 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_EVENTS_PATH",
 		doc: "events JSONL path for fire-and-forget metric events (scratchpad-lifecycle.ts:80)",
 	},
+	PI_CREW_ASK_ENABLED: {
+		name: "PI_CREW_ASK_ENABLED",
+		doc: "'1' enables the worker-side ask tool — dormant-until-env gate (written UNCONDITIONALLY by child-pi-spawn.ts, read by prompt-runtime.ts per ADR-0 WP-2 item 2)",
+	},
+	PI_CREW_STATE_ROOT: {
+		name: "PI_CREW_STATE_ROOT",
+		doc: "run stateRoot for the ask-tool mailbox poll (<stateRoot>/mailbox; written by child-pi-spawn.ts, read by prompt-runtime.ts per ADR-0 WP-2 item 2)",
+	},
 	PI_CREW_BROKER_RUN_ID: {
 		name: "PI_CREW_BROKER_RUN_ID",
 		doc: "broker run id; aliases PI_CREW_RUN_ID (scratchpad-lifecycle.ts:81, crew-broker-child.ts:51)",

@@ -275,6 +275,22 @@ export function prepareSpawnContext(
 	// assertOnlyControlEnvKeys.
 	if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
 	if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+	// WP-2/R2 (ADR-0 item 2 — P0 env plumbing): UNCONDITIONAL for EVERY role,
+	// read-only (reviewer/security-reviewer/explorer/…) included — the
+	// worker-side `ask` tool + mailbox poll must be reachable by exactly the
+	// roles that cannot write files to unblock themselves. Deliberately NOT
+	// scratchpad-gated: the scratchpad gate below excludes read-only roles by
+	// design (S-6), which would leave the ask tool dead-on-arrival there.
+	// Control-namespace keys → pass assertOnlyControlEnvKeys.
+	built.env.PI_CREW_ASK_ENABLED = "1"; // dormant gate (worker conditional registerTool)
+	// stateRoot from the spawn manifest: ChildPiRunInput threads
+	// manifest.eventsPath unconditionally (child-executor / background-runner)
+	// and the state store pins eventsPath === <stateRoot>/events.jsonl
+	// (DEFAULT_PATHS.state.eventsFile; the invariant is validated by
+	// state-store.ts + manifest-cache.ts) — dirname(eventsPath) IS the manifest
+	// stateRoot. Absent (non-team spawn) → var stays unset and the ask tool
+	// fast-fails with a structured notice instead of hanging.
+	if (input.eventsPath) built.env.PI_CREW_STATE_ROOT = path.dirname(input.eventsPath);
 	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is

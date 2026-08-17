@@ -21,8 +21,10 @@
  *  full contract and acceptance criteria.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
+import { withRunLockSync } from "../../state/coordination/locks.ts";
 import {
 	appendMailboxMessageAsync,
 	type MailboxMessage,
@@ -31,8 +33,8 @@ import {
 	readMailbox,
 	registerMailboxAppendObserver,
 } from "../../state/coordination/mailbox.ts";
-import { readEventsCursor } from "../../state/event-log/event-log.ts";
-import { loadRunManifestById } from "../../state/stores/state-store.ts";
+import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
@@ -74,6 +76,13 @@ export interface CrewBrokerOptions {
 	 *  wrapping a loader spy). Production uses a plain cache — see
 	 *  wait-status-cache.ts (R10-3). */
 	waitStatusCache?: WaitStatusCache;
+	/** WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 7): capability
+	 *  gate for the `wait.*` methods. DEFAULT FALSE — fail-closed. When not
+	 *  explicitly true, wait.request/wait.resolve are rejected with a
+	 *  `policy-disabled` error AND a `policy.action` event is appended to the
+	 *  run's events.jsonl (never silent). The production wiring threads
+	 *  `config.broker.waitMethodsEnabled` here; tests pass it explicitly. */
+	waitMethodsEnabled?: boolean;
 }
 
 /** Per-connection server-side state. */
@@ -88,6 +97,11 @@ interface ServerConnection {
 	taskId?: string;
 	/** Role bound by hello: orchestrator can steer/msg-send; workers default. */
 	role?: "orchestrator" | "worker";
+	/** How the hello token matched the registry (ADR-0 item 6). Derived,
+	 *  non-secret metadata recorded at hello time so `wait.*` can reject a
+	 *  legacy bare-runId fallback match WITHOUT keeping the raw token on the
+	 *  connection (tokens stay confined to the heap-only registry). */
+	authMatchKind?: "compound" | "runId-fallback";
 	/** Outbound queue of encoded frames awaiting drain. */
 	outbound: Buffer[];
 	/** Set when the queue has hit the cap and a frame was dropped. */
@@ -101,7 +115,7 @@ interface ServerConnection {
 }
 
 export class CrewBroker {
-	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled">> &
+	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled" | "waitMethodsEnabled">> &
 		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "cwd" | "netModule" | "waitStatusCache">;
 	private readonly tokens = new BrokerTokenRegistry();
 	private server: net.Server | null = null;
@@ -136,6 +150,7 @@ export class CrewBroker {
 			outboundQueueCap: options.outboundQueueCap,
 			cwd: options.cwd,
 			netModule: options.netModule,
+			waitMethodsEnabled: options.waitMethodsEnabled === true,
 		};
 		this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
 	}
@@ -385,6 +400,7 @@ export class CrewBroker {
 			runId: undefined,
 			taskId: undefined,
 			role: undefined,
+			authMatchKind: undefined,
 			outbound: [],
 			needsResync: false,
 			closed: false,
@@ -565,6 +581,15 @@ export class CrewBroker {
 			case "escalate":
 				await this.handleEscalate(conn, id, params);
 				return;
+			// WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask items 3,6,7):
+			// waiting-producer park/resolve. Task-scoped tokens only;
+			// capability-gated via options.waitMethodsEnabled (fail-closed).
+			case "wait.request":
+				await this.handleWaitRequest(conn, id, params);
+				return;
+			case "wait.resolve":
+				await this.handleWaitResolve(conn, id, params);
+				return;
 			default:
 				// Unhandled method → typed not-implemented.
 				this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
@@ -592,8 +617,11 @@ export class CrewBroker {
 		// vs worker), never from a self-declared hello field (F-06: otherwise a
 		// worker could forge role:'orchestrator' and call steer.push/msg.send).
 		// Constant-time compare; never include the token in the error path.
-		const role = this.tokens.tokenRole(runId, taskId, token);
-		if (role === null) {
+		// WP-2/R2 (ADR-0 item 6): the match KIND is recorded on the connection
+		// (compound vs legacy bare-runId fallback) so wait.* can enforce the
+		// task-scoped-token rule without retaining the secret candidate.
+		const resolved = this.tokens.tokenRoleWithMatchKind(runId, taskId, token);
+		if (resolved === null) {
 			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
 			return;
 		}
@@ -612,7 +640,8 @@ export class CrewBroker {
 		conn.authed = true;
 		conn.runId = runId;
 		conn.taskId = taskId;
-		conn.role = role;
+		conn.role = resolved.role;
+		conn.authMatchKind = resolved.matchKind;
 		// Phase 1.3: index by runId for live mailbox fanout.
 		let connsForRun = this.connectionsByRun.get(runId);
 		if (!connsForRun) {
@@ -1001,7 +1030,7 @@ export class CrewBroker {
 			this.sendError(conn, id, "bad-params", "task.waitStatus: taskId out of range");
 			return;
 		}
-		const validStatuses = new Set(["queued", "running", "completed", "failed", "blocked", "cancelled"]);
+		const validStatuses = new Set(["queued", "running", "waiting", "completed", "failed", "blocked", "cancelled"]);
 		if (!validStatuses.has(targetStatus)) {
 			this.sendError(conn, id, "bad-params", `task.waitStatus: invalid until '${targetStatus}'`);
 			return;
@@ -1207,6 +1236,295 @@ export class CrewBroker {
 			this.sendError(conn, id, "escalate-failed", (err as Error).message);
 		}
 	}
+
+	// ------------------------------------------------------------------------
+	// WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)
+	// ------------------------------------------------------------------------
+
+	/** Shared auth for wait.*: worker role + task-scoped (compound-key) token
+	 *  ONLY (ADR item 6). A legacy bare-runId fallback match is REJECTED with
+	 *  a migrate hint; the orchestrator token is rejected by role. Returns the
+	 *  error to send, or null when auth passes. */
+	private waitAuthError(conn: ServerConnection): { code: string; message: string } | null {
+		if (conn.role !== "worker" || conn.authMatchKind === undefined) {
+			return { code: "forbidden", message: "wait.* requires a worker task-scoped token" };
+		}
+		if (conn.authMatchKind !== "compound") {
+			return {
+				code: "forbidden",
+				message: "wait.* requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID",
+			};
+		}
+		return null;
+	}
+
+	/** ADR item 7: a disabled-gate rejection MUST leave a durable trace in
+	 *  events.jsonl — the gate fails CLOSED but never SILENTLY. Fire-and-forget
+	 *  async append (broker handlers must not block the event loop on the sync
+	 *  event-log lock); an append failure is logged, never thrown. */
+	private recordWaitPolicyRejection(manifest: { eventsPath: string; runId: string }, taskId: string, method: string): void {
+		const runId = manifest.runId;
+		void appendEventAsync(manifest.eventsPath, {
+			type: "policy.action",
+			runId,
+			taskId,
+			message: `${method} rejected: waitMethodsEnabled=false (fail-closed)`,
+			data: { action: method, reason: "wait-methods-disabled", policy: "broker.waitMethodsEnabled=false" },
+		}).catch((err) =>
+			logInternalError("crew-broker.wait.policy-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
+		);
+	}
+
+	/** WP-2/R2 step 4: park the calling task while its `ask` tool awaits a
+	 *  leader answer. Park = task.status "waiting" + task.waiting marker +
+	 *  manifest.waitState pointer; manifest.status NEVER flips (stays
+	 *  "running" — registry entry, sidebar visibility and
+	 *  live-executor.isCurrent() all preserved; ADR item 3). Writes happen
+	 *  under withRunLockSync with a fresh reload (respond.ts:42-43 discipline).
+	 *  deadline = now + min(timeoutSec, 3600): the SERVER clamps —
+	 *  worker-controlled timeoutSec may never exceed 1h (ADR P2-7). */
+	private async handleWaitRequest(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId || !conn.taskId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const authErr = this.waitAuthError(conn);
+		if (authErr) {
+			this.sendError(conn, id, authErr.code, authErr.message);
+			return;
+		}
+		const parsed = parseWaitRequestParams(params);
+		if (!parsed) {
+			this.sendError(conn, id, "bad-params", "wait.request: invalid params");
+			return;
+		}
+		// Server-side identity enforcement: `to` MUST equal the authenticated
+		// task — a worker may only park ITSELF. (The escalate handler's
+		// unvalidated `to` is the recorded anti-pattern; do NOT replicate.)
+		if (parsed.to !== conn.taskId) {
+			this.sendError(conn, id, "forbidden", "wait.request: 'to' must match the authenticated task");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let loaded: NonNullable<ReturnType<typeof loadRunManifestById>>;
+		try {
+			const l = loadRunManifestById(cwd, conn.runId);
+			if (!l) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			loaded = l;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		// Capability gate (ADR item 7): fail-closed, NEVER silent — every
+		// rejection leaves a policy.action trace in the run's events.jsonl.
+		if (this.options.waitMethodsEnabled !== true) {
+			this.recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.request");
+			this.sendError(
+				conn,
+				id,
+				"policy-disabled",
+				"wait.request is disabled: broker.waitMethodsEnabled=false (fail-closed; policy.action recorded in events.jsonl)",
+			);
+			return;
+		}
+		// Server clamp BEFORE any state write (ADR P2-7).
+		const requestedSec = parsed.timeoutSec ?? WAIT_REQUEST_TIMEOUT_SEC_DEFAULT;
+		const clampSec = Math.min(Math.max(1, Math.floor(requestedSec)), WAIT_REQUEST_TIMEOUT_SEC_MAX);
+		const clamped = requestedSec > clampSec;
+		const questionId = randomUUID();
+		const askedAt = new Date().toISOString();
+		const deadline = Date.now() + clampSec * 1000;
+		const runId = conn.runId;
+		const taskId = conn.taskId;
+		const outcome = withRunLockSync(loaded.manifest, () => {
+			// Fresh reload INSIDE the lock (respond.ts:42-43 discipline).
+			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
+			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
+			const task = fresh.tasks.find((t) => t.id === taskId);
+			if (!task) return { code: "no-task" as const, message: `task '${taskId}' not found` };
+			if (task.status !== "running") {
+				return { code: "bad-params" as const, message: `wait.request: task '${taskId}' is ${task.status}, not running` };
+			}
+			const updatedTasks = fresh.tasks.map((t) =>
+				t.id === taskId
+					? {
+							...t,
+							status: "waiting" as const,
+							waiting: {
+								questionId,
+								askedAt,
+								deadline,
+								...(parsed.options ? { options: parsed.options } : {}),
+							},
+						}
+					: t,
+			);
+			const updatedManifest = {
+				...fresh.manifest,
+				// manifest.status stays "running" — park NEVER flips run status (ADR item 3).
+				waitState: { taskId, questionId, askedAt },
+				updatedAt: askedAt,
+			};
+			saveRunTasks(updatedManifest, updatedTasks);
+			saveRunManifest(updatedManifest);
+			return { code: "ok" as const, message: "" };
+		});
+		if (outcome.code !== "ok") {
+			this.sendError(conn, id, outcome.code, outcome.message);
+			return;
+		}
+		// Events AFTER the run lock is released (the event-log lock is a
+		// separate lock; no cross-lock ordering). task.waiting mirrors the
+		// persisted status flip for event-log reconstruction (tasks.json
+		// corruption recovery); ask.requested carries the question for the
+		// leader/UI. Fire-and-forget: an event failure must not fail the park.
+		const eventsPath = loaded.manifest.eventsPath;
+		void appendEventAsync(eventsPath, {
+			type: "task.waiting",
+			runId,
+			taskId,
+			message: `Task parked awaiting leader answer (question ${questionId}, deadline in ${clampSec}s).`,
+			data: { questionId, deadline },
+		}).catch((err) =>
+			logInternalError("crew-broker.wait.task-waiting-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
+		);
+		void appendEventAsync(eventsPath, {
+			type: "ask.requested",
+			runId,
+			taskId,
+			message: parsed.question,
+			data: {
+				questionId,
+				deadline,
+				timeoutSec: clampSec,
+				clamped,
+				...(parsed.options ? { options: parsed.options } : {}),
+			},
+		}).catch((err) =>
+			logInternalError("crew-broker.wait.ask-requested-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
+		);
+		this.sendResult(conn, id, {
+			ok: true,
+			questionId,
+			askedAt,
+			deadline,
+			timeoutSec: clampSec,
+			clamped,
+		});
+	}
+
+	/** WP-2/R2: terminal report of the parked `ask` tool — flips the task
+	 *  waiting→running and clears the park coordination state. Scoped to
+	 *  auth + state transition + ask.answered event ONLY (ADR item 6/8):
+	 *  answer DELIVERY is the mailbox respond path (step 6), not this
+	 *  method. A questionId mismatch (or a task that is not parked) is
+	 *  rejected WITHOUT clearing anything — fail-closed. */
+	private async handleWaitResolve(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		if (!conn.runId || !conn.taskId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		const authErr = this.waitAuthError(conn);
+		if (authErr) {
+			this.sendError(conn, id, authErr.code, authErr.message);
+			return;
+		}
+		const parsed = parseWaitResolveParams(params);
+		if (!parsed) {
+			this.sendError(conn, id, "bad-params", "wait.resolve: invalid params");
+			return;
+		}
+		// Server-side identity enforcement (same rule as wait.request).
+		if (parsed.to !== conn.taskId) {
+			this.sendError(conn, id, "forbidden", "wait.resolve: 'to' must match the authenticated task");
+			return;
+		}
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let loaded: NonNullable<ReturnType<typeof loadRunManifestById>>;
+		try {
+			const l = loadRunManifestById(cwd, conn.runId);
+			if (!l) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			loaded = l;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		if (this.options.waitMethodsEnabled !== true) {
+			this.recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.resolve");
+			this.sendError(
+				conn,
+				id,
+				"policy-disabled",
+				"wait.resolve is disabled: broker.waitMethodsEnabled=false (fail-closed; policy.action recorded in events.jsonl)",
+			);
+			return;
+		}
+		const runId = conn.runId;
+		const taskId = conn.taskId;
+		const outcome = withRunLockSync(loaded.manifest, () => {
+			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
+			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
+			const task = fresh.tasks.find((t) => t.id === taskId);
+			if (!task) return { code: "no-task" as const, message: `task '${taskId}' not found` };
+			if (task.status !== "waiting" || task.waiting?.questionId !== parsed.questionId) {
+				return {
+					code: "bad-params" as const,
+					message: `wait.resolve: no parked question '${parsed.questionId}' on task '${taskId}'`,
+				};
+			}
+			const updatedTasks = fresh.tasks.map((t) => (t.id === taskId ? { ...t, status: "running" as const, waiting: undefined } : t));
+			// waitState is a single run-level slot: clear it ONLY when it points
+			// at this exact question — never clobber another task's newer park.
+			const waitState = fresh.manifest.waitState;
+			const clearWaitState = waitState !== undefined && waitState.taskId === taskId && waitState.questionId === parsed.questionId;
+			const updatedManifest = {
+				...fresh.manifest,
+				...(clearWaitState ? { waitState: undefined } : {}),
+				updatedAt: new Date().toISOString(),
+			};
+			saveRunTasks(updatedManifest, updatedTasks);
+			saveRunManifest(updatedManifest);
+			return { code: "ok" as const, message: "" };
+		});
+		if (outcome.code !== "ok") {
+			this.sendError(conn, id, outcome.code, outcome.message);
+			return;
+		}
+		const eventsPath = loaded.manifest.eventsPath;
+		void appendEventAsync(eventsPath, {
+			type: "ask.answered",
+			runId,
+			taskId,
+			message: `Question ${parsed.questionId} answered; task resumed.`,
+			data: { questionId: parsed.questionId },
+		}).catch((err) =>
+			logInternalError("crew-broker.wait.ask-answered-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
+		);
+		void appendEventAsync(eventsPath, {
+			type: "task.resumed",
+			runId,
+			taskId,
+			message: `Task resumed after ask answer (question ${parsed.questionId}).`,
+			data: { questionId: parsed.questionId },
+		}).catch((err) =>
+			logInternalError("crew-broker.wait.task-resumed-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
+		);
+		this.sendResult(conn, id, { ok: true, taskId, questionId: parsed.questionId });
+	}
 }
 
 // ============================================================================
@@ -1300,4 +1618,68 @@ function safeStringify(value: unknown): string {
 	} catch {
 		return "{}";
 	}
+}
+
+// ============================================================================
+// WP-2/R2 wait.* parameter parsers (ADR-0 2026-08-17-waiting-producer-ask)
+// ============================================================================
+
+/** Server-side ceiling for the ask deadline (ADR P2-7): worker-controlled
+ *  timeoutSec may NEVER exceed 1h — an unbounded timeout would pin slots and
+ *  amplify I/O. Applied as deadline = now + min(timeoutSec, 3600). */
+const WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
+/** Default ask timeout when the caller omits timeoutSec (ADR item 1). */
+const WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
+/** Bounded question payload (defense-in-depth under the 256 KiB frame cap). */
+const WAIT_QUESTION_MAX_CHARS = 8192;
+/** Bounded answer-choice list: at most 16 options, 256 chars each. */
+const WAIT_OPTIONS_MAX = 16;
+const WAIT_OPTION_MAX_CHARS = 256;
+
+interface WaitRequestParams {
+	to: string;
+	question: string;
+	options?: string[];
+	timeoutSec?: number;
+}
+
+function parseWaitRequestParams(value: unknown): WaitRequestParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return undefined;
+	if (typeof v.question !== "string" || v.question.length === 0 || v.question.length > WAIT_QUESTION_MAX_CHARS) {
+		return undefined;
+	}
+	let options: string[] | undefined;
+	if (v.options !== undefined) {
+		if (!Array.isArray(v.options) || v.options.length === 0 || v.options.length > WAIT_OPTIONS_MAX) return undefined;
+		for (const o of v.options) {
+			if (typeof o !== "string" || o.length === 0 || o.length > WAIT_OPTION_MAX_CHARS) return undefined;
+		}
+		options = v.options as string[];
+	}
+	// timeoutSec is clamped server-side in the handler (max 3600); the parser
+	// only rejects non-finite values. Non-positive values clamp to 1s.
+	if (v.timeoutSec !== undefined && (typeof v.timeoutSec !== "number" || !Number.isFinite(v.timeoutSec))) {
+		return undefined;
+	}
+	return {
+		to: v.to,
+		question: v.question,
+		options,
+		timeoutSec: v.timeoutSec as number | undefined,
+	};
+}
+
+interface WaitResolveParams {
+	to: string;
+	questionId: string;
+}
+
+function parseWaitResolveParams(value: unknown): WaitResolveParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return undefined;
+	if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return undefined;
+	return { to: v.to, questionId: v.questionId };
 }

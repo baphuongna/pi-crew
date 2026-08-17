@@ -89,6 +89,13 @@ export const TEAM_EVENT_TYPES = [
 	"task.waiting",
 	"task.resumed",
 	"task.retried",
+	// WP-2/R2 waiting-producer (ADR-0 2026-08-17-waiting-producer-ask item 10):
+	// `ask` tool lifecycle — requested on park acceptance, answered on delivery
+	// (mailbox or requeue+inject), timedout on deadline expiry (both the
+	// alive-in-tool and dead-requeue outcomes).
+	"ask.requested",
+	"ask.answered",
+	"ask.timedout",
 	"supervisor.contact",
 	// Budget tracking events
 	"budget.initialized",

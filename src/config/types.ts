@@ -298,6 +298,12 @@ export interface CrewBrokerConfig {
 	maxFrameBytes?: number;
 	/** Per-connection outbound queue cap. 32..4096 (default 256). */
 	outboundQueueCap?: number;
+	/** WP-2/R2 (ADR-0 docs/decisions/2026-08-17-waiting-producer-ask item 7):
+	 *  capability gate for the broker `wait.*` methods (waiting-producer park
+	 *  contract). DEFAULT FALSE — fail-closed until WP-2 completes; while
+	 *  false, wait.request/wait.resolve are rejected with a policy-disabled
+	 *  error plus a policy.action event in events.jsonl (never silent). */
+	waitMethodsEnabled?: boolean;
 }
 
 export interface LoadedPiTeamsConfig {

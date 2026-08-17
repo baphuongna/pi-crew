@@ -228,6 +228,15 @@ export interface TeamRunManifest {
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
 	planApproval?: PlanApprovalState;
+	/** WP-2/R2 (ADR-0 item 3): run-level park pointer while a worker is blocked
+	 *  in the `ask` tool. Purely additive coordination state — `status` above is
+	 *  NEVER flipped to express waiting (the run stays "running": registry entry,
+	 *  sidebar visibility and live-executor.isCurrent() all preserved). */
+	waitState?: {
+		taskId: string;
+		questionId: string;
+		askedAt: string;
+	};
 	/** Pi session that created the run, when available. Used to prevent cross-session destructive actions. */
 	ownerSessionId?: string;
 	/** pi-crew skill override selected when the run was created. false disables injected skill instructions. */
@@ -462,6 +471,24 @@ export interface TeamTaskState {
 	/** Steering messages queued before the task's session was ready.
 	 *  Delivered when the session initializes (mirrors pi-subagents3 pendingSteers pattern). */
 	pendingSteers?: string[];
+
+	/** WP-2/R2 (ADR-0 docs/decisions/2026-08-17-waiting-producer-ask.md item 3):
+	 *  park marker set while the worker is blocked in the `ask` tool awaiting a
+	 *  leader answer. Purely additive — `status` carries "waiting" for the whole
+	 *  park and the parked tool's terminal report flips it back via the normal
+	 *  task lifecycle. */
+	waiting?: {
+		/** Correlation id (randomUUID) — matches manifest.waitState.questionId and
+		 *  the mailbox `kind:"response"` entry carrying the answer. */
+		questionId: string;
+		/** ISO timestamp when the park was accepted (broker wait.request). */
+		askedAt: string;
+		/** Ms-epoch answer deadline. Server-clamped root-side by the broker to
+		 *  now + min(timeoutSec, 3600) — worker-controlled values never exceed 1h. */
+		deadline: number;
+		/** Optional answer choices the worker presented with the question. */
+		options?: string[];
+	};
 }
 
 export interface ControlReservation {

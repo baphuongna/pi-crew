@@ -322,6 +322,9 @@ export const CrewBrokerConfigSchema = Type.Object(
 		pathHashLen: Type.Optional(Type.Integer({ minimum: 4, maximum: 32 })),
 		maxFrameBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 1_048_576 })),
 		outboundQueueCap: Type.Optional(Type.Integer({ minimum: 32, maximum: 4096 })),
+		/** WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 7): gate for the
+		 *  broker wait.* methods. Default false — fail-closed. */
+		waitMethodsEnabled: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );

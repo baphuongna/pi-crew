@@ -67,6 +67,10 @@ export interface MailboxMessage {
 	priority?: MailboxMessagePriority;
 	deliveryMode?: MailboxDeliveryMode;
 	taskId?: string;
+	/** WP-2/R2 (ADR-0 item 11/F11): ask-response correlation id (randomUUID).
+	 *  Carried by `kind:"response"` entries; matches task.waiting.questionId —
+	 *  matching must be exact equality (never prefix/substring). */
+	questionId?: string;
 	acknowledgedAt?: string;
 	data?: Record<string, unknown>;
 	/** ID of the original message this is a reply to. */
@@ -294,6 +298,7 @@ function parseMailboxMessage(raw: unknown, expectedDirection: MailboxDirection):
 		priority: isPriority(obj.priority) ? obj.priority : undefined,
 		deliveryMode: isDeliveryMode(obj.deliveryMode) ? obj.deliveryMode : undefined,
 		taskId: typeof obj.taskId === "string" ? obj.taskId : undefined,
+		questionId: typeof obj.questionId === "string" ? obj.questionId : undefined,
 		acknowledgedAt: typeof obj.acknowledgedAt === "string" ? obj.acknowledgedAt : undefined,
 		data,
 		replyTo: typeof obj.replyTo === "string" ? obj.replyTo : undefined,
@@ -568,6 +573,7 @@ export function appendMailboxMessage(
 		priority: message.priority,
 		deliveryMode: message.deliveryMode,
 		taskId: message.taskId,
+		questionId: message.questionId,
 		data: message.data,
 		replyTo: message.replyTo,
 		replyFrom: message.replyFrom,
@@ -693,6 +699,7 @@ export async function appendMailboxMessageAsync(
 		priority: message.priority,
 		deliveryMode: message.deliveryMode,
 		taskId: message.taskId,
+		questionId: message.questionId,
 		data: message.data,
 		replyTo: message.replyTo,
 		replyFrom: message.replyFrom,

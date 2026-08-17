@@ -182,6 +182,12 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 						finishedAt: undefined,
 						error: undefined,
 						heartbeat: undefined,
+						// WP-2/R2 (ADR-0 item 9): a requeued task must not resume parked
+						// state — drop any stale ask-park marker along with the other
+						// per-attempt transient fields. Tasks NOT reset (e.g. a task parked
+						// in `waiting`) pass through untouched, marker intact; the marker's
+						// deadline is then owned by the scheduler tick (dispatch-batch).
+						waiting: undefined,
 					}
 				: task,
 		);

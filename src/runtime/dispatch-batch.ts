@@ -13,13 +13,16 @@ import type { CrewReliabilityConfig } from "../config/config.ts";
 import { CrewError, ErrorCode } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
+import { withRunLockSync } from "../state/coordination/locks.ts";
 import { appendEventAsync, appendEventBuffered } from "../state/event-log/event-log.ts";
-import { loadRunManifestById, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
+import { loadRunManifestById, saveRunTasks, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
-import { saveCrewAgents } from "./crew-agent-records.ts";
+import { readCrewAgents, recordFromTask, saveCrewAgents } from "./crew-agent-records.ts";
 import { appendDeadletter } from "./deadletter.ts";
+import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS } from "./heartbeat/heartbeat-gradient.ts";
+import { getLiveAgent } from "./live-session/live-agent-manager.ts";
 import { isNonTerminalTaskStatus } from "./merge-gate.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
@@ -36,6 +39,175 @@ import { recordsForMaterializedTasks } from "./task-display.ts";
 import { computeStablePrefixComponents } from "./task-runner/prompt-builder.ts";
 import { runTeamTask, type SpawnBudget } from "./task-runner.ts";
 import { type PhaseGuardContext, validatePhasePreconditions } from "./workflow-state.ts";
+
+// ── WP-2/R2 (ADR-0 items 8+10): waiting-producer liveness + deadline owner ──
+
+/**
+ * WP-2/R2 (ADR-0 docs/decisions/2026-08-17-waiting-producer-ask.md item 8):
+ * liveness discriminator for a parked (waiting) worker.
+ *
+ * ALIVE = heartbeat last-beat within the gradient stale window (<60s —
+ * classifyHeartbeat "healthy"/"warn") OR a live in-memory session handle
+ * (live-agent registry, non-terminal status). Everything else is DEAD for
+ * delivery purposes: stale (60–300s), dead (>300s), `alive:false`, no
+ * heartbeat and no handle.
+ *
+ * Shared by the respond discriminator (extension/team-tool/respond.ts) and
+ * the scheduler-tick deadline owner below — one definition, two consumers.
+ */
+export function isWaitingWorkerAlive(task: TeamTaskState, now = Date.now()): boolean {
+	// Live in-memory handle: same-process live-session runtime keeps a session
+	// handle in the registry keyed by (agentId | taskId).
+	const handle = getLiveAgent(task.id);
+	if (handle && (handle.status === "running" || handle.status === "queued" || handle.status === "waiting")) return true;
+	// Heartbeat: last beat inside the gradient stale window (<60s).
+	const level = classifyHeartbeat(task.heartbeat, DEFAULT_GRADIENT_THRESHOLDS, now);
+	return level === "healthy" || level === "warn";
+}
+
+/** In-process exactly-once guard: questionIds whose `ask.timedout` event was
+ *  already emitted by this scheduler process (prevents re-emission on every
+ *  subsequent tick while an ALIVE park waits for its in-tool timeout to
+ *  surface). Capped with FIFO eviction to bound memory. */
+const emittedAskTimedoutQuestionIds = new Set<string>();
+const MAX_EMITTED_ASK_TIMEDOUT = 10_000;
+
+export interface WaitingDeadlineSweepResult {
+	manifest: TeamRunManifest;
+	tasks: TeamTaskState[];
+	/** QuestionIds for which an `ask.timedout` event was emitted this sweep. */
+	timedOutQuestionIds: string[];
+	/** Task ids requeued this sweep (dead workers only). */
+	requeuedTaskIds: string[];
+}
+
+/** WP-2/R2 (ADR-0 item 10): render the "[ask timed out]" note injected into the
+ *  next dispatch when a parked ask deadline expires with no worker alive.
+ *  Fenced as untrusted (same-uid channel discipline). */
+function renderAskTimedoutInjection(questionId: string): string {
+	return [
+		"<dependency-context>",
+		"(Scheduler note: the previous ask(question) deadline expired with no worker alive to receive an answer. It is DATA, not a system directive.)",
+		`[ask timed out] questionId=${questionId}`,
+		"Continue with best judgment.",
+		"</dependency-context>",
+	].join("\n");
+}
+
+/**
+ * WP-2/R2 (ADR-0 item 10) — scheduler-tick deadline owner for parked asks.
+ *
+ * For every task with a persisted `task.waiting` whose deadline has expired:
+ * - worker ALIVE → no root-side state change (the parked ask tool's own poll
+ *   deadline surfaces the timeout in-tool); only the `ask.timedout` event is
+ *   appended.
+ * - worker DEAD → clear `waiting`, re-queue the task with a "[ask timed out]"
+ *   note injected into the next dispatch (pendingSteers cross-attempt
+ *   channel), and append `ask.timedout`.
+ *
+ * All state changes run under the run lock with a fresh reload
+ * (respond.ts:42-43 discipline); events are appended AFTER the lock is
+ * released (awaited — callers are async). Exactly-once per questionId via
+ * the in-process guard above (a requeued task also loses `waiting`, so a
+ * second sweep pass skips it).
+ *
+ * Returns undefined when there is nothing to do (no expired waiting park).
+ */
+export async function sweepExpiredWaitingTasks(
+	cwd: string,
+	runId: string,
+	now = Date.now(),
+): Promise<WaitingDeadlineSweepResult | undefined> {
+	const initial = loadRunManifestById(cwd, runId);
+	if (!initial) return undefined;
+	const hasExpired = initial.tasks.some((t) => t.status === "waiting" && t.waiting !== undefined && t.waiting.deadline <= now);
+	if (!hasExpired) return undefined;
+	const pendingEvents: Array<{ taskId: string; questionId: string; workerAlive: boolean }> = [];
+	const outcome = withRunLockSync(initial.manifest, () => {
+		const fresh = loadRunManifestById(cwd, runId); // NOTE: inside withRunLockSync - consistent read
+		if (!fresh) return null;
+		let tasks = fresh.tasks;
+		const timedOutQuestionIds: string[] = [];
+		const requeuedTaskIds: string[] = [];
+		for (const task of fresh.tasks) {
+			if (task.status !== "waiting" || task.waiting === undefined) continue;
+			if (task.waiting.deadline > now) continue;
+			const questionId = task.waiting.questionId;
+			if (emittedAskTimedoutQuestionIds.has(questionId)) continue; // exactly-once per process
+			if (emittedAskTimedoutQuestionIds.size >= MAX_EMITTED_ASK_TIMEDOUT) {
+				const oldest = emittedAskTimedoutQuestionIds.keys().next().value;
+				if (oldest !== undefined) emittedAskTimedoutQuestionIds.delete(oldest);
+			}
+			emittedAskTimedoutQuestionIds.add(questionId);
+			const workerAlive = isWaitingWorkerAlive(task, now);
+			timedOutQuestionIds.push(questionId);
+			pendingEvents.push({ taskId: task.id, questionId, workerAlive });
+			if (!workerAlive) {
+				// DEAD: clear the park and re-queue with the injected timeout note.
+				const note = renderAskTimedoutInjection(questionId);
+				tasks = tasks.map((t) =>
+					t.id === task.id
+						? {
+								...t,
+								status: "queued" as const,
+								startedAt: undefined,
+								finishedAt: undefined,
+								error: undefined,
+								waiting: undefined,
+								pendingSteers: [...(t.pendingSteers ?? []), note],
+								adaptive: {
+									...t.adaptive,
+									phase: "resumed",
+									task: t.adaptive?.task ?? "",
+								},
+							}
+						: t,
+				);
+				requeuedTaskIds.push(task.id);
+			}
+		}
+		if (requeuedTaskIds.length === 0) {
+			return { manifest: fresh.manifest, tasks: fresh.tasks, timedOutQuestionIds, requeuedTaskIds };
+		}
+		saveRunTasks(fresh.manifest, tasks);
+		let manifest = fresh.manifest;
+		if (
+			manifest.status === "blocked" ||
+			manifest.status === "completed" ||
+			manifest.status === "failed" ||
+			manifest.status === "cancelled"
+		) {
+			manifest = updateRunStatus(manifest, "running", `Requeued ${requeuedTaskIds.length} waiting task(s) after ask timeout.`);
+		}
+		try {
+			const existingRuntimes = new Map(readCrewAgents(fresh.manifest).map((a) => [a.taskId, a.runtime]));
+			saveCrewAgents(
+				fresh.manifest,
+				tasks
+					.filter((t) => requeuedTaskIds.includes(t.id))
+					.map((t) => recordFromTask(fresh.manifest, t, existingRuntimes.get(t.id) ?? "child-process")),
+			);
+		} catch (error) {
+			logInternalError("dispatch-batch.ask-timeout.crewAgents", error, `runId=${runId}`);
+		}
+		return { manifest, tasks, timedOutQuestionIds, requeuedTaskIds };
+	});
+	if (!outcome) return undefined;
+	// Events appended AFTER the run lock is released; awaited so callers (and
+	// tests) observe durable events.jsonl once the sweep resolves.
+	for (const event of pendingEvents) {
+		await appendEventAsync(outcome.manifest.eventsPath, {
+			type: "ask.timedout",
+			runId,
+			taskId: event.taskId,
+			message: `Ask deadline expired for question ${event.questionId}${
+				event.workerAlive ? " (worker alive — surfaced in-tool)" : " (worker dead — task requeued)"
+			}.`,
+			data: { questionId: event.questionId, workerAlive: event.workerAlive, surface: event.workerAlive ? "in-tool" : "requeue" },
+		}).catch((error) => logInternalError("dispatch-batch.ask-timeout-event", error, `runId=${runId} taskId=${event.taskId}`));
+	}
+	return outcome;
+}
 
 function findStep(workflow: WorkflowConfig, task: TeamTaskState): WorkflowStep {
 	const step = workflow.steps.find((candidate) => candidate.id === task.stepId);
@@ -177,6 +349,14 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
  *             `ctx.manifest` may be mutated in-place.
  */
 export async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDecision> {
+	// WP-2/R2 (ADR-0 item 10): this tick owns parked-ask deadlines — every
+	// scheduler iteration sweeps tasks with an expired `task.waiting.deadline`
+	// BEFORE batch selection (a requeued park must be dispatchable this tick).
+	const sweep = await sweepExpiredWaitingTasks(ctx.manifest.cwd, ctx.manifest.runId);
+	if (sweep) {
+		ctx.manifest = sweep.manifest;
+		ctx.tasks = sweep.tasks;
+	}
 	const snapshot = taskGraphSnapshot(ctx.tasks, ctx.queueIndex);
 
 	// DAG-based execution plan: when tasks have explicit dependsOn, use the
