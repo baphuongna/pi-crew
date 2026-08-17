@@ -1,7 +1,9 @@
-# pi-crew Subagent v2 — Design Proposal
+# pi-crew Subagent v2 — Design Proposal (rev 2)
 
-**Status:** DRAFT — awaiting review · **Date:** 2026-08-16 · **Base:** main `fb3cad21` (v0.10.0)
-**Foundation audit:** `docs/design/2026-08-16-subagent-v2-audit.md` (run `team_20260816163952_f89275501e2c9e87`, all claims file:line-anchored, negatives grep-verified ≥2×)
+**Status:** REV 2 — post adversarial review round 1 (run `team_20260817020423_3ea83cd4d0ec08e3`; 20 findings: 2 P0, 13 P1, 5 P2 — all addressed below)
+**Date:** 2026-08-16 · **Base:** main `fb3cad21` (v0.10.0); review verified @ `c033e21d` (docs-only, no source drift)
+**Foundation audit:** `docs/design/2026-08-16-subagent-v2-audit.md` (erratum: several paths corrected — see that file's header)
+**Rev-2 change log:** §3 rewritten (park/unpark semantics — waiting protection was WRONG in rev 1; respond live-path split), §7 rewritten (nested-slot budget fixes deadlock P0-1; depthOverride fixes P0-2; durable result delivery replaces long-lived RPC), §2 principle 2 reworded (new authz surface + threat model), §5 migration section, §6 strict-mode machine-checkable evidence, §9 model validation pulled into P1 admission, §10 edge flip + mini-ADR for R2, §11 two added risks, §12 updated decision list, path anchors fixed throughout.
 
 ---
 
@@ -9,199 +11,218 @@
 
 > A pi-crew where every subagent can **delegate further (governed)**, works from a **spec**, executes a **versioned plan**, can **ask questions mid-task**, and the user can **see and steer all of it from the UI** — with one unified identity model and one spawn-permission policy.
 
-The audit's one-line verdict on today: *"v2 often **completes** rather than **creates**"* (pattern P2). Six consumer surfaces already exist for `waiting` with zero producers; plan-approval exists but is invisible to every UI; depth guards exist for nesting that has no tool seam. v2 = finish the scaffolding, then add the three missing objects (Plan, Spec, delegation contract).
+Audit one-liner: *"v2 often **completes** rather than **creates**"* (pattern P2). Six consumer surfaces already exist for `waiting` with zero producers; plan-approval exists but is invisible to every UI; depth guards exist for nesting that has no tool seam. v2 = finish the scaffolding, then add the three missing objects (Plan, Spec, delegation contract).
 
-## 1. Headline features (user-requested, audit-ranked)
+## 1. Headline features
 
 | # | Feature | Audit limitation closed | Phase |
 |---|---|---|---|
-| H1 | **Subagent của subagent** — governed nesting | L1 (no delegation seam) + L6 (two agent worlds) | P1 |
-| H2 | **Specs** — first-class spec system | L5 (no spec system) | P1 |
-| H3 | **Plans** — first-class Plan object | L3 (no Plan entity) | P1 |
-| H4 | **Plan UI** — plan/task-graph in TUI + text | L4 + L10 (approval invisible; no plan slice) | P2 |
-| H5 | Ask mid-task (`waiting` producer) | L2 (dead plumbing) | **P0** |
-| H6 | Unified agent identity + real subagent steer | L6 (steer stubs) | **P0** |
+| H1 | **Subagent của subagent** — governed nesting | L1 + L6 | P1 |
+| H2 | **Specs** — first-class spec system | L5 | P1 |
+| H3 | **Plans** — first-class Plan object | L3 | P1 |
+| H4 | **Plan UI** — plan/task-graph in TUI + text | L4 + L10 | P2 |
+| H5 | Ask mid-task (`waiting` producer) | L2 | **P0** |
+| H6 | Unified agent identity + real subagent steer | L6 | **P0** |
 
 ## 2. Design principles (from audit cross-cutting patterns)
 
-1. **One gate, one place** (closes P1): all spawn permission moves to a single `spawn-policy.ts`; depth/role/budget/trust/concurrency checked once, enforced at `runChildPi` entry — no scattered checks.
-2. **Broker is the spine** (reuses P7): nested delegation rides the existing heap-only per-child broker channel; no new IPC surface.
-3. **Typed state, not text artifacts** (closes P3): Plan/Spec are versioned JSON records in run state, queryable by UI and validators — result-text parsing becomes a producer, never the storage.
-4. **Untrusted fence everywhere**: any worker-produced text consumed by another worker stays inside the `<dependency-context>` fence pattern (audit S1) — including grandchild results.
-5. **Complete scaffolding first** (closes P2): P0 ships producers/consumers for what contracts already promise (waiting, steer, approval UI) before new objects land.
-6. **ADR-first for new objects**: Plan, Spec, and governed nesting each get an ADR in `docs/decisions/` before code (none exist today — audit S6).
+1. **One gate, one place** (closes P1): all spawn permission moves to a single `spawn-policy.ts`; depth/role/budget/trust/concurrency/model-validity checked once, enforced at the spawn entry point — no scattered checks.
+2. **The broker is the transport, and `delegate`/`ask` are NEW authorized broker methods — not "no new IPC surface"** *(rev 2: reworded — reviewer P1-8)*. Today's method set is fixed (9 methods, `crew-broker.ts:539-568`) and no worker-callable method mutates task state; v2 adds two that do. **Threat model:** a worker connection is authenticated by its task-scoped token (role derived from token type at hello, `crew-broker.ts:599-603` — keep); new methods MUST enforce `to === conn.taskId` at the handler (never trust a worker-supplied `to` — the existing `escalate` method's unvalidated `to` (`crew-broker.ts:1178`) is the recorded anti-pattern, do not replicate); admission is decided root-side by spawn-policy, the handler only *executes* admitted requests; unauthenticated/unauthorized → reject with policy message, logged to `events.jsonl`.
+3. **Typed state, not text artifacts** (closes P3): Plan/Spec are versioned JSON records in run state, queryable by UI and validators.
+4. **Untrusted fence everywhere**: worker-produced text consumed by another worker stays inside the `<dependency-context>` fence pattern — including grandchild results.
+5. **Complete scaffolding first** (closes P2): P0 ships producers/consumers for what contracts already promise. *(Rev 2: R2 (ask/waiting) introduces a new cross-process park contract → gets a mini-ADR even though it "completes" scaffolding — reviewer P2-18. R1/R3 stay ADR-less.)*
+6. **ADR-first for new objects**: Plan, Spec, governed nesting each get an ADR before code (none exist today — audit S6).
+7. **Durable over RPC** *(new, rev 2 — reviewer P1-6)*: long-lived broker RPC does not survive socket close (`crew-broker-client.ts:580-585` rejects all pending requests on close, sticky fallback). Any worker-waiting-on-future-result interaction returns a handle immediately and delivers the result over a durable channel (mailbox / task record / steering file), never by holding a request open.
 
----
+## 3. H5 — Ask mid-task (`waiting` producer) · P0 · mini-ADR required
 
-## 3. H5 — Ask mid-task (`waiting` producer) · P0
+**Problem:** `status:"waiting"` has 6 consumer surfaces and **zero producers** (grep-verified 3×). Workers cannot ask questions; final text is the only output channel.
 
-**Problem:** `status:"waiting"` has 6 consumer surfaces (respond, crash-recovery, events, UI, contract docs) and **zero producers** — verified 3×. Workers cannot ask questions; final text is the only output channel.
-
-**Design:** worker-side tool `ask`, symmetric with the existing scratchpad tool in `prompt-runtime.ts`:
+**Worker-side tool** (in `prompt-runtime.ts`, pattern: scratchpad's dormant-until-env `pi.registerTool` — `scratchpad-lifecycle.ts:642-647`, reviewer-verified feasible):
 
 ```
 ask({ question: string, options?: string[], timeoutSec?: number = 600 })
 ```
 
-- prompt-runtime emits `task_wait_requested` event + sets `task.status = "waiting"` via broker push (fast path) or result-stream marker (fallback), writes `mailbox/<taskId>.json` question item.
-- Parent scheduler parks the task (like plan-approval-pending — protected in stale-reconciler `recovery/stale-reconciler.ts:44-47` pattern).
-- `team action='respond'` already re-queues: unpark → steer-delivered question answer at next turn boundary (same 500ms poll as steering).
-- Timeout → auto-resume with `"[ask timed out — continue with best judgment]"` note; both outcomes appended to `events.jsonl`.
-- Roles: read-only roles may ask; the ask tool is always available (unlike delegation).
+**Park/unpark semantics** *(rev 2 — fully rewritten; rev-1 claim "protected like plan-approval-pending" was FALSE)*:
 
-**Acceptance:** E2E — worker asks → run parks → `respond` answers → worker resumes with answer in-context; kill -9 parent mid-question → crash-recovery restores task as `waiting`; timeout path resumes.
+The existing stale-reconciler does **not** protect waiting tasks — it *cancels* them on the next `session_start` after a parent dies (`stale-reconciler.ts:243` groups waiting with running; `:277-282` cancels; `isPlanApprovalPending` at `:45-47` only protects `manifest.status==="blocked" && planApproval.required && pending`). Therefore:
+
+1. **Park = manifest `blocked` + explicit wait record**, not bare task `waiting`: `task.waiting = { questionId, askedAt, deadline, options? }` AND manifest gets `waitState = { taskId, questionId, askedAt }` while `manifest.status` transitions to `blocked` (same shape plan-approval uses — the ONE wait state the reconciler already protects). Reconciler change: extend `isPlanApprovalPending` → `isIntentionalWait` = plan-approval-pending **OR** `waitState` present with `askedAt` within `waitingTtl` (default 24h). Waiting tasks older than TTL are still cancelled (leak guard).
+2. **Worker stays alive while parked.** The ask tool blocks the worker's turn (bounded by `timeoutSec`); the worker process is NOT killed. This is required because (rev 2, reviewer P1-5) `respond`'s current live path only writes a mailbox `kind:"response"` item and re-queues the task (`respond.ts:61-120`) — worker-side forwarding only matches `type === "steer"` (`prompt-runtime.ts` poll; broker push `crew-broker-child.ts:64-70` also steer-only) and `task.waitStatus.validStatuses` lacks `"waiting"` (`crew-broker.ts:1003`). So:
+   - **Live path:** prompt-runtime's 500ms poll + broker push extended to also forward `kind:"response"` entries → answer delivered into the parked worker's live turn via `sendMessage(deliverAs:"steer")` (same seam as steering); task returns to `running`; manifest un-blocks. No re-dispatch, no new process.
+   - **Durable path (worker died / crash):** crash-recovery already restores `waiting` as non-terminal (`crash-recovery.ts:277,311`); with the new manifest `waitState`, the stale-reconciler protects it (change 1); on `respond`, the task is re-queued AND the answer is injected into the next dispatch's prompt (mailbox history). **Negative AC: never both live-deliver and re-dispatch (no double-dispatch).**
+   - Broker method additions: `wait.request` / `wait.resolve` with `to === conn.taskId` (principle 2); `"waiting"` added to `waitStatus.validStatuses`.
+3. **Timeout owner = scheduler loop, persisted** *(rev 2 — reviewer P2-19)*: nothing schedules timers today (plan-approval blocks indefinitely). The scheduler's tick checks `task.waiting.deadline` (persisted in the task record, survives crash-recovery); expiry → deliver `"[ask timed out — continue with best judgment]"` through the live path if worker alive, else inject on next dispatch. Both outcomes appended to `events.jsonl`.
+4. Read-only roles may ask (ask is always available, unlike delegate). Scaffold mode (`executeWorkers=false`): `ask` returns a structured notice telling the worker no parent is listening (no hang) — **negative AC**.
+
+**Acceptance:** E2E — worker asks → manifest `blocked` + `waitState` → `respond` answers → same worker process resumes with answer in-context; kill -9 parent mid-question → crash-recovery keeps task waiting → next session_start stale-reconciler does NOT cancel (within TTL) → respond → re-dispatch with injected answer; timeout path resumes; scaffold mode no-hang. **Mini-ADR** `2026-XX-waiting-producer.md` records the park contract + reconciler TTL extension.
 
 ## 4. H6 — Unified agent identity · P0
 
-**Problem:** two agent worlds (child-process `CrewAgentRecord`/`agents.json` vs live-session in-memory handles); `SubagentRecord` lacks `taskId` → `steer_subagent`/`crew_agent_steer` are registered stubs (ADR 2026-08-14).
+**Problem:** two agent worlds; `steer_subagent`/`crew_agent_steer` are registered stubs (ADR 2026-08-14).
+
+**Rev-2 corrections** *(reviewer P2-17)*: `CrewAgentRecord` **already has required `taskId` + `runId`** (`crew-agent-runtime.ts:30-41`); the record missing linkage is `SubagentRecord` (`subagent-manager.ts:28+`), which already has `runId?` (`:31`) but lacks `taskId`/`depth`. And the one-shot Agent tool already routes through `handleTeamTool(action:"run")` team-run machinery (`registration/subagent-tools.ts:143-163`) — so its tasks already have the steering-file delivery path; real `steer_subagent` is closer than rev 1 implied.
 
 **Design:**
-- `SubagentRecord` gains `taskId?: string`, `runId?: string`, `depth: number` — set at spawn by the owning path (one-shot Agent tool or team-run child executor).
-- One ownership map in run state: `task ⇄ subagent ⇄ pid ⇄ artifacts dir`. Both worlds write it; widget/status/steer read only it.
-- `steer_subagent`/`crew_agent_steer` become real: resolve record → append `artifacts/steering/<taskId>.jsonl` (existing delivery path) — identical machinery to `team steer`, scoped to owned records.
+- `SubagentRecord` gains `taskId?: string`, `depth: number`; `runId?` already exists. Set at spawn by the owning path. **Back-compat:** old records without the new fields render as today (unknown task/depth), steer returns the existing "not linked" message until records migrate naturally.
+- One ownership map in run state: `task ⇄ subagent ⇄ pid ⇄ artifacts dir`; both worlds write it; widget/status/steer read only it.
+- `steer_subagent`/`crew_agent_steer` become real: resolve record → append `artifacts/steering/<taskId>.jsonl` — identical machinery to `team steer`, scoped to owned records.
 
-**Acceptance:** steering a live one-shot subagent delivers at its next turn boundary; `team status` shows subagent token usage attributed to its task; ADR 2026-08-14 closed.
+**Acceptance:** steering a live one-shot subagent delivers at its next turn boundary; `team status` attributes subagent token usage to its task; ADR 2026-08-14 closed.
 
-## 5. H3 — First-class Plan object · P1 (ADR required)
+## 5. H3 — First-class Plan object · P1 · ADR required
 
-**Problem:** three ephemeral plan representations (orchestrate `planPath` markdown parse; `planApproval` = read-only task's result text; adaptive assess JSON flattened, cap 12). No versioning, item↔task linkage, progress, re-plan, or UI query. `plan-execute` workflow exists only in docs.
+**Problem:** three ephemeral plan representations; no versioning, linkage, progress, re-plan, or UI query; `plan-execute` workflow exists only in docs.
 
 **Schema** (`state/runs/<id>/plans/plans.json` — revision list, atomic write, run-locked):
 
 ```ts
 PlanRecord {
-  id: string; runId: string;
-  version: number; revisionOf?: number;        // re-plan = new revision
-  title: string;
-  phases: [{ id, title, itemIds[], status }];  // status: pending|active|done|dropped
+  id; runId; version; revisionOf?;
+  title;
+  phases: [{ id, title, itemIds[], status }];   // pending|active|done|dropped
   items:  [{ id, ref, title, taskIds[], specIds[], acceptance[], status, progress? }];
-  approval?: { status: pending|approved|rejected, by?, at };  // replaces manifest.planApproval pointer
-  createdAt: string; authorTaskId: string;     // planner/assess task that produced it
+  approval?: { status: pending|approved|rejected, by?, at, planVersion };
+  createdAt; authorTaskId;
 }
 ```
 
-**Producers (unify the three):**
-1. `orchestrate planPath` parser → PlanRecord (keeps tagged-chain format as the *authoring* format).
-2. Adaptive `assess` → creates phases/items instead of flattening into 12 injected tasks; scheduler expands items → tasks (cap moves to per-phase).
-3. Planner-role task output → same tagged format contract.
+**Migration** *(rev 2 — reviewer P1-3; 5 verified readers of `manifest.planApproval`: `state/types.ts:230`, `team-runner.ts:808,1055`, `stale-reconciler.ts:46`, `plan-approval.ts:26,34,43`, `api/plan-approval.ts` ×6)*: dual-read compat — `planApproval` on the manifest remains authoritative when no PlanRecord exists; new runs write both (manifest pointer + plan record) for one minor version; readers migrate to plan-record-first, manifest-fallback; then manifest field is deprecated (not removed) next minor. The stale-reconciler invariant (`blocked + planApproval.pending` → protected) keeps working throughout because the manifest field is never dropped. **Negative AC: a run created pre-v2 with planApproval pending is still protected by stale-reconciler after upgrade.**
 
-**Semantics:**
-- Scheduler reads **current revision only**; `plan.items[].taskIds` maintained by the task scheduler on dispatch/terminal (single writer, inside run lock).
-- Re-plan: planner emits new revision + `revisionOf`; UI diffs; in-flight tasks referenced by dropped items get soft-cancel (wrap-up steer, existing `child-pi-steering.ts:25-75` grace pattern).
-- `manifest.planApproval` migrates to `approval` on the plan record; approve op gains plan-aware context.
-- New `team action='plan'`: `get [--rev n]`, `list`, `diff <a> <b>`, `approve|reject` — also the non-TUI plan UI.
+**Producers:** (1) `orchestrate planPath` parser → PlanRecord (tagged-chain format stays the *authoring* format); (2) adaptive `assess` → phases/items instead of flattening into ≤12 injected tasks (`goal-workflow/adaptive-plan.ts:43` cap moves to per-phase); (3) planner-role task output → same tagged contract.
 
-**Acceptance:** revision diff queryable; per-item progress = derived from linked task statuses; approval gate references plan id+version; adaptive runs keep working via items; ADR `2026-XX-plan-object.md` merged first.
+**Semantics:** scheduler reads current revision only; `items[].taskIds` maintained by the scheduler on dispatch/terminal (single writer, inside run lock). Re-plan = new revision + `revisionOf`; in-flight tasks referenced by dropped items get soft-cancel (wrap-up steer grace, `child-pi/child-pi-steering.ts:25-75`). New `team action='plan'`: `get [--rev]`, `list`, `diff <a> <b>`, `approve|reject`.
 
-## 6. H2 — Minimal spec system · P1 (ADR required)
+**Acceptance:** revision diff queryable; per-item progress derived from linked task statuses; approval gate references plan id+version; adaptive runs keep working via items; old-manifest protection AC above; ADR first.
 
-**Problem:** "spec" exists only as skill vocabulary; TaskPacket is static hand-authored text; acceptance evidence is free text nobody validates.
+## 6. H2 — Minimal spec system · P1 · ADR required
 
-**Schema** — two tiers:
+**Problem:** "spec" is skill vocabulary only; TaskPacket static; acceptance evidence free text.
+
+**Schema:**
 
 ```ts
-SpecRecord {              // workspace-level, reusable: state/specs/<id>.json
-  id, version, revisionOf?, title,
-  requirements: [{ id, text, priority: must|should|could }],
-  acceptance:  [{ id, requirementId, check }],          // check = concrete verifiable statement
-  source: { kind: manual|generated, by?, from? }
-}
-SpecSnapshot {            // immutable copy embedded in run at dispatch
-  specId, version, frozenAt, items[]                     // byte-stable for verifiers
-}
+SpecRecord  { id, version, revisionOf?, title,
+              requirements: [{ id, text, priority: must|should|could }],
+              acceptance:  [{ id, requirementId, check }],
+              source: { kind: manual|generated, by?, from? } }   // workspace-level: state/specs/<id>.json
+SpecSnapshot{ specId, version, frozenAt, items[] }                // immutable, frozen into the task at dispatch
 ```
 
-**Wiring:**
-- TaskPacket gains `specRefs[]`; dispatch freezes SpecSnapshot into the task record.
-- Executor contract: result must end with a `SPEC-EVIDENCE:` footer citing `{acceptanceId → evidence}` lines. Write-gate validator (extends `empty-or-stderr-only-result` classifier, bug-026 Sub-A machinery) parses the footer; missing must-priority coverage → task fails validation (configurable strictness per workflow).
-- Verifier role receives the snapshot and independently checks cited evidence (its read-only posture is exactly right).
-- `requirements-to-task-packet` skill upgraded to author SpecRecord + TaskPacket pair.
+**Wiring:** TaskPacket gains `specRefs[]`; executor contract: result ends with `SPEC-EVIDENCE:` footer citing `{acceptanceId → evidence}`. Write-gate validator (extends the `empty-or-stderr-only-result` classifier machinery, `task-runner/post-execution.ts:289+`) parses the footer.
 
-**Acceptance:** a task with a spec cannot pass write-gate without must-coverage evidence; verifier rejects fabricated evidence citing snapshot ids; specs versioned and diffable like plans (shared revision machinery with H3).
+**Fabrication defense** *(rev 2 — reviewer P1-9; rev-1 "verifier independently checks" was not airtight)*:
+- Write-gate = **mechanical coverage only** (every must-acceptance id cited ≥1) — never claims to verify truth.
+- **Strict mode** (per workflow): every must-acceptance must carry **machine-checkable evidence** — `command` + `expectedDigest` (or exit code) recorded in the SpecRecord's acceptance check; the validator may re-run the command at write-gate time (sandboxed, timeout-capped) and compares digest. Footer lines citing non-existent ids or unrunnable commands fail the gate.
+- A strict-mode workflow without a verifier-role task **fails at start** (reject-start) — no silent self-certification.
+- Verifier role (read-only) receives the SpecSnapshot + evidence footer and checks cited evidence against the frozen snapshot ids; its judgment is advisory signal, not the security boundary — the boundary is the machine-check.
+- **Negative ACs:** fabricated footer with plausible-but-wrong file:line evidence → machine-check fails (digest mismatch); footer citing every id with fabricated evidence in non-strict mode passes write-gate but is flagged `unverified` in task status (visible in UI).
+- `should/could` never block. Non-strict default for first release (warn-only), strict opt-in per workflow — **open decision §12.4**.
 
-## 7. H1 — Governed nesting: subagent của subagent · P1 (ADR required)
+## 7. H1 — Governed nesting · P1 · ADR required
 
-**Problem:** workers load only `prompt-runtime.ts` (`pi-args.ts:306-331`) → zero crew tools → no delegation seam; the depth cap (default 2, clamp 10) is permissive but unreachable; gates are scattered across 4 layers (P1); one untested hole (user-sourced agent `extensions:[pi-crew]`).
+**Problem:** workers load only `prompt-runtime.ts` (`model/pi-args.ts:306-331`) → no delegation seam; gates scattered across 4 layers; one untested extension hole.
 
-**Design — slim worker-SDK delegation, broker-relayed (chosen over loading the full extension in children):**
+**Worker-side tool** (role-gated to executor-class; prompt-runtime registration):
 
-Worker-side (new tool in prompt-runtime, role-gated to executor-class roles):
 ```
 delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
-           model?, maxTurns?, budgetTokens? })
-   → broker request "delegate" → parent spawns grandchild
-   → grandchild result text returns fenced (untrusted) into worker's next turn
+           model?, maxTurns?, budgetTokens?, timeoutSec? = 900 })
+  → returns IMMEDIATELY { grandchildTaskRef }           // never blocks on RPC — principle 7
 ```
 
-Parent-side:
-- Broker `delegate` handler validates against the **single spawn-policy** (`spawn-policy.ts`):
-  `depth < maxDepth(2 default) ∧ role is executor-class ∧ parent task budget remaining > request ∧ global sem has slots ∧ trust tier allows`.
-- Grandchild spawn = existing `runChildPi` with `DEPTH=parent+1`; artifacts namespaced `artifacts/<runId>/<parentTaskId>/nested/<subId>/`; **no broker creds** passed below depth 1 unless policy allows (heap-only tokens never written to disk — keep it that way); model chain inherits with parent-task override precedence.
-- Budget: delegation cost deducted from the **parent task's** remaining budget (fair-share, `budget-enforcement.ts:47-110` pattern); grandchild `budgetTokens ≤ parent remaining`.
-- Depth visible: task records carry `depth`; UI badges nested tasks (see H4).
+**Delivery** *(rev 2 — reviewer P1-6; replaces rev-1 synchronous RPC which dies on broker socket close)*: the worker's result comes back over the durable channel — grandchild's terminal state + fenced result text land in the parent task's mailbox + task record; prompt-runtime's poll forwards them into the parent worker's next turn (same extended forwarding H5 adds for `response`). Parent task stays `running` (not parked) while waiting; `timeoutSec` expiry → worker is steered a `"[delegate timed out]"` note and continues (grandchild soft-cancelled by the spawn-policy owner).
 
-**Security posture:** the audit's untested hole (agent-declared `extensions:[pi-crew]` inside a worker) is closed by deny-listing `pi-crew` in `--extension` args for depth > 0 regardless of trust tier; bash-escape (`pi -p` by hand) stays depth-unaccounted — documented accepted risk, zombie scanner still catches orphans via `PI_CREW_KIND`/`PARENT_PID`.
+**Spawn path & anti-deadlock** *(rev 2 — reviewer P0-1; rev-1 "existing `runChildPi` rides the global semaphore" would deadlock — the repo itself records this exact shape at `scheduling/global-worker-cap.ts:14-19` MAJ#3: judge bypasses the cap because workers-holding-slots-waiting-on-spawn = permanent deadlock)*:
+- Grandchildren are spawned **by the root-side delegate handler** from a **separate nested-slot budget** (default `max(1, floor(globalSem/2))`, cap-configurable), NOT from the global worker semaphore — a waiting parent worker keeps holding its own slot without risk of self-starvation.
+- **Fail-fast, never queue:** nested budget exhausted → `delegate` rejects immediately with a policy message ("nested spawn budget exhausted; N/M in flight") — no silent queueing, no waiting. **Negative AC.**
+- `delegate({timeoutSec})` mandatory default 900s (rev-1 H1 lacked it).
 
-**Why not full extension in children:** broker root-gate, run-lock contention, state-root conflicts, and the 54-action team tool inside a worker are all blast-radius multipliers; a 1-action `delegate` gives 80% of the value at ~5% of the surface. Revisit after v2 ships (ADR records the alternative).
+**Depth representation** *(rev 2 — reviewer P0-2; today `PI_CREW_DEPTH` comes from the spawning process's env (`model/pi-args.ts:369-371`, `currentCrewDepth` `:71-75`), so a root-spawned grandchild would wrongly get DEPTH=1 and `checkCrewDepth` (`child-pi/child-pi.ts:253-257`) never sees depth>0)*:
+- **`depthOverride`**: spawn-policy computes the grandchild's depth from the **parent task's record in run state** (`task.depth`), never from the requesting worker's env or self-report; sets `PI_CREW_DEPTH` explicitly on the grandchild spawn; clamps against `PI_CREW_MAX_DEPTH` (default 2, config-raisable). The existing env-derived guard remains for worker-initiated spawns (bash-escape backstop); the authoritative check is spawn-policy's.
 
-**Acceptance:** depth-1 worker spawns depth-2 grandchild (namespaced artifacts, budget deducted, no broker creds at depth 2); depth-3 blocked by default with a clear policy message; read-only roles' `delegate` rejected; `PI_CREW_MAX_DEPTH` config raise → depth-3 works; ADR `2026-XX-governed-nesting.md` merged first.
+**Broker credential containment** *(rev 2 — reviewer P1-7; today `runChildPi` auto-issues creds when `runId` present (`child-pi/child-pi.ts:277-285`) and `issueForChild` checks runId/root/enabled/sessionId but NOT child depth (`registration/lifecycle-handlers.ts:1024-1036`) → grandchildren would get creds by default)*: depth gate added to `issueForChild` (or the delegate call-site): tokens minted **only for depth ≤ 1**; depth-2 grandchildren get `PI_CREW_KIND=subagent`, steering file, and mailbox, but no broker socket/token (they cannot `delegate` further anyway at default maxDepth=2 — consistent). **AC: depth-2 env contains no `PI_CREW_BROKER_*`.**
+
+**Budget attribution** *(rev 2 — reviewer P1-11; rev-1 "deducted from parent task's remaining budget" cited a mechanism that doesn't exist — `budget-enforcement.ts:47-83` is a threshold detector, not per-task allocation)*:
+- New **per-task allocation accounting**: each task record gains `allocation { tokensGranted, tokensSpent }`; the delegate handler reserves `budgetTokens` from the parent task's remaining allocation at admission (reject if insufficient — fail-fast) and **rolls up** the grandchild's usage events to the parent task record as they arrive (single writer, run lock). Global budget enforcement continues to read totals; fair-share violator detection now sees grandchild usage through the parent.
+- **AC: grandchild usage appears in the parent task's usage in `team status`.**
+
+**Grandchild lifecycle** *(rev 2 — reviewer P1-12; heartbeat/deadletter are child-executor-owned today and would not cover root-spawned grandchildren)*: the delegate handler registers a heartbeat observer + deadletter path for each grandchild (same gradient 30/60/300s; dead reasons extended with `delegate-timeout`); zombie scanner backstop unchanged (`PI_CREW_KIND`/`PARENT_PID`).
+
+**Model validation at admission** *(rev 2 — reviewer P1-14; pulled from P2 R8 into the gate)*: `delegate({model})` values are validated against the resolved model catalog at spawn-policy admission — the unvalidated `provider/model` pass-through (`model-fallback.ts:282`, the 429-cascade root) must not be reachable through the new surface.
+
+**Extension containment** *(rev 2 — reviewer P1-10; rev-1 deny-list is basename-equality (`model/pi-args.ts:303-305`) and won't match `/…/pi-crew/index.ts` or `npm:pi-crew`)*: at depth > 0 the extension list becomes an **allowlist** — only `PROMPT_RUNTIME_EXTENSION_PATH`, regardless of source (SEC-1's project-only strip is insufficient here; the allowlist applies to user-sourced agent declarations too, closing the audit's untested hole). Bash-escape stays depth-unaccounted — documented accepted risk, zombie scanner backstop.
+
+**Workspace interaction** *(rev 2 — reviewer P1-15; default `workspaceMode:"single"` means concurrent executors share cwd)*: executor-class `delegate` on a run with shared workspace auto-enables `serializeOnPathOverlap` for the parent+grandchild pair, or the spawn-policy rejects delegate when parent task's `cwd` overlaps another in-flight executor's — design decision recorded in the nesting ADR (default: serialize; worktree mode opt-in as today).
+
+**Why slim SDK, not full extension in children:** broker root-gate, run-lock contention, state-root conflicts, and the 54-action team tool inside a worker are blast-radius multipliers; a 1-action `delegate` gives most of the value at a fraction of the surface. ADR records the alternative and revisit conditions.
+
+**Acceptance:** depth-1 worker delegates → depth-2 grandchild with namespaced artifacts (`artifacts/<runId>/<parentTaskId>/nested/<subId>/`), budget reserved+rolled-up, no broker creds at depth 2, heartbeat+deadletter registered, model validated; depth-3 blocked by default with policy message; nested-budget exhaustion → immediate rejection (never queue); read-only roles' `delegate` rejected; socket-close mid-grandchild → parent still receives result via durable channel; concurrent delegates on 4-core box complete without deadlock; ADR first.
 
 ## 8. H4 — Plan UI · P2
 
-**Problem:** `manifest.planApproval` has 0 readers in `src/ui`; task graph renders flat; powerbar steps are workflow-static; widget caps 3 agents; three cache TTLs (500/1500/100ms).
+*(Unchanged from rev 1 except anchors + dependency on H6's ownership map for depth badges.)*
 
-**Design (three surfaces, one data slice):**
-- **Data:** new `RunUiSnapshot` slice `plans` + `sliceSignatures.plans` (stays inside existing cache + render-coalescer design — no new cache layer). Slice = current PlanRecord revision + linked task statuses.
-- **Dashboard pane 7 "Plan":** tree `phase → item → tasks(live status, depth badge for nested)`; keys: `A`pprove / `D`eny when `approval.status === pending` (visible + decidable in ≤2 keystrokes — audit R3 AC); `V` diff on multi-revision.
-- **Powerbar:** steps segment consumes plan phases when a plan exists (fallback: workflow steps — today's behavior).
-- **Widget:** pending-approval badge `⚠ plan:RUNID`; plan progress % replaces active-run spinner when parked on approval.
-- **Text UI:** `team plan get` renders ASCII tree + per-item progress bars (works over SSH/no-TUI).
+- **Data:** new `RunUiSnapshot` slice `plans` + `sliceSignatures.plans` (inside existing cache + render-coalescer design — `ui/run-snapshot-cache.ts:28` TTL 1500ms, `:650+` signatures exist).
+- **Dashboard pane 7 "Plan":** tree `phase → item → tasks (live status, depth badge)`; keys `A`pprove / `D`eny when `approval.status === pending` (≤2 keystrokes, no event-log reading); `V` diff on multi-revision.
+- **Powerbar:** steps segment consumes plan phases when a plan exists (fallback: workflow steps).
+- **Widget:** pending-approval badge `⚠ plan:RUNID`; parked-on-approval progress shown.
+- **Text UI:** `team plan get` renders ASCII tree + per-item progress (SSH/no-TUI).
+- **Negative AC:** >3 agents render when plan tasks exceed the widget cap → widget degrades to summary line, dashboard shows full tree (cap is widget-only, not data-loss).
 
-**Acceptance:** approval pending visible in widget+dashboard and approvable ≤2 keystrokes without reading event log; pane reflects item→task status live (snapshot TTL budget); no new cache layer added.
+**Acceptance:** approval pending visible in widget+dashboard and approvable ≤2 keystrokes; pane reflects item→task status live; no new cache layer.
 
-## 9. Supporting upgrades (audit R8–R10, condensed)
+## 9. Supporting upgrades (P2, condensed)
 
-- **Model-routing transparency:** pre-run summary of resolved chain + worst-case spawn budget; loud warning on unvalidated `provider/model` pass-through (`model-fallback.ts:282` — the 429 cascade root); per-attempt model in transcripts.
-- **Worker self-reporting:** bounded worker→`PI_CREW_EVENTS_PATH` append channel for progress/liveness/questions; heartbeats become corroboration not sole signal (closes L8).
-- **Docs hygiene:** commands-reference phantom list, widget TTL doc (500→1500ms), phantom `plan-execute` workflow refs.
+- **Model-routing transparency:** pre-run summary of resolved chain + worst-case spawn budget; loud warning on unvalidated `provider/model` pass-through (`model-fallback.ts:282`) for all non-delegate surfaces; per-attempt model in transcripts. *(Validation at the delegate gate is P1 §7; this P2 item covers the rest of the surfaces.)*
+- **Worker self-reporting:** bounded worker→`PI_CREW_EVENTS_PATH` append channel; heartbeats become corroboration (closes L8).
+- **Docs hygiene:** commands-reference phantom list; widget TTL doc (500→1500ms); phantom `plan-execute` workflow refs.
 
 ## 10. Roadmap
 
 ```
-P0 (completes scaffolding; no ADRs needed)     ── ~1 week
-  R1 unified identity + real steer_subagent    (H6)
-  R2 waiting producer + ask tool               (H5)
-  R3 approval surfaces in existing UI          (subset of H4)
+P0 (scaffolding completion; R2 mini-ADR)       ── ~1 week
+  R1 unified identity + real steer_subagent    (H6)   [ADR-less; back-compat records]
+  R2 waiting producer + ask + park contract    (H5)   [mini-ADR: park semantics, reconciler TTL]
+  R3 approval surfaces in existing UI          (H4-subset) [ADR-less]
 
-P1 (new objects; 3 ADRs land BEFORE code)      ── ~2-3 weeks
-  R4 Plan object + team plan action            (H3)
-  R5 governed nesting + spawn-policy.ts        (H1)
-  R6 spec system + write-gate validator        (H2)
+P1 (new objects; ADRs land BEFORE code)        ── ~2-3 weeks
+  R4 Plan object + team plan + migration       (H3)   [ADR]
+  R5 governed nesting + spawn-policy.ts        (H1)   [ADR — depends on R4]
+  R6 spec system + write-gate validator        (H2)   [ADR — shares revision machinery with R4]
 
 P2 (UI + transparency)                         ── ~1-2 weeks
-  R7 plan/task-graph UI slice + pane 7         (H4)
-  R8 model-routing transparency
+  R7 plan/task-graph UI slice + pane 7         (H4)   [depends on R4; uses R1 ownership map]
+  R8 model-routing transparency (surfaces beyond §7 gate)
   R9 worker self-reporting channel
   R10 docs hygiene
 ```
 
-Dependencies: R4→R7 (UI needs the object) · R5→R4 (grandchild tasks link to plan items) · R1→R2/R5 (identity map is the substrate) · R6 shares revision machinery with R4.
+Dependency edges (convention: `A→B` = A before B): `R1→R2`, `R1→R5`, `R4→R5` *(rev 2: flipped from rev-1's erroneous `R5→R4` — reviewer P1-13; plan items must exist before grandchild tasks can link to them)*, `R4→R7`, `R6~R4` (shared machinery, either order). DAG — no cycles.
 
 ## 11. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Nested spawn recursion / fork bombs | spawn-policy single gate; global sem; depth default 2; budget floor; zombie scanner backstop |
-| Broker token leakage at depth ≥2 | tokens stay heap-only; depth>0 children get no creds unless policy allows |
-| Plan/spec schema churn | ADR-first; revision machinery shared; snapshots frozen at dispatch |
-| Write-gate spec strictness breaking valid runs | strictness configurable per workflow; `should/could` never block; rollout default warn-only |
-| UI slice adds coherence cost | one new slice only; reuses coalescer; no new cache layer |
-| Bundle staleness in live sessions | rebuild + restart discipline (knowledge.md 2026-07-13 lesson) |
+| Nested spawn recursion / fork bombs | spawn-policy single gate; separate nested-slot budget with fail-fast; depth default 2 via trustworthy depthOverride; model+budget validated at admission; zombie scanner backstop |
+| Broker token leakage at depth ≥2 | tokens minted only depth ≤1 (issuer depth gate); heap-only transport unchanged |
+| **Worker token readable via `/proc/<pid>/environ`, inherited by anything the worker spawns** *(rev 2 — reviewer P2-20; pre-existing, amplified by v2's wider worker permissions: ask/wait + delegate)* | accepted risk, recorded; mitigations: short-TTL worker tokens (rotate per task), method-level authz (`to === conn.taskId`) limits blast radius; revisit in nesting ADR |
+| Park/deadlock interactions (ask + delegate waits) | worker stays alive parked; scheduler owns deadlines (persisted); delegate never queues (fail-fast); nested budget separate from global sem |
+| Plan/spec schema churn | ADR-first; shared revision machinery; snapshots frozen at dispatch |
+| Write-gate strictness breaking valid runs | strict opt-in per workflow; must-only; non-strict = warn + `unverified` badge; reject-start only when strict mode misconfigured (no verifier task) |
+| UI slice coherence cost | one new slice only; reuses coalescer; no new cache layer |
+| Bundle staleness in live sessions | rebuild + restart discipline (knowledge.md lesson) |
+| **Shared-workspace path conflicts under nesting** *(rev 2 — reviewer P1-15)* | serialize parent+grandchild on path overlap by default; worktree opt-in; decided in nesting ADR |
 
-## 12. Decision checklist (what needs your call)
+## 12. Decision checklist (updated after review round 1)
 
-1. Approve P0 now (no ADRs, pure completion of promised scaffolding)?
-2. ADR order for P1: Plan → Nesting → Spec (recommended), or Spec first?
-3. Nesting default `maxDepth`: keep 2 (recommended) or raise to 3?
-4. Spec write-gate: strict from day 1 or warn-only first release?
-5. Ship H4 pane 7 behind a feature flag (`PI_CREW_PLAN_UI=1`) or default-on?
+1. ~~Approve P0 now?~~ → **Reviewer verdict: R1/R3 approvable now; R2 only after its mini-ADR lands (park semantics §3 rewritten).** Recommend: approve R1+R3 immediately, write R2 mini-ADR this week. *(Your call still required.)*
+2. ADR order for P1: **Plan → Nesting → Spec** (dependency-correct, matches §10) — confirm?
+3. `maxDepth` default: keep **2** (recommended; enforcement now real via depthOverride) or raise to 3?
+4. Spec write-gate first release: **non-strict warn-only default, strict opt-in per workflow** (recommended) — confirm?
+5. H4 pane 7: feature flag `PI_CREW_PLAN_UI=1` first release (recommended after review — new UI slice on a hot path) or default-on?
+
+## 13. Review history
+
+- **Round 1** (2026-08-17, run `team_20260817020423_3ea83cd4d0ec08e3`, team `review`): 4 tasks (explorer/reviewer/security-reviewer/verifier); 20 findings merged from two independent adversarial passes (explorer + reviewer; security artifact truncated but dimensions covered by both). Verdict: **APPROVE-WITH-CHANGES** — conditional on P0-1/P0-2 (§7 rewritten), P1-4/P1-5 (§3 rewritten), and doc-level P1s (all applied in rev 2). This document is the disposition of all 20; round 2 to verify the four rewritten specs (nested-slot budget, depthOverride, issuer depth-gate, park/unpark).

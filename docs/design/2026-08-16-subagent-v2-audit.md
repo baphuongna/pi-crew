@@ -1,5 +1,16 @@
 # pi-crew Subagent Architecture — Deep Audit (v2 Redesign Foundation)
 
+> **ERRATUM (2026-08-17, review round 1 finding P2-16):** several file paths in this
+> report were written with stale directory prefixes; claims are correct, paths are not.
+> Corrected mapping: `src/runtime/child-pi.ts` → `src/runtime/child-pi/child-pi.ts` ·
+> `src/runtime/global-worker-cap.ts` → `src/runtime/scheduling/global-worker-cap.ts` ·
+> `src/runtime/recovery/stale-reconciler.ts` → `src/runtime/stale-reconciler.ts`
+> (`src/runtime/recovery/` holds only crash-recovery) ·
+> `src/runtime/adaptive-plan.ts` → `src/runtime/goal-workflow/adaptive-plan.ts` ·
+> `src/extension/lifecycle-handlers.ts` → `src/extension/registration/lifecycle-handlers.ts` ·
+> `src/extension/subagent-tools.ts` → `src/extension/registration/subagent-tools.ts` ·
+> `src/runtime/subagent-manager-setup.ts` → `src/extension/registration/subagent-manager-setup.ts`.
+
 **Run:** `team_20260816163952_f89275501e2c9e87` · **Repo:** `pi-crew` @ `fb3cad21` (main) · **Contract:** READ-ONLY audit; no source files modified.
 
 **Sources.** Six read-only worker reports with file:line anchors, persisted under this artifacts root:
