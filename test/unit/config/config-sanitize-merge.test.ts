@@ -303,3 +303,24 @@ test("sanitizeProjectConfig: does not mutate the input config object", () => {
 	assert.equal(projectConfig.runtime?.mode, "live-session", "input must not be mutated");
 	assert.equal(projectConfig.executeWorkers, false, "input must not be mutated");
 });
+
+// WP-2/R2 regression (B1 battery 2026-08-18): parseBrokerConfig's hand-rolled
+// whitelist dropped broker.waitMethodsEnabled, so a workspace config setting it
+// true never reached the broker (live ask rejected policy-disabled despite
+// schema + defaults + ctor all supporting it). Pin the full loadConfig path.
+test("broker config: waitMethodsEnabled survives parse + merge + defaults (B1 regression)", async () => {
+	const { loadConfig, __test__setConfigCacheTtlMs } = await import("../../../src/config/config.ts");
+	__test__setConfigCacheTtlMs(0);
+	const fs = await import("node:fs");
+	const os = await import("node:os");
+	const path = await import("node:path");
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-broker-cfg-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ broker: { enabled: true, waitMethodsEnabled: true } }));
+		const broker = loadConfig(cwd).config.broker;
+		assert.equal(broker?.waitMethodsEnabled, true, "workspace waitMethodsEnabled:true must reach the merged broker config");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

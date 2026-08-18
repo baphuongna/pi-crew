@@ -5,7 +5,7 @@ model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, bash, scratchpad
+tools: read, grep, find, ls, bash, scratchpad, ask
 maxTurns: 15
 ---
 

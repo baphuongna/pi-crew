@@ -360,6 +360,12 @@ function parseBrokerConfig(value: unknown): CrewBrokerConfig | undefined {
 		pathHashLen: parseIntegerInRange(obj.pathHashLen, 4, 32),
 		maxFrameBytes: parseIntegerInRange(obj.maxFrameBytes, 1024, 1_048_576),
 		outboundQueueCap: parseIntegerInRange(obj.outboundQueueCap, 32, 4096),
+		// WP-2/R2 fix (B1 battery 2026-08-18): the hand-rolled whitelist here
+		// missed this field — config-schema.ts + DEFAULT_BROKER + the CrewBroker
+		// ctor all honored it, but parseConfig silently DROPPED it from every
+		// config file, so `broker.waitMethodsEnabled: true` in a workspace
+		// config never reached the broker (live ask rejected policy-disabled).
+		waitMethodsEnabled: parseWithSchema(Type.Boolean(), obj.waitMethodsEnabled),
 	};
 	return Object.values(broker).some((entry) => entry !== undefined) ? broker : undefined;
 }
