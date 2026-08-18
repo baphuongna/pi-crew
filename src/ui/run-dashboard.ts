@@ -3,6 +3,7 @@ import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { getLiveAgentContextPercent } from "../runtime/live-session/live-agent-manager.ts";
+import { isPlanApprovalPending } from "../runtime/plan-approval.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
@@ -94,6 +95,8 @@ export type RunDashboardAction =
 	| "health-recovery"
 	| "health-kill-stale"
 	| "health-diagnostic-export"
+	| "plan-approve"
+	| "plan-deny"
 	| "notifications-dismiss";
 export interface RunDashboardSelection {
 	runId: string;
@@ -830,6 +833,19 @@ export class RunDashboard implements DashboardComponent {
 		}
 		if (action === "select") {
 			this.done(selectedRunId ? { runId: selectedRunId, action: "status" } : undefined);
+			return;
+		}
+		// WP-3 (H4-subset): plan approval keys. Deliberately a DEDICATED branch
+		// (not the generic union block below) because plan actions must gate on
+		// the selected run actually being parked on a pending approval — a
+		// stray keystroke on a non-pending run is a silent no-op (dashboard
+		// stays open) instead of closing it via done(undefined).
+		if (action === "plan-approve" || action === "plan-deny") {
+			const run = selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache);
+			const manifest = run ? (snapshotFor(run, this.options.snapshotCache)?.manifest ?? run) : undefined;
+			if (run && manifest && isPlanApprovalPending(manifest)) {
+				this.done({ runId: run.runId, action });
+			}
 			return;
 		}
 		if (

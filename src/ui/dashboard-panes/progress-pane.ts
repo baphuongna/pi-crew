@@ -1,4 +1,5 @@
 import { computePhaseProgress, formatPhaseProgressLine } from "../../runtime/phase-progress.ts";
+import { isPlanApprovalPending } from "../../runtime/plan-approval.ts";
 import { renderDwfPhaseLines } from "../dwf-phase-display.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 
@@ -23,8 +24,13 @@ export function renderProgressPane(snapshot: RunUiSnapshot | undefined): string[
 	// DWF logical phases (round-15 P1-4): derived from dwf.phase_* events.
 	// Null/absent for non-DWF runs → zero visible change.
 	const dwfPhaseLines = snapshot.dwfPhaseState ? renderDwfPhaseLines(snapshot.dwfPhaseState) : [];
+	// WP-3 (H4-subset): plan-approval gate banner. Mirrors the health-pane
+	// hint pattern — plain foreground text, no color codes (pane output is
+	// uncolored by design). One line while the run is parked on approval.
+	const planBanner = isPlanApprovalPending(snapshot.manifest) ? ["⚠ plan approval pending — A approve / n deny"] : [];
 	return [
 		`Progress pane: ${progress.completed}/${progress.total} completed · running=${progress.running} queued=${progress.queued} failed=${progress.failed}`,
+		...planBanner,
 		...dwfPhaseLines,
 		...phaseHeader,
 		...cancellationLine,

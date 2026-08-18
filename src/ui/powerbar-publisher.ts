@@ -4,6 +4,7 @@ import { listRecentRuns } from "../extension/run-index.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { listLiveAgents, listLiveAgentsByWorkspace } from "../runtime/live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../runtime/manifest-cache.ts";
+import { isPlanApprovalPending } from "../runtime/plan-approval.ts";
 import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
@@ -86,6 +87,10 @@ export function registerPiCrewPowerbarSegments(events: EventBus, config?: CrewUi
 	safeEmit(events, "powerbar:register-segment", {
 		id: "pi-crew-steps",
 		label: "pi-crew workflow steps",
+	});
+	safeEmit(events, "powerbar:register-segment", {
+		id: "pi-crew-plan",
+		label: "pi-crew plan approval",
 	});
 }
 
@@ -206,6 +211,7 @@ class PowerbarPublisher {
 	#lastActiveKey: string | undefined;
 	#lastProgressKey: string | undefined;
 	#lastStepsKey: string | undefined;
+	#lastPlanKey: string | undefined;
 	#latestArgs: PowerbarUpdateArgs | null = null;
 	readonly #coalescer: RenderCoalescer;
 
@@ -279,9 +285,11 @@ class PowerbarPublisher {
 			this.#lastActiveKey = undefined;
 			this.#lastProgressKey = undefined;
 			this.#lastStepsKey = undefined;
+			this.#lastPlanKey = undefined;
 			safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
 			safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
 			safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+			safeEmit(events, "powerbar:update", { id: "pi-crew-plan" });
 			return;
 		}
 		const agents = active.flatMap((item) => item.agents);
@@ -373,6 +381,12 @@ class PowerbarPublisher {
 		} as const;
 		// Build step progress: "explorer > planner > executor > verifier" with current step highlighted
 		const stepsPayload = buildStepsPayload(active, tasks);
+		// WP-3 (H4): plan-approval segment — `plan:pending` while ANY active run is
+		// parked awaiting plan approval, clear payload otherwise. `item.run` is
+		// always the freshest manifest available (snapshot.manifest when cached).
+		const planPayload: PowerbarPayloadShape = active.some((item) => isPlanApprovalPending(item.run))
+			? { id: "pi-crew-plan", text: "plan:pending", color: "warning" }
+			: { id: "pi-crew-plan" };
 		// 1.8: dedup per segment using a key over every visible field. Previously
 		// the dedup string only carried text/suffix/running, so changes to `bar`
 		// (progress %) or `color` could be swallowed and stale UI emitted again
@@ -380,6 +394,7 @@ class PowerbarPublisher {
 		const activeKey = powerbarKey(activePayload);
 		const progressKey = powerbarKey(progressPayload);
 		const stepsKey = powerbarKey(stepsPayload);
+		const planKey = powerbarKey(planPayload);
 		if (activeKey !== this.#lastActiveKey) {
 			this.#lastActiveKey = activeKey;
 			safeEmit(events, "powerbar:update", activePayload);
@@ -391,6 +406,10 @@ class PowerbarPublisher {
 		if (stepsKey !== this.#lastStepsKey) {
 			this.#lastStepsKey = stepsKey;
 			safeEmit(events, "powerbar:update", stepsPayload);
+		}
+		if (planKey !== this.#lastPlanKey) {
+			this.#lastPlanKey = planKey;
+			safeEmit(events, "powerbar:update", planPayload);
 		}
 		// Never call setStatusFallback - crew-widget manages "pi-crew" status with its own widget format
 		// Powerbar only emits events; it does not set status directly
@@ -431,9 +450,11 @@ class PowerbarPublisher {
 		this.#lastActiveKey = undefined;
 		this.#lastProgressKey = undefined;
 		this.#lastStepsKey = undefined;
+		this.#lastPlanKey = undefined;
 		safeEmit(events, "powerbar:update", { id: "pi-crew-active" });
 		safeEmit(events, "powerbar:update", { id: "pi-crew-progress" });
 		safeEmit(events, "powerbar:update", { id: "pi-crew-steps" });
+		safeEmit(events, "powerbar:update", { id: "pi-crew-plan" });
 	}
 
 	/** Reset dedup state on session lifecycle events. */
@@ -441,6 +462,7 @@ class PowerbarPublisher {
 		this.#lastActiveKey = undefined;
 		this.#lastProgressKey = undefined;
 		this.#lastStepsKey = undefined;
+		this.#lastPlanKey = undefined;
 	}
 
 	dispose(): void {

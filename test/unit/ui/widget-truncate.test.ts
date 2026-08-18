@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { TeamRunManifest } from "../../../src/state/types.ts";
+import { SUBAGENT_SPINNER_FRAMES } from "../../../src/ui/spinner.ts";
 import { buildWidgetLines } from "../../../src/ui/widget/widget-renderer.ts";
 import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
 
 const FAKE_CWD = "/tmp/pi-crew-widget-truncate-test";
 
-function makeFakeRun(overrides?: { description?: string; recentOutput?: string[] }): WidgetRun {
+function makeFakeRun(overrides?: {
+	description?: string;
+	recentOutput?: string[];
+	planApproval?: TeamRunManifest["planApproval"];
+}): WidgetRun {
 	// Minimal mock — only fields exercised by buildWidgetLines are real.
 	// Other required TeamRunManifest / CrewAgentRecord fields are filled with
 	// stubs that the renderer never reads; cast to satisfy the type checker.
@@ -30,6 +36,7 @@ function makeFakeRun(overrides?: { description?: string; recentOutput?: string[]
 		eventsPath: "/tmp/events.jsonl",
 		pendingTasks: [],
 		artifacts: {} as never,
+		planApproval: overrides?.planApproval,
 	};
 	const agents = [
 		{
@@ -101,6 +108,42 @@ test("buildWidgetLines: missing width param still works (default fallback)", () 
 		const visible = stripAnsi(line).length;
 		assert.ok(visible <= 100, `default-width fallback: line ${i} = ${visible} > 100: ${JSON.stringify(line.slice(0, 80))}…`);
 	}
+});
+
+test("WP-3: pending planApproval run line shows the ⚠ plan: badge and suppresses the spinner", () => {
+	const runs: WidgetRun[] = [
+		makeFakeRun({
+			planApproval: {
+				required: true,
+				status: "pending",
+				requestedAt: "2026-08-18T00:00:00Z",
+				updatedAt: "2026-08-18T00:00:00Z",
+			},
+		}),
+	];
+	const lines = buildWidgetLines(FAKE_CWD, 0, 20, runs, 0, 100);
+	const runLine = lines.find((line) => line.startsWith("├─ "));
+	assert.ok(runLine, "run line must exist");
+	assert.match(runLine, /⚠ plan:/, "pending run line must carry the ⚠ plan: badge");
+	assert.match(runLine, new RegExp(`⚠ plan:${runs[0]!.run.runId.slice(-8)}`), "badge carries the short run id");
+	for (const frame of SUBAGENT_SPINNER_FRAMES) {
+		assert.ok(!runLine.includes(frame), `spinner frame ${frame} must be suppressed while plan approval is pending`);
+	}
+	assert.ok(stripAnsi(runLine).length <= 100, "pending badge must respect the width budget");
+});
+
+test("WP-3: non-pending run line keeps the normal glyph line (golden regression)", () => {
+	const runs: WidgetRun[] = [makeFakeRun()]; // no planApproval on the manifest
+	const lines = buildWidgetLines(FAKE_CWD, 0, 20, runs, 0, 100);
+	const runLine = lines.find((line) => line.startsWith("├─ "));
+	assert.ok(runLine, "run line must exist");
+	assert.ok(!runLine.includes("⚠ plan:"), "no plan badge without a pending approval");
+	// Running run keeps its (single-char) spinner glyph in the glyph slot.
+	const glyph = runLine.slice(3, 4);
+	assert.ok(
+		(SUBAGENT_SPINNER_FRAMES as readonly string[]).includes(glyph),
+		`running run keeps its spinner glyph, got ${JSON.stringify(glyph)}`,
+	);
 });
 
 import { DEFAULT_WIDGET_WIDTH, getRenderWidth } from "../../../src/ui/widget/index.ts";

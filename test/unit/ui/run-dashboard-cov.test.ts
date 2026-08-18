@@ -243,3 +243,60 @@ describe("RunDashboard dispose", () => {
 		dashboard.dispose();
 	});
 });
+
+describe("RunDashboard plan approval keys (WP-3)", () => {
+	const pendingApproval = {
+		required: true,
+		status: "pending" as const,
+		requestedAt: "2026-06-04T00:00:00.000Z",
+		updatedAt: "2026-06-04T00:00:00.000Z",
+	};
+
+	it("A in the progress pane dispatches plan-approve for a pending run", () => {
+		let selected: RunDashboardSelection | undefined;
+		const dashboard = new RunDashboard([makeRun("plan-yes", "running", { planApproval: pendingApproval })], (s) => {
+			selected = s;
+		});
+		dashboard.handleInput("2"); // enter progress pane
+		dashboard.handleInput("A");
+		assert.deepEqual(selected, { runId: "plan-yes", action: "plan-approve" });
+		dashboard.dispose();
+	});
+
+	it("n in the progress pane dispatches plan-deny for a pending run", () => {
+		let selected: RunDashboardSelection | undefined;
+		const dashboard = new RunDashboard([makeRun("plan-no", "running", { planApproval: pendingApproval })], (s) => {
+			selected = s;
+		});
+		dashboard.handleInput("2");
+		dashboard.handleInput("n");
+		assert.deepEqual(selected, { runId: "plan-no", action: "plan-deny" });
+		dashboard.dispose();
+	});
+
+	it("A on a non-pending run is a silent no-op (dashboard stays open)", () => {
+		let selected: RunDashboardSelection | undefined = { runId: "sentinel", action: "status" };
+		const dashboard = new RunDashboard(
+			[makeRun("plan-done", "running", { planApproval: { ...pendingApproval, status: "approved" } })],
+			(s) => {
+				selected = s;
+			},
+		);
+		dashboard.handleInput("2");
+		dashboard.handleInput("A");
+		// done() never fires → sentinel stays, dashboard not closed/misrouted.
+		assert.equal(selected?.runId, "sentinel");
+		dashboard.dispose();
+	});
+
+	it("A outside the progress pane is unclaimed by plan bindings", () => {
+		let selected: RunDashboardSelection | undefined = { runId: "sentinel", action: "status" };
+		const dashboard = new RunDashboard([makeRun("plan-pg", "running", { planApproval: pendingApproval })], (s) => {
+			selected = s;
+		});
+		dashboard.handleInput("1"); // agents pane — "A" must not dispatch here
+		dashboard.handleInput("A");
+		assert.equal(selected?.runId, "sentinel");
+		dashboard.dispose();
+	});
+});

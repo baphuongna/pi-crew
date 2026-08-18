@@ -642,3 +642,125 @@ test("powerbar dedups per-segment when payload unchanged across renders (1.8)", 
 		else process.env.PI_TEAMS_HOME = previousHome;
 	}
 });
+
+test("powerbar plan segment shows plan:pending only while approval is pending (WP-3)", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-plan-home-"));
+	const previousHome = process.env.PI_TEAMS_HOME;
+	process.env.PI_TEAMS_HOME = home;
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-powerbar-plan-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		const events: Array<{ event: string; data: unknown }> = [];
+		const bus = {
+			emit: (event: string, data: unknown) => events.push({ event, data }),
+		};
+		registerPiCrewPowerbarSegments(bus);
+		assert.ok(
+			events.some((item) => item.event === "powerbar:register-segment" && payloadRecord(item.data).id === "pi-crew-plan"),
+			"pi-crew-plan segment must be registered alongside the other segments",
+		);
+		const team = {
+			name: "plan-team",
+			description: "",
+			roles: [{ name: "worker", agent: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "plan-workflow",
+			description: "",
+			steps: [{ id: "one", role: "worker" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const created = createRunManifest({
+			cwd,
+			team,
+			workflow,
+			goal: "powerbar plan",
+		});
+		saveRunManifest({ ...created.manifest, status: "running" });
+		saveCrewAgents(created.manifest, [
+			{
+				id: `${created.manifest.runId}:01`,
+				runId: created.manifest.runId,
+				taskId: "one",
+				agent: "worker",
+				role: "worker",
+				runtime: "child-process",
+				status: "running",
+				startedAt: created.manifest.createdAt,
+				progress: {
+					recentTools: [],
+					recentOutput: [],
+					toolCount: 0,
+					activityState: "active",
+				},
+			},
+		]);
+
+		const findPlanPayload = (): Record<string, unknown> | undefined =>
+			[...events]
+				.reverse()
+				.map((item) => (item.event === "powerbar:update" ? payloadRecord(item.data) : undefined))
+				.find((item) => item?.id === "pi-crew-plan");
+
+		// 1) No planApproval → segment present but NO plan:pending text.
+		events.length = 0;
+		resetPowerbarDedupState();
+		updatePiCrewPowerbar(bus, cwd);
+		assert.equal(
+			events.filter(
+				(item) =>
+					item.event === "powerbar:update" &&
+					payloadRecord(item.data).id === "pi-crew-plan" &&
+					payloadRecord(item.data).text === "plan:pending",
+			).length,
+			0,
+			"no plan:pending payload without a pending approval",
+		);
+
+		// 2) Pending → plan:pending payload emitted.
+		events.length = 0;
+		saveRunManifest({
+			...created.manifest,
+			status: "running",
+			planApproval: {
+				required: true,
+				status: "pending",
+				requestedAt: created.manifest.createdAt,
+				updatedAt: created.manifest.createdAt,
+			},
+		});
+		resetPowerbarDedupState();
+		updatePiCrewPowerbar(bus, cwd);
+		const pending = findPlanPayload();
+		assert.ok(pending, "plan payload must be emitted while approval is pending");
+		assert.equal(pending?.text, "plan:pending");
+		assert.equal(pending?.color, "warning");
+
+		// 3) Approved → clear payload (text gone) re-emitted.
+		events.length = 0;
+		saveRunManifest({
+			...created.manifest,
+			status: "running",
+			planApproval: {
+				required: true,
+				status: "approved",
+				requestedAt: created.manifest.createdAt,
+				updatedAt: created.manifest.createdAt,
+				approvedAt: created.manifest.createdAt,
+			},
+		});
+		resetPowerbarDedupState();
+		updatePiCrewPowerbar(bus, cwd);
+		const cleared = findPlanPayload();
+		assert.ok(cleared, "plan clear payload must be emitted after approval");
+		assert.equal(cleared?.text, undefined);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
+	}
+});

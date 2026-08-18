@@ -101,6 +101,46 @@ test("RunSnapshotCache reuses fresh entries and updates signature after file cha
 	}
 });
 
+test("RunSnapshotCache signature flips when planApproval status changes (WP-3)", () => {
+	const cwd = tempCwd("pi-crew-snapshot-plan-");
+	try {
+		const { manifest } = fixtures(cwd);
+		const cache = createRunSnapshotCache(cwd, { ttlMs: 0 });
+		const first = cache.refreshIfStale(manifest.runId);
+		// Flip ONLY the planApproval status. Writers normally bump updatedAt too,
+		// but the signature must react to the explicit planApproval field without
+		// relying on that — keep every other manifest field byte-identical.
+		saveRunManifest({
+			...manifest,
+			status: "running",
+			planApproval: {
+				required: true,
+				status: "pending",
+				requestedAt: manifest.updatedAt,
+				updatedAt: manifest.updatedAt,
+			},
+		});
+		const pending = cache.refreshIfStale(manifest.runId);
+		assert.notEqual(pending.signature, first.signature, "pending approval must change the signature");
+		saveRunManifest({
+			...manifest,
+			status: "running",
+			planApproval: {
+				required: true,
+				status: "approved",
+				requestedAt: manifest.updatedAt,
+				updatedAt: manifest.updatedAt,
+				approvedAt: manifest.updatedAt,
+			},
+		});
+		const approved = cache.refreshIfStale(manifest.runId);
+		assert.notEqual(approved.signature, pending.signature, "approval must change the signature again");
+		assert.equal(approved.manifest.planApproval?.status, "approved");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("RunSnapshotCache stays functional on parse errors (R10-4 parity: recovers like async)", () => {
 	const cwd = tempCwd("pi-crew-snapshot-parse-");
 	try {

@@ -64,6 +64,7 @@ export const DASHBOARD_KEYS = {
 		openDetail: ["\r", "\n"],
 	},
 	health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
+	plan: { approve: ["A"], deny: ["n"] },
 	notification: { dismissAll: ["H"] },
 } as const;
 
@@ -113,6 +114,8 @@ export type DashboardKeyAction =
 	| "health-recovery"
 	| "health-kill-stale"
 	| "health-diagnostic-export"
+	| "plan-approve"
+	| "plan-deny"
 	| "notifications-dismiss";
 
 /**
@@ -126,14 +129,17 @@ export type DashboardKeyAction =
  *   2. `mailbox-detail` (\r, \n) is pane-scoped to mailbox and MUST precede
  *      `select` (which also binds \r, \n) so Enter opens the detail instead of
  *      triggering select while in the mailbox pane.
- *   3. `health-*` are pane-scoped to health.
+ *   3. `health-*` and `plan-*` are pane-scoped (health / progress).
  *   4. `notifications-dismiss` (H) is global.
  *   5. `select`, then the root actions, pane switches, and navigation.
  *
  * NOTE: mailbox action keys A/N/C/P/X (ack/nudge/compose/preview/ackAll) are
- * intentionally NOT in this table. They live in `DASHBOARD_KEYS.mailbox` for
- * reservation but are handled by the mailbox overlay's own `handleInput`,
- * not by the dashboard dispatch. Adding them here would change behavior.
+ * intentionally NOT dispatched for the mailbox pane by this table. They live
+ * in `DASHBOARD_KEYS.mailbox` for reservation but are handled by the mailbox
+ * overlay's own `handleInput`, not by the dashboard dispatch. The `plan`
+ * group reuses uppercase "A" (approve) pane-scoped to "progress" — it never
+ * fires while the mailbox pane (or the mailbox-detail overlay) owns input,
+ * so `mailbox.ack` behavior is unchanged.
  */
 const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.close, action: "close" },
@@ -157,6 +163,16 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 		keys: DASHBOARD_KEYS.health.diagnosticExport,
 		action: "health-diagnostic-export",
 		pane: "health",
+	},
+	{
+		keys: DASHBOARD_KEYS.plan.approve,
+		action: "plan-approve",
+		pane: "progress",
+	},
+	{
+		keys: DASHBOARD_KEYS.plan.deny,
+		action: "plan-deny",
+		pane: "progress",
 	},
 	{
 		keys: DASHBOARD_KEYS.notification.dismissAll,
@@ -203,6 +219,7 @@ const KEY_RESERVED = new Set<string>([
 	...Object.values(DASHBOARD_KEYS.navigation).flat(),
 	...Object.values(DASHBOARD_KEYS.mailbox).flat(),
 	...Object.values(DASHBOARD_KEYS.health).flat(),
+	...Object.values(DASHBOARD_KEYS.plan).flat(),
 	...Object.values(DASHBOARD_KEYS.notification).flat(),
 ]);
 
