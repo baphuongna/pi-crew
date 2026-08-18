@@ -19120,7 +19120,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 44448,
+      "bytes": 44837,
       "imports": [
         {
           "path": "node:fs",
@@ -19766,7 +19766,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7106967
+      "bytes": 7107416
     },
     "dist/index.mjs": {
       "imports": [
@@ -23692,7 +23692,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 26784
+          "bytesInOutput": 26797
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 49063
@@ -23746,7 +23746,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3072252
+      "bytes": 3072265
     }
   }
 }

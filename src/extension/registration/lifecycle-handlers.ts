@@ -995,7 +995,13 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 			starting = (async () => {
 				const cfg = (() => {
 					try {
-						return loadConfig().config.broker;
+						// B1 battery 2026-08-18 (third config-layer bug): loadConfig()
+						// WITHOUT cwd reads only the user config — the workspace
+						// .crew/config.json (where broker.waitMethodsEnabled:true would
+						// live) was never merged, so the flag stayed default-false even
+						// after the parser + merge fixes. Pass the SAME cwd the broker
+						// itself uses below.
+						return loadConfig(process.cwd()).config.broker;
 					} catch {
 						return undefined;
 					}

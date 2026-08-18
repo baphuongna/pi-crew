@@ -324,3 +324,23 @@ test("broker config: waitMethodsEnabled survives parse + merge + defaults (B1 re
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("broker config: workspace config reaches the production broker ctor path (loadConfig WITH cwd)", async () => {
+	// B1 battery third bug: lifecycle-handlers called loadConfig() with NO cwd,
+	// so even a correctly-parsed workspace broker config never reached the
+	// broker. Pin the contract the ctor relies on: loadConfig(cwd) picks up the
+	// workspace file; loadConfig() alone does NOT (user-level only).
+	const { loadConfig, __test__setConfigCacheTtlMs } = await import("../../../src/config/config.ts");
+	__test__setConfigCacheTtlMs(0);
+	const fs = await import("node:fs");
+	const os = await import("node:os");
+	const path = await import("node:path");
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-broker-ctor-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ broker: { enabled: true, waitMethodsEnabled: true } }));
+		assert.equal(loadConfig(cwd).config.broker?.waitMethodsEnabled, true, "with-cwd read must see the workspace flag");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

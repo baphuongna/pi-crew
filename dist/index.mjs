@@ -81292,7 +81292,7 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
       starting = (async () => {
         const cfg = (() => {
           try {
-            return loadConfig().config.broker;
+            return loadConfig(process.cwd()).config.broker;
           } catch {
             return void 0;
           }
