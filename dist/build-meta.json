@@ -6563,7 +6563,7 @@
       "format": "esm"
     },
     "src/config/role-tools.ts": {
-      "bytes": 6856,
+      "bytes": 6912,
       "imports": [
         {
           "path": "src/runtime/role-permission.ts",
@@ -19766,7 +19766,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7109932
+      "bytes": 7110044
     },
     "dist/index.mjs": {
       "imports": [
@@ -22303,7 +22303,7 @@
           "bytesInOutput": 1050
         },
         "src/config/role-tools.ts": {
-          "bytesInOutput": 4172
+          "bytesInOutput": 4228
         },
         "src/agents/agent-config.ts": {
           "bytesInOutput": 1721
@@ -23746,7 +23746,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3073000
+      "bytes": 3073056
     }
   }
 }
