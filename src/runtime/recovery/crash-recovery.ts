@@ -6,7 +6,7 @@ import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
-import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
@@ -17,7 +17,7 @@ import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
-import { isPlanApprovalPending, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
+import { isIntentionalWait, isPlanApprovalPending, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
 
 export interface RecoveryPlan {
 	runId: string;
@@ -114,7 +114,10 @@ export function detectInterruptedRuns(
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
 		// Preserve runs intentionally blocked on plan approval — not crashes.
-		if (isPlanApprovalPending(manifest)) continue;
+		// B1 battery 2026-08-18 (case b): generalized to isIntentionalWait — a run
+		// parked on an ask answer is equally intentional and must not be auto-resumed
+		// out from under its parked worker.
+		if (isIntentionalWait(manifest)) continue;
 		if (manifest.async?.pid !== undefined && checkProcessLiveness(manifest.async.pid).alive) continue;
 		// Skip runs owned by the current live session — a live session B must NOT
 		// detect session A's still-running run as interrupted.
@@ -257,9 +260,14 @@ export function cancelOrphanedRuns(
 	// Phase 1: Scan project-level manifests via manifestCache
 	for (const manifest of manifestCache.list(50)) {
 		if (manifest.status !== "running" && manifest.status !== "blocked") continue;
-		// Preserve plan-approval-blocked runs — they belong to their owner and are
-		// waiting on a human decision, not orphaned by a dead owner process.
-		if (isPlanApprovalPending(manifest)) {
+		// B1 battery 2026-08-18 (case b): preserve runs intentionally blocked on a
+		// HUMAN DECISION — plan approval (pre-v2 semantics) OR a pending ask answer
+		// within the waiting TTL (ADR-0 item 9: "not crashes and must not be
+		// stale-repaired or cancelled by reconciliation"). Live proof: a resumed
+		// run parked on ask (worker alive, waitState set, parked workers do NOT
+		// heartbeat) was orphan-cancelled 5m18s into a 10-minute park by a THIRD
+		// session's startup scan because the predicate only knew plan approval.
+		if (isIntentionalWait(manifest)) {
 			skipped.push(manifest.runId);
 			continue;
 		}
@@ -326,6 +334,14 @@ export function cancelOrphanedRuns(
 			});
 
 			saveRunTasks(fresh.manifest, repairedTasks);
+			// B1 battery 2026-08-18 (case b leak fix): a cancelled run must not keep
+			// its waitState pointer — observed live: orphan-cancel left waitState set,
+			// shielding the dead run from staleness repair for the full 24h TTL.
+			if (fresh.manifest.waitState) {
+				const cleared = { ...fresh.manifest, waitState: undefined, updatedAt: new Date(now).toISOString() };
+				saveRunManifest(cleared);
+				fresh.manifest = cleared;
+			}
 			for (const task of repairedTasks) {
 				try {
 					upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));

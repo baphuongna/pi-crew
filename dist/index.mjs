@@ -55642,6 +55642,9 @@ function isWaitAnswerPending(manifest, now = Date.now()) {
   const askedAtMs = manifest.waitState?.askedAt ? new Date(manifest.waitState.askedAt).getTime() : Number.NaN;
   return Number.isFinite(askedAtMs) && now - askedAtMs <= WAITING_TTL_MS;
 }
+function isIntentionalWait(manifest, now = Date.now()) {
+  return isPlanApprovalPending2(manifest) || isWaitAnswerPending(manifest, now);
+}
 function checkResultFile(manifest, tasks) {
   const allTerminal = tasks.length > 0 && tasks.every(
     (t2) => t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled" || t2.status === "skipped" || t2.status === "needs_attention"
@@ -56100,7 +56103,7 @@ function detectInterruptedRuns(cwd, manifestCache2, deadMs = 3e5, currentSession
   const plans = [];
   for (const manifest of manifestCache2.list(50)) {
     if (manifest.status !== "running" && manifest.status !== "blocked") continue;
-    if (isPlanApprovalPending2(manifest)) continue;
+    if (isIntentionalWait(manifest)) continue;
     if (manifest.async?.pid !== void 0 && checkProcessLiveness(manifest.async.pid).alive) continue;
     if (currentSessionId && manifest.ownerSessionId && manifest.ownerSessionId === currentSessionId) continue;
     const loaded = loadRunManifestById(cwd, manifest.runId);
@@ -56195,7 +56198,7 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
   const skipped = [];
   for (const manifest of manifestCache2.list(50)) {
     if (manifest.status !== "running" && manifest.status !== "blocked") continue;
-    if (isPlanApprovalPending2(manifest)) {
+    if (isIntentionalWait(manifest)) {
       skipped.push(manifest.runId);
       continue;
     }
@@ -56245,6 +56248,11 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
         return task;
       });
       saveRunTasks(fresh.manifest, repairedTasks);
+      if (fresh.manifest.waitState) {
+        const cleared = { ...fresh.manifest, waitState: void 0, updatedAt: new Date(now).toISOString() };
+        saveRunManifest(cleared);
+        fresh.manifest = cleared;
+      }
       for (const task of repairedTasks) {
         try {
           upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
@@ -66577,7 +66585,15 @@ async function handleResume2(params, ctx) {
     const runtimeManifest = {
       ...resumeManifest,
       runtimeResolution,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      // B1 battery 2026-08-18 (case b root-cause fix): resume ADOPTS the run —
+      // ownerSessionId moves to the resuming session. Pre-fix, a force-resumed
+      // run kept its DEAD original owner id, so any THIRD session's startup
+      // orphan-scan saw "owner no longer exists" and cancelled the live,
+      // freshly-resumed run (observed live: orphan_cancelled 5m into a parked
+      // ask that the resume itself had just dispatched). Same-session resume
+      // is a no-op (id equality).
+      ...ctx.sessionId ? { ownerSessionId: ctx.sessionId } : {}
     };
     await saveRunManifestAsync(runtimeManifest);
     await appendEventAsync(runtimeManifest.eventsPath, {

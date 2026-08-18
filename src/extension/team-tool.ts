@@ -388,6 +388,14 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			...resumeManifest,
 			runtimeResolution,
 			updatedAt: new Date().toISOString(),
+			// B1 battery 2026-08-18 (case b root-cause fix): resume ADOPTS the run —
+			// ownerSessionId moves to the resuming session. Pre-fix, a force-resumed
+			// run kept its DEAD original owner id, so any THIRD session's startup
+			// orphan-scan saw "owner no longer exists" and cancelled the live,
+			// freshly-resumed run (observed live: orphan_cancelled 5m into a parked
+			// ask that the resume itself had just dispatched). Same-session resume
+			// is a no-op (id equality).
+			...(ctx.sessionId ? { ownerSessionId: ctx.sessionId } : {}),
 		};
 		await saveRunManifestAsync(runtimeManifest);
 		await appendEventAsync(runtimeManifest.eventsPath, {

@@ -14353,7 +14353,7 @@
       "format": "esm"
     },
     "src/runtime/recovery/crash-recovery.ts": {
-      "bytes": 30506,
+      "bytes": 31551,
       "imports": [
         {
           "path": "node:fs",
@@ -16734,7 +16734,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 35941,
+      "bytes": 36489,
       "imports": [
         {
           "path": "node:fs",
@@ -19766,7 +19766,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7110044
+      "bytes": 7112077
     },
     "dist/index.mjs": {
       "imports": [
@@ -23275,10 +23275,10 @@
           "bytesInOutput": 1690
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 16621
+          "bytesInOutput": 16761
         },
         "src/runtime/recovery/crash-recovery.ts": {
-          "bytesInOutput": 19040
+          "bytesInOutput": 19250
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2438
@@ -23464,7 +23464,7 @@
           "bytesInOutput": 25952
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 26410
+          "bytesInOutput": 26980
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4137
@@ -23746,7 +23746,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3073056
+      "bytes": 3073976
     }
   }
 }
