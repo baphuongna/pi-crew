@@ -500,7 +500,14 @@ test("(e) F1: keybinding override collision on the new plan keys surfaces a warn
 test("(F2) malformed manifest: status 'pending' WITHOUT required=true lights NO surface (single-source predicate)", () => {
 	const malformed = { ...PENDING_APPROVAL, required: false } as const;
 	// Widget: no badge, spinner preserved (the run is still running).
-	const widgetLines = buildWidgetLines("/tmp/pi-crew-approval-surfaces", 0, 20, [makeWidgetRun("team_malformed_bad1", malformed)], 0, 120);
+	const widgetLines = buildWidgetLines(
+		"/tmp/pi-crew-approval-surfaces",
+		0,
+		20,
+		[makeWidgetRun("team_malformed_bad1", malformed)],
+		0,
+		120,
+	);
 	const runLine = widgetLines.find((line) => line.includes("bad1"));
 	assert.ok(runLine, "run line must render");
 	assert.ok(!runLine.includes("⚠ plan:"), "malformed pending-without-required must NOT badge (render == action gating, F2)");
