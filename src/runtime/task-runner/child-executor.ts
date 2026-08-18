@@ -452,6 +452,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			lastRunProgressPersistedAt = now;
 		}
 	};
+	// F7 (B1 battery 2026-08-18): one dispatch timestamp for the WHOLE attempt
+	// loop. A steer racing anywhere between task-dispatch and any attempt's
+	// onSpawn (including across the model-fallback respawn gap — observed live:
+	// steer at 15:59:11 wiped by attempt-1's truncate at 15:59:59) must survive
+	// the per-incarnation truncate; residue older than the dispatch is wiped.
+	const taskDispatchStartedAtMs = Date.now();
 	for (let i = 0; i < attemptModels.length; i++) {
 		// M1 fix: set transcript path per attempt to avoid mixing across fallback attempts.
 		transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
@@ -593,7 +599,19 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							const steeringDir = `${manifest.artifactsRoot}/steering`;
 							try {
 								const safeSteeringPath = resolveRealContainedPath(steeringDir, `${task.id}.jsonl`);
-								fs.writeFileSync(safeSteeringPath, "");
+								// F7 fix: skip the truncate when the file's last write happened at or
+								// after THIS task's dispatch began — that is a live steer racing the
+								// spawn (observed live: "Steer delivered" + 0-byte file). Residue
+								// predating the dispatch (stale terminal-era steers) is still wiped.
+								// stat→truncate gap is microseconds; a steer landing inside it is
+								// lost — best-effort, same trade-off as before.
+								let racedSteerArrived = false;
+								try {
+									racedSteerArrived = fs.statSync(safeSteeringPath).mtimeMs >= taskDispatchStartedAtMs - 1;
+								} catch {
+									/* no file yet — nothing to truncate */
+								}
+								if (!racedSteerArrived) fs.writeFileSync(safeSteeringPath, "");
 							} catch (truncateErr) {
 								logInternalError("task-runner.steering-truncate", truncateErr, `taskId=${task.id}`);
 							}

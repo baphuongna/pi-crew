@@ -12441,7 +12441,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 45426,
+      "bytes": 46559,
       "imports": [
         {
           "path": "node:fs",
@@ -19413,7 +19413,7 @@
       "format": "esm"
     },
     "src/extension/registration/subagent-tools.ts": {
-      "bytes": 28724,
+      "bytes": 29472,
       "imports": [
         {
           "path": "node:fs",
@@ -19766,7 +19766,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7107416
+      "bytes": 7109932
     },
     "dist/index.mjs": {
       "imports": [
@@ -23107,7 +23107,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 25685
+          "bytesInOutput": 25978
         },
         "src/worktree/worktree-manager.ts": {
           "bytesInOutput": 26666
@@ -23728,7 +23728,7 @@
           "bytesInOutput": 7761
         },
         "src/extension/registration/subagent-tools.ts": {
-          "bytesInOutput": 21983
+          "bytesInOutput": 22425
         },
         "src/extension/registration/tool-registration.ts": {
           "bytesInOutput": 1118
@@ -23746,7 +23746,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3072265
+      "bytes": 3073000
     }
   }
 }

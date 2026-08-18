@@ -570,7 +570,22 @@ export function registerSubagentTools(
 				}
 				fs.appendFileSync(safeSteeringPath, line);
 			} catch (err) {
-				logInternalError("subagent-tools.steer-write-failed", err, `taskId=${taskId}`);
+				// B1 battery 2026-08-18 (F7): this catch previously logged at DEBUG
+				// level (invisible unless PI_TEAMS_DEBUG) and then STILL returned the
+				// success message — a live probe showed "Steer delivered to task …"
+				// while the steering file stayed 0 bytes, undiagnosable from the
+				// outside. Fail LOUD: error-level log + isError result.
+				logInternalError(
+					"subagent-tools.steer-write-failed",
+					err instanceof Error ? err : new Error(String(err)),
+					`taskId=${taskId} runId=${record.runId} artifactsRoot=${artifactsRoot}`,
+					"error",
+				);
+				return subagentToolResult(
+					`Steer write failed for task '${taskId}': ${err instanceof Error ? err.message : String(err)} (see pi-crew error log)`,
+					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					true,
+				);
 			}
 			return subagentToolResult(
 				[

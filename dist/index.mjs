@@ -46091,6 +46091,7 @@ async function runChildProcessTask(ctx) {
       lastRunProgressPersistedAt = now;
     }
   };
+  const taskDispatchStartedAtMs = Date.now();
   for (let i = 0; i < attemptModels.length; i++) {
     transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
     await fs70.promises.mkdir(path55.join(manifest.artifactsRoot, "transcripts"), {
@@ -46189,7 +46190,12 @@ async function runChildProcessTask(ctx) {
               const steeringDir = `${manifest.artifactsRoot}/steering`;
               try {
                 const safeSteeringPath = resolveRealContainedPath(steeringDir, `${task.id}.jsonl`);
-                fs70.writeFileSync(safeSteeringPath, "");
+                let racedSteerArrived = false;
+                try {
+                  racedSteerArrived = fs70.statSync(safeSteeringPath).mtimeMs >= taskDispatchStartedAtMs - 1;
+                } catch {
+                }
+                if (!racedSteerArrived) fs70.writeFileSync(safeSteeringPath, "");
               } catch (truncateErr) {
                 logInternalError("task-runner.steering-truncate", truncateErr, `taskId=${task.id}`);
               }
@@ -52978,7 +52984,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync12, existsSync as existsSync56, mkdirSync as mkdirSync32, openSync as openSync12, readdirSync as readdirSync23, readFileSync as readFileSync58, statSync as statSync39, unlinkSync as unlinkSync7 } from "node:fs";
+import { closeSync as closeSync12, existsSync as existsSync56, mkdirSync as mkdirSync32, openSync as openSync12, readdirSync as readdirSync23, readFileSync as readFileSync58, statSync as statSync40, unlinkSync as unlinkSync7 } from "node:fs";
 import { dirname as dirname36 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -53109,7 +53115,7 @@ var init_goal_state_store = __esm({
           const code = error.code;
           if (code !== "EEXIST") return false;
           try {
-            const stat2 = statSync39(lockPath2);
+            const stat2 = statSync40(lockPath2);
             if (Date.now() - stat2.mtimeMs > 5e3) {
               unlinkSync7(lockPath2);
               const fd = openSync12(lockPath2, "wx");
@@ -53202,7 +53208,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash8 } from "node:crypto";
-import { closeSync as closeSync13, existsSync as existsSync57, mkdirSync as mkdirSync33, openSync as openSync13, readdirSync as readdirSync24, readFileSync as readFileSync60, statSync as statSync41, unlinkSync as unlinkSync8, writeFileSync as writeFileSync9 } from "node:fs";
+import { closeSync as closeSync13, existsSync as existsSync57, mkdirSync as mkdirSync33, openSync as openSync13, readdirSync as readdirSync24, readFileSync as readFileSync60, statSync as statSync42, unlinkSync as unlinkSync8, writeFileSync as writeFileSync9 } from "node:fs";
 import * as path65 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path65.resolve(cwd);
@@ -57130,7 +57136,7 @@ var init_tool_progress_formatter = __esm({
 });
 
 // src/extension/registration/team-tool.ts
-import { statSync as statSync44 } from "node:fs";
+import { statSync as statSync45 } from "node:fs";
 import { Text as Text3 } from "@earendil-works/pi-tui";
 async function handleTeamTool(params, ctx) {
   if (!_cachedHandleTeamTool) {
@@ -57153,7 +57159,7 @@ function resolveCwdOverride(baseCwd, override) {
   if (!override) return { ok: true, cwd: baseCwd };
   try {
     const resolved = resolveRealContainedPath(baseCwd, override);
-    const stat2 = statSync44(resolved);
+    const stat2 = statSync45(resolved);
     if (!stat2.isDirectory())
       return {
         ok: false,
@@ -82142,7 +82148,17 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
         }
         fs117.appendFileSync(safeSteeringPath, line4);
       } catch (err2) {
-        logInternalError("subagent-tools.steer-write-failed", err2, `taskId=${taskId}`);
+        logInternalError(
+          "subagent-tools.steer-write-failed",
+          err2 instanceof Error ? err2 : new Error(String(err2)),
+          `taskId=${taskId} runId=${record.runId} artifactsRoot=${artifactsRoot}`,
+          "error"
+        );
+        return subagentToolResult(
+          `Steer write failed for task '${taskId}': ${err2 instanceof Error ? err2.message : String(err2)} (see pi-crew error log)`,
+          { agentId: record.id, runId: record.runId, taskId, status: record.status },
+          true
+        );
       }
       return subagentToolResult(
         [
