@@ -93,7 +93,9 @@ test("sweepDroppedPlanItems: queued cancelled, in-flight advised once, untouched
 		// Re-plan: v2 drops "drop".
 		appendPlanRevision(manifest, makeRecord(manifest.runId, 2, [{ id: "keep" }, { id: "drop", dropped: true }]));
 
-		const sweep1 = sweepDroppedPlanItems(dir, manifest.runId);
+		const snap = loadRunManifestById(dir, manifest.runId);
+		assert.ok(snap);
+		const sweep1 = sweepDroppedPlanItems(snap.manifest, snap.tasks);
 		assert.ok(sweep1);
 		assert.deepEqual(sweep1.cancelledTaskIds, ["t-queued-drop"]);
 		assert.deepEqual(sweep1.advisedTaskIds, ["t-running-drop"]);
@@ -123,7 +125,8 @@ test("sweepDroppedPlanItems: queued cancelled, in-flight advised once, untouched
 		assert.equal(events.filter((e) => e.type === "plan.item.dropped").length, 2);
 
 		// Second tick: exactly-once — no duplicate advisory/event.
-		const sweep2 = sweepDroppedPlanItems(dir, manifest.runId);
+		const snap2 = loadRunManifestById(dir, manifest.runId);
+		const sweep2 = snap2 ? sweepDroppedPlanItems(snap2.manifest, snap2.tasks) : undefined;
 		const events2 = fs
 			.readFileSync(manifest.eventsPath, "utf-8")
 			.trim()
@@ -143,11 +146,15 @@ test("sweepDroppedPlanItems: no plan-linked tasks / no record / no drops → und
 		const { manifest } = buildRun(dir);
 		saveRunTasks(manifest, [mkTask(manifest, "t-1", "i1", "queued")]);
 		// No plans.json → undefined.
-		assert.equal(sweepDroppedPlanItems(dir, manifest.runId), undefined);
+		const snap = loadRunManifestById(dir, manifest.runId);
+		assert.ok(snap);
+		assert.equal(sweepDroppedPlanItems(snap.manifest, snap.tasks), undefined);
 		// Record with no drops → undefined.
 		appendPlanRevision(manifest, makeRecord(manifest.runId, 1, [{ id: "i1" }]));
 		manifest.plan = { id: "plan-rp", version: 1 };
-		assert.equal(sweepDroppedPlanItems(dir, manifest.runId), undefined);
+		const snap2 = loadRunManifestById(dir, manifest.runId);
+		assert.ok(snap2);
+		assert.equal(sweepDroppedPlanItems(snap2.manifest, snap2.tasks), undefined);
 	}
 });
 

@@ -66,21 +66,28 @@ function appendSteeringAdvisory(manifest: TeamRunManifest, taskId: string): bool
 	}
 }
 
-export function sweepDroppedPlanItems(cwd: string, runId: string): DroppedPlanSweepResult | undefined {
-	const initial = loadRunManifestById(cwd, runId);
-	if (!initial) return undefined;
-	// Cheap exits: no plan-linked tasks at all, or no current record.
-	if (!initial.tasks.some((t) => t.planItem)) return undefined;
-	const record = getCurrentPlanRecord(initial.manifest);
+/**
+ * Takes the scheduler's IN-MEMORY manifest+tasks (selectDispatchBatch already
+ * holds both) — NO disk load on the no-op path. The per-tick cost for runs
+ * without plan-linked tasks is one array scan; plans.json is only read when a
+ * task carries planItem, and the reload+persist below only runs when an
+ * affected task actually exists.
+ */
+export function sweepDroppedPlanItems(initialManifest: TeamRunManifest, initialTasks: TeamTaskState[]): DroppedPlanSweepResult | undefined {
+	// Cheap exits FIRST (no I/O): no plan-linked tasks at all.
+	if (!initialTasks.some((t) => t.planItem)) return undefined;
+	const record = getCurrentPlanRecord(initialManifest);
 	if (!record) return undefined;
 	const dropped = new Set(record.items.filter((i) => i.status === "dropped").map((i) => i.id));
 	if (dropped.size === 0) return undefined;
-	if (!initial.tasks.some((t) => t.planItem && dropped.has(t.planItem))) return undefined;
+	if (!initialTasks.some((t) => t.planItem && dropped.has(t.planItem))) return undefined;
 
+	const cwd = initialManifest.cwd;
+	const runId = initialManifest.runId;
 	const cancelledTaskIds: string[] = [];
 	const advisedTaskIds: string[] = [];
 	try {
-		const outcome = withRunLockSync(initial.manifest, () => {
+		const outcome = withRunLockSync(initialManifest, () => {
 			const fresh = loadRunManifestById(cwd, runId); // in-lock consistent read
 			if (!fresh) return null;
 			const freshRecord = getCurrentPlanRecord(fresh.manifest);

@@ -369,7 +369,7 @@ export async function selectDispatchBatch(ctx: SchedulerContext): Promise<Schedu
 	// by the current revision are cancelled, in-flight ones get a wrap-up
 	// advisory (soft cancel). Cheap-exits inside make this a no-op for runs
 	// without plan-linked tasks.
-	const droppedSweep = sweepDroppedPlanItems(ctx.manifest.cwd, ctx.manifest.runId);
+	const droppedSweep = sweepDroppedPlanItems(ctx.manifest, ctx.tasks);
 	if (droppedSweep) {
 		ctx.manifest = droppedSweep.manifest;
 		ctx.tasks = droppedSweep.tasks;
