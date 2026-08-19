@@ -286,6 +286,26 @@ export interface PiTeamsConfig {
 	 * schema (`src/schema/config-schema.ts`).
 	 */
 	broker?: CrewBrokerConfig;
+	/**
+	 * Governed nesting (ADR-5 docs/decisions/2026-08-17-governed-nesting.md).
+	 * Worker→grandchild delegation via the `delegate` tool. Default is OFF
+	 * (`enabled:false`) — fail-closed until WP-5 completes (B3 battery +
+	 * security sign-off), then flipped to true. While false, `delegate`
+	 * admission is rejected with a structured policy message and a
+	 * `delegate.rejected` event (never silent).
+	 */
+	nesting?: CrewNestingConfig;
+}
+
+/** Governed-nesting config (ADR-5). */
+export interface CrewNestingConfig {
+	/** Master switch. `false` (default) keeps the `delegate` surface dormant. */
+	enabled?: boolean;
+	/** Nested-slot budget override. Default max(1, floor(globalSem/2)). 1..64. */
+	maxSlots?: number;
+	/** Max crew depth for delegate-driven nesting. Default 2. 1..10 (mirrors
+	 *  the PI_CREW_MAX_DEPTH env clamp). */
+	maxDepth?: number;
 }
 
 /** CrewBroker config (Phase 0 inter-pi broker). */

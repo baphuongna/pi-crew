@@ -35,12 +35,17 @@ import {
 } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
+import type { TeamTaskState } from "../../state/types.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../../utils/socket-path.ts";
+import { type GrandchildSpawnInput, type GrandchildSpawnResult, spawnDelegateGrandchild } from "../delegate-spawn.ts";
+import { resolveCrewMaxDepth } from "../model/pi-args.ts";
+import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
+import { evaluateDelegateAdmission } from "../spawn-policy.ts";
 import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
@@ -83,6 +88,27 @@ export interface CrewBrokerOptions {
 	 *  run's events.jsonl (never silent). The production wiring threads
 	 *  `config.broker.waitMethodsEnabled` here; tests pass it explicitly. */
 	waitMethodsEnabled?: boolean;
+	/** T3/R5 (ADR-5 §10): capability gate for the `delegate` surface. DEFAULT
+	 *  FALSE — fail-closed until the WP-5 completion gate flips it. The
+	 *  production wiring threads `config.nesting.enabled` here; tests pass it
+	 *  explicitly. Rejections are NEVER silent (delegate.rejected event). */
+	nestingEnabled?: boolean;
+	/** Optional override for the nested-slot budget size (config nesting.maxSlots). */
+	nestingMaxSlots?: number;
+	nestingMaxDepth?: number;
+	nestingTrustedEscalation?: boolean;
+	/** Global worker semaphore size, used to size the nested-slot budget. */
+	globalWorkerSemaphore?: number;
+	/** Test seam / alternative spawner for delegate grandchildren. Production
+	 *  uses spawnDelegateGrandchild (direct runChildPi call-site, ADR-5 §2). */
+	grandchildSpawner?: (input: GrandchildSpawnInput) => Promise<GrandchildSpawnResult>;
+	/** Resolved model catalog (canonical provider/id strings) for admission-time
+	 *  model validation (ADR-5 §7). When omitted, model validation is skipped
+	 *  (documented gap — the production wiring must always supply it). */
+	modelCatalog?: () => string[] | undefined;
+	/** ADR-5 §9: mirrors config limits.serializeOnPathOverlap for the workspace
+	 *  admission gate. Default false. */
+	serializeOnPathOverlap?: boolean;
 }
 
 /** Per-connection server-side state. */
@@ -115,8 +141,23 @@ interface ServerConnection {
 }
 
 export class CrewBroker {
-	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled" | "waitMethodsEnabled">> &
-		Pick<CrewBrokerOptions, "socketPath" | "maxFrameBytes" | "outboundQueueCap" | "cwd" | "netModule" | "waitStatusCache">;
+	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled" | "waitMethodsEnabled" | "nestingEnabled">> &
+		Pick<
+			CrewBrokerOptions,
+			| "socketPath"
+			| "maxFrameBytes"
+			| "outboundQueueCap"
+			| "cwd"
+			| "netModule"
+			| "waitStatusCache"
+			| "nestingMaxSlots"
+			| "nestingMaxDepth"
+			| "nestingTrustedEscalation"
+			| "globalWorkerSemaphore"
+			| "grandchildSpawner"
+			| "modelCatalog"
+			| "serializeOnPathOverlap"
+		>;
 	private readonly tokens = new BrokerTokenRegistry();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
@@ -129,6 +170,9 @@ export class CrewBroker {
 	private readonly subscriptionUnsubs = new WeakMap<ServerConnection, Set<() => void>>();
 	/** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
 	private mailboxObserverUnsub: (() => void) | null = null;
+	/** T3/R5 (ADR-5 §2): nested-slot budget for delegate grandchildren — lazily
+	 *  sized from options (max(1, floor(globalWorkerSemaphore/2)) or override). */
+	private nestedSlots: NestedSlotBudget | undefined;
 	/** A single observable handshake counter (test/observability). */
 	private handshakeCount = 0;
 	/** R10-3: stat-gated manifest/tasks cache shared by all task.waitStatus
@@ -151,6 +195,14 @@ export class CrewBroker {
 			cwd: options.cwd,
 			netModule: options.netModule,
 			waitMethodsEnabled: options.waitMethodsEnabled === true,
+			nestingEnabled: options.nestingEnabled === true,
+			nestingMaxSlots: options.nestingMaxSlots,
+			nestingMaxDepth: options.nestingMaxDepth,
+			nestingTrustedEscalation: options.nestingTrustedEscalation === true,
+			globalWorkerSemaphore: options.globalWorkerSemaphore,
+			grandchildSpawner: options.grandchildSpawner,
+			modelCatalog: options.modelCatalog,
+			serializeOnPathOverlap: options.serializeOnPathOverlap === true,
 		};
 		this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
 	}
@@ -589,6 +641,12 @@ export class CrewBroker {
 				return;
 			case "wait.resolve":
 				await this.handleWaitResolve(conn, id, params);
+				return;
+			// T3/R5 (ADR-5 §1): governed-nesting delegation. Task-scoped tokens
+			// only; capability-gated via options.nestingEnabled (fail-closed);
+			// admission runs the full spawn-policy gate matrix.
+			case "delegate.request":
+				await this.handleDelegateRequest(conn, id, params);
 				return;
 			default:
 				// Unhandled method → typed not-implemented.
@@ -1262,6 +1320,371 @@ export class CrewBroker {
 	 *  events.jsonl — the gate fails CLOSED but never SILENTLY. Fire-and-forget
 	 *  async append (broker handlers must not block the event loop on the sync
 	 *  event-log lock); an append failure is logged, never thrown. */
+	// T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
+	// grandchild spawn with durable mailbox delivery (WP-5 step 5).
+	private getDelegateNestedSlots(): NestedSlotBudget {
+		if (!this.nestedSlots) {
+			this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+		}
+		return this.nestedSlots;
+	}
+
+	private recordDelegateEvent(
+		manifest: { eventsPath: string; runId: string },
+		type:
+			| "delegate.requested"
+			| "delegate.admitted"
+			| "delegate.rejected"
+			| "delegate.completed"
+			| "delegate.timed_out"
+			| "delegate.rolled_up",
+		taskId: string,
+		data: Record<string, unknown>,
+	): void {
+		void appendEventAsync(manifest.eventsPath, {
+			type,
+			runId: manifest.runId,
+			taskId,
+			message: `${type}: ${JSON.stringify(data).slice(0, 200)}`,
+			data,
+		}).catch((err) =>
+			logInternalError("crew-broker.delegate.event", err instanceof Error ? err : new Error(String(err)), `runId=${manifest.runId}`),
+		);
+	}
+
+	private async handleDelegateRequest(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		// Auth: task-scoped token MANDATORY (ADR-5 pin iii) — same rule as wait.*.
+		if (!conn.runId || !conn.taskId) {
+			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		if (conn.role !== "worker" || conn.authMatchKind !== "compound") {
+			this.sendError(conn, id, "forbidden", "delegate requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID");
+			return;
+		}
+		const p = (params ?? {}) as {
+			description?: unknown;
+			prompt?: unknown;
+			role?: unknown;
+			model?: unknown;
+			maxTurns?: unknown;
+			budgetTokens?: unknown;
+			timeoutSec?: unknown;
+		};
+		if (typeof p.prompt !== "string" || p.prompt.trim().length === 0) {
+			this.sendError(conn, id, "bad-params", "delegate.request: 'prompt' (non-empty string) is required");
+			return;
+		}
+		const requested = {
+			prompt: p.prompt,
+			...(typeof p.description === "string" ? { description: p.description } : {}),
+			...(typeof p.role === "string" ? { role: p.role } : {}),
+			...(typeof p.model === "string" ? { model: p.model } : {}),
+			...(typeof p.maxTurns === "number" ? { maxTurns: p.maxTurns } : {}),
+			...(typeof p.budgetTokens === "number" ? { budgetTokens: p.budgetTokens } : {}),
+			...(typeof p.timeoutSec === "number" ? { timeoutSec: p.timeoutSec } : {}),
+		};
+		const cwd = this.options.cwd;
+		if (!cwd) {
+			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+			return;
+		}
+		let loaded: NonNullable<ReturnType<typeof loadRunManifestById>>;
+		try {
+			const l = loadRunManifestById(cwd, conn.runId);
+			if (!l) {
+				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+				return;
+			}
+			loaded = l;
+		} catch (err) {
+			this.sendError(conn, id, "no-manifest", (err as Error).message);
+			return;
+		}
+		// Capability gate (ADR-5 §10): fail-closed, NEVER silent.
+		if (this.options.nestingEnabled !== true) {
+			this.recordDelegateEvent(loaded.manifest, "delegate.rejected", conn.taskId, {
+				reason: "nesting-disabled",
+				policy: "nesting.enabled=false (fail-closed default)",
+			});
+			this.sendError(
+				conn,
+				id,
+				"policy-disabled",
+				"delegate is disabled: nesting.enabled=false (fail-closed default; delegate.rejected recorded in events.jsonl)",
+			);
+			return;
+		}
+		const runId = conn.runId;
+		const parentTaskId = conn.taskId;
+		// S1#1 fix (security round 1): the subId is minted BEFORE admission so the
+		// grandchild token scopes to the SUBID (never the parent task key) and the
+		// nested slot is acquired INSIDE the same lock as the admission snapshot.
+		const subId = `gc-${randomUUID()}`;
+		this.recordDelegateEvent(loaded.manifest, "delegate.requested", parentTaskId, { subId, role: requested.role ?? "explorer" });
+		// Admission: full spawn-policy matrix (ADR-5 §2-§7), parent state from
+		// the RECORD under the run lock — never the worker's env/self-report.
+		const admissionOutcome = withRunLockSync(loaded.manifest, () => {
+			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
+			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
+			const task = fresh.tasks.find((t) => t.id === parentTaskId);
+			if (!task) {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "no-task" });
+				return { code: "no-task" as const, message: `task '${parentTaskId}' not found` };
+			}
+			if (task.status !== "running") {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, {
+					subId,
+					reason: "parent-not-running",
+					message: `task is ${task.status}`,
+				});
+				return { code: "bad-params" as const, message: `delegate: parent task '${parentTaskId}' is ${task.status}, not running` };
+			}
+			const catalog = this.options.modelCatalog?.();
+			// S3 fail-closed: a DEFINED loader yielding undefined is a loader failure.
+			const effectiveCatalog = this.options.modelCatalog !== undefined ? (catalog ?? []) : undefined;
+			// ADR-5 §9: count OTHER in-flight executor-class tasks sharing the
+			// parent task's cwd (manifest record — single source of truth).
+			const overlapping = fresh.tasks.filter(
+				(t) =>
+					t.id !== parentTaskId &&
+					t.status === "running" &&
+					(t.role === "executor" || t.role === "test-engineer") &&
+					t.cwd === task.cwd,
+			).length;
+			const decision = evaluateDelegateAdmission({
+				nestingEnabled: true, // flag already checked above
+				maxDepth: this.options.nestingMaxDepth ?? resolveCrewMaxDepth(undefined), // config knob > env-clamped 1..10, default 2 (ADR-5 §3)
+				parentTask: {
+					taskId: parentTaskId,
+					role: task.role,
+					...(task.depth !== undefined ? { depth: task.depth } : {}),
+					...(task.allocation !== undefined ? { allocation: task.allocation } : {}),
+				},
+				slots: this.getDelegateNestedSlots().snapshot(),
+				requested,
+				...(effectiveCatalog !== undefined ? { modelCatalog: effectiveCatalog } : {}),
+				// ADR-5 §12: the delegate surface is an escalation — trusted only by the
+				// explicit user opt-in threaded from config.nesting.enabled (sensitive).
+				untrusted: this.options.nestingTrustedEscalation !== true,
+				workspace: {
+					serializeEnabled: this.options.serializeOnPathOverlap === true,
+					overlappingInFlightExecutors: overlapping,
+				},
+			});
+			if (!decision.allowed) {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, {
+					subId,
+					reason: decision.reason,
+					message: (decision.message ?? "").slice(0, 120),
+				});
+				return { code: "policy-denied" as const, message: decision.message ?? decision.reason ?? "delegate denied" };
+			}
+			// Slot acquisition INSIDE the lock (no reserve-then-race refund window).
+			if (!this.getDelegateNestedSlots().tryAcquire(subId)) {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "slots-exhausted" });
+				return {
+					code: "policy-denied" as const,
+					message: `delegate rejected: nested spawn budget exhausted; ${this.getDelegateNestedSlots().statusLine}`,
+				};
+			}
+			// Reserve the requested budget pessimistically (ADR-5 §5): tokensSpent
+			// += budgetTokens now; the completion roll-up reconciles to actual usage
+			// (refund the difference). Single writer under the run lock.
+			let reserved = 0;
+			const parentAllocation = task.allocation;
+			let tasksAfterReserve = fresh.tasks;
+			if (requested.budgetTokens !== undefined && parentAllocation) {
+				reserved = requested.budgetTokens;
+				const updatedTasks = fresh.tasks.map((t) =>
+					t.id === parentTaskId
+						? {
+								...t,
+								allocation: {
+									tokensGranted: parentAllocation.tokensGranted,
+									tokensSpent: (parentAllocation.tokensSpent ?? 0) + reserved,
+								},
+							}
+						: t,
+				);
+				tasksAfterReserve = updatedTasks;
+				saveRunTasks(fresh.manifest, updatedTasks);
+			}
+			// S1#1: register the grandchild SHADOW TASK — the subId identity gets a
+			// real depth/role entry (unbounded-chain fix). Built on tasksAfterReserve
+			// so the budget reservation above is never clobbered.
+			saveRunTasks(fresh.manifest, [
+				...tasksAfterReserve,
+				{
+					id: subId,
+					runId,
+					role: requested.role ?? "explorer",
+					agent: "delegate",
+					title: `delegate: ${(requested as { description?: string }).description ?? subId}`,
+					status: "queued",
+					cwd: task.cwd,
+					dependsOn: [],
+					depth: decision.childDepth ?? 2,
+					startedAt: new Date().toISOString(),
+				} satisfies TeamTaskState,
+			]);
+			return { code: "ok" as const, decision, reserved };
+		});
+		if (admissionOutcome.code !== "ok") {
+			this.sendError(conn, id, admissionOutcome.code, admissionOutcome.message);
+			return;
+		}
+		const { decision, reserved } = admissionOutcome;
+		this.recordDelegateEvent(loaded.manifest, "delegate.admitted", parentTaskId, {
+			subId,
+			childDepth: decision.childDepth,
+			role: requested.role ?? "explorer",
+			...(reserved > 0 ? { reservedTokens: reserved } : {}),
+		});
+		// S1#1: pre-mint the grandchild-scoped token when (and only when) the
+		// child may itself delegate (childDepth < resolved maxDepth — the same
+		// gate as issueForChild). Depth-2 at default maxDepth gets NO creds.
+		const grandchildCreds =
+			(decision.childDepth ?? 2) < (this.options.nestingMaxDepth ?? resolveCrewMaxDepth(undefined))
+				? { socketPath: this.socketPath, token: this.issueRunToken(runId, subId) }
+				: undefined;
+		// Return IMMEDIATELY (principle 7): the tool self-polls the mailbox.
+		this.sendResult(conn, id, { ok: true, grandchildTaskRef: subId, childDepth: decision.childDepth, timeoutSec: decision.timeoutSec });
+		// Background grandchild lifecycle (ADR-5 §1/§6).
+		const spawner = this.options.grandchildSpawner ?? spawnDelegateGrandchild;
+		void (async () => {
+			let outcome: GrandchildSpawnResult;
+			try {
+				outcome = await spawner({
+					cwd,
+					runId,
+					parentTaskId,
+					subId,
+					prompt: requested.prompt,
+					eventsPath: loaded.manifest.eventsPath,
+					role: requested.role ?? "explorer",
+					...(grandchildCreds ? { brokerSpawn: grandchildCreds } : {}),
+					...(requested.model !== undefined ? { model: requested.model } : {}),
+					...(requested.maxTurns !== undefined ? { maxTurns: requested.maxTurns } : {}),
+					timeoutSec: decision.timeoutSec ?? 900,
+					depthOverride: decision.childDepth ?? 2,
+				});
+			} catch (err) {
+				outcome = { ok: false, resultText: `delegate spawn failed: ${(err as Error).message}` };
+			}
+			// S3 fence hardening: neutralize smuggled end-fence markers in the
+			// grandchild's raw text, then wrap (the client re-fences too — the
+			// mailbox is an unauthenticated same-uid channel by design).
+			const sanitizedText = outcome.resultText.replace(/^--- (end )?delegate /gm, "-- ~delegate ").slice(0, 65_536);
+			const fenced = `--- delegate ${subId} ${outcome.timedOut ? "(timed out)" : outcome.ok ? "(ok)" : "(failed)"} ---\n${sanitizedText}\n--- end delegate ${subId} ---`;
+			// Durable delivery (ADR-5 §1): fenced result into the PARENT task's
+			// mailbox + budget roll-up + slot release — run-locked RMW.
+			try {
+				const fresh = loadRunManifestById(cwd, runId);
+				if (fresh) {
+					withRunLockSync(fresh.manifest, () => {
+						const latest = loadRunManifestById(cwd, runId);
+						if (!latest) return;
+						void appendMailboxMessageAsync(latest.manifest, {
+							direction: "inbox",
+							from: `delegate:${subId}`,
+							to: parentTaskId,
+							taskId: parentTaskId,
+							body: fenced,
+							kind: "response",
+							data: { subId, ok: outcome.ok, timedOut: outcome.timedOut === true },
+						}).catch((err) =>
+							logInternalError(
+								"crew-broker.delegate.mailbox",
+								err instanceof Error ? err : new Error(String(err)),
+								`runId=${runId}`,
+							),
+						);
+						// Roll-up (ADR-5 §5): reconcile the pessimistic reservation to
+						// actual usage; refund the difference. Unattributed → keep reserve.
+						let tasksToWrite = latest.tasks;
+						if (reserved > 0) {
+							const parent = latest.tasks.find((t) => t.id === parentTaskId);
+							const parentAlloc = parent?.allocation;
+							if (parentAlloc) {
+								const actual = Math.max(0, Math.min(outcome.usageTokens ?? reserved, reserved));
+								const tokensSpent = (parentAlloc.tokensSpent ?? 0) - reserved + actual;
+								tasksToWrite = tasksToWrite.map((t) =>
+									t.id === parentTaskId
+										? { ...t, allocation: { tokensGranted: parentAlloc.tokensGranted, tokensSpent } }
+										: t,
+								);
+								this.recordDelegateEvent(latest.manifest, "delegate.rolled_up", parentTaskId, {
+									subId,
+									actualTokens: actual,
+								});
+							}
+						}
+						// S1#1: flip the shadow task to terminal — UNCONDITIONAL (verifier N1): the
+						// flip must not depend on a reservation; no allocation producer ships
+						// yet so reserved===0 is the common case and the guard left every
+						// shadow "queued" forever.
+						// S1#1: flip the shadow task to terminal so the subId record does not
+						// linger as "queued" in team status views.
+						saveRunTasks(
+							latest.manifest,
+							tasksToWrite.map((t) =>
+								t.id === subId
+									? {
+											...t,
+											status: outcome.ok ? ("completed" as const) : ("failed" as const),
+											completedAt: new Date().toISOString(),
+										}
+									: t,
+							),
+						);
+					});
+				}
+			} catch (err) {
+				logInternalError("crew-broker.delegate.finalize", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`);
+				// P2-8c: best-effort refund when finalize fails — the reservation
+				// must not linger inflated after a roll-up write failure.
+				if (reserved > 0) {
+					try {
+						const rf = loadRunManifestById(cwd, runId);
+						if (rf) {
+							withRunLockSync(rf.manifest, () => {
+								const rl = loadRunManifestById(cwd, runId);
+								if (!rl) return;
+								const par = rl.tasks.find((t) => t.id === parentTaskId);
+								const pa = par?.allocation;
+								if (pa) {
+									saveRunTasks(
+										rl.manifest,
+										rl.tasks.map((t) =>
+											t.id === parentTaskId
+												? {
+														...t,
+														allocation: {
+															tokensGranted: pa.tokensGranted,
+															tokensSpent: Math.max(0, (pa.tokensSpent ?? 0) - reserved),
+														},
+													}
+												: t,
+										),
+									);
+								}
+							});
+						}
+					} catch {
+						/* refund is best-effort; the startup reconcile is the follow-up */
+					}
+				}
+			} finally {
+				this.getDelegateNestedSlots().release(subId);
+			}
+			this.recordDelegateEvent(loaded.manifest, outcome.timedOut ? "delegate.timed_out" : "delegate.completed", parentTaskId, {
+				subId,
+				ok: outcome.ok,
+			});
+		})();
+	}
+
 	private recordWaitPolicyRejection(manifest: { eventsPath: string; runId: string }, taskId: string, method: string): void {
 		const runId = manifest.runId;
 		void appendEventAsync(manifest.eventsPath, {

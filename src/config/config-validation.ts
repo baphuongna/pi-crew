@@ -10,6 +10,7 @@ import type {
 	CrewBrokerConfig,
 	CrewControlConfig,
 	CrewLimitsConfig,
+	CrewNestingConfig,
 	CrewNotificationsConfig,
 	CrewObservabilityConfig,
 	CrewOtlpConfig,
@@ -74,6 +75,8 @@ const LIMIT_CEILINGS = {
 	// (10_000 turns), which capped the effective timeout at 10s and silently disabled
 	// any larger value (e.g. 300_000 = 5min) via parsePositiveInteger returning undefined.
 	runtimeTaskTimeoutMs: 24 * 60 * 60 * 1000,
+	nestingMaxSlots: 64,
+	nestingMaxDepth: 10,
 } as const;
 
 /**
@@ -253,6 +256,17 @@ function parseLimitsConfig(value: unknown): CrewLimitsConfig | undefined {
 		serializeOnPathOverlap: parseWithSchema(Type.Boolean(), obj.serializeOnPathOverlap),
 	};
 	return Object.values(limits).some((entry) => entry !== undefined) ? limits : undefined;
+}
+
+function parseNestingConfig(value: unknown): CrewNestingConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const nesting: CrewNestingConfig = {
+		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
+		maxSlots: parsePositiveInteger(obj.maxSlots, LIMIT_CEILINGS.nestingMaxSlots),
+		maxDepth: parsePositiveInteger(obj.maxDepth, LIMIT_CEILINGS.nestingMaxDepth),
+	};
+	return Object.values(nesting).some((entry) => entry !== undefined) ? nesting : undefined;
 }
 
 function parseIsolationPolicy(value: unknown): CrewRuntimeConfig["isolationPolicy"] | undefined {
@@ -641,6 +655,7 @@ export function parseConfig(raw: unknown): PiTeamsConfig {
 		ignoreMethod: parseWithSchema(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")]), obj.ignoreMethod),
 		autonomous: parseAutonomousConfig(obj.autonomous),
 		limits: parseLimitsConfig(obj.limits),
+		nesting: parseNestingConfig(obj.nesting),
 		runtime: parseRuntimeConfig(obj.runtime),
 		control: parseControlConfig(obj.control),
 		worktree: parseWorktreeConfig(obj.worktree),

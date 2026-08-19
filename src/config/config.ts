@@ -7,7 +7,7 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, projectPiRoot } from "../utils/paths.ts";
 import { mergeConfig } from "./config-merge.ts";
 import { parseConfig, parseConfigWithWarnings } from "./config-validation.ts";
-import { DEFAULT_BROKER, resolveBrokerEnvOverride } from "./defaults.ts";
+import { DEFAULT_BROKER, DEFAULT_NESTING, resolveBrokerEnvOverride } from "./defaults.ts";
 import { getCrewEnv } from "./env-vars.ts";
 import { sanitizeProjectConfig } from "./sanitize-project-config.ts";
 
@@ -43,6 +43,7 @@ export type {
 
 import type {
 	CrewBrokerConfig,
+	CrewNestingConfig,
 	LoadedPiTeamsConfig,
 	PiTeamsAutonomousConfig,
 	PiTeamsConfig,
@@ -223,6 +224,12 @@ export function projectPiCrewJsonPath(cwd: string): string {
  * kill switch (enabled:false) reachable in three independent ways: env,
  * config block, or default.
  */
+
+/** ADR-5 §10: layer DEFAULT_NESTING under any user-set keys — the
+ *  fail-closed enabled=false default must hold when no nesting block exists. */
+function applyNestingDefaults(parsed: CrewNestingConfig | undefined): CrewNestingConfig {
+	return { ...DEFAULT_NESTING, ...parsed };
+}
 function applyBrokerEnvOverrideAndDefaults(parsed: CrewBrokerConfig | undefined): CrewBrokerConfig {
 	const envOverridden = resolveBrokerEnvOverride(parsed);
 	return { ...DEFAULT_BROKER, ...envOverridden };
@@ -369,6 +376,7 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 			// config; defaults fill any missing field. Env `"1"`/`"0"` forces
 			// the enabled flag even when no broker block is configured.
 			broker: applyBrokerEnvOverrideAndDefaults(config.broker),
+			nesting: applyNestingDefaults(config.nesting),
 		},
 		warnings: warnings.length > 0 ? warnings : undefined,
 	};

@@ -26,7 +26,8 @@ import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
-import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
+import { configuredModelInfosFromPiConfig } from "../../runtime/model/model-fallback.ts";
+import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth, resolveCrewMaxDepth } from "../../runtime/model/pi-args.ts";
 import { clearProviderQuotaCache, noteProviderResponse } from "../../runtime/model/provider-quota.ts";
 import { noteSessionModel, noteSessionThinking, resolveProviderForResponse } from "../../runtime/model/session-model.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
@@ -1006,6 +1007,16 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 						return undefined;
 					}
 				})();
+				// T3/R5 (ADR-5 §10): governed-nesting + limits config for the delegate
+				// surface — same cwd discipline as the broker block above.
+				const nestingCfg = (() => {
+					try {
+						const c = loadConfig(process.cwd()).config;
+						return { nesting: c.nesting, limits: c.limits };
+					} catch {
+						return undefined;
+					}
+				})();
 				const b = new CrewBroker({
 					sessionId,
 					socketPath: getBrokerSocketPath(sessionId),
@@ -1016,6 +1027,27 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					// config.broker.waitMethodsEnabled a dead knob and the ADR-0
 					// "then true" flip a silent no-op. Fail-closed when unset.
 					waitMethodsEnabled: cfg?.waitMethodsEnabled ?? false,
+					// T3/R5 (ADR-5 §10): governed-nesting capability gate — fail-closed
+					// default; production threads config.nesting (sensitive: user config
+					// only). Nested-slot sizing + admission-time model catalog (ADR-5 §7 —
+					// the production wiring MUST supply it) + workspace gate mirror.
+					nestingEnabled: nestingCfg?.nesting?.enabled ?? false,
+					...(nestingCfg?.nesting?.maxSlots !== undefined ? { nestingMaxSlots: nestingCfg.nesting.maxSlots } : {}),
+					...(nestingCfg?.nesting?.maxDepth !== undefined ? { nestingMaxDepth: nestingCfg.nesting.maxDepth } : {}),
+					// ADR-5 §12: enabling the sensitive USER-config-only flag IS the manual
+					// trust decision for the escalation surface.
+					nestingTrustedEscalation: nestingCfg?.nesting?.enabled === true,
+					...(nestingCfg?.limits?.maxConcurrentWorkers !== undefined
+						? { globalWorkerSemaphore: nestingCfg.limits.maxConcurrentWorkers }
+						: {}),
+					serializeOnPathOverlap: nestingCfg?.limits?.serializeOnPathOverlap ?? false,
+					modelCatalog: () => {
+						try {
+							return configuredModelInfosFromPiConfig(process.cwd()).map((info) => info.fullId);
+						} catch {
+							return undefined;
+						}
+					},
 					enabled: true,
 					cwd: process.cwd(),
 				});
@@ -1032,10 +1064,17 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		return starting!;
 	}
 
-	const issueForChild = async (runId: string, taskId?: string): Promise<BrokerSpawnCredentials | undefined> => {
+	const issueForChild = async (runId: string, taskId?: string, childDepth?: number): Promise<BrokerSpawnCredentials | undefined> => {
 		if (!runId || typeof runId !== "string") return undefined;
 		if (!isRootSession(process.env)) return undefined;
 		if (!effectiveEnabled()) return undefined;
+		// ADR-5 §4 (governed nesting): tokens are minted ONLY for children that
+		// may themselves delegate — childDepth < resolved maxDepth. At the default
+		// maxDepth=2 a delegate-spawned depth-2 grandchild gets NO credentials
+		// (env containment: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2; identity
+		// routing via PI_CREW_BROKER_RUN_ID/TASK_ID is threaded unconditionally
+		// elsewhere). Undefined childDepth = legacy worker spawn (depth 1).
+		if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
 		const sessionId = cachedSessionId;
 		if (!sessionId) return undefined;
 		try {

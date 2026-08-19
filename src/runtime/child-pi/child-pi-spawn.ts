@@ -256,6 +256,7 @@ export interface SpawnContext {
 export function prepareSpawnContext(
 	input: ChildPiRunInput,
 	effectiveTask: string,
+	depthEnv?: NodeJS.ProcessEnv,
 ): { kind: "ready"; ctx: SpawnContext } | { kind: "aborted"; result: ChildPiRunResult } {
 	const built = buildPiWorkerArgs({
 		task: effectiveTask,
@@ -266,6 +267,10 @@ export function prepareSpawnContext(
 		skillPaths: input.skillPaths,
 		role: input.role,
 		thinkingOverride: input.thinkingOverride,
+		// ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
+		// (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
+		// child env gets parentDepth+1 = the true grandchild depth.
+		env: depthEnv,
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
@@ -283,6 +288,15 @@ export function prepareSpawnContext(
 	// design (S-6), which would leave the ask tool dead-on-arrival there.
 	// Control-namespace keys → pass assertOnlyControlEnvKeys.
 	built.env.PI_CREW_ASK_ENABLED = "1"; // dormant gate (worker conditional registerTool)
+	// T3/R5 (ADR-5 §1): the worker-side `delegate` tool is registered ONLY for
+	// executor-class roles at depth 1 (read-only roles are spawn-denied
+	// server-side anyway — the env gate is UX/dead-weight hygiene, not the
+	// security boundary; broker admission re-checks role+depth from the task
+	// RECORD). Control-namespace key → assertOnlyControlEnvKeys.
+	const childDepth = Number(built.env.PI_CREW_DEPTH ?? "1");
+	if (childDepth <= 1 && (input.role === "executor" || input.role === "test-engineer")) {
+		built.env.PI_CREW_DELEGATE_ENABLED = "1";
+	}
 	// stateRoot from the spawn manifest: ChildPiRunInput threads
 	// manifest.eventsPath unconditionally (child-executor / background-runner)
 	// and the state store pins eventsPath === <stateRoot>/events.jsonl

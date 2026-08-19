@@ -520,6 +520,19 @@ export interface TeamTaskState {
 	 *  item was dropped by a re-plan (soft cancel; exactly-once across ticks).
 	 *  Doubles as the terminal marker "cancelled-by-replan". */
 	replanDroppedAt?: string;
+	/** T3/R5 (ADR-5 §3): delegation depth of THIS task. Workers are depth 1;
+	 *  delegate-spawned grandchildren are depth 2+. The spawn policy computes
+	 *  a grandchild's depth from this record field — NEVER from the requesting
+	 *  worker's env or self-report (design §7 rev-2 P0-2). Additive: absent on
+	 *  pre-v2 records (readers treat absent as depth 1). */
+	depth?: number;
+	/** T3/R5 (ADR-5 §5): per-task budget allocation for delegate accounting.
+	 *  `tokensGranted` is reserved at delegate admission; `tokensSpent` rolls up
+	 *  grandchild usage as events arrive (single writer, run lock). Additive. */
+	allocation?: {
+		tokensGranted: number;
+		tokensSpent: number;
+	};
 	policy?: {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;

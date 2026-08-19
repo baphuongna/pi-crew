@@ -195,6 +195,19 @@ export const DEFAULT_BROKER = {
 } as const;
 
 /**
+ * Governed-nesting defaults (ADR-5 docs/decisions/2026-08-17-governed-nesting.md §10).
+ * `enabled` is DEFAULT FALSE — fail-closed until WP-5 completes (B3 battery +
+ * security sign-off), then flipped to true. While false, the `delegate`
+ * surface rejects with a structured policy message and a `delegate.rejected`
+ * event in events.jsonl (never silent). `maxSlots` default is computed at the
+ * spawn policy from the global worker semaphore: max(1, floor(globalSem/2)).
+ */
+export const DEFAULT_NESTING = {
+	enabled: false,
+	maxDepth: 2,
+} as const;
+
+/**
  * Apply `PI_CREW_BROKER` env override to a parsed broker config.
  * - `"1"` forces `enabled: true` (beats a config of `false` AND the
  *   default of `false` when no broker block is configured).

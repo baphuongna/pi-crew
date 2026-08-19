@@ -152,76 +152,48 @@ describe("F1 — tools: frontmatter wildcards (parseToolsField)", () => {
 	});
 });
 
-describe("F1 — excludeExtensions applied in child-pi spawn args", () => {
-	it("'exclude_extensions: foo' filters out the foo extension from --extension flags", () => {
-		const agent = makeAgentConfig({
-			source: "user",
-			extensions: ["foo", "bar", "baz"],
-			excludeExtensions: ["foo", "baz"],
-		});
-		const { args } = buildPiWorkerArgs({
-			agent,
-			role: "test",
-			task: "do something",
-		});
-		const extensionFlags: string[] = [];
+describe("F1 — excludeExtensions + ADR-5 §8 extension ALLOWLIST at depth>0", () => {
+	// ADR-5 §8 (governed nesting, T3/WP-5 step 8): every spawn buildPiWorkerArgs
+	// produces runs at depth > 0 (workers depth 1, grandchildren 2+) — the
+	// extension list is an ALLOWLIST: ONLY PROMPT_RUNTIME_EXTENSION_PATH is
+	// emitted, regardless of source. The legacy denylist/SEC-1 strips remain as
+	// defense-in-depth but agent-declared extensions never reach a sub-agent.
+	const extensionFlagsOf = (args: string[]): string[] => {
+		const flags: string[] = [];
 		for (let i = 0; i < args.length; i++) {
-			if (args[i] === "--extension") extensionFlags.push(args[i + 1] ?? "");
+			if (args[i] === "--extension") flags.push(args[i + 1] ?? "");
 		}
-		assert.ok(extensionFlags.includes("bar"), "bar should be in --extension list");
-		assert.ok(!extensionFlags.includes("foo"), "foo (excluded) should NOT be in --extension list");
-		assert.ok(!extensionFlags.includes("baz"), "baz (excluded) should NOT be in --extension list");
-	});
+		return flags;
+	};
 
-	it("excludeExtensions is case-insensitive on basename", () => {
-		const agent = makeAgentConfig({
-			source: "user",
-			extensions: ["Foo", "Bar"],
-			excludeExtensions: ["FOO"],
-		});
-		const { args } = buildPiWorkerArgs({
-			agent,
-			role: "test",
-			task: "do something",
-		});
-		const extensionFlags: string[] = [];
-		for (let i = 0; i < args.length; i++) {
-			if (args[i] === "--extension") extensionFlags.push(args[i + 1] ?? "");
-		}
-		assert.ok(!extensionFlags.includes("Foo"), "Foo (case-insensitive match) should be excluded");
-		assert.ok(extensionFlags.includes("Bar"), "Bar should still be in the list");
-	});
-
-	it("omit excludeExtensions = all extensions pass through (back-compat)", () => {
+	it("user-sourced agent extensions are NOT emitted (allowlist, ADR-5 §8)", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar"] });
-		const { args } = buildPiWorkerArgs({
-			agent,
-			role: "test",
-			task: "do something",
-		});
-		const extensionFlags: string[] = [];
-		for (let i = 0; i < args.length; i++) {
-			if (args[i] === "--extension") extensionFlags.push(args[i + 1] ?? "");
-		}
-		assert.ok(extensionFlags.includes("foo"));
-		assert.ok(extensionFlags.includes("bar"));
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(!flags.includes("foo"), "user-sourced 'foo' must NOT pass the allowlist");
+		assert.ok(!flags.includes("bar"), "user-sourced 'bar' must NOT pass the allowlist");
 	});
 
-	it("empty excludeExtensions array = no-op (all extensions pass through)", () => {
-		const agent = makeAgentConfig({
-			source: "user",
-			extensions: ["foo"],
-			excludeExtensions: [],
-		});
-		const { args } = buildPiWorkerArgs({
-			agent,
-			role: "test",
-			task: "do something",
-		});
-		const extensionFlags: string[] = [];
-		for (let i = 0; i < args.length; i++) {
-			if (args[i] === "--extension") extensionFlags.push(args[i + 1] ?? "");
-		}
-		assert.ok(extensionFlags.includes("foo"));
+	it("excludeExtensions entries never appear (denylist subsumed by allowlist)", () => {
+		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar", "baz"], excludeExtensions: ["foo", "baz"] });
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(!flags.includes("foo") && !flags.includes("baz"));
+		assert.ok(!flags.includes("bar"), "even non-excluded 'bar' is dropped at depth>0");
+	});
+
+	it("project-sourced agent extensions are NOT emitted (SEC-1 hole closed regardless of trust flag)", () => {
+		const agent = makeAgentConfig({ source: "project", extensions: ["/tmp/attacker.ts"] });
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		const flags = extensionFlagsOf(args);
+		assert.ok(!flags.includes("/tmp/attacker.ts"));
+	});
+
+	it("--no-extensions + prompt-runtime remain (the allowlist member)", () => {
+		const agent = makeAgentConfig({ source: "user", extensions: ["foo"] });
+		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
+		assert.ok(args.includes("--no-extensions"));
+		const flags = extensionFlagsOf(args);
+		assert.equal(flags.length, 1, `exactly one --extension flag expected, got ${JSON.stringify(flags)}`);
 	});
 });

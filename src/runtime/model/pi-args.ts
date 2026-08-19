@@ -328,6 +328,16 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		) {
 			allowed = allowed.filter((ext) => path.resolve(ext) === path.resolve(PROMPT_RUNTIME_EXTENSION_PATH));
 		}
+		// ADR-5 §8 (governed nesting, T3/WP-5 step 8): every spawn this builder
+		// produces runs at depth > 0 (workers are depth 1, delegate grandchildren
+		// are 2+; currentCrewDepth(base)+1 is ALWAYS >= 1) — the extension list
+		// is an unconditional ALLOWLIST: only the trusted
+		// PROMPT_RUNTIME_EXTENSION_PATH passes, REGARDLESS OF SOURCE. User-sourced
+		// agent declarations can no longer inject extensions into sub-agents
+		// (SEC-1's project-only strip left user/builtin declarations unfiltered —
+		// the audit's untested hole). The denylist + SEC-1 strip above remain as
+		// defense-in-depth; the allowlist is authoritative.
+		allowed = [];
 		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
 	} else {
 		args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
