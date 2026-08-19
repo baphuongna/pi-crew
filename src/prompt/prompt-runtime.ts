@@ -326,6 +326,10 @@ export function shouldRegisterAskTool(env: NodeJS.ProcessEnv = process.env): boo
 const PI_CREW_DELEGATE_ENABLED_ENV = "PI_CREW_DELEGATE_ENABLED";
 export const DELEGATE_TIMED_OUT_RESULT = "[delegate timed out]";
 const DELEGATE_POLL_INTERVAL_MS = 500;
+/** P3-11: poll slack past the server deadline — the server timer fires first
+ *  and writes the fenced (timed out) result; the client checks a bit longer
+ *  so the outcome lands in-tool instead of lingering unread in the inbox. */
+const DELEGATE_POLL_GRACE_MS = 2000;
 const DELEGATE_TIMEOUT_SEC_DEFAULT = 900;
 const DELEGATE_TIMEOUT_SEC_MAX = 86_400;
 const DELEGATE_PROMPT_MAX_CHARS = 32_768;
@@ -449,7 +453,7 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 					Math.max(1, Math.floor(serverTimeoutSec ?? params.timeoutSec ?? DELEGATE_TIMEOUT_SEC_DEFAULT)),
 					DELEGATE_TIMEOUT_SEC_MAX,
 				);
-				const deadline = now() + timeoutSec * 1000;
+				const deadline = now() + timeoutSec * 1000 + DELEGATE_POLL_GRACE_MS;
 				const manifest = { stateRoot, runId } as unknown as TeamRunManifest;
 				const fromTag = `delegate:${subId}`;
 				let terminal: "completed" | "timed-out" | "aborted" = "timed-out";

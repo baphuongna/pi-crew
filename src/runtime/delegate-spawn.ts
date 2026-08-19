@@ -41,6 +41,9 @@ export interface GrandchildSpawnInput {
 	timeoutSec: number;
 	/** Parent-task-record depth + 1 (ADR-5 §3). */
 	depthOverride: number;
+	/** Manifest eventsPath — threads PI_CREW_STATE_ROOT so the grandchild's
+	 *  ask tool + scratchpad metrics work (stateRoot = dirname(eventsPath)). */
+	eventsPath?: string;
 	/** Grandchild-scoped broker credentials (S1#1 — NEVER the parent token). */
 	brokerSpawn?: { socketPath: string; token: string };
 	onSpawn?: (pid: number | null) => void;
@@ -123,6 +126,7 @@ export async function spawnDelegateGrandchild(input: GrandchildSpawnInput): Prom
 			// never the parent's task token.
 			agentId: input.subId,
 			...(input.brokerSpawn ? { brokerSpawn: input.brokerSpawn } : {}),
+			...(input.eventsPath ? { eventsPath: input.eventsPath } : {}),
 			// S2#1: namespaced artifacts via the typed field.
 			artifactsRoot,
 			signal: abort.signal,

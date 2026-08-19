@@ -1553,6 +1553,7 @@ export class CrewBroker {
 					parentTaskId,
 					subId,
 					prompt: requested.prompt,
+					eventsPath: loaded.manifest.eventsPath,
 					role: requested.role ?? "explorer",
 					...(grandchildCreds ? { brokerSpawn: grandchildCreds } : {}),
 					...(requested.model !== undefined ? { model: requested.model } : {}),
@@ -1629,6 +1630,39 @@ export class CrewBroker {
 				}
 			} catch (err) {
 				logInternalError("crew-broker.delegate.finalize", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`);
+				// P2-8c: best-effort refund when finalize fails — the reservation
+				// must not linger inflated after a roll-up write failure.
+				if (reserved > 0) {
+					try {
+						const rf = loadRunManifestById(cwd, runId);
+						if (rf) {
+							withRunLockSync(rf.manifest, () => {
+								const rl = loadRunManifestById(cwd, runId);
+								if (!rl) return;
+								const par = rl.tasks.find((t) => t.id === parentTaskId);
+								const pa = par?.allocation;
+								if (pa) {
+									saveRunTasks(
+										rl.manifest,
+										rl.tasks.map((t) =>
+											t.id === parentTaskId
+												? {
+														...t,
+														allocation: {
+															tokensGranted: pa.tokensGranted,
+															tokensSpent: Math.max(0, (pa.tokensSpent ?? 0) - reserved),
+														},
+													}
+												: t,
+										),
+									);
+								}
+							});
+						}
+					} catch {
+						/* refund is best-effort; the startup reconcile is the follow-up */
+					}
+				}
 			} finally {
 				this.getDelegateNestedSlots().release(subId);
 			}

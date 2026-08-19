@@ -129,6 +129,20 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
   unvalidated provider/model pass-through stays unreachable).
 - **§3 maxDepth knob (S3):** config nesting.maxDepth threads into admission
   (takes precedence over the env-clamped default).
+- **Erratum §9 (code review round 1):** the shipped default is REJECT-on-overlap
+  for write-capable grandchildren when serialization is NOT established — not
+  auto-enable. Rationale: delegate grandchildren bypass the dispatch queue
+  entirely, so limits.serializeOnPathOverlap's queue-ordering mechanism has no
+  hook to serialize them with; rejection is the only enforceable containment.
+  With limits.serializeOnPathOverlap=true (workers serialize via the queue), a
+  write-capable grandchild may overlap. Read-only roles never conflict. B3(l)
+  is updated to match.
+- **Follow-ups recorded:** task.allocation producer (grant at dispatch when the
+  run carries a budget — required before budget admission is reachable in
+  production); grandchild role PERSONA loading (v1 threads role for tool
+  policy; the catalog persona/systemPrompt load is a follow-up); startup
+  reconcile for orphaned reservations after a broker crash; per-request client
+  deadline in the delegate RPC (matches the ask precedent).
 - **Observability (S3):** EVERY admission denial emits delegate.rejected
   (reason + message); delegate.requested is emitted at handler entry. Mailbox
   bodies are broker-sanitized (end-fence markers neutralized, 64K cap) before
