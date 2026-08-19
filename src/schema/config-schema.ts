@@ -329,6 +329,18 @@ export const CrewBrokerConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const PiTeamsNestingConfigSchema = Type.Object(
+	{
+		// Privilege-raising flag (spawns grandchildren): project-level config must
+		// not be able to enable it — sensitive → user config only (ADR-5 §12 posture,
+		// same treatment as autonomous.enabled / broker gates).
+		enabled: Type.Optional(Type.Boolean({ sensitive: true })),
+		maxSlots: Type.Optional(Type.Integer({ minimum: 1, maximum: 64 })),
+		maxDepth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+	},
+	{ additionalProperties: false },
+);
+
 export const PiTeamsConfigSchema = Type.Object(
 	{
 		asyncByDefault: Type.Optional(Type.Boolean({ sensitive: true })),
@@ -352,6 +364,7 @@ export const PiTeamsConfigSchema = Type.Object(
 		otlp: Type.Optional(PiTeamsOtlpConfigSchema),
 		ui: Type.Optional(PiTeamsUiConfigSchema),
 		broker: Type.Optional(CrewBrokerConfigSchema),
+		nesting: Type.Optional(PiTeamsNestingConfigSchema),
 	},
 	{ additionalProperties: false },
 );

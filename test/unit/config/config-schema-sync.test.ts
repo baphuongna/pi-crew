@@ -37,6 +37,7 @@ const PI_TEAMS_CONFIG_KEYS: readonly string[] = [
 	"otlp",
 	"ui",
 	"broker",
+	"nesting",
 ];
 
 describe("config-schema sync (CFG-2)", () => {

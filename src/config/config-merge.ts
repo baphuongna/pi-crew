@@ -29,6 +29,14 @@ export function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTea
 			...withoutUndefined((override.broker ?? {}) as Record<string, unknown>),
 		};
 	}
+	if (base.nesting || override.nesting) {
+		// ADR-5: per-key user-wins deep merge — a partial user-side nesting block
+		// (e.g. just maxSlots) must not erase DEFAULT_NESTING.enabled=false.
+		merged.nesting = {
+			...(base.nesting ?? {}),
+			...withoutUndefined((override.nesting ?? {}) as Record<string, unknown>),
+		};
+	}
 	if (base.limits || override.limits) {
 		merged.limits = {
 			...(base.limits ?? {}),

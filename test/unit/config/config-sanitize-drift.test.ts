@@ -88,6 +88,7 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"policy.disabledCapabilities",
 	"otlp.endpoint",
 	"otlp.headers",
+	"nesting.enabled",
 ] as const;
 
 /** Wave 1A guard-tiering conditional inventory (frozen fixture — mirrors
