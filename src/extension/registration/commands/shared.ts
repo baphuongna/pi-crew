@@ -4,9 +4,11 @@ import { loadConfig } from "../../../config/config.ts";
 import { DEFAULT_UI } from "../../../config/defaults.ts";
 import type { MetricRegistry } from "../../../observability/metric-registry.ts";
 import { listRecentDiagnostic } from "../../../runtime/diagnostic-export.ts";
+import { isPlanApprovalPending } from "../../../runtime/plan-approval.ts";
 import type { TeamAction } from "../../../schema/team-tool-schema.ts";
 import { loadRunManifestById } from "../../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../../state/types.ts";
+import { getKeybindingOverrideWarnings } from "../../../ui/keybinding-map.ts";
 import type { AnimatedMascot as AnimatedMascotType } from "../../../ui/mascot.ts";
 import type { AgentPickerOverlay as AgentPickerOverlayType } from "../../../ui/overlays/agent-picker-overlay.ts";
 import type { ConfirmOptions, ConfirmOverlay as ConfirmOverlayType } from "../../../ui/overlays/confirm-overlay.ts";
@@ -370,6 +372,63 @@ async function handleHealthDashboardAction(ctx: ExtensionCommandContext, selecti
 	}
 }
 
+/**
+ * WP-3 (H4-subset): dashboard plan-approval actions (A approve / n deny in
+ * the progress pane). Modeled on handleHealthDashboardAction above: reload the
+ * manifest, pre-check pending (the backend api op re-validates under
+ * withRunLock — this pre-check is UX-only), dispatch the EXISTING team api op,
+ * then notify. The caller invalidates the snapshot cache afterwards.
+ */
+async function handlePlanDashboardAction(ctx: ExtensionCommandContext, selection: RunDashboardSelection): Promise<void> {
+	// F3 decision (WP-3 review round 1, documented): NO manifest.async gate —
+	// unlike health-recovery (which interrupts the foreground loop and is
+	// foreground-only by necessity). Async/background runs park on plan approval
+	// exactly like foreground runs (background-runner executeTeamRun → plan
+	// gate), so their approvals MUST be decidable from the dashboard. Deny on
+	// an async run terminates tasks via the SAME backend path as chat `team api
+	// cancel-plan` (parity), guarded by the medium-danger confirm below + the
+	// backend's withRunLock re-validation.
+	const loaded = loadRunManifestById(ctx.cwd, selection.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
+	if (!loaded) {
+		depsNotify(ctx, `Run '${selection.runId}' not found.`, "error");
+		return;
+	}
+	if (!isPlanApprovalPending(loaded.manifest)) {
+		depsNotify(ctx, "no pending plan approval", "warning");
+		return;
+	}
+	if (selection.action === "plan-deny") {
+		// cancel-plan KILLS tasks, so deny gets a medium-danger confirm.
+		// Keystroke math (plan AC ≤ 2 per action): approve = "A" → 1 keystroke
+		// (dispatched directly below, no confirm); deny = "n" + confirm = 2.
+		// ConfirmOverlay.handleInput treats n/N as CANCEL in its own overlay,
+		// so the copy must instruct Y-to-confirm — pressing "n" twice would
+		// abort instead of confirming.
+		const confirmed = await openConfirm(ctx, {
+			title: "Cancel plan and kill tasks?",
+			body: "Y=cancel plan and kill tasks, N=abort.",
+			dangerLevel: "medium",
+			defaultAction: "cancel",
+		});
+		if (!confirmed) return;
+	}
+	const operation = selection.action === "plan-approve" ? "approve-plan" : "cancel-plan";
+	const result = await handleTeamTool(
+		{
+			action: "api",
+			runId: selection.runId,
+			config: { operation },
+		},
+		teamCommandContext(ctx),
+	);
+	// F4 (WP-3 review round 1): notifyCommandResult hardcodes level "info",
+	// which downgraded backend rejections (e.g. the deny TOCTOU tail — approval
+	// answered between keypress and dispatch, refused under withRunLock) to
+	// info toasts. Surface isError results at their true level.
+	const text = commandText(result);
+	depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result.isError ? "error" : "info");
+}
+
 let depsRef: RegisterTeamCommandsDeps | undefined;
 
 /**
@@ -407,6 +466,16 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 	if (!deps) return;
 	if (deps.uiState) deps.uiState.dashboardOpen = true;
 	const cmdCtx = ctx as ExtensionCommandContext;
+	// F1 (WP-3 review round 1): keybinding-override collisions are reverted to
+	// defaults by computeEffectiveBindings to keep dispatch unambiguous — but
+	// the warning API (getKeybindingOverrideWarnings) previously had NO src
+	// consumer, so users whose overrides claimed the new progress-pane keys
+	// ("A"/"n") got a silent, persistent keybinding break. Surface the revert
+	// once per dashboard open instead.
+	const keyWarnings = getKeybindingOverrideWarnings();
+	if (keyWarnings.length > 0) {
+		depsNotify(cmdCtx, `keybindings reverted to defaults: ${keyWarnings.join("; ")}`, "warning");
+	}
 	for (;;) {
 		// Extract sessionId for workspace-scoped filtering
 		const sessionId = cmdCtx.sessionManager?.getSessionId?.();
@@ -461,6 +530,11 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 			selection.action === "health-diagnostic-export"
 		) {
 			await handleHealthDashboardAction(cmdCtx, selection);
+			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+			continue;
+		}
+		if (selection.action === "plan-approve" || selection.action === "plan-deny") {
+			await handlePlanDashboardAction(cmdCtx, selection);
 			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
 			continue;
 		}

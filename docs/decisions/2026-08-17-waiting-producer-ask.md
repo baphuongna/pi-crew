@@ -31,3 +31,44 @@ Plan-review findings shaped this ADR: env-plumbing gap (P0, no `PI_CREW_STATE_RO
 - Cost bounded: one 500ms poll only while parked; timeout clamp 3600s; TTL leak-guard 24h.
 - Back-compat: pre-v2 records ignore the new optional fields; `wait.*` methods disabled-by-default until the train flips them; reconciler change is additive (old plan-approval protection preserved).
 - Docs updated: `docs/design/subagent-v2-design.md` §3 already encodes this; plan WP-2 steps encode execution order (env before tool).
+
+---
+
+## Amendment A1 (2026-08-18, post B1 battery) — async/detached runs and the broker
+
+**Finding (F5, live-proven)**: `team action='run' async=true` dispatches through the
+detached `background-runner` process (`async-runner.ts` setsid spawn). That process
+has no extension lifecycle, so `setActiveBrokerIssuer` never runs there and
+`runChildPi`'s `getActiveBrokerIssuer()` returns undefined — async workers are
+spawned WITHOUT `PI_CREW_BROKER_SOCKET`/`PI_CREW_BROKER_TOKEN`/`PI_CREW_STATE_ROOT`.
+Live result (`team_20260818104034_f183d4d8f6c90272`): the `ask` tool degrades to
+`"[ask] unavailable: no broker connection … (scaffold or mock mode)"` and the worker
+proceeds with best judgment. Graceful (no hang, per the WP-5 degradation pattern),
+but the ask/waiting capability is unavailable in exactly the context that needs it
+most — long unattended background runs.
+
+**Decision**: defer the fix to T2 (WP-4 train) rather than hot-fix in T1:
+
+1. The correct design needs a token-mint path the detached runner can call
+   (per-task compound tokens live only in the parent broker's heap registry — item 6
+   forbids bare-runId fallbacks for `wait.*`). Candidate: a new broker method
+   `wait.issueTaskToken(runId, taskId)` authenticated by a run-scoped orchestrator
+   token forwarded to the detached runner via the allowlisted env in
+   `async-runner.ts`. That is new broker surface → security review + schema work,
+   i.e. WP-sized, not a patch.
+2. The parent session may exit while the async run continues; the broker dies with
+   it. Any T1-only env-forward hack (socketPath + orchestrator token) would then
+   hand workers dead sockets mid-run — the failure mode the durable-over-RPC
+   principle (item 4) exists to avoid. The T2 design must decide the broker's
+   lifecycle relative to detached runs (survive via a standalone broker process,
+   or workers fall back to mailbox-poll-only delivery without the park RPC).
+3. Until then: **documented limitation** — `waitMethodsEnabled` gates `wait.*` for
+   foreground/sync runs; async runs see the structured unavailable notice. The
+   T2 ADR-4 work item is: "broker reachability for detached runners" with the
+   options above and a security review of the mint path.
+
+**Also recorded from the same battery (fixed, not deferred)**: the three
+config-layer bugs (parseBrokerConfig whitelist, mergeConfig broker section,
+lifecycle `loadConfig()` without cwd), the frontmatter/ROLE_TOOL_CONFIGS `ask`
+sync, the F7 steering truncate race, and the case-(b) recovery trio
+(orphan-cancel intentional-wait guard, waitState leak on cancel, resume adoption).

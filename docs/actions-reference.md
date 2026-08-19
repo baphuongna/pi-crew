@@ -801,11 +801,18 @@ Returns `status: "error"` when the run finished as `failed`.
 > a task's worker session on its next turn. The message is appended to
 > `pendingSteers` and also written to a live steering file for immediate delivery.
 >
-> **Note (Phase 1.3, 2026-08-14):** the agent-level tools `steer_subagent` /
-> `crew_agent_steer` are **planned, not implemented** — they return a
-> `steer.unavailable` stub because the subagent record has no `taskId` linkage
-> to the live run's steering file. Use this `team action=steer`
-> (`runId` + `taskId` + `message`) for the working run-level steering path.
+> **Updated (T1/WP-1, 2026-08-17, v0.10.1):** the agent-level tools
+> `steer_subagent` / `crew_agent_steer` are now **implemented** — they resolve the
+> subagent record via the unified ownership map (`src/state/stores/ownership-map.ts`,
+> task ⇄ subagent ⇄ pid ⇄ artifacts) to the run's steering file and append a
+> `{type:"steer", message, ts}` line that the worker polls every 500ms and picks
+> up at its next turn boundary. Terminal-task refusal + size-cap parity with
+> `team action=steer`; the steering file is truncated at each worker spawn so
+> lines are scoped to one worker incarnation. The record's `taskId` is linked at
+> dispatch time (onRunStarted), so mid-run steering of a live one-shot agent
+> works. See ADR `docs/decisions/2026-08-14-agent-steer-tools-planned-not-implemented.md`
+> (status: CLOSED). `team action=steer` (runId + taskId + message) remains the
+> run-level path.
 
 ```json
 {

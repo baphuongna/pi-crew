@@ -55,6 +55,19 @@ export async function runMockChildPi(
 		return { exitCode: 0, stdout, stderr: "" };
 	}
 
+	if (mock === "json-slow-success") {
+		// T1/WP-1 (mid-run steer test): same JSON event shape as json-success,
+		// but sleeps briefly BEFORE emitting so the task stays in `running` — the
+		// steering window the steer tool's T-S1 guard must permit. Bounded
+		// (default 1500ms, cap 5000ms) via PI_TEAMS_MOCK_STEER_WINDOW_MS.
+		const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
+		await new Promise((resolve) => setTimeout(resolve, Math.min(windowMs, 5000)));
+		const text = `[MOCK] JSON success for ${input.agent.name}`;
+		const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}\n${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 0.001, turns: 1 } })}\n`;
+		await observe(input, stdout);
+		return { exitCode: 0, stdout, stderr: "" };
+	}
+
 	if (mock === "json-success" || mock === "adaptive-plan") {
 		const text =
 			mock === "adaptive-plan" && effectiveTask.includes("ADAPTIVE_PLAN_JSON_START")

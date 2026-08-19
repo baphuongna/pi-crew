@@ -45,7 +45,7 @@ describe("resolveToolPolicy — allowlist precedence", () => {
 			tools: ["read", "grep", "find", "ls"],
 		});
 		const policy = resolveToolPolicy(agent, "explorer");
-		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash"]);
+		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash", "ask"]); // ask: dormant (QW17/B1-F4)
 	});
 
 	it("builtin agent: frontmatter allowlist is the fallback when role has none", () => {
@@ -82,7 +82,7 @@ describe("resolveToolPolicy — allowlist precedence", () => {
 			tools: undefined,
 		});
 		const policy = resolveToolPolicy(agent, "explorer");
-		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash"]);
+		assert.deepEqual(policy.tools, ["read", "grep", "find", "ls", "glob", "bash", "ask"]); // ask: dormant (QW17/B1-F4)
 	});
 
 	it("no allowlist anywhere → tools undefined (all built-ins allowed)", () => {

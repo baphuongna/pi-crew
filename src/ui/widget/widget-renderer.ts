@@ -5,6 +5,7 @@
  */
 
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
+import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
@@ -73,7 +74,14 @@ export function buildWidgetLines(
 			return Number.isFinite(age) && age < maxAgeMs;
 		});
 		const completed = agents.filter((a) => a.status === "completed").length;
-		const runGlyph = iconForStatus(run.status, { runningGlyph });
+		// WP-3 (H4): while a run is parked awaiting plan approval, the spinner
+		// glyph is replaced by a `⚠ plan:<last-8 runId>` badge. Plain-unicode ⚠
+		// (the same glyph needs_attention already uses) stays legible in no-color
+		// mode and is colorized by the shared colorizeStatusGlyphs pass. In-place
+		// glyph swap only — no extra line, so the MAX_AGENTS_DISPLAY / maxLines
+		// budget and the truncate(width) rule are untouched.
+		const planPending = isPlanApprovalStatePending(run.planApproval);
+		const runGlyph = planPending ? `⚠ plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
 		const isTerminal = isFinishedRunStatus(run.status);
 		// Run progress line. v1–v3 flickered on snapshot.tasks state, v4 was
 		// too minimal (`0/1 agents` only), v5 duplicated the worker activity

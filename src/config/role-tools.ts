@@ -22,7 +22,7 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 	// excluded. State-mutation safety is enforced separately by
 	// READ_ONLY_ROLES in role-permission.ts.
 	explorer: {
-		tools: ["read", "grep", "find", "ls", "glob", "bash"],
+		tools: ["read", "grep", "find", "ls", "glob", "bash", "ask"],
 		excludeTools: ["edit", "write", "web"],
 	},
 
@@ -39,14 +39,14 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 	// planner to WRITE_ROLES would fire the gate before planning, breaking the
 	// default/implementation workflows.
 	planner: {
-		tools: ["read", "grep", "find", "ls", "glob"],
+		tools: ["read", "grep", "find", "ls", "glob", "ask"],
 		excludeTools: ["edit", "write", "bash", "web", "ask_question"],
 	},
 
 	// Critic - Read-only plan/design critique (F2: was missing from the map,
 	// so a custom critic agent had no tool-level read-only enforcement).
 	critic: {
-		tools: ["read", "grep", "find", "ls", "glob"],
+		tools: ["read", "grep", "find", "ls", "glob", "ask"],
 		excludeTools: ["edit", "write", "bash", "web"],
 	},
 
@@ -59,13 +59,13 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 
 	// Reviewer - Read and review, no write
 	reviewer: {
-		tools: ["read", "grep", "find", "ls", "glob", "bash"],
+		tools: ["read", "grep", "find", "ls", "glob", "bash", "ask"],
 		excludeTools: ["edit", "write"],
 	},
 
 	// Writer - Documentation focused
 	writer: {
-		tools: ["read", "edit", "write", "ls"],
+		tools: ["read", "edit", "write", "ls", "ask"],
 		excludeTools: ["bash", "web", "ask_question"],
 	},
 
@@ -74,7 +74,7 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 	// security-reviewer.md → "security-reviewer"). The underscore form never
 	// resolved at runtime (returned {}), silently dropping enforcement.
 	"security-reviewer": {
-		tools: ["read", "grep", "find"],
+		tools: ["read", "grep", "find", "ask"],
 		excludeTools: ["edit", "write", "bash", "web", "ask_question"],
 	},
 
@@ -84,7 +84,7 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 	// agents/verifier.md). Tool-set keeps bash but excludes edit/write so source
 	// integrity is preserved during verification. Mirrors cold-verifier behavior.
 	verifier: {
-		tools: ["read", "grep", "find", "ls", "bash", "scratchpad"],
+		tools: ["read", "grep", "find", "ls", "bash", "scratchpad", "ask"],
 		excludeTools: ["edit", "write", "web"],
 		// Phase 1 scratchpad: multi-cell test/verify flows reuse parsed state.
 		scratchpad: true,
@@ -92,7 +92,7 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 
 	// Test Engineer - Can write tests (F1: hyphenated key)
 	"test-engineer": {
-		tools: ["read", "edit", "write", "bash", "ls", "scratchpad"],
+		tools: ["read", "edit", "write", "bash", "ls", "scratchpad", "ask"],
 		excludeTools: ["web"],
 		// Phase 1 scratchpad: build/run test suites with state across cells.
 		scratchpad: true,

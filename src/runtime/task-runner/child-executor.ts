@@ -32,6 +32,7 @@ import { getCrewEnv } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest } from "../../state/types.ts";
 import { type FatalFsCause, failureCauseForAttempt } from "../../utils/fs-errno.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -451,6 +452,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			lastRunProgressPersistedAt = now;
 		}
 	};
+	// F7 (B1 battery 2026-08-18): one dispatch timestamp for the WHOLE attempt
+	// loop. A steer racing anywhere between task-dispatch and any attempt's
+	// onSpawn (including across the model-fallback respawn gap — observed live:
+	// steer at 15:59:11 wiped by attempt-1's truncate at 15:59:59) must survive
+	// the per-incarnation truncate; residue older than the dispatch is wiped.
+	const taskDispatchStartedAtMs = Date.now();
 	for (let i = 0; i < attemptModels.length; i++) {
 		// M1 fix: set transcript path per attempt to avoid mixing across fallback attempts.
 		transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
@@ -555,10 +562,65 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {
 					try {
+						// WP-1/R1 (H6): dispatch-time ownership writer — record the
+						// task ⇄ pid ⇄ artifactsDir leg of the ownership map as soon as
+						// a real worker spawns. The one-shot Agent-tool path fills the
+						// subagentId leg on the same taskId; the store merges per field
+						// under the run lock. Best-effort: never throws into the spawn
+						// path. onSpawn fires per spawn attempt (model-fallback loop), so
+						// the pid is overwritten with the latest attempt's live pid —
+						// correct, that is the worker steer targets.
+						try {
+							upsertOwnershipEntry(manifest, {
+								taskId: task.id,
+								runId: manifest.runId,
+								pid,
+								artifactsDir: manifest.artifactsRoot,
+								updatedAt: new Date().toISOString(),
+							});
+						} catch (err) {
+							logInternalError("task-runner.ownership-write", err, `pid=${pid}, taskId=${task.id}`);
+						}
 						({ task, tasks } = checkpointTask(manifest, tasks, task, "child-spawned", pid));
+						// Security review (T1/WP-1 round 1, security-1 replay fix): scope the
+						// steering file to ONE worker incarnation on EVERY spawn. Steering
+						// lines are id-less; each new worker process reads the file from
+						// byte 0 (prompt-runtime poll `lastOffset = 0`), so un-truncated
+						// files re-deliver every accumulated line — including stale steers
+						// written after the run went terminal — into the next spawn
+						// attempt's first-turn context. Best-effort; never throws.
+						// ACCEPTED TRADE-OFF (security review round 2): a steer appended
+						// directly by steer_subagent to a worker that dies BEFORE its 500ms
+						// poll reads it is lost when the respawn truncates here. The reliable
+						// cross-attempt channel is task.pendingSteers (survives in the task
+						// record and is re-appended after truncation); the direct file append
+						// is best-effort live-delivery only.
+						{
+							const steeringDir = `${manifest.artifactsRoot}/steering`;
+							try {
+								const safeSteeringPath = resolveRealContainedPath(steeringDir, `${task.id}.jsonl`);
+								// F7 fix: skip the truncate when the file's last write happened at or
+								// after THIS task's dispatch began — that is a live steer racing the
+								// spawn (observed live: "Steer delivered" + 0-byte file). Residue
+								// predating the dispatch (stale terminal-era steers) is still wiped.
+								// stat→truncate gap is microseconds; a steer landing inside it is
+								// lost — best-effort, same trade-off as before.
+								let racedSteerArrived = false;
+								try {
+									racedSteerArrived = fs.statSync(safeSteeringPath).mtimeMs >= taskDispatchStartedAtMs - 1;
+								} catch {
+									/* no file yet — nothing to truncate */
+								}
+								if (!racedSteerArrived) fs.writeFileSync(safeSteeringPath, "");
+							} catch (truncateErr) {
+								logInternalError("task-runner.steering-truncate", truncateErr, `taskId=${task.id}`);
+							}
+						}
 						if (task.pendingSteers?.length) {
 							const steeringDir = `${manifest.artifactsRoot}/steering`;
-							// Fire-and-forget async write for steering events
+							// Fire-and-forget async write for steering events (the file was
+							// truncated just above; this incarnation receives only its own
+							// pending steers).
 							void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
 							// RT-8: spread before clearing pendingSteers instead of mutating
 							// in place — preserves the immutable-snapshot invariant (the same

@@ -995,7 +995,13 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 			starting = (async () => {
 				const cfg = (() => {
 					try {
-						return loadConfig().config.broker;
+						// B1 battery 2026-08-18 (third config-layer bug): loadConfig()
+						// WITHOUT cwd reads only the user config — the workspace
+						// .crew/config.json (where broker.waitMethodsEnabled:true would
+						// live) was never merged, so the flag stayed default-false even
+						// after the parser + merge fixes. Pass the SAME cwd the broker
+						// itself uses below.
+						return loadConfig(process.cwd()).config.broker;
 					} catch {
 						return undefined;
 					}
@@ -1005,6 +1011,11 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					socketPath: getBrokerSocketPath(sessionId),
 					maxFrameBytes: cfg?.maxFrameBytes ?? 262144,
 					outboundQueueCap: cfg?.outboundQueueCap ?? 256,
+					// WP-2 review round 1 (P1): thread the capability gate into the
+					// PRODUCTION broker — the constructor default (false) made
+					// config.broker.waitMethodsEnabled a dead knob and the ADR-0
+					// "then true" flip a silent no-op. Fail-closed when unset.
+					waitMethodsEnabled: cfg?.waitMethodsEnabled ?? false,
 					enabled: true,
 					cwd: process.cwd(),
 				});

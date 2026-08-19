@@ -123,17 +123,54 @@ export class BrokerTokenRegistry {
 	 *  if the candidate matches the run's orchestrator token, "worker" if it
 	 *  matches a per-task/per-run token, or null if neither. Orchestrator key
 	 *  is checked FIRST so an orchestrator token can never be confused with a
-	 *  task token (the two are cryptographically distinct by construction). */
+	 *  task token (the two are cryptographically distinct by construction).
+	 *  Semantics unchanged since extraction; now delegates to
+	 *  tokenRoleWithMatchKind() so both share one compare path. */
 	tokenRole(runId: string, taskId: string | undefined, candidate: unknown): "orchestrator" | "worker" | null {
+		const resolved = this.tokenRoleWithMatchKind(runId, taskId, candidate);
+		return resolved === null ? null : resolved.role;
+	}
+
+	/** Same resolution as tokenRole() but also reports HOW the token matched:
+	 *  `"compound"` (task-scoped `${runId}:${taskId}` key — or the
+	 *  orchestrator key, which is runId-prefixed by construction and can
+	 *  never be reached via the fallback) vs `"runId-fallback"` (legacy
+	 *  bare-runId key matched because no compound key was issued).
+	 *
+	 *  WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 6): the broker's
+	 *  `wait.*` methods authenticate via task-scoped tokens ONLY — a
+	 *  `"runId-fallback"` match is rejected at the dispatch site with a
+	 *  migrate hint. Legacy methods keep using tokenRole()/matches() and
+	 *  therefore keep accepting the fallback (backward compat preserved).
+	 *
+	 *  Match semantics mirror tokenRole() exactly: the bare-runId fallback is
+	 *  consulted ONLY when no compound key exists for (runId, taskId) — a
+	 *  candidate matching the bare key while a DIFFERENT compound key exists
+	 *  still returns null (no accidental fallback activation). */
+	tokenRoleWithMatchKind(
+		runId: string,
+		taskId: string | undefined,
+		candidate: unknown,
+	): { role: "orchestrator" | "worker"; matchKind: "compound" | "runId-fallback" } | null {
 		if (BrokerTokenRegistry.equalConstTime(this.map.get(this.orchestratorKey(runId)), candidate)) {
-			return "orchestrator";
+			return { role: "orchestrator", matchKind: "compound" };
 		}
-		let expected = this.map.get(this.key(runId, taskId));
+		// No taskId → the key degenerates to bare runId; there is no task
+		// scoping at all, so an honest matchKind is "runId-fallback".
+		if (taskId === undefined) {
+			return BrokerTokenRegistry.equalConstTime(this.map.get(runId), candidate)
+				? { role: "worker", matchKind: "runId-fallback" }
+				: null;
+		}
+		const compound = this.map.get(this.key(runId, taskId));
+		if (compound !== undefined) {
+			return BrokerTokenRegistry.equalConstTime(compound, candidate) ? { role: "worker", matchKind: "compound" } : null;
+		}
 		// Backward-compat: per-run token issued without taskId.
-		if (expected === undefined && taskId) {
-			expected = this.map.get(runId);
+		if (BrokerTokenRegistry.equalConstTime(this.map.get(runId), candidate)) {
+			return { role: "worker", matchKind: "runId-fallback" };
 		}
-		return BrokerTokenRegistry.equalConstTime(expected, candidate) ? "worker" : null;
+		return null;
 	}
 
 	/** Remove the token for `runId` (+optional `taskId`).

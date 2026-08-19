@@ -186,6 +186,12 @@ export const DEFAULT_BROKER = {
 	pathHashLen: 8,
 	maxFrameBytes: 262144,
 	outboundQueueCap: 256,
+	/** WP-2/R2 (ADR-0 docs/decisions/2026-08-17-waiting-producer-ask item 7):
+	 *  capability gate for the broker's `wait.*` methods. DEFAULT FALSE —
+	 *  fail-closed until WP-2 completes, then flipped to true. While false,
+	 *  wait.request/wait.resolve are rejected with a policy-disabled error
+	 *  AND a policy.action event in events.jsonl (never silent). */
+	waitMethodsEnabled: false,
 } as const;
 
 /**

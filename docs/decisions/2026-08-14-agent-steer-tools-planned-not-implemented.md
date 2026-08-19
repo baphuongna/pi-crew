@@ -1,7 +1,7 @@
 # Agent-level steer tools: planned, not implemented
 
 **Date:** 2026-08-14
-**Status:** Accepted — decision (b) for Phase 1.3 of the maintainability refactor
+**Status:** CLOSED by T1/WP-1 (v0.10.1) — `steer_subagent`/`crew_agent_steer` implemented via the unified ownership map (`src/state/stores/ownership-map.ts`) + dispatch-time identity link (onRunStarted hook). **Was:** Accepted — decision (b) for Phase 1.3 of the maintainability refactor
 **Relates to:** `src/extension/registration/subagent-tools.ts` (`steer_subagent`, `crew_agent_steer`), `src/runtime/child-pi/child-pi-steering.ts`, `src/extension/team-tool.ts` (`handleSteer`), `docs/actions-reference.md` (`steer` action)
 
 ## Context

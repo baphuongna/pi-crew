@@ -17,6 +17,18 @@ export function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTea
 			...withoutUndefined((override.autonomous ?? {}) as Record<string, unknown>),
 		};
 	}
+	if (base.broker || override.broker) {
+		// WP-2/R2 fix (B1 battery 2026-08-18): `broker` was previously merged by
+		// the top-level spread only — a user-side broker object (defaults or a
+		// user config file with ANY broker block) replaced the project config's
+		// block WHOLESALE, silently dropping keys like waitMethodsEnabled that
+		// the user side did not set (enabled:true survived only because it
+		// matched DEFAULT_BROKER). Per-key user-wins, same as runtime/ui/….
+		merged.broker = {
+			...(base.broker ?? {}),
+			...withoutUndefined((override.broker ?? {}) as Record<string, unknown>),
+		};
+	}
 	if (base.limits || override.limits) {
 		merged.limits = {
 			...(base.limits ?? {}),

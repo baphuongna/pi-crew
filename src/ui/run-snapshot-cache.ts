@@ -706,7 +706,18 @@ function signatureFor(
 		const digest = createHash("sha256");
 		digest.update(
 			JSON.stringify({
-				run: [input.manifest.runId, input.manifest.status, input.manifest.updatedAt, input.manifest.artifacts.length],
+				// WP-3 (H4): planApproval.status is a RUN-level field surfaced by the
+				// widget badge / progress banner / powerbar segment — pending→approved
+				// must flip the signature so per-run render caches (run-dashboard keys
+				// on snapshot.signature) invalidate. `undefined` serializes as null,
+				// keeping the array shape stable for older manifests without the field.
+				run: [
+					input.manifest.runId,
+					input.manifest.status,
+					input.manifest.updatedAt,
+					input.manifest.artifacts.length,
+					input.manifest.planApproval?.status,
+				],
 				tasks: sliceSignatures.tasks,
 				agents: sliceSignatures.agents,
 				progress: input.progress,

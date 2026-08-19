@@ -22,8 +22,17 @@ export function requiresPlanApproval(_workflow: WorkflowConfig, runtimeConfig: C
 	return runtimeConfig?.requirePlanApproval === true;
 }
 
+/** State-level predicate shared by every render surface (widget badge,
+ *  progress banner, powerbar segment) so gating is byte-identical to the
+ *  action side: `required === true && status === "pending"`. A malformed
+ *  manifest (`pending` without `required`) must NOT light up surfaces while
+ *  keys/backends refuse — single source of truth (WP-3 review F2). */
+export function isPlanApprovalStatePending(approval: TeamRunManifest["planApproval"]): boolean {
+	return approval?.required === true && approval.status === "pending";
+}
+
 export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
-	return manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
+	return isPlanApprovalStatePending(manifest.planApproval);
 }
 
 export function isMutatingTask(task: TeamTaskState): boolean {

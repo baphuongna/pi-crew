@@ -14,7 +14,8 @@
  *     const allKeys=new Set([...DASHBOARD_KEYS.close,...DASHBOARD_KEYS.select,
  *       ...Object.values(DASHBOARD_KEYS.root).flat(),...Object.values(DASHBOARD_KEYS.pane).flat(),
  *       ...Object.values(DASHBOARD_KEYS.navigation).flat(),...Object.values(DASHBOARD_KEYS.mailbox).flat(),
- *       ...Object.values(DASHBOARD_KEYS.health).flat(),...Object.values(DASHBOARD_KEYS.notification).flat()]);
+ *       ...Object.values(DASHBOARD_KEYS.health).flat(),...Object.values(DASHBOARD_KEYS.plan).flat(),
+ *       ...Object.values(DASHBOARD_KEYS.notification).flat()]);
  *     const g={};for(const p of panes)for(const k of [...allKeys].sort())
  *       g[String(p)+'|'+JSON.stringify(k)]=dashboardActionForKey(k,p)??null;
  *     console.log(JSON.stringify(g));"
@@ -61,6 +62,7 @@ const GOLDEN: Record<string, string | null> = {
 	'agents|"j"': "down",
 	'agents|"k"': "up",
 	'agents|"m"': "mailbox",
+	'agents|"n"': null,
 	'agents|"o"': "output",
 	'agents|"p"': "progressToggle",
 	'agents|"q"': "close",
@@ -101,6 +103,7 @@ const GOLDEN: Record<string, string | null> = {
 	'health|"j"': "down",
 	'health|"k"': "up",
 	'health|"m"': "mailbox",
+	'health|"n"': null,
 	'health|"o"': "output",
 	'health|"p"': "progressToggle",
 	'health|"q"': "close",
@@ -141,6 +144,7 @@ const GOLDEN: Record<string, string | null> = {
 	'mailbox|"j"': "down",
 	'mailbox|"k"': "up",
 	'mailbox|"m"': "mailbox",
+	'mailbox|"n"': null,
 	'mailbox|"o"': "output",
 	'mailbox|"p"': "progressToggle",
 	'mailbox|"q"': "close",
@@ -181,6 +185,7 @@ const GOLDEN: Record<string, string | null> = {
 	'metrics|"j"': "down",
 	'metrics|"k"': "up",
 	'metrics|"m"': "mailbox",
+	'metrics|"n"': null,
 	'metrics|"o"': "output",
 	'metrics|"p"': "progressToggle",
 	'metrics|"q"': "close",
@@ -221,6 +226,7 @@ const GOLDEN: Record<string, string | null> = {
 	'output|"j"': "down",
 	'output|"k"': "up",
 	'output|"m"': "mailbox",
+	'output|"n"': null,
 	'output|"o"': "output",
 	'output|"p"': "progressToggle",
 	'output|"q"': "close",
@@ -237,7 +243,7 @@ const GOLDEN: Record<string, string | null> = {
 	'progress|"4"': "pane-output",
 	'progress|"5"': "pane-health",
 	'progress|"6"': "pane-metrics",
-	'progress|"A"': null,
+	'progress|"A"': "plan-approve",
 	'progress|"C"': null,
 	'progress|"D"': null,
 	'progress|"H"': "notifications-dismiss",
@@ -261,6 +267,7 @@ const GOLDEN: Record<string, string | null> = {
 	'progress|"j"': "down",
 	'progress|"k"': "up",
 	'progress|"m"': "mailbox",
+	'progress|"n"': "plan-deny",
 	'progress|"o"': "output",
 	'progress|"p"': "progressToggle",
 	'progress|"q"': "close",
@@ -303,6 +310,7 @@ const GOLDEN: Record<string, string | null> = {
 	'undefined|"j"': "down",
 	'undefined|"k"': "up",
 	'undefined|"m"': "mailbox",
+	'undefined|"n"': null,
 	'undefined|"o"': "output",
 	'undefined|"p"': "progressToggle",
 	'undefined|"q"': "close",
@@ -325,6 +333,7 @@ describe("dashboardActionForKey — L2 parity with pre-refactor behavior", () =>
 			...Object.values(DASHBOARD_KEYS.navigation).flat(),
 			...Object.values(DASHBOARD_KEYS.mailbox).flat(),
 			...Object.values(DASHBOARD_KEYS.health).flat(),
+			...Object.values(DASHBOARD_KEYS.plan).flat(),
 			...Object.values(DASHBOARD_KEYS.notification).flat(),
 		]);
 		let checked = 0;
@@ -373,6 +382,21 @@ describe("dashboardActionForKey — precedence and pane-scoping", () => {
 		assert.equal(dashboardActionForKey("D", "health"), "health-diagnostic-export");
 	});
 
+	it("plan-* bindings only fire in the progress pane (WP-3 H4)", () => {
+		// "A" is plan-approve ONLY while the progress pane owns input.
+		assert.equal(dashboardActionForKey("A", "progress"), "plan-approve");
+		// Unscoped (no pane) it stays unclaimed at dashboard dispatch level.
+		assert.equal(dashboardActionForKey("A", undefined), undefined);
+		// In the mailbox pane "A" remains mailbox-overlay territory (ack) —
+		// the pane-scoped plan binding must NOT claim it there.
+		assert.equal(dashboardActionForKey("A", "mailbox"), undefined);
+		// Lowercase "n" is plan-deny in the progress pane, unbound elsewhere
+		// (and never confused with the "\n" select key — case-sensitive pass 1).
+		assert.equal(dashboardActionForKey("n", "progress"), "plan-deny");
+		assert.equal(dashboardActionForKey("n", "agents"), undefined);
+		assert.equal(dashboardActionForKey("n", undefined), undefined);
+	});
+
 	it("returns undefined for unbound keys", () => {
 		assert.equal(dashboardActionForKey("z", undefined), undefined);
 		assert.equal(dashboardActionForKey("z", "mailbox"), undefined);
@@ -393,6 +417,8 @@ describe("KEY_RESERVED — derived key set", () => {
 		assert.ok(KEY_RESERVED.has("N"), "mailbox nudge key must be reserved");
 		assert.ok(KEY_RESERVED.has("P"), "mailbox preview key must be reserved");
 		assert.ok(KEY_RESERVED.has("X"), "mailbox ackAll key must be reserved");
+		// Plan-approval keys (WP-3 H4) — dispatched, progress-scoped:
+		assert.ok(KEY_RESERVED.has("n"), "plan deny key must be reserved");
 	});
 
 	it("does NOT contain unbound keys", () => {

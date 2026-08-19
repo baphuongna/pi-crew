@@ -24,7 +24,7 @@ const ORPHAN_TEMP_SCAN_BATCH_SIZE = 50;
 export interface ReconcileResult {
 	runId: string;
 	/** What was found and what action was taken */
-	verdict: "healthy" | "blocked_awaiting_approval" | "result_exists" | "pid_dead" | "pid_alive_stale" | "no_status";
+	verdict: "healthy" | "blocked_awaiting_approval" | "waiting_answer" | "result_exists" | "pid_dead" | "pid_alive_stale" | "no_status";
 	/** Whether repair was applied */
 	repaired: boolean;
 	/** Human-readable detail */
@@ -44,6 +44,39 @@ export interface ReconcileResult {
  */
 export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
 	return manifest.status === "blocked" && manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
+}
+
+/** WP-2/R2 (ADR-0 item 9, docs/decisions/2026-08-17-waiting-producer-ask.md):
+ * waiting TTL — a manifest.waitState.askedAt younger than this marks an
+ * intentional ask-wait; older marks a leaked park marker (worker died without
+ * resolving the ask) and the run loses reconciler protection. Leak guard. */
+const WAITING_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Is this run parked in the ask tool awaiting a human answer (WP-2/R2)?
+ *
+ * True when waitState is set and its askedAt is within waitingTtl. The parked
+ * worker is blocked polling the mailbox for a response — not crashed — and it
+ * typically stops heartbeating while parked, so the run must be protected at
+ * run level (before the no-PID/heartbeat staleness phases) exactly like
+ * plan-approval runs. askedAt exactly at the TTL boundary still counts as
+ * pending (<=, fail-safe toward preservation); a future askedAt (clock skew)
+ * also passes. TTL-EXPIRED waitState returns false — the marker leaked and the
+ * normal staleness repair paths apply (leak guard).
+ */
+export function isWaitAnswerPending(manifest: TeamRunManifest, now = Date.now()): boolean {
+	const askedAtMs = manifest.waitState?.askedAt ? new Date(manifest.waitState.askedAt).getTime() : Number.NaN;
+	return Number.isFinite(askedAtMs) && now - askedAtMs <= WAITING_TTL_MS;
+}
+
+/**
+ * Generalized intentional-wait predicate (ADR-0 item 9): the run is blocked on
+ * a human decision — plan approval (pre-v2 semantics, UNCHANGED) or a pending
+ * ask answer within waitingTtl. Such runs are not crashes and must not be
+ * stale-repaired or cancelled by reconciliation.
+ */
+export function isIntentionalWait(manifest: TeamRunManifest, now = Date.now()): boolean {
+	return isPlanApprovalPending(manifest) || isWaitAnswerPending(manifest, now);
 }
 
 const STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -325,6 +358,22 @@ export function reconcileStaleRun(manifest: TeamRunManifest, tasks: TeamTaskStat
 		};
 	}
 
+	// WP-2/R2 (ADR-0 item 9): a run parked in the ask tool with a fresh
+	// waitState.askedAt is intentionally waiting on a human answer — not stale.
+	// Short-circuits before Phase 1/2 like plan-approval above: a parked worker
+	// does not heartbeat, so the no-PID/heartbeat staleness phases would
+	// otherwise cancel it long before its (server-clamped <=1h) ask deadline.
+	// TTL-expired waitState (>24h) falls through — the park marker leaked
+	// (worker died without resolving) and normal staleness repair applies.
+	if (isWaitAnswerPending(manifest, now)) {
+		return {
+			runId,
+			verdict: "waiting_answer",
+			repaired: false,
+			detail: "Ask answer pending (manifest.waitState.askedAt within waiting TTL); run is intentionally waiting and must not be stale-repaired",
+		};
+	}
+
 	// Phase 1: Check if results already exist
 	const phase1 = checkResultFile(manifest, tasks);
 	if (phase1.found) {
@@ -539,7 +588,14 @@ export function reconcileOrphanedTempWorkspaces(
 							}
 						}
 						// If still running after reconciliation attempt, mark for dir-preserving
-						if (result.verdict === "healthy" || (result.verdict === "no_status" && !result.repaired)) {
+						if (
+							result.verdict === "healthy" ||
+							// WP-2/R2: a run intentionally waiting on an ask answer keeps the
+							// temp workspace alive (its stateRoot + mailbox must survive for
+							// the parked worker to receive the answer).
+							result.verdict === "waiting_answer" ||
+							(result.verdict === "no_status" && !result.repaired)
+						) {
 							hasRunning = true;
 						}
 					} catch (err) {
