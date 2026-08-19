@@ -119,7 +119,10 @@ export async function handlePlans(params: TeamToolParamsValue, ctx: TeamContext)
 				runId,
 				config: { operation: subAction === "approve" ? "approve-plan" : "cancel-plan" },
 			},
-			{ cwd: runCwd ?? ctx.cwd },
+			// Forward the FULL caller context (sessionId etc.) so the delegated ops
+			// can enforce ownership checks now or in a future train (review S3) —
+			// only the cwd is overridden to the owning run's location.
+			{ ...ctx, cwd: runCwd ?? ctx.cwd },
 		);
 	}
 

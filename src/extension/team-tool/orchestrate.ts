@@ -4,7 +4,9 @@
  * Parses a plan document and outputs agent chain commands.
  */
 import * as fs from "node:fs";
+import { currentCrewRole, permissionForRole } from "../../runtime/role-permission.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { withRunLock } from "../../state/coordination/locks.ts";
 import { appendPlanRevision } from "../../state/stores/plan-store.ts";
 import { loadRunManifestById, saveRunManifest } from "../../state/stores/state-store.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -28,7 +30,7 @@ import { result, type TeamContext } from "./context.ts";
  *
  * Usage: `team action='orchestrate' planPath='/path/to/plan.md'`
  */
-export function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+export async function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	const planPath = params.planPath as string | undefined;
 
 	if (!planPath) {
@@ -80,16 +82,52 @@ export function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext)
 	let persisted: { id: string; version: number; items: number } | undefined;
 	const runId = typeof params.runId === "string" && params.runId.trim() ? params.runId.trim() : undefined;
 	if (runId) {
+		// Security (T2 review S1/S2): the persist branch is a run-mutating write.
+		// (a) role gate — read-only workers must NOT plant plan records;
+		// (b) ownership — foreign-session runs require explicit force;
+		// (c) locked read-modify-write + fail-closed tool error (never a throw
+		//     into the caller, never a lost update vs concurrent manifest writers).
+		const role = currentCrewRole();
+		if (role && permissionForRole(role) === "read_only") {
+			return result(
+				`Role '${role}' is read-only and cannot persist a plan record to a run.`,
+				{ action: "orchestrate", status: "error" },
+				true,
+			);
+		}
 		const runCwd = locateRunCwd(runId, ctx.cwd);
-		const manifest = runCwd ? loadRunManifestById(runCwd, runId)?.manifest : undefined;
-		if (!manifest) {
+		const loaded = runCwd ? loadRunManifestById(runCwd, runId) : undefined;
+		if (!loaded) {
 			return result(`runId not found: ${runId}`, { action: "orchestrate", status: "error" }, true);
 		}
-		const record = stepsToPlanRecord(steps, runId, { title: `Orchestrated: ${planPath}` });
-		appendPlanRevision(manifest, record);
-		saveRunManifest({ ...manifest, updatedAt: new Date().toISOString(), plan: { id: record.id, version: record.version } });
-		persisted = { id: record.id, version: record.version, items: record.items.length };
-		planNote = `PlanRecord persisted to run ${runId}: v${record.version} (${record.items.length} item(s)) — team action='plans' runId='${runId}' to inspect.`;
+		const manifest = loaded.manifest;
+		if (typeof manifest.ownerSessionId === "string" && manifest.ownerSessionId !== ctx.sessionId && params.force !== true) {
+			return result(
+				`Run '${runId}' belongs to another session (owner ${manifest.ownerSessionId.slice(0, 8)}…). Pass force=true to persist anyway.`,
+				{ action: "orchestrate", status: "error", runId },
+				true,
+			);
+		}
+		try {
+			const outcome = await withRunLock(manifest, async () => {
+				const fresh = loadRunManifestById(runCwd as string, runId); // in-lock consistent read
+				if (!fresh) return undefined;
+				const record = stepsToPlanRecord(steps, runId, { title: `Orchestrated: ${planPath}` });
+				appendPlanRevision(fresh.manifest, record);
+				saveRunManifest({
+					...fresh.manifest,
+					updatedAt: new Date().toISOString(),
+					plan: { id: record.id, version: record.version },
+				});
+				return record;
+			});
+			if (!outcome) return result(`runId not found: ${runId}`, { action: "orchestrate", status: "error" }, true);
+			persisted = { id: outcome.id, version: outcome.version, items: outcome.items.length };
+			planNote = `PlanRecord persisted to run ${runId}: v${outcome.version} (${outcome.items.length} item(s)) — team action='plans' runId='${runId}' to inspect.`;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return result(`PlanRecord persistence failed: ${message}`, { action: "orchestrate", status: "error", runId }, true);
+		}
 	}
 
 	const outputLines: string[] = [

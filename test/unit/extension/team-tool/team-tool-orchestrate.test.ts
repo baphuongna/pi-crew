@@ -30,10 +30,10 @@ function writePlanFile(dir: string, filename: string, content: string): string {
 // ─── handleOrchestrate ────────────────────────────────────────────────────────
 
 describe("handleOrchestrate", () => {
-	it("returns error when planPath is missing", () => {
+	it("returns error when planPath is missing", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams(), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams(), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -43,10 +43,10 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error when planPath points outside cwd", () => {
+	it("returns error when planPath points outside cwd", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams({ planPath: "/etc/passwd" }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath: "/etc/passwd" }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -56,10 +56,10 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error when plan file does not exist", () => {
+	it("returns error when plan file does not exist", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams({ planPath: "nonexistent.md" }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath: "nonexistent.md" }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -69,7 +69,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("parses a plan with tagged sections", () => {
+	it("parses a plan with tagged sections", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -86,7 +86,7 @@ describe("handleOrchestrate", () => {
 				].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, false);
 			const text = textFromToolResult(res);
@@ -99,12 +99,12 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error for plan with no tagged sections", () => {
+	it("returns error for plan with no tagged sections", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(tmp, "empty.md", ["# Untitled Plan", "This plan has no tags."].join("\n"));
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -114,7 +114,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns structured data with steps and commands", () => {
+	it("returns structured data with steps and commands", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -123,7 +123,7 @@ describe("handleOrchestrate", () => {
 				["# Build", "<!-- tag: build -->", "Fix build errors in the project."].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.ok(res.details.data);
 			const data = res.details.data as Record<string, unknown>;
@@ -135,7 +135,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("handles plan with all supported tags", () => {
+	it("handles plan with all supported tags", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -163,7 +163,7 @@ describe("handleOrchestrate", () => {
 				].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			const text = textFromToolResult(res);
 			assert.ok(text.includes("Steps: 6"));

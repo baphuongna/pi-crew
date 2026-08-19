@@ -361,6 +361,10 @@ export function parsePlannerPlanOutput(text: string, runId: string, authorTaskId
 	const blockMatch = text.match(/<plan>\s*([\s\S]*?)\s*<\/plan>/);
 	if (!blockMatch) return undefined;
 	let raw = blockMatch[1] as string;
+	// Security hardening (review S5): producer text is untrusted worker output —
+	// bound the parse input (deep nesting already fails safe via JSON.parse
+	// RangeError → catch → undefined; this caps the flat size too).
+	if (raw.length > 1_048_576) return undefined;
 	raw = raw.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "");
 	let parsed: unknown;
 	try {

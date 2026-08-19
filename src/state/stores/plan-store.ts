@@ -80,9 +80,19 @@ function writePlanFile(manifest: TeamRunManifest, revisions: PlanRecord[]): void
 /** ADR-4 §3: item ids are unique per revision; carried-over items keep their
  *  id across revisions (producer contract checked here — duplicate ids reject
  *  the append rather than corrupt linkage). */
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const TITLE_MAX = 512;
+
+/** Security hardening (review S4/S5): producer-supplied ids/titles are
+ *  untrusted worker-influenced text — constrain charset/length at the store
+ *  boundary so a poisoned record can't smuggle control chars, path
+ *  separators, or unbounded blobs into downstream renders and events. */
 function assertRecordWellFormed(record: PlanRecord): void {
 	const ids = new Set<string>();
 	for (const item of record.items) {
+		if (!ID_PATTERN.test(item.id))
+			throw new Error(`plan-store: item id must match [A-Za-z0-9][A-Za-z0-9._-]{0,127} — got "${item.id.slice(0, 40)}"`);
+		if (item.title.length > TITLE_MAX) throw new Error(`plan-store: item title exceeds ${TITLE_MAX} chars`);
 		if (ids.has(item.id)) throw new Error(`plan-store: duplicate item id "${item.id}" in revision v${record.version}`);
 		ids.add(item.id);
 	}

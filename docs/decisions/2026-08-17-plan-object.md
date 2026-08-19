@@ -91,7 +91,7 @@ Event kinds registered in `TEAM_EVENT_TYPES` (`src/state/contracts.ts`): `plan.c
 
 ### 10. Security & trust boundary
 
-No new cross-run surface: `plans.json` lives under the run's state root (same trust domain as `tasks.json`/`events.jsonl`, single writer under the run lock). `plans approve|reject` ride the existing RUN-domain action auth (same ownership checks as `resume`/`steer`). `plans get/list/diff` are read-only. Plans can contain untrusted task-output prose (producer 3) — rendered with the same escaping discipline as other task text in CLI output.
+No new cross-run surface: `plans.json` lives under the run's state root (same trust domain as `tasks.json`/`events.jsonl`, single writer under the run lock). `plans approve|reject` delegate to the existing `api approve-plan|cancel-plan` ops and therefore inherit exactly their checks — the worker-role gate (`canApprovePlan`: read-only roles denied); note those api ops carry **no ownerSessionId check today** (pre-existing; a write-role worker in the same cwd can decide any discoverable run's gate) — flagged as a follow-up train, not this one. `orchestrate runId=…` (record persistence) is role-gated AND ownership-checked (foreign session ⇒ `force`), locked, fail-closed — security review round 1 (S1/S2/S3). `plans get/list/diff` are read-only. Plans can contain untrusted task-output prose (producer 3) — rendered with the same escaping discipline as other task text in CLI output.
 
 ## Consequences
 
