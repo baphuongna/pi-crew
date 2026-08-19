@@ -106,4 +106,4 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 - Design: `docs/design/subagent-v2-design.md` §7 (+ §3 ask/park contract, §9 supporting upgrades, §11 P2-20)
 - Plan: `docs/design/subagent-v2-implementation-plan.md` ADR-5 + WP-5 (steps 1–10), tests, ACs, security gate
-- Precedents: `scheduling/global-worker-cap.ts:14-19` (MAJ#3 judge bypass), ADR-4 §9 (dual-read additive schema)
+- Precedents: `scheduling/global-worker-cap.ts:14-19` (MAJ#3 judge bypass), ADR-4 §2 (dual-read additive schema)
