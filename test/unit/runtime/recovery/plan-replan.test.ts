@@ -249,3 +249,72 @@ test("WIRING (review R7c): runSchedulerSweeps applies the dropped-item sweep to 
 		assert.equal(ctx.manifest.runId, manifest.runId);
 	}
 });
+
+test("CRASH WINDOW (review R1/N1): surviving record is reused AND the pointer names it", async () => {
+	const { injectAdaptivePlanIfReady } = await import("../../../../src/runtime/goal-workflow/adaptive-plan.ts");
+	type InjectInput = Parameters<typeof injectAdaptivePlanIfReady>[0];
+	const { allTeams, discoverTeams } = await import("../../../../src/teams/discover-teams.ts");
+	const { allWorkflows, discoverWorkflows } = await import("../../../../src/workflows/discover-workflows.ts");
+	const dir = createTrackedTempDir("pi-crew-crashwin-");
+	{
+		const stateRoot = path.join(dir, ".crew", "state", "runs", "run-cw");
+		fs.mkdirSync(stateRoot, { recursive: true });
+		const manifest: TeamRunManifest = {
+			schemaVersion: 1,
+			runId: "run-cw",
+			team: "default",
+			workflow: "implementation",
+			goal: "crash window",
+			status: "running",
+			workspaceMode: "single",
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			cwd: dir,
+			stateRoot,
+			artifactsRoot: path.join(dir, ".crew", "artifacts", "run-cw"),
+			tasksPath: path.join(stateRoot, "tasks.json"),
+			eventsPath: path.join(stateRoot, "events.jsonl"),
+			artifacts: [],
+		};
+		const workflow = allWorkflows(discoverWorkflows(dir)).find((w) => w.name === "implementation")!;
+		const team = allTeams(discoverTeams(dir)).find((t) => t.name === "implementation")!;
+		// Seed the assess artifact with a valid START-marker plan.
+		const planPath = path.join(dir, "assess.txt");
+		fs.writeFileSync(
+			planPath,
+			`ADAPTIVE_PLAN_JSON_START\n${JSON.stringify({ phases: [{ name: "build", tasks: [{ role: "executor", task: "Do the thing" }] }] })}\nADAPTIVE_PLAN_JSON_END`,
+		);
+		const assessTask = {
+			...mkTask(manifest, "01_assess", "i-seed", "completed"),
+			stepId: "assess",
+			resultArtifact: {
+				kind: "result" as const,
+				path: planPath,
+				createdAt: new Date().toISOString(),
+				producer: "01_assess",
+				retention: "run" as const,
+			},
+		};
+		// First injection: record + tasks written.
+		const first = await injectAdaptivePlanIfReady({ manifest, tasks: [assessTask], workflow, team } as InjectInput);
+		assert.equal(first.injected, true);
+		const recordsAfterFirst = loadPlanRecords(manifest);
+		assert.equal(recordsAfterFirst.length, 1);
+		// Simulate the crash window: tasks.json loses the adaptive tasks but
+		// plans.json survives (kill between record append and tasks save).
+		const onDiskTasks = JSON.parse(fs.readFileSync(manifest.tasksPath, "utf-8") as string) as TeamTaskState[];
+		await import("node:fs").then((m) =>
+			(m.default ?? m).writeFileSync(manifest.tasksPath, JSON.stringify(onDiskTasks.filter((t) => !t.id.startsWith("adaptive-")))),
+		);
+		// Resume: reuse — no lineage-break throw, exactly one revision, pointer
+		// resolves to the SURVIVING record (N1).
+		const resumed = await injectAdaptivePlanIfReady({ manifest, tasks: [assessTask], workflow, team } as InjectInput);
+		assert.equal(resumed.injected, true, "crash-window resume must re-inject without throwing");
+		const records = loadPlanRecords(manifest);
+		assert.equal(records.length, 1, "no second revision on resume");
+		const pointer = manifest.plan ?? loadRunManifestById(dir, manifest.runId)?.manifest.plan;
+		assert.ok(pointer, "manifest.plan pointer present");
+		const resolved = records.find((r) => r.id === pointer?.id && r.version === pointer?.version);
+		assert.ok(resolved, `pointer must resolve to the surviving record (got id ${pointer?.id}, store has ${records[0]?.id})`);
+	}
+});

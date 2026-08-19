@@ -453,7 +453,11 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				producer: assessTask.id,
 				content: `${JSON.stringify({ reason: repair.reason, phases: repair.plan.phases.map((phase) => ({ name: phase.name, count: phase.tasks.length, roles: phase.tasks.map((task) => task.role) })) }, null, 2)}\n`,
 			});
-			manifestBase = { ...input.manifest, artifacts: [...input.manifest.artifacts, repairArtifact] };
+			manifestBase = {
+				...input.manifest,
+				updatedAt: new Date().toISOString(),
+				artifacts: [...input.manifest.artifacts, repairArtifact],
+			};
 			await saveRunManifestAsync(manifestBase);
 			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "adaptive.plan_repaired",
@@ -583,10 +587,17 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 	// linkage matches the surviving record exactly.
 	const existingRecord = getCurrentPlanRecord(input.manifest);
 	if (!existingRecord) appendPlanRevision(input.manifest, planRecord);
+	// Review round-2 N1: on the crash-window reuse path the pointer MUST name
+	// the SURVIVING record — the fresh planRecord was never persisted, so its
+	// randomUUID would dangle (masked today by the highest-version fallback,
+	// but it violates ADR-4 §2's pointer invariant).
+	const planPointer = existingRecord
+		? { id: existingRecord.id, version: existingRecord.version }
+		: { id: planRecord.id, version: planRecord.version };
 	await saveRunManifestAsync({
 		...manifestBase,
 		updatedAt: new Date().toISOString(),
-		plan: { id: planRecord.id, version: planRecord.version },
+		plan: planPointer,
 	});
 	// FIX (T2/B2 case e, pre-existing): the injected tasks MUST be persisted at
 	// injection time. mergeUnitResult reloads tasks.json as the merge base and
