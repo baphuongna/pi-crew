@@ -199,35 +199,33 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		}
 	});
 
-	it("buildPiWorkerArgs emits extensions for user agents (not stripped)", () => {
+	it("buildPiWorkerArgs strips USER agent extensions (ADR-5 §8 depth>0 allowlist)", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("user", ["./user-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(
-				args.some((a) => a.includes("user-ext.ts")),
-				"user agent extensions must be preserved",
-			);
+			assert.ok(!args.some((a) => a.includes("user-ext.ts")), "user agent extensions must NOT pass the depth>0 allowlist (ADR-5 §8)");
+			assert.ok(args.includes("--no-extensions"), "--no-extensions posture preserved");
 		} finally {
 			restoreEnv(envSnap);
 		}
 	});
 
-	it("buildPiWorkerArgs emits extensions for builtin agents (not stripped)", () => {
+	it("buildPiWorkerArgs strips BUILTIN agent extensions (ADR-5 §8 depth>0 allowlist)", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("builtin", ["./builtin-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
 			assert.ok(
-				args.some((a) => a.includes("builtin-ext.ts")),
-				"builtin agent extensions must be preserved",
+				!args.some((a) => a.includes("builtin-ext.ts")),
+				"builtin agent extensions must NOT pass the depth>0 allowlist (ADR-5 §8)",
 			);
 		} finally {
 			restoreEnv(envSnap);
 		}
 	});
 
-	it("buildPiWorkerArgs trusts project extensions when env gate is set", () => {
+	it("buildPiWorkerArgs strips project extensions even when the env gate is set (ADR-5 §8 supersedes the trust gate)", () => {
 		delete process.env[ENV_KEY];
 		const agent = makeAgent("project", ["./.crew/pwn.ts"]);
 		const { args } = buildPiWorkerArgs({
@@ -236,8 +234,8 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 			env: { PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS: "1" },
 		});
 		assert.ok(
-			args.some((a) => a.includes("pwn.ts")),
-			"trusted mode should allow project extension in args",
+			!args.some((a) => a.includes("pwn.ts")),
+			"the depth>0 allowlist is authoritative — the trust gate no longer suffices (ADR-5 §8)",
 		);
 	});
 
