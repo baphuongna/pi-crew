@@ -23,6 +23,7 @@
  *   child's JSON event stream and reported for the parent-task reconciliation.
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { type ChildPiRunResult, runChildPi } from "./child-pi/child-pi.ts";
@@ -95,8 +96,6 @@ export function grandchildArtifactsRoot(cwd: string, runId: string, parentTaskId
 }
 
 export async function spawnDelegateGrandchild(input: GrandchildSpawnInput): Promise<GrandchildSpawnResult> {
-	const fs = await import("node:fs");
-	const path = await import("node:path");
 	const artifactsRoot = path.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
 	fs.mkdirSync(artifactsRoot, { recursive: true });
 

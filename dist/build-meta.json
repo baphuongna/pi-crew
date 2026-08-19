@@ -100,7 +100,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 7919,
+      "bytes": 8482,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 15171,
+      "bytes": 15749,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 30346,
+      "bytes": 30943,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6310,7 +6310,7 @@
       "format": "esm"
     },
     "src/config/config-merge.ts": {
-      "bytes": 6740,
+      "bytes": 7066,
       "imports": [
         {
           "path": "src/config/config-validation.ts",
@@ -6343,7 +6343,7 @@
       "format": "esm"
     },
     "src/config/config.ts": {
-      "bytes": 17819,
+      "bytes": 18193,
       "imports": [
         {
           "path": "node:fs",
@@ -6937,7 +6937,7 @@
       "format": "esm"
     },
     "src/runtime/model/pi-args.ts": {
-      "bytes": 28634,
+      "bytes": 29293,
       "imports": [
         {
           "path": "node:fs",
@@ -6978,7 +6978,7 @@
       "format": "esm"
     },
     "src/runtime/broker/broker-issuer.ts": {
-      "bytes": 1706,
+      "bytes": 2203,
       "imports": [],
       "format": "esm"
     },
@@ -7073,7 +7073,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi-spawn.ts": {
-      "bytes": 19336,
+      "bytes": 20153,
       "imports": [
         {
           "path": "node:fs",
@@ -7321,7 +7321,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi.ts": {
-      "bytes": 35666,
+      "bytes": 37412,
       "imports": [
         {
           "path": "node:child_process",
@@ -7561,7 +7561,7 @@
       "format": "esm"
     },
     "src/state/contracts.ts": {
-      "bytes": 5716,
+      "bytes": 6124,
       "imports": [],
       "format": "esm"
     },
@@ -7767,7 +7767,7 @@
       "format": "esm"
     },
     "src/state/types.ts": {
-      "bytes": 21352,
+      "bytes": 22038,
       "imports": [],
       "format": "esm"
     },
@@ -8741,7 +8741,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 24797,
+      "bytes": 24795,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -11887,7 +11887,7 @@
       "format": "esm"
     },
     "src/prompt/prompt-runtime.ts": {
-      "bytes": 32769,
+      "bytes": 42886,
       "imports": [
         {
           "path": "node:fs",
@@ -19115,6 +19115,43 @@
       ],
       "format": "esm"
     },
+    "src/runtime/delegate-spawn.ts": {
+      "bytes": 5992,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi.ts",
+          "kind": "import-statement",
+          "original": "./child-pi/child-pi.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/scheduling/nested-slots.ts": {
+      "bytes": 2475,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/spawn-policy.ts": {
+      "bytes": 9720,
+      "imports": [
+        {
+          "path": "src/runtime/model/model-fallback.ts",
+          "kind": "import-statement",
+          "original": "./model/model-fallback.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/broker/wait-status-cache.ts": {
       "bytes": 6097,
       "imports": [
@@ -19132,7 +19169,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 64155,
+      "bytes": 81811,
       "imports": [
         {
           "path": "node:crypto",
@@ -19198,6 +19235,26 @@
           "path": "src/utils/socket-path.ts",
           "kind": "import-statement",
           "original": "../../utils/socket-path.ts"
+        },
+        {
+          "path": "src/runtime/delegate-spawn.ts",
+          "kind": "import-statement",
+          "original": "../delegate-spawn.ts"
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        },
+        {
+          "path": "src/runtime/scheduling/nested-slots.ts",
+          "kind": "import-statement",
+          "original": "../scheduling/nested-slots.ts"
+        },
+        {
+          "path": "src/runtime/spawn-policy.ts",
+          "kind": "import-statement",
+          "original": "../spawn-policy.ts"
         },
         {
           "path": "src/runtime/broker/crew-broker-tokens.ts",
@@ -19313,7 +19370,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 44837,
+      "bytes": 47069,
       "imports": [
         {
           "path": "node:fs",
@@ -19364,6 +19421,11 @@
           "path": "src/runtime/live-session/live-agent-manager.ts",
           "kind": "import-statement",
           "original": "../../runtime/live-session/live-agent-manager.ts"
+        },
+        {
+          "path": "src/runtime/model/model-fallback.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/model/model-fallback.ts"
         },
         {
           "path": "src/runtime/model/pi-args.ts",
@@ -19959,7 +20021,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7185906
+      "bytes": 7262188
     },
     "dist/index.mjs": {
       "imports": [
@@ -21694,6 +21756,16 @@
           "external": true
         },
         {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -21742,7 +21814,7 @@
           "bytesInOutput": 20539
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 5259
+          "bytesInOutput": 5347
         },
         "src/state/coordination/locks.ts": {
           "bytesInOutput": 10382
@@ -22489,16 +22561,16 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 15776
+          "bytesInOutput": 16431
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 25471
+          "bytesInOutput": 26001
         },
         "src/config/config-merge.ts": {
-          "bytesInOutput": 4399
+          "bytesInOutput": 4554
         },
         "src/schema/sensitive-config-paths.ts": {
           "bytesInOutput": 1168
@@ -22507,7 +22579,7 @@
           "bytesInOutput": 5383
         },
         "src/config/config.ts": {
-          "bytesInOutput": 11761
+          "bytesInOutput": 11900
         },
         "src/runtime/model/runtime-warmup.ts": {
           "bytesInOutput": 2425
@@ -22573,7 +22645,7 @@
           "bytesInOutput": 3493
         },
         "src/runtime/model/pi-args.ts": {
-          "bytesInOutput": 15476
+          "bytesInOutput": 15494
         },
         "src/utils/redaction.ts": {
           "bytesInOutput": 9078
@@ -22603,7 +22675,7 @@
           "bytesInOutput": 1568
         },
         "src/runtime/child-pi/child-pi-spawn.ts": {
-          "bytesInOutput": 7481
+          "bytesInOutput": 7927
         },
         "src/runtime/child-pi/child-pi-steering.ts": {
           "bytesInOutput": 2926
@@ -22639,7 +22711,7 @@
           "bytesInOutput": 2909
         },
         "src/runtime/child-pi/child-pi.ts": {
-          "bytesInOutput": 19507
+          "bytesInOutput": 19753
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 3027
@@ -23233,7 +23305,7 @@
           "bytesInOutput": 528
         },
         "src/prompt/prompt-runtime.ts": {
-          "bytesInOutput": 1640
+          "bytesInOutput": 2516
         },
         "src/observability/correlation.ts": {
           "bytesInOutput": 757
@@ -23929,13 +24001,22 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 26797
+          "bytesInOutput": 28443
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 49063
+          "bytesInOutput": 62642
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3010
+        },
+        "src/runtime/delegate-spawn.ts": {
+          "bytesInOutput": 2772
+        },
+        "src/runtime/scheduling/nested-slots.ts": {
+          "bytesInOutput": 1309
+        },
+        "src/runtime/spawn-policy.ts": {
+          "bytesInOutput": 3852
         },
         "src/runtime/broker/wait-status-cache.ts": {
           "bytesInOutput": 2412
@@ -23983,7 +24064,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3102909
+      "bytes": 3129367
     }
   }
 }

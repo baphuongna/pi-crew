@@ -1391,7 +1391,7 @@ function resolveBrokerEnvOverride(parsed) {
   }
   return parsed;
 }
-var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER;
+var DEFAULT_CHILD_PI, DEFAULT_LIVE_SESSION, DEFAULT_LOCKS, DEFAULT_CONCURRENCY, DEFAULT_EVENT_LOG, DEFAULT_ARTIFACT_CLEANUP, DEFAULT_OUTPUT_CONTEXT, DEFAULT_PATHS, DEFAULT_UI, DEFAULT_NOTIFICATIONS, DEFAULT_CACHE, DEFAULT_MAILBOX, DEFAULT_SUBAGENT, DEFAULT_BROKER, DEFAULT_NESTING;
 var init_defaults = __esm({
   "src/config/defaults.ts"() {
     "use strict";
@@ -1527,6 +1527,10 @@ var init_defaults = __esm({
        *  wait.request/wait.resolve are rejected with a policy-disabled error
        *  AND a policy.action event in events.jsonl (never silent). */
       waitMethodsEnabled: false
+    };
+    DEFAULT_NESTING = {
+      enabled: false,
+      maxDepth: 2
     };
   }
 });
@@ -7251,32 +7255,32 @@ function EscapeKey(key) {
 function IsDefined2(value) {
   return value !== void 0;
 }
-function Create(errorType, schema, path97, value, errors2 = []) {
+function Create(errorType, schema, path98, value, errors2 = []) {
   return {
     type: errorType,
     schema,
-    path: path97,
+    path: path98,
     value,
-    message: GetErrorFunction()({ errorType, path: path97, schema, value, errors: errors2 }),
+    message: GetErrorFunction()({ errorType, path: path98, schema, value, errors: errors2 }),
     errors: errors2
   };
 }
-function* FromAny3(schema, references, path97, value) {
+function* FromAny3(schema, references, path98, value) {
 }
-function* FromArgument3(schema, references, path97, value) {
+function* FromArgument3(schema, references, path98, value) {
 }
-function* FromArray8(schema, references, path97, value) {
+function* FromArray8(schema, references, path98, value) {
   if (!IsArray2(value)) {
-    return yield Create(ValueErrorType.Array, schema, path97, value);
+    return yield Create(ValueErrorType.Array, schema, path98, value);
   }
   if (IsDefined2(schema.minItems) && !(value.length >= schema.minItems)) {
-    yield Create(ValueErrorType.ArrayMinItems, schema, path97, value);
+    yield Create(ValueErrorType.ArrayMinItems, schema, path98, value);
   }
   if (IsDefined2(schema.maxItems) && !(value.length <= schema.maxItems)) {
-    yield Create(ValueErrorType.ArrayMaxItems, schema, path97, value);
+    yield Create(ValueErrorType.ArrayMaxItems, schema, path98, value);
   }
   for (let i = 0; i < value.length; i++) {
-    yield* Visit6(schema.items, references, `${path97}/${i}`, value[i]);
+    yield* Visit6(schema.items, references, `${path98}/${i}`, value[i]);
   }
   if (schema.uniqueItems === true && !(function() {
     const set = /* @__PURE__ */ new Set();
@@ -7290,116 +7294,116 @@ function* FromArray8(schema, references, path97, value) {
     }
     return true;
   })()) {
-    yield Create(ValueErrorType.ArrayUniqueItems, schema, path97, value);
+    yield Create(ValueErrorType.ArrayUniqueItems, schema, path98, value);
   }
   if (!(IsDefined2(schema.contains) || IsDefined2(schema.minContains) || IsDefined2(schema.maxContains))) {
     return;
   }
   const containsSchema = IsDefined2(schema.contains) ? schema.contains : Never();
-  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path97}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
+  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path98}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
   if (containsCount === 0) {
-    yield Create(ValueErrorType.ArrayContains, schema, path97, value);
+    yield Create(ValueErrorType.ArrayContains, schema, path98, value);
   }
   if (IsNumber2(schema.minContains) && containsCount < schema.minContains) {
-    yield Create(ValueErrorType.ArrayMinContains, schema, path97, value);
+    yield Create(ValueErrorType.ArrayMinContains, schema, path98, value);
   }
   if (IsNumber2(schema.maxContains) && containsCount > schema.maxContains) {
-    yield Create(ValueErrorType.ArrayMaxContains, schema, path97, value);
+    yield Create(ValueErrorType.ArrayMaxContains, schema, path98, value);
   }
 }
-function* FromAsyncIterator5(schema, references, path97, value) {
+function* FromAsyncIterator5(schema, references, path98, value) {
   if (!IsAsyncIterator2(value))
-    yield Create(ValueErrorType.AsyncIterator, schema, path97, value);
+    yield Create(ValueErrorType.AsyncIterator, schema, path98, value);
 }
-function* FromBigInt3(schema, references, path97, value) {
+function* FromBigInt3(schema, references, path98, value) {
   if (!IsBigInt2(value))
-    return yield Create(ValueErrorType.BigInt, schema, path97, value);
+    return yield Create(ValueErrorType.BigInt, schema, path98, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path97, value);
+    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path97, value);
+    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.BigIntMaximum, schema, path97, value);
+    yield Create(ValueErrorType.BigIntMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.BigIntMinimum, schema, path97, value);
+    yield Create(ValueErrorType.BigIntMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === BigInt(0))) {
-    yield Create(ValueErrorType.BigIntMultipleOf, schema, path97, value);
+    yield Create(ValueErrorType.BigIntMultipleOf, schema, path98, value);
   }
 }
-function* FromBoolean3(schema, references, path97, value) {
+function* FromBoolean3(schema, references, path98, value) {
   if (!IsBoolean2(value))
-    yield Create(ValueErrorType.Boolean, schema, path97, value);
+    yield Create(ValueErrorType.Boolean, schema, path98, value);
 }
-function* FromConstructor5(schema, references, path97, value) {
-  yield* Visit6(schema.returns, references, path97, value.prototype);
+function* FromConstructor5(schema, references, path98, value) {
+  yield* Visit6(schema.returns, references, path98, value.prototype);
 }
-function* FromDate3(schema, references, path97, value) {
+function* FromDate3(schema, references, path98, value) {
   if (!IsDate2(value))
-    return yield Create(ValueErrorType.Date, schema, path97, value);
+    return yield Create(ValueErrorType.Date, schema, path98, value);
   if (IsDefined2(schema.exclusiveMaximumTimestamp) && !(value.getTime() < schema.exclusiveMaximumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path97, value);
+    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path98, value);
   }
   if (IsDefined2(schema.exclusiveMinimumTimestamp) && !(value.getTime() > schema.exclusiveMinimumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path97, value);
+    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path98, value);
   }
   if (IsDefined2(schema.maximumTimestamp) && !(value.getTime() <= schema.maximumTimestamp)) {
-    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path97, value);
+    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path98, value);
   }
   if (IsDefined2(schema.minimumTimestamp) && !(value.getTime() >= schema.minimumTimestamp)) {
-    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path97, value);
+    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path98, value);
   }
   if (IsDefined2(schema.multipleOfTimestamp) && !(value.getTime() % schema.multipleOfTimestamp === 0)) {
-    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path97, value);
+    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path98, value);
   }
 }
-function* FromFunction5(schema, references, path97, value) {
+function* FromFunction5(schema, references, path98, value) {
   if (!IsFunction2(value))
-    yield Create(ValueErrorType.Function, schema, path97, value);
+    yield Create(ValueErrorType.Function, schema, path98, value);
 }
-function* FromImport2(schema, references, path97, value) {
+function* FromImport2(schema, references, path98, value) {
   const definitions = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  yield* Visit6(target, [...references, ...definitions], path97, value);
+  yield* Visit6(target, [...references, ...definitions], path98, value);
 }
-function* FromInteger3(schema, references, path97, value) {
+function* FromInteger3(schema, references, path98, value) {
   if (!IsInteger(value))
-    return yield Create(ValueErrorType.Integer, schema, path97, value);
+    return yield Create(ValueErrorType.Integer, schema, path98, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path97, value);
+    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path97, value);
+    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.IntegerMaximum, schema, path97, value);
+    yield Create(ValueErrorType.IntegerMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.IntegerMinimum, schema, path97, value);
+    yield Create(ValueErrorType.IntegerMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.IntegerMultipleOf, schema, path97, value);
+    yield Create(ValueErrorType.IntegerMultipleOf, schema, path98, value);
   }
 }
-function* FromIntersect10(schema, references, path97, value) {
+function* FromIntersect10(schema, references, path98, value) {
   let hasError = false;
   for (const inner of schema.allOf) {
-    for (const error of Visit6(inner, references, path97, value)) {
+    for (const error of Visit6(inner, references, path98, value)) {
       hasError = true;
       yield error;
     }
   }
   if (hasError) {
-    return yield Create(ValueErrorType.Intersect, schema, path97, value);
+    return yield Create(ValueErrorType.Intersect, schema, path98, value);
   }
   if (schema.unevaluatedProperties === false) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path97}/${valueKey}`, value);
+        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path98}/${valueKey}`, value);
       }
     }
   }
@@ -7407,59 +7411,59 @@ function* FromIntersect10(schema, references, path97, value) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        const next = Visit6(schema.unevaluatedProperties, references, `${path97}/${valueKey}`, value[valueKey]).next();
+        const next = Visit6(schema.unevaluatedProperties, references, `${path98}/${valueKey}`, value[valueKey]).next();
         if (!next.done)
           yield next.value;
       }
     }
   }
 }
-function* FromIterator5(schema, references, path97, value) {
+function* FromIterator5(schema, references, path98, value) {
   if (!IsIterator2(value))
-    yield Create(ValueErrorType.Iterator, schema, path97, value);
+    yield Create(ValueErrorType.Iterator, schema, path98, value);
 }
-function* FromLiteral4(schema, references, path97, value) {
+function* FromLiteral4(schema, references, path98, value) {
   if (!(value === schema.const))
-    yield Create(ValueErrorType.Literal, schema, path97, value);
+    yield Create(ValueErrorType.Literal, schema, path98, value);
 }
-function* FromNever3(schema, references, path97, value) {
-  yield Create(ValueErrorType.Never, schema, path97, value);
+function* FromNever3(schema, references, path98, value) {
+  yield Create(ValueErrorType.Never, schema, path98, value);
 }
-function* FromNot3(schema, references, path97, value) {
-  if (Visit6(schema.not, references, path97, value).next().done === true)
-    yield Create(ValueErrorType.Not, schema, path97, value);
+function* FromNot3(schema, references, path98, value) {
+  if (Visit6(schema.not, references, path98, value).next().done === true)
+    yield Create(ValueErrorType.Not, schema, path98, value);
 }
-function* FromNull3(schema, references, path97, value) {
+function* FromNull3(schema, references, path98, value) {
   if (!IsNull2(value))
-    yield Create(ValueErrorType.Null, schema, path97, value);
+    yield Create(ValueErrorType.Null, schema, path98, value);
 }
-function* FromNumber3(schema, references, path97, value) {
+function* FromNumber3(schema, references, path98, value) {
   if (!TypeSystemPolicy.IsNumberLike(value))
-    return yield Create(ValueErrorType.Number, schema, path97, value);
+    return yield Create(ValueErrorType.Number, schema, path98, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path97, value);
+    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path97, value);
+    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.NumberMaximum, schema, path97, value);
+    yield Create(ValueErrorType.NumberMaximum, schema, path98, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.NumberMinimum, schema, path97, value);
+    yield Create(ValueErrorType.NumberMinimum, schema, path98, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.NumberMultipleOf, schema, path97, value);
+    yield Create(ValueErrorType.NumberMultipleOf, schema, path98, value);
   }
 }
-function* FromObject9(schema, references, path97, value) {
+function* FromObject9(schema, references, path98, value) {
   if (!TypeSystemPolicy.IsObjectLike(value))
-    return yield Create(ValueErrorType.Object, schema, path97, value);
+    return yield Create(ValueErrorType.Object, schema, path98, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path97, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path98, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path97, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path98, value);
   }
   const requiredKeys = Array.isArray(schema.required) ? schema.required : [];
   const knownKeys = Object.getOwnPropertyNames(schema.properties);
@@ -7467,12 +7471,12 @@ function* FromObject9(schema, references, path97, value) {
   for (const requiredKey of requiredKeys) {
     if (unknownKeys.includes(requiredKey))
       continue;
-    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path97}/${EscapeKey(requiredKey)}`, void 0);
+    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path98}/${EscapeKey(requiredKey)}`, void 0);
   }
   if (schema.additionalProperties === false) {
     for (const valueKey of unknownKeys) {
       if (!knownKeys.includes(valueKey)) {
-        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path97}/${EscapeKey(valueKey)}`, value[valueKey]);
+        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path98}/${EscapeKey(valueKey)}`, value[valueKey]);
       }
     }
   }
@@ -7480,235 +7484,235 @@ function* FromObject9(schema, references, path97, value) {
     for (const valueKey of unknownKeys) {
       if (knownKeys.includes(valueKey))
         continue;
-      yield* Visit6(schema.additionalProperties, references, `${path97}/${EscapeKey(valueKey)}`, value[valueKey]);
+      yield* Visit6(schema.additionalProperties, references, `${path98}/${EscapeKey(valueKey)}`, value[valueKey]);
     }
   }
   for (const knownKey of knownKeys) {
     const property = schema.properties[knownKey];
     if (schema.required && schema.required.includes(knownKey)) {
-      yield* Visit6(property, references, `${path97}/${EscapeKey(knownKey)}`, value[knownKey]);
+      yield* Visit6(property, references, `${path98}/${EscapeKey(knownKey)}`, value[knownKey]);
       if (ExtendsUndefinedCheck(schema) && !(knownKey in value)) {
-        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path97}/${EscapeKey(knownKey)}`, void 0);
+        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path98}/${EscapeKey(knownKey)}`, void 0);
       }
     } else {
       if (TypeSystemPolicy.IsExactOptionalProperty(value, knownKey)) {
-        yield* Visit6(property, references, `${path97}/${EscapeKey(knownKey)}`, value[knownKey]);
+        yield* Visit6(property, references, `${path98}/${EscapeKey(knownKey)}`, value[knownKey]);
       }
     }
   }
 }
-function* FromPromise5(schema, references, path97, value) {
+function* FromPromise5(schema, references, path98, value) {
   if (!IsPromise(value))
-    yield Create(ValueErrorType.Promise, schema, path97, value);
+    yield Create(ValueErrorType.Promise, schema, path98, value);
 }
-function* FromRecord5(schema, references, path97, value) {
+function* FromRecord5(schema, references, path98, value) {
   if (!TypeSystemPolicy.IsRecordLike(value))
-    return yield Create(ValueErrorType.Object, schema, path97, value);
+    return yield Create(ValueErrorType.Object, schema, path98, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path97, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path98, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path97, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path98, value);
   }
   const [patternKey, patternSchema] = Object.entries(schema.patternProperties)[0];
   const regex = new RegExp(patternKey);
   for (const [propertyKey, propertyValue] of Object.entries(value)) {
     if (regex.test(propertyKey))
-      yield* Visit6(patternSchema, references, `${path97}/${EscapeKey(propertyKey)}`, propertyValue);
+      yield* Visit6(patternSchema, references, `${path98}/${EscapeKey(propertyKey)}`, propertyValue);
   }
   if (typeof schema.additionalProperties === "object") {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (!regex.test(propertyKey))
-        yield* Visit6(schema.additionalProperties, references, `${path97}/${EscapeKey(propertyKey)}`, propertyValue);
+        yield* Visit6(schema.additionalProperties, references, `${path98}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
   if (schema.additionalProperties === false) {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (regex.test(propertyKey))
         continue;
-      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path97}/${EscapeKey(propertyKey)}`, propertyValue);
+      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path98}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
 }
-function* FromRef6(schema, references, path97, value) {
-  yield* Visit6(Deref(schema, references), references, path97, value);
+function* FromRef6(schema, references, path98, value) {
+  yield* Visit6(Deref(schema, references), references, path98, value);
 }
-function* FromRegExp3(schema, references, path97, value) {
+function* FromRegExp3(schema, references, path98, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path97, value);
+    return yield Create(ValueErrorType.String, schema, path98, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path97, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path98, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path97, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path98, value);
   }
   const regex = new RegExp(schema.source, schema.flags);
   if (!regex.test(value)) {
-    return yield Create(ValueErrorType.RegExp, schema, path97, value);
+    return yield Create(ValueErrorType.RegExp, schema, path98, value);
   }
 }
-function* FromString3(schema, references, path97, value) {
+function* FromString3(schema, references, path98, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path97, value);
+    return yield Create(ValueErrorType.String, schema, path98, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path97, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path98, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path97, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path98, value);
   }
   if (IsString2(schema.pattern)) {
     const regex = new RegExp(schema.pattern);
     if (!regex.test(value)) {
-      yield Create(ValueErrorType.StringPattern, schema, path97, value);
+      yield Create(ValueErrorType.StringPattern, schema, path98, value);
     }
   }
   if (IsString2(schema.format)) {
     if (!format_exports.Has(schema.format)) {
-      yield Create(ValueErrorType.StringFormatUnknown, schema, path97, value);
+      yield Create(ValueErrorType.StringFormatUnknown, schema, path98, value);
     } else {
       const format2 = format_exports.Get(schema.format);
       if (!format2(value)) {
-        yield Create(ValueErrorType.StringFormat, schema, path97, value);
+        yield Create(ValueErrorType.StringFormat, schema, path98, value);
       }
     }
   }
 }
-function* FromSymbol3(schema, references, path97, value) {
+function* FromSymbol3(schema, references, path98, value) {
   if (!IsSymbol2(value))
-    yield Create(ValueErrorType.Symbol, schema, path97, value);
+    yield Create(ValueErrorType.Symbol, schema, path98, value);
 }
-function* FromTemplateLiteral5(schema, references, path97, value) {
+function* FromTemplateLiteral5(schema, references, path98, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path97, value);
+    return yield Create(ValueErrorType.String, schema, path98, value);
   const regex = new RegExp(schema.pattern);
   if (!regex.test(value)) {
-    yield Create(ValueErrorType.StringPattern, schema, path97, value);
+    yield Create(ValueErrorType.StringPattern, schema, path98, value);
   }
 }
-function* FromThis2(schema, references, path97, value) {
-  yield* Visit6(Deref(schema, references), references, path97, value);
+function* FromThis2(schema, references, path98, value) {
+  yield* Visit6(Deref(schema, references), references, path98, value);
 }
-function* FromTuple7(schema, references, path97, value) {
+function* FromTuple7(schema, references, path98, value) {
   if (!IsArray2(value))
-    return yield Create(ValueErrorType.Tuple, schema, path97, value);
+    return yield Create(ValueErrorType.Tuple, schema, path98, value);
   if (schema.items === void 0 && !(value.length === 0)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path97, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path98, value);
   }
   if (!(value.length === schema.maxItems)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path97, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path98, value);
   }
   if (!schema.items) {
     return;
   }
   for (let i = 0; i < schema.items.length; i++) {
-    yield* Visit6(schema.items[i], references, `${path97}/${i}`, value[i]);
+    yield* Visit6(schema.items[i], references, `${path98}/${i}`, value[i]);
   }
 }
-function* FromUndefined3(schema, references, path97, value) {
+function* FromUndefined3(schema, references, path98, value) {
   if (!IsUndefined2(value))
-    yield Create(ValueErrorType.Undefined, schema, path97, value);
+    yield Create(ValueErrorType.Undefined, schema, path98, value);
 }
-function* FromUnion12(schema, references, path97, value) {
+function* FromUnion12(schema, references, path98, value) {
   if (Check(schema, references, value))
     return;
-  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path97, value)));
-  yield Create(ValueErrorType.Union, schema, path97, value, errors2);
+  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path98, value)));
+  yield Create(ValueErrorType.Union, schema, path98, value, errors2);
 }
-function* FromUint8Array3(schema, references, path97, value) {
+function* FromUint8Array3(schema, references, path98, value) {
   if (!IsUint8Array2(value))
-    return yield Create(ValueErrorType.Uint8Array, schema, path97, value);
+    return yield Create(ValueErrorType.Uint8Array, schema, path98, value);
   if (IsDefined2(schema.maxByteLength) && !(value.length <= schema.maxByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path97, value);
+    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path98, value);
   }
   if (IsDefined2(schema.minByteLength) && !(value.length >= schema.minByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path97, value);
+    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path98, value);
   }
 }
-function* FromUnknown3(schema, references, path97, value) {
+function* FromUnknown3(schema, references, path98, value) {
 }
-function* FromVoid3(schema, references, path97, value) {
+function* FromVoid3(schema, references, path98, value) {
   if (!TypeSystemPolicy.IsVoidLike(value))
-    yield Create(ValueErrorType.Void, schema, path97, value);
+    yield Create(ValueErrorType.Void, schema, path98, value);
 }
-function* FromKind2(schema, references, path97, value) {
+function* FromKind2(schema, references, path98, value) {
   const check = type_exports2.Get(schema[Kind]);
   if (!check(schema, value))
-    yield Create(ValueErrorType.Kind, schema, path97, value);
+    yield Create(ValueErrorType.Kind, schema, path98, value);
 }
-function* Visit6(schema, references, path97, value) {
+function* Visit6(schema, references, path98, value) {
   const references_ = IsDefined2(schema.$id) ? [...references, schema] : references;
   const schema_ = schema;
   switch (schema_[Kind]) {
     case "Any":
-      return yield* FromAny3(schema_, references_, path97, value);
+      return yield* FromAny3(schema_, references_, path98, value);
     case "Argument":
-      return yield* FromArgument3(schema_, references_, path97, value);
+      return yield* FromArgument3(schema_, references_, path98, value);
     case "Array":
-      return yield* FromArray8(schema_, references_, path97, value);
+      return yield* FromArray8(schema_, references_, path98, value);
     case "AsyncIterator":
-      return yield* FromAsyncIterator5(schema_, references_, path97, value);
+      return yield* FromAsyncIterator5(schema_, references_, path98, value);
     case "BigInt":
-      return yield* FromBigInt3(schema_, references_, path97, value);
+      return yield* FromBigInt3(schema_, references_, path98, value);
     case "Boolean":
-      return yield* FromBoolean3(schema_, references_, path97, value);
+      return yield* FromBoolean3(schema_, references_, path98, value);
     case "Constructor":
-      return yield* FromConstructor5(schema_, references_, path97, value);
+      return yield* FromConstructor5(schema_, references_, path98, value);
     case "Date":
-      return yield* FromDate3(schema_, references_, path97, value);
+      return yield* FromDate3(schema_, references_, path98, value);
     case "Function":
-      return yield* FromFunction5(schema_, references_, path97, value);
+      return yield* FromFunction5(schema_, references_, path98, value);
     case "Import":
-      return yield* FromImport2(schema_, references_, path97, value);
+      return yield* FromImport2(schema_, references_, path98, value);
     case "Integer":
-      return yield* FromInteger3(schema_, references_, path97, value);
+      return yield* FromInteger3(schema_, references_, path98, value);
     case "Intersect":
-      return yield* FromIntersect10(schema_, references_, path97, value);
+      return yield* FromIntersect10(schema_, references_, path98, value);
     case "Iterator":
-      return yield* FromIterator5(schema_, references_, path97, value);
+      return yield* FromIterator5(schema_, references_, path98, value);
     case "Literal":
-      return yield* FromLiteral4(schema_, references_, path97, value);
+      return yield* FromLiteral4(schema_, references_, path98, value);
     case "Never":
-      return yield* FromNever3(schema_, references_, path97, value);
+      return yield* FromNever3(schema_, references_, path98, value);
     case "Not":
-      return yield* FromNot3(schema_, references_, path97, value);
+      return yield* FromNot3(schema_, references_, path98, value);
     case "Null":
-      return yield* FromNull3(schema_, references_, path97, value);
+      return yield* FromNull3(schema_, references_, path98, value);
     case "Number":
-      return yield* FromNumber3(schema_, references_, path97, value);
+      return yield* FromNumber3(schema_, references_, path98, value);
     case "Object":
-      return yield* FromObject9(schema_, references_, path97, value);
+      return yield* FromObject9(schema_, references_, path98, value);
     case "Promise":
-      return yield* FromPromise5(schema_, references_, path97, value);
+      return yield* FromPromise5(schema_, references_, path98, value);
     case "Record":
-      return yield* FromRecord5(schema_, references_, path97, value);
+      return yield* FromRecord5(schema_, references_, path98, value);
     case "Ref":
-      return yield* FromRef6(schema_, references_, path97, value);
+      return yield* FromRef6(schema_, references_, path98, value);
     case "RegExp":
-      return yield* FromRegExp3(schema_, references_, path97, value);
+      return yield* FromRegExp3(schema_, references_, path98, value);
     case "String":
-      return yield* FromString3(schema_, references_, path97, value);
+      return yield* FromString3(schema_, references_, path98, value);
     case "Symbol":
-      return yield* FromSymbol3(schema_, references_, path97, value);
+      return yield* FromSymbol3(schema_, references_, path98, value);
     case "TemplateLiteral":
-      return yield* FromTemplateLiteral5(schema_, references_, path97, value);
+      return yield* FromTemplateLiteral5(schema_, references_, path98, value);
     case "This":
-      return yield* FromThis2(schema_, references_, path97, value);
+      return yield* FromThis2(schema_, references_, path98, value);
     case "Tuple":
-      return yield* FromTuple7(schema_, references_, path97, value);
+      return yield* FromTuple7(schema_, references_, path98, value);
     case "Undefined":
-      return yield* FromUndefined3(schema_, references_, path97, value);
+      return yield* FromUndefined3(schema_, references_, path98, value);
     case "Union":
-      return yield* FromUnion12(schema_, references_, path97, value);
+      return yield* FromUnion12(schema_, references_, path98, value);
     case "Uint8Array":
-      return yield* FromUint8Array3(schema_, references_, path97, value);
+      return yield* FromUint8Array3(schema_, references_, path98, value);
     case "Unknown":
-      return yield* FromUnknown3(schema_, references_, path97, value);
+      return yield* FromUnknown3(schema_, references_, path98, value);
     case "Void":
-      return yield* FromVoid3(schema_, references_, path97, value);
+      return yield* FromVoid3(schema_, references_, path98, value);
     default:
       if (!type_exports2.Has(schema_[Kind]))
         throw new ValueErrorsUnknownTypeError(schema);
-      return yield* FromKind2(schema_, references_, path97, value);
+      return yield* FromKind2(schema_, references_, path98, value);
   }
 }
 function Errors(...args) {
@@ -8949,50 +8953,50 @@ var init_convert2 = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/decode.mjs
-function Default3(schema, path97, value) {
+function Default3(schema, path98, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Decode(value) : value;
   } catch (error) {
-    throw new TransformDecodeError(schema, path97, value, error);
+    throw new TransformDecodeError(schema, path98, value, error);
   }
 }
-function FromArray14(schema, references, path97, value) {
-  return IsArray2(value) ? Default3(schema, path97, value.map((value2, index) => Visit11(schema.items, references, `${path97}/${index}`, value2))) : Default3(schema, path97, value);
+function FromArray14(schema, references, path98, value) {
+  return IsArray2(value) ? Default3(schema, path98, value.map((value2, index) => Visit11(schema.items, references, `${path98}/${index}`, value2))) : Default3(schema, path98, value);
 }
-function FromIntersect15(schema, references, path97, value) {
+function FromIntersect15(schema, references, path98, value) {
   if (!IsObject2(value) || IsValueType(value))
-    return Default3(schema, path97, value);
+    return Default3(schema, path98, value);
   const knownEntries = KeyOfPropertyEntries(schema);
   const knownKeys = knownEntries.map((entry) => entry[0]);
   const knownProperties = { ...value };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit11(knownSchema, references, `${path97}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit11(knownSchema, references, `${path98}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
-    return Default3(schema, path97, knownProperties);
+    return Default3(schema, path98, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const unevaluatedProperties = schema.unevaluatedProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(unevaluatedProperties, `${path97}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(unevaluatedProperties, `${path98}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path97, unknownProperties);
+  return Default3(schema, path98, unknownProperties);
 }
-function FromImport7(schema, references, path97, value) {
+function FromImport7(schema, references, path98, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Visit11(target, [...references, ...additional], path97, value);
-  return Default3(schema, path97, result4);
+  const result4 = Visit11(target, [...references, ...additional], path98, value);
+  return Default3(schema, path98, result4);
 }
-function FromNot5(schema, references, path97, value) {
-  return Default3(schema, path97, Visit11(schema.not, references, path97, value));
+function FromNot5(schema, references, path98, value) {
+  return Default3(schema, path98, Visit11(schema.not, references, path98, value));
 }
-function FromObject15(schema, references, path97, value) {
+function FromObject15(schema, references, path98, value) {
   if (!IsObject2(value))
-    return Default3(schema, path97, value);
+    return Default3(schema, path98, value);
   const knownKeys = KeyOfPropertyKeys(schema);
   const knownProperties = { ...value };
   for (const key of knownKeys) {
@@ -9000,90 +9004,90 @@ function FromObject15(schema, references, path97, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit11(schema.properties[key], references, `${path97}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit11(schema.properties[key], references, `${path98}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path97, knownProperties);
+    return Default3(schema, path98, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path97}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path98}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path97, unknownProperties);
+  return Default3(schema, path98, unknownProperties);
 }
-function FromRecord10(schema, references, path97, value) {
+function FromRecord10(schema, references, path98, value) {
   if (!IsObject2(value))
-    return Default3(schema, path97, value);
+    return Default3(schema, path98, value);
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
   const knownKeys = new RegExp(pattern);
   const knownProperties = { ...value };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path97}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path98}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path97, knownProperties);
+    return Default3(schema, path98, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path97}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path98}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path97, unknownProperties);
+  return Default3(schema, path98, unknownProperties);
 }
-function FromRef11(schema, references, path97, value) {
+function FromRef11(schema, references, path98, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path97, Visit11(target, references, path97, value));
+  return Default3(schema, path98, Visit11(target, references, path98, value));
 }
-function FromThis7(schema, references, path97, value) {
+function FromThis7(schema, references, path98, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path97, Visit11(target, references, path97, value));
+  return Default3(schema, path98, Visit11(target, references, path98, value));
 }
-function FromTuple12(schema, references, path97, value) {
-  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path97, schema.items.map((schema2, index) => Visit11(schema2, references, `${path97}/${index}`, value[index]))) : Default3(schema, path97, value);
+function FromTuple12(schema, references, path98, value) {
+  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path98, schema.items.map((schema2, index) => Visit11(schema2, references, `${path98}/${index}`, value[index]))) : Default3(schema, path98, value);
 }
-function FromUnion17(schema, references, path97, value) {
+function FromUnion17(schema, references, path98, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const decoded = Visit11(subschema, references, path97, value);
-    return Default3(schema, path97, decoded);
+    const decoded = Visit11(subschema, references, path98, value);
+    return Default3(schema, path98, decoded);
   }
-  return Default3(schema, path97, value);
+  return Default3(schema, path98, value);
 }
-function Visit11(schema, references, path97, value) {
+function Visit11(schema, references, path98, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray14(schema_, references_, path97, value);
+      return FromArray14(schema_, references_, path98, value);
     case "Import":
-      return FromImport7(schema_, references_, path97, value);
+      return FromImport7(schema_, references_, path98, value);
     case "Intersect":
-      return FromIntersect15(schema_, references_, path97, value);
+      return FromIntersect15(schema_, references_, path98, value);
     case "Not":
-      return FromNot5(schema_, references_, path97, value);
+      return FromNot5(schema_, references_, path98, value);
     case "Object":
-      return FromObject15(schema_, references_, path97, value);
+      return FromObject15(schema_, references_, path98, value);
     case "Record":
-      return FromRecord10(schema_, references_, path97, value);
+      return FromRecord10(schema_, references_, path98, value);
     case "Ref":
-      return FromRef11(schema_, references_, path97, value);
+      return FromRef11(schema_, references_, path98, value);
     case "Symbol":
-      return Default3(schema_, path97, value);
+      return Default3(schema_, path98, value);
     case "This":
-      return FromThis7(schema_, references_, path97, value);
+      return FromThis7(schema_, references_, path98, value);
     case "Tuple":
-      return FromTuple12(schema_, references_, path97, value);
+      return FromTuple12(schema_, references_, path98, value);
     case "Union":
-      return FromUnion17(schema_, references_, path97, value);
+      return FromUnion17(schema_, references_, path98, value);
     default:
-      return Default3(schema_, path97, value);
+      return Default3(schema_, path98, value);
   }
 }
 function TransformDecode(schema, references, value) {
@@ -9109,10 +9113,10 @@ var init_decode = __esm({
       }
     };
     TransformDecodeError = class extends TypeBoxError {
-      constructor(schema, path97, value, error) {
+      constructor(schema, path98, value, error) {
         super(error instanceof Error ? error.message : "Unknown error");
         this.schema = schema;
-        this.path = path97;
+        this.path = path98;
         this.value = value;
         this.error = error;
       }
@@ -9121,25 +9125,25 @@ var init_decode = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/encode.mjs
-function Default4(schema, path97, value) {
+function Default4(schema, path98, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Encode(value) : value;
   } catch (error) {
-    throw new TransformEncodeError(schema, path97, value, error);
+    throw new TransformEncodeError(schema, path98, value, error);
   }
 }
-function FromArray15(schema, references, path97, value) {
-  const defaulted = Default4(schema, path97, value);
-  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path97}/${index}`, value2)) : defaulted;
+function FromArray15(schema, references, path98, value) {
+  const defaulted = Default4(schema, path98, value);
+  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path98}/${index}`, value2)) : defaulted;
 }
-function FromImport8(schema, references, path97, value) {
+function FromImport8(schema, references, path98, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Default4(schema, path97, value);
-  return Visit12(target, [...references, ...additional], path97, result4);
+  const result4 = Default4(schema, path98, value);
+  return Visit12(target, [...references, ...additional], path98, result4);
 }
-function FromIntersect16(schema, references, path97, value) {
-  const defaulted = Default4(schema, path97, value);
+function FromIntersect16(schema, references, path98, value) {
+  const defaulted = Default4(schema, path98, value);
   if (!IsObject2(value) || IsValueType(value))
     return defaulted;
   const knownEntries = KeyOfPropertyEntries(schema);
@@ -9147,7 +9151,7 @@ function FromIntersect16(schema, references, path97, value) {
   const knownProperties = { ...defaulted };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit12(knownSchema, references, `${path97}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit12(knownSchema, references, `${path98}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
     return knownProperties;
@@ -9157,15 +9161,15 @@ function FromIntersect16(schema, references, path97, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(unevaluatedProperties, `${path97}/${key}`, properties[key]);
+      properties[key] = Default4(unevaluatedProperties, `${path98}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromNot6(schema, references, path97, value) {
-  return Default4(schema.not, path97, Default4(schema, path97, value));
+function FromNot6(schema, references, path98, value) {
+  return Default4(schema.not, path98, Default4(schema, path98, value));
 }
-function FromObject16(schema, references, path97, value) {
-  const defaulted = Default4(schema, path97, value);
+function FromObject16(schema, references, path98, value) {
+  const defaulted = Default4(schema, path98, value);
   if (!IsObject2(defaulted))
     return defaulted;
   const knownKeys = KeyOfPropertyKeys(schema);
@@ -9175,7 +9179,7 @@ function FromObject16(schema, references, path97, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit12(schema.properties[key], references, `${path97}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit12(schema.properties[key], references, `${path98}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9185,12 +9189,12 @@ function FromObject16(schema, references, path97, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(additionalProperties, `${path97}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path98}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRecord11(schema, references, path97, value) {
-  const defaulted = Default4(schema, path97, value);
+function FromRecord11(schema, references, path98, value) {
+  const defaulted = Default4(schema, path98, value);
   if (!IsObject2(value))
     return defaulted;
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
@@ -9198,7 +9202,7 @@ function FromRecord11(schema, references, path97, value) {
   const knownProperties = { ...defaulted };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path97}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path98}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9208,65 +9212,65 @@ function FromRecord11(schema, references, path97, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      properties[key] = Default4(additionalProperties, `${path97}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path98}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRef12(schema, references, path97, value) {
+function FromRef12(schema, references, path98, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path97, value);
-  return Default4(schema, path97, resolved);
+  const resolved = Visit12(target, references, path98, value);
+  return Default4(schema, path98, resolved);
 }
-function FromThis8(schema, references, path97, value) {
+function FromThis8(schema, references, path98, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path97, value);
-  return Default4(schema, path97, resolved);
+  const resolved = Visit12(target, references, path98, value);
+  return Default4(schema, path98, resolved);
 }
-function FromTuple13(schema, references, path97, value) {
-  const value1 = Default4(schema, path97, value);
-  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path97}/${index}`, value1[index])) : [];
+function FromTuple13(schema, references, path98, value) {
+  const value1 = Default4(schema, path98, value);
+  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path98}/${index}`, value1[index])) : [];
 }
-function FromUnion18(schema, references, path97, value) {
+function FromUnion18(schema, references, path98, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const value1 = Visit12(subschema, references, path97, value);
-    return Default4(schema, path97, value1);
+    const value1 = Visit12(subschema, references, path98, value);
+    return Default4(schema, path98, value1);
   }
   for (const subschema of schema.anyOf) {
-    const value1 = Visit12(subschema, references, path97, value);
+    const value1 = Visit12(subschema, references, path98, value);
     if (!Check(schema, references, value1))
       continue;
-    return Default4(schema, path97, value1);
+    return Default4(schema, path98, value1);
   }
-  return Default4(schema, path97, value);
+  return Default4(schema, path98, value);
 }
-function Visit12(schema, references, path97, value) {
+function Visit12(schema, references, path98, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray15(schema_, references_, path97, value);
+      return FromArray15(schema_, references_, path98, value);
     case "Import":
-      return FromImport8(schema_, references_, path97, value);
+      return FromImport8(schema_, references_, path98, value);
     case "Intersect":
-      return FromIntersect16(schema_, references_, path97, value);
+      return FromIntersect16(schema_, references_, path98, value);
     case "Not":
-      return FromNot6(schema_, references_, path97, value);
+      return FromNot6(schema_, references_, path98, value);
     case "Object":
-      return FromObject16(schema_, references_, path97, value);
+      return FromObject16(schema_, references_, path98, value);
     case "Record":
-      return FromRecord11(schema_, references_, path97, value);
+      return FromRecord11(schema_, references_, path98, value);
     case "Ref":
-      return FromRef12(schema_, references_, path97, value);
+      return FromRef12(schema_, references_, path98, value);
     case "This":
-      return FromThis8(schema_, references_, path97, value);
+      return FromThis8(schema_, references_, path98, value);
     case "Tuple":
-      return FromTuple13(schema_, references_, path97, value);
+      return FromTuple13(schema_, references_, path98, value);
     case "Union":
-      return FromUnion18(schema_, references_, path97, value);
+      return FromUnion18(schema_, references_, path98, value);
     default:
-      return Default4(schema_, path97, value);
+      return Default4(schema_, path98, value);
   }
 }
 function TransformEncode(schema, references, value) {
@@ -9292,10 +9296,10 @@ var init_encode = __esm({
       }
     };
     TransformEncodeError = class extends TypeBoxError {
-      constructor(schema, path97, value, error) {
+      constructor(schema, path98, value, error) {
         super(`${error instanceof Error ? error.message : "Unknown error"}`);
         this.schema = schema;
-        this.path = path97;
+        this.path = path98;
         this.value = value;
         this.error = error;
       }
@@ -9695,18 +9699,18 @@ var init_pointer = __esm({
   "node_modules/@sinclair/typebox/build/esm/value/pointer/pointer.mjs"() {
     init_error2();
     ValuePointerRootSetError = class extends TypeBoxError {
-      constructor(value, path97, update) {
+      constructor(value, path98, update) {
         super("Cannot set root value");
         this.value = value;
-        this.path = path97;
+        this.path = path98;
         this.update = update;
       }
     };
     ValuePointerRootDeleteError = class extends TypeBoxError {
-      constructor(value, path97) {
+      constructor(value, path98) {
         super("Cannot delete root value");
         this.value = value;
-        this.path = path97;
+        this.path = path98;
       }
     };
   }
@@ -9765,82 +9769,82 @@ var init_equal = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/delta/delta.mjs
-function CreateUpdate(path97, value) {
-  return { type: "update", path: path97, value };
+function CreateUpdate(path98, value) {
+  return { type: "update", path: path98, value };
 }
-function CreateInsert(path97, value) {
-  return { type: "insert", path: path97, value };
+function CreateInsert(path98, value) {
+  return { type: "insert", path: path98, value };
 }
-function CreateDelete(path97) {
-  return { type: "delete", path: path97 };
+function CreateDelete(path98) {
+  return { type: "delete", path: path98 };
 }
 function AssertDiffable(value) {
   if (globalThis.Object.getOwnPropertySymbols(value).length > 0)
     throw new ValueDiffError(value, "Cannot diff objects with symbols");
 }
-function* ObjectType4(path97, current, next) {
+function* ObjectType4(path98, current, next) {
   AssertDiffable(current);
   AssertDiffable(next);
   if (!IsStandardObject(next))
-    return yield CreateUpdate(path97, next);
+    return yield CreateUpdate(path98, next);
   const currentKeys = globalThis.Object.getOwnPropertyNames(current);
   const nextKeys = globalThis.Object.getOwnPropertyNames(next);
   for (const key of nextKeys) {
     if (HasPropertyKey2(current, key))
       continue;
-    yield CreateInsert(`${path97}/${key}`, next[key]);
+    yield CreateInsert(`${path98}/${key}`, next[key]);
   }
   for (const key of currentKeys) {
     if (!HasPropertyKey2(next, key))
       continue;
     if (Equal(current, next))
       continue;
-    yield* Visit15(`${path97}/${key}`, current[key], next[key]);
+    yield* Visit15(`${path98}/${key}`, current[key], next[key]);
   }
   for (const key of currentKeys) {
     if (HasPropertyKey2(next, key))
       continue;
-    yield CreateDelete(`${path97}/${key}`);
+    yield CreateDelete(`${path98}/${key}`);
   }
 }
-function* ArrayType4(path97, current, next) {
+function* ArrayType4(path98, current, next) {
   if (!IsArray2(next))
-    return yield CreateUpdate(path97, next);
+    return yield CreateUpdate(path98, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path97}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path98}/${i}`, current[i], next[i]);
   }
   for (let i = 0; i < next.length; i++) {
     if (i < current.length)
       continue;
-    yield CreateInsert(`${path97}/${i}`, next[i]);
+    yield CreateInsert(`${path98}/${i}`, next[i]);
   }
   for (let i = current.length - 1; i >= 0; i--) {
     if (i < next.length)
       continue;
-    yield CreateDelete(`${path97}/${i}`);
+    yield CreateDelete(`${path98}/${i}`);
   }
 }
-function* TypedArrayType2(path97, current, next) {
+function* TypedArrayType2(path98, current, next) {
   if (!IsTypedArray(next) || current.length !== next.length || globalThis.Object.getPrototypeOf(current).constructor.name !== globalThis.Object.getPrototypeOf(next).constructor.name)
-    return yield CreateUpdate(path97, next);
+    return yield CreateUpdate(path98, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path97}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path98}/${i}`, current[i], next[i]);
   }
 }
-function* ValueType2(path97, current, next) {
+function* ValueType2(path98, current, next) {
   if (current === next)
     return;
-  yield CreateUpdate(path97, next);
+  yield CreateUpdate(path98, next);
 }
-function* Visit15(path97, current, next) {
+function* Visit15(path98, current, next) {
   if (IsStandardObject(current))
-    return yield* ObjectType4(path97, current, next);
+    return yield* ObjectType4(path98, current, next);
   if (IsArray2(current))
-    return yield* ArrayType4(path97, current, next);
+    return yield* ArrayType4(path98, current, next);
   if (IsTypedArray(current))
-    return yield* TypedArrayType2(path97, current, next);
+    return yield* TypedArrayType2(path98, current, next);
   if (IsValueType(current))
-    return yield* ValueType2(path97, current, next);
+    return yield* ValueType2(path98, current, next);
   throw new ValueDiffError(current, "Unable to diff value");
 }
 function Diff(current, next) {
@@ -9956,9 +9960,9 @@ var init_equal2 = __esm({
 function IsStandardObject2(value) {
   return IsObject2(value) && !IsArray2(value);
 }
-function ObjectType5(root, path97, current, next) {
+function ObjectType5(root, path98, current, next) {
   if (!IsStandardObject2(current)) {
-    pointer_exports.Set(root, path97, Clone2(next));
+    pointer_exports.Set(root, path98, Clone2(next));
   } else {
     const currentKeys = Object.getOwnPropertyNames(current);
     const nextKeys = Object.getOwnPropertyNames(next);
@@ -9973,43 +9977,43 @@ function ObjectType5(root, path97, current, next) {
       }
     }
     for (const nextKey of nextKeys) {
-      Visit16(root, `${path97}/${nextKey}`, current[nextKey], next[nextKey]);
+      Visit16(root, `${path98}/${nextKey}`, current[nextKey], next[nextKey]);
     }
   }
 }
-function ArrayType5(root, path97, current, next) {
+function ArrayType5(root, path98, current, next) {
   if (!IsArray2(current)) {
-    pointer_exports.Set(root, path97, Clone2(next));
+    pointer_exports.Set(root, path98, Clone2(next));
   } else {
     for (let index = 0; index < next.length; index++) {
-      Visit16(root, `${path97}/${index}`, current[index], next[index]);
+      Visit16(root, `${path98}/${index}`, current[index], next[index]);
     }
     current.splice(next.length);
   }
 }
-function TypedArrayType3(root, path97, current, next) {
+function TypedArrayType3(root, path98, current, next) {
   if (IsTypedArray(current) && current.length === next.length) {
     for (let i = 0; i < current.length; i++) {
       current[i] = next[i];
     }
   } else {
-    pointer_exports.Set(root, path97, Clone2(next));
+    pointer_exports.Set(root, path98, Clone2(next));
   }
 }
-function ValueType3(root, path97, current, next) {
+function ValueType3(root, path98, current, next) {
   if (current === next)
     return;
-  pointer_exports.Set(root, path97, next);
+  pointer_exports.Set(root, path98, next);
 }
-function Visit16(root, path97, current, next) {
+function Visit16(root, path98, current, next) {
   if (IsArray2(next))
-    return ArrayType5(root, path97, current, next);
+    return ArrayType5(root, path98, current, next);
   if (IsTypedArray(next))
-    return TypedArrayType3(root, path97, current, next);
+    return TypedArrayType3(root, path98, current, next);
   if (IsStandardObject2(next))
-    return ObjectType5(root, path97, current, next);
+    return ObjectType5(root, path98, current, next);
   if (IsValueType(next))
-    return ValueType3(root, path97, current, next);
+    return ValueType3(root, path98, current, next);
 }
 function IsNonMutableValue(value) {
   return IsTypedArray(value) || IsValueType(value);
@@ -10208,7 +10212,7 @@ var init_validation_types = __esm({
 });
 
 // src/schema/config-schema.ts
-var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsModelFallbackConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, CrewBrokerConfigSchema, PiTeamsConfigSchema;
+var PiTeamsAutonomyProfileSchema, PiTeamsAutonomousConfigSchema, PiTeamsLimitsConfigSchema, PiTeamsModelFallbackConfigSchema, PiTeamsRuntimeConfigSchema, PiTeamsControlConfigSchema, PiTeamsWorktreeConfigSchema, GoalWrapWorkflowConfigSchema, PiTeamsGoalWrapConfigSchema, AgentOverrideSchema, PiTeamsAgentsConfigSchema, PiTeamsToolsConfigSchema, PiTeamsTelemetryConfigSchema, PiTeamsPolicyConfigSchema, PiTeamsNotificationsConfigSchema, PiTeamsObservabilityConfigSchema, PiTeamsReliabilityConfigSchema, PiTeamsOtlpConfigSchema, PiTeamsUiConfigSchema, CrewBrokerConfigSchema, PiTeamsNestingConfigSchema, PiTeamsConfigSchema;
 var init_config_schema = __esm({
   "src/schema/config-schema.ts"() {
     "use strict";
@@ -10501,6 +10505,17 @@ var init_config_schema = __esm({
       },
       { additionalProperties: false }
     );
+    PiTeamsNestingConfigSchema = Type.Object(
+      {
+        // Privilege-raising flag (spawns grandchildren): project-level config must
+        // not be able to enable it — sensitive → user config only (ADR-5 §12 posture,
+        // same treatment as autonomous.enabled / broker gates).
+        enabled: Type.Optional(Type.Boolean({ sensitive: true })),
+        maxSlots: Type.Optional(Type.Integer({ minimum: 1, maximum: 64 })),
+        maxDepth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 }))
+      },
+      { additionalProperties: false }
+    );
     PiTeamsConfigSchema = Type.Object(
       {
         asyncByDefault: Type.Optional(Type.Boolean({ sensitive: true })),
@@ -10523,7 +10538,8 @@ var init_config_schema = __esm({
         reliability: Type.Optional(PiTeamsReliabilityConfigSchema),
         otlp: Type.Optional(PiTeamsOtlpConfigSchema),
         ui: Type.Optional(PiTeamsUiConfigSchema),
-        broker: Type.Optional(CrewBrokerConfigSchema)
+        broker: Type.Optional(CrewBrokerConfigSchema),
+        nesting: Type.Optional(PiTeamsNestingConfigSchema)
       },
       { additionalProperties: false }
     );
@@ -10596,14 +10612,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!value_exports2.Check(PiTeamsConfigSchema, raw)) {
     return [...value_exports2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path97 = errorPathFromValidation(error);
+      const path98 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path97.split("/").pop() ?? path97;
+        const offendingKey = path98.split("/").pop() ?? path98;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path97}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path98}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path97}: ${message}`;
+      return `${path98}: ${message}`;
     });
   }
   return [];
@@ -10730,6 +10746,16 @@ function parseLimitsConfig(value) {
     serializeOnPathOverlap: parseWithSchema(Type.Boolean(), obj.serializeOnPathOverlap)
   };
   return Object.values(limits).some((entry) => entry !== void 0) ? limits : void 0;
+}
+function parseNestingConfig(value) {
+  const obj = asRecord(value);
+  if (!obj) return void 0;
+  const nesting = {
+    enabled: parseWithSchema(Type.Boolean(), obj.enabled),
+    maxSlots: parsePositiveInteger(obj.maxSlots, LIMIT_CEILINGS.nestingMaxSlots),
+    maxDepth: parsePositiveInteger(obj.maxDepth, LIMIT_CEILINGS.nestingMaxDepth)
+  };
+  return Object.values(nesting).some((entry) => entry !== void 0) ? nesting : void 0;
 }
 function parseIsolationPolicy(value) {
   const obj = asRecord(value);
@@ -11062,6 +11088,7 @@ function parseConfig(raw) {
     ignoreMethod: parseWithSchema(Type.Union([Type.Literal("gitignore"), Type.Literal("exclude")]), obj.ignoreMethod),
     autonomous: parseAutonomousConfig(obj.autonomous),
     limits: parseLimitsConfig(obj.limits),
+    nesting: parseNestingConfig(obj.nesting),
     runtime: parseRuntimeConfig(obj.runtime),
     control: parseControlConfig(obj.control),
     worktree: parseWorktreeConfig(obj.worktree),
@@ -11107,7 +11134,9 @@ var init_config_validation = __esm({
       // RT-NEW-1: taskTimeoutMs is in MILLISECONDS — it must NOT reuse runtimeMaxTurns
       // (10_000 turns), which capped the effective timeout at 10s and silently disabled
       // any larger value (e.g. 300_000 = 5min) via parsePositiveInteger returning undefined.
-      runtimeTaskTimeoutMs: 24 * 60 * 60 * 1e3
+      runtimeTaskTimeoutMs: 24 * 60 * 60 * 1e3,
+      nestingMaxSlots: 64,
+      nestingMaxDepth: 10
     };
     DANGEROUS_OBJECT_KEYS = /* @__PURE__ */ new Set([
       "__proto__",
@@ -11147,6 +11176,12 @@ function mergeConfig(base, override) {
     merged.broker = {
       ...base.broker ?? {},
       ...withoutUndefined(override.broker ?? {})
+    };
+  }
+  if (base.nesting || override.nesting) {
+    merged.nesting = {
+      ...base.nesting ?? {},
+      ...withoutUndefined(override.nesting ?? {})
     };
   }
   if (base.limits || override.limits) {
@@ -11549,6 +11584,9 @@ function projectConfigPath(cwd) {
 function projectPiCrewJsonPath(cwd) {
   return path5.join(projectPiRoot(cwd), "pi-crew.json");
 }
+function applyNestingDefaults(parsed) {
+  return { ...DEFAULT_NESTING, ...parsed };
+}
 function applyBrokerEnvOverrideAndDefaults(parsed) {
   const envOverridden = resolveBrokerEnvOverride(parsed);
   return { ...DEFAULT_BROKER, ...envOverridden };
@@ -11661,7 +11699,8 @@ function loadConfig(cwd) {
       // Phase 0 broker: layer in env override + defaults. Env wins over
       // config; defaults fill any missing field. Env `"1"`/`"0"` forces
       // the enabled flag even when no broker block is configured.
-      broker: applyBrokerEnvOverrideAndDefaults(config.broker)
+      broker: applyBrokerEnvOverrideAndDefaults(config.broker),
+      nesting: applyNestingDefaults(config.nesting)
     },
     warnings: warnings.length > 0 ? warnings : void 0
   };
@@ -13043,16 +13082,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path97 = "";
+  let path98 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path97 = scpLikeMatch[2] ?? "";
+    path98 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path97 = parsed.pathname.replace(/^\/+/, "");
+      path98 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -13062,13 +13101,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path97 = repoWithoutRef.slice(slashIndex + 1);
+    path98 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path97.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path98.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -14838,6 +14877,7 @@ function buildPiWorkerArgs(input) {
     if ((input.agent.source === "project" || input.agent.source === "project-pi") && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
       allowed = allowed.filter((ext) => path17.resolve(ext) === path17.resolve(PROMPT_RUNTIME_EXTENSION_PATH));
     }
+    allowed = [];
     for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
   } else {
     args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
@@ -15835,7 +15875,7 @@ function buildFinalChildPiSpawnOptions(cwd, mergedEnv, builtEnv, model) {
   spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
   return spawnOptions;
 }
-function prepareSpawnContext(input, effectiveTask) {
+function prepareSpawnContext(input, effectiveTask, depthEnv) {
   const built = buildPiWorkerArgs({
     task: effectiveTask,
     agent: input.agent,
@@ -15844,12 +15884,20 @@ function prepareSpawnContext(input, effectiveTask) {
     maxDepth: input.maxDepth,
     skillPaths: input.skillPaths,
     role: input.role,
-    thinkingOverride: input.thinkingOverride
+    thinkingOverride: input.thinkingOverride,
+    // ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
+    // (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
+    // child env gets parentDepth+1 = the true grandchild depth.
+    env: depthEnv
   });
   if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
   if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
   if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
   built.env.PI_CREW_ASK_ENABLED = "1";
+  const childDepth = Number(built.env.PI_CREW_DEPTH ?? "1");
+  if (childDepth <= 1 && (input.role === "executor" || input.role === "test-engineer")) {
+    built.env.PI_CREW_DELEGATE_ENABLED = "1";
+  }
   if (input.eventsPath) built.env.PI_CREW_STATE_ROOT = path18.dirname(input.eventsPath);
   if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
     built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
@@ -17210,7 +17258,12 @@ async function runChildPi(input) {
 ---
 # Child Worker Task
 ${input.task}` : input.task;
-  const depth = checkCrewDepth(input.maxDepth);
+  const depthEnv = input.depthOverride !== void 0 ? {
+    ...input.env ?? process.env,
+    PI_CREW_DEPTH: String(input.depthOverride - 1),
+    PI_TEAMS_DEPTH: String(input.depthOverride - 1)
+  } : void 0;
+  const depth = checkCrewDepth(input.maxDepth, depthEnv);
   if (depth.blocked)
     return {
       exitCode: 1,
@@ -17223,7 +17276,7 @@ ${input.task}` : input.task;
   const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
   if (!brokerSpawn && brokerIssuer && input.runId) {
     try {
-      brokerSpawn = await brokerIssuer(input.runId, input.agentId);
+      brokerSpawn = await brokerIssuer(input.runId, input.agentId, input.depthOverride);
     } catch (error) {
       logInternalError(
         "child-pi.broker-issuer-failed",
@@ -17233,7 +17286,7 @@ ${input.task}` : input.task;
       brokerSpawn = void 0;
     }
   }
-  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask);
+  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
   if (spawnPrep.kind === "aborted") return spawnPrep.result;
   const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
   try {
@@ -18532,13 +18585,13 @@ var init_errors3 = __esm({
       }
     };
     errors = {
-      fileRead(path97, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path97}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path98, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path98}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path97, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path97}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path98, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path98}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -22945,26 +22998,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs33 from "node:fs";
-function cacheKey(path97, options) {
-  return `${path97}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path98, options) {
+  return `${path98}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path97, options = {}) {
+function getTranscriptCacheEntry(path98, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path97, normalized)) ?? transcriptCache.get(path97);
+  return transcriptCache.get(cacheKey(path98, normalized)) ?? transcriptCache.get(path98);
 }
-function readTranscriptText(path97, stat2, options) {
+function readTranscriptText(path98, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs33.readFileSync(path97, "utf-8"),
+      text: fs33.readFileSync(path98, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs33.openSync(path97, "r");
+  const fd = fs33.openSync(path98, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs33.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -22976,16 +23029,16 @@ function readTranscriptText(path97, stat2, options) {
     fs33.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path97, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path98, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path97, normalized);
+  const key = cacheKey(path98, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs33.statSync(path97);
+    stat2 = fs33.statSync(path98);
   } catch {
     return previous?.lines ?? [];
   }
@@ -22994,10 +23047,10 @@ function readTranscriptLinesCached(path97, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path97, stat2, normalized);
+    const read = readTranscriptText(path98, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path97,
+      path: path98,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -26820,17 +26873,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path97 = getSkillActivationsPath(cwd, activation.runId);
+  const path98 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync4(path97, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync4(path98, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path97 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync27(path97)) {
+  const path98 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync27(path98)) {
     return [];
   }
-  const content = readFileSync30(path97, "utf-8");
+  const content = readFileSync30(path98, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -29277,11 +29330,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path97, field, reason) {
-  return { path: path97, field, reason, severity: "error" };
+function hard(path98, field, reason) {
+  return { path: path98, field, reason, severity: "error" };
 }
-function warn(path97, field, reason) {
-  return { path: path97, field, reason, severity: "warn" };
+function warn(path98, field, reason) {
+  return { path: path98, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -33453,8 +33506,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path97) {
-      let input = path97;
+    function removeDotSegments(path98) {
+      let input = path98;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -33706,8 +33759,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path97, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path97 && path97 !== "/" ? path97 : void 0;
+        const [path98, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path98 && path98 !== "/" ? path98 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -40535,11 +40588,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path97 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path98 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path97, key];
+    const childPath = [...path98, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -40551,8 +40604,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path97 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path97) {
-  return path97.length === 4 && path97[0] === "agents" && path97[1] === "overrides";
+function isAgentOverrideKeyPath(path98) {
+  return path98.length === 4 && path98[0] === "agents" && path98[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -43406,7 +43459,7 @@ answer:
 ${body}
 </dependency-context>`;
 }
-var ASK_TIMEOUT_SEC_MAX, ASK_QUESTION_MAX_CHARS, ASK_OPTIONS_MAX, ASK_OPTION_MAX_CHARS, ASK_ANSWER_MAX_CHARS, ASK_CONTROL_CHAR_PATTERN, AskParams;
+var ASK_TIMEOUT_SEC_MAX, ASK_QUESTION_MAX_CHARS, ASK_OPTIONS_MAX, ASK_OPTION_MAX_CHARS, ASK_ANSWER_MAX_CHARS, ASK_CONTROL_CHAR_PATTERN, AskParams, DELEGATE_TIMEOUT_SEC_MAX, DELEGATE_PROMPT_MAX_CHARS, DELEGATE_DESC_MAX_CHARS, DelegateParams;
 var init_prompt_runtime = __esm({
   "src/prompt/prompt-runtime.ts"() {
     "use strict";
@@ -43432,6 +43485,18 @@ var init_prompt_runtime = __esm({
         Type.Array(Type.String({ minLength: 1, maxLength: ASK_OPTION_MAX_CHARS }), { minItems: 1, maxItems: ASK_OPTIONS_MAX })
       ),
       timeoutSec: Type.Optional(Type.Number({ minimum: 1, maximum: ASK_TIMEOUT_SEC_MAX }))
+    });
+    DELEGATE_TIMEOUT_SEC_MAX = 86400;
+    DELEGATE_PROMPT_MAX_CHARS = 32768;
+    DELEGATE_DESC_MAX_CHARS = 512;
+    DelegateParams = Type.Object({
+      description: Type.Optional(Type.String({ minLength: 1, maxLength: DELEGATE_DESC_MAX_CHARS })),
+      prompt: Type.String({ minLength: 1, maxLength: DELEGATE_PROMPT_MAX_CHARS }),
+      role: Type.Optional(Type.Union([Type.Literal("explorer"), Type.Literal("analyst"), Type.Literal("executor")])),
+      model: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+      maxTurns: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      budgetTokens: Type.Optional(Type.Integer({ minimum: 0, maximum: 1e8 })),
+      timeoutSec: Type.Optional(Type.Number({ minimum: 1, maximum: DELEGATE_TIMEOUT_SEC_MAX }))
     });
   }
 });
@@ -52107,9 +52172,9 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs121 = __require("node:fs");
-    if (dir && fs121.existsSync(dir)) {
-      for (const file of fs121.readdirSync(dir)) {
+    const fs122 = __require("node:fs");
+    if (dir && fs122.existsSync(dir)) {
+      for (const file of fs122.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -52117,7 +52182,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs121.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs122.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -52138,29 +52203,29 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs121 = __require("node:fs");
+    const fs122 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs121.existsSync(p)) return void 0;
-    const json = JSON.parse(fs121.readFileSync(p, "utf8"));
+    if (!p || !fs122.existsSync(p)) return void 0;
+    const json = JSON.parse(fs122.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs121 = __require("node:fs");
+  const fs122 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs121.existsSync(p)) {
-      settings = JSON.parse(fs121.readFileSync(p, "utf8"));
+    if (fs122.existsSync(p)) {
+      settings = JSON.parse(fs122.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs121.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs122.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -52211,8 +52276,8 @@ var init_theme_discovery = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path97, value) {
-  const keys = path97.split(".");
+function setNested(obj, path98, value) {
+  const keys = path98.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -52222,8 +52287,8 @@ function setNested(obj, path97, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path97) {
-  const keys = path97.split(".");
+function getNested(obj, path98) {
+  const keys = path98.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -53571,10 +53636,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path97 = goalFilePath(this.cwd, goalId);
+        const path98 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync57(path97)) return void 0;
-          const raw = readFileSync61(path97, "utf-8");
+          if (!existsSync57(path98)) return void 0;
+          const raw = readFileSync61(path98, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -53585,11 +53650,11 @@ var init_goal_state_store = __esm({
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
       save(state2, eventsPath) {
         assertSafePathId("goalId", state2.goalId);
-        const path97 = goalFilePath(this.cwd, state2.goalId);
+        const path98 = goalFilePath(this.cwd, state2.goalId);
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync34(dirname37(path97), { recursive: true });
-          atomicWriteJson(path97, next);
+          mkdirSync34(dirname37(path98), { recursive: true });
+          atomicWriteJson(path98, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
@@ -53686,9 +53751,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path97 = goalFilePath(this.cwd, goalId);
-          if (!existsSync57(path97)) return false;
-          unlinkSync7(path97);
+          const path98 = goalFilePath(this.cwd, goalId);
+          if (!existsSync57(path98)) return false;
+          unlinkSync7(path98);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -65278,10 +65343,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path97 = this.path;
+        const path98 = this.path;
         try {
-          if (!existsSync74(path97)) return void 0;
-          const raw = readFileSync77(path97, "utf-8");
+          if (!existsSync74(path98)) return void 0;
+          const raw = readFileSync77(path98, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -65291,11 +65356,11 @@ var init_dwf_state_store = __esm({
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
       save(state2) {
-        const path97 = this.path;
+        const path98 = this.path;
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync41(dirname42(path97), { recursive: true });
-          atomicWriteJson(path97, next);
+          mkdirSync41(dirname42(path98), { recursive: true });
+          atomicWriteJson(path98, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state2.runId}`);
           throw error;
@@ -65303,10 +65368,10 @@ var init_dwf_state_store = __esm({
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path97 = this.path;
+        const path98 = this.path;
         try {
-          if (!existsSync74(path97)) return;
-          unlinkSync12(path97);
+          if (!existsSync74(path98)) return;
+          unlinkSync12(path98);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -69968,8 +70033,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path97) {
-  const keys = path97.split(".");
+function getNestedValue(obj, path98) {
+  const keys = path98.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -73051,13 +73116,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks2(path97) {
+function readTasks2(path98) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs112.readFileSync(path97, "utf-8"));
+    const parsed = JSON.parse(fs112.readFileSync(path98, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path97, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path98, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -75910,10 +75975,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs121 = await import("node:fs/promises");
+    const fs122 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs121.readFile(filePath, "utf8");
+      content = await fs122.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -75923,7 +75988,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs121.writeFile(filePath, result4.content, "utf8");
+    await fs122.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -76556,17 +76621,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path97 = configPath2();
-    if (!existsSync78(path97)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync83(path97, "utf8")));
+    const path98 = configPath2();
+    if (!existsSync78(path98)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync83(path98, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path97 = configPath2();
-  mkdirSync44(dirname44(path97), { recursive: true });
-  writeFileSync10(path97, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path98 = configPath2();
+  mkdirSync44(dirname44(path98), { recursive: true });
+  writeFileSync10(path98, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -77863,9 +77928,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path97, listener, onError) {
+function watchWithErrorHandler(path98, listener, onError) {
   try {
-    const watcher = fs107.watch(path97, listener);
+    const watcher = fs107.watch(path98, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -79357,9 +79422,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path97, content) {
-  if (seenContent.has(path97)) seenContent.delete(path97);
-  seenContent.set(path97, content);
+function rememberSeen(path98, content) {
+  if (seenContent.has(path98)) seenContent.delete(path98);
+  seenContent.set(path98, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -79564,8 +79629,8 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs119 from "node:fs";
-import * as path96 from "node:path";
+import * as fs120 from "node:fs";
+import * as path97 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
 init_locks();
@@ -79679,12 +79744,217 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
   }
 }
 
+// src/runtime/delegate-spawn.ts
+init_child_pi();
+import * as fs117 from "node:fs";
+import * as path95 from "node:path";
+function agentForRole(role) {
+  return {
+    name: role,
+    description: `delegate grandchild (${role})`,
+    source: "builtin",
+    filePath: "",
+    systemPrompt: ""
+  };
+}
+function usageTokensFromEvent(event) {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return void 0;
+  const record = event;
+  if (record.type !== "message_end") return void 0;
+  const usage = record.usage ?? record.message?.usage;
+  if (!usage || typeof usage !== "object") return void 0;
+  let total = 0;
+  let seen = false;
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+    const value = usage[key];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      total += value;
+      seen = true;
+    }
+  }
+  return seen ? total : void 0;
+}
+async function spawnDelegateGrandchild(input) {
+  const artifactsRoot = path95.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
+  fs117.mkdirSync(artifactsRoot, { recursive: true });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), input.timeoutSec * 1e3);
+  timer.unref?.();
+  let usageTokens;
+  const onJsonEvent = (event) => {
+    const tokens = usageTokensFromEvent(event);
+    if (tokens !== void 0) usageTokens = (usageTokens ?? 0) + tokens;
+  };
+  try {
+    const result4 = await runChildPi({
+      cwd: input.cwd,
+      task: input.prompt,
+      agent: agentForRole(input.role),
+      // S1#2: thread the role so role-based tool restrictions apply.
+      role: input.role,
+      ...input.model !== void 0 ? { model: input.model } : {},
+      ...input.maxTurns !== void 0 ? { maxTurns: input.maxTurns } : {},
+      depthOverride: input.depthOverride,
+      runId: input.runId,
+      // S1#1: the grandchild carries its OWN identity + credentials —
+      // never the parent's task token.
+      agentId: input.subId,
+      ...input.brokerSpawn ? { brokerSpawn: input.brokerSpawn } : {},
+      ...input.eventsPath ? { eventsPath: input.eventsPath } : {},
+      // S2#1: namespaced artifacts via the typed field.
+      artifactsRoot,
+      signal: abort.signal,
+      onJsonEvent,
+      onSpawn: input.onSpawn
+    });
+    const ok = result4.exitCode === 0;
+    const text = (result4.rawFinalText ?? result4.stdout ?? "").trim() || (ok ? "" : result4.stderr.trim());
+    return { ok, resultText: text, ...usageTokens !== void 0 ? { usageTokens } : {} };
+  } catch (error) {
+    const timedOut = abort.signal.aborted;
+    return {
+      ok: false,
+      timedOut,
+      resultText: timedOut ? "[delegate timed out]" : `delegate spawn failed: ${error.message}`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// src/runtime/broker/crew-broker.ts
+init_pi_args();
+
+// src/runtime/scheduling/nested-slots.ts
+function defaultNestedSlotBudget(globalWorkerSemaphore) {
+  return Math.max(1, Math.floor(globalWorkerSemaphore / 2));
+}
+var NestedSlotBudget = class {
+  held = /* @__PURE__ */ new Set();
+  max;
+  constructor(globalWorkerSemaphore, override) {
+    if (override !== void 0 && (!Number.isFinite(override) || override < 1)) {
+      throw new TypeError(`nesting.maxSlots must be a positive integer, got ${String(override)}`);
+    }
+    this.max = override ?? defaultNestedSlotBudget(globalWorkerSemaphore);
+  }
+  /**
+   * Try to reserve one nested slot for the given grandchild id.
+   * Fail-fast: returns false when the budget is exhausted — the caller MUST
+   * reject the delegate immediately (never queue).
+   */
+  tryAcquire(grandchildId) {
+    if (this.held.has(grandchildId)) return true;
+    if (this.held.size >= this.max) return false;
+    this.held.add(grandchildId);
+    return true;
+  }
+  /** Release the slot held by a finished/dead grandchild. Idempotent. */
+  release(grandchildId) {
+    this.held.delete(grandchildId);
+  }
+  get used() {
+    return this.held.size;
+  }
+  /** Human-facing status line for policy messages: "N/M in flight". */
+  get statusLine() {
+    return `${this.held.size}/${this.max} in flight`;
+  }
+  snapshot() {
+    return { used: this.held.size, max: this.max };
+  }
+};
+
+// src/runtime/spawn-policy.ts
+init_model_fallback();
+var DELEGATE_ALLOWED_ROLES = ["explorer", "analyst", "executor"];
+var EXECUTOR_CLASS_ROLES = ["executor", "test-engineer"];
+var DEFAULT_DELEGATE_TIMEOUT_SEC = 900;
+var MAX_DELEGATE_TIMEOUT_SEC = 86400;
+function isExecutorClassRole(role) {
+  return EXECUTOR_CLASS_ROLES.includes(role);
+}
+function deny(reason, message) {
+  return { allowed: false, reason, message };
+}
+function evaluateDelegateAdmission(input) {
+  const { nestingEnabled, maxDepth, parentTask, requested } = input;
+  const parentDepth = parentTask.depth ?? 1;
+  const childDepth = parentDepth + 1;
+  if (!nestingEnabled) {
+    return deny(
+      "nesting-disabled",
+      "delegate rejected: governed nesting is disabled (nesting.enabled=false, the fail-closed default; enable it in USER config)"
+    );
+  }
+  if (!isExecutorClassRole(parentTask.role)) {
+    return deny(
+      "role-denied",
+      `delegate rejected: role '${parentTask.role}' is not executor-class (${EXECUTOR_CLASS_ROLES.join("/")}) \u2014 read-only roles cannot delegate`
+    );
+  }
+  const requestedRole = requested?.role;
+  if (requestedRole !== void 0 && !DELEGATE_ALLOWED_ROLES.includes(requestedRole)) {
+    return deny(
+      "role-denied",
+      `delegate rejected: requested grandchild role '${requestedRole}' is not one of ${DELEGATE_ALLOWED_ROLES.join("/")}`
+    );
+  }
+  if (input.untrusted) {
+    return deny("trust-denied", "delegate rejected: untrusted escalation context (trust gate is manual-only)");
+  }
+  if (childDepth > maxDepth) {
+    return deny(
+      "depth-exceeded",
+      `delegate rejected: spawn depth ${childDepth} exceeds maxDepth ${maxDepth} (parent task '${parentTask.taskId}' is at depth ${parentDepth})`
+    );
+  }
+  if (input.slots.used >= input.slots.max) {
+    return deny(
+      "slots-exhausted",
+      `delegate rejected: nested spawn budget exhausted; ${input.slots.used}/${input.slots.max} in flight`
+    );
+  }
+  if (requested?.budgetTokens !== void 0) {
+    const granted = parentTask.allocation?.tokensGranted ?? 0;
+    const spent = parentTask.allocation?.tokensSpent ?? 0;
+    const remaining = granted - spent;
+    if (requested.budgetTokens > remaining) {
+      return deny(
+        "budget-insufficient",
+        `delegate rejected: requested budget ${requested.budgetTokens} tokens exceeds parent task '${parentTask.taskId}' remaining allocation ${remaining} (${granted} granted - ${spent} spent)`
+      );
+    }
+  }
+  const normalizedModel = requested?.model !== void 0 ? modelRefToString(requested.model) : void 0;
+  if (normalizedModel !== void 0 && input.modelCatalog !== void 0) {
+    if (!input.modelCatalog.includes(normalizedModel)) {
+      return deny("model-invalid", `delegate rejected: model '${requested?.model}' is not in the resolved model catalog`);
+    }
+  }
+  const timeoutSec = requested?.timeoutSec ?? DEFAULT_DELEGATE_TIMEOUT_SEC;
+  if (!Number.isFinite(timeoutSec) || timeoutSec < 1 || timeoutSec > MAX_DELEGATE_TIMEOUT_SEC) {
+    return deny(
+      "timeout-invalid",
+      `delegate rejected: timeoutSec ${String(requested?.timeoutSec)} is outside 1..${MAX_DELEGATE_TIMEOUT_SEC} (default ${DEFAULT_DELEGATE_TIMEOUT_SEC})`
+    );
+  }
+  const requestedIsWriteCapable = requestedRole !== void 0 && EXECUTOR_CLASS_ROLES.includes(requestedRole);
+  if (requestedIsWriteCapable && !input.workspace?.serializeEnabled && (input.workspace?.overlappingInFlightExecutors ?? 0) > 0) {
+    return deny(
+      "workspace-conflict",
+      `delegate rejected: parent task '${parentTask.taskId}' cwd overlaps ${input.workspace?.overlappingInFlightExecutors} in-flight executor(s) and limits.serializeOnPathOverlap is off \u2014 use a read-only grandchild role (explorer/analyst) or enable serialization`
+    );
+  }
+  return { allowed: true, childDepth, timeoutSec, ...normalizedModel !== void 0 ? { model: normalizedModel } : {} };
+}
+
 // src/runtime/broker/crew-broker.ts
 init_crew_broker_tokens();
 
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
-import * as fs117 from "node:fs";
+import * as fs118 from "node:fs";
 var WAIT_STATUS_CACHE_MAX = 128;
 function statStamp(manifestPath, tasksPath) {
   let manifestMtimeMs = 0;
@@ -79692,13 +79962,13 @@ function statStamp(manifestPath, tasksPath) {
   let tasksMtimeMs = 0;
   let tasksSize = 0;
   try {
-    const st = fs117.statSync(manifestPath);
+    const st = fs118.statSync(manifestPath);
     manifestMtimeMs = st.mtimeMs;
     manifestSize = st.size;
   } catch {
   }
   try {
-    const st = fs117.statSync(tasksPath);
+    const st = fs118.statSync(tasksPath);
     tasksMtimeMs = st.mtimeMs;
     tasksSize = st.size;
   } catch {
@@ -79775,6 +80045,9 @@ var CrewBroker = class {
   subscriptionUnsubs = /* @__PURE__ */ new WeakMap();
   /** Unsubscribe handle for the mailbox append observer (set on start, cleared on stop). */
   mailboxObserverUnsub = null;
+  /** T3/R5 (ADR-5 §2): nested-slot budget for delegate grandchildren — lazily
+   *  sized from options (max(1, floor(globalWorkerSemaphore/2)) or override). */
+  nestedSlots;
   /** A single observable handshake counter (test/observability). */
   handshakeCount = 0;
   /** R10-3: stat-gated manifest/tasks cache shared by all task.waitStatus
@@ -79795,7 +80068,15 @@ var CrewBroker = class {
       outboundQueueCap: options.outboundQueueCap,
       cwd: options.cwd,
       netModule: options.netModule,
-      waitMethodsEnabled: options.waitMethodsEnabled === true
+      waitMethodsEnabled: options.waitMethodsEnabled === true,
+      nestingEnabled: options.nestingEnabled === true,
+      nestingMaxSlots: options.nestingMaxSlots,
+      nestingMaxDepth: options.nestingMaxDepth,
+      nestingTrustedEscalation: options.nestingTrustedEscalation === true,
+      globalWorkerSemaphore: options.globalWorkerSemaphore,
+      grandchildSpawner: options.grandchildSpawner,
+      modelCatalog: options.modelCatalog,
+      serializeOnPathOverlap: options.serializeOnPathOverlap === true
     };
     this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
   }
@@ -80150,6 +80431,12 @@ var CrewBroker = class {
         return;
       case "wait.resolve":
         await this.handleWaitResolve(conn, id, params);
+        return;
+      // T3/R5 (ADR-5 §1): governed-nesting delegation. Task-scoped tokens
+      // only; capability-gated via options.nestingEnabled (fail-closed);
+      // admission runs the full spawn-policy gate matrix.
+      case "delegate.request":
+        await this.handleDelegateRequest(conn, id, params);
         return;
       default:
         this.sendError(conn, id, "not-implemented", `method '${method}' is not implemented`);
@@ -80741,6 +81028,300 @@ var CrewBroker = class {
    *  events.jsonl — the gate fails CLOSED but never SILENTLY. Fire-and-forget
    *  async append (broker handlers must not block the event loop on the sync
    *  event-log lock); an append failure is logged, never thrown. */
+  // T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
+  // grandchild spawn with durable mailbox delivery (WP-5 step 5).
+  getDelegateNestedSlots() {
+    if (!this.nestedSlots) {
+      this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+    }
+    return this.nestedSlots;
+  }
+  recordDelegateEvent(manifest, type, taskId, data) {
+    void appendEventAsync(manifest.eventsPath, {
+      type,
+      runId: manifest.runId,
+      taskId,
+      message: `${type}: ${JSON.stringify(data).slice(0, 200)}`,
+      data
+    }).catch(
+      (err2) => logInternalError("crew-broker.delegate.event", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${manifest.runId}`)
+    );
+  }
+  async handleDelegateRequest(conn, id, params) {
+    if (!conn.runId || !conn.taskId) {
+      this.sendError(conn, id, "auth", "not authed");
+      return;
+    }
+    if (conn.role !== "worker" || conn.authMatchKind !== "compound") {
+      this.sendError(conn, id, "forbidden", "delegate requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID");
+      return;
+    }
+    const p = params ?? {};
+    if (typeof p.prompt !== "string" || p.prompt.trim().length === 0) {
+      this.sendError(conn, id, "bad-params", "delegate.request: 'prompt' (non-empty string) is required");
+      return;
+    }
+    const requested = {
+      prompt: p.prompt,
+      ...typeof p.description === "string" ? { description: p.description } : {},
+      ...typeof p.role === "string" ? { role: p.role } : {},
+      ...typeof p.model === "string" ? { model: p.model } : {},
+      ...typeof p.maxTurns === "number" ? { maxTurns: p.maxTurns } : {},
+      ...typeof p.budgetTokens === "number" ? { budgetTokens: p.budgetTokens } : {},
+      ...typeof p.timeoutSec === "number" ? { timeoutSec: p.timeoutSec } : {}
+    };
+    const cwd = this.options.cwd;
+    if (!cwd) {
+      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+      return;
+    }
+    let loaded;
+    try {
+      const l = loadRunManifestById(cwd, conn.runId);
+      if (!l) {
+        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+        return;
+      }
+      loaded = l;
+    } catch (err2) {
+      this.sendError(conn, id, "no-manifest", err2.message);
+      return;
+    }
+    if (this.options.nestingEnabled !== true) {
+      this.recordDelegateEvent(loaded.manifest, "delegate.rejected", conn.taskId, {
+        reason: "nesting-disabled",
+        policy: "nesting.enabled=false (fail-closed default)"
+      });
+      this.sendError(
+        conn,
+        id,
+        "policy-disabled",
+        "delegate is disabled: nesting.enabled=false (fail-closed default; delegate.rejected recorded in events.jsonl)"
+      );
+      return;
+    }
+    const runId = conn.runId;
+    const parentTaskId = conn.taskId;
+    const subId = `gc-${randomUUID13()}`;
+    this.recordDelegateEvent(loaded.manifest, "delegate.requested", parentTaskId, { subId, role: requested.role ?? "explorer" });
+    const admissionOutcome = withRunLockSync(loaded.manifest, () => {
+      const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
+      if (!fresh) return { code: "no-manifest", message: `run '${runId}' not found` };
+      const task = fresh.tasks.find((t2) => t2.id === parentTaskId);
+      if (!task) {
+        this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "no-task" });
+        return { code: "no-task", message: `task '${parentTaskId}' not found` };
+      }
+      if (task.status !== "running") {
+        this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, {
+          subId,
+          reason: "parent-not-running",
+          message: `task is ${task.status}`
+        });
+        return { code: "bad-params", message: `delegate: parent task '${parentTaskId}' is ${task.status}, not running` };
+      }
+      const catalog = this.options.modelCatalog?.();
+      const effectiveCatalog = this.options.modelCatalog !== void 0 ? catalog ?? [] : void 0;
+      const overlapping = fresh.tasks.filter(
+        (t2) => t2.id !== parentTaskId && t2.status === "running" && (t2.role === "executor" || t2.role === "test-engineer") && t2.cwd === task.cwd
+      ).length;
+      const decision3 = evaluateDelegateAdmission({
+        nestingEnabled: true,
+        // flag already checked above
+        maxDepth: this.options.nestingMaxDepth ?? resolveCrewMaxDepth(void 0),
+        // config knob > env-clamped 1..10, default 2 (ADR-5 §3)
+        parentTask: {
+          taskId: parentTaskId,
+          role: task.role,
+          ...task.depth !== void 0 ? { depth: task.depth } : {},
+          ...task.allocation !== void 0 ? { allocation: task.allocation } : {}
+        },
+        slots: this.getDelegateNestedSlots().snapshot(),
+        requested,
+        ...effectiveCatalog !== void 0 ? { modelCatalog: effectiveCatalog } : {},
+        // ADR-5 §12: the delegate surface is an escalation — trusted only by the
+        // explicit user opt-in threaded from config.nesting.enabled (sensitive).
+        untrusted: this.options.nestingTrustedEscalation !== true,
+        workspace: {
+          serializeEnabled: this.options.serializeOnPathOverlap === true,
+          overlappingInFlightExecutors: overlapping
+        }
+      });
+      if (!decision3.allowed) {
+        this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, {
+          subId,
+          reason: decision3.reason,
+          message: (decision3.message ?? "").slice(0, 120)
+        });
+        return { code: "policy-denied", message: decision3.message ?? decision3.reason ?? "delegate denied" };
+      }
+      if (!this.getDelegateNestedSlots().tryAcquire(subId)) {
+        this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "slots-exhausted" });
+        return {
+          code: "policy-denied",
+          message: `delegate rejected: nested spawn budget exhausted; ${this.getDelegateNestedSlots().statusLine}`
+        };
+      }
+      let reserved2 = 0;
+      const parentAllocation = task.allocation;
+      let tasksAfterReserve = fresh.tasks;
+      if (requested.budgetTokens !== void 0 && parentAllocation) {
+        reserved2 = requested.budgetTokens;
+        const updatedTasks = fresh.tasks.map(
+          (t2) => t2.id === parentTaskId ? {
+            ...t2,
+            allocation: {
+              tokensGranted: parentAllocation.tokensGranted,
+              tokensSpent: (parentAllocation.tokensSpent ?? 0) + reserved2
+            }
+          } : t2
+        );
+        tasksAfterReserve = updatedTasks;
+        saveRunTasks(fresh.manifest, updatedTasks);
+      }
+      saveRunTasks(fresh.manifest, [
+        ...tasksAfterReserve,
+        {
+          id: subId,
+          runId,
+          role: requested.role ?? "explorer",
+          agent: "delegate",
+          title: `delegate: ${requested.description ?? subId}`,
+          status: "queued",
+          cwd: task.cwd,
+          dependsOn: [],
+          depth: decision3.childDepth ?? 2,
+          startedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      ]);
+      return { code: "ok", decision: decision3, reserved: reserved2 };
+    });
+    if (admissionOutcome.code !== "ok") {
+      this.sendError(conn, id, admissionOutcome.code, admissionOutcome.message);
+      return;
+    }
+    const { decision: decision2, reserved } = admissionOutcome;
+    this.recordDelegateEvent(loaded.manifest, "delegate.admitted", parentTaskId, {
+      subId,
+      childDepth: decision2.childDepth,
+      role: requested.role ?? "explorer",
+      ...reserved > 0 ? { reservedTokens: reserved } : {}
+    });
+    const grandchildCreds = (decision2.childDepth ?? 2) < (this.options.nestingMaxDepth ?? resolveCrewMaxDepth(void 0)) ? { socketPath: this.socketPath, token: this.issueRunToken(runId, subId) } : void 0;
+    this.sendResult(conn, id, { ok: true, grandchildTaskRef: subId, childDepth: decision2.childDepth, timeoutSec: decision2.timeoutSec });
+    const spawner = this.options.grandchildSpawner ?? spawnDelegateGrandchild;
+    void (async () => {
+      let outcome;
+      try {
+        outcome = await spawner({
+          cwd,
+          runId,
+          parentTaskId,
+          subId,
+          prompt: requested.prompt,
+          eventsPath: loaded.manifest.eventsPath,
+          role: requested.role ?? "explorer",
+          ...grandchildCreds ? { brokerSpawn: grandchildCreds } : {},
+          ...requested.model !== void 0 ? { model: requested.model } : {},
+          ...requested.maxTurns !== void 0 ? { maxTurns: requested.maxTurns } : {},
+          timeoutSec: decision2.timeoutSec ?? 900,
+          depthOverride: decision2.childDepth ?? 2
+        });
+      } catch (err2) {
+        outcome = { ok: false, resultText: `delegate spawn failed: ${err2.message}` };
+      }
+      const sanitizedText = outcome.resultText.replace(/^--- (end )?delegate /gm, "-- ~delegate ").slice(0, 65536);
+      const fenced = `--- delegate ${subId} ${outcome.timedOut ? "(timed out)" : outcome.ok ? "(ok)" : "(failed)"} ---
+${sanitizedText}
+--- end delegate ${subId} ---`;
+      try {
+        const fresh = loadRunManifestById(cwd, runId);
+        if (fresh) {
+          withRunLockSync(fresh.manifest, () => {
+            const latest = loadRunManifestById(cwd, runId);
+            if (!latest) return;
+            void appendMailboxMessageAsync(latest.manifest, {
+              direction: "inbox",
+              from: `delegate:${subId}`,
+              to: parentTaskId,
+              taskId: parentTaskId,
+              body: fenced,
+              kind: "response",
+              data: { subId, ok: outcome.ok, timedOut: outcome.timedOut === true }
+            }).catch(
+              (err2) => logInternalError(
+                "crew-broker.delegate.mailbox",
+                err2 instanceof Error ? err2 : new Error(String(err2)),
+                `runId=${runId}`
+              )
+            );
+            let tasksToWrite = latest.tasks;
+            if (reserved > 0) {
+              const parent = latest.tasks.find((t2) => t2.id === parentTaskId);
+              const parentAlloc = parent?.allocation;
+              if (parentAlloc) {
+                const actual = Math.max(0, Math.min(outcome.usageTokens ?? reserved, reserved));
+                const tokensSpent = (parentAlloc.tokensSpent ?? 0) - reserved + actual;
+                tasksToWrite = tasksToWrite.map(
+                  (t2) => t2.id === parentTaskId ? { ...t2, allocation: { tokensGranted: parentAlloc.tokensGranted, tokensSpent } } : t2
+                );
+                this.recordDelegateEvent(latest.manifest, "delegate.rolled_up", parentTaskId, {
+                  subId,
+                  actualTokens: actual
+                });
+              }
+            }
+            saveRunTasks(
+              latest.manifest,
+              tasksToWrite.map(
+                (t2) => t2.id === subId ? {
+                  ...t2,
+                  status: outcome.ok ? "completed" : "failed",
+                  completedAt: (/* @__PURE__ */ new Date()).toISOString()
+                } : t2
+              )
+            );
+          });
+        }
+      } catch (err2) {
+        logInternalError("crew-broker.delegate.finalize", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${runId}`);
+        if (reserved > 0) {
+          try {
+            const rf = loadRunManifestById(cwd, runId);
+            if (rf) {
+              withRunLockSync(rf.manifest, () => {
+                const rl = loadRunManifestById(cwd, runId);
+                if (!rl) return;
+                const par = rl.tasks.find((t2) => t2.id === parentTaskId);
+                const pa = par?.allocation;
+                if (pa) {
+                  saveRunTasks(
+                    rl.manifest,
+                    rl.tasks.map(
+                      (t2) => t2.id === parentTaskId ? {
+                        ...t2,
+                        allocation: {
+                          tokensGranted: pa.tokensGranted,
+                          tokensSpent: Math.max(0, (pa.tokensSpent ?? 0) - reserved)
+                        }
+                      } : t2
+                    )
+                  );
+                }
+              });
+            }
+          } catch {
+          }
+        }
+      } finally {
+        this.getDelegateNestedSlots().release(subId);
+      }
+      this.recordDelegateEvent(loaded.manifest, outcome.timedOut ? "delegate.timed_out" : "delegate.completed", parentTaskId, {
+        subId,
+        ok: outcome.ok
+      });
+    })();
+  }
   recordWaitPolicyRejection(manifest, taskId, method) {
     const runId = manifest.runId;
     void appendEventAsync(manifest.eventsPath, {
@@ -81084,6 +81665,7 @@ function parseWaitResolveParams(value) {
 // src/extension/registration/lifecycle-handlers.ts
 init_child_pi();
 init_live_agent_manager();
+init_model_fallback();
 init_pi_args();
 init_provider_quota();
 init_session_model();
@@ -81325,21 +81907,21 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs118 from "node:fs";
-import * as path95 from "node:path";
+import * as fs119 from "node:fs";
+import * as path96 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs118.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs119.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
-    const manifestPath = path95.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
+    const manifestPath = path96.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs118.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs119.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -81350,8 +81932,8 @@ function collectArtifactDescriptors(runsDir) {
 }
 function runArtifactCleanup(cwd) {
   try {
-    const userArtifactsRoot = path95.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
-    const projectArtifactsRoot = path95.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+    const userArtifactsRoot = path96.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
+    const projectArtifactsRoot = path96.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
     cleanupOldArtifacts(userArtifactsRoot, {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
@@ -81360,8 +81942,8 @@ function runArtifactCleanup(cwd) {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    pruneExpiredArtifacts(collectArtifactDescriptors(path95.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
-    pruneExpiredArtifacts(collectArtifactDescriptors(path95.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path96.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path96.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
@@ -81924,8 +82506,8 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path96.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs119.existsSync(crewRunsDir)) {
+    const crewRunsDir = path97.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    if (fs120.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -81935,8 +82517,8 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path96.join(userCrewRoot(), "state", "runs");
-    if (fs119.existsSync(userRunsDir)) {
+    const userRunsDir = path97.join(userCrewRoot(), "state", "runs");
+    if (fs120.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -81988,6 +82570,14 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
             return void 0;
           }
         })();
+        const nestingCfg = (() => {
+          try {
+            const c = loadConfig(process.cwd()).config;
+            return { nesting: c.nesting, limits: c.limits };
+          } catch {
+            return void 0;
+          }
+        })();
         const b = new CrewBroker({
           sessionId,
           socketPath: getBrokerSocketPath(sessionId),
@@ -81998,6 +82588,25 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
           // config.broker.waitMethodsEnabled a dead knob and the ADR-0
           // "then true" flip a silent no-op. Fail-closed when unset.
           waitMethodsEnabled: cfg?.waitMethodsEnabled ?? false,
+          // T3/R5 (ADR-5 §10): governed-nesting capability gate — fail-closed
+          // default; production threads config.nesting (sensitive: user config
+          // only). Nested-slot sizing + admission-time model catalog (ADR-5 §7 —
+          // the production wiring MUST supply it) + workspace gate mirror.
+          nestingEnabled: nestingCfg?.nesting?.enabled ?? false,
+          ...nestingCfg?.nesting?.maxSlots !== void 0 ? { nestingMaxSlots: nestingCfg.nesting.maxSlots } : {},
+          ...nestingCfg?.nesting?.maxDepth !== void 0 ? { nestingMaxDepth: nestingCfg.nesting.maxDepth } : {},
+          // ADR-5 §12: enabling the sensitive USER-config-only flag IS the manual
+          // trust decision for the escalation surface.
+          nestingTrustedEscalation: nestingCfg?.nesting?.enabled === true,
+          ...nestingCfg?.limits?.maxConcurrentWorkers !== void 0 ? { globalWorkerSemaphore: nestingCfg.limits.maxConcurrentWorkers } : {},
+          serializeOnPathOverlap: nestingCfg?.limits?.serializeOnPathOverlap ?? false,
+          modelCatalog: () => {
+            try {
+              return configuredModelInfosFromPiConfig(process.cwd()).map((info2) => info2.fullId);
+            } catch {
+              return void 0;
+            }
+          },
           enabled: true,
           cwd: process.cwd()
         });
@@ -82013,10 +82622,11 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
     }
     return starting;
   }
-  const issueForChild = async (runId, taskId) => {
+  const issueForChild = async (runId, taskId, childDepth) => {
     if (!runId || typeof runId !== "string") return void 0;
     if (!isRootSession(process.env)) return void 0;
     if (!effectiveEnabled()) return void 0;
+    if (childDepth !== void 0 && childDepth >= resolveCrewMaxDepth(void 0)) return void 0;
     const sessionId = cachedSessionId;
     if (!sessionId) return void 0;
     try {
@@ -82414,7 +83024,7 @@ init_tool_renderers();
 init_internal_error();
 init_safe_paths();
 init_subagent_helpers();
-import * as fs120 from "node:fs";
+import * as fs121 from "node:fs";
 import { Text as Text5 } from "@earendil-works/pi-tui";
 var _cachedHandleTeamTool5;
 async function handleTeamTool6(params, ctx) {
@@ -82814,12 +83424,12 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       }
       try {
         const steeringDir = `${artifactsRoot}/steering`;
-        fs120.mkdirSync(steeringDir, { recursive: true });
+        fs121.mkdirSync(steeringDir, { recursive: true });
         const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
         const MAX_STEERING_BYTES = 256 * 1024;
         let existingBytes = 0;
         try {
-          existingBytes = fs120.statSync(safeSteeringPath).size;
+          existingBytes = fs121.statSync(safeSteeringPath).size;
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
@@ -82831,7 +83441,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
             true
           );
         }
-        fs120.appendFileSync(safeSteeringPath, line4);
+        fs121.appendFileSync(safeSteeringPath, line4);
       } catch (err2) {
         logInternalError(
           "subagent-tools.steer-write-failed",
