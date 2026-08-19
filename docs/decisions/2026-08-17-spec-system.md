@@ -19,7 +19,7 @@ SpecRecord  { id, version, revisionOf?, title,
               requirements: [{ id, text, priority: must|should|could }],
               acceptance:  [{ id, requirementId, check, idempotent?: boolean }],
               source: { kind: "manual" | "generated", by?, from? },
-              trusted?: boolean }   // trust mint: USER-side action only (see §4)
+              trusted?: boolean }   // INFORMATIONAL copy of the store-mint sidecar (§4) — the gate never trusts this field alone
 SpecSnapshot{ specId, version, frozenAt, items[] }   // immutable, frozen into the task at dispatch
 ```
 
