@@ -27,7 +27,7 @@ import { terminateLiveAgentsForRun } from "./live-session/live-agent-manager.ts"
 import { isRunTerminalPreserved, mergeUnitResult } from "./merge-loop.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import type { CrewRuntimeCapabilities } from "./model/runtime-resolver.ts";
-import { ensurePlanApprovalRequested, isMutatingTask, requiresPlanApproval } from "./plan-approval.ts";
+import { ensurePlanApprovalRequested, isMutatingTask, isPlanApprovalDenied, requiresPlanApproval } from "./plan-approval.ts";
 import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "./process/cancellation.ts";
 import { shouldRerunFailedTask } from "./recovery/recovery-recipes.ts";
 import { registerRunPromise, rejectRunPromise, resolveRunPromise } from "./run-tracker.ts";
@@ -805,7 +805,7 @@ async function executeTeamRunCore(
 	) {
 		manifest = await ensurePlanApprovalRequested(manifest, tasks);
 	}
-	if (manifest.planApproval?.status === "cancelled") {
+	if (isPlanApprovalDenied(manifest)) {
 		tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");
 		await saveRunTasksAsync(manifest, tasks);
 		manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
@@ -1052,7 +1052,7 @@ async function executeTeamRunCore(
 			) {
 				manifest = await ensurePlanApprovalRequested(manifest, tasks);
 			}
-			if (manifest.planApproval?.status === "cancelled") {
+			if (isPlanApprovalDenied(manifest)) {
 				tasks = cancelPlanTasks(tasks, "Plan approval was cancelled.");
 				await saveRunTasksAsync(manifest, tasks);
 				saveCrewAgents(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));

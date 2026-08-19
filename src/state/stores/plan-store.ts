@@ -25,7 +25,6 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isPlanApprovalPending } from "../../runtime/plan-approval.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { atomicWriteJson } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
@@ -187,12 +186,17 @@ export function setPlanApproval(
 			planVersion: approval.planVersion,
 		};
 		writePlanFile(manifest, revisions);
-		appendEvent(manifest.eventsPath, {
-			type: approval.status === "approved" ? "plan.approved" : approval.status === "rejected" ? "plan.rejected" : "plan.created",
-			runId: manifest.runId,
-			message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
-			data: { planId: current.id, version: approval.planVersion, status: approval.status },
-		});
+		// ADR-4 §9: events for approval MUTATIONS. `pending` emits none — the
+		// request surface (ensurePlanApprovalRequested) appends its own
+		// plan.approval_required event.
+		if (approval.status !== "pending") {
+			appendEvent(manifest.eventsPath, {
+				type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
+				runId: manifest.runId,
+				message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
+				data: { planId: current.id, version: approval.planVersion, status: approval.status },
+			});
+		}
 		return current;
 	});
 }
@@ -224,20 +228,4 @@ export function deriveItemProgress(record: PlanRecord, tasks: TeamTaskState[]): 
 		out.set(item.id, p);
 	}
 	return out;
-}
-
-/**
- * Migration predicate (ADR-4 §2): plan-record-first, manifest-fallback.
- * A pending approval exists when EITHER the current record's approval is
- * pending OR (no record / no approval on it) the legacy manifest gate is
- * pending. Pre-v2 runs (no plans.json) take exactly the old path — the
- * negative AC pins this.
- */
-export function effectivePlanApprovalPending(manifest: TeamRunManifest): boolean {
-	const current = getCurrentPlanRecord(manifest);
-	if (current?.approval) {
-		// Record decided (either way) → it is authoritative; pending counts as pending.
-		return current.approval.status === "pending";
-	}
-	return isPlanApprovalPending(manifest); // fallback: no record, or record without approval state
 }

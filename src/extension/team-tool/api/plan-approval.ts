@@ -9,6 +9,7 @@ import { terminateLiveAgentsForRun } from "../../../runtime/live-session/live-ag
 import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { withRunLock } from "../../../state/coordination/locks.ts";
 import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { getCurrentPlanRecord, setPlanApproval } from "../../../state/stores/plan-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../../state/stores/state-store.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
@@ -63,6 +64,10 @@ export const handleApprovePlan: ApiOperationHandler = async (hctx) => {
 				},
 			};
 			await saveRunManifestAsync(manifest);
+			// T2/R4 (ADR-4 §8): dual-write the record side — approval names the
+			// plan id+version. Pre-v2 runs without a PlanRecord skip silently.
+			const currentRecord = getCurrentPlanRecord(manifest);
+			if (currentRecord) setPlanApproval(manifest, { status: "approved", planVersion: currentRecord.version, by: "api" });
 			appendEvent(manifest.eventsPath, {
 				type: "plan.approved",
 				runId: manifest.runId,
@@ -140,6 +145,10 @@ export const handleCancelPlan: ApiOperationHandler = async (hctx) => {
 				},
 			};
 			await saveRunManifestAsync(manifest);
+			// T2/R4 (ADR-4 §8 vocabulary mapping): manifest gets "cancelled", the
+			// record side gets "rejected" (isPlanApprovalDenied accepts both).
+			const denyRecord = getCurrentPlanRecord(manifest);
+			if (denyRecord) setPlanApproval(manifest, { status: "rejected", planVersion: denyRecord.version, by: "api" });
 			saveRunTasks(manifest, tasks);
 			appendEvent(manifest.eventsPath, {
 				type: "plan.cancelled",

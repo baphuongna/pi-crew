@@ -9,10 +9,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { isPlanApprovalPendingEffective as effectivePlanApprovalPending } from "../../../../src/runtime/plan-approval.ts";
 import {
 	appendPlanRevision,
 	deriveItemProgress,
-	effectivePlanApprovalPending,
 	getCurrentPlanRecord,
 	linkTaskToPlanItem,
 	loadPlanRecords,

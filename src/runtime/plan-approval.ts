@@ -38,6 +38,29 @@ export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
 	return isPlanApprovalStatePending(manifest.planApproval);
 }
 
+/**
+ * T2/R4 (ADR-4 §2, reader migration): plan-record-first approval predicate
+ * with manifest fallback. The current revision's approval state, when present,
+ * is authoritative; otherwise the legacy manifest gate decides. Pre-v2 runs
+ * (no plans.json) take exactly the old path — pinned by the migration
+ * negative AC in plan-store.test.ts.
+ */
+export function isPlanApprovalPendingEffective(manifest: TeamRunManifest): boolean {
+	const current = getCurrentPlanRecord(manifest);
+	if (current?.approval) return current.approval.status === "pending";
+	return isPlanApprovalPending(manifest);
+}
+
+/**
+ * T2/R4 (ADR-4 §8 vocabulary mapping): a deny is `cancelled` on the manifest
+ * side and `rejected` on the record side — either means "decided negative"
+ * to the scheduler cancel paths (team-runner.ts readers).
+ */
+export function isPlanApprovalDenied(manifest: TeamRunManifest): boolean {
+	if (manifest.planApproval?.status === "cancelled") return true;
+	return getCurrentPlanRecord(manifest)?.approval?.status === "rejected";
+}
+
 export function isMutatingTask(task: TeamTaskState): boolean {
 	return permissionForRole(task.role) !== "read_only";
 }
