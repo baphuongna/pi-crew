@@ -1428,8 +1428,16 @@ export class CrewBroker {
 			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
 			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
 			const task = fresh.tasks.find((t) => t.id === parentTaskId);
-			if (!task) return { code: "no-task" as const, message: `task '${parentTaskId}' not found` };
+			if (!task) {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "no-task" });
+				return { code: "no-task" as const, message: `task '${parentTaskId}' not found` };
+			}
 			if (task.status !== "running") {
+				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, {
+					subId,
+					reason: "parent-not-running",
+					message: `task is ${task.status}`,
+				});
 				return { code: "bad-params" as const, message: `delegate: parent task '${parentTaskId}' is ${task.status}, not running` };
 			}
 			const catalog = this.options.modelCatalog?.();
@@ -1611,21 +1619,25 @@ export class CrewBroker {
 									actualTokens: actual,
 								});
 							}
-							// S1#1: flip the shadow task to terminal so the subId record does not
-							// linger as "queued" in team status views.
-							saveRunTasks(
-								latest.manifest,
-								tasksToWrite.map((t) =>
-									t.id === subId
-										? {
-												...t,
-												status: outcome.ok ? ("completed" as const) : ("failed" as const),
-												completedAt: new Date().toISOString(),
-											}
-										: t,
-								),
-							);
 						}
+						// S1#1: flip the shadow task to terminal — UNCONDITIONAL (verifier N1): the
+						// flip must not depend on a reservation; no allocation producer ships
+						// yet so reserved===0 is the common case and the guard left every
+						// shadow "queued" forever.
+						// S1#1: flip the shadow task to terminal so the subId record does not
+						// linger as "queued" in team status views.
+						saveRunTasks(
+							latest.manifest,
+							tasksToWrite.map((t) =>
+								t.id === subId
+									? {
+											...t,
+											status: outcome.ok ? ("completed" as const) : ("failed" as const),
+											completedAt: new Date().toISOString(),
+										}
+									: t,
+							),
+						);
 					});
 				}
 			} catch (err) {
