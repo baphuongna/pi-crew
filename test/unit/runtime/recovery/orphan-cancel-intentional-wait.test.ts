@@ -20,16 +20,28 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import type { ManifestCache } from "../../../../src/runtime/manifest-cache.ts";
 import { cancelOrphanedRuns, detectInterruptedRuns } from "../../../../src/runtime/recovery/crash-recovery.ts";
 import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
-import type { ManifestCache } from "../../../../src/runtime/manifest-cache.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 function scaffoldParkedRun(cwd: string, askedAt: Date): TeamRunManifest {
 	const created = createRunManifest({
 		cwd,
-		team: { name: "fast-fix", description: "", roles: [{ name: "explorer", agent: "explorer" }], source: "test", filePath: "builtin" } as never,
-		workflow: { name: "fast-fix", description: "", steps: [{ id: "explore", role: "explorer" }], source: "test", filePath: "builtin" } as never,
+		team: {
+			name: "fast-fix",
+			description: "",
+			roles: [{ name: "explorer", agent: "explorer" }],
+			source: "test",
+			filePath: "builtin",
+		} as never,
+		workflow: {
+			name: "fast-fix",
+			description: "",
+			steps: [{ id: "explore", role: "explorer" }],
+			source: "test",
+			filePath: "builtin",
+		} as never,
 		goal: "orphan-cancel vs intentional wait",
 	});
 	const now = new Date().toISOString();
@@ -40,9 +52,7 @@ function scaffoldParkedRun(cwd: string, askedAt: Date): TeamRunManifest {
 		waitState: { taskId: "01_explore", questionId: "q-orphan-test", askedAt: askedAt.toISOString() },
 		updatedAt: now,
 	};
-	const tasks = created.tasks.map((t) =>
-		t.id === "01_explore" ? { ...t, status: "waiting" as const, startedAt: now } : t,
-	);
+	const tasks = created.tasks.map((t) => (t.id === "01_explore" ? { ...t, status: "waiting" as const, startedAt: now } : t));
 	saveRunManifest(manifest);
 	saveRunTasks(manifest, tasks);
 	return manifest;
