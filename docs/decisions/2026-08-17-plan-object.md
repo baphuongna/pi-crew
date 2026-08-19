@@ -1,6 +1,6 @@
 # First-class Plan object: PlanRecord, plan-store, revisions, re-plan (R4)
 
-**Date:** 2026-08-19
+**Date:** 2026-08-17 (drafted) / 2026-08-19 (accepted, review round 1 fixes)
 **Status:** Accepted — T2 of the subagent v2 plan (`0.10.1` internal phase); prerequisite ADR for WP-4
 **Relates to:** `src/state/types.ts` (`:230` manifest pointer), `src/runtime/plan-approval.ts`, `src/extension/plan-orchestrate.ts`, `src/runtime/goal-workflow/adaptive-plan.ts` (`:43` cap), `src/runtime/team-runner.ts` (`:808,:1055` readers), `src/runtime/stale-reconciler.ts` (`:46` reader), `src/extension/team-tool/api/plan-approval.ts`, `src/runtime/child-pi/child-pi-steering.ts` (`:25-75` wrap-up grace), `src/extension/team-tool/dispatch/index.ts` (`domainForAction :93`), `docs/design/subagent-v2-design.md` §5, `docs/design/subagent-v2-implementation-plan.md` (T2/WP-4)
 
@@ -46,13 +46,15 @@ Progress (`items[].progress`) is **derived at read time** from the linked `taskI
 New runs write **both**: the PlanRecord (new) and `manifest.planApproval` (legacy pointer, unchanged shape at `types.ts:230`) — plus a new manifest pointer `manifest.plan?: { id: string; version: number }` to the *current* revision.
 
 The five reader families migrate to **plan-record-first, manifest-fallback** in WP-4:
-`team-runner.ts:808,1055` · `stale-reconciler.ts:46` · `plan-approval.ts:26,34,43` · `api/plan-approval.ts` · UI snapshot assembly (WP-3 surfaces).
+`team-runner.ts:808,1055` · `stale-reconciler.ts:46` · `plan-approval.ts:30-35,42-73` · `api/plan-approval.ts` · UI snapshot assembly (WP-3 surfaces).
 
 The `stale-reconciler` invariant (`blocked + planApproval.pending` → protected) keeps working **throughout** because the manifest field is never dropped: a pre-v2 run with no PlanRecord falls back to the manifest read and behaves exactly as before. The manifest field is *deprecated* (not removed) next minor. **Negative AC (test-pinned): a run created pre-v2 with `planApproval` pending is still protected by stale-reconciler after upgrade.**
 
 ### 3. Single-writer rule — the scheduler owns `items[].taskIds`
 
-Producers create phases/items but **never** taskIds. The scheduler maintains `items[].taskIds` (append on dispatch, no-op on terminal) **inside the run lock**; per-item progress is a pure derivation over those taskIds. This keeps one writer for linkage and makes "which task implements item X" mechanically answerable (`team plans get` shows it; `team status` can attribute).
+Producers create phases/items but **never** taskIds. The scheduler maintains `items[].taskIds` (append on dispatch, no-op on terminal) **inside the run lock**; per-item progress is a pure derivation over those taskIds.
+
+**Item ids are stable across revisions** (producer contract: a carried-over item keeps its `id`). At revision switch the scheduler **copies forward** the known `taskIds` of carried-over items into the new revision (under the run lock, before the new revision becomes current) — linkage and progress survive re-plans; items the new revision omits are `dropped` (§4). The scheduler reads the **current revision only** (design §5): superseded revisions are inert history, so an item present in both revisions is never double-dispatched. This keeps one writer for linkage and makes "which task implements item X" mechanically answerable (`team plans get` shows it; `team status` can attribute).
 
 ### 4. Re-plan = new revision + soft-cancel dropped work
 
@@ -60,7 +62,7 @@ Producers create phases/items but **never** taskIds. The scheduler maintains `it
 
 ### 5. Per-phase cap replaces the global flatten cap
 
-`MAX_ADAPTIVE_TASKS = 12` (global, `adaptive-plan.ts:43`) moves to a **per-phase** cap (`adaptive.maxTasksPerPhase`, default 12). Adaptive `assess` now emits a PlanRecord (phases/items) instead of flattening into ≤ 12 injected tasks; the scheduler expands **item → tasks** as phases activate. Old adaptive runs (no PlanRecord) keep working — they simply take the manifest-fallback read path (§2) and behave as before.
+`MAX_ADAPTIVE_TASKS = 12` (global, `adaptive-plan.ts:43`) becomes a **per-phase** cap — a module constant `ADAPTIVE_MAX_TASKS_PER_PHASE = 12` in `adaptive-plan.ts` (deliberately NOT a config key in T2: the `adaptive` config section belongs to T3/WP-5's config surface, keeping WP-4's file ownership intact). Adaptive `assess` now emits a PlanRecord (phases/items) instead of flattening into ≤ 12 injected tasks; the scheduler expands **item → tasks** as phases activate. Old adaptive runs (no PlanRecord) keep working — they simply take the manifest-fallback read path (§2) and behave as before.
 
 ### 6. Three producers, one contract
 
@@ -70,7 +72,7 @@ Producers create phases/items but **never** taskIds. The scheduler maintains `it
 
 ### 7. Erratum D-1 — action name is `plans`, not `plan`
 
-Design §5 says `team action='plan'`, but `plan` **already exists with different semantics** (singleAgent composition; `RUN_ACTIONS` includes it — `schema/team-tool-schema.ts:385`, `dispatch/run.ts:30,41-42` routes to `handlePlan`). Overloading it would break singleAgent mode. The new action is **`team action='plans'`**:
+Design §5 says `team action='plan'`, but `plan` **already exists with different semantics** (team/workflow plan preview (+ optional singleAgent composition); `RUN_ACTIONS` includes it — `schema/team-tool-schema.ts:385`, `dispatch/run.ts:30,41-42` routes to `handlePlan`). Overloading it would break singleAgent mode. The new action is **`team action='plans'`**:
 
 - `get [--rev <n>]` — current (or pinned) revision, with derived per-item progress
 - `list` — revision list (version, createdAt, title, revisionOf)
@@ -81,11 +83,11 @@ New handler `src/extension/team-tool/plans.ts`; registration in `schema/team-too
 
 ### 8. Approval — dual-write, one predicate family
 
-`plans approve|reject` (and the existing `team api op=approve-plan|cancel-plan`, and the WP-3 dashboard `A`/`n` keys) write **both**: `manifest.planApproval` (legacy) and `PlanRecord.approval = { status, by, at, planVersion }` — approval always names the plan id + version it approved. The gate predicate family (`isPlanApprovalStatePending`, `plan-approval.ts`) gains a plan-record-first variant with manifest fallback so every surface (scheduler, reconciler, UI) stays byte-identical.
+`plans approve|reject` (and the existing `team api op=approve-plan|cancel-plan`, and the WP-3 dashboard `A`/`n` keys) write **both**: `manifest.planApproval` (legacy) and `PlanRecord.approval = { status, by, at, planVersion }` — approval always names the plan id + version it approved. **Vocabulary mapping:** the manifest side keeps its existing enum (`PlanApprovalState.status: "pending"|"approved"|"cancelled"`, `types.ts:158`) — `plans reject` writes `cancelled` there and `rejected` in the PlanRecord. The gate predicate family (`isPlanApprovalStatePending`, `plan-approval.ts`) gains a plan-record-first variant with manifest fallback so every surface (scheduler, reconciler, UI) stays byte-identical.
 
 ### 9. Events
 
-New event kinds in `TEAM_EVENT_TYPES` (`src/state/contracts.ts`): `plan.created`, `plan.revised`, `plan.approved`, `plan.rejected`, `plan.item.dropped`. Every plan-store mutation appends one.
+Event kinds registered in `TEAM_EVENT_TYPES` (`src/state/contracts.ts`): `plan.created`, `plan.revised`, `plan.rejected`, `plan.item.dropped` (new) — plus formalizing `plan.approved` and `plan.cancelled`, which `api/plan-approval.ts:66-67,144-145` already emits unregistered (pre-existing gap this ADR closes). **Every revision/approval mutation appends one event**; the scheduler's `taskIds` linkage writes (§3) append none (task dispatch already logs its own `worker.*` events).
 
 ### 10. Security & trust boundary
 
@@ -110,3 +112,4 @@ Standard 9 tiers (skill `real-test-pi-crew`) plus the T2 extra cases:
 - (e) Adaptive goal run end-to-end: assess → PlanRecord phases/items, per-phase cap, run completes; re-run an OLD adaptive run (no record) → manifest-fallback path still executes.
 - (f) `orchestrate planPath` producer: tagged-chain doc → PlanRecord persisted (title/phases/items) + chain commands still emitted.
 - (g) plans.json atomicity under crash (unit-proven; live spot-check that a mid-write kill leaves either full old or full new file readable).
+- (h) Planner-role producer: live seeded run whose planner task emits a tagged `<plan>…</plan>` output → PlanRecord persisted with `authorTaskId` provenance rendered by `plans get` (parse contract itself unit-covered by `plan-producers.test.ts`).
