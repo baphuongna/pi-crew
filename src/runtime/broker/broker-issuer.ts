@@ -23,8 +23,19 @@ export interface BrokerSpawnCredentials {
 /** Issuer signature: given a runId (+optional taskId for per-task tokens),
  *  return credentials or undefined when the broker is disabled / this process
  *  is not the root session. taskId is optional for backward compat — callers
- *  that still pass only runId receive the legacy per-run token. */
-export type BrokerIssuer = (runId: string, taskId?: string) => Promise<BrokerSpawnCredentials | undefined>;
+ *  that still pass only runId receive the legacy per-run token.
+ *
+ *  ADR-5 §4 (governed nesting): `childDepth` carries the DEPTH-2+ grandchild's
+ *  depth when the root-side delegate handler spawns it. The issuer mints only
+ *  for children that may themselves delegate (childDepth < resolved
+ *  PI_CREW_MAX_DEPTH) — at the default maxDepth=2 a depth-2 grandchild gets NO
+ *  credentials (env containment AC: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2).
+ *  Undefined childDepth = legacy worker spawn (depth 1) — unchanged behavior. */
+export type BrokerIssuer = (
+	runId: string,
+	taskId?: string,
+	childDepth?: number,
+) => Promise<BrokerSpawnCredentials | undefined>;
 
 let activeIssuer: BrokerIssuer | undefined;
 

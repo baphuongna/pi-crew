@@ -26,7 +26,7 @@ import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
-import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth } from "../../runtime/model/pi-args.ts";
+import { cleanupLegacyOrphanTempDirs, cleanupOrphanTempDirs, currentCrewDepth, resolveCrewMaxDepth } from "../../runtime/model/pi-args.ts";
 import { clearProviderQuotaCache, noteProviderResponse } from "../../runtime/model/provider-quota.ts";
 import { noteSessionModel, noteSessionThinking, resolveProviderForResponse } from "../../runtime/model/session-model.ts";
 import { cleanupOrphanWorkers } from "../../runtime/orphan-worker-registry.ts";
@@ -1032,10 +1032,17 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		return starting!;
 	}
 
-	const issueForChild = async (runId: string, taskId?: string): Promise<BrokerSpawnCredentials | undefined> => {
+	const issueForChild = async (runId: string, taskId?: string, childDepth?: number): Promise<BrokerSpawnCredentials | undefined> => {
 		if (!runId || typeof runId !== "string") return undefined;
 		if (!isRootSession(process.env)) return undefined;
 		if (!effectiveEnabled()) return undefined;
+		// ADR-5 §4 (governed nesting): tokens are minted ONLY for children that
+		// may themselves delegate — childDepth < resolved maxDepth. At the default
+		// maxDepth=2 a delegate-spawned depth-2 grandchild gets NO credentials
+		// (env containment: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2; identity
+		// routing via PI_CREW_BROKER_RUN_ID/TASK_ID is threaded unconditionally
+		// elsewhere). Undefined childDepth = legacy worker spawn (depth 1).
+		if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
 		const sessionId = cachedSessionId;
 		if (!sessionId) return undefined;
 		try {

@@ -256,6 +256,7 @@ export interface SpawnContext {
 export function prepareSpawnContext(
 	input: ChildPiRunInput,
 	effectiveTask: string,
+	depthEnv?: NodeJS.ProcessEnv,
 ): { kind: "ready"; ctx: SpawnContext } | { kind: "aborted"; result: ChildPiRunResult } {
 	const built = buildPiWorkerArgs({
 		task: effectiveTask,
@@ -266,6 +267,10 @@ export function prepareSpawnContext(
 		skillPaths: input.skillPaths,
 		role: input.role,
 		thinkingOverride: input.thinkingOverride,
+		// ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
+		// (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
+		// child env gets parentDepth+1 = the true grandchild depth.
+		env: depthEnv,
 	});
 	// Pass steering file path to child for real-time steer injection
 	if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;

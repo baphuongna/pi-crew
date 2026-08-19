@@ -173,8 +173,25 @@ export interface ChildPiRunInput {
 	 * credentials (today's behavior — file paths remain authoritative).
 	 * The production wiring passes a closure that delegates to the
 	 * session's `CrewBrokerLifecycleController.issueForChild`.
+	 *
+	 * ADR-5 §4: the third parameter carries the child's depth for
+	 * delegate-spawned grandchildren — the issuer gates token minting on
+	 * `childDepth < resolved maxDepth` (see BrokerIssuer).
 	 */
-	brokerIssuer?: (runId: string, taskId?: string) => Promise<{ socketPath: string; token: string } | undefined>;
+	brokerIssuer?: (runId: string, taskId?: string, childDepth?: number) => Promise<{ socketPath: string; token: string } | undefined>;
+	/**
+	 * ADR-5 §3 (governed nesting): explicit child depth for delegate-spawned
+	 * grandchildren. The spawn policy computes this from the PARENT TASK
+	 * RECORD (task.depth) — never from this process's env (the root has depth
+	 * 0, so env-derived depth would wrongly be 1). Expressed as the parent's
+	 * depth in the base env so the existing `parentDepth + 1` spawn math and
+	 * the `checkCrewDepth` gate both see the parent's true depth. Undefined =
+	 * normal worker spawn (unchanged env-derived behavior).
+	 */
+	depthOverride?: number;
+	/** Base env for depth computation (defaults to process.env). Advanced —
+	 * used with depthOverride by the root-side delegate handler. */
+	env?: NodeJS.ProcessEnv;
 }
 
 export interface ChildPiRunResult {
@@ -250,7 +267,20 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 		input.inheritContext === true && input.parentContext
 			? `${input.parentContext}\n\n---\n# Child Worker Task\n${input.task}`
 			: input.task;
-	const depth = checkCrewDepth(input.maxDepth);
+	// ADR-5 §3 depthOverride: delegate-spawned grandchildren carry their depth
+	// from the parent task RECORD. Expressed as the parent's depth in the base
+	// env so BOTH the depth gate and the spawn env builder (parentDepth + 1)
+	// see the parent's true depth — the root process's env (depth 0) is never
+	// consulted for grandchildren.
+	const depthEnv =
+		input.depthOverride !== undefined
+			? {
+					...(input.env ?? process.env),
+					PI_CREW_DEPTH: String(input.depthOverride - 1),
+					PI_TEAMS_DEPTH: String(input.depthOverride - 1),
+				}
+			: undefined;
+	const depth = checkCrewDepth(input.maxDepth, depthEnv);
 	if (depth.blocked)
 		return {
 			exitCode: 1,
@@ -273,7 +303,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
 	if (!brokerSpawn && brokerIssuer && input.runId) {
 		try {
-			brokerSpawn = await brokerIssuer(input.runId, input.agentId);
+			// ADR-5 §4: thread the child depth so the issuer can contain broker
+			// credentials at depths that may not delegate (depth-2 at default
+			// maxDepth=2 gets NO socket/token — env containment AC).
+			brokerSpawn = await brokerIssuer(input.runId, input.agentId, input.depthOverride);
 		} catch (error) {
 			// H8 (2026-08-10): surface the silent degradation. Previously this
 			// swallowed ALL issuer failures (token-rotation race, broker socket
@@ -290,7 +323,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			brokerSpawn = undefined;
 		}
 	}
-	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask);
+	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
 	if (spawnPrep.kind === "aborted") return spawnPrep.result;
 	const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
 	try {
