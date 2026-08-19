@@ -21,7 +21,7 @@ import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { appendPlanRevision } from "../../state/stores/plan-store.ts";
-import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
+import { saveRunManifestAsync, saveRunTasksAsync } from "../../state/stores/state-store.ts";
 import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";
@@ -546,6 +546,22 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 		});
 		previousStepIds = currentStepIds;
 	}
+	const dependencyTaskIdByStep = new Map<string, string>([
+		["assess", assessTask.id],
+		...tasks.map((task) => [task.stepId ?? task.id, task.id] as const),
+	]);
+	const withGraph = tasks.map((task) => ({
+		...task,
+		dependsOn: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep),
+		graph: task.graph
+			? {
+					...task.graph,
+					dependencies: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep),
+					queue: "blocked" as const,
+				}
+			: task.graph,
+	}));
+	const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
 	// T2/R4 (ADR-4 §2/§6): persist the PlanRecord + manifest pointer (dual-write;
 	// crash between the two is benign — getCurrentPlanRecord falls back to the
 	// highest version). Producers never set taskIds (single-writer rule §3).
@@ -565,22 +581,12 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 		updatedAt: new Date().toISOString(),
 		plan: { id: planRecord.id, version: 1 },
 	});
-	const dependencyTaskIdByStep = new Map<string, string>([
-		["assess", assessTask.id],
-		...tasks.map((task) => [task.stepId ?? task.id, task.id] as const),
-	]);
-	const withGraph = tasks.map((task) => ({
-		...task,
-		dependsOn: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep),
-		graph: task.graph
-			? {
-					...task.graph,
-					dependencies: task.dependsOn.map((dep) => dependencyTaskIdByStep.get(dep) ?? dep),
-					queue: "blocked" as const,
-				}
-			: task.graph,
-	}));
-	const allTasks = refreshTaskGraphQueues([...input.tasks, ...withGraph]);
+	// FIX (T2/B2 case e, pre-existing): the injected tasks MUST be persisted at
+	// injection time. mergeUnitResult reloads tasks.json as the merge base and
+	// mergeTaskUpdatesPreservingTerminal DROPS updates for ids absent from the
+	// base — an injection that only lived in memory had its completed adaptive
+	// tasks silently erased from disk at the first merge.
+	await saveRunTasksAsync(input.manifest, allTasks);
 	await appendEventAsync(input.manifest.eventsPath, {
 		type: "adaptive.plan_injected",
 		runId: input.manifest.runId,

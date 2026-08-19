@@ -27,6 +27,7 @@ import { isNonTerminalTaskStatus } from "./merge-gate.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
 import { isMutatingTask, isPlanApprovalPending } from "./plan-approval.ts";
+import { sweepDroppedPlanItems } from "./plan-replan.ts";
 import { CrewCancellationError, cancellationReasonFromSignal } from "./process/cancellation.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry, type RetryPolicy } from "./recovery/retry-executor.ts";
 import type { SchedulerContext, SchedulerDecision, SettledUnit } from "./scheduler-context.ts";
@@ -363,6 +364,15 @@ export async function selectDispatchBatch(ctx: SchedulerContext): Promise<Schedu
 	if (sweep) {
 		ctx.manifest = sweep.manifest;
 		ctx.tasks = sweep.tasks;
+	}
+	// T2/R4 (ADR-4 §4): re-plan reconciliation — queued tasks of items dropped
+	// by the current revision are cancelled, in-flight ones get a wrap-up
+	// advisory (soft cancel). Cheap-exits inside make this a no-op for runs
+	// without plan-linked tasks.
+	const droppedSweep = sweepDroppedPlanItems(ctx.manifest.cwd, ctx.manifest.runId);
+	if (droppedSweep) {
+		ctx.manifest = droppedSweep.manifest;
+		ctx.tasks = droppedSweep.tasks;
 	}
 	const snapshot = taskGraphSnapshot(ctx.tasks, ctx.queueIndex);
 

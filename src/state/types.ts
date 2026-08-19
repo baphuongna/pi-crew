@@ -513,6 +513,10 @@ export interface TeamTaskState {
 	 *  when they create tasks from PlanRecord items; the scheduler reads it at
 	 *  dispatch to link `items[].taskIds` (single writer, run-locked). */
 	planItem?: string;
+	/** T2/R4 (ADR-4 §4): set when the wrap-up advisory was delivered because the
+	 *  item was dropped by a re-plan (soft cancel; exactly-once across ticks).
+	 *  Doubles as the terminal marker "cancelled-by-replan". */
+	replanDroppedAt?: string;
 	policy?: {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;

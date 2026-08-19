@@ -35,7 +35,7 @@ function makeManifest(stateRoot: string, over: Partial<TeamRunManifest> = {}): T
 		updatedAt: new Date(NOW - 60_000).toISOString(),
 		cwd: stateRoot,
 		stateRoot,
-		artifactsRoot: path.join(stateRoot, "artifacts"),
+		artifactsRoot: path.join(path.dirname(path.dirname(stateRoot)), "artifacts", "run-mig-1"),
 		tasksPath: path.join(stateRoot, "tasks.json"),
 		eventsPath: path.join(stateRoot, "events.jsonl"),
 		artifacts: [],

@@ -17,7 +17,9 @@ import { errors } from "../../errors.ts";
 import { createTaskClaim } from "../../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { linkTaskToPlanItem } from "../../state/stores/plan-store.ts";
 import type { ArtifactDescriptor, TaskPacket, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";
 import { prepareTaskWorkspaceAsync } from "../../worktree/worktree-manager.ts";
@@ -138,6 +140,21 @@ export async function prepareTaskExecutionContext(
 		controlReservation: reserveControlChannel(input.task.id, manifest.runId),
 	} as TeamTaskState;
 	let tasks = updateTask(input.tasks, task);
+	// T2/R4 (ADR-4 §3 single-writer linkage): record on the CURRENT plan
+	// revision that this dispatch implements the task's item. Best-effort —
+	// a linkage failure must never break dispatch (progress derivation degrades
+	// to "item has no linked tasks", visible via team plans get).
+	if (task.planItem) {
+		try {
+			linkTaskToPlanItem(manifest, task.planItem, task.id);
+		} catch (error) {
+			logInternalError(
+				"task-runner.plan-link-failed",
+				error instanceof Error ? error : new Error(String(error)),
+				`taskId=${task.id}`,
+			);
+		}
+	}
 	const runtimeKind = input.taskRuntimeOverride ?? input.runtimeKind ?? (input.executeWorkers ? "child-process" : "scaffold");
 	// A1-F7: Pre-compute whether yield-event collection is needed. For child-process
 	// workers (the common case) this is always false, so we skip allocating/accumulating
