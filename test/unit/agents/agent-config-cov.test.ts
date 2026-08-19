@@ -47,7 +47,8 @@ describe("getAgentSessionOptions", () => {
 	it("returns strict restrictions for security_reviewer", () => {
 		const opts = getAgentSessionOptions("security_reviewer");
 		assert.ok(opts.tools);
-		assert.ok(opts.tools!.length <= 3);
+		assert.ok(opts.tools!.length <= 4); // 3 core + dormant ask (QW17/B1-F4)
+		assert.ok(opts.tools!.includes("ask"));
 		assert.ok(opts.excludeTools!.includes("bash"));
 		assert.ok(opts.excludeTools!.includes("edit"));
 		assert.ok(opts.excludeTools!.includes("write"));

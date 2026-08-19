@@ -50,7 +50,7 @@ test("security-reviewer has strictest restrictions (F1: hyphen key resolves)", (
 	// form previously never resolved (returned {}), silently dropping the
 	// strictest tool restrictions in the codebase.
 	const security = getToolConfig("security-reviewer");
-	assert.ok(security.tools!.length <= 3);
+	assert.ok(security.tools!.length <= 4, "3 core tools + dormant ask (QW17/B1-F4)");
 	assert.ok(security.excludeTools!.includes("bash"));
 	assert.ok(security.excludeTools!.includes("edit"));
 	assert.ok(security.excludeTools!.includes("write"));
