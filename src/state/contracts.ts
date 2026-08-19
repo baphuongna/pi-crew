@@ -111,6 +111,16 @@ export const TEAM_EVENT_TYPES = [
 	// plan-approval.ts ensurePlanApprovalRequested emits this when the gate
 	// lights up — pre-existing unregistered emitter formalized with the rest.
 	"plan.approval_required",
+	// T3/R5 (ADR-5): governed-nesting delegate lifecycle. Emitted by the
+	// broker's delegate.request handler (crew-broker.ts) — every rejection
+	// leaves a delegate.rejected trace (never silent), usage roll-up lands as
+	// delegate.rolled_up on the parent task record.
+	"delegate.requested",
+	"delegate.admitted",
+	"delegate.rejected",
+	"delegate.completed",
+	"delegate.timed_out",
+	"delegate.rolled_up",
 	// Budget tracking events
 	"budget.initialized",
 	"budget.warning",
