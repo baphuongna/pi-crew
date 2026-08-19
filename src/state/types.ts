@@ -98,6 +98,27 @@ export interface SpecSnapshot {
 	items: SpecSnapshotItem[];
 }
 
+/** T4/R6 (ADR-6 §3): non-strict coverage-gate report persisted on the task.
+ *  Non-strict NEVER blocks — gaps surface as the `unverified` badge only. */
+export interface SpecGateResult {
+	/** "coverage" = non-strict (§3); "strict" arrives with the §4 sandbox. */
+	mode: "coverage" | "strict";
+	/** false for spec-less tasks — gate not applicable (regression guard). */
+	applicable: boolean;
+	footerPresent: boolean;
+	/** Cited ids in citation order (duplicates preserved). */
+	citedIds: string[];
+	/** Must-acceptance ids NOT cited — mechanically-detectable gap. */
+	missingMustIds: string[];
+	/** Cited ids that exist in no snapshot — fabrication signal (§2). */
+	unknownIds: string[];
+	/** Set ONLY on mechanically-detectable gaps (missing footer / missing
+	 *  must-ids / unknown ids). Full-coverage fabrication passes with NO badge. */
+	badge?: "unverified";
+	/** acceptanceId → one-line evidence text (verifier advisory input, §5). */
+	evidence: Record<string, string>;
+}
+
 export interface TaskPacket {
 	objective: string;
 	scope: TaskScope;
@@ -554,6 +575,9 @@ export interface TeamTaskState {
 	terminalEvidence?: OperationTerminalEvidence[];
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
+	/** T4/R6 (ADR-6 §3): SPEC-EVIDENCE coverage report. Present only when the
+	  task carried specSnapshots; non-strict gaps show as badge:"unverified". */
+	specGate?: SpecGateResult;
 	graph?: TaskGraphNode;
 	adaptive?: {
 		phase: string;

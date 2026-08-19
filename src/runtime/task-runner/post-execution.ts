@@ -44,6 +44,7 @@ import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } 
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";
 import type { TaskExecutionContext } from "./pre-execution.ts";
 import { buildWorkerPromptPipeline } from "./prompt-pipeline.ts";
+import { evaluateSpecCoverage, parseSpecEvidenceFooter } from "./spec-evidence.ts";
 import { persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 
 /**
@@ -386,6 +387,30 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		}
 	}
 
+	// --- T4/R6 (ADR-6 §3): SPEC-EVIDENCE coverage gate (non-strict default) ---
+	// Extends the classifier seam above — mechanical coverage only, never
+	// blocks in non-strict mode. Parses the footer from the authoritative
+	// result sources (finalText first, finalStdout fallback — same sources as
+	// the empty-result gate above). Spec-less tasks: gate not applicable.
+	const specFooterText = parsedOutput?.finalText?.trim() ? parsedOutput.finalText : finalStdout;
+	const specGate = taskPacket.specSnapshots?.length
+		? evaluateSpecCoverage(taskPacket.specSnapshots, parseSpecEvidenceFooter(specFooterText ?? ""))
+		: undefined;
+	if (specGate?.badge) {
+		await appendEventAsync(manifest.eventsPath, {
+			type: "task.spec_gate",
+			runId: manifest.runId,
+			taskId: task.id,
+			data: {
+				mode: specGate.mode,
+				badge: specGate.badge,
+				footerPresent: specGate.footerPresent,
+				missingMustIds: specGate.missingMustIds,
+				unknownIds: specGate.unknownIds,
+			},
+		});
+	}
+
 	task = {
 		...task,
 		status: error ? "failed" : noYield ? "needs_attention" : "completed",
@@ -403,6 +428,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 				: task.agentProgress,
 		error,
 		verification: verificationEvidence,
+		...(specGate ? { specGate } : {}),
 		resultArtifact,
 		claim: undefined,
 		heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
