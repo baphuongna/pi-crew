@@ -14,12 +14,15 @@
 //
 // `__test__parseAdaptivePlan` and `__test__repairAdaptivePlan` are re-exported
 // from team-runner.ts so existing test imports keep working.
+
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { appendPlanRevision } from "../../state/stores/plan-store.ts";
 import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import type { WorkflowConfig, WorkflowStep } from "../../workflows/workflow-config.ts";
 import { refreshTaskGraphQueues } from "../scheduling/task-graph-scheduler.ts";
@@ -40,7 +43,15 @@ export interface AdaptivePlan {
 	phases: AdaptivePlanPhase[];
 }
 
-const MAX_ADAPTIVE_TASKS = 12;
+/**
+ * T2/R4 (ADR-4 §5): the cap is PER-PHASE, not global. Pre-v2 this was a
+ * global flatten cap (MAX_ADAPTIVE_TASKS = 12) applied across the whole plan —
+ * a 3-phase plan may now schedule up to 3 x this across its life, bounded and
+ * visible per phase in the persisted PlanRecord. Deliberately a module
+ * constant, NOT a config key (the `adaptive` config section belongs to
+ * T3/WP-5 — review finding F3 of the ADR round).
+ */
+const ADAPTIVE_MAX_TASKS_PER_PHASE = 12;
 
 export function slug(value: string): string {
 	return (
@@ -125,7 +136,6 @@ export function parseAdaptivePlan(text: string, allowedRoles: string[]): Adaptiv
 	if (!phasesRaw) return undefined;
 	const allowed = new Set(allowedRoles);
 	const phases: AdaptivePlanPhase[] = [];
-	let total = 0;
 	for (const [phaseIndex, phaseRaw] of phasesRaw.entries()) {
 		if (!phaseRaw || typeof phaseRaw !== "object" || Array.isArray(phaseRaw)) return undefined;
 		const phaseObj = phaseRaw as { name?: unknown; tasks?: unknown };
@@ -140,13 +150,12 @@ export function parseAdaptivePlan(text: string, allowedRoles: string[]): Adaptiv
 			};
 			if (typeof taskObj.role !== "string" || !allowed.has(taskObj.role)) return undefined;
 			if (typeof taskObj.task !== "string" || !taskObj.task.trim()) return undefined;
-			if (total >= MAX_ADAPTIVE_TASKS) return undefined;
+			if (tasks.length >= ADAPTIVE_MAX_TASKS_PER_PHASE) return undefined; // per-phase (ADR-4 §5)
 			tasks.push({
 				role: taskObj.role,
 				title: typeof taskObj.title === "string" ? taskObj.title : undefined,
 				task: taskObj.task.trim(),
 			});
-			total++;
 		}
 		phases.push({
 			name: typeof phaseObj.name === "string" && phaseObj.name.trim() ? phaseObj.name.trim() : `phase-${phaseIndex + 1}`,
@@ -290,7 +299,6 @@ export function repairAdaptivePlan(text: string, allowedRoles: string[]): { plan
 	if (!phasesRaw) return { repaired: false, reason: "missing-phases" };
 	const allowed = new Set(allowedRoles);
 	const phases: AdaptivePlanPhase[] = [];
-	let total = 0;
 	let repaired = salvageUsed || raw !== closeResult.text;
 	for (const [phaseIndex, phaseRaw] of phasesRaw.entries()) {
 		if (!phaseRaw || typeof phaseRaw !== "object" || Array.isArray(phaseRaw)) continue;
@@ -298,7 +306,8 @@ export function repairAdaptivePlan(text: string, allowedRoles: string[]): { plan
 		if (!Array.isArray(phaseObj.tasks)) continue;
 		const tasks: AdaptivePlanTask[] = [];
 		for (const taskRaw of phaseObj.tasks) {
-			if (total >= MAX_ADAPTIVE_TASKS) {
+			if (tasks.length >= ADAPTIVE_MAX_TASKS_PER_PHASE) {
+				// Per-phase cap (ADR-4 §5): truncate THIS phase, keep later phases.
 				repaired = true;
 				break;
 			}
@@ -322,14 +331,12 @@ export function repairAdaptivePlan(text: string, allowedRoles: string[]): { plan
 				title: typeof taskObj.title === "string" ? taskObj.title : undefined,
 				task: taskText,
 			});
-			total++;
 		}
 		if (tasks.length)
 			phases.push({
 				name: typeof phaseObj.name === "string" && phaseObj.name.trim() ? phaseObj.name.trim() : `phase-${phaseIndex + 1}`,
 				tasks,
 			});
-		if (total >= MAX_ADAPTIVE_TASKS) break;
 	}
 	return phases.length
 		? {
@@ -479,14 +486,30 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 	}
 	const steps: WorkflowStep[] = [];
 	const tasks: TeamTaskState[] = [];
+	// T2/R4 (ADR-4 §6 producer 2): item ids are stable across revisions —
+	// phase/task POSITION based, independent of role renames.
+	const planPhases: PlanRecord["phases"] = [];
+	const planItems: PlanRecord["items"] = [];
 	let previousStepIds = ["assess"];
 	let counter = 0;
 	for (const [phaseIndex, phase] of plan.phases.entries()) {
 		const currentStepIds: string[] = [];
+		const phaseItemIds: string[] = [];
 		for (const [taskIndex, planned] of phase.tasks.entries()) {
 			counter++;
+			const itemId = `adaptive-p${phaseIndex + 1}-t${taskIndex + 1}`;
 			const stepId = `adaptive-${phaseIndex + 1}-${taskIndex + 1}-${slug(planned.role)}`;
 			const taskId = `adaptive-${String(counter).padStart(2, "0")}-${slug(planned.role)}`;
+			phaseItemIds.push(itemId);
+			planItems.push({
+				id: itemId,
+				ref: stepId,
+				title: planned.title ?? planned.task.slice(0, 80),
+				taskIds: [],
+				specIds: [],
+				acceptance: [],
+				status: "pending",
+			});
 			steps.push({
 				id: stepId,
 				role: planned.role,
@@ -505,6 +528,7 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				dependsOn: previousStepIds,
 				cwd: input.manifest.cwd,
 				adaptive: { phase: phase.name, task: planned.task },
+				planItem: itemId,
 				graph: {
 					taskId,
 					dependencies: previousStepIds,
@@ -514,8 +538,33 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 			});
 			currentStepIds.push(stepId);
 		}
+		planPhases.push({
+			id: `adaptive-phase-${phaseIndex + 1}`,
+			title: phase.name,
+			itemIds: phaseItemIds,
+			status: "pending",
+		});
 		previousStepIds = currentStepIds;
 	}
+	// T2/R4 (ADR-4 §2/§6): persist the PlanRecord + manifest pointer (dual-write;
+	// crash between the two is benign — getCurrentPlanRecord falls back to the
+	// highest version). Producers never set taskIds (single-writer rule §3).
+	const planRecord: PlanRecord = {
+		id: randomUUID(),
+		runId: input.manifest.runId,
+		version: 1,
+		title: `Adaptive plan (${plan.phases.length} phase(s))`,
+		phases: planPhases,
+		items: planItems,
+		createdAt: new Date().toISOString(),
+		authorTaskId: assessTask.id,
+	};
+	appendPlanRevision(input.manifest, planRecord);
+	await saveRunManifestAsync({
+		...input.manifest,
+		updatedAt: new Date().toISOString(),
+		plan: { id: planRecord.id, version: 1 },
+	});
 	const dependencyTaskIdByStep = new Map<string, string>([
 		["assess", assessTask.id],
 		...tasks.map((task) => [task.stepId ?? task.id, task.id] as const),

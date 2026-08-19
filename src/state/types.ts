@@ -509,6 +509,10 @@ export interface TeamTaskState {
 		phase: string;
 		task: string;
 	};
+	/** T2/R4 (ADR-4 §3): the plan item this task implements. Set by producers
+	 *  when they create tasks from PlanRecord items; the scheduler reads it at
+	 *  dispatch to link `items[].taskIds` (single writer, run-locked). */
+	planItem?: string;
 	policy?: {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;

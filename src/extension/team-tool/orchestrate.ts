@@ -5,6 +5,8 @@
  */
 import * as fs from "node:fs";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { appendPlanRevision } from "../../state/stores/plan-store.ts";
+import { loadRunManifestById, saveRunManifest } from "../../state/stores/state-store.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import {
 	buildAgentChain,
@@ -12,7 +14,9 @@ import {
 	type OrchestratedStep,
 	parsePlanDocument,
 	parsePlanDocumentSimple,
+	stepsToPlanRecord,
 } from "../plan-orchestrate.ts";
+import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
 
@@ -67,9 +71,31 @@ export function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext)
 	const overview = formatPlanOverview(resolvedPath);
 	const commands = buildAgentChain(steps);
 
+	// T2/R4 (ADR-4 §6 producer 1): persist a PlanRecord when the caller binds
+	// an explicit run. Opt-in: orchestrate emits one `team action='run'` per
+	// step (each creating its OWN run), so silently attaching the record to
+	// "some" run would misattribute linkage. Without runId the action stays
+	// read-only and says so.
+	let planNote = "PlanRecord not persisted (no runId given — pass runId=<runId> to attach a versioned record to that run).";
+	let persisted: { id: string; version: number; items: number } | undefined;
+	const runId = typeof params.runId === "string" && params.runId.trim() ? params.runId.trim() : undefined;
+	if (runId) {
+		const runCwd = locateRunCwd(runId, ctx.cwd);
+		const manifest = runCwd ? loadRunManifestById(runCwd, runId)?.manifest : undefined;
+		if (!manifest) {
+			return result(`runId not found: ${runId}`, { action: "orchestrate", status: "error" }, true);
+		}
+		const record = stepsToPlanRecord(steps, runId, { title: `Orchestrated: ${planPath}` });
+		appendPlanRevision(manifest, record);
+		saveRunManifest({ ...manifest, updatedAt: new Date().toISOString(), plan: { id: record.id, version: record.version } });
+		persisted = { id: record.id, version: record.version, items: record.items.length };
+		planNote = `PlanRecord persisted to run ${runId}: v${record.version} (${record.items.length} item(s)) — team action='plans' runId='${runId}' to inspect.`;
+	}
+
 	const outputLines: string[] = [
 		`Plan: ${resolvedPath}`,
 		`Steps: ${steps.length}`,
+		planNote,
 		"",
 		"# Agent Chain Commands",
 		"",
@@ -86,6 +112,7 @@ export function handleOrchestrate(params: TeamToolParamsValue, ctx: TeamContext)
 			planPath: resolvedPath,
 			stepCount: steps.length,
 			commands,
+			persisted,
 			steps: steps.map((sqs) => ({
 				stepId: sqs.stepId,
 				tag: sqs.tag,

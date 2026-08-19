@@ -5,7 +5,9 @@
  * for sequential agent chain execution based on ECC recommendations.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import type { PlanRecord } from "../state/types.ts";
 
 /**
  * Tag → Agent chain mapping from ECC recommendations.
@@ -299,4 +301,130 @@ export async function orchestratePlan(options: OrchestrateOptions): Promise<{
 	const overview = formatPlanOverview(planPath);
 
 	return { steps, chain, overview };
+}
+
+/**
+ * T2/R4 (ADR-4 §6, producer 1): convert parsed orchestrate steps into a
+ * PlanRecord. Pure — persistence (appendPlanRevision) is the caller's job.
+ * Phases group steps by tag in encounter order; item ids reuse the stable
+ * stepId so revisions diff cleanly. taskIds stay EMPTY (single-writer rule:
+ * only the scheduler links tasks, ADR-4 §3).
+ */
+export function stepsToPlanRecord(steps: OrchestratedStep[], runId: string, opts: { title?: string } = {}): PlanRecord {
+	const phaseOrder: string[] = [];
+	const byTag = new Map<string, OrchestratedStep[]>();
+	for (const step of steps) {
+		if (!byTag.has(step.tag)) {
+			byTag.set(step.tag, []);
+			phaseOrder.push(step.tag);
+		}
+		(byTag.get(step.tag) as OrchestratedStep[]).push(step);
+	}
+	return {
+		id: randomUUID(),
+		runId,
+		version: 1,
+		title: opts.title ?? "Orchestrated plan",
+		phases: phaseOrder.map((tag, i) => ({
+			id: `phase-${i + 1}-${tag}`,
+			title: byTag.get(tag)?.[0]?.heading ?? tag,
+			itemIds: (byTag.get(tag) ?? []).map((sqs) => sqs.stepId),
+			status: "pending",
+		})),
+		items: steps.map((sqs) => ({
+			id: sqs.stepId,
+			ref: sqs.stepId,
+			title: sqs.heading ?? sqs.prompt.slice(0, 80),
+			taskIds: [],
+			specIds: [],
+			acceptance: [],
+			status: "pending",
+		})),
+		createdAt: new Date().toISOString(),
+	};
+}
+
+/**
+ * T2/R4 (ADR-4 §6, producer 3): parse a planner-role task output into a
+ * PlanRecord. Contract: one fenced/tagged block
+ *
+ *   <plan>
+ *   { "title": "...", "phases": [{ "title": "...", "items": [{"id": "...", "title": "...", "task": "...", "acceptance": ["..."]}] }] }
+ *   </plan>
+ *
+ * The block content is JSON (code fences tolerated). Returns undefined when no
+ * block or malformed — callers treat that as "no plan record" (pre-v2 path).
+ * Item ids are namespaced `pi-<n>-<slug>` when the planner omits them, so ids
+ * stay stable across revisions for diff/carry-over.
+ */
+export function parsePlannerPlanOutput(text: string, runId: string, authorTaskId?: string): PlanRecord | undefined {
+	const blockMatch = text.match(/<plan>\s*([\s\S]*?)\s*<\/plan>/);
+	if (!blockMatch) return undefined;
+	let raw = blockMatch[1] as string;
+	raw = raw.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return undefined;
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+	const obj = parsed as { title?: unknown; phases?: unknown };
+	if (!Array.isArray(obj.phases) || obj.phases.length === 0) return undefined;
+	const phases: PlanRecord["phases"] = [];
+	const items: PlanRecord["items"] = [];
+	let n = 0;
+	for (const [phaseIndex, phaseRaw] of obj.phases.entries()) {
+		if (!phaseRaw || typeof phaseRaw !== "object" || Array.isArray(phaseRaw)) return undefined;
+		const phaseObj = phaseRaw as { title?: unknown; items?: unknown };
+		if (!Array.isArray(phaseObj.items) || phaseObj.items.length === 0) return undefined;
+		const phaseId = `phase-${phaseIndex + 1}`;
+		const itemIds: string[] = [];
+		for (const itemRaw of phaseObj.items) {
+			if (!itemRaw || typeof itemRaw !== "object" || Array.isArray(itemRaw)) return undefined;
+			const itemObj = itemRaw as { id?: unknown; title?: unknown; task?: unknown; acceptance?: unknown; ref?: unknown };
+			const taskText = typeof itemObj.task === "string" ? itemObj.task : undefined;
+			const title = typeof itemObj.title === "string" && itemObj.title.trim() ? itemObj.title.trim() : taskText?.slice(0, 80);
+			if (!title) return undefined;
+			n++;
+			const id = typeof itemObj.id === "string" && itemObj.id.trim() ? itemObj.id.trim() : `pi-${n}-${slugText(title)}`;
+			if (items.some((i) => i.id === id)) return undefined;
+			itemIds.push(id);
+			items.push({
+				id,
+				ref: typeof itemObj.ref === "string" ? itemObj.ref : undefined,
+				title,
+				taskIds: [],
+				specIds: [],
+				acceptance: Array.isArray(itemObj.acceptance) ? itemObj.acceptance.filter((a): a is string => typeof a === "string") : [],
+				status: "pending",
+			});
+		}
+		phases.push({
+			id: phaseId,
+			title: typeof phaseObj.title === "string" && phaseObj.title.trim() ? phaseObj.title.trim() : `Phase ${phaseIndex + 1}`,
+			itemIds,
+			status: "pending",
+		});
+	}
+	return {
+		id: randomUUID(),
+		runId,
+		version: 1,
+		title: typeof obj.title === "string" && obj.title.trim() ? obj.title.trim() : "Planner plan",
+		phases,
+		items,
+		createdAt: new Date().toISOString(),
+		authorTaskId,
+	};
+}
+
+function slugText(value: string): string {
+	return (
+		value
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "")
+			.slice(0, 32) || "item"
+	);
 }
