@@ -2,6 +2,23 @@
 
 The `team` tool is the primary tool that pi-crew registers with Pi. All operations go through `action`.
 
+### `plans` — Inspect and decide a run's plan record (T2/R4)
+
+Reads the versioned `PlanRecord` list at `<stateRoot>/plans/plans.json` (ADR-4). Pre-v2 runs without a record degrade gracefully with the manifest-gate info.
+
+```json
+{ "action": "plans", "runId": "team_..." }
+{ "action": "plans", "runId": "team_...", "config": { "subAction": "get", "rev": 2 } }
+{ "action": "plans", "runId": "team_...", "config": { "subAction": "list" } }
+{ "action": "plans", "runId": "team_...", "config": { "subAction": "diff", "a": 1, "b": 2 } }
+{ "action": "plans", "runId": "team_...", "config": { "subAction": "approve" } }
+```
+
+- `get` (default) renders the current (or pinned `rev`) revision with derived per-item progress (done/failed/running from linked `taskIds`).
+- `list` renders the revision history.
+- `diff` reports item-level changes between two revisions (added / removed / dropped / status changes / retitles).
+- `approve` / `reject` delegate to the api `approve-plan` / `cancel-plan` ops (dual-write: manifest keeps its vocabulary — `cancelled` on deny — the record side uses `rejected`).
+
 ## Quick Reference
 
 | Action | Purpose | When to use |
@@ -10,6 +27,7 @@ The `team` tool is the primary tool that pi-crew registers with Pi. All operatio
 | `run` | Create a run and execute a workflow | Main operation |
 | `parallel` | Fan out independent tasks as concurrent runs | When you need N truly concurrent agents |
 | `plan` | Preview a workflow without running tasks | Dry-run planning |
+| `plans` | Inspect/decide the versioned plan record of a run | Plan revisions, diff, approve/reject |
 | `orchestrate` | Execute from a plan document | Automate a plan |
 | `schedule` | Schedule recurring runs | Periodic automation |
 | `scheduled` | List scheduled jobs | View schedules |

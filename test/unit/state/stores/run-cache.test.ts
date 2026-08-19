@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { computeRunCacheKey, getCachedRun, getCacheStats } from "../../../../src/state/stores/run-cache.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import { projectCrewRoot } from "../../../../src/utils/paths.ts";
+import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 // Note: saveRunToCache/clearCache were removed (Round 7 R7-5: 0 production
 // callers; getCachedRun is the live read-only consumer). Cache state for these
@@ -57,7 +57,12 @@ function writeCacheEntry(cwd: string, entry: FixtureEntry): string {
 }
 
 function makeTmp(): string {
-	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-run-cache-"));
+	// Tracked temp dir WITH a .git marker so projectCrewRoot(tmp) resolves
+	// inside the temp tree (bug-029: on macOS CI the raw-mkdtemp walk escaped
+	// the symlinked tmpdir boundary and shared a runner-adjacent .crew/cache —
+	// the last two getCacheStats tests read entries accumulated by earlier
+	// tests in this file and failed deterministically).
+	return createTrackedTempDir("pi-crew-run-cache-");
 }
 
 function cleanup(dir: string): void {

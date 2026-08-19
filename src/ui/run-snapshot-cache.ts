@@ -717,6 +717,9 @@ function signatureFor(
 					input.manifest.updatedAt,
 					input.manifest.artifacts.length,
 					input.manifest.planApproval?.status,
+					// T2/R4 (ADR-4 §2): a re-plan (revision switch) or record-side
+					// approval flip must invalidate per-run render caches too.
+					input.manifest.plan?.version ?? null,
 				],
 				tasks: sliceSignatures.tasks,
 				agents: sliceSignatures.agents,

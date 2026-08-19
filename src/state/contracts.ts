@@ -97,6 +97,20 @@ export const TEAM_EVENT_TYPES = [
 	"ask.answered",
 	"ask.timedout",
 	"supervisor.contact",
+	// T2/R4 first-class Plan object (ADR-4 docs/decisions/2026-08-17-plan-object.md §9):
+	// plan-store revision/approval mutations. `plan.approved` and `plan.cancelled`
+	// formalize emitters that api/plan-approval.ts:66-67,144-145 already wrote
+	// unregistered (pre-existing gap closed by the ADR). The scheduler's
+	// items[].taskIds linkage writes append NO event (task dispatch logs its own).
+	"plan.created",
+	"plan.revised",
+	"plan.approved",
+	"plan.rejected",
+	"plan.cancelled",
+	"plan.item.dropped",
+	// plan-approval.ts ensurePlanApprovalRequested emits this when the gate
+	// lights up — pre-existing unregistered emitter formalized with the rest.
+	"plan.approval_required",
 	// Budget tracking events
 	"budget.initialized",
 	"budget.warning",

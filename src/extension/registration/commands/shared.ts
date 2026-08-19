@@ -4,7 +4,7 @@ import { loadConfig } from "../../../config/config.ts";
 import { DEFAULT_UI } from "../../../config/defaults.ts";
 import type { MetricRegistry } from "../../../observability/metric-registry.ts";
 import { listRecentDiagnostic } from "../../../runtime/diagnostic-export.ts";
-import { isPlanApprovalPending } from "../../../runtime/plan-approval.ts";
+import { isPlanApprovalPendingEffective } from "../../../runtime/plan-approval.ts";
 import type { TeamAction } from "../../../schema/team-tool-schema.ts";
 import { loadRunManifestById } from "../../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../../state/types.ts";
@@ -393,7 +393,7 @@ async function handlePlanDashboardAction(ctx: ExtensionCommandContext, selection
 		depsNotify(ctx, `Run '${selection.runId}' not found.`, "error");
 		return;
 	}
-	if (!isPlanApprovalPending(loaded.manifest)) {
+	if (!isPlanApprovalPendingEffective(loaded.manifest)) {
 		depsNotify(ctx, "no pending plan approval", "warning");
 		return;
 	}

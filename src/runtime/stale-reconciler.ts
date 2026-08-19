@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { errors } from "../errors.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
+import { getCurrentPlanRecord } from "../state/stores/plan-store.ts";
 import { loadManifestWithRecovery, loadTasksWithRecovery, saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -46,6 +47,16 @@ export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
 	return manifest.status === "blocked" && manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
 }
 
+/** T2/R4 (ADR-4 §2 reader migration): plan-record-first variant — the current
+ *  PlanRecord's approval (when present) is authoritative; pre-v2 runs fall
+ *  back to the manifest gate above. The `blocked + pending → protected`
+ *  invariant is preserved on BOTH paths. */
+export function isPlanApprovalPendingEffective(manifest: TeamRunManifest): boolean {
+	if (isPlanApprovalPending(manifest)) return true;
+	if (manifest.status !== "blocked") return false;
+	return getCurrentPlanRecord(manifest)?.approval?.status === "pending";
+}
+
 /** WP-2/R2 (ADR-0 item 9, docs/decisions/2026-08-17-waiting-producer-ask.md):
  * waiting TTL — a manifest.waitState.askedAt younger than this marks an
  * intentional ask-wait; older marks a leaked park marker (worker died without
@@ -70,13 +81,14 @@ export function isWaitAnswerPending(manifest: TeamRunManifest, now = Date.now())
 }
 
 /**
- * Generalized intentional-wait predicate (ADR-0 item 9): the run is blocked on
- * a human decision — plan approval (pre-v2 semantics, UNCHANGED) or a pending
- * ask answer within waitingTtl. Such runs are not crashes and must not be
- * stale-repaired or cancelled by reconciliation.
+ * Generalized intentional-wait predicate (ADR-0 item 9, extended by ADR-4 §2):
+ * the run is blocked on a human decision — plan approval (record-first with
+ * manifest fallback — pre-v2 semantics preserved on the fallback path) or a
+ * pending ask answer within waitingTtl. Such runs are not crashes and must not
+ * be stale-repaired or cancelled by reconciliation.
  */
 export function isIntentionalWait(manifest: TeamRunManifest, now = Date.now()): boolean {
-	return isPlanApprovalPending(manifest) || isWaitAnswerPending(manifest, now);
+	return isPlanApprovalPendingEffective(manifest) || isWaitAnswerPending(manifest, now);
 }
 
 const STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -349,7 +361,9 @@ export function reconcileStaleRun(manifest: TeamRunManifest, tasks: TeamTaskStat
 	// Preserve runs intentionally blocked on human plan approval. These are not
 	// crashes even if the owning PID is gone — they are waiting for a decision.
 	// Must short-circuit before Phase 1 (result check) and Phase 2 (PID liveness).
-	if (isPlanApprovalPending(manifest)) {
+	// ADR-4 §2: record-first predicate — a PlanRecord approval is authoritative,
+	// the manifest field remains the pre-v2 fallback (never dropped).
+	if (isPlanApprovalPendingEffective(manifest)) {
 		return {
 			runId,
 			verdict: "blocked_awaiting_approval",

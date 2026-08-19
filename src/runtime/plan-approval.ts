@@ -8,10 +8,13 @@
  * (RT-14 structural source-pin test requires it defined there).
  */
 
+import * as fs from "node:fs";
 import type { CrewRuntimeConfig } from "../config/config.ts";
+import { parsePlannerPlanOutput } from "../extension/plan-orchestrate.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendPlanRevision, getCurrentPlanRecord, setPlanApproval } from "../state/stores/plan-store.ts";
 import { saveRunManifestAsync } from "../state/stores/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowConfig } from "../workflows/workflow-config.ts";
 import { permissionForRole } from "./role-permission.ts";
 
@@ -35,6 +38,29 @@ export function isPlanApprovalPending(manifest: TeamRunManifest): boolean {
 	return isPlanApprovalStatePending(manifest.planApproval);
 }
 
+/**
+ * T2/R4 (ADR-4 §2, reader migration): plan-record-first approval predicate
+ * with manifest fallback. The current revision's approval state, when present,
+ * is authoritative; otherwise the legacy manifest gate decides. Pre-v2 runs
+ * (no plans.json) take exactly the old path — pinned by the migration
+ * negative AC in plan-store.test.ts.
+ */
+export function isPlanApprovalPendingEffective(manifest: TeamRunManifest): boolean {
+	const current = getCurrentPlanRecord(manifest);
+	if (current?.approval) return current.approval.status === "pending";
+	return isPlanApprovalPending(manifest);
+}
+
+/**
+ * T2/R4 (ADR-4 §8 vocabulary mapping): a deny is `cancelled` on the manifest
+ * side and `rejected` on the record side — either means "decided negative"
+ * to the scheduler cancel paths (team-runner.ts readers).
+ */
+export function isPlanApprovalDenied(manifest: TeamRunManifest): boolean {
+	if (manifest.planApproval?.status === "cancelled") return true;
+	return getCurrentPlanRecord(manifest)?.approval?.status === "rejected";
+}
+
 export function isMutatingTask(task: TeamTaskState): boolean {
 	return permissionForRole(task.role) !== "read_only";
 }
@@ -46,6 +72,29 @@ export async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tas
 	// completed read-only (planning) task as the plan reference.
 	const planTask = assessTask ?? [...tasks].reverse().find((t) => t.status === "completed" && !isMutatingTask(t));
 	const now = new Date().toISOString();
+
+	// T2/R4 (ADR-4 §6 producer 3 + §8 dual-write): make sure a PlanRecord
+	// exists before the gate lights up, so approval names plan id+version.
+	// - Record already present (adaptive producer ran, or a re-request after
+	//   crash between the record append and the manifest save) → reuse it.
+	// - No record → try the planner-tagged `<plan>` contract on the plan
+	//   artifact; if that fails → manifest-only gate (pre-v2 behavior, the
+	//   dual-read fallback in plan-store keeps readers correct).
+	let record = getCurrentPlanRecord(manifest);
+	if (!record && planTask?.resultArtifact?.path) {
+		try {
+			const text = fs.readFileSync(planTask.resultArtifact.path, "utf-8");
+			const parsed: PlanRecord | undefined = parsePlannerPlanOutput(text, manifest.runId, planTask.id);
+			if (parsed) record = appendPlanRevision(manifest, parsed);
+		} catch {
+			// Unreadable/unparsable artifact → manifest-only gate (below); the
+			// gate must still light up — never a throw here.
+		}
+	}
+	if (record) {
+		setPlanApproval(manifest, { status: "pending", planVersion: record.version });
+	}
+
 	const updated: TeamRunManifest = {
 		...manifest,
 		updatedAt: now,
@@ -57,6 +106,7 @@ export async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tas
 			planTaskId: planTask?.id,
 			planArtifactPath: planTask?.resultArtifact?.path,
 		},
+		plan: record ? { id: record.id, version: record.version } : manifest.plan,
 	};
 	await saveRunManifestAsync(updated);
 	appendEvent(updated.eventsPath, {
@@ -64,7 +114,7 @@ export async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tas
 		runId: updated.runId,
 		taskId: planTask?.id,
 		message: "Plan requires explicit approval before mutating tasks run. Use: team api op=approve-plan runId=...",
-		data: { planArtifactPath: planTask?.resultArtifact?.path },
+		data: { planArtifactPath: planTask?.resultArtifact?.path, planId: record?.id, planVersion: record?.version },
 	});
 	return updated;
 }

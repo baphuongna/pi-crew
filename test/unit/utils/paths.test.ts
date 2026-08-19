@@ -78,18 +78,43 @@ test("userPiRoot ignores a literal 'undefined' PI_TEAMS_HOME (F4 regression)", (
 	}
 });
 
-test("findRepoRoot returns undefined for directory with no markers", {
-	skip:
-		process.platform === "darwin"
-			? "macOS runner temp dirs (via realpathSync) have a marker in an ancestor directory, so the 'no ancestor marker' contract is not reliably testable here. Passes on Linux. Follow up: use a fully isolated nested temp tree."
-			: undefined,
-}, () => {
+test("findRepoRoot returns undefined for directory with no markers", () => {
 	const dir = makeTempDir();
 	try {
 		const result = findRepoRoot(dir);
 		assert.equal(result, undefined);
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("findRepoRoot stops at a symlinked tmpdir boundary (bug-029: macOS /var -> /private/var escape)", () => {
+	// Regression: computeRepoRoot compared the realpath'd walk chain against the
+	// LEXICAL home/tmpdir. On macOS, TMPDIR=/var/folders/.../T realpaths to
+	// /private/var/..., never matches, and the walk escapes the temp sandbox —
+	// latching onto an unrelated ancestor marker (GH macOS runners have one;
+	// seen live as the run-cache CI failure). Layout: base/ has a marker, the
+	// temp root is reached via a symlink so lexical != real, start dir is clean.
+	const base = makeTempDir();
+	const origTmp = process.env.TMPDIR;
+	try {
+		fs.writeFileSync(path.join(base, "package.json"), "{}"); // marker an ancestor level above the temp root
+		const realT = path.join(base, "real-T");
+		fs.mkdirSync(path.join(realT, "proj"), { recursive: true });
+		fs.symlinkSync(realT, path.join(base, "tmplink"));
+		process.env.TMPDIR = path.join(base, "tmplink");
+		// Guard: os.tmpdir() must observe the mutation (no process-level cache on
+		// the Node versions we support); otherwise this test would pass vacuously.
+		assert.equal(fs.realpathSync(os.tmpdir()), realT, "TMPDIR mutation must be observed by os.tmpdir()");
+		clearProjectRootCache();
+		// Must NOT return base (marker above the boundary) — the walk has to stop
+		// at the canonicalized temp root real-T.
+		assert.equal(findRepoRoot(path.join(realT, "proj")), undefined);
+	} finally {
+		if (origTmp === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = origTmp;
+		clearProjectRootCache();
+		fs.rmSync(base, { recursive: true, force: true });
 	}
 });
 

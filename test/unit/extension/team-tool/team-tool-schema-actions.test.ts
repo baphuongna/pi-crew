@@ -29,12 +29,12 @@ test("TypeBox TeamToolParams rejects unknown actions (validation still works)", 
 	assert.equal(Value.Check(TeamToolParams, { action: "nonexistent-action" }), false, "unknown action must be rejected");
 });
 
-test("flat schema enumerates all 54 actions (allActionLiterals derivation guard)", () => {
-	// 9 (run) + 16 (status) + 7 (control) + 16 (manage) + 6 (automate) = 54.
+test("flat schema enumerates all 55 actions (allActionLiterals derivation guard)", () => {
+	// 10 (run, incl. 'plans' T2/R4 ADR-4) + 16 (status) + 7 (control) + 16 (manage) + 6 (automate) = 55.
 	// Guards the .flatMap(set.anyOf ?? []) derivation: if a domain set's structure
 	// changes and the flatten drops literals, this fails. Update the expected
 	// count if a new action is added.
-	assert.equal(allActionLiterals.length, 54, `expected 54 action literals, got ${allActionLiterals.length}`);
+	assert.equal(allActionLiterals.length, 55, `expected 55 action literals, got ${allActionLiterals.length}`);
 	const consts = allActionLiterals.map((l) => (l as { const?: string }).const).filter((c): c is string => c !== undefined);
 	assert.equal(new Set(consts).size, consts.length, "duplicate action literals in flat schema");
 });

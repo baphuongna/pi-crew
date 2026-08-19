@@ -165,6 +165,61 @@ export interface PlanApprovalState {
 }
 
 export type CrewActivityState = "active" | "active_long_running" | "needs_attention" | "stale";
+
+/** T2/R4 (ADR-4 docs/decisions/2026-08-17-plan-object.md §1): status vocabulary
+ *  shared by plan phases and items. `dropped` marks items removed by a re-plan
+ *  revision (kept for traceability + diff, never re-dispatched). */
+export type PlanItemStatus = "pending" | "active" | "done" | "dropped";
+
+export interface PlanPhaseRecord {
+	id: string;
+	title: string;
+	itemIds: string[];
+	status: PlanItemStatus;
+}
+
+export interface PlanItemRecord {
+	/** Stable across revisions (ADR-4 §3 producer contract) — the scheduler
+	 *  copies carried-over linkage forward at revision switch. */
+	id: string;
+	/** External reference (e.g. tagged section id in the source plan doc). */
+	ref?: string;
+	title: string;
+	/** Scheduler-owned (single writer, inside the run lock — ADR-4 §3).
+	 *  Producers NEVER set taskIds. */
+	taskIds: string[];
+	/** R6/T4 forward hook; T2 writes it empty (ADR-4 §1). */
+	specIds: string[];
+	acceptance: string[];
+	status: PlanItemStatus;
+}
+
+/** Plan-record side of the approval gate. Vocabulary note (ADR-4 §8): the
+ *  manifest side keeps `PlanApprovalState` ("cancelled" for deny); the record
+ *  side uses "rejected" — `plans reject` dual-writes both. */
+export interface PlanApprovalRecord {
+	status: "pending" | "approved" | "rejected";
+	by?: string;
+	at: string;
+	planVersion: number;
+}
+
+/** One revision in the append-only list persisted at
+ *  `<stateRoot>/plans/plans.json` (plan-store.ts). History is never mutated in
+ *  place — EXCEPT the current revision's `items[].taskIds`, the scheduler's
+ *  single-writer linkage field (ADR-4 §3). */
+export interface PlanRecord {
+	id: string;
+	runId: string;
+	version: number;
+	revisionOf?: { id: string; version: number };
+	title: string;
+	phases: PlanPhaseRecord[];
+	items: PlanItemRecord[];
+	approval?: PlanApprovalRecord;
+	createdAt: string;
+	authorTaskId?: string;
+}
 export type CrewAttentionReason = "idle" | "tool_failures" | "completion_guard" | "heartbeat_stale" | "plan_approval_pending";
 
 export interface CrewAttentionEventData {
@@ -227,7 +282,15 @@ export interface TeamRunManifest {
 	eventsPath: string;
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
+	/** @deprecated-plan-pointer T2/R4 (ADR-4 §2): dual-write era — PlanRecord at
+	 *  `<stateRoot>/plans/plans.json` is authoritative; this field is kept (never
+	 *  dropped) as the pre-v2 fallback and legacy UI surface. Deprecate-only. */
 	planApproval?: PlanApprovalState;
+	/** T2/R4 (ADR-4 §2): pointer to the CURRENT plan revision in
+	 *  `<stateRoot>/plans/plans.json`. Plan-record-first readers fall back to
+	 *  `planApproval` above when absent or no record exists (dual-read migration;
+	 *  the manifest field is deprecated, never dropped). */
+	plan?: { id: string; version: number };
 	/** WP-2/R2 (ADR-0 item 3): run-level park pointer while a worker is blocked
 	 *  in the `ask` tool. Purely additive coordination state — `status` above is
 	 *  NEVER flipped to express waiting (the run stays "running": registry entry,
@@ -449,6 +512,14 @@ export interface TeamTaskState {
 		phase: string;
 		task: string;
 	};
+	/** T2/R4 (ADR-4 §3): the plan item this task implements. Set by producers
+	 *  when they create tasks from PlanRecord items; the scheduler reads it at
+	 *  dispatch to link `items[].taskIds` (single writer, run-locked). */
+	planItem?: string;
+	/** T2/R4 (ADR-4 §4): set when the wrap-up advisory was delivered because the
+	 *  item was dropped by a re-plan (soft cancel; exactly-once across ticks).
+	 *  Doubles as the terminal marker "cancelled-by-replan". */
+	replanDroppedAt?: string;
 	policy?: {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;

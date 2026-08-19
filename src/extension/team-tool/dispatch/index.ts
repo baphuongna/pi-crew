@@ -26,6 +26,7 @@ export { handleAutomateDomain, handleControlDomain, handleManageDomain, handleRu
 const ACTION_TO_DOMAIN: Record<string, TeamDomain> = {
 	// run domain (9)
 	run: "run",
+	plans: "run",
 	parallel: "run",
 	plan: "run",
 	orchestrate: "run",

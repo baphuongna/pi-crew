@@ -204,8 +204,15 @@ export function findRepoRoot(cwd: string): string | undefined {
 function computeRepoRoot(start: string): string | undefined {
 	let current = start;
 	const root = path.parse(current).root;
-	const home = path.resolve(os.homedir());
-	const tempRoot = path.resolve(os.tmpdir());
+	// Canonicalize the boundaries to match the walk chain: findRepoRoot
+	// resolves the start dir via realpathSync, so every step of the walk is a
+	// canonical path. Comparing against the LEXICAL home/tmpdir lets symlinked
+	// temp dirs (macOS: /var -> /private/var, TMPDIR=/var/folders/.../T) never
+	// match, so the walk escapes the sandbox and can latch onto an unrelated
+	// ancestor marker (seen live: GH macOS runners have one) — state then
+	// resolves to a repo root far outside the temp tree (bug-029).
+	const home = canonicalizePath(path.resolve(os.homedir()));
+	const tempRoot = canonicalizePath(path.resolve(os.tmpdir()));
 	while (current !== root) {
 		// Stop walking before checking markers at home or temp root
 		if (current === home || current === tempRoot) return undefined;

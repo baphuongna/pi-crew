@@ -30,10 +30,10 @@ function writePlanFile(dir: string, filename: string, content: string): string {
 // ─── handleOrchestrate ────────────────────────────────────────────────────────
 
 describe("handleOrchestrate", () => {
-	it("returns error when planPath is missing", () => {
+	it("returns error when planPath is missing", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams(), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams(), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -43,10 +43,10 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error when planPath points outside cwd", () => {
+	it("returns error when planPath points outside cwd", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams({ planPath: "/etc/passwd" }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath: "/etc/passwd" }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -56,10 +56,10 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error when plan file does not exist", () => {
+	it("returns error when plan file does not exist", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
-			const res = handleOrchestrate(makeParams({ planPath: "nonexistent.md" }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath: "nonexistent.md" }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -69,7 +69,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("parses a plan with tagged sections", () => {
+	it("parses a plan with tagged sections", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -86,7 +86,7 @@ describe("handleOrchestrate", () => {
 				].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, false);
 			const text = textFromToolResult(res);
@@ -99,12 +99,12 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns error for plan with no tagged sections", () => {
+	it("returns error for plan with no tagged sections", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(tmp, "empty.md", ["# Untitled Plan", "This plan has no tags."].join("\n"));
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
@@ -114,7 +114,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("returns structured data with steps and commands", () => {
+	it("returns structured data with steps and commands", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -123,7 +123,7 @@ describe("handleOrchestrate", () => {
 				["# Build", "<!-- tag: build -->", "Fix build errors in the project."].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			assert.ok(res.details.data);
 			const data = res.details.data as Record<string, unknown>;
@@ -135,7 +135,7 @@ describe("handleOrchestrate", () => {
 		}
 	});
 
-	it("handles plan with all supported tags", () => {
+	it("handles plan with all supported tags", async () => {
 		const tmp = createTrackedTempDir("orch-test-");
 		try {
 			const planPath = writePlanFile(
@@ -163,7 +163,7 @@ describe("handleOrchestrate", () => {
 				].join("\n"),
 			);
 
-			const res = handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
+			const res = await handleOrchestrate(makeParams({ planPath }), makeCtx(tmp));
 
 			const text = textFromToolResult(res);
 			assert.ok(text.includes("Steps: 6"));
@@ -174,6 +174,87 @@ describe("handleOrchestrate", () => {
 			assert.ok(text.includes("build-error-resolver"));
 			assert.ok(text.includes("test-engineer,verifier"));
 			assert.ok(text.includes("reviewer"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});
+
+// ─── T2/R4: runId persist branch (review R7a + security S1/S2) ────────────────
+
+describe("handleOrchestrate runId persistence (ADR-4 §6 producer 1)", () => {
+	function writePlanDoc(dir: string): string {
+		const planPath = path.join(dir, "plan.md");
+		fs.writeFileSync(planPath, "# Design\n<!-- tag: design -->\nDesign the thing.\n");
+		return planPath;
+	}
+
+	it("persists a PlanRecord v1 + manifest pointer when runId resolves", async () => {
+		const tmp = createTrackedTempDir("orch-persist-");
+		try {
+			const planPath = writePlanDoc(tmp);
+			const { createRunManifest, saveRunManifest } = await import("../../../../src/state/stores/state-store.ts");
+			const { allTeams, discoverTeams } = await import("../../../../src/teams/discover-teams.ts");
+			const { allWorkflows, discoverWorkflows } = await import("../../../../src/workflows/discover-workflows.ts");
+			const team = allTeams(discoverTeams(tmp)).find((t) => t.name === "implementation")!;
+			const workflow = allWorkflows(discoverWorkflows(tmp)).find((w) => w.name === "implementation")!;
+			const { manifest } = createRunManifest({ cwd: tmp, team, workflow, goal: "persist test" });
+			saveRunManifest(manifest);
+
+			const res = await handleOrchestrate(makeParams({ planPath, runId: manifest.runId }), makeCtx(tmp));
+			assert.strictEqual(res.isError !== true, true, textFromToolResult(res));
+			const { loadPlanRecords } = await import("../../../../src/state/stores/plan-store.ts");
+			const records = loadPlanRecords(manifest);
+			assert.equal(records.length, 1);
+			assert.equal(records[0]?.version, 1);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("read-only role is denied (S1): no file written", async () => {
+		const tmp = createTrackedTempDir("orch-role-");
+		const prevRole = process.env.PI_CREW_ROLE;
+		try {
+			const planPath = writePlanDoc(tmp);
+			const { createRunManifest, saveRunManifest } = await import("../../../../src/state/stores/state-store.ts");
+			const { allTeams, discoverTeams } = await import("../../../../src/teams/discover-teams.ts");
+			const { allWorkflows, discoverWorkflows } = await import("../../../../src/workflows/discover-workflows.ts");
+			const team = allTeams(discoverTeams(tmp)).find((t) => t.name === "implementation")!;
+			const workflow = allWorkflows(discoverWorkflows(tmp)).find((w) => w.name === "implementation")!;
+			const { manifest } = createRunManifest({ cwd: tmp, team, workflow, goal: "role gate" });
+			saveRunManifest(manifest);
+
+			process.env.PI_CREW_ROLE = "explorer";
+			const res = await handleOrchestrate(makeParams({ planPath, runId: manifest.runId }), makeCtx(tmp));
+			assert.strictEqual(res.isError, true);
+			assert.ok(textFromToolResult(res).includes("read-only"));
+			const plansDir = path.join(manifest.stateRoot, "plans");
+			assert.ok(!fs.existsSync(plansDir), "read-only role must not create plans.json");
+		} finally {
+			if (prevRole === undefined) delete process.env.PI_CREW_ROLE;
+			else process.env.PI_CREW_ROLE = prevRole;
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("foreign-session run requires force (S1): no file written", async () => {
+		const tmp = createTrackedTempDir("orch-foreign-");
+		try {
+			const planPath = writePlanDoc(tmp);
+			const { createRunManifest, saveRunManifest } = await import("../../../../src/state/stores/state-store.ts");
+			const { allTeams, discoverTeams } = await import("../../../../src/teams/discover-teams.ts");
+			const { allWorkflows, discoverWorkflows } = await import("../../../../src/workflows/discover-workflows.ts");
+			const team = allTeams(discoverTeams(tmp)).find((t) => t.name === "implementation")!;
+			const workflow = allWorkflows(discoverWorkflows(tmp)).find((w) => w.name === "implementation")!;
+			const { manifest } = createRunManifest({ cwd: tmp, team, workflow, goal: "foreign gate" });
+			manifest.ownerSessionId = "session-other-1234";
+			saveRunManifest(manifest);
+
+			const res = await handleOrchestrate(makeParams({ planPath, runId: manifest.runId }), makeCtx(tmp));
+			assert.strictEqual(res.isError, true);
+			assert.ok(textFromToolResult(res).includes("another session"));
+			assert.ok(!fs.existsSync(path.join(manifest.stateRoot, "plans")));
 		} finally {
 			removeTrackedTempDir(tmp);
 		}

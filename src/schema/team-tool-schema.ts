@@ -235,7 +235,13 @@ const sharedFields = {
 			description: "Path to a markdown plan document for orchestration.",
 		}),
 	),
-	subAction: Type.Optional(Type.String({ description: "Sub-action for schedule management (remove, disable, enable, update)." })),
+	subAction: Type.Optional(
+		Type.String({ description: "Sub-action. For action='plans': get (default) | list | diff | approve | reject." }),
+	),
+	// T2/R4 (ADR-4 §7): plans action params.
+	rev: Type.Optional(Type.Number({ description: "plans get: pin a specific plan revision (default: current)." })),
+	a: Type.Optional(Type.Number({ description: "plans diff: left revision number." })),
+	b: Type.Optional(Type.Number({ description: "plans diff: right revision number." })),
 	jobId: Type.Optional(Type.String({ description: "Job ID for schedule management actions." })),
 	cron: Type.Optional(
 		Type.String({
@@ -382,7 +388,7 @@ const sharedFields = {
 
 const ACTION_DESCRIPTION = "Team action. Defaults to 'list' when omitted.";
 
-const RUN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
+const RUN_ACTIONS = ["run", "parallel", "plan", "plans", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
 const runActions = Type.Optional(buildStringEnum(RUN_ACTIONS, ACTION_DESCRIPTION));
 
 const STATUS_ACTIONS = [
@@ -545,6 +551,10 @@ export interface TeamToolParamsValue {
 	// schedule sub-actions (removal/toggle/update of an existing job)
 	subAction?: string;
 	jobId?: string;
+	// T2/R4 (ADR-4 §7): plans action params.
+	rev?: number;
+	a?: number;
+	b?: number;
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens (default: false). */
 	excludeContextBash?: boolean;
 	/** Total token budget for the run. When set, enables budget tracking (minimum 1000). */

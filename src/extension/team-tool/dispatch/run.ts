@@ -19,6 +19,7 @@ import { handleGoal } from "../goal.ts";
 import { handleOrchestrate } from "../orchestrate.ts";
 import { handleParallel } from "../parallel-dispatch.ts";
 import { handlePlan } from "../plan.ts";
+import { handlePlans } from "../plans.ts";
 
 /**
  * Actions owned by the Run domain. Single source of truth for the switch
@@ -27,7 +28,7 @@ import { handlePlan } from "../plan.ts";
  * the `default` branch errors if a RunDomainAction is added here without a
  * matching `case`.
  */
-export const RUN_DOMAIN_ACTIONS = ["run", "parallel", "plan", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
+export const RUN_DOMAIN_ACTIONS = ["run", "parallel", "plan", "plans", "orchestrate", "resume", "retry", "wait", "steer", "goal"] as const;
 type RunDomainAction = (typeof RUN_DOMAIN_ACTIONS)[number];
 
 export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
@@ -40,6 +41,8 @@ export async function handleRunDomain(params: TeamToolParamsValue, ctx: TeamCont
 			return handleParallel(params, ctx);
 		case "plan":
 			return handlePlan(params, ctx);
+		case "plans":
+			return handlePlans(params, ctx);
 		case "orchestrate":
 			return handleOrchestrate(params, ctx);
 		case "resume":
