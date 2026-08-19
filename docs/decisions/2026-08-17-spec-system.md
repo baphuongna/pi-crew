@@ -18,12 +18,13 @@
 SpecRecord  { id, version, revisionOf?, title,
               requirements: [{ id, text, priority: must|should|could }],
               acceptance:  [{ id, requirementId, check, idempotent?: boolean }],
-              source: { kind: "manual" | "generated", by?, from? } }
+              source: { kind: "manual" | "generated", by?, from? },
+              trusted?: boolean }   // trust mint: USER-side action only (see §4)
 SpecSnapshot{ specId, version, frozenAt, items[] }   // immutable, frozen into the task at dispatch
 ```
 
-- Stored at `state/specs/<id>.json` (workspace-level, outside per-run state). **Revision machinery is shared with PlanRecord** (ADR-4 §2: append-only revision list, copy-forward linkage, stable item-ids) — one implementation, two stores.
-- `TaskPacket` gains `specRefs[]`; the SpecSnapshot is **embedded at freeze time** (dispatch) so later spec edits never rewrite what a running task was held to. Snapshot items carry the acceptance ids the footer may cite — citing anything else is fabrication.
+- Stored at `state/specs/<id>.json` (workspace-level, outside per-run state). **Revision machinery is shared with PlanRecord** (ADR-4 §1: append-only revision list, copy-forward linkage, stable item-ids) — one implementation, two stores.
+- `TaskPacket` gains `specRefs[]`; the SpecSnapshot is **embedded at freeze time** (dispatch) so later spec edits never rewrite what a running task was held to. Snapshot items are the frozen requirement+acceptance entries INCLUDING their checks (command/expectedDigest/expectedExitCode, idempotent) — the acceptance ids the footer may cite; citing anything else is fabrication. **The strict gate executes only snapshot-frozen commands** — never the live state/specs/<id>.json (B4(k)).
 - `acceptance[].check` in strict mode carries `command` + `expectedDigest` (sha-256 hex) or `expectedExitCode`.
 - `idempotent` (per acceptance, **default false**): only idempotent commands may be re-run by the strict gate (§4).
 
@@ -42,25 +43,29 @@ SPEC-EVIDENCE:
 ### 3. Write-gate (non-strict default — ⚑ warn-only)
 
 - **Mechanical coverage ONLY**: every must-acceptance id cited ≥ 1 time. The gate never claims to verify truth.
-- Missing footer / missing ids / unknown ids → task passes with an **`unverified` badge** in task status (visible in UI); never blocks in non-strict mode.
+- Missing footer / missing ids / unknown ids → task passes with an **`unverified` badge** in task status (visible in UI); never blocks in non-strict mode. **Full-coverage fabrication is mechanically undetectable in non-strict mode and passes WITHOUT a badge** (design §6's "flagged unverified" AC is corrected here — a badge that fires on nothing would be noise; the honest signal is: non-strict = coverage-only, trust nothing about content).
 - Spec-less tasks are untouched (regression guard: full critical suite stays green).
 - Extends the existing `empty-or-stderr-only-result` classifier seam (`task-runner/post-execution.ts:289+`) — no new gate layer.
 
 ### 4. Strict mode (opt-in per workflow) + the re-run sandbox
 
-**Strict-mode trust gate (security P1 — pinned):** acceptance-command re-runs execute ONLY for specs with `source.kind: "manual"` (or an explicit user-set trust flag on the record). **`generated` specs (worker/planner-authored) degrade to coverage-only + `unverified`** — a worker must never be able to author a command that the root re-executes (prompt-injection → RCE/exfil surface). **Negative AC: worker-authored acceptance in strict mode degrades to coverage-only.**
+**Strict-mode trust gate (security P1 — pinned, provenance-enforced):** acceptance-command re-runs execute ONLY for specs with `source.kind: "manual"` AND `trusted: true`. **Provenance enforcement (review P1 — a self-declared kind in a workspace JSON is forgeable by the very workers this gate exists to contain):**
+- The spec store mints `kind:"manual"` and `trusted:true` **only from user-facing actions** (CLI import / explicit user command). Records written through the skill/worker path are **always persisted as `generated`** regardless of any declared kind in the payload.
+- The strict gate treats any record whose provenance the store cannot attest (hand-edited file claiming manual/trusted) as `generated` — provenance is a store-minted sidecar marker, not a field the file itself can assert.
+- **`generated` specs degrade to coverage-only + `unverified`** — a worker must never be able to author a command that the root re-executes (prompt-injection → RCE/exfil surface).
+- **Negative ACs: worker-authored acceptance in strict mode degrades to coverage-only; a hand-forged `kind:"manual"`/`trusted:true` record ALSO degrades (provenance sidecar absent).**
 
 **Sandbox parameters (concrete values):**
-- **env**: the `BASE_ALLOWLIST` pattern from `child-pi-spawn.ts:35-58` **minus credential-carrying keys** — NO provider API keys, NO `PI_CREW_BROKER_*`, NO session tokens. Asserted in tests by capturing the child env.
+- **env**: the `BASE_ALLOWLIST` pattern from `src/runtime/child-pi/child-pi-spawn.ts:35-64` **minus credential-carrying keys** — NO provider API keys, NO `PI_CREW_BROKER_*`, NO session tokens. Asserted in tests by capturing the child env.
 - **cwd**: pinned to the run's workspace root.
 - **Resources**: `sh -c 'ulimit -v 262144; ulimit -t 30; exec …'` (256 MiB address space, 30 CPU-seconds — config-capped ceilings).
 - **Wall-clock**: 60s timeout, SIGTERM → 200ms → SIGKILL escalation (existing pattern).
-- **Network**: `unshare -n` wrapper on Linux; **macOS has no equivalent → loud warning when strict mode is enabled on macOS** (platform honesty, not silent best-effort).
-- **Storage**: output captured to a run-scoped **digest file** — digests only, NEVER raw command output persisted (leak discipline).
+- **Network**: `unshare -rn` wrapper on Linux (user-namespace + map-root — plain `-n` needs CAP_SYS_ADMIN and fails EPERM on unprivileged runners, which would brick every strict re-run); **wrapper-launch failure fails that acceptance closed** with a `spec.check_failed` event — NEVER silently degrades to pass (or to running without isolation). **macOS has no equivalent → loud warning when strict mode is enabled on macOS** (platform honesty, not silent best-effort).
+- **Storage**: output captured to a run-scoped **digest file** — digests only, NEVER raw command output persisted (leak discipline). **Error paths included**: timeouts, signals, launch failures record exit code / signal / digest / stderr-LENGTH only; stdout/stderr text never reaches events, logs, or artifacts. `spec.check_failed` payload schema: `{ specId, acceptanceId, outcome: "digest-mismatch"|"exit-mismatch"|"timeout"|"launch-failed"|"network-blocked", expectedDigest?, actualDigest?, exitCode?, signal?, durationMs }`.
 
 **Non-idempotent musts in strict mode**: cannot be machine-re-run → fall back to coverage-only + `unverified` (recorded per-acceptance).
 
-**Digest comparison**: exit-code or sha-256 digest mismatch → gate fails that acceptance → strict task cannot pass the write-gate (P1 severity outcome: task marked failed/blocked per existing gate semantics).
+**Strict = coverage AND machine-check.** In strict mode the gate requires every must-acceptance cited (§3 coverage) **and** machine-checked: footer lines citing non-existent ids, a missing footer where the task has musts, unrunnable commands, digest/exit-code mismatches — each **fails the strict gate** (design §6). **Digest comparison**: exit-code or sha-256 digest mismatch → gate fails that acceptance → strict task cannot pass the write-gate (task marked failed/blocked per existing gate semantics).
 
 ### 5. Reject-start
 
@@ -68,7 +73,7 @@ A strict-mode workflow without a **verifier-role task fails at start** — no si
 
 ### 6. Verifier role
 
-Read-only; receives the SpecSnapshot + the evidence footer; checks cited evidence against frozen snapshot ids. **Advisory signal only — the security boundary is the machine-check, never the verifier's judgment.**
+Wired at verifier task-packet/prompt construction (the verifier task's packet embeds the frozen SpecSnapshot + the executor's evidence footer — no new delivery mechanism). Read-only posture; checks cited evidence against frozen snapshot ids. **Advisory signal only — the security boundary is the machine-check, never the verifier's judgment.**
 
 ### 7. Rollout & config
 
@@ -91,12 +96,12 @@ Non-strict default for v0.10.x (design §12.4 open decision stays open until pos
 ## Appendix — B4 battery case list
 
 1. **(a) Non-strict happy path:** must-acceptances covered by footer → pass, no badge.
-2. **(b) Non-strict fabrication:** plausible-but-wrong evidence cites every id → passes write-gate, flagged `unverified` where machine-checkable, visible in status.
-3. **(c) Footer parser matrix:** valid / missing footer / unknown id / fabricated id.
+2. **(b) Non-strict fabrication:** plausible-but-wrong evidence cites every id → passes write-gate **with NO badge** (mechanically undetectable — the corrected §3 semantics; the design §6 AC is amended).
+3. **(c) Footer parser matrix (per-mode outcomes):** valid → pass (strict: proceed to machine-check) · missing footer w/ musts → badge (non-strict) / **fail** (strict) · unknown id → badge (non-strict) / **fail** (strict) · fabricated-but-known id cited → covered (non-strict pass; strict → machine-check decides).
 4. **(d) Strict + manual spec:** digest match passes; digest mismatch fails the gate; exit-code mode works.
-5. **(e) Strict + generated spec (negative AC):** degrades to coverage-only + `unverified` — no re-run.
+5. **(e) Strict + generated spec (negative AC ×2):** worker-authored record degrades to coverage-only + `unverified` — no re-run; **a hand-forged kind:"manual"/trusted:true record (no store provenance sidecar) ALSO degrades**.
 6. **(f) Sandbox env containment:** captured child env has NO provider keys / NO `PI_CREW_BROKER_*`.
-7. **(g) Sandbox limits:** timeout kills (60s escalation); network-blocked command fails closed on Linux (`unshare -n`); macOS emits the loud warning.
+7. **(g) Sandbox limits:** timeout kills (60s escalation); network-blocked command fails closed on Linux (`unshare -rn` unprivileged); **wrapper-launch failure fails the acceptance closed (spec.check_failed), never degrades**; macOS emits the loud warning. (CI note: confirm runner support for user namespaces.)
 8. **(h) Non-idempotent strict must:** coverage-only + `unverified` fallback, recorded.
 9. **(i) Reject-start:** strict workflow without verifier task fails at start.
 10. **(j) Spec-less regression:** tasks without specRefs behave exactly as before (critical suite green).
@@ -107,4 +112,4 @@ Non-strict default for v0.10.x (design §12.4 open decision stays open until pos
 
 - Design: `docs/design/subagent-v2-design.md` §6 (+ rev-2 P1-9 fabrication defense, rev-2.1 NEW-2 sandbox)
 - Plan: `docs/design/subagent-v2-implementation-plan.md` ADR-6 + WP-6 (steps 1-7, tests, ACs)
-- Shared machinery: ADR-4 §2 (revisions); `child-pi-spawn.ts:35-58` (BASE_ALLOWLIST); `post-execution.ts:289+` (classifier seam)
+- Shared machinery: ADR-4 §1 (revisions); `src/runtime/child-pi/child-pi-spawn.ts:35-64` (BASE_ALLOWLIST); `post-execution.ts:289+` (classifier seam)
