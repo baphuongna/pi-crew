@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
-import { runChildPi, type ChildPiRunResult } from "./child-pi/child-pi.ts";
+import { type ChildPiRunResult, runChildPi } from "./child-pi/child-pi.ts";
 
 export interface GrandchildSpawnInput {
 	cwd: string;

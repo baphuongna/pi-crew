@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NestedSlotBudget, defaultNestedSlotBudget } from "../../../../src/runtime/scheduling/nested-slots.ts";
+import { defaultNestedSlotBudget, NestedSlotBudget } from "../../../../src/runtime/scheduling/nested-slots.ts";
 
 test("default budget: max(1, floor(globalSem/2)) across semaphore sizes", () => {
 	assert.equal(defaultNestedSlotBudget(4), 2, "sem-4 → 2 nested slots (4-core box)");

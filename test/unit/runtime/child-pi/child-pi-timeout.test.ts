@@ -186,20 +186,20 @@ test("ChildPiLineObserver recognizes final assistant turn end", () => {
 
 // ─── runtime.agentExtensions → --extension emission ─────────────────────────
 
-test("buildPiWorkerArgs emits --extension for every agent extension (global allowlist)", () => {
+test("buildPiWorkerArgs drops agent extensions at depth>0 (ADR-5 §8 allowlist)", () => {
 	const agentWithExt: AgentConfig = {
 		...minimalAgent,
 		extensions: ["/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts", "/tmp/another-ext.ts"],
 	};
 	const result = buildPiWorkerArgs({ task: "test", agent: agentWithExt });
 	const extFlags = result.args.filter((a) => a === "--extension").length;
-	// prompt-runtime + 2 agent extensions
-	assert.equal(extFlags, 3, `expected 3 --extension flags (prompt-runtime + 2), got ${extFlags}`);
+	// ADR-5 §8: only prompt-runtime passes the allowlist regardless of source.
+	assert.equal(extFlags, 1, `expected exactly 1 --extension (prompt-runtime only), got ${extFlags}`);
 	assert.ok(
-		result.args.includes("/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts"),
-		"provider extension path must be passed via --extension",
+		!result.args.includes("/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts"),
+		"agent extension must NOT pass the depth>0 allowlist",
 	);
-	assert.ok(result.args.includes("/tmp/another-ext.ts"), "second extension path must be passed");
+	assert.ok(!result.args.includes("/tmp/another-ext.ts"), "second extension must NOT pass");
 	// --no-extensions still present (security posture preserved)
 	assert.ok(result.args.includes("--no-extensions"), "--no-extensions must still be present");
 });

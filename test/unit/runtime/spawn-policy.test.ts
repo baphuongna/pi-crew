@@ -9,11 +9,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	DEFAULT_DELEGATE_TIMEOUT_SEC,
-	EXECUTOR_CLASS_ROLES,
 	DELEGATE_ALLOWED_ROLES,
+	type DelegateAdmissionInput,
+	EXECUTOR_CLASS_ROLES,
 	evaluateDelegateAdmission,
 	isExecutorClassRole,
-	type DelegateAdmissionInput,
 } from "../../../src/runtime/spawn-policy.ts";
 
 function baseInput(overrides?: Partial<DelegateAdmissionInput>): DelegateAdmissionInput {
@@ -187,4 +187,37 @@ test("gate ORDER: role gate precedes trust/depth/slots (cheapest privilege check
 		baseInput({ parentTask: { taskId: "t", role: "writer", depth: 9 }, untrusted: true, slots: { used: 5, max: 5 } }),
 	);
 	assert.equal(d.reason, "role-denied");
+});
+
+test("gate 9 workspace-conflict: write-capable grandchild + overlapping in-flight executor + no serialization → rejected (ADR-5 §9)", () => {
+	const d = evaluateDelegateAdmission(
+		baseInput({ requested: { role: "executor" }, workspace: { serializeEnabled: false, overlappingInFlightExecutors: 1 } }),
+	);
+	assert.equal(d.allowed, false);
+	assert.equal(d.reason, "workspace-conflict");
+	assert.match(d.message ?? "", /overlaps 1 in-flight executor/);
+	assert.match(d.message ?? "", /serializeOnPathOverlap is off/);
+});
+
+test("gate 9 workspace: read-only grandchild roles never conflict (explorer/analyst)", () => {
+	for (const role of ["explorer", "analyst"]) {
+		const d = evaluateDelegateAdmission(
+			baseInput({ requested: { role }, workspace: { serializeEnabled: false, overlappingInFlightExecutors: 3 } }),
+		);
+		assert.equal(d.allowed, true, `${role} must pass the workspace gate`);
+	}
+});
+
+test("gate 9 workspace: serialization established (serializeOnPathOverlap=true) admits the overlap", () => {
+	const d = evaluateDelegateAdmission(
+		baseInput({ requested: { role: "executor" }, workspace: { serializeEnabled: true, overlappingInFlightExecutors: 2 } }),
+	);
+	assert.equal(d.allowed, true);
+});
+
+test("gate 9 workspace: no overlap → executor grandchild admitted even without serialization", () => {
+	const d = evaluateDelegateAdmission(
+		baseInput({ requested: { role: "executor" }, workspace: { serializeEnabled: false, overlappingInFlightExecutors: 0 } }),
+	);
+	assert.equal(d.allowed, true);
 });

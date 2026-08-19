@@ -14,8 +14,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPiWorkerArgs, checkCrewDepth } from "../../../../src/runtime/model/pi-args.ts";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
+import { buildPiWorkerArgs, checkCrewDepth } from "../../../../src/runtime/model/pi-args.ts";
 
 const agent: AgentConfig = {
 	name: "executor",
@@ -68,8 +68,7 @@ test("§4 issuer depth gate: childDepth >= resolved maxDepth → no credentials"
 	// Mirror the issueForChild gate logic (the production closure is bound to
 	// session state; the DECISION under test is the depth comparison).
 	const maxDepth = 2; // resolveCrewMaxDepth(undefined) with no env override
-	const gateAllows = (childDepth: number | undefined) =>
-		childDepth === undefined || childDepth < maxDepth;
+	const gateAllows = (childDepth: number | undefined) => childDepth === undefined || childDepth < maxDepth;
 	assert.equal(gateAllows(2), false, "depth-2 grandchild at default maxDepth=2 gets NO creds");
 	assert.equal(gateAllows(1), true, "depth-1 worker may delegate → creds minted");
 	assert.equal(gateAllows(undefined), true, "legacy spawn (no depth info) unchanged");

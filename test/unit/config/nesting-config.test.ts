@@ -22,8 +22,8 @@ import test from "node:test";
 import { mergeConfig } from "../../../src/config/config-merge.ts";
 import { parseConfig } from "../../../src/config/config-validation.ts";
 import { DEFAULT_NESTING } from "../../../src/config/defaults.ts";
-import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
 import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
+import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
 
 test("DEFAULT_NESTING is fail-closed: enabled=false, maxDepth=2 (ADR-5 §10)", () => {
 	assert.equal(DEFAULT_NESTING.enabled, false);
@@ -82,8 +82,7 @@ test("schema.json nesting sub-schema matches the TypeBox properties", () => {
 	const schemaJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "schema.json"), "utf-8"));
 	const jsonNesting = schemaJson.properties?.nesting?.properties;
 	assert.ok(jsonNesting, "schema.json must carry a nesting.properties block");
-	const typeboxNesting = (PiTeamsConfigSchema.properties as Record<string, { properties?: Record<string, unknown> }>).nesting
-		?.properties;
+	const typeboxNesting = (PiTeamsConfigSchema.properties as Record<string, { properties?: Record<string, unknown> }>).nesting?.properties;
 	assert.ok(typeboxNesting, "TypeBox schema must carry nesting.properties");
 	assert.deepEqual(
 		Object.keys(jsonNesting).sort(),

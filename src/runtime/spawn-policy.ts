@@ -55,7 +55,8 @@ export type SpawnPolicyDenyReason =
 	| "slots-exhausted"
 	| "budget-insufficient"
 	| "model-invalid"
-	| "timeout-invalid";
+	| "timeout-invalid"
+	| "workspace-conflict";
 
 export interface DelegateAdmissionInput {
 	/** Resolved `nesting.enabled` config (DEFAULT false — fail-closed, ADR-5 §10). */
@@ -87,6 +88,15 @@ export interface DelegateAdmissionInput {
 	 * flag this in review; the broker handler must always supply it.
 	 */
 	modelCatalog?: readonly string[];
+	/** ADR-5 §9 workspace interaction: when the requested grandchild role is
+	 * write-capable (executor-class), an overlapping in-flight executor can
+	 * only be tolerated when serialization is established. `serializeEnabled`
+	 * mirrors config `limits.serializeOnPathOverlap`; `overlappingInFlightExecutors`
+	 * counts OTHER running executor-class tasks sharing the parent task's cwd. */
+	workspace?: {
+		serializeEnabled?: boolean;
+		overlappingInFlightExecutors?: number;
+	};
 }
 
 export interface SpawnPolicyDecision {
@@ -155,7 +165,10 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 
 	// 5. Nested-slot budget — fail-fast, never queue.
 	if (input.slots.used >= input.slots.max) {
-		return deny("slots-exhausted", `delegate rejected: nested spawn budget exhausted; ${input.slots.used}/${input.slots.max} in flight`);
+		return deny(
+			"slots-exhausted",
+			`delegate rejected: nested spawn budget exhausted; ${input.slots.used}/${input.slots.max} in flight`,
+		);
 	}
 
 	// 6. Parent allocation sufficiency — reserve up-front or reject.
@@ -175,10 +188,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 	const normalizedModel = requested?.model !== undefined ? modelRefToString(requested.model) : undefined;
 	if (normalizedModel !== undefined && input.modelCatalog !== undefined) {
 		if (!input.modelCatalog.includes(normalizedModel)) {
-			return deny(
-				"model-invalid",
-				`delegate rejected: model '${requested?.model}' is not in the resolved model catalog`,
-			);
+			return deny("model-invalid", `delegate rejected: model '${requested?.model}' is not in the resolved model catalog`);
 		}
 	}
 
@@ -188,6 +198,18 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		return deny(
 			"timeout-invalid",
 			`delegate rejected: timeoutSec ${String(requested?.timeoutSec)} is outside 1..${MAX_DELEGATE_TIMEOUT_SEC} (default ${DEFAULT_DELEGATE_TIMEOUT_SEC})`,
+		);
+	}
+
+	// 9. Workspace interaction (ADR-5 §9): a write-capable grandchild sharing
+	// the parent's cwd with ANOTHER in-flight executor is only admitted when
+	// serialization is established (limits.serializeOnPathOverlap) — otherwise
+	// reject; read-only grandchild roles (explorer/analyst) never conflict.
+	const requestedIsWriteCapable = requestedRole !== undefined && (EXECUTOR_CLASS_ROLES as readonly string[]).includes(requestedRole);
+	if (requestedIsWriteCapable && !input.workspace?.serializeEnabled && (input.workspace?.overlappingInFlightExecutors ?? 0) > 0) {
+		return deny(
+			"workspace-conflict",
+			`delegate rejected: parent task '${parentTask.taskId}' cwd overlaps ${input.workspace?.overlappingInFlightExecutors} in-flight executor(s) and limits.serializeOnPathOverlap is off — use a read-only grandchild role (explorer/analyst) or enable serialization`,
 		);
 	}
 

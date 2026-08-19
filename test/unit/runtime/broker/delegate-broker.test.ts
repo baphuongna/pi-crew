@@ -113,23 +113,19 @@ async function scaffoldRunningTask(prefix: string, role = "executor"): Promise<S
 	const loaded = loadRunManifestById(cwd, runId)!;
 	const task = loaded.tasks.find((t) => t.role === role) ?? loaded.tasks[0];
 	const now = new Date().toISOString();
-	const updatedTasks = loaded.tasks.map((t) =>
-		t.id === task.id ? { ...t, status: "running" as const, startedAt: now, depth: 1 } : t,
-	);
+	const updatedTasks = loaded.tasks.map((t) => (t.id === task.id ? { ...t, status: "running" as const, startedAt: now, depth: 1 } : t));
 	saveRunTasks(loaded.manifest, updatedTasks);
 	saveRunManifest({ ...loaded.manifest, status: "running", updatedAt: now });
 	return { cwd, runId, taskId: task.id, eventsPath: loaded.manifest.eventsPath };
 }
 
-async function startBroker(
-	opts: {
-		cwd: string;
-		nestingEnabled?: boolean;
-		nestingMaxSlots?: number;
-		spawner?: (input: GrandchildSpawnInput) => Promise<GrandchildSpawnResult>;
-		modelCatalog?: string[];
-	},
-): Promise<{ broker: CrewBroker; socketPath: string }> {
+async function startBroker(opts: {
+	cwd: string;
+	nestingEnabled?: boolean;
+	nestingMaxSlots?: number;
+	spawner?: (input: GrandchildSpawnInput) => Promise<GrandchildSpawnResult>;
+	modelCatalog?: string[];
+}): Promise<{ broker: CrewBroker; socketPath: string }> {
 	const socketPath = tempSocketPath("dlg");
 	const broker = new CrewBroker({
 		sessionId: "session-delegate-test",
@@ -294,7 +290,10 @@ test("happy path: immediate ref, fenced mailbox delivery, budget reserve→roll-
 			// (<stateRoot>/mailbox/tasks/<taskId>/inbox.jsonl).
 			const fresh = loadRunManifestById(s.cwd, s.runId)!;
 			const inboxPath = path.join(fresh.manifest.stateRoot, "mailbox", "tasks", s.taskId, "inbox.jsonl");
-			const lines = fs.readFileSync(inboxPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+			const lines = fs
+				.readFileSync(inboxPath, "utf8")
+				.split("\n")
+				.filter((l) => l.trim().length > 0);
 			const last = JSON.parse(lines.at(-1)!) as { body: string; from: string };
 			assert.equal(last.from, `delegate:${ref}`);
 			assert.match(last.body, /--- delegate gc-/);

@@ -31,11 +31,7 @@ export interface BrokerSpawnCredentials {
  *  PI_CREW_MAX_DEPTH) — at the default maxDepth=2 a depth-2 grandchild gets NO
  *  credentials (env containment AC: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2).
  *  Undefined childDepth = legacy worker spawn (depth 1) — unchanged behavior. */
-export type BrokerIssuer = (
-	runId: string,
-	taskId?: string,
-	childDepth?: number,
-) => Promise<BrokerSpawnCredentials | undefined>;
+export type BrokerIssuer = (runId: string, taskId?: string, childDepth?: number) => Promise<BrokerSpawnCredentials | undefined>;
 
 let activeIssuer: BrokerIssuer | undefined;
 

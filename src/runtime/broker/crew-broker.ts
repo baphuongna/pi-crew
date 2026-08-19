@@ -103,6 +103,9 @@ export interface CrewBrokerOptions {
 	 *  model validation (ADR-5 §7). When omitted, model validation is skipped
 	 *  (documented gap — the production wiring must always supply it). */
 	modelCatalog?: () => string[] | undefined;
+	/** ADR-5 §9: mirrors config limits.serializeOnPathOverlap for the workspace
+	 *  admission gate. Default false. */
+	serializeOnPathOverlap?: boolean;
 }
 
 /** Per-connection server-side state. */
@@ -148,6 +151,7 @@ export class CrewBroker {
 			| "globalWorkerSemaphore"
 			| "grandchildSpawner"
 			| "modelCatalog"
+			| "serializeOnPathOverlap"
 		>;
 	private readonly tokens = new BrokerTokenRegistry();
 	private server: net.Server | null = null;
@@ -191,6 +195,7 @@ export class CrewBroker {
 			globalWorkerSemaphore: options.globalWorkerSemaphore,
 			grandchildSpawner: options.grandchildSpawner,
 			modelCatalog: options.modelCatalog,
+			serializeOnPathOverlap: options.serializeOnPathOverlap === true,
 		};
 		this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
 	}
@@ -1416,6 +1421,15 @@ export class CrewBroker {
 				return { code: "bad-params" as const, message: `delegate: parent task '${parentTaskId}' is ${task.status}, not running` };
 			}
 			const catalog = this.options.modelCatalog?.();
+			// ADR-5 §9: count OTHER in-flight executor-class tasks sharing the
+			// parent task's cwd (manifest record — single source of truth).
+			const overlapping = fresh.tasks.filter(
+				(t) =>
+					t.id !== parentTaskId &&
+					t.status === "running" &&
+					(t.role === "executor" || t.role === "test-engineer") &&
+					t.cwd === task.cwd,
+			).length;
 			const decision = evaluateDelegateAdmission({
 				nestingEnabled: true, // flag already checked above
 				maxDepth: resolveCrewMaxDepth(undefined), // env-clamped 1..10, default 2 (ADR-5 §3)
@@ -1428,6 +1442,10 @@ export class CrewBroker {
 				slots: this.getDelegateNestedSlots().snapshot(),
 				requested,
 				...(catalog !== undefined ? { modelCatalog: catalog } : {}),
+				workspace: {
+					serializeEnabled: this.options.serializeOnPathOverlap === true,
+					overlappingInFlightExecutors: overlapping,
+				},
 			});
 			if (!decision.allowed) {
 				return { code: "policy-denied" as const, message: decision.message ?? decision.reason ?? "delegate denied" };
