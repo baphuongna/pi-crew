@@ -282,6 +282,9 @@ export interface TeamRunManifest {
 	eventsPath: string;
 	artifacts: ArtifactDescriptor[];
 	async?: AsyncRunState;
+	/** @deprecated-plan-pointer T2/R4 (ADR-4 §2): dual-write era — PlanRecord at
+	 *  `<stateRoot>/plans/plans.json` is authoritative; this field is kept (never
+	 *  dropped) as the pre-v2 fallback and legacy UI surface. Deprecate-only. */
 	planApproval?: PlanApprovalState;
 	/** T2/R4 (ADR-4 §2): pointer to the CURRENT plan revision in
 	 *  `<stateRoot>/plans/plans.json`. Plan-record-first readers fall back to
