@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import type { TaskPacket, TaskScope, TeamRunManifest, VerificationContract } from "../state/types.ts";
+import { freezeSpecSnapshot, loadSpecRecord } from "../state/stores/spec-store.ts";
+import type { SpecRecord, TaskPacket, TaskScope, TeamRunManifest, VerificationContract } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { generateTaskHashId } from "./task-id.ts";
 
@@ -70,6 +71,8 @@ export function sanitizeTaskText(task: string): string {
 }
 
 export interface BuildTaskPacketInput {
+	/** T4/R6 (ADR-6 §2): workspace spec ids — loaded + FROZEN into the packet. */
+	specRefs?: string[];
 	manifest: TeamRunManifest;
 	step: WorkflowStep;
 	taskId: string;
@@ -98,6 +101,14 @@ export function defaultVerificationContract(step: WorkflowStep): VerificationCon
 }
 
 export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
+	// T4/R6 (ADR-6 §1/§2): the ONLY packet-creation path is also the freeze
+	// point — specRefs load from the workspace store and freeze into immutable
+	// snapshots embedded in the packet (later spec edits never rewrite them).
+	const specSnapshots = (input.specRefs ?? [])
+		.map((id) => loadSpecRecord(input.manifest.cwd, id))
+		.filter((r): r is SpecRecord => r !== undefined)
+		.map(freezeSpecSnapshot);
+
 	const scope = inferTaskScope(input.step);
 	const reads = input.step.reads === false ? [] : (input.step.reads ?? []);
 	const scopePath = reads.length === 1 ? reads[0] : reads.length > 1 ? reads.join(", ") : undefined;
@@ -112,6 +123,7 @@ export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
 
 	return {
 		objective: sanitizedTask.replaceAll("{goal}", sanitizedGoal),
+		...(specSnapshots.length > 0 ? { specRefs: specSnapshots.map((s) => s.specId), specSnapshots } : {}),
 		scope,
 		scopePath,
 		repo: path.basename(input.manifest.cwd) || input.manifest.cwd,

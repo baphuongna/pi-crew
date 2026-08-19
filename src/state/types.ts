@@ -56,6 +56,48 @@ export interface TaskOutputSchema {
 	example?: string;
 }
 
+export type SpecPriority = "must" | "should" | "could";
+
+/** T4/R6 (ADR-6 §1): workspace-level spec record — state/specs/<id>.json.
+ *  Revision machinery mirrors ADR-4 §1 PlanRecord (append-only revision list,
+ *  copy-forward linkage, stable requirement/acceptance ids). */
+export interface SpecRecord {
+	id: string;
+	version: number;
+	revisionOf?: number;
+	title: string;
+	requirements: Array<{ id: string; text: string; priority: SpecPriority }>;
+	acceptance: Array<{
+		id: string;
+		requirementId: string;
+		/** Free-text description of what counts as evidence (non-strict). */
+		check: string;
+		/** Strict mode (ADR-6 §4): machine-checkable form. */
+		command?: string;
+		expectedDigest?: string;
+		expectedExitCode?: number;
+		idempotent?: boolean;
+	}>;
+	source: { kind: "manual" | "generated"; by?: string; from?: string };
+	/** INFORMATIONAL copy of the store-mint provenance sidecar — the strict
+	 *  gate NEVER trusts this field alone (ADR-6 §4 provenance enforcement). */
+	trusted?: boolean;
+}
+
+/** Immutable per-task freeze (ADR-6 §1): embedded into the TaskPacket at
+ *  dispatch; the strict gate executes ONLY snapshot-frozen commands. */
+export interface SpecSnapshotItem {
+	requirement: SpecRecord["requirements"][number];
+	acceptance: SpecRecord["acceptance"][number];
+}
+
+export interface SpecSnapshot {
+	specId: string;
+	version: number;
+	frozenAt: string;
+	items: SpecSnapshotItem[];
+}
+
 export interface TaskPacket {
 	objective: string;
 	scope: TaskScope;
@@ -71,6 +113,11 @@ export interface TaskPacket {
 	expectedArtifacts: string[];
 	verification: VerificationContract;
 	outputSchema?: TaskOutputSchema;
+	/** T4/R6 (ADR-6): workspace spec ids this task is held to (frozen below). */
+	specRefs?: string[];
+	/** Frozen snapshots embedded at dispatch — later spec edits never rewrite
+	 *  what a running task was held to. */
+	specSnapshots?: SpecSnapshot[];
 }
 
 export type PolicyDecisionAction = "retry" | "reassign" | "escalate" | "block" | "notify" | "cleanup" | "closeout" | "fail";

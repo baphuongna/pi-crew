@@ -117,6 +117,7 @@ export async function prepareTaskExecutionContext(
 		taskId: input.task.id,
 		cwd: workspace.cwd,
 		worktreePath: worktree?.path,
+		...(input.step.specRefs && input.step.specRefs.length > 0 ? { specRefs: input.step.specRefs } : {}),
 	});
 	// R10-1 residual: thread the per-run result-artifact read cache (if the
 	// caller provided one) into the dep-context collection — cache hits reuse

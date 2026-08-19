@@ -81,7 +81,9 @@ function rawConnect(socketPath: string): Promise<RawClient> {
 				if (idx !== -1) pending.splice(idx, 1)[0].resolve(f);
 			}
 		});
-		sock.on("error", () => {});
+		sock.on("error", () => {
+			/* noop — close handler decides */
+		});
 		sock.on("close", () => {
 			client.closed = true;
 			for (const p of pending) p.resolve(undefined);
