@@ -231,3 +231,21 @@ test("E2E linkage: adaptive dispatch writes taskIds into the CURRENT revision (s
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("WIRING (review R7c): runSchedulerSweeps applies the dropped-item sweep to ctx", async () => {
+	const { runSchedulerSweeps } = await import("../../../../src/runtime/dispatch-batch.ts");
+	const dir = createTrackedTempDir("pi-crew-replan-wire-");
+	{
+		const { manifest } = buildRun(dir);
+		appendPlanRevision(manifest, makeRecord(manifest.runId, 1, [{ id: "keep" }, { id: "drop" }]));
+		saveRunTasks(manifest, [mkTask(manifest, "t-q", "drop", "queued"), mkTask(manifest, "t-k", "keep", "running")]);
+		manifest.plan = { id: "plan-rp", version: 1 };
+		appendPlanRevision(manifest, makeRecord(manifest.runId, 2, [{ id: "keep" }, { id: "drop", dropped: true }]));
+		const snap = loadRunManifestById(dir, manifest.runId);
+		assert.ok(snap);
+		const ctx = { manifest: snap.manifest, tasks: snap.tasks };
+		await runSchedulerSweeps(ctx);
+		assert.equal(ctx.tasks.find((t) => t.id === "t-q")?.status, "cancelled", "sweep wired: queued dropped-item task cancelled via ctx");
+		assert.equal(ctx.manifest.runId, manifest.runId);
+	}
+});

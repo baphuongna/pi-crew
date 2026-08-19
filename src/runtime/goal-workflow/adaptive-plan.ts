@@ -20,7 +20,7 @@ import * as fs from "node:fs";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
-import { appendPlanRevision } from "../../state/stores/plan-store.ts";
+import { appendPlanRevision, getCurrentPlanRecord } from "../../state/stores/plan-store.ts";
 import { saveRunManifestAsync, saveRunTasksAsync } from "../../state/stores/state-store.ts";
 import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
@@ -417,6 +417,9 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 		};
 	}
 	const assessTask = completedAssess;
+	// Review R5: manifest variant tracked through the repair path — the plan
+	// save below must not clobber the repair artifact descriptor.
+	let manifestBase = input.manifest;
 	const resultPath = completedAssess.resultArtifact.path;
 	let text = "";
 	try {
@@ -450,11 +453,8 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				producer: assessTask.id,
 				content: `${JSON.stringify({ reason: repair.reason, phases: repair.plan.phases.map((phase) => ({ name: phase.name, count: phase.tasks.length, roles: phase.tasks.map((task) => task.role) })) }, null, 2)}\n`,
 			});
-			await saveRunManifestAsync({
-				...input.manifest,
-				updatedAt: new Date().toISOString(),
-				artifacts: [...input.manifest.artifacts, repairArtifact],
-			});
+			manifestBase = { ...input.manifest, artifacts: [...input.manifest.artifacts, repairArtifact] };
+			await saveRunManifestAsync(manifestBase);
 			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "adaptive.plan_repaired",
 				runId: input.manifest.runId,
@@ -575,18 +575,25 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 		createdAt: new Date().toISOString(),
 		authorTaskId: assessTask.id,
 	};
-	appendPlanRevision(input.manifest, planRecord);
+	// Review R1 (P1, crash-window): if a record ALREADY exists (the append
+	// survived a kill between the plans.json write and the tasks save below),
+	// REUSE it instead of re-appending — the fresh randomUUID would throw
+	// lineage-break on resume and permanently brick the run. Task/item ids are
+	// position-deterministic from the SAME parsed artifact, so the rebuilt
+	// linkage matches the surviving record exactly.
+	const existingRecord = getCurrentPlanRecord(input.manifest);
+	if (!existingRecord) appendPlanRevision(input.manifest, planRecord);
 	await saveRunManifestAsync({
-		...input.manifest,
+		...manifestBase,
 		updatedAt: new Date().toISOString(),
-		plan: { id: planRecord.id, version: 1 },
+		plan: { id: planRecord.id, version: planRecord.version },
 	});
 	// FIX (T2/B2 case e, pre-existing): the injected tasks MUST be persisted at
 	// injection time. mergeUnitResult reloads tasks.json as the merge base and
 	// mergeTaskUpdatesPreservingTerminal DROPS updates for ids absent from the
 	// base — an injection that only lived in memory had its completed adaptive
 	// tasks silently erased from disk at the first merge.
-	await saveRunTasksAsync(input.manifest, allTasks);
+	await saveRunTasksAsync(manifestBase, allTasks);
 	await appendEventAsync(input.manifest.eventsPath, {
 		type: "adaptive.plan_injected",
 		runId: input.manifest.runId,

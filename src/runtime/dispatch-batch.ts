@@ -26,7 +26,7 @@ import { getLiveAgent } from "./live-session/live-agent-manager.ts";
 import { isNonTerminalTaskStatus } from "./merge-gate.ts";
 import { resolveTaskRuntimeKind } from "./model/runtime-policy.ts";
 import { filterReadyByWriteOverlap } from "./path-overlap.ts";
-import { isMutatingTask, isPlanApprovalPending } from "./plan-approval.ts";
+import { isMutatingTask, isPlanApprovalPendingEffective } from "./plan-approval.ts";
 import { sweepDroppedPlanItems } from "./plan-replan.ts";
 import { CrewCancellationError, cancellationReasonFromSignal } from "./process/cancellation.ts";
 import { DEFAULT_RETRY_POLICY, executeWithRetry, type RetryPolicy } from "./recovery/retry-executor.ts";
@@ -356,24 +356,37 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
  * @param ctx  The scheduler context; `ctx.wfMachine`, `ctx.tasks`, and
  *             `ctx.manifest` may be mutated in-place.
  */
-export async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDecision> {
-	// WP-2/R2 (ADR-0 item 10): this tick owns parked-ask deadlines — every
-	// scheduler iteration sweeps tasks with an expired `task.waiting.deadline`
-	// BEFORE batch selection (a requeued park must be dispatchable this tick).
+/**
+ * Pre-batch sweeps, shared by every scheduler tick (selectDispatchBatch) —
+ * exported separately so the WIRING (not just the sweep internals) is testable
+ * without driving a full team run (code review R7c).
+ *
+ *  1. WP-2/R2 (ADR-0 item 10): parked-ask deadline sweep — every tick, before
+ *     batch selection (a requeued park must be dispatchable this tick).
+ *  2. T2/R4 (ADR-4 §4): re-plan reconciliation — queued tasks of items dropped
+ *     by the current revision are cancelled, in-flight ones get a wrap-up
+ *     advisory (soft cancel). Cheap-exits inside make this a no-op for runs
+ *     without plan-linked tasks.
+ * Mutates ctx.manifest/ctx.tasks from the sweeps' disk-reloaded results.
+ */
+export async function runSchedulerSweeps(ctx: { manifest: TeamRunManifest; tasks: TeamTaskState[] }): Promise<void> {
 	const sweep = await sweepExpiredWaitingTasks(ctx.manifest.cwd, ctx.manifest.runId);
 	if (sweep) {
 		ctx.manifest = sweep.manifest;
 		ctx.tasks = sweep.tasks;
 	}
-	// T2/R4 (ADR-4 §4): re-plan reconciliation — queued tasks of items dropped
-	// by the current revision are cancelled, in-flight ones get a wrap-up
-	// advisory (soft cancel). Cheap-exits inside make this a no-op for runs
-	// without plan-linked tasks.
 	const droppedSweep = sweepDroppedPlanItems(ctx.manifest, ctx.tasks);
 	if (droppedSweep) {
 		ctx.manifest = droppedSweep.manifest;
 		ctx.tasks = droppedSweep.tasks;
 	}
+}
+
+export async function selectDispatchBatch(ctx: SchedulerContext): Promise<SchedulerDecision> {
+	// WP-2/R2 (ADR-0 item 10): this tick owns parked-ask deadlines — every
+	// scheduler iteration sweeps tasks with an expired `task.waiting.deadline`
+	// BEFORE batch selection (a requeued park must be dispatchable this tick).
+	await runSchedulerSweeps(ctx);
 	const snapshot = taskGraphSnapshot(ctx.tasks, ctx.queueIndex);
 
 	// DAG-based execution plan: when tasks have explicit dependsOn, use the
@@ -498,7 +511,10 @@ export async function selectDispatchBatch(ctx: SchedulerContext): Promise<Schedu
 		for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
 	}
 	const slotsAvailable = Math.max(0, concurrency.maxConcurrent - ctx.pendingUnits.size);
-	const approvalPending = isPlanApprovalPending(ctx.manifest);
+	// Review R3: the dispatch gate reads plan-record-first (ADR-4 §8) — in the
+	// crash window between the record write and the manifest save, the record's
+	// decision wins (resolve in favor of user intent).
+	const approvalPending = isPlanApprovalPendingEffective(ctx.manifest);
 	const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
 	const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
 	const taskByIdDispatch = new Map(ctx.tasks.map((t) => [t.id, t] as const));

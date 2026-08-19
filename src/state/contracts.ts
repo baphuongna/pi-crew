@@ -108,6 +108,9 @@ export const TEAM_EVENT_TYPES = [
 	"plan.rejected",
 	"plan.cancelled",
 	"plan.item.dropped",
+	// plan-approval.ts ensurePlanApprovalRequested emits this when the gate
+	// lights up — pre-existing unregistered emitter formalized with the rest.
+	"plan.approval_required",
 	// Budget tracking events
 	"budget.initialized",
 	"budget.warning",

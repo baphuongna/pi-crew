@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { handlePlans } from "../../../../src/extension/team-tool/plans.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
-import { appendPlanRevision, setPlanApproval } from "../../../../src/state/stores/plan-store.ts";
+import { appendPlanRevision, loadPlanRecords, setPlanApproval } from "../../../../src/state/stores/plan-store.ts";
 import { saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
@@ -183,5 +183,60 @@ describe("plans action: approve/reject delegation", () => {
 		assert.equal(reloaded.manifest.planApproval?.status, "cancelled", "manifest side keeps its vocabulary");
 		const records = loadPlanRecords(reloaded.manifest);
 		assert.equal(records[0]?.approval?.status, "rejected", "record side uses 'rejected'");
+	});
+});
+
+describe("plans action: approve delegation (review R7b)", () => {
+	it("approve delegates to api approve-plan: record side becomes approved", async () => {
+		const { dir, manifest } = buildRun();
+		appendPlanRevision(manifest, makeRecord(manifest.runId, 1, [{ id: "i1" }]));
+		setPlanApproval(manifest, { status: "pending", planVersion: 1 });
+		manifest.planApproval = {
+			required: true,
+			status: "pending",
+			requestedAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		};
+		manifest.status = "blocked";
+		manifest.plan = { id: "plan-pa", version: 1 };
+		saveRunManifest(manifest);
+		const prevRole = process.env.PI_CREW_ROLE;
+		delete process.env.PI_CREW_ROLE;
+		try {
+			const r = await handlePlans({ action: "plans", runId: manifest.runId, subAction: "approve" }, { cwd: dir } as TeamContext);
+			assert.ok(ok(r), `approve must succeed: ${textFromToolResult(r)}`);
+			const reloaded = await import("../../../../src/state/stores/state-store.ts").then((m) =>
+				m.loadRunManifestById(dir, manifest.runId),
+			);
+			assert.ok(reloaded);
+			assert.equal(reloaded.manifest.planApproval?.status, "approved");
+			const records = loadPlanRecords(reloaded.manifest);
+			assert.equal(records[0]?.approval?.status, "approved");
+		} finally {
+			if (prevRole !== undefined) process.env.PI_CREW_ROLE = prevRole;
+		}
+	});
+
+	it("read-only role is denied through the delegation", async () => {
+		const { dir, manifest } = buildRun();
+		appendPlanRevision(manifest, makeRecord(manifest.runId, 1, [{ id: "i1" }]));
+		manifest.planApproval = {
+			required: true,
+			status: "pending",
+			requestedAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		};
+		manifest.plan = { id: "plan-pa", version: 1 };
+		saveRunManifest(manifest);
+		const prevRole = process.env.PI_CREW_ROLE;
+		process.env.PI_CREW_ROLE = "explorer";
+		try {
+			const r = await handlePlans({ action: "plans", runId: manifest.runId, subAction: "approve" }, { cwd: dir } as TeamContext);
+			assert.equal(r.isError, true);
+			assert.match(textFromToolResult(r), /read-only/);
+		} finally {
+			if (prevRole === undefined) delete process.env.PI_CREW_ROLE;
+			else process.env.PI_CREW_ROLE = prevRole;
+		}
 	});
 });

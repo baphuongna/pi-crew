@@ -17,7 +17,7 @@ import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
-import { isIntentionalWait, isPlanApprovalPending, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
+import { isIntentionalWait, isPlanApprovalPendingEffective, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
 
 export interface RecoveryPlan {
 	runId: string;
@@ -704,7 +704,7 @@ export function reconcileAllStaleRuns(
 			// Belt-and-suspenders: reconcileStaleRun itself guards this, but the run
 			// may have flipped to blocked+plan-approval between cache-list and lock
 			// acquisition — re-check the freshest manifest under the lock.
-			if (isPlanApprovalPending(fresh.manifest)) {
+			if (isPlanApprovalPendingEffective(fresh.manifest)) {
 				results.push({
 					runId,
 					verdict: "blocked_awaiting_approval",

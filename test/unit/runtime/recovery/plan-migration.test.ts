@@ -133,6 +133,11 @@ test("E2E: adaptive approval gate dual-writes the record; api approve flips BOTH
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousRole = process.env.PI_CREW_ROLE;
+	const previousTeamRole = process.env.PI_TEAMS_ROLE;
+	// Review R2: the api ops gate on the LIVE env role — scrub worker-role vars
+	// (knowledge.md verifier-env gotcha) or a read-role worker env fails approve.
+	delete process.env.PI_CREW_ROLE;
+	delete process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
@@ -206,6 +211,8 @@ test("E2E: adaptive approval gate dual-writes the record; api approve flips BOTH
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousRole;
+		if (previousTeamRole === undefined) delete process.env.PI_TEAMS_ROLE;
+		else process.env.PI_TEAMS_ROLE = previousTeamRole;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
