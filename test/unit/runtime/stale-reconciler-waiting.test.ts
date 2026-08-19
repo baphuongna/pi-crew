@@ -309,10 +309,23 @@ describe("crash-recovery: waiting/waitState survive restore (WP-2/R2 audit)", ()
 		const taskParked = makeWaitingTask({ id: "task-parked", waiting: parkedWaiting });
 		const manifest = buildOnDiskRun(tmp, "run-wait-rec", makeManifest({ waitState }), [taskStale, taskParked]);
 
-		// Crash detection: only the crashed RUNNING task is resumable; the parked
-		// WAITING task must not be scheduled for a reset.
+		// B1 battery 2026-08-18 (case b / F9): detectInterruptedRuns now uses the
+		// generalized isIntentionalWait guard — a run with a FRESH waitState is
+		// skipped WHOLE (plans.length 0), because auto-resuming it would requeue
+		// the parked task while its worker may still be alive polling (double
+		// dispatch). Recovery of crashed siblings waits for the park to resolve
+		// (respond clears waitState via the dead-path requeue) or the 24h TTL /
+		// manual force-resume (which now also adopts the run).
 		const cache = { list: () => [manifest], get: () => manifest } as unknown as Parameters<typeof detectInterruptedRuns>[1];
-		const plans = detectInterruptedRuns(tmp, cache, 300_000, "session-live");
+		const parkedPlans = detectInterruptedRuns(tmp, cache, 300_000, "session-live");
+		assert.equal(parkedPlans.length, 0, "fresh-waitState run must not be auto-recovery-planned");
+
+		// The crashed-task recovery mechanics still apply once the park marker is
+		// gone (respond dead-path / TTL expiry) — same on-disk fixture, waitState
+		// dropped:
+		const unparked = { ...manifest, waitState: undefined };
+		const cache2 = { list: () => [unparked], get: () => unparked } as unknown as Parameters<typeof detectInterruptedRuns>[1];
+		const plans = detectInterruptedRuns(tmp, cache2, 300_000, "session-live");
 		assert.equal(plans.length, 1);
 		assert.deepEqual(plans[0]?.resumableTasks, ["task-stale"]);
 
