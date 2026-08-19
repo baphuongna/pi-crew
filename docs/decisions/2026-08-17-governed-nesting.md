@@ -4,11 +4,11 @@
 - **Date:** 2026-08-17 (pinned) · written 2026-08-19
 - **Implements:** subagent-v2 design §7 (H1, P1) rev 2.1 incl. NEW-6 pins; implementation-plan ADR-5 + WP-5
 - **Depends on:** ADR-0 (ask/park mailbox contract), ADR-4 (Plan object — task records)
-- **Gates:** CI 3-OS + **B3 nesting battery (security-weighted: security-reviewer + cold-verifier sign-off required)**
+- **Gates:** CI 3-OS + **B3 nesting battery (security-weighted: team `review` = reviewer + security-reviewer, plus cold-verifier sign-off)**
 
 ## Context
 
-Workers load only the prompt runtime (`model/pi-args.ts:306-331`) — no delegation seam. Spawning grandchildren naively hits four scattered gates (global semaphore → deadlock shape recorded in-repo at `scheduling/global-worker-cap.ts:14-19` MAJ#3; env-derived `PI_CREW_DEPTH` wrong for root-spawned grandchildren `child-pi/child-pi.ts:253-257`; `issueForChild` mints creds without a depth check `registration/lifecycle-handlers.ts:1024-1036`; extension deny-list is basename-equality `model/pi-args.ts:303-305`). Rev-1 design (synchronous RPC delegate, global-sem ride-along) was rejected in design review (P0-1 deadlock, P0-2 depth, P1-6/7/10/11/12/14/15) — see design §7 revision notes.
+Workers load only the prompt runtime (`model/pi-args.ts:306-331`) — no delegation seam. Spawning grandchildren naively hits four scattered gates (global semaphore → deadlock shape recorded in-repo at `scheduling/global-worker-cap.ts:14-19` MAJ#3; env-derived `PI_CREW_DEPTH` wrong for root-spawned grandchildren `child-pi/child-pi.ts:253-257`; `issueForChild` mints creds without a depth check `registration/lifecycle-handlers.ts:1035-1048`; extension deny-list is basename-equality `model/pi-args.ts:308-315`). Rev-1 design (synchronous RPC delegate, global-sem ride-along) was rejected in design review (P0-1 deadlock, P0-2 depth, P1-6/7/10/11/12/14/15) — see design §7 revision notes.
 
 ## Decision
 
@@ -31,12 +31,12 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 ### 3. Depth (pin for depthOverride)
 
-- Spawn-policy computes the grandchild's depth from the **parent task's record in run state** (`task.depth` — schema addition §6), never from the requesting worker's env or self-report; sets `PI_CREW_DEPTH` explicitly on the grandchild spawn; clamps against `PI_CREW_MAX_DEPTH` (default **2**, config-raisable). Depth-3 is blocked by default with a policy message.
+- Spawn-policy computes the grandchild's depth from the **parent task's record in run state** (`task.depth` — schema addition, §5 pin iv / Consequences), never from the requesting worker's env or self-report; sets `PI_CREW_DEPTH` explicitly on the grandchild spawn; clamps against `PI_CREW_MAX_DEPTH` (default **2**, config-raisable). Depth-3 is blocked by default with a policy message.
 - The existing env-derived `checkCrewDepth` remains as a **backstop** for worker-initiated spawns (bash-escape path); the authoritative check is spawn-policy's.
 
 ### 4. Broker credential containment (pins ii & iii)
 
-- **Issuer depth gate:** `issueForChild` mints task-scoped tokens **only for depth ≤ 1** (gate at the lifecycle-handlers call-site). Depth-2 grandchildren receive `PI_CREW_KIND=subagent`, steering file, and mailbox — but **no `PI_CREW_BROKER_SOCKET` / `PI_CREW_BROKER_TOKEN`** (they cannot `delegate` further at default maxDepth=2; identity-routing `BROKER_RUN_ID`/`BROKER_TASK_ID` stay — design §7 erratum D-2). **AC: depth-2 env contains no `PI_CREW_BROKER_*`.**
+- **Issuer depth gate:** `issueForChild` mints task-scoped tokens **only for children that may themselves delegate — i.e. child depth < resolved `PI_CREW_MAX_DEPTH`** (at the default maxDepth=2 this is exactly depth ≤ 1; the design's "cannot `delegate` further at default maxDepth=2" consistency argument generalizes, so a raised maxDepth makes depth-3 delegate spawns genuinely reachable — B3 case (d) covers the raised config as a real spawn, not just admission). Depth-2 grandchildren (at default maxDepth) receive `PI_CREW_KIND=subagent`, steering file, and mailbox — but **no `PI_CREW_BROKER_SOCKET` / `PI_CREW_BROKER_TOKEN`** (identity-routing `PI_CREW_BROKER_RUN_ID`/`PI_CREW_BROKER_TASK_ID` stay — design §7 erratum D-2; the AC is scoped to SOCKET/TOKEN, never a blanket `PI_CREW_BROKER_*` strip). **AC: depth-2 env (default maxDepth) contains no `PI_CREW_BROKER_SOCKET` and no `PI_CREW_BROKER_TOKEN`.**
 - **Task-scoped tokens are mandatory for the `delegate` broker method** — legacy/global tokens are rejected; cross-task `to` targeting rejected (auth matrix in `delegate-broker.test.ts`).
 
 ### 5. Budget attribution (pin iv — schema)
@@ -69,7 +69,7 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 ### 11. Alternatives considered (pin vi)
 
-- **Full pi-crew extension inside workers** — rejected: broker root-gate, run-lock contention, state-root conflicts, and the 54-action team tool inside a worker are blast-radius multipliers. A 1-action `delegate` gives most of the value at a fraction of the surface. **Revisit conditions:** workers demonstrably need richer orchestration surface → propose an explicitly-scoped, allowlisted tool subset as a NEW mini-ADR; do NOT silently widen.
+- **Full pi-crew extension inside workers** — rejected: broker root-gate, run-lock contention, state-root conflicts, and the 55-action team tool inside a worker are blast-radius multipliers. A 1-action `delegate` gives most of the value at a fraction of the surface. **Revisit conditions:** workers demonstrably need richer orchestration surface → propose an explicitly-scoped, allowlisted tool subset as a NEW mini-ADR; do NOT silently widen.
 - **Synchronous RPC result delivery** (design rev 1) — rejected: dies on broker socket close; replaced by durable mailbox + self-poll (§1).
 - **Queueing on nested-budget exhaustion** — rejected: fail-fast preserves the anti-deadlock invariant and gives the worker an actionable message (it can finish and retry).
 
@@ -80,7 +80,7 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 ## Consequences
 
-- `TeamTaskState` grows `depth?: number` and `allocation?: { tokensGranted: number; tokensSpent: number }` (additive; dual-read tolerates pre-v2 records — see ADR-4 §9 pattern).
+- `TeamTaskState` grows `depth?: number` and `allocation?: { tokensGranted: number; tokensSpent: number }` (additive; dual-read tolerates pre-v2 records — see ADR-4 §2 "Migration — dual-read, manifest field never dropped").
 - New runtime modules: `src/runtime/spawn-policy.ts`, `src/runtime/scheduling/nested-slots.ts`; broker `delegate` handler in `crew-broker.ts`; `delegate` tool in `prompt-runtime.ts`; allowlist in `model/pi-args.ts`.
 - Events: `delegate.*` kinds registered in `TEAM_EVENT_TYPES` (requested/admitted/rejected/rolled-up/timed-out).
 - Gate-test updates anticipated: `config-schema-sync` (new keys), `child-pi-env-spread` (grandchild env shape), event-registry check.
@@ -90,7 +90,7 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 1. **(a) Flag-off:** `nestingEnabled=false` → `delegate` returns structured rejection + `events.jsonl` entry; no spawn. Negative test.
 2. **(b) Happy path E2E:** depth-1 executor delegates → depth-2 grandchild: namespaced artifacts (`…/<parentTaskId>/nested/<subId>/`), result returns in-tool via mailbox self-poll, parent task stays `running` throughout.
 3. **(c) Env containment (AC §4):** depth-2 grandchild env has **no `PI_CREW_BROKER_SOCKET`/`PI_CREW_BROKER_TOKEN`**; `BROKER_RUN_ID`/`BROKER_TASK_ID` present; `PI_CREW_DEPTH=2`.
-4. **(d) Depth gate:** depth-3 blocked by default with policy message; `PI_CREW_MAX_DEPTH` raise → depth-3 spawns work (unit, `spawn-policy.test.ts`).
+4. **(d) Depth gate:** depth-3 blocked by default with policy message; `PI_CREW_MAX_DEPTH` raise → depth-3 spawns work — **as a real spawn** (depth-2 child then holds broker creds per §4's generalized gate; unit-level matrix in `spawn-policy.test.ts`).
 5. **(e) Anti-deadlock:** 4-core/sem-2 box, 2 concurrent delegates complete; nested-budget exhaustion → immediate `"budget exhausted; N/M in flight"` rejection, never queue (`nested-slots-deadlock.test.ts`).
 6. **(f) Broker auth matrix:** task-scoped token ✓; legacy/global ✗; cross-task `to` ✗ (`delegate-broker.test.ts`).
 7. **(g) Budget:** admission reserves `budgetTokens` (insufficient → fail-fast); grandchild usage rolls up to parent record; visible in `team status`.
@@ -99,7 +99,8 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 10. **(j) Resilience:** kill broker socket mid-grandchild → parent still receives result via durable mailbox; worker without broker creds (broker-gated spawn logs-and-continues) → `delegate` returns structured notice, no hang.
 11. **(k) Role/extension containment:** read-only roles' `delegate` rejected; depth>0 extension list = allowlist (`PROMPT_RUNTIME_EXTENSION_PATH` only, user-sourced declarations included).
 12. **(l) Workspace:** shared-workspace executor delegate auto-serializes on path overlap; worktree opt-in unchanged.
-13. **(m) Security sign-off:** security-reviewer + cold-verifier verdicts recorded on the WP-5 PR.
+13. **(m) Security sign-off:** security-reviewer + cold-verifier verdicts recorded on the WP-5 PR (alongside the standard reviewer gate).
+14. **(n) Trust gate:** untrusted escalation context (strict/manual trust mode) → `delegate` admission rejected with a fail-fast policy message — the per-gate-dimension fail-fast matrix incl. `trust` lives in `spawn-policy.test.ts` (plan WP-5 tests).
 
 ## References
 

@@ -21,8 +21,8 @@ import { allActionLiterals } from "../../../src/schema/team-tool-schema.ts";
 /** Extract raw action strings from the schema's allActionLiterals. */
 const schemaActions = new Set(allActionLiterals.map((l) => (l as { const: string }).const));
 
-test("allActionLiterals is non-empty (54 actions expected)", () => {
-	assert.ok(schemaActions.size >= 54, `expected >=54 actions, got ${schemaActions.size}`);
+test("allActionLiterals is non-empty (55 actions expected)", () => {
+	assert.ok(schemaActions.size >= 55, `expected >=55 actions, got ${schemaActions.size}`);
 });
 
 test("KNOWN_TEAM_ACTIONS (suggestions) equals allActionLiterals (schema) — no drift", () => {
