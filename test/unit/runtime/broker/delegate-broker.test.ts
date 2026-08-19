@@ -133,6 +133,9 @@ async function startBroker(opts: {
 		enabled: true,
 		cwd: opts.cwd,
 		nestingEnabled: opts.nestingEnabled === true,
+		// ADR-5 §12: tests opt into the trust decision explicitly (production:
+		// config.nesting.enabled === true threads it).
+		nestingTrustedEscalation: opts.nestingEnabled === true,
 		...(opts.nestingMaxSlots !== undefined ? { nestingMaxSlots: opts.nestingMaxSlots } : {}),
 		...(opts.spawner ? { grandchildSpawner: opts.spawner } : {}),
 		...(opts.modelCatalog ? { modelCatalog: () => opts.modelCatalog } : {}),

@@ -102,6 +102,37 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 13. **(m) Security sign-off:** security-reviewer + cold-verifier verdicts recorded on the WP-5 PR (alongside the standard reviewer gate).
 14. **(n) Trust gate:** untrusted escalation context (strict/manual trust mode) → `delegate` admission rejected with a fail-fast policy message — the per-gate-dimension fail-fast matrix incl. `trust` lives in `spawn-policy.test.ts` (plan WP-5 tests).
 
+## Amendments (security review round 1, 2026-08-19 — applied before the WP-5 PR)
+
+- **§4 grandchild identity (S1):** grandchild broker tokens are minted under the
+  SUBID compound key — never the parent task key — and each admitted delegate
+  registers a SHADOW task record (id=subId, role, depth, status queued→terminal)
+  so a grandchild connecting as subId is role/depth-checked from ITS OWN record.
+  The unbounded-chain escalation at raised maxDepth is closed: depth accounting
+  advances per hop and the chain terminates at maxDepth.
+- **§1 grandchild role (S1):** the grandchild ROLE is threaded through the spawn
+  (role-based --tools/--exclude-tools apply) — read-only explorer/analyst
+  grandchildren are actually read-only, which §9's serialization exemption
+  assumes.
+- **§6 artifacts (S2):** namespacing via the typed artifactsRoot field (the env
+  spread never survived the spawn allowlist).
+- **§5 usage roll-up (S2, v1 scope):** roll-up is COMPLETION-TIME reconciliation —
+  grandchild usage is accumulated from message_end events and the pessimistic
+  reservation refunds to actual (clamped [0, reserve]). "As they arrive" event-
+  streaming remains a follow-up; the reserve is the fail-closed floor.
+- **§12 trust (S2):** the trust gate is resolved from the capability flag itself:
+  config.nesting.enabled is sensitive (USER config only) — enabling it IS the
+  manual trust decision (nestingTrustedEscalation threads to the broker; default
+  untrusted → trust-denied). No separate trust-mode resolver exists today.
+- **§7 model catalog (S3):** a DEFINED catalog loader that fails yields an EMPTY
+  catalog → any requested model is denied model-invalid (fail-closed; the
+  unvalidated provider/model pass-through stays unreachable).
+- **§3 maxDepth knob (S3):** config nesting.maxDepth threads into admission
+  (takes precedence over the env-clamped default).
+- **Observability (S3):** EVERY admission denial emits delegate.rejected
+  (reason + message); delegate.requested is emitted at handler entry. Mailbox
+  bodies are broker-sanitized (end-fence markers neutralized, 64K cap) before
+  delivery; subIds are full randomUUIDs.
 ## References
 
 - Design: `docs/design/subagent-v2-design.md` §7 (+ §3 ask/park contract, §9 supporting upgrades, §11 P2-20)

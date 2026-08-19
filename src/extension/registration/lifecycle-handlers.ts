@@ -1033,6 +1033,10 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					// the production wiring MUST supply it) + workspace gate mirror.
 					nestingEnabled: nestingCfg?.nesting?.enabled ?? false,
 					...(nestingCfg?.nesting?.maxSlots !== undefined ? { nestingMaxSlots: nestingCfg.nesting.maxSlots } : {}),
+					...(nestingCfg?.nesting?.maxDepth !== undefined ? { nestingMaxDepth: nestingCfg.nesting.maxDepth } : {}),
+					// ADR-5 §12: enabling the sensitive USER-config-only flag IS the manual
+					// trust decision for the escalation surface.
+					nestingTrustedEscalation: nestingCfg?.nesting?.enabled === true,
 					...(nestingCfg?.limits?.maxConcurrentWorkers !== undefined
 						? { globalWorkerSemaphore: nestingCfg.limits.maxConcurrentWorkers }
 						: {}),
