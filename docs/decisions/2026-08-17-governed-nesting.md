@@ -64,7 +64,7 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 ### 10. Config & rollout
 
-- New config key `nestingEnabled` (config schema + defaults; `config-schema-sync` gate updated). **Ships default `false`**; the WP-5 completion gate (B3 + security sign-off) flips the default to `true`. Disabled → spawn-policy returns a structured policy rejection + `events.jsonl` log entry (negative flag-off tests required).
+- New config key `nesting.enabled` (config schema + defaults; `config-schema-sync` gate updated; design prose calls it `nestingEnabled` — the shipped key shape is the `nesting: { enabled, maxSlots, maxDepth }` block, consistent with `nesting.maxSlots` below). **Ships default `false`**; the WP-5 completion gate (B3 + security sign-off) flips the default to `true`. Disabled → spawn-policy returns a structured policy rejection + `events.jsonl` log entry (negative flag-off tests required). `nesting.enabled` is `sensitive: true` — project-level config cannot enable delegation.
 - `nesting.maxSlots` overrides the nested-slot default; `PI_CREW_MAX_DEPTH`/config raises are covered by `spawn-policy.test.ts` (maxDepth raise → depth-3 works).
 
 ### 11. Alternatives considered (pin vi)
@@ -87,7 +87,7 @@ delegate({ description, prompt, role?: "explorer"|"analyst"|"executor",
 
 ## Appendix — B3 battery case list (security-weighted)
 
-1. **(a) Flag-off:** `nestingEnabled=false` → `delegate` returns structured rejection + `events.jsonl` entry; no spawn. Negative test.
+1. **(a) Flag-off:** `nesting.enabled=false` (default) → `delegate` returns structured rejection + `events.jsonl` entry; no spawn. Negative test.
 2. **(b) Happy path E2E:** depth-1 executor delegates → depth-2 grandchild: namespaced artifacts (`…/<parentTaskId>/nested/<subId>/`), result returns in-tool via mailbox self-poll, parent task stays `running` throughout.
 3. **(c) Env containment (AC §4):** depth-2 grandchild env has **no `PI_CREW_BROKER_SOCKET`/`PI_CREW_BROKER_TOKEN`**; `BROKER_RUN_ID`/`BROKER_TASK_ID` present; `PI_CREW_DEPTH=2`.
 4. **(d) Depth gate:** depth-3 blocked by default with policy message; `PI_CREW_MAX_DEPTH` raise → depth-3 spawns work — **as a real spawn** (depth-2 child then holds broker creds per §4's generalized gate; unit-level matrix in `spawn-policy.test.ts`).
