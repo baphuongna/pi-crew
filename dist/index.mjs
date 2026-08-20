@@ -328,6 +328,10 @@ var init_env_vars = __esm({
         name: "PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS",
         doc: "'1' trusts project/.pi agent extensions (discover-agents.ts:445/544)"
       },
+      PI_CREW_PLAN_UI: {
+        name: "PI_CREW_PLAN_UI",
+        doc: "'1' enables the Plan dashboard pane (7) + plans snapshot slice (WP-7/R7)"
+      },
       PI_CREW_TRUST_PROJECT_DWF: {
         name: "PI_CREW_TRUST_PROJECT_DWF",
         doc: "'1' allows project-sourced .dwf.ts workflows (dynamic-workflow-runner.ts:154)"
@@ -15911,15 +15915,16 @@ function prepareSpawnContext(input, effectiveTask, depthEnv) {
     built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
     built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
   }
+  if (input.eventsPath) {
+    built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
+    if (input.agentId && !built.env.PI_CREW_TASK_ID) built.env.PI_CREW_TASK_ID = input.agentId;
+  }
   if (input.agentId && isScratchpadEnabledForRole(input.role ?? input.agent.name, input.agent)) {
     built.env.PI_CREW_SCRATCHPAD = "1";
     built.env.PI_CREW_TASK_ID = input.agentId;
     built.env.PI_CREW_ATTEMPT = String(input.attempt ?? 0);
     if (input.artifactsRoot) {
       built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
-    }
-    if (input.eventsPath) {
-      built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
     }
     const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
     built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
@@ -24421,9 +24426,16 @@ function parseKeybindingOverride(raw) {
   }
   return result4;
 }
+function paneScopeMatches(scope, pane) {
+  if (scope === void 0) return true;
+  if (Array.isArray(scope)) return pane !== void 0 && scope.includes(pane);
+  return scope === pane;
+}
 function paneScopesCompatible(a, b) {
   if (a === void 0 || b === void 0) return true;
-  return a === b;
+  const as = Array.isArray(a) ? a : [a];
+  const bs = Array.isArray(b) ? b : [b];
+  return as.some((x) => bs.includes(x));
 }
 function computeEffectiveBindings(overrides) {
   const applied = /* @__PURE__ */ new Map();
@@ -24494,12 +24506,12 @@ function getKeybindingOverrideWarnings() {
 function dashboardActionForKey(data, activePane) {
   const BINDINGS = getEffectiveBindings();
   for (const binding of BINDINGS) {
-    if (binding.pane !== void 0 && binding.pane !== activePane) continue;
+    if (!paneScopeMatches(binding.pane, activePane)) continue;
     if (binding.keys.includes(data)) return binding.action;
   }
   const key = keyOf(data);
   for (const binding of BINDINGS) {
-    if (binding.pane !== void 0 && binding.pane !== activePane) continue;
+    if (!paneScopeMatches(binding.pane, activePane)) continue;
     for (const candidate of binding.keys) {
       if (key === candidate) return binding.action;
       if (matchesKey2(data, candidate)) return binding.action;
@@ -24536,7 +24548,8 @@ var init_keybinding_map = __esm({
         mailbox: ["3"],
         output: ["4"],
         health: ["5"],
-        metrics: ["6"]
+        metrics: ["6"],
+        plan: ["7"]
       },
       navigation: { up: ["k", "up"], down: ["j", "down"] },
       mailbox: {
@@ -24548,7 +24561,7 @@ var init_keybinding_map = __esm({
         openDetail: ["\r", "\n"]
       },
       health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
-      plan: { approve: ["A"], deny: ["n"] },
+      plan: { approve: ["A"], deny: ["n"], diff: ["X"] },
       notification: { dismissAll: ["H"] }
     };
     DEFAULT_BINDINGS = [
@@ -24577,12 +24590,18 @@ var init_keybinding_map = __esm({
       {
         keys: DASHBOARD_KEYS.plan.approve,
         action: "plan-approve",
-        pane: "progress"
+        // WP-7: shared by the progress banner and the Plan pane (pane 7).
+        pane: ["progress", "plan"]
       },
       {
         keys: DASHBOARD_KEYS.plan.deny,
         action: "plan-deny",
-        pane: "progress"
+        pane: ["progress", "plan"]
+      },
+      {
+        keys: DASHBOARD_KEYS.plan.diff,
+        action: "plan-diff",
+        pane: "plan"
       },
       {
         keys: DASHBOARD_KEYS.notification.dismissAll,
@@ -24606,6 +24625,7 @@ var init_keybinding_map = __esm({
       { keys: DASHBOARD_KEYS.pane.output, action: "pane-output" },
       { keys: DASHBOARD_KEYS.pane.health, action: "pane-health" },
       { keys: DASHBOARD_KEYS.pane.metrics, action: "pane-metrics" },
+      { keys: DASHBOARD_KEYS.pane.plan, action: "pane-plan" },
       { keys: DASHBOARD_KEYS.navigation.up, action: "up" },
       { keys: DASHBOARD_KEYS.navigation.down, action: "down" }
     ];
@@ -25942,10 +25962,24 @@ function splitThinkingSuffix(model) {
     thinkingSuffix: model.substring(colonIdx)
   };
 }
+function warnUnvalidatedPassthrough(model, reason) {
+  const key = `${model}|${reason}`;
+  if (passthroughWarned.has(key)) return;
+  passthroughWarned.add(key);
+  console.warn(
+    `[model-routing] unvalidated passthrough: '${model}' (${reason}) \u2014 not confirmed against the configured model catalog; spawn may fail at the provider.`
+  );
+}
 function resolveModelCandidate(model, availableModels, preferredProvider) {
   if (!model) return void 0;
-  if (model.includes("/")) return model;
-  if (!availableModels || availableModels.length === 0) return model;
+  if (model.includes("/")) {
+    warnUnvalidatedPassthrough(model, "provider-qualified ref, no catalog check");
+    return model;
+  }
+  if (!availableModels || availableModels.length === 0) {
+    warnUnvalidatedPassthrough(model, "no model catalog available");
+    return model;
+  }
   const { baseModel, thinkingSuffix } = splitThinkingSuffix(model);
   const matches = availableModels.filter((entry) => entry.id === baseModel);
   if (preferredProvider) {
@@ -25955,6 +25989,7 @@ function resolveModelCandidate(model, availableModels, preferredProvider) {
   if (matches.length !== 1) {
     const fuzzy = fuzzyResolveModelId(baseModel, availableModels);
     if (fuzzy) return `${fuzzy}${thinkingSuffix}`;
+    warnUnvalidatedPassthrough(model, "no exact or fuzzy catalog match");
     return model;
   }
   return `${matches[0].fullId}${thinkingSuffix}`;
@@ -26140,7 +26175,7 @@ function warnOutOfScopeSoft(verdict, scope, prefix = "Model") {
     "warn"
   );
 }
-var configuredModelCache, RETRYABLE_MODEL_FAILURE_PATTERNS, NON_RETRYABLE_MODEL_FAILURE_PATTERNS;
+var configuredModelCache, passthroughWarned, RETRYABLE_MODEL_FAILURE_PATTERNS, NON_RETRYABLE_MODEL_FAILURE_PATTERNS;
 var init_model_fallback = __esm({
   "src/runtime/model/model-fallback.ts"() {
     "use strict";
@@ -26150,6 +26185,7 @@ var init_model_fallback = __esm({
     init_model_scope();
     init_provider_quota();
     configuredModelCache = /* @__PURE__ */ new Map();
+    passthroughWarned = /* @__PURE__ */ new Set();
     RETRYABLE_MODEL_FAILURE_PATTERNS = [
       /rate.?limit/i,
       /too many requests/i,
@@ -55511,6 +55547,32 @@ function buildStepsPayload(active, allTasks) {
     return { id: "pi-crew-steps" };
   }
   const run = active[0].run;
+  const plans = active[0].snapshot?.plans;
+  if (plans && plans.length > 0) {
+    const current = plans[plans.length - 1];
+    const itemById = new Map(current.items.map((i) => [i.id, i]));
+    const statusOf = (ids) => {
+      const items = ids.map((id) => itemById.get(id)?.status).filter(Boolean);
+      if (items.length && items.every((s) => s === "done")) return "completed";
+      if (items.some((s) => s === "active")) return "running";
+      return "pending";
+    };
+    const parts = current.phases.map((phase) => {
+      const status = phase.status === "done" ? "completed" : statusOf(phase.itemIds);
+      const icon = status === "completed" ? "\u2713" : status === "running" ? "\u2192" : "\u25CB";
+      const name = phase.title.length > 10 ? `${phase.title.slice(0, 9)}\u2026` : phase.title;
+      return `${icon}${name}`;
+    });
+    if (parts.length) {
+      const hasRunning = parts.some((p) => p.startsWith("\u2192"));
+      const allComplete2 = parts.every((p) => p.startsWith("\u2713"));
+      return {
+        id: "pi-crew-steps",
+        text: `P${current.version} ${parts.join(" \u203A ")}`,
+        color: allComplete2 ? "success" : hasRunning ? "accent" : "dim"
+      };
+    }
+  }
   const workflowName = run.workflow ?? "default";
   const workflows = allWorkflows(discoverWorkflows(run.cwd));
   const workflow = workflows.find((w) => w.name === workflowName);
@@ -64370,6 +64432,42 @@ var init_parallel_research = __esm({
   }
 });
 
+// src/runtime/model/model-budget-summary.ts
+var model_budget_summary_exports = {};
+__export(model_budget_summary_exports, {
+  summarizeModelBudget: () => summarizeModelBudget
+});
+function summarizeModelBudget(cwd) {
+  let maxAttempts = DEFAULT_RETRY_POLICY.maxAttempts;
+  let chain = [];
+  try {
+    const { config } = loadConfig(cwd);
+    const routing = buildConfiguredModelRouting({ cwd, policy: config.runtime?.modelFallback });
+    chain = routing.candidates;
+    if (config.reliability?.retryPolicy?.maxAttempts !== void 0) {
+      maxAttempts = config.reliability.retryPolicy.maxAttempts;
+    }
+  } catch {
+  }
+  const worst = computeSpawnBudgetMax(Math.max(1, chain.length), maxAttempts);
+  const chainText = chain.length ? chain.join(" \u2192 ") : "(default pi model)";
+  return {
+    chain,
+    worstCaseSpawnsPerTask: worst,
+    maxAttempts,
+    line: `[team-tool.run] model routing: ${chainText} \xB7 worst-case ${worst} spawns/task (chain=${Math.max(1, chain.length)} \xD7 maxAttempts+1=${maxAttempts + 1})`
+  };
+}
+var init_model_budget_summary = __esm({
+  "src/runtime/model/model-budget-summary.ts"() {
+    "use strict";
+    init_config();
+    init_retry_executor();
+    init_child_executor();
+    init_model_fallback();
+  }
+});
+
 // src/extension/team-tool/run-intent.ts
 import * as fs103 from "node:fs";
 function specStrictRejectReason(workflow, cwd) {
@@ -64562,6 +64660,13 @@ Commit or stash changes before using worktree mode, or use workspaceMode: 'singl
     console.warn(
       `\u26A0\uFE0F  [team-tool.run] specStrict is enabled but this platform (${process.platform}) has no unshare -rn equivalent: every strict machine-check will FAIL CLOSED (ADR-6 \xA74).`
     );
+  }
+  if (!directAgent) {
+    try {
+      const { summarizeModelBudget: summarizeModelBudget2 } = await Promise.resolve().then(() => (init_model_budget_summary(), model_budget_summary_exports));
+      console.warn(summarizeModelBudget2(resolvedCtx.cwd).line);
+    } catch {
+    }
   }
   if (!directAgent) {
     const { validateWorkflowUsage: validateWorkflowUsage2 } = await Promise.resolve().then(() => (init_preflight_validator(), preflight_validator_exports));
@@ -68714,6 +68819,111 @@ var init_metrics_pane = __esm({
   }
 });
 
+// src/ui/dashboard-panes/plan-pane.ts
+function taskLine(task, indent) {
+  const glyph = TASK_GLYPH[task.status] ?? "?";
+  const depth = typeof task.depth === "number" && task.depth > 1 ? ` d${task.depth}` : "";
+  const role = task.displayName ?? task.role;
+  return `${indent}${glyph} ${task.id}${depth} ${role} [${task.status}]`;
+}
+function planRevisionDiff(snapshot) {
+  const records = snapshot.plans ?? [];
+  const current = records.length ? records.reduce((a, b) => b.version > a.version ? b : a) : void 0;
+  if (!current) return ["Plan diff: no plan records"];
+  const prevVersion = current.revisionOf?.version;
+  const previous = prevVersion !== void 0 ? records.find((r) => r.version === prevVersion) : void 0;
+  if (!previous) {
+    return [`Plan diff: v${current.version} has no prior revision`];
+  }
+  const prevItems = new Map(previous.items.map((i) => [i.id, i]));
+  const lines = [`Plan diff: v${previous.version} \u2192 v${current.version}`];
+  for (const item of current.items) {
+    const before = prevItems.get(item.id);
+    if (!before) {
+      lines.push(`  + ${item.id} ${item.title} [${item.status}]`);
+      continue;
+    }
+    if (before.status !== item.status || before.taskIds.length !== item.taskIds.length) {
+      lines.push(
+        `  ~ ${item.id} ${item.title} [${before.status}\u2192${item.status} \xB7 ${before.taskIds.length}\u2192${item.taskIds.length} tasks]`
+      );
+    }
+    prevItems.delete(item.id);
+  }
+  for (const dropped of prevItems.values()) {
+    lines.push(`  - ${dropped.id} ${dropped.title} (dropped in v${current.version})`);
+  }
+  return lines;
+}
+function renderPlanPane(snapshot, options = {}) {
+  const records = snapshot.plans;
+  if (!records || records.length === 0) {
+    return ["Plan pane: no plan records (PI_CREW_PLAN_UI=1; plan-producing runs only)"];
+  }
+  if (options.diff) return planRevisionDiff(snapshot);
+  const current = records.reduce((a, b) => b.version > a.version ? b : a);
+  if (!current) return ["Plan pane: no plan records"];
+  const progress = deriveItemProgress(current, snapshot.tasks);
+  const tasksById = new Map(snapshot.tasks.map((t2) => [t2.id, t2]));
+  const itemById = new Map(current.items.map((i) => [i.id, i]));
+  const pending2 = isPlanApprovalPending(snapshot.manifest);
+  const header = `Plan pane: ${current.title} @v${current.version} (${current.phases.length} phases \xB7 ${current.items.length} items)`;
+  const approval = pending2 ? ["\u26A0 plan approval pending \u2014 A approve \xB7 n deny"] : [];
+  const lines = [header, ...approval];
+  for (const phase of current.phases) {
+    const glyph = ITEM_GLYPH[phase.status] ?? "?";
+    lines.push(`${glyph} ${phase.title}`);
+    for (const itemId of phase.itemIds) {
+      const item = itemById.get(itemId);
+      if (!item) continue;
+      const p = progress.get(itemId);
+      const counts = p ? ` ${p.done}/${p.total}${p.failed ? ` \u2717${p.failed}` : ""}${p.running ? ` \u25B8${p.running}` : ""}` : "";
+      const droppedTag = item.status === "dropped" ? " \u2717 dropped" : "";
+      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title}${counts}${droppedTag}`);
+      for (const taskId of item.taskIds) {
+        const task = tasksById.get(taskId);
+        if (task) lines.push(taskLine(task, "    "));
+      }
+    }
+  }
+  const phased = new Set(current.phases.flatMap((p) => p.itemIds));
+  const orphans = current.items.filter((i) => !phased.has(i.id));
+  if (orphans.length) {
+    lines.push("(unphased)");
+    for (const item of orphans) {
+      const p = progress.get(item.id);
+      const droppedTag = item.status === "dropped" ? " \u2717 dropped" : "";
+      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title}${p ? ` ${p.done}/${p.total}` : ""}${droppedTag}`);
+    }
+  }
+  lines.push("X revision diff");
+  return lines;
+}
+var ITEM_GLYPH, TASK_GLYPH;
+var init_plan_pane = __esm({
+  "src/ui/dashboard-panes/plan-pane.ts"() {
+    "use strict";
+    init_plan_approval();
+    init_plan_store();
+    ITEM_GLYPH = {
+      pending: "\u25CB",
+      active: "\u25B8",
+      done: "\u2713",
+      dropped: "\u2717"
+    };
+    TASK_GLYPH = {
+      queued: "\u25CB",
+      running: "\u25B8",
+      waiting: "\u25F7",
+      needs_attention: "\u26A0",
+      completed: "\u2713",
+      failed: "\u2717",
+      cancelled: "\u2298",
+      skipped: "\xB7"
+    };
+  }
+});
+
 // src/ui/dwf-phase-display.ts
 function markerFor(status, ascii) {
   if (ascii) {
@@ -68827,17 +69037,33 @@ var init_progress_pane = __esm({
 });
 
 // src/ui/dashboard-panes/transcript-pane.ts
+function modelAttemptLines(snapshot) {
+  const withAttempts = snapshot.tasks.filter((task) => (task.modelAttempts?.length ?? 0) > 0).slice(-ATTEMPT_SUMMARY_TASKS).reverse();
+  if (!withAttempts.length) return [];
+  const lines = ["model attempts (newest first):"];
+  for (const task of withAttempts) {
+    const attempts = (task.modelAttempts ?? []).map(
+      (attempt) => `${attempt.model} ${attempt.success ? "\u2713" : `\u2717${attempt.exitCode !== void 0 ? `(${attempt.exitCode})` : ""}`}`
+    ).join(" \u2192 ");
+    const resolved = task.modelRouting?.resolved ? ` \xB7 resolved ${task.modelRouting.resolved}` : "";
+    lines.push(`  ${task.id} (${task.role})${resolved}: ${attempts}`);
+  }
+  return lines;
+}
 function renderTranscriptPane(snapshot) {
   if (!snapshot) return ["Output pane: snapshot unavailable"];
   return [
     `Output pane: ${snapshot.recentOutputLines.length} recent lines \xB7 press v for transcript viewer \xB7 o for raw output`,
+    ...modelAttemptLines(snapshot),
     ...snapshot.recentOutputLines.slice(-12).map((line4) => `\u23BF ${line4}`),
     ...snapshot.recentOutputLines.length ? [] : ["No recent output"]
   ];
 }
+var ATTEMPT_SUMMARY_TASKS;
 var init_transcript_pane = __esm({
   "src/ui/dashboard-panes/transcript-pane.ts"() {
     "use strict";
+    ATTEMPT_SUMMARY_TASKS = 3;
   }
 });
 
@@ -69243,6 +69469,7 @@ var init_run_dashboard = __esm({
     init_health_pane();
     init_mailbox_pane();
     init_metrics_pane();
+    init_plan_pane();
     init_progress_pane();
     init_transcript_pane();
     init_dynamic_border();
@@ -69264,6 +69491,8 @@ var init_run_dashboard = __esm({
       showFullProgress = false;
       showHelp = false;
       activePane = lastActivePane;
+      /** WP-7 (R7): pane-scoped revision-diff toggle (X). */
+      planDiff = false;
       runs;
       done;
       theme;
@@ -69433,7 +69662,7 @@ var init_run_dashboard = __esm({
             lines.push(
               border2("\u256D", "\u256E"),
               row(
-                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-6 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
+                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-7 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
               ),
               sep11()
             );
@@ -69508,7 +69737,7 @@ var init_run_dashboard = __esm({
                   () => renderMetricsPane(snap, {
                     registry: this.options.registry
                   })
-                ) : safeRenderPane("transcript", () => renderTranscriptPane(snap)) : [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
+                ) : this.activePane === "plan" ? safeRenderPane("plan", () => renderPlanPane(snap, { diff: this.planDiff })) : safeRenderPane("transcript", () => renderTranscriptPane(snap)) : [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
                 const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
                 if (filteredPane.length > 0) {
                   lines.push(row(fg("dim", `\u2500\u2500 ${this.activePane} \u2500\u2500`)));
@@ -69636,7 +69865,12 @@ var init_run_dashboard = __esm({
         else if (action === "pane-output") this.activePane = "output";
         else if (action === "pane-health") this.activePane = "health";
         else if (action === "pane-metrics") this.activePane = "metrics";
-        else if (action === "up") this.selected = Math.max(0, this.selected - 1);
+        else if (action === "pane-plan") this.activePane = "plan";
+        else if (action === "plan-diff") {
+          this.planDiff = !this.planDiff;
+          this.invalidate();
+          return;
+        } else if (action === "up") this.selected = Math.max(0, this.selected - 1);
         else if (action === "down") {
           const selectableCount = groupedRuns(this.runs, this.options.snapshotCache).filter((row) => row.run).length;
           this.selected = Math.min(Math.max(0, selectableCount - 1), this.selected + 1);
@@ -78941,15 +79175,20 @@ var BatchBarrier = class {
 };
 
 // src/ui/run-snapshot-cache.ts
+init_env_vars();
 init_crew_agent_records();
 init_process_status();
 init_event_log();
+init_plan_store();
 init_state_store();
 init_dwf_phase_display();
 init_run_event_bus();
 import { createHash as createHash12 } from "node:crypto";
 import * as fs110 from "node:fs";
 import * as path89 from "node:path";
+function isPlanUiEnabled() {
+  return getCrewEnv("PI_CREW_PLAN_UI") === "1";
+}
 var DEFAULT_TTL_MS2 = 1500;
 var DEFAULT_MAX_ENTRIES = 24;
 var DEFAULT_RECENT_EVENTS = 20;
@@ -79032,10 +79271,11 @@ function safeAgentOutputPath(manifest, agent) {
   }
 }
 function sameStamp(a, b) {
+  if (a === void 0 || b === void 0) return a === b;
   return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
 function sameStamps(a, b) {
-  return sameStamp(a.manifest, b.manifest) && sameStamp(a.tasks, b.tasks) && sameStamp(a.agents, b.agents) && sameStamp(a.events, b.events) && sameStamp(a.mailbox, b.mailbox);
+  return sameStamp(a.manifest, b.manifest) && sameStamp(a.tasks, b.tasks) && sameStamp(a.agents, b.agents) && sameStamp(a.events, b.events) && sameStamp(a.mailbox, b.mailbox) && sameStamp(a.plans, b.plans);
 }
 function tailJsonlLines(filePath, limit, parse4) {
   if (limit <= 0) return [];
@@ -79457,7 +79697,20 @@ function computeSliceSignatures(input) {
         event.message,
         event.data?.reason
       ])
-    )
+    ),
+    ...input.plans ? {
+      // WP-7 (R7): plan writes (revision append / approval flip / item
+      // linkage) must invalidate the Plan pane. Plans live outside the
+      // stamped files' content — the slice hashes the records directly.
+      plans: hash(
+        input.plans.map((record) => [
+          record.version,
+          record.approval?.status,
+          record.items.map((item) => [item.id, item.status, item.taskIds]),
+          record.phases.map((p) => [p.id, p.status])
+        ])
+      )
+    } : {}
   };
 }
 function signatureFor(input, stamps, sliceSignatures) {
@@ -79487,6 +79740,7 @@ function signatureFor(input, stamps, sliceSignatures) {
         mailbox: input.mailbox,
         groupJoins: input.groupJoins,
         events: sliceSignatures.events,
+        ...sliceSignatures.plans ? { plans: sliceSignatures.plans } : {},
         cancellationReason: input.cancellationReason,
         dwfPhaseState: input.dwfPhaseState,
         output: input.recentOutputLines,
@@ -79504,7 +79758,8 @@ function stampsFor(manifest, _agents) {
     tasks: stampFile(manifest.tasksPath),
     agents: stampFile(agentsPath(manifest)),
     events: eventsStamp(manifest.eventsPath),
-    mailbox: mailboxStamp(manifest)
+    mailbox: mailboxStamp(manifest),
+    ...isPlanUiEnabled() ? { plans: stampFile(planFilePath(manifest)) } : {}
   };
 }
 async function stampsForAsync(manifest, _agents) {
@@ -79588,7 +79843,8 @@ function createRunSnapshotCache(cwd, options = {}) {
       cancellationReason: cancellationReasonFromEvents(recentEvents),
       dwfPhaseState: extractDwfPhaseState(recentEvents),
       recentEvents,
-      recentOutputLines: recentOutputLines(loaded.manifest, agents, recentOutputLimit)
+      recentOutputLines: recentOutputLines(loaded.manifest, agents, recentOutputLimit),
+      ...isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}
     };
     const stamps = stampsFor(loaded.manifest, agents);
     const sliceSignatures = computeSliceSignatures(base);
@@ -79645,7 +79901,8 @@ function createRunSnapshotCache(cwd, options = {}) {
       cancellationReason: cancellationReasonFromEvents(recentEvents),
       dwfPhaseState: extractDwfPhaseState(recentEvents),
       recentEvents,
-      recentOutputLines: recentOutput
+      recentOutputLines: recentOutput,
+      ...isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}
     };
     const stamps = await stampsForAsync(loaded.manifest, agents);
     const sliceSignatures = computeSliceSignatures(base);
