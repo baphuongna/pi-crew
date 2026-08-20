@@ -247,7 +247,7 @@ test("WP-9: PI_CREW_EVENTS_PATH threads UNCONDITIONALLY — read-only roles get 
 	const env = envFor("explorer", makeAgent(), { agentId: "task-ro" });
 	assert.equal(env.PI_CREW_SCRATCHPAD, undefined, "scratchpad still role-gated");
 	assert.equal(env.PI_CREW_EVENTS_PATH, undefined, "no eventsPath in this fixture (no team context)");
-	assert.equal(env.PI_CREW_TASK_ID, "task-1" === "never" ? "no" : undefined, "no eventsPath → no unconditional task id");
+	assert.equal(env.PI_CREW_TASK_ID, undefined, "no eventsPath → no unconditional task id");
 });
 
 test("WP-9: with eventsPath, executor env carries the channel + task id", () => {
