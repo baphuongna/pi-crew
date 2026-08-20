@@ -55368,6 +55368,10 @@ function elapsed(iso, now = Date.now()) {
   if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
   return `${Math.floor(ms / 36e5)}h`;
 }
+function dockElapsed(iso, now = Date.now()) {
+  const value = elapsed(iso, now);
+  return value === void 0 ? "" : value === "now" ? "0s" : value;
+}
 function describeLiveActivity(handle) {
   const act = handle.activity;
   if (act.activeTools.size > 0) {
@@ -55426,6 +55430,92 @@ function agentCost(agent) {
   const cost = agent.usage?.cost;
   if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
   return formatCostCompact(cost);
+}
+function dockStatusIcon(status) {
+  switch (status) {
+    case "running":
+      return "\u273B";
+    case "queued":
+    case "waiting":
+      return "\u25CB";
+    case "completed":
+      return "\u2713";
+    case "failed":
+      return "\u2717";
+    case "needs_attention":
+      return "\u26A0";
+    case "cancelled":
+    case "stopped":
+      return "\u25A0";
+    default:
+      return "?";
+  }
+}
+function dockStatusLabel(status) {
+  switch (status) {
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "stopped":
+      return "stopped";
+    case "needs_attention":
+      return "needs attention";
+    case "queued":
+      return "queued";
+    case "waiting":
+      return "waiting";
+    default:
+      return status;
+  }
+}
+function tokenCountShort(count2) {
+  if (count2 < 1e3) return `${count2}`;
+  if (count2 < 1e6) return `${Math.round(count2 / 1e3)}k`;
+  return `${(count2 / 1e6).toFixed(1)}M`;
+}
+function dockUsageText(agent, liveHandle, options = {}) {
+  const parts = [];
+  if (liveHandle) {
+    const usage = getTaskUsage(liveHandle.taskId);
+    const input = usage.input ?? 0;
+    const output = usage.output ?? 0;
+    const cacheWrite = usage.cacheWrite ?? 0;
+    if (input > 0) parts.push(`\u2191${tokenCountShort(input)}`);
+    if (output > 0) parts.push(`\u2193${tokenCountShort(output)}`);
+    if (cacheWrite > 0) parts.push(`R${tokenCountShort(cacheWrite)}`);
+    const promptTokens = input + cacheWrite;
+    if (cacheWrite > 0 && promptTokens > 0) {
+      parts.push(`CH${(cacheWrite / promptTokens * 100).toFixed(1)}%`);
+    }
+    const cost2 = agent.usage?.cost;
+    if (typeof cost2 === "number" && Number.isFinite(cost2) && cost2 > 0) parts.push(`$${cost2.toFixed(4)}`);
+    if (options.viewed) {
+      const act = liveHandle.activity;
+      const ms = computeLiveDurationMs(act);
+      const totalTokens2 = input + output + cacheWrite;
+      if (totalTokens2 > 0 && ms > 1e3) {
+        const tps = Math.round(totalTokens2 / (ms / 1e3));
+        if (tps > 0) parts.push(`${tps} tok/s`);
+      }
+      try {
+        const ctxPct = liveHandle.session.getSessionStats?.()?.contextUsage?.percent;
+        if (ctxPct != null) {
+          const window = options.contextWindow && options.contextWindow >= 1e6 ? `${(options.contextWindow / 1e6).toFixed(1)}M` : options.contextWindow ? tokenCountShort(options.contextWindow) : "";
+          parts.push(`${Math.round(ctxPct)}%${window ? ` / ${window}` : ""}`);
+        }
+      } catch {
+      }
+    }
+    return parts.join(" ");
+  }
+  const tokens = agent.progress?.tokens;
+  const tokenCount = typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
+  if (tokenCount > 0) parts.push(`${tokenCountShort(tokenCount)} tok`);
+  const cost = agent.usage?.cost;
+  if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(4)}`);
+  return parts.join(" ");
 }
 function budgetedRow(parts, width) {
   const sep11 = parts.separator ?? " \xB7 ";
@@ -57717,7 +57807,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
   const runs = providedRuns ?? activeWidgetRuns(cwd);
   if (!runs.length) return [];
   const runningGlyph = spinnerFrame("widget-header");
-  const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+  const lines = [];
   if (rowStyle === "compact") {
     const agentCount = runs.reduce((n, entry) => {
       const { active, finished } = orderWidgetAgents(entry);
@@ -57737,7 +57827,11 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const mainMarker = options.focused && !options.selectedTaskId ? "\u276F" : " ";
       const mainIcon = options.viewedTaskId ? "\u25EF" : "\u25CF";
       lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
+    } else {
+      lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
     }
+  } else {
+    lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
   }
   for (const entry of runs) {
     const { run, agents, snapshot } = entry;
@@ -57753,7 +57847,9 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     const runElapsedText = `${Math.floor(runElapsedMs / 1e3)}s`;
     const statusLabel = isTerminal ? ` \xB7 ${run.status}` : "";
     const progressPart = `${agentCountText} \xB7 ${runElapsedText}${statusLabel}`;
-    lines.push(truncate(`\u251C\u2500 ${runGlyph} ${shortRunLabel(run)} \xB7 ${progressPart} \xB7 ${run.runId.slice(-8)}`, width));
+    if (rowStyle !== "compact") {
+      lines.push(truncate(`\u251C\u2500 ${runGlyph} ${shortRunLabel(run)} \xB7 ${progressPart} \xB7 ${run.runId.slice(-8)}`, width));
+    }
     const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
     const activeCap = focused ? activeAgents.length : MAX_AGENTS_DISPLAY;
     const finishedSlots = focused ? finishedAgents.length : Math.max(0, Math.min(2, MAX_AGENTS_DISPLAY - activeAgents.length));
@@ -57763,19 +57859,27 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
       const branch = last ? "\u2514\u2500" : "\u251C\u2500";
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-      const agentGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
+      const dockGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : dockStatusIcon(agent.status);
+      const legacyGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
       const stats = agentStats(agent, liveHandle);
       const name = liveHandle?.agent ?? agent.agent;
       const activity = agentActivity(agent, liveHandle);
       if (rowStyle === "compact") {
         const label = liveHandle?.description ?? agent.role ?? "";
+        const runTag = runs.length > 1 ? `${shortRunLabel(run)} \xB7 ` : "";
+        const nameText = runTag + (label ? `${name} \xB7 ${label}` : name);
+        const liveLine = liveHandle?.activity?.responseText?.split("\n").find((l) => l.trim())?.trim();
+        const dockActivity = liveHandle?.status === "running" && liveLine ? liveLine.length > 60 ? `${liveLine.slice(0, 60)}\u2026` : liveLine : activity;
+        const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+        const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
+        const suffix = `${usage ? ` \xB7 ${usage}` : ""}${ageText ? ` \xB7 ${ageText}` : ""}`;
         lines.push(
           budgetedRow(
             {
-              lead: `\u2502 ${markerFor2(agent.taskId)}${agentGlyph} `,
-              name: label ? `${name} \xB7 ${label}` : name,
-              activity,
-              suffix: stats ? ` \xB7 ${stats}` : ""
+              lead: `${markerFor2(agent.taskId)} ${dockGlyph} `,
+              name: nameText,
+              activity: dockActivity,
+              suffix
             },
             width
           )
@@ -57783,28 +57887,39 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
         continue;
       }
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-      const _activeMain = truncate(`\u2502  ${branch} ${agentGlyph} ${name}${desc ? ` \xB7 ${desc}` : ` \xB7 ${agent.role}`}`, width);
+      const _activeMain = truncate(`\u2502  ${branch} ${legacyGlyph} ${name}${desc ? ` \xB7 ${desc}` : ` \xB7 ${agent.role}`}`, width);
       lines.push(_activeMain);
       const _activity = truncate(`\u2502     \u22B6 ${activity}${stats ? ` \xB7 ${stats}` : ""}`, width);
       lines.push(_activity);
     }
     if (activeAgents.length > activeCap) {
-      lines.push(truncate(`\u2502  \u2514\u2500 \u2026 +${activeAgents.length - activeCap} more agents`, width));
+      lines.push(
+        truncate(
+          rowStyle === "compact" ? `\u2026 +${activeAgents.length - activeCap} more agents` : `\u2502  \u2514\u2500 \u2026 +${activeAgents.length - activeCap} more agents`,
+          width
+        )
+      );
     }
     for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const name = liveHandle?.agent ?? agent.agent;
-      const icon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
+      const dockIcon = dockStatusIcon(agent.status);
+      const legacyIcon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
       const stats = agentStats(agent, liveHandle);
       if (rowStyle === "compact") {
         const label = liveHandle?.description ?? agent.role ?? "";
+        const runTag = runs.length > 1 ? `${shortRunLabel(run)} \xB7 ` : "";
+        const nameText = runTag + (label ? `${name} \xB7 ${label}` : name);
+        const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+        const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
+        const suffix = `${usage ? ` \xB7 ${usage}` : ""}${ageText ? ` \xB7 ${ageText}` : ""}`;
         lines.push(
           budgetedRow(
             {
-              lead: `\u2502 ${markerFor2(agent.taskId)}${icon} `,
-              name: label ? `${name} \xB7 ${label}` : name,
-              activity: agent.status,
-              suffix: stats ? ` \xB7 ${stats}` : ""
+              lead: `${markerFor2(agent.taskId)} ${dockIcon} `,
+              name: nameText,
+              activity: dockStatusLabel(agent.status),
+              suffix
             },
             width
           )
@@ -57814,7 +57929,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
       const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
       const branch = isLastFinished ? "\u2514\u2500" : "\u251C\u2500";
-      const _finished = truncate(`\u2502  ${branch} ${icon} ${name} \xB7 ${desc}${stats ? ` \xB7 ${stats}` : ""}`, width);
+      const _finished = truncate(`\u2502  ${branch} ${legacyIcon} ${name} \xB7 ${desc}${stats ? ` \xB7 ${stats}` : ""}`, width);
       lines.push(_finished);
     }
     if (lines.length >= maxLines && !focused) break;
@@ -58556,6 +58671,7 @@ var init_widget = __esm({
         const runningGlyph = spinnerFrame("widget-header");
         const panel = panelDisplayState();
         const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+        const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
             this.model.cwd,
@@ -58566,7 +58682,7 @@ var init_widget = __esm({
             width,
             { rowStyle: this.model.rowStyle, ...panel }
           ).map((line4, index) => {
-            if (index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
+            if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
           });
           this.cachedLines = this.colorize(this.cachedBaseLines, width);
@@ -58579,8 +58695,10 @@ var init_widget = __esm({
           if (this.model.snapshotCache) return ["(loading\u2026)"];
           return [];
         }
-        const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
-        this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+        if (!compactDock) {
+          const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
+          this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+        }
         return this.cachedLines.map((line4) => truncate(line4, width));
       }
     };

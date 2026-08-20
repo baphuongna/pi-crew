@@ -105,6 +105,13 @@ export function elapsed(iso: string | undefined, now = Date.now()): string | und
 	return `${Math.floor(ms / 3_600_000)}h`;
 }
 
+/** pi-subtask's always-on elapsed tail: `0s` from the start (its fork rows
+ *  flatten sub-second ages to 0 — not the legacy widget's "now"). */
+export function dockElapsed(iso: string | undefined, now = Date.now()): string {
+	const value = elapsed(iso, now);
+	return value === undefined ? "" : value === "now" ? "0s" : value;
+}
+
 // ── Agent activity description ────────────────────────────────────────
 
 const TOOL_LABELS: Record<string, string> = {
@@ -206,6 +213,126 @@ export function agentCost(agent: CrewAgentRecord): string {
 	const cost = agent.usage?.cost;
 	if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
 	return formatCostCompact(cost);
+}
+
+// ── pi-subtask dock formatters ─────────────────────────────────────────
+
+/**
+ * pi-subtask's FIXED per-status glyphs (`statusIcon` in source/pi-subtask:
+ * starting ○, running ✻, done ✓, failed ✗, stopped ■). The compact dock
+ * deliberately does NOT spin the running marker like the legacy widget —
+ * the row set is stable across ticks, which is what makes the keyboard
+ * cursor feel anchored.
+ */
+export function dockStatusIcon(status: string): string {
+	switch (status) {
+		case "running":
+			return "✻";
+		case "queued":
+		case "waiting":
+			return "○";
+		case "completed":
+			return "✓";
+		case "failed":
+			return "✗";
+		case "needs_attention":
+			return "⚠";
+		case "cancelled":
+		case "stopped":
+			return "■";
+		default:
+			return "?";
+	}
+}
+
+/** pi-subtask uses the status word as a finished row's activity. */
+export function dockStatusLabel(status: string): string {
+	switch (status) {
+		case "completed":
+			return "done";
+		case "failed":
+			return "failed";
+		case "cancelled":
+		case "stopped":
+			return "stopped";
+		case "needs_attention":
+			return "needs attention";
+		case "queued":
+			return "queued";
+		case "waiting":
+			return "waiting";
+		default:
+			return status;
+	}
+}
+
+/** pi-subtask's formatTokens: raw under 1k, `Nk` under 1M, `N.M` above. */
+export function tokenCountShort(count: number): string {
+	if (count < 1_000) return `${count}`;
+	if (count < 1_000_000) return `${Math.round(count / 1_000)}k`;
+	return `${(count / 1_000_000).toFixed(1)}M`;
+}
+
+export interface DockUsageOptions {
+	/** While the agent's pane is open: add tok/s + context % like pi-subtask. */
+	viewed?: boolean;
+	/** Model context window for the `P% / N` gauge; omitted when unknown. */
+	contextWindow?: number;
+}
+
+/**
+ * pi-subtask's footer-style usage (formatUsage): `↑in ↓out Rcache CH% $cost`,
+ * plus `N tok/s` and `P% / window` while viewed. Live agents have split
+ * input/output/cacheWrite via the usage tracker; non-live ones show the
+ * durable token total + cost.
+ */
+export function dockUsageText(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle, options: DockUsageOptions = {}): string {
+	const parts: string[] = [];
+	if (liveHandle) {
+		const usage = getTaskUsage(liveHandle.taskId);
+		const input = usage.input ?? 0;
+		const output = usage.output ?? 0;
+		const cacheWrite = usage.cacheWrite ?? 0;
+		if (input > 0) parts.push(`↑${tokenCountShort(input)}`);
+		if (output > 0) parts.push(`↓${tokenCountShort(output)}`);
+		if (cacheWrite > 0) parts.push(`R${tokenCountShort(cacheWrite)}`);
+		const promptTokens = input + cacheWrite;
+		if (cacheWrite > 0 && promptTokens > 0) {
+			parts.push(`CH${((cacheWrite / promptTokens) * 100).toFixed(1)}%`);
+		}
+		const cost = agent.usage?.cost;
+		if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(4)}`);
+		if (options.viewed) {
+			const act = liveHandle.activity;
+			const ms = computeLiveDurationMs(act);
+			const totalTokens = input + output + cacheWrite;
+			if (totalTokens > 0 && ms > 1000) {
+				const tps = Math.round(totalTokens / (ms / 1000));
+				if (tps > 0) parts.push(`${tps} tok/s`);
+			}
+			try {
+				const ctxPct = liveHandle.session.getSessionStats?.()?.contextUsage?.percent;
+				if (ctxPct != null) {
+					const window =
+						options.contextWindow && options.contextWindow >= 1_000_000
+							? `${(options.contextWindow / 1_000_000).toFixed(1)}M`
+							: options.contextWindow
+								? tokenCountShort(options.contextWindow)
+								: "";
+					parts.push(`${Math.round(ctxPct)}%${window ? ` / ${window}` : ""}`);
+				}
+			} catch {
+				/* ignore */
+			}
+		}
+		return parts.join(" ");
+	}
+	const tokens = agent.progress?.tokens;
+	const tokenCount = typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
+	if (tokenCount > 0) parts.push(`${tokenCountShort(tokenCount)} tok`);
+	const cost = agent.usage?.cost;
+	if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(4)}`);
+	return parts.join(" ");
 }
 
 // ── Adaptive single-line row ───────────────────────────────────────────

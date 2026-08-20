@@ -313,7 +313,10 @@ test("crew widget header spinner animates time-based across renders even when st
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 7 };
-		updateCrewWidget(ctx, state, { widgetPlacement: "aboveEditor" });
+		// The spinner-frame swap is a LEGACY header behavior; the compact dock's
+		// line 0 is the hint text and must not spin. Force detailed so this test
+		// keeps covering the animated legacy header.
+		updateCrewWidget(ctx, state, { widgetPlacement: "aboveEditor", widgetRowStyle: "detailed" });
 		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
 			tui: unknown,
 			theme: unknown,
@@ -329,6 +332,71 @@ test("crew widget header spinner animates time-based across renders even when st
 		const second = component.render(100)[0] ?? "";
 		const secondGlyph = second.codePointAt(0);
 		assert.notEqual(firstGlyph, secondGlyph, "expected spinner glyph to advance with wall-clock time even when state.frame is stable");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("compact dock hint line never gets the legacy spinner-frame swap (pi-subtask hint is text)", async () => {
+	clearLiveAgentsForTest();
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-widget-compact-hint-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		const team = {
+			name: "fast-fix",
+			description: "",
+			roles: [{ name: "executor", agent: "executor" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const workflow = {
+			name: "fast-fix",
+			description: "",
+			steps: [{ id: "fix", role: "executor" }],
+			source: "test",
+			filePath: "builtin",
+		} as never;
+		const created = createRunManifest({ cwd, team, workflow, goal: "compact hint" });
+		saveRunManifest({ ...created.manifest, status: "running" });
+		saveCrewAgents(created.manifest, [
+			{
+				id: `${created.manifest.runId}:01`,
+				runId: created.manifest.runId,
+				taskId: "01",
+				agent: "executor",
+				role: "executor",
+				runtime: "child-process",
+				status: "running",
+				startedAt: created.manifest.createdAt,
+				progress: { recentTools: [], recentOutput: ["working"], toolCount: 1, currentTool: "bash" },
+			},
+		]);
+		const setWidgetCalls: Array<{ key: string; content: unknown }> = [];
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: {
+				setStatus: () => undefined,
+				setWidget: (key: string, content: unknown) => setWidgetCalls.push({ key, content }),
+				requestRender: () => undefined,
+			},
+		} as never;
+		const state: CrewWidgetState = { frame: 7 };
+		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" }); // rowStyle defaults to compact
+		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
+			tui: unknown,
+			theme: unknown,
+		) => { render(width: number): string[] };
+		const component = factory(undefined, {
+			fg: (_color: string, value: string) => value,
+			bold: (value: string) => value,
+		});
+		const lines = component.render(100);
+		const hint = lines[0] ?? "";
+		// Regressed once: the legacy header's spinner-frame swap ate the hint's
+		// first character, painting "⠼gents (…) — ↓ to select" in the TUI.
+		assert.ok(hint.startsWith("agents ("), `hint must stay intact, got ${JSON.stringify(hint)}`);
+		assert.ok(!/^[\u2800-\u28FF]/.test(hint), `no braille spinner prefix on compact hint, got ${JSON.stringify(hint)}`);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

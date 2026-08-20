@@ -311,6 +311,11 @@ class CrewWidgetComponent implements WidgetComponent {
 		const panel = panelDisplayState();
 		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
 
+		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
+		// already starts with a glyph position (`<frame> Crew agents …`). The
+		// compact dock's line 0 is the HINT text ("agents (N) — ↓ to select"):
+		// swapping would visibly eat its first character on every frame.
+		const compactDock = this.model.rowStyle === "compact";
 		if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
 			this.cachedBaseLines = buildWidgetLines(
 				this.model.cwd,
@@ -321,7 +326,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				width,
 				{ rowStyle: this.model.rowStyle, ...panel },
 			).map((line, index) => {
-				if (index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
+				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
 			});
 			this.cachedLines = this.colorize(this.cachedBaseLines, width);
@@ -340,8 +345,10 @@ class CrewWidgetComponent implements WidgetComponent {
 			return [];
 		}
 
-		const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
-		this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+		if (!compactDock) {
+			const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
+			this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+		}
 		return this.cachedLines.map((line) => truncate(line, width));
 	}
 }

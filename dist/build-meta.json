@@ -14339,7 +14339,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 16183,
+      "bytes": 20630,
       "imports": [
         {
           "path": "src/runtime/usage-tracker.ts",
@@ -14684,7 +14684,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 15298,
+      "bytes": 17262,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -14799,7 +14799,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 19223,
+      "bytes": 19621,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -20332,7 +20332,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7432555
+      "bytes": 7443610
     },
     "dist/index.mjs": {
       "imports": [
@@ -23927,7 +23927,7 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 8567
+          "bytesInOutput": 11658
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 14566
@@ -23957,7 +23957,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 8856
+          "bytesInOutput": 10342
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -23975,7 +23975,7 @@
           "bytesInOutput": 1690
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 11846
+          "bytesInOutput": 11967
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
@@ -24461,7 +24461,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3193742
+      "bytes": 3198440
     }
   }
 }

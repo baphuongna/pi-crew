@@ -221,7 +221,7 @@ describe("DEFAULT_UI", () => {
 	});
 
 	it("has widgetPlacement and dashboardPlacement as known strings", () => {
-		assert.equal(DEFAULT_UI.widgetPlacement, "aboveEditor");
+		assert.equal(DEFAULT_UI.widgetPlacement, "belowEditor");
 		assert.equal(DEFAULT_UI.dashboardPlacement, "center");
 	});
 

@@ -72,9 +72,20 @@ test("focused paint still respects the marker for the viewed agent glyph", () =>
 		viewedTaskId: "t2",
 	});
 	assert.ok(
-		lines.some((line) => line.includes("◉")),
-		"viewed agent gets the filled glyph",
+		lines.some((line) => line.includes("⏺")),
+		"viewed agent gets pi-subtask's ⏺ fill glyph",
 	);
+});
+
+test("compact dock rows use pi-subtask's fixed status icons (no spinner, no tree, no header)", () => {
+	const agents = [agent("t1"), agent("t2")];
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, { rowStyle: "compact" });
+	const joined = lines.join("\n");
+	// pi-subtask statusIcon: running ✻, queued ○, done ✓, failed ✗, stopped ■
+	assert.ok(joined.includes("✻"), `running agent carries the ✻ icon:\n${joined}`);
+	// The dock replaces the legacy header/tree with hint + main.
+	assert.ok(!joined.includes("Crew agents"), "no legacy header in compact dock");
+	assert.ok(!joined.includes("├─") && !joined.includes("└─"), "no tree branch glyphs in compact dock");
 });
 
 test("compact rows render the pi-subtask dock: hint line + main row", () => {

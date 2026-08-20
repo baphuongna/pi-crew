@@ -13,7 +13,16 @@ import { Box, Text } from "../layout-primitives.ts";
 import { spinnerFrame } from "../spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../status-colors.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
-import { agentActivity, agentStats, budgetedRow, notificationBadge } from "./widget-formatters.ts";
+import {
+	agentActivity,
+	agentStats,
+	budgetedRow,
+	dockElapsed,
+	dockStatusIcon,
+	dockStatusLabel,
+	dockUsageText,
+	notificationBadge,
+} from "./widget-formatters.ts";
 import { activeWidgetRuns, shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
@@ -123,13 +132,13 @@ export function buildWidgetLines(
 	if (!runs.length) return [];
 
 	const runningGlyph = spinnerFrame("widget-header");
-	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+	const lines: string[] = [];
 
-	// Inline-panel dock (pi-subtask's dock, lines ~590-640): a hint line +
-	// the `main` conversation row, only on the compact rows the panel can
-	// navigate. The hint labels the current mode so the first ↓ press is
-	// discoverable, and `main` is what ↓ selects first — both were missing
-	// from the first port, which made the panel read as dead on entry.
+	// Compact = pi-subtask's dock (lines ~590-640): NO "Crew agents" header,
+	// NO tree — just a hint line, the `main` conversation row, then one flat
+	// row per agent. The hint labels the current mode so the first ↓ press is
+	// discoverable, and `main` is what ↓ selects first with its own marker.
+	// Detailed keeps the legacy header + tree.
 	if (rowStyle === "compact") {
 		const agentCount = runs.reduce((n, entry) => {
 			const { active, finished } = orderWidgetAgents(entry);
@@ -151,7 +160,13 @@ export function buildWidgetLines(
 			const mainMarker = options.focused && !options.selectedTaskId ? "❯" : " ";
 			const mainIcon = options.viewedTaskId ? "◯" : "●";
 			lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
+		} else {
+			// No agents at all: fall back to the legacy header so the space
+			// under the editor is never just blank.
+			lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
 		}
+	} else {
+		lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
 	}
 
 	for (const entry of runs) {
@@ -193,7 +208,11 @@ export function buildWidgetLines(
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";
 		const progressPart = `${agentCountText} · ${runElapsedText}${statusLabel}`;
-		lines.push(truncate(`├─ ${runGlyph} ${shortRunLabel(run)} · ${progressPart} · ${run.runId.slice(-8)}`, width));
+		// The run progress line is part of the LEGACY tree; the compact dock is
+		// flat (pi-subtask has no per-run line — the row name carries it).
+		if (rowStyle !== "compact") {
+			lines.push(truncate(`├─ ${runGlyph} ${shortRunLabel(run)} · ${progressPart} · ${run.runId.slice(-8)}`, width));
+		}
 
 		const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
 
@@ -213,23 +232,44 @@ export function buildWidgetLines(
 			const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
 			const branch = last ? "└─" : "├─";
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-			// The agent open in the pane gets the filled glyph, everything else its
-			// status glyph — pi-subtask's filled/hollow "where am I" convention.
-			// ◉ (U+25C9) over ⏺ (U+23FA): the latter is missing from many terminal
-			// fonts (tofu), and pi's own UI already uses ◉ for "viewed" markers.
-			const agentGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
+			// Compact dock: pi-subtask glyphs — fixed status icon (never spins)
+			// + ⏺ while the agent's pane is open. Detailed keeps the legacy
+			// spinner + ◉ viewed marker.
+			const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
+			const legacyGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
 			const stats = agentStats(agent, liveHandle);
 			const name = liveHandle?.agent ?? agent.agent;
 			const activity = agentActivity(agent, liveHandle);
 			if (rowStyle === "compact") {
 				const label = liveHandle?.description ?? agent.role ?? "";
+				// With multiple runs, prefix each row with its run label so the
+				// flat dock still says which run an agent belongs to.
+				const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
+				const nameText = runTag + (label ? `${name} · ${label}` : name);
+				// pi-subtask activity: the worker's latest line while running,
+				// otherwise the status word.
+				const liveLine = liveHandle?.activity?.responseText
+					?.split("\n")
+					.find((l) => l.trim())
+					?.trim();
+				const dockActivity =
+					liveHandle?.status === "running" && liveLine
+						? liveLine.length > 60
+							? `${liveLine.slice(0, 60)}…`
+							: liveLine
+						: activity;
+				// pi-subtask stats + always-on elapsed tail:
+				//   `· ↑1.2k ↓350 $0.0010 · 41s`
+				const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+				const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
+				const suffix = `${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
 				lines.push(
 					budgetedRow(
 						{
-							lead: `│ ${markerFor(agent.taskId)}${agentGlyph} `,
-							name: label ? `${name} · ${label}` : name,
-							activity,
-							suffix: stats ? ` · ${stats}` : "",
+							lead: `${markerFor(agent.taskId)} ${dockGlyph} `,
+							name: nameText,
+							activity: dockActivity,
+							suffix,
 						},
 						width,
 					),
@@ -237,31 +277,44 @@ export function buildWidgetLines(
 				continue;
 			}
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-			const _activeMain = truncate(`│  ${branch} ${agentGlyph} ${name}${desc ? ` · ${desc}` : ` · ${agent.role}`}`, width);
+			const _activeMain = truncate(`│  ${branch} ${legacyGlyph} ${name}${desc ? ` · ${desc}` : ` · ${agent.role}`}`, width);
 			lines.push(_activeMain);
 			const _activity = truncate(`│     ⊶ ${activity}${stats ? ` · ${stats}` : ""}`, width);
 			lines.push(_activity);
 		}
 
 		if (activeAgents.length > activeCap) {
-			lines.push(truncate(`│  └─ … +${activeAgents.length - activeCap} more agents`, width));
+			lines.push(
+				truncate(
+					rowStyle === "compact"
+						? `… +${activeAgents.length - activeCap} more agents`
+						: `│  └─ … +${activeAgents.length - activeCap} more agents`,
+					width,
+				),
+			);
 		}
 
 		for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
 			const name = liveHandle?.agent ?? agent.agent;
-			const icon =
+			const dockIcon = dockStatusIcon(agent.status);
+			const legacyIcon =
 				agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : agent.status === "needs_attention" ? "⚠" : "▪";
 			const stats = agentStats(agent, liveHandle);
 			if (rowStyle === "compact") {
 				const label = liveHandle?.description ?? agent.role ?? "";
+				const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
+				const nameText = runTag + (label ? `${name} · ${label}` : name);
+				const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+				const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
+				const suffix = `${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
 				lines.push(
 					budgetedRow(
 						{
-							lead: `│ ${markerFor(agent.taskId)}${icon} `,
-							name: label ? `${name} · ${label}` : name,
-							activity: agent.status,
-							suffix: stats ? ` · ${stats}` : "",
+							lead: `${markerFor(agent.taskId)} ${dockIcon} `,
+							name: nameText,
+							activity: dockStatusLabel(agent.status),
+							suffix,
 						},
 						width,
 					),
@@ -271,7 +324,7 @@ export function buildWidgetLines(
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
 			const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
 			const branch = isLastFinished ? "└─" : "├─";
-			const _finished = truncate(`│  ${branch} ${icon} ${name} · ${desc}${stats ? ` · ${stats}` : ""}`, width);
+			const _finished = truncate(`│  ${branch} ${legacyIcon} ${name} · ${desc}${stats ? ` · ${stats}` : ""}`, width);
 			lines.push(_finished);
 		}
 

@@ -99,11 +99,23 @@ Modified:
 
 | File | Change |
 |---|---|
-| `src/ui/widget/widget-renderer.ts` | compact 1-line rows, selection marker, focused mode (uncapped) |
-| `src/ui/widget/widget-formatters.ts` | `agentCost()`, `budgetedRow()` |
-| `src/ui/widget/widget-types.ts`, `widget/index.ts` | `rowStyle` on the model; panel state in the cache key |
-| `src/config/types.ts`, `defaults.ts` | `ui.inlinePanel`, `ui.widgetRowStyle` |
+| `src/ui/widget/widget-renderer.ts` | compact pi-subtask dock: hint + main row + flat rows, fixed status icons, footer-style usage + elapsed; detailed keeps the legacy header/tree; focused mode (uncapped) |
+| `src/ui/widget/widget-formatters.ts` | `dockStatusIcon/Label`, `dockUsageText`, `tokenCountShort`, `dockElapsed`, `agentCost()`, `budgetedRow()` |
+| `src/ui/widget/widget-types.ts`, `widget/index.ts` | `rowStyle` on the model; panel state in the cache key; no spinner-frame swap on the compact hint line |
+| `src/config/types.ts`, `defaults.ts` | `ui.inlinePanel`, `ui.widgetRowStyle`, `widgetPlacement` defaults to `belowEditor` |
 | `NOTICE.md` | pi-subtask MIT attribution |
+
+Compact = pi-subtask's dock (`source/pi-subtask` `index.ts` lines ~590-640):
+no "Crew agents" header and no tree. Line 0 is the mode hint
+(`agents (N) — ↓ to select` / `enter to view · x to stop/cancel · esc back`),
+line 1 the `main` conversation row (`❯/space ●/◯ main`), then one flat
+`<marker> <status-icon> <name> · <activity> · <usage> · <elapsed>` row per
+agent with pi-subtask's FIXED status glyphs (✻ running / ○ queued / ✓ done /
+✗ failed / ■ stopped) — never the braille spinner — and pi-subtask's
+footer-style usage (`↑in ↓out Rcache CH% $cost [N tok/s · P%]`) with an
+always-on elapsed tail. Multi-run sessions prefix each row with its run label.
+The legacy spinner-frame swap in `widget/index.ts` render() is skipped for
+compact so the hint text's first character is never overwritten.
 
 ### 3.1 `panel-selection.ts`
 
