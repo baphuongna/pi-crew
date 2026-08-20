@@ -2,6 +2,64 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.10.1] — subagent v2: governed delegation, plan objects, spec system, transparency (2026-08-20)
+
+The full subagent-v2 effort (design `docs/design/subagent-v2-design.md`, plan
+`docs/design/subagent-v2-implementation-plan.md`) shipped as ONE release.
+Trains T1-T5 merged as internal phases (PRs #47-#51); batteries B1-B5 in
+`docs/real-test/reports/`. ADRs: governed-nesting, plan-object,
+waiting-producer-ask, spec-system (+ round-1 errata).
+
+### T1 — waiting/ask producer + session surface
+- Ask tool (worker→leader blocking questions; parked `waiting` tasks,
+  structured events `ask.requested/answered/timedout`), follow-up
+  notifications, session-ownership map.
+
+### T2 — plan object (ADR-4)
+- PlanRecord revisions (append-only, stable item ids, carried linkage),
+  `plans approve/reject` dual-write, scheduler linkage, adaptive re-plan
+  (revision switch, dropped-item soft-cancel advisory).
+
+### T3 — governed nesting (ADR-5)
+- delegate tool for executor-class roles at depth 1 (dormant flag;
+  `nesting.enabled` USER-only sensitive), nested-slot budget (fail-fast,
+  max(1,⌊sem/2⌋)), depth-capped broker credentials (grandchild tokens
+  subId-scoped + shadow task records — unbounded chains terminate),
+  read-only grandchild roles, usage roll-up, fenced results via mailbox.
+
+### T4 — spec system (ADR-6 + erratum §11)
+- SpecRecord store: workspace `state/specs/` (generated-only) + USER store
+  `~/.pi/agent/specs/` with DIGEST-BOUND trust sidecar — workers can never
+  mint re-executable specs (provenance v2; content-swap + TOCTOU closed).
+- SPEC-EVIDENCE footer contract + mechanical coverage gate (default:
+  `unverified` badge on gaps, never blocks); strict mode = coverage AND
+  machine-check in a hardened sandbox (`unshare -rn`, ulimit, env scrub,
+  digest-only outcomes, fail-closed everywhere); verifier-role reject-start.
+- Freeze at dispatch: snapshots immutable; later spec edits never rewrite
+  what a running task was held to. Mint CLI: `scripts/spec-import.mjs`.
+
+### T5 — P2 transparency + hygiene
+- R7 Plan UI (`PI_CREW_PLAN_UI=1`): plans snapshot slice, dashboard pane 7
+  (tree, progress, depth badges, approval keys, revision diff), powerbar
+  plan phases.
+- R8 model-routing transparency: pre-run budget summary (chain +
+  worst-case spawns/task), deduped unvalidated-passthrough warnings,
+  per-attempt models in the output pane.
+- R9 worker self-reporting channel: bounded `worker.*` append channel
+  (schema tag, sliding-window rate limit, FIFO cap, partial-line
+  quarantine); `PI_CREW_EVENTS_PATH` unconditional (read-only roles too).
+- R10 docs hygiene (phantom commands removed, real ones documented,
+  widget TTL corrected).
+
+### Fixes surfaced by the batteries
+- bug-029: symlinked-TMPDIR repo-root escape (macOS `/var`↔`/private/var`)
+  — deterministic `getCacheStats` CI failures; canonicalized boundaries.
+- dwf-setresult determinism (ambient `PI_CREW_TRUST_PROJECT_DWF` leak).
+- B2/B3 live catches: hang-class timeout group-kill gaps, delegate
+  deadline precedence, double-save clobber on plan revision switch.
+
+**Full suites at release tree: 6977 unit + 188 integration, 0 fail; CI 3-OS green on every train PR.**
+
 ## [0.10.0] — maintainability refactor: full remediation + reliability (2026-08-16)
 
 Branch `refactor/maintainability`: 16-round audit → 5-phase refactor →
