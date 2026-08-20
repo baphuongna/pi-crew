@@ -19,6 +19,17 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const require = createRequire(import.meta.url);
 const thisFile = fileURLToPath(import.meta.url);
 
+// These tests execute PROJECT-sourced .dwf.ts scripts, which the F-01 trust
+// gate denies unless PI_CREW_TRUST_PROJECT_DWF=1. The tests used to pass only
+// when the ambient session env happened to set the var (B3 battery runs) and
+// silently failed otherwise — set it explicitly and restore afterwards.
+const prevTrust = process.env.PI_CREW_TRUST_PROJECT_DWF;
+process.env.PI_CREW_TRUST_PROJECT_DWF = "1";
+test.after(() => {
+	if (prevTrust === undefined) delete process.env.PI_CREW_TRUST_PROJECT_DWF;
+	else process.env.PI_CREW_TRUST_PROJECT_DWF = prevTrust;
+});
+
 test("runDynamicWorkflow: dwf calling ctx.setResult(path) is recognized", async () => {
 	const jitiMod = require(path.join(repoRoot, "node_modules/jiti/lib/jiti.cjs"));
 	const createJiti = jitiMod.default ?? jitiMod;
