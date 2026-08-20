@@ -7,7 +7,6 @@
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import type { LiveAgentHandle } from "../../runtime/live-session/live-agent-manager.ts";
 import { getTaskUsage } from "../../runtime/usage-tracker.ts";
-import { formatCost } from "../../state/usage.ts";
 import { truncateToWidth, visibleWidth } from "../../utils/visual.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";
 
@@ -84,6 +83,11 @@ function alignMetric(value: string, width: number): string {
 }
 
 export function formatTokensCompact(count: number): string {
+	// Display-layer guard: state records have at least once carried the
+	// literal "***" in a numeric field (redaction false-positive, fixed at
+	// the source). A string here would print `*** tok` verbatim, so non-
+	// numeric/undefined input renders as an empty metric instead.
+	if (typeof count !== "number" || !Number.isFinite(count)) return "";
 	if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M tok`;
 	if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k tok`;
 	return `${count} tok`;
@@ -181,6 +185,19 @@ export function agentActivity(agent: CrewAgentRecord, liveHandle?: LiveAgentHand
 // ── Per-agent cost ────────────────────────────────────────────────────
 
 /**
+ * Compact per-agent spend for widget rows, or "" when there is nothing to
+ * show. `formatCost`'s 6-decimal sub-cent output (`$0.001000`) wastes a third
+ * of a one-line row, so the widget uses a short form: cent precision in
+ * dollars, milli-precision below, and a `< $0.001` floor.
+ */
+export function formatCostCompact(cost: number): string {
+	if (cost >= 1) return `$${cost.toFixed(2)}`;
+	if (cost >= 0.01) return `$${cost.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+	if (cost >= 0.001) return `$${cost.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+	return "< $0.001";
+}
+
+/**
  * Formatted per-agent spend, or "" when there is nothing to show. The value
  * already lives on the durable task record and the dashboard agents pane has
  * shown it since Round 17; the widget omitted it only by oversight.
@@ -188,7 +205,7 @@ export function agentActivity(agent: CrewAgentRecord, liveHandle?: LiveAgentHand
 export function agentCost(agent: CrewAgentRecord): string {
 	const cost = agent.usage?.cost;
 	if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
-	return formatCost(cost);
+	return formatCostCompact(cost);
 }
 
 // ── Adaptive single-line row ───────────────────────────────────────────
@@ -285,13 +302,18 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 		}
 		parts.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
 	} else {
+		// Type-narrowed: state has carried the literal "***" (redaction
+		// false-positive) in progress.tokens, which is truthy but not a count.
+		// Only real numbers produce metrics; formatTokensCompact guards too.
+		const tokens = agent.progress?.tokens;
+		const tokenCount = typeof tokens === "number" ? tokens : undefined;
 		if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
-		if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+		if (tokenCount && tokenCount > 0) parts.push(alignMetric(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH));
 		const cost = agentCost(agent);
 		if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
 		const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
-		if (agent.progress?.tokens && ageMs > 1000) {
-			const tps = Math.round(agent.progress.tokens / (ageMs / 1000));
+		if (tokenCount && tokenCount > 0 && ageMs > 1000) {
+			const tps = Math.round(tokenCount / (ageMs / 1000));
 			if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
 		}
 		const age = elapsed(agent.completedAt ?? agent.startedAt);

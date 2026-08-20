@@ -12,7 +12,7 @@
  */
 
 import type { PanelRow, PanelSelection, PanelTarget } from "./panel-selection.ts";
-import { isAgentSelection, resolveIndex } from "./panel-selection.ts";
+import { isAgentSelection } from "./panel-selection.ts";
 
 let selection: PanelSelection = null;
 let viewed: PanelTarget | undefined;
@@ -78,20 +78,11 @@ export function panelDisplayState(): {
 	return {
 		selectedTaskId: isAgentSelection(selection) ? selection.taskId : undefined,
 		viewedTaskId: viewed?.taskId,
-		focused: selection !== null || viewed !== undefined,
+		// Cursor-driven: uncapping the row budget while the user is typing
+		// into the pane (viewed set, selection null) would jerk the layout on
+		// every pane open. The cursor entry is when the full list is needed.
+		focused: selection !== null,
 	};
-}
-
-/**
- * Drop a selection whose agent has vanished. Returns true when the cursor moved,
- * so the caller can repaint.
- */
-export function reconcilePanelSelection(): boolean {
-	if (!isAgentSelection(selection)) return false;
-	if (resolveIndex(panelRows(), selection) !== 0) return false;
-	selection = "main";
-	notifyPanelChange();
-	return true;
 }
 
 export function subscribePanelChange(listener: () => void): () => void {

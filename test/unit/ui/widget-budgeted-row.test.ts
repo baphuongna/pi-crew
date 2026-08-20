@@ -10,7 +10,13 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentCost, type BudgetedRowParts, budgetedRow } from "../../../src/ui/widget/widget-formatters.ts";
+import {
+	agentCost,
+	agentStats,
+	type BudgetedRowParts,
+	budgetedRow,
+	formatTokensCompact,
+} from "../../../src/ui/widget/widget-formatters.ts";
 import { visibleWidth } from "../../../src/utils/visual.ts";
 
 function parts(overrides: Partial<BudgetedRowParts> = {}): BudgetedRowParts {
@@ -66,10 +72,31 @@ test("budgetedRow: very narrow terminal degrades to name only, still fits", () =
 	assertFits(row, 24);
 });
 
-test("agentCost: hides zero/undefined cost, formats real spend", () => {
+test("agentCost: hides zero/undefined cost, formats real spend compactly", () => {
 	assert.equal(agentCost({ usage: undefined } as never), "");
 	assert.equal(agentCost({ usage: { cost: 0 } } as never), "");
 	assert.equal(agentCost({ usage: { cost: -1 } } as never), "");
-	assert.equal(agentCost({ usage: { cost: 0.05 } } as never), "$0.0500");
+	// Compact widget form: no trailing zeros, no 6-decimal sub-cent spam.
+	assert.equal(agentCost({ usage: { cost: 0.05 } } as never), "$0.05");
+	assert.equal(agentCost({ usage: { cost: 0.001 } } as never), "$0.001");
+	assert.equal(agentCost({ usage: { cost: 0.0005 } } as never), "< $0.001");
 	assert.equal(agentCost({ usage: { cost: 2 } } as never), "$2.00");
+});
+
+test("formatTokensCompact: never renders non-numeric (redacted) values", () => {
+	assert.equal(formatTokensCompact("***" as never), "", "a redacted string must produce an empty metric");
+	assert.equal(formatTokensCompact(NaN), "");
+	assert.equal(formatTokensCompact(undefined as never), "");
+	assert.equal(formatTokensCompact(1234), "1.2k tok");
+});
+
+test("agentStats: a redacted '***' tokens field is skipped, not printed", () => {
+	const stats = agentStats({
+		status: "completed",
+		progress: { tokens: "***", currentTool: undefined },
+		usage: { cost: 0.001 },
+	} as never);
+	assert.ok(!stats.includes("***"), `must not leak the redaction placeholder: ${JSON.stringify(stats)}`);
+	assert.ok(!stats.includes("tok"), `must not render a fake token metric: ${JSON.stringify(stats)}`);
+	assert.ok(stats.includes("$0.001"), "cost still shows");
 });

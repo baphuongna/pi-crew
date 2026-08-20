@@ -34,7 +34,14 @@ export const PEM_PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]
 // keyword-scan matches '_token' in 'prompt_tokens' (underscore + "token"),
 // falsely classifying usage counts as secrets. See performance/quality
 // assessment fix #5.
+//
+// `tokens` alone must stay too: pi-crew state records use
+// `progress.tokens` / `status.tokens` as the per-task usage total; the
+// camelCase fallback scan in isSecretKey() matches the bare keyword at
+// start+end of the name and would otherwise rewrite `15` to the literal
+// "***" on disk, which the widget then renders verbatim as `*** tok`.
 const TOKEN_COUNT_KEYS = new Set([
+	"tokens",
 	"prompt_tokens",
 	"completion_tokens",
 	"total_tokens",

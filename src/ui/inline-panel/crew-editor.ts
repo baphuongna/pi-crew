@@ -125,12 +125,19 @@ export class CrewInlineEditor extends CustomEditor {
 			}
 			if (matchesKey(data, "return")) {
 				const text = (this.getExpandedText?.() ?? this.getText()).trim();
-				if (!text) return;
+				if (!text) {
+					// Empty enter: hand it back to the editor rather than
+					// swallowing the key (keeps the "never stick" contract).
+					super.handleInput(data);
+					return;
+				}
 				if (text.startsWith("/")) {
 					// Built-in commands still act on the main session.
 					super.handleInput(data);
 					return;
 				}
+				// Shift+Enter (newline) never reaches here: matchesKey
+				// distinguishes the shifted sequence from plain return.
 				this.setText("");
 				this.options.onSteer(viewed, text);
 				return;
@@ -142,7 +149,11 @@ export class CrewInlineEditor extends CustomEditor {
 		// ── Idle: `↓` on an empty prompt enters the panel ──────────────────
 		if (getPanelSelection() === null) {
 			if (matchesKey(data, "down") && this.getText() === "" && rows.length > 0) {
-				setPanelSelection("main");
+				// dispatch selects the FIRST AGENT (not `main`) so the very
+				// first press paints the ❯ marker — visible feedback, matching
+				// pi-subtask's selectRow(rows, 0).
+				const result = dispatchPanelKey(this.panelKeys(data), rows, null);
+				setPanelSelection(result.selection);
 				return;
 			}
 			super.handleInput(data);

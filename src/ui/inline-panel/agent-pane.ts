@@ -53,6 +53,14 @@ export class CrewAgentPane {
 	private lastTranscriptReadAt = 0;
 	/** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
 	private lastItems: CrewTranscriptItem[] = [];
+	/**
+	 * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
+	 * which on a 500-item transcript is the bulk of each ~160ms host tick.
+	 * The fingerprint covers identity-relevant bits (seq, type, text length,
+	 * result presence) so tool-result folds still refresh the pane.
+	 */
+	private bodyKey = 0;
+	private cachedBody: string[] = [];
 	private unsubscribePanel: () => void;
 
 	constructor(tui: TUI, theme: Theme, cwd: string) {
@@ -113,6 +121,47 @@ export class CrewAgentPane {
 		return comp;
 	}
 
+	/**
+	 * Render one transcript item to lines, degrading to a dim text line when
+	 * the item's shape confuses a pi component (the JSONL is worker-written
+	 * and unvalidated — a once-bad record must never kill the pane render).
+	 */
+	private renderItem(item: CrewTranscriptItem, width: number): string[] {
+		try {
+			return this.itemComponent(item).render(width);
+		} catch {
+			const label = item.type === "tool" ? item.name : "text";
+			return [this.theme.fg("dim", truncateToWidth(`(unrenderable ${label} item)`, width, "…"))];
+		}
+	}
+
+	/** FNV-1a over the parts that change pane output; 32-bit is plenty for a
+	 * 500-item cache key (a collision only delays a repaint by one tick). */
+	private bodyFingerprint(items: readonly CrewTranscriptItem[], width: number): number {
+		let h = (2166136261 ^ width) >>> 0;
+		for (const item of items) {
+			h ^= item.seq;
+			h = Math.imul(h, 16777619) >>> 0;
+			h ^= item.type.length;
+			h = Math.imul(h, 16777619) >>> 0;
+			if (item.type === "tool") {
+				h ^= item.result !== undefined ? 7 : 3;
+			} else {
+				h ^= item.text.length;
+			}
+			h = Math.imul(h, 16777619) >>> 0;
+		}
+		return h;
+	}
+
+	private buildBody(items: readonly CrewTranscriptItem[], width: number): string[] {
+		const body: string[] = [];
+		for (const item of items) {
+			for (const line of this.renderItem(item, width)) body.push(line);
+		}
+		return body;
+	}
+
 	render(width: number): string[] {
 		if (this.disposed) return [];
 
@@ -127,6 +176,8 @@ export class CrewAgentPane {
 			this.scrollBack = 0;
 			this.lastItems = [];
 			this.lastTranscriptReadAt = 0;
+			this.bodyKey = "";
+			this.cachedBody = [];
 		}
 
 		const manifest = this.resolveManifest(viewed.runId);
@@ -142,11 +193,15 @@ export class CrewAgentPane {
 
 		// Render every item at full width — pi's message components paint their
 		// own edge-to-edge background and carry their own padding, so indenting
-		// them leaves column 0 unpainted and notches the corners.
-		const body: string[] = [];
-		for (const item of items) {
-			for (const line of this.itemComponent(item).render(width)) body.push(line);
+		// them leaves column 0 unpainted and notches the corners. The body is
+		// cached under a content fingerprint; unchanged state skips the
+		// Markdown re-parse on every host tick.
+		const fingerprint = this.bodyFingerprint(items, width);
+		if (fingerprint !== this.bodyKey) {
+			this.cachedBody = this.buildBody(items, width);
+			this.bodyKey = fingerprint;
 		}
+		const body = this.cachedBody;
 
 		// Height: size to content, capped so the transcript above and the
 		// editor/footer below stay reachable on small terminals.
@@ -175,6 +230,8 @@ export class CrewAgentPane {
 	invalidate(): void {
 		// Components cache theme colors internally; rebuild on theme change.
 		this.componentCache = new WeakMap();
+		this.bodyKey = "";
+		this.cachedBody = [];
 	}
 
 	dispose(): void {

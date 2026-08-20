@@ -15319,6 +15319,7 @@ var init_redaction = __esm({
     "use strict";
     PEM_PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]+PRIVATE KEY-----/g;
     TOKEN_COUNT_KEYS = /* @__PURE__ */ new Set([
+      "tokens",
       "prompt_tokens",
       "completion_tokens",
       "total_tokens",
@@ -55350,6 +55351,7 @@ function alignMetric(value, width) {
   return " ".repeat(pad2) + value;
 }
 function formatTokensCompact(count2) {
+  if (typeof count2 !== "number" || !Number.isFinite(count2)) return "";
   if (count2 >= 1e6) return `${(count2 / 1e6).toFixed(1)}M tok`;
   if (count2 >= 1e3) return `${(count2 / 1e3).toFixed(1)}k tok`;
   return `${count2} tok`;
@@ -55411,10 +55413,16 @@ function agentActivity(agent, liveHandle) {
   if (agent.status === "failed") return paint(agent.error ?? "failed", COLOR_RED);
   return "done";
 }
+function formatCostCompact(cost) {
+  if (cost >= 1) return `$${cost.toFixed(2)}`;
+  if (cost >= 0.01) return `$${cost.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+  if (cost >= 1e-3) return `$${cost.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return "< $0.001";
+}
 function agentCost(agent) {
   const cost = agent.usage?.cost;
   if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
-  return formatCost(cost);
+  return formatCostCompact(cost);
 }
 function budgetedRow(parts, width) {
   const sep11 = parts.separator ?? " \xB7 ";
@@ -55462,13 +55470,15 @@ function agentStats(agent, liveHandle) {
     }
     parts.push(alignMetric(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH));
   } else {
+    const tokens = agent.progress?.tokens;
+    const tokenCount = typeof tokens === "number" ? tokens : void 0;
     if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
-    if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+    if (tokenCount && tokenCount > 0) parts.push(alignMetric(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH));
     const cost = agentCost(agent);
     if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
     const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
-    if (agent.progress?.tokens && ageMs > 1e3) {
-      const tps = Math.round(agent.progress.tokens / (ageMs / 1e3));
+    if (tokenCount && tokenCount > 0 && ageMs > 1e3) {
+      const tps = Math.round(tokenCount / (ageMs / 1e3));
       if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
     }
     const age = elapsed(agent.completedAt ?? agent.startedAt);
@@ -55489,7 +55499,6 @@ var init_widget_formatters = __esm({
   "src/ui/widget/widget-formatters.ts"() {
     "use strict";
     init_usage_tracker();
-    init_usage();
     init_visual();
     init_live_duration();
     RESET = "\x1B[0m";
@@ -57730,7 +57739,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
       const branch = last ? "\u2514\u2500" : "\u251C\u2500";
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-      const agentGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : iconForStatus(agent.status, { runningGlyph });
+      const agentGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
       const stats = agentStats(agent, liveHandle);
       const name = liveHandle?.agent ?? agent.agent;
       const activity = agentActivity(agent, liveHandle);
@@ -57784,9 +57793,9 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const _finished = truncate(`\u2502  ${branch} ${icon} ${name} \xB7 ${desc}${stats ? ` \xB7 ${stats}` : ""}`, width);
       lines.push(_finished);
     }
-    if (lines.length >= maxLines) break;
+    if (lines.length >= maxLines && !focused) break;
   }
-  return lines.slice(0, maxLines);
+  return focused ? lines : lines.slice(0, maxLines);
 }
 function colorWidgetLine(line4, index, theme) {
   let result4 = line4;
@@ -57872,7 +57881,13 @@ function selectionAtIndex(rows, index) {
 }
 function dispatchPanelKey(keys, rows, selection2, options = {}) {
   if (selection2 === null) {
-    if (keys.down) return { action: { kind: "consumed" }, selection: "main" };
+    if (keys.down) {
+      const first = rows[0];
+      return {
+        action: { kind: "consumed" },
+        selection: first ? { runId: first.runId, taskId: first.taskId } : "main"
+      };
+    }
     return { action: { kind: "none" }, selection: null };
   }
   const index = resolveIndex(rows, selection2) ?? 0;
@@ -57945,7 +57960,10 @@ function panelDisplayState() {
   return {
     selectedTaskId: isAgentSelection(selection) ? selection.taskId : void 0,
     viewedTaskId: viewed?.taskId,
-    focused: selection !== null || viewed !== void 0
+    // Cursor-driven: uncapping the row budget while the user is typing
+    // into the pane (viewed set, selection null) would jerk the layout on
+    // every pane open. The cursor entry is when the full list is needed.
+    focused: selection !== null
   };
 }
 function subscribePanelChange(listener) {
@@ -83001,6 +83019,14 @@ var CrewAgentPane = class {
   lastTranscriptReadAt = 0;
   /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
   lastItems = [];
+  /**
+   * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
+   * which on a 500-item transcript is the bulk of each ~160ms host tick.
+   * The fingerprint covers identity-relevant bits (seq, type, text length,
+   * result presence) so tool-result folds still refresh the pane.
+   */
+  bodyKey = 0;
+  cachedBody = [];
   unsubscribePanel;
   constructor(tui, theme, cwd) {
     this.tui = tui;
@@ -83048,6 +83074,44 @@ var CrewAgentPane = class {
     this.componentCache.set(item, comp);
     return comp;
   }
+  /**
+   * Render one transcript item to lines, degrading to a dim text line when
+   * the item's shape confuses a pi component (the JSONL is worker-written
+   * and unvalidated — a once-bad record must never kill the pane render).
+   */
+  renderItem(item, width) {
+    try {
+      return this.itemComponent(item).render(width);
+    } catch {
+      const label = item.type === "tool" ? item.name : "text";
+      return [this.theme.fg("dim", truncateToWidth2(`(unrenderable ${label} item)`, width, "\u2026"))];
+    }
+  }
+  /** FNV-1a over the parts that change pane output; 32-bit is plenty for a
+   * 500-item cache key (a collision only delays a repaint by one tick). */
+  bodyFingerprint(items, width) {
+    let h = (2166136261 ^ width) >>> 0;
+    for (const item of items) {
+      h ^= item.seq;
+      h = Math.imul(h, 16777619) >>> 0;
+      h ^= item.type.length;
+      h = Math.imul(h, 16777619) >>> 0;
+      if (item.type === "tool") {
+        h ^= item.result !== void 0 ? 7 : 3;
+      } else {
+        h ^= item.text.length;
+      }
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h;
+  }
+  buildBody(items, width) {
+    const body = [];
+    for (const item of items) {
+      for (const line4 of this.renderItem(item, width)) body.push(line4);
+    }
+    return body;
+  }
   render(width) {
     if (this.disposed) return [];
     const viewed2 = getViewedAgent();
@@ -83058,6 +83122,8 @@ var CrewAgentPane = class {
       this.scrollBack = 0;
       this.lastItems = [];
       this.lastTranscriptReadAt = 0;
+      this.bodyKey = "";
+      this.cachedBody = [];
     }
     const manifest = this.resolveManifest(viewed2.runId);
     if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
@@ -83066,10 +83132,12 @@ var CrewAgentPane = class {
       this.lastTranscriptReadAt = Date.now();
     }
     const items = this.lastItems;
-    const body = [];
-    for (const item of items) {
-      for (const line4 of this.itemComponent(item).render(width)) body.push(line4);
+    const fingerprint = this.bodyFingerprint(items, width);
+    if (fingerprint !== this.bodyKey) {
+      this.cachedBody = this.buildBody(items, width);
+      this.bodyKey = fingerprint;
     }
+    const body = this.cachedBody;
     const rows = this.tui.terminal.rows;
     const maxBody = Math.max(6, rows - MAX_BODY_FRACTION);
     const visibleCount = Math.min(maxBody, Math.max(1, body.length));
@@ -83091,6 +83159,8 @@ var CrewAgentPane = class {
   }
   invalidate() {
     this.componentCache = /* @__PURE__ */ new WeakMap();
+    this.bodyKey = "";
+    this.cachedBody = [];
   }
   dispose() {
     this.disposed = true;
@@ -83181,7 +83251,10 @@ var CrewInlineEditor = class extends CustomEditor {
       }
       if (matchesKey3(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
-        if (!text) return;
+        if (!text) {
+          super.handleInput(data);
+          return;
+        }
         if (text.startsWith("/")) {
           super.handleInput(data);
           return;
@@ -83195,7 +83268,8 @@ var CrewInlineEditor = class extends CustomEditor {
     }
     if (getPanelSelection() === null) {
       if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
-        setPanelSelection("main");
+        const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
+        setPanelSelection(result4.selection);
         return;
       }
       super.handleInput(data);

@@ -1,0 +1,78 @@
+/**
+ * Focused-mode widget rendering — the inline panel navigates EVERY agent
+ * row, so focused paint must list them all and keep the cursor marker (❯)
+ * on rows that are shown. Idle paint keeps the historical maxLines cap.
+ */
+
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { CrewAgentRecord } from "../../../src/runtime/crew-agent-runtime.ts";
+import { buildWidgetLines } from "../../../src/ui/widget/widget-renderer.ts";
+import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
+
+function agent(taskId: string): CrewAgentRecord {
+	return {
+		taskId,
+		agent: `agent${taskId.slice(1)}`,
+		role: "explorer",
+		status: "running",
+		startedAt: new Date().toISOString(),
+		progress: {},
+	} as CrewAgentRecord;
+}
+
+function runWith(agents: CrewAgentRecord[]): WidgetRun[] {
+	return [
+		{
+			run: {
+				runId: "team_focus_test",
+				status: "running",
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+				planApproval: undefined,
+			} as never,
+			agents,
+			snapshot: {} as never,
+		},
+	];
+}
+
+test("idle paint keeps the maxLines cap", () => {
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(Array.from({ length: 12 }, (_, i) => agent(`t${i}`))), 0, 100, {
+		rowStyle: "compact",
+	});
+	assert.ok(lines.length <= 8, `idle must stay within maxLines, got ${lines.length}`);
+});
+
+test("focused paint lists EVERY agent and keeps the marker reachable", () => {
+	const agents = Array.from({ length: 12 }, (_, i) => agent(`t${i + 1}`));
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, {
+		rowStyle: "compact",
+		focused: true,
+		selectedTaskId: "t11", // a row well beyond the idle cap of 3
+	});
+	// 1 header + 1 run line + 12 agents = 14; focusing must not slice to 8.
+	assert.ok(lines.length > 8, `focused must uncap, got ${lines.length} lines`);
+	assert.ok(
+		lines.some((line) => line.includes("agent11")),
+		"the far agent row is painted",
+	);
+	const markerRows = lines.filter((line) => line.includes("❯"));
+	assert.ok(markerRows.length >= 1, `cursor marker must be visible for the selected agent: ${JSON.stringify(lines.slice(0, 3))}`);
+	assert.ok(
+		markerRows.some((line) => line.includes("agent11")),
+		"marker sits on the selected agent's row",
+	);
+});
+
+test("focused paint still respects the marker for the viewed agent glyph", () => {
+	const agents = [agent("t1"), agent("t2")];
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, {
+		rowStyle: "compact",
+		viewedTaskId: "t2",
+	});
+	assert.ok(
+		lines.some((line) => line.includes("◉")),
+		"viewed agent gets the filled glyph",
+	);
+});

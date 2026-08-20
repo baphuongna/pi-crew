@@ -6973,7 +6973,7 @@
       "format": "esm"
     },
     "src/utils/redaction.ts": {
-      "bytes": 17852,
+      "bytes": 18213,
       "imports": [],
       "format": "esm"
     },
@@ -14339,17 +14339,12 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 14969,
+      "bytes": 16183,
       "imports": [
         {
           "path": "src/runtime/usage-tracker.ts",
           "kind": "import-statement",
           "original": "../../runtime/usage-tracker.ts"
-        },
-        {
-          "path": "src/state/usage.ts",
-          "kind": "import-statement",
-          "original": "../../state/usage.ts"
         },
         {
           "path": "src/utils/visual.ts",
@@ -14689,7 +14684,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 13417,
+      "bytes": 13886,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -14756,12 +14751,12 @@
       "format": "esm"
     },
     "src/ui/inline-panel/panel-selection.ts": {
-      "bytes": 5749,
+      "bytes": 6031,
       "imports": [],
       "format": "esm"
     },
     "src/ui/inline-panel/panel-store.ts": {
-      "bytes": 3610,
+      "bytes": 3442,
       "imports": [
         {
           "path": "src/ui/inline-panel/panel-selection.ts",
@@ -19494,7 +19489,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-pane.ts": {
-      "bytes": 7227,
+      "bytes": 9249,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -19530,7 +19525,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 6330,
+      "bytes": 6875,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -20337,7 +20332,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7423759
+      "bytes": 7430419
     },
     "dist/index.mjs": {
       "imports": [
@@ -23014,7 +23009,7 @@
           "bytesInOutput": 15494
         },
         "src/utils/redaction.ts": {
-          "bytesInOutput": 9078
+          "bytesInOutput": 9094
         },
         "src/runtime/broker/broker-issuer.ts": {
           "bytesInOutput": 249
@@ -23932,7 +23927,7 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 8122
+          "bytesInOutput": 8567
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 14566
@@ -23962,16 +23957,16 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 7843
+          "bytesInOutput": 7873
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
         },
         "src/ui/inline-panel/panel-selection.ts": {
-          "bytesInOutput": 2096
+          "bytesInOutput": 2216
         },
         "src/ui/inline-panel/panel-store.ts": {
-          "bytesInOutput": 1585
+          "bytesInOutput": 1785
         },
         "src/ui/render-scheduler.ts": {
           "bytesInOutput": 7918
@@ -24421,13 +24416,13 @@
           "bytesInOutput": 3331
         },
         "src/ui/inline-panel/agent-pane.ts": {
-          "bytesInOutput": 4531
+          "bytesInOutput": 6347
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 3649
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 4048
+          "bytesInOutput": 4192
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3309
@@ -24466,7 +24461,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3189879
+      "bytes": 3192650
     }
   }
 }

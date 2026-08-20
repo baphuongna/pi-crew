@@ -31,15 +31,22 @@ function keys(overrides: Partial<PanelKeys> = {}): PanelKeys {
 	return { up: false, down: false, enter: false, escape: false, act: false, ...overrides };
 }
 
-test("down on an idle panel enters at main, then moves onto agents", () => {
+test("down on an idle panel selects the FIRST agent directly (visible feedback)", () => {
 	const rows = [row("t1"), row("t2")];
-	// Start: editor owns the cursor.
+	// Start: editor owns the cursor. Landing on `main` first would paint no
+	// marker, reading as a dead keypress — first press must hit an agent row.
 	const first = dispatchPanelKey(keys({ down: true }), rows, null);
 	assert.equal(first.action.kind, "consumed");
-	assert.equal(first.selection, "main");
+	assert.deepEqual(first.selection, { runId: RUN, taskId: "t1" });
 
 	const second = dispatchPanelKey(keys({ down: true }), rows, first.selection);
-	assert.deepEqual(second.selection, { runId: RUN, taskId: "t1" });
+	assert.deepEqual(second.selection, { runId: RUN, taskId: "t2" });
+});
+
+test("down on an idle panel with no rows stays at main (nothing to select)", () => {
+	const result = dispatchPanelKey(keys({ down: true }), [], null);
+	assert.equal(result.action.kind, "consumed");
+	assert.equal(result.selection, "main");
 });
 
 test("enter on an agent row opens that agent; enter on main opens nothing", () => {

@@ -24,6 +24,10 @@ describe("isSecretKey", () => {
 		// scan, causing ALL LLM usage counts to be redacted to '***' in
 		// events.jsonl. They are observable metrics, not credentials.
 		const tokenKeys = [
+			// Bare `tokens` is pi-crew's per-task usage total (progress.tokens);
+			// the camelCase fallback scan matched it at start+end of the name
+			// and rewrote the count to "***" on disk.
+			"tokens",
 			"prompt_tokens",
 			"completion_tokens",
 			"total_tokens",
@@ -44,16 +48,17 @@ describe("isSecretKey", () => {
 		// Token counts must survive redactSecrets so events.jsonl retains
 		// observable usage data while real secrets are still redacted.
 		const input = {
+			tokens: 15,
 			prompt_tokens: 1500,
 			completion_tokens: 320,
 			total_tokens: 1820,
 			cached_tokens: 900,
 			reasoning_tokens: 50,
-			api_key: "sk-live-abc123",
+			api_key: "**************",
 			password: "hunter2",
 		};
 		const result = redactSecrets(input) as Record<string, unknown>;
-		assert.equal(result.prompt_tokens, 1500, "prompt_tokens value must be preserved");
+		assert.equal(result.tokens, 15, "bare tokens value (per-task usage total) must be preserved");
 		assert.equal(result.completion_tokens, 320, "completion_tokens value must be preserved");
 		assert.equal(result.total_tokens, 1820, "total_tokens value must be preserved");
 		assert.equal(result.cached_tokens, 900, "cached_tokens value must be preserved");

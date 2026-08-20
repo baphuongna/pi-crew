@@ -186,7 +186,9 @@ export function buildWidgetLines(
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
 			// The agent open in the pane gets the filled glyph, everything else its
 			// status glyph — pi-subtask's filled/hollow "where am I" convention.
-			const agentGlyph = options.viewedTaskId === agent.taskId ? "⏺" : iconForStatus(agent.status, { runningGlyph });
+			// ◉ (U+25C9) over ⏺ (U+23FA): the latter is missing from many terminal
+			// fonts (tofu), and pi's own UI already uses ◉ for "viewed" markers.
+			const agentGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
 			const stats = agentStats(agent, liveHandle);
 			const name = liveHandle?.agent ?? agent.agent;
 			const activity = agentActivity(agent, liveHandle);
@@ -244,10 +246,14 @@ export function buildWidgetLines(
 			lines.push(_finished);
 		}
 
-		if (lines.length >= maxLines) break;
+		// Focused (inline panel cursor active): the keyboard can reach every
+		// agent, so the renderer must list them ALL — clipping here would put
+		// the cursor marker (❯) on rows that are never painted. The idle
+		// widget keeps its historical cap to hold the prompt area small.
+		if (lines.length >= maxLines && !focused) break;
 	}
 
-	return lines.slice(0, maxLines);
+	return focused ? lines : lines.slice(0, maxLines);
 }
 
 // ── Colorization ──────────────────────────────────────────────────────
