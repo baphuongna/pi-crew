@@ -8,21 +8,22 @@ Slash commands are manual actions triggered from the Pi chat. Autonomous tool us
 |---------|-------|
 | `/teams` | List teams, agents, workflows, and recent runs |
 | `/team-run [options] <goal>` | Run a team workflow |
-| `/team-orchestrate <planPath>` | Execute from a plan document |
-| `/team-schedule [options]` | Schedule a recurring run |
-| `/team-scheduled` | List scheduled jobs |
 | `/team-cancel <runId>` | Cancel a run |
 | `/team-status <runId>` | View status |
 | `/team-summary <runId>` | View or write a summary |
 | `/team-resume <runId>` | Resume a stopped run |
-| `/team-search <query>` | BM25-ranked discovery |
-| `/team-graph <runId>` | Load, save, or list run graphs |
+| `/team-retry <runId>` | Retry a failed run |
+| `/team-result <runId>` | Show a task result artifact |
+| `/team-respond <taskId> <message>` | Respond to a waiting worker task |
+| `/team-follow-up [options]` | Manage follow-up notifications |
 | `/team-events <runId>` | View the event log |
 | `/team-artifacts <runId>` | View artifacts |
+| `/team-transcript <runId>` | Open the transcript viewer |
 | `/team-worktrees <runId>` | View worktree metadata |
-| `/team-cleanup <runId>` | Remove worktrees |
+| `/team-cleanup <runId>` | Remove worktrees (interactive menu: `/team-cleanup-menu`) |
 | `/team-forget <runId>` | Fully delete a run |
 | `/team-prune` | Delete multiple old runs |
+| `/team-invalidate [scope]` | Invalidate caches |
 | `/team-export <runId>` | Export a run bundle |
 | `/team-import <path>` | Import a run bundle |
 | `/team-imports` | List imported bundles |
@@ -37,8 +38,15 @@ Slash commands are manual actions triggered from the Pi chat. Autonomous tool us
 | `/team-validate` | Validate resources |
 | `/team-help` | Help text |
 | `/team-doctor` | Diagnose the environment |
+| `/team-mascot` | Toggle the mascot overlay |
 | **`/team-goal`** | **v0.9.0** Start autonomous goal loop (sub-actions: `start/status/pause/resume/stop/step/clear`) |
 | **`/workflows`** | **v0.9.0** List static + dynamic workflows (`.dwf.ts`) |
+
+**Removed (v0.10.1 docs hygiene):** `/team-orchestrate`, `/team-schedule`,
+`/team-scheduled`, `/team-search`, `/team-graph` — phantom entries; none of
+these slash commands is registered. Their functionality is reachable via the
+`team` tool actions (`action: "orchestrate" | "schedule" | "scheduled" |
+"search" | "graph"`) instead.
 
 ---
 
@@ -296,6 +304,9 @@ Creates directories:
 | `u` | View summary |
 | `i` | API read-manifest |
 | `q` or `Esc` | Close |
+| `1`–`7` | Pane: agents / progress / mailbox / output / health / metrics / **plan** (v0.10.1, `PI_CREW_PLAN_UI=1`) |
+| `A` / `n` | Plan approval approve/deny (progress + plan panes, while pending) |
+| `X` | Plan revision diff (plan pane) |
 
 ---
 

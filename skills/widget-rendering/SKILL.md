@@ -32,16 +32,16 @@ In-memory map from `live-agent-manager.ts`. Provides:
 
 **When NOT used:** After `evictStaleLiveAgentHandles()` removes a handle, widget falls back to agent records on disk.
 
-### 2. Snapshot cache (500ms TTL)
+### 2. Snapshot cache (1500ms TTL)
 
-`RunSnapshotCache` from `run-snapshot-cache.ts` caches parsed manifests and agents for 500ms. Reduces disk reads during rapid refresh.
+`RunSnapshotCache` from `run-snapshot-cache.ts` caches parsed manifests and agents for 1500ms. Reduces disk reads during rapid refresh.
 
 **When used:** As the fallback when no live handle exists. Prevents excessive disk reads on every render tick.
 
 **Invalidation:** Cache is invalidated when:
 - `invalidate()` is called on a specific run
 - An empty result is returned (forces refresh on next tick)
-- TTL expires (500ms)
+- TTL expires (1500ms)
 
 ### 3. `agents.json` on disk (durables, lowest priority)
 
@@ -156,7 +156,7 @@ Every render cycle (`renderTick` / `requestAnimationFrame`) must complete in <16
 
 ### TTL interactions
 
-- Snapshot cache TTL = 500ms
+- Snapshot cache TTL = 1500ms
 - Preload interval must be < TTL to avoid render-time gaps
 - If preload interval ≥ TTL, the cache always has fresh data for render
 
@@ -248,7 +248,7 @@ If ANY answer is NO → Stop. Fix widget rendering issues before proceeding.
 ## Anti-patterns
 
 - **Blocking render with fs calls**: Every `readFileSync`, `readdirSync`, `fs.statSync` in the render path causes frame drops. Preload everything async.
-- **Stale cache in hot path**: If snapshot cache TTL is too long, widget shows outdated state. Keep TTL at 500ms or less.
+- **Stale cache in hot path**: If snapshot cache TTL is too long, widget shows outdated state. Keep TTL at 1500ms or less (the code default; lower only with cause).
 - **No invalidation on empty**: When `readCrewAgents` returns `[]` (no agents yet), the cache must be invalidated on next tick to prevent showing empty for too long.
 - **Expired handles accumulating**: Without `evictStaleLiveAgentHandles`, the Map grows indefinitely. Call it on every refresh.
 - **Widget showing stale health warnings**: Completed/cancelled/failed runs should not show health warnings. Filter by status.
@@ -258,7 +258,7 @@ If ANY answer is NO → Stop. Fix widget rendering issues before proceeding.
 ## Source patterns
 
 - `src/ui/crew-widget.ts` — render, refresh, activeWidgetRuns, evictStaleLiveAgentHandles, agentActivity, describeLiveActivity
-- `src/ui/run-snapshot-cache.ts` — SnapshotCache, get, refreshIfStale, TTL=500ms
+- `src/ui/run-snapshot-cache.ts` — SnapshotCache, get, refreshIfStale, TTL=1500ms
 - `src/runtime/crew-agent-records.ts` — readCrewAgents, agents.json
 - `src/runtime/process-status.ts` — hasStaleAsyncProcess, isDisplayActiveRun
 - `src/runtime/background-runner.ts` — active run filtering with async PID check
@@ -275,7 +275,7 @@ Render-path performance for the widget is non-negotiable. Treat every `render(wi
 - **Prefer `snapshotCache.get(runId)`** on render paths. If a synchronous fallback is genuinely unavoidable, classify it as first-load/rare and document why it can't be preloaded.
 - **Keep panes pure.** Dashboard panes must accept a snapshot/model and format strings only. Never call `fs.readFileSync`, `fs.readdirSync`, `fs.statSync`, network APIs, or large JSON parsing from pane render methods.
 - **Stay non-blocking at 60fps.** Each render cycle must complete in under ~16ms. Anything that can't finish synchronously (reads, fetches, directory scans) belongs in the async preload path, not `renderTick()`.
-- **Respect the snapshot-cache TTL of ≤500ms.** Keep the `RunSnapshotCache` TTL at 500ms or less so the widget never shows stale state. Watch TTL interactions: the preload interval must be shorter than the cache TTL, otherwise render-time refresh gaps appear.
+- **Respect the snapshot-cache TTL of ≤1500ms.** Keep the `RunSnapshotCache` TTL at 1500ms or less (the code default; lower only with cause) so the widget never shows stale state. Watch TTL interactions: the preload interval must be shorter than the cache TTL, otherwise render-time refresh gaps appear.
 - **Guard session switches.** On a session switch, cancel timers and ensure in-flight async preloads cannot update a now-stale session's UI.
 - **Filter stale warnings by terminal status.** Do not surface health warnings for completed/failed/cancelled runs.
 
