@@ -100,7 +100,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 8539,
+      "bytes": 8755,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -14684,7 +14684,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 13886,
+      "bytes": 15298,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -14751,7 +14751,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/panel-selection.ts": {
-      "bytes": 6031,
+      "bytes": 5886,
       "imports": [],
       "format": "esm"
     },
@@ -19489,7 +19489,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-pane.ts": {
-      "bytes": 9249,
+      "bytes": 9247,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -19525,7 +19525,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 6875,
+      "bytes": 6874,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -20332,7 +20332,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7430419
+      "bytes": 7432555
     },
     "dist/index.mjs": {
       "imports": [
@@ -22175,7 +22175,7 @@
           "bytesInOutput": 20539
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 5405
+          "bytesInOutput": 5636
         },
         "src/state/coordination/locks.ts": {
           "bytesInOutput": 10382
@@ -23957,13 +23957,13 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 7873
+          "bytesInOutput": 8856
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
         },
         "src/ui/inline-panel/panel-selection.ts": {
-          "bytesInOutput": 2216
+          "bytesInOutput": 2096
         },
         "src/ui/inline-panel/panel-store.ts": {
           "bytesInOutput": 1785
@@ -24416,7 +24416,7 @@
           "bytesInOutput": 3331
         },
         "src/ui/inline-panel/agent-pane.ts": {
-          "bytesInOutput": 6347
+          "bytesInOutput": 6345
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 3649
@@ -24461,7 +24461,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3192650
+      "bytes": 3193742
     }
   }
 }

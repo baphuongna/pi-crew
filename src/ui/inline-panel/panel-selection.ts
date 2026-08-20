@@ -114,19 +114,13 @@ export function dispatchPanelKey(
 	selection: PanelSelection,
 	options: DispatchOptions = {},
 ): DispatchResult {
-	// Editor owns the cursor: the only panel key that makes sense is `down`.
-	// It selects the FIRST AGENT directly, not the main row — the main row
-	// has no marker, so landing there first reads as a dead keypress. (The
-	// main row stays reachable as the `holdAtMain` stop, e.g. coming back
-	// from a pane via `up`.) Everything else falls through untouched.
+	// Editor owns the cursor: the only panel key that makes sense is `down`,
+	// entering at the main row (pi-subtask: selectRow(rows, 0)). The main row
+	// is a real rendered row with its own ❯ marker, so this first press is
+	// visible immediately — no dead-key feeling. Everything else falls
+	// through untouched.
 	if (selection === null) {
-		if (keys.down) {
-			const first = rows[0];
-			return {
-				action: { kind: "consumed" },
-				selection: first ? { runId: first.runId, taskId: first.taskId } : "main",
-			};
-		}
+		if (keys.down) return { action: { kind: "consumed" }, selection: "main" };
 		return { action: { kind: "none" }, selection: null };
 	}
 

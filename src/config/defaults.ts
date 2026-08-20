@@ -129,7 +129,10 @@ export const DEFAULT_UI = {
 	refreshMs: 1000,
 	notifierIntervalMs: 5000,
 	widgetDefaultFrameMs: 1000,
-	widgetPlacement: "aboveEditor" as const,
+	// The crew widget (agent rows + hint + main row) docks BELOW the editor,
+	// matching pi-subtask's subtask panel — the transcript pane separately
+	// mounts above the editor, exactly like pi-subtask's fork view.
+	widgetPlacement: "belowEditor" as const,
 	widgetMaxLines: 8,
 	widgetRowStyle: "compact" as const,
 	inlinePanel: true,

@@ -76,3 +76,50 @@ test("focused paint still respects the marker for the viewed agent glyph", () =>
 		"viewed agent gets the filled glyph",
 	);
 });
+
+test("compact rows render the pi-subtask dock: hint line + main row", () => {
+	const agents = [agent("t1"), agent("t2")];
+
+	const idle = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, { rowStyle: "compact" });
+	assert.ok(
+		idle.some((line) => line.includes("agents (2) — ↓ to select")),
+		"idle hint advertises ↓",
+	);
+	assert.ok(
+		idle.some((line) => line.includes("● main")),
+		"main row is filled while idle",
+	);
+
+	const focusedMain = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, {
+		rowStyle: "compact",
+		focused: true, // selection === "main": no selectedTaskId
+	});
+	assert.ok(
+		focusedMain.some((line) => line.includes("❯ ● main")),
+		"main row carries the cursor marker when selected",
+	);
+	assert.ok(
+		focusedMain.some((line) => line.includes("enter to view · x to stop/cancel · esc back")),
+		"focused hint explains the keys",
+	);
+
+	const viewed = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, {
+		rowStyle: "compact",
+		viewedTaskId: "t1",
+	});
+	assert.ok(
+		viewed.some((line) => line.includes("viewing @agent1") && line.includes("↓ switch")),
+		"viewing hint names the agent",
+	);
+	assert.ok(
+		viewed.some((line) => line.includes("◯ main")),
+		"main row is hollow while viewing an agent",
+	);
+});
+
+test("detailed rows get no hint/main (no panel navigation there)", () => {
+	const agents = [agent("t1"), agent("t2")];
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, { rowStyle: "detailed" });
+	assert.ok(!lines.some((line) => line.includes("↓ to select")), "no hint in detailed mode");
+	assert.ok(!lines.some((line) => line.includes(" main")), "no main row in detailed mode");
+});

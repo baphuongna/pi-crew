@@ -125,6 +125,35 @@ export function buildWidgetLines(
 	const runningGlyph = spinnerFrame("widget-header");
 	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
 
+	// Inline-panel dock (pi-subtask's dock, lines ~590-640): a hint line +
+	// the `main` conversation row, only on the compact rows the panel can
+	// navigate. The hint labels the current mode so the first ↓ press is
+	// discoverable, and `main` is what ↓ selects first — both were missing
+	// from the first port, which made the panel read as dead on entry.
+	if (rowStyle === "compact") {
+		const agentCount = runs.reduce((n, entry) => {
+			const { active, finished } = orderWidgetAgents(entry);
+			return n + active.length + finished.length;
+		}, 0);
+		if (agentCount > 0) {
+			let hint: string;
+			if (options.viewedTaskId) {
+				const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
+				hint = `viewing @${viewedName} — typing goes to the agent · ↓ switch · esc back`;
+			} else if (options.focused) {
+				hint = "enter to view · x to stop/cancel · esc back";
+			} else {
+				hint = `agents (${agentCount}) — ↓ to select`;
+			}
+			lines.push(truncate(hint, width));
+			// Filled ● = you're on the main conversation; hollow ◯ = the pane
+			// is open on an agent (same convention as pi-subtask's main row).
+			const mainMarker = options.focused && !options.selectedTaskId ? "❯" : " ";
+			const mainIcon = options.viewedTaskId ? "◯" : "●";
+			lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
+		}
+	}
+
 	for (const entry of runs) {
 		const { run, agents, snapshot } = entry;
 		const now = Date.now();

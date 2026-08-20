@@ -149,9 +149,9 @@ export class CrewInlineEditor extends CustomEditor {
 		// ── Idle: `↓` on an empty prompt enters the panel ──────────────────
 		if (getPanelSelection() === null) {
 			if (matchesKey(data, "down") && this.getText() === "" && rows.length > 0) {
-				// dispatch selects the FIRST AGENT (not `main`) so the very
-				// first press paints the ❯ marker — visible feedback, matching
-				// pi-subtask's selectRow(rows, 0).
+				// dispatch enters at the MAIN row; the widget renders that row
+				// with its own ❯ marker so the very first press is visible
+				// (pi-subtask's selectRow(rows, 0)).
 				const result = dispatchPanelKey(this.panelKeys(data), rows, null);
 				setPanelSelection(result.selection);
 				return;

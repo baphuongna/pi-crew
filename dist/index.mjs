@@ -1487,7 +1487,10 @@ var init_defaults = __esm({
       refreshMs: 1e3,
       notifierIntervalMs: 5e3,
       widgetDefaultFrameMs: 1e3,
-      widgetPlacement: "aboveEditor",
+      // The crew widget (agent rows + hint + main row) docks BELOW the editor,
+      // matching pi-subtask's subtask panel — the transcript pane separately
+      // mounts above the editor, exactly like pi-subtask's fork view.
+      widgetPlacement: "belowEditor",
       widgetMaxLines: 8,
       widgetRowStyle: "compact",
       inlinePanel: true,
@@ -57715,6 +57718,27 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
   if (!runs.length) return [];
   const runningGlyph = spinnerFrame("widget-header");
   const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+  if (rowStyle === "compact") {
+    const agentCount = runs.reduce((n, entry) => {
+      const { active, finished } = orderWidgetAgents(entry);
+      return n + active.length + finished.length;
+    }, 0);
+    if (agentCount > 0) {
+      let hint;
+      if (options.viewedTaskId) {
+        const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
+        hint = `viewing @${viewedName} \u2014 typing goes to the agent \xB7 \u2193 switch \xB7 esc back`;
+      } else if (options.focused) {
+        hint = "enter to view \xB7 x to stop/cancel \xB7 esc back";
+      } else {
+        hint = `agents (${agentCount}) \u2014 \u2193 to select`;
+      }
+      lines.push(truncate(hint, width));
+      const mainMarker = options.focused && !options.selectedTaskId ? "\u276F" : " ";
+      const mainIcon = options.viewedTaskId ? "\u25EF" : "\u25CF";
+      lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
+    }
+  }
   for (const entry of runs) {
     const { run, agents, snapshot } = entry;
     const now = Date.now();
@@ -57881,13 +57905,7 @@ function selectionAtIndex(rows, index) {
 }
 function dispatchPanelKey(keys, rows, selection2, options = {}) {
   if (selection2 === null) {
-    if (keys.down) {
-      const first = rows[0];
-      return {
-        action: { kind: "consumed" },
-        selection: first ? { runId: first.runId, taskId: first.taskId } : "main"
-      };
-    }
+    if (keys.down) return { action: { kind: "consumed" }, selection: "main" };
     return { action: { kind: "none" }, selection: null };
   }
   const index = resolveIndex(rows, selection2) ?? 0;
@@ -83122,7 +83140,7 @@ var CrewAgentPane = class {
       this.scrollBack = 0;
       this.lastItems = [];
       this.lastTranscriptReadAt = 0;
-      this.bodyKey = "";
+      this.bodyKey = 0;
       this.cachedBody = [];
     }
     const manifest = this.resolveManifest(viewed2.runId);
@@ -83159,7 +83177,7 @@ var CrewAgentPane = class {
   }
   invalidate() {
     this.componentCache = /* @__PURE__ */ new WeakMap();
-    this.bodyKey = "";
+    this.bodyKey = 0;
     this.cachedBody = [];
   }
   dispose() {

@@ -176,7 +176,7 @@ export class CrewAgentPane {
 			this.scrollBack = 0;
 			this.lastItems = [];
 			this.lastTranscriptReadAt = 0;
-			this.bodyKey = "";
+			this.bodyKey = 0;
 			this.cachedBody = [];
 		}
 
@@ -230,7 +230,7 @@ export class CrewAgentPane {
 	invalidate(): void {
 		// Components cache theme colors internally; rebuild on theme change.
 		this.componentCache = new WeakMap();
-		this.bodyKey = "";
+		this.bodyKey = 0;
 		this.cachedBody = [];
 	}
 

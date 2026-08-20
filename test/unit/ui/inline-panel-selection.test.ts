@@ -31,16 +31,17 @@ function keys(overrides: Partial<PanelKeys> = {}): PanelKeys {
 	return { up: false, down: false, enter: false, escape: false, act: false, ...overrides };
 }
 
-test("down on an idle panel selects the FIRST agent directly (visible feedback)", () => {
+test("down on an idle panel enters at main (rendered with its own marker), then onto agents", () => {
 	const rows = [row("t1"), row("t2")];
-	// Start: editor owns the cursor. Landing on `main` first would paint no
-	// marker, reading as a dead keypress — first press must hit an agent row.
+	// Start: editor owns the cursor. First press lands on the MAIN row — the
+	// widget renders that row with a ❯ marker, so the press is visible
+	// immediately (pi-subtask: selectRow(rows, 0)).
 	const first = dispatchPanelKey(keys({ down: true }), rows, null);
 	assert.equal(first.action.kind, "consumed");
-	assert.deepEqual(first.selection, { runId: RUN, taskId: "t1" });
+	assert.equal(first.selection, "main");
 
 	const second = dispatchPanelKey(keys({ down: true }), rows, first.selection);
-	assert.deepEqual(second.selection, { runId: RUN, taskId: "t2" });
+	assert.deepEqual(second.selection, { runId: RUN, taskId: "t1" });
 });
 
 test("down on an idle panel with no rows stays at main (nothing to select)", () => {
