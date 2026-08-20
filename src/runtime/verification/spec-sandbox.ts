@@ -31,14 +31,23 @@ import { createHash } from "node:crypto";
 import { sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { BASE_ALLOWLIST } from "../child-pi/child-pi-spawn.ts";
 
-/** Config-capped ceilings (ADR-6 §4) — NOT user-facing knobs in v1. */
-export const SPEC_SANDBOX_LIMITS = {
-	addressSpaceKb: 262_144, // ulimit -v (256 MiB)
-	cpuSeconds: 30, // ulimit -t
-	wallClockMs: 60_000, // 60s hard wall clock
-	sigkillGraceMs: 200, // SIGTERM → 200ms → SIGKILL
-	maxOutputBytes: 4 * 1024 * 1024, // stdout buffer cap (digest still computed over capped buffer)
-} as const;
+/** Config-capped ceilings (ADR-6 §4) — NOT user-facing knobs in v1. The
+ *  `limits` override on runSpecCheck is an internal test seam. */
+export interface SpecSandboxLimits {
+	addressSpaceKb: number; // ulimit -v (256 MiB)
+	cpuSeconds: number; // ulimit -t
+	wallClockMs: number; // 60s hard wall clock
+	sigkillGraceMs: number; // SIGTERM → 200ms → SIGKILL
+	maxOutputBytes: number; // stdout buffer cap (digest still computed over capped buffer)
+}
+
+export const SPEC_SANDBOX_LIMITS: SpecSandboxLimits = {
+	addressSpaceKb: 262_144,
+	cpuSeconds: 30,
+	wallClockMs: 60_000,
+	sigkillGraceMs: 200,
+	maxOutputBytes: 4 * 1024 * 1024,
+};
 
 /** Credential-shaped keys are scrubbed EVEN IF an allowlist entry matches —
  *  belt-and-suspenders against future BASE_ALLOWLIST additions. */
@@ -91,7 +100,7 @@ export function isSpecSandboxSupported(): boolean {
 
 export async function runSpecCheck(
 	check: SpecCheckCommand,
-	options: { cwd: string; limits?: Partial<typeof SPEC_SANDBOX_LIMITS>; wrapperOverride?: string },
+	options: { cwd: string; limits?: Partial<SpecSandboxLimits>; wrapperOverride?: string },
 ): Promise<SpecCheckOutcome> {
 	const limits = { ...SPEC_SANDBOX_LIMITS, ...options.limits };
 	const wrapper = options.wrapperOverride ?? "unshare";
