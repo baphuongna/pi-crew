@@ -136,6 +136,8 @@ export interface TaskPacket {
 	outputSchema?: TaskOutputSchema;
 	/** T4/R6 (ADR-6): workspace spec ids this task is held to (frozen below). */
 	specRefs?: string[];
+	/** T4/R6 (ADR-6 §7): strict mode — coverage AND machine-check (§4). */
+	specStrict?: boolean;
 	/** Frozen snapshots embedded at dispatch — later spec edits never rewrite
 	 *  what a running task was held to. */
 	specSnapshots?: SpecSnapshot[];

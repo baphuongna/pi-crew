@@ -183,6 +183,7 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 			maxConcurrency: parseOptionalInteger(frontmatter.maxConcurrency),
 			topology: parseTopology(frontmatter.topology),
 			coalesceMicroTasks: parseOptionalBoolean(frontmatter.coalesceMicroTasks),
+			specStrict: parseOptionalBoolean(frontmatter.specStrict),
 			steps,
 		};
 	} catch {

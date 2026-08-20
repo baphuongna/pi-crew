@@ -23,6 +23,7 @@ import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type {
 	ArtifactDescriptor,
 	OperationTerminalEvidence,
+	SpecGateResult,
 	TeamRunManifest,
 	TeamTaskState,
 	VerificationEvidence,
@@ -44,7 +45,7 @@ import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } 
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";
 import type { TaskExecutionContext } from "./pre-execution.ts";
 import { buildWorkerPromptPipeline } from "./prompt-pipeline.ts";
-import { evaluateSpecCoverage, parseSpecEvidenceFooter } from "./spec-evidence.ts";
+import { evaluateSpecCoverage, evaluateSpecStrict, parseSpecEvidenceFooter, type StrictGateReport } from "./spec-evidence.ts";
 import { persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 
 /**
@@ -387,15 +388,60 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		}
 	}
 
-	// --- T4/R6 (ADR-6 §3): SPEC-EVIDENCE coverage gate (non-strict default) ---
-	// Extends the classifier seam above — mechanical coverage only, never
-	// blocks in non-strict mode. Parses the footer from the authoritative
-	// result sources (finalText first, finalStdout fallback — same sources as
-	// the empty-result gate above). Spec-less tasks: gate not applicable.
+	// --- T4/R6 (ADR-6 §3/§4): SPEC-EVIDENCE gate (coverage default, strict opt-in) ---
+	// Extends the classifier seam above. Non-strict: mechanical coverage only,
+	// never blocks. Strict (workflow frontmatter specStrict: true): coverage
+	// AND machine-check — gaps/check-failures fail the write-gate (B4-c strict
+	// column). Parses the footer from the authoritative result sources.
 	const specFooterText = parsedOutput?.finalText?.trim() ? parsedOutput.finalText : finalStdout;
-	const specGate = taskPacket.specSnapshots?.length
-		? evaluateSpecCoverage(taskPacket.specSnapshots, parseSpecEvidenceFooter(specFooterText ?? ""))
-		: undefined;
+	const specFooter = parseSpecEvidenceFooter(specFooterText ?? "");
+	let specGate: (SpecGateResult & { strict?: StrictGateReport }) | undefined;
+	if (taskPacket.specStrict === true && taskPacket.specSnapshots?.length) {
+		const strictResult = await evaluateSpecStrict(taskPacket.specSnapshots, specFooter, { cwd: manifest.cwd });
+		specGate = strictResult;
+		if (strictResult.strict.platformUnsupported) {
+			// Platform honesty (ADR §4): strict re-runs need `unshare -rn`; every
+			// check fails closed where it is unavailable.
+			await appendEventAsync(manifest.eventsPath, {
+				type: "spec.strict_platform_warning",
+				runId: manifest.runId,
+				taskId: task.id,
+				data: { platform: process.platform, effect: "strict checks fail closed (no unshare)" },
+			});
+		}
+		for (const check of strictResult.strict.checks) {
+			if (check.result !== "failed") continue;
+			// spec.check_failed payload (ADR §4): digest-only — exit/signal/digest/
+			// stderr-LENGTH; raw output NEVER reaches events (leak discipline).
+			await appendEventAsync(manifest.eventsPath, {
+				type: "spec.check_failed",
+				runId: manifest.runId,
+				taskId: task.id,
+				data: {
+					specId: check.specId,
+					acceptanceId: check.acceptanceId,
+					outcome: check.outcome,
+					expectedDigest: check.expectedDigest,
+					actualDigest: check.actualDigest,
+					exitCode: check.exitCode,
+					signal: check.signal,
+					durationMs: check.durationMs,
+				},
+			});
+		}
+		if (!strictResult.strict.passed) {
+			// Strict gate failure fails the write-gate (ADR §4): task cannot pass.
+			const reasons = [
+				...(specGate.missingMustIds.length ? [`missing must-acceptance evidence: ${specGate.missingMustIds.join(", ")}`] : []),
+				...(specGate.unknownIds.length ? [`unknown acceptance ids cited: ${specGate.unknownIds.join(", ")}`] : []),
+				...strictResult.strict.checks.filter((c) => c.result === "failed").map((c) => `${c.acceptanceId}: ${c.outcome}`),
+			].join("; ");
+			error = `Spec strict gate failed (${reasons || "machine-check failure"})`;
+			exitCode = exitCode === 0 ? 1 : exitCode;
+		}
+	} else if (taskPacket.specSnapshots?.length) {
+		specGate = evaluateSpecCoverage(taskPacket.specSnapshots, specFooter);
+	}
 	if (specGate?.badge) {
 		await appendEventAsync(manifest.eventsPath, {
 			type: "task.spec_gate",
@@ -407,6 +453,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 				footerPresent: specGate.footerPresent,
 				missingMustIds: specGate.missingMustIds,
 				unknownIds: specGate.unknownIds,
+				...(specGate.strict ? { strictPassed: specGate.strict.passed } : {}),
 			},
 		});
 	}

@@ -73,6 +73,8 @@ export function sanitizeTaskText(task: string): string {
 export interface BuildTaskPacketInput {
 	/** T4/R6 (ADR-6 §2): workspace spec ids — loaded + FROZEN into the packet. */
 	specRefs?: string[];
+	/** T4/R6 (ADR-6 §7): strict mode — coverage AND machine-check (§4). */
+	specStrict?: boolean;
 	manifest: TeamRunManifest;
 	step: WorkflowStep;
 	taskId: string;
@@ -124,6 +126,7 @@ export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
 	return {
 		objective: sanitizedTask.replaceAll("{goal}", sanitizedGoal),
 		...(specSnapshots.length > 0 ? { specRefs: specSnapshots.map((s) => s.specId), specSnapshots } : {}),
+		...(input.specStrict === true ? { specStrict: true } : {}),
 		scope,
 		scopePath,
 		repo: path.basename(input.manifest.cwd) || input.manifest.cwd,

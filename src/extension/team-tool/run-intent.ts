@@ -23,6 +23,15 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+
+/** T4/R6 (ADR-6 §5): reject-start reason for strict workflows lacking a
+ *  verifier-role step — exported for tests. undefined = start allowed. */
+export function specStrictRejectReason(workflow: WorkflowConfig): string | undefined {
+	if (workflow.specStrict !== true) return undefined;
+	if (workflow.steps.some((s) => s.role === "verifier")) return undefined;
+	return `Workflow '${workflow.name}' sets specStrict: true but has no verifier-role step — strict mode requires independent verification (ADR-6 §5). Add a verifier step or drop specStrict.`;
+}
+
 import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktree-manager.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import type { TeamContext } from "./context.ts";
@@ -271,6 +280,24 @@ export async function validateRunIntent(
 			new Error(`Ignoring runKind='${params.runKind}' because workflow '${workflow.name}' is not dynamic.`),
 			undefined,
 			"warn",
+		);
+	}
+
+	// T4/R6 (ADR-6 §5): REJECT-START — a strict-mode workflow without a
+	// verifier-role step fails at start (no silent self-certification).
+	// Non-strict workflows are unaffected.
+	const rejectReason = !directAgent ? specStrictRejectReason(workflow) : undefined;
+	if (rejectReason) {
+		return {
+			kind: "error",
+			result: result(rejectReason, { action: "run", status: "error" }, true),
+		};
+	}
+	// Platform honesty (ADR §4): loud warning — NOT best-effort. Where the
+	// re-run sandbox is unavailable every strict check fails closed.
+	if (!directAgent && workflow.specStrict === true && process.platform !== "linux") {
+		console.warn(
+			`⚠️  [team-tool.run] specStrict is enabled but this platform (${process.platform}) has no unshare -rn equivalent: every strict machine-check will FAIL CLOSED (ADR-6 §4).`,
 		);
 	}
 

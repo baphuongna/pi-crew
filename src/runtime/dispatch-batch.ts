@@ -223,6 +223,11 @@ function findStep(workflow: WorkflowConfig, task: TeamTaskState): WorkflowStep {
 		throw new CrewError(ErrorCode.ResourceNotFound, `Workflow step '${task.stepId}' not found for task '${task.id}'.`).withContext(
 			`workflow step lookup (task=${task.id})`,
 		);
+	// T4/R6 (ADR-6 §7): workflow-level specStrict merges into the dispatched step
+	// (per-step flag wins) — the task packet freezes the resolved value.
+	if (workflow.specStrict === true || step.specStrict === true) {
+		return { ...step, specStrict: step.specStrict ?? workflow.specStrict };
+	}
 	return step;
 }
 
