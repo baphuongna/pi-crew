@@ -26,6 +26,25 @@ import { freezeSpecSnapshot, isSpecTrusted, loadSpecRecord, saveSpecRecord } fro
 import type { SpecRecord } from "../../../../src/state/types.ts";
 
 const IS_LINUX = process.platform === "linux";
+
+/** B4(g) CI note: some Linux hosts (GitHub ubuntu-24.04 runners with AppArmor
+ *  `apparmor_restrict_unprivileged_userns=1`) deny `unshare -rn` — the
+ *  wrapper then exits non-zero and every strict check fails CLOSED (the
+ *  designed outcome). Executable-sandbox tests assert POSITIVE execution and
+ *  are skipped where the namespace is unavailable; the fail-closed outcome
+ *  itself is pinned by the launch-failure/platform tests below. */
+const SANDBOX_EXEC_OK = await (async () => {
+	if (!IS_LINUX) return false;
+	try {
+		const probe = await runSpecCheck({ command: "true" }, { cwd: os.tmpdir() });
+		return probe.outcome === "passed";
+	} catch {
+		return false;
+	}
+})();
+const skipIfNoUserns = (t: { skip: (msg: string) => void }) => {
+	if (!SANDBOX_EXEC_OK) t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
+};
 const REAL_HOME = process.env.HOME;
 
 function makeCwd(): string {
@@ -113,8 +132,8 @@ test("sandbox env: scrubber RESULT is authoritative (round-1: merge-back resurre
 
 // ── Executable sandbox (Linux; fail-closed elsewhere) ─────────────────────
 
-test("sandbox: deterministic command passes digest+exit check", async () => {
-	if (!IS_LINUX) return;
+test("sandbox: deterministic command passes digest+exit check", async (t) => {
+	skipIfNoUserns(t);
 	const cwd = makeCwd();
 	try {
 		const out = await runSpecCheck(
@@ -128,15 +147,15 @@ test("sandbox: deterministic command passes digest+exit check", async () => {
 	}
 });
 
-test("sandbox: digest mismatch fails the check (digest-only payload)", async () => {
-	if (!IS_LINUX) return;
+test("sandbox: digest mismatch fails the check (digest-only payload)", async (t) => {
+	skipIfNoUserns(t);
 	const out = await runSpecCheck({ command: "printf tampered", expectedDigest: "0".repeat(64) }, { cwd: os.tmpdir() });
 	assert.equal(out.outcome, "digest-mismatch");
 	assert.match(out.actualDigest ?? "", /^[0-9a-f]{64}$/, "actual digest present, raw output never persisted");
 });
 
-test("sandbox: exit-code mismatch fails the check (compound commands keep shell semantics)", async () => {
-	if (!IS_LINUX) return;
+test("sandbox: exit-code mismatch fails the check (compound commands keep shell semantics)", async (t) => {
+	skipIfNoUserns(t);
 	const out = await runSpecCheck(
 		{ command: "printf nope; exit 7", expectedDigest: undefined, expectedExitCode: 0 },
 		{ cwd: os.tmpdir() },
@@ -145,8 +164,8 @@ test("sandbox: exit-code mismatch fails the check (compound commands keep shell 
 	assert.equal(out.exitCode, 7);
 });
 
-test("sandbox: wall-clock timeout kills the process GROUP (SIGTERM→SIGKILL escalation)", async () => {
-	if (!IS_LINUX) return;
+test("sandbox: wall-clock timeout kills the process GROUP (SIGTERM→SIGKILL escalation)", async (t) => {
+	skipIfNoUserns(t);
 	const out = await runSpecCheck({ command: "sleep 300" }, { cwd: os.tmpdir(), limits: { wallClockMs: 800, sigkillGraceMs: 200 } });
 	assert.equal(out.outcome, "timeout");
 	assert.ok(out.durationMs < 10_000, `killed promptly (durationMs=${out.durationMs})`);
@@ -164,16 +183,16 @@ test("sandbox: non-Linux platform fails closed (no unshare equivalent — platfo
 	assert.equal(out.outcome, "launch-failed");
 });
 
-test("sandbox: network is isolated — outbound TCP connect fails inside unshare -rn", { timeout: 30_000 }, async () => {
-	if (!IS_LINUX) return;
+test("sandbox: network is isolated — outbound TCP connect fails inside unshare -rn", { timeout: 30_000 }, async (t) => {
+	skipIfNoUserns(t);
 	const probe = `bash -c 'exec 3<>/dev/tcp/1.1.1.1/80'`;
 	const out = await runSpecCheck({ command: probe, expectedExitCode: 0 }, { cwd: os.tmpdir() });
 	assert.equal(out.outcome, "exit-mismatch", "TCP connect failed inside the isolated netns");
 	assert.equal(out.exitCode, 1);
 });
 
-test("sandbox: survivor processes are group-killed on a PASSING check (round-1)", { timeout: 20_000 }, async () => {
-	if (!IS_LINUX) return;
+test("sandbox: survivor processes are group-killed on a PASSING check (round-1)", { timeout: 20_000 }, async (t) => {
+	skipIfNoUserns(t);
 	const cwd = makeCwd();
 	try {
 		const marker = path.join(cwd, "survivor-marker");
@@ -199,7 +218,8 @@ test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedD
 // ── Strict evaluator (platform-independent paths) ─────────────────────────
 
 test("strict: user-minted spec + idempotent digest check → machine-check passes", async (t) => {
-	if (!IS_LINUX) return t.skip("sandbox execution needs unshare");
+	if (!IS_LINUX) return t.skip("non-Linux");
+	skipIfNoUserns(t);
 	const cwd = makeCwd();
 	try {
 		const snap = mintAndFreeze(cwd, strictSpec());
@@ -256,7 +276,8 @@ test("strict NEGATIVE AC 2: hand-forged WORKSPACE json+sidecar pair ALSO degrade
 });
 
 test("strict TOCTOU (round-1): post-freeze sidecar deletion cannot change a running task's trust", async (t) => {
-	if (!IS_LINUX) return t.skip("sandbox execution needs unshare");
+	if (!IS_LINUX) return t.skip("non-Linux");
+	skipIfNoUserns(t);
 	const cwd = makeCwd();
 	try {
 		const snap = mintAndFreeze(cwd, strictSpec());
@@ -328,7 +349,8 @@ test("strict: must without command → degraded-no-command (cannot machine-check
 });
 
 test("strict: digest mismatch in a trusted idempotent check FAILS the gate (B4 strict)", async (t) => {
-	if (!IS_LINUX) return t.skip("sandbox execution needs unshare");
+	if (!IS_LINUX) return t.skip("non-Linux");
+	skipIfNoUserns(t);
 	const cwd = makeCwd();
 	try {
 		const record = strictSpec({ acceptance: [{ ...strictSpec().acceptance[0], expectedDigest: "f".repeat(64) }] });

@@ -19,6 +19,19 @@ import type { TaskPacket } from "../../../../src/state/types.ts";
 
 const REAL_HOME = process.env.HOME;
 
+// B4(g): hosts without unprivileged userns (GH ubuntu-24.04 runners) fail
+// every strict check CLOSED by design — positive-execution test skips there.
+const SANDBOX_EXEC_OK = await (async () => {
+	if (process.platform !== "linux") return false;
+	try {
+		const { runSpecCheck } = await import("../../../../src/runtime/verification/spec-sandbox.ts");
+		const probe = await runSpecCheck({ command: "true" }, { cwd: os.tmpdir() });
+		return probe.outcome === "passed";
+	} catch {
+		return false;
+	}
+})();
+
 function makeCwd(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-gate-"));
 	fs.mkdirSync(path.join(dir, ".git"));
@@ -153,7 +166,8 @@ test("unresolved refs: non-strict → badge + spec.freeze_failed; strict → gat
 });
 
 test("strict machine-check failure → gateError + spec.check_failed event (digest-only payload)", async (t) => {
-	if (process.platform !== "linux") return t.skip("sandbox execution needs unshare");
+	if (process.platform !== "linux") return t.skip("non-Linux");
+	if (!SANDBOX_EXEC_OK) t.skip("unshare -rn unavailable — strict checks fail closed here by design (B4-g)");
 	const cwd = makeCwd();
 	try {
 		const snaps = snapshotsFor(cwd, true);
