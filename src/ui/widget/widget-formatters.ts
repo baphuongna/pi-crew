@@ -7,7 +7,8 @@
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import type { LiveAgentHandle } from "../../runtime/live-session/live-agent-manager.ts";
 import { getTaskUsage } from "../../runtime/usage-tracker.ts";
-import { visibleWidth } from "../../utils/visual.ts";
+import { formatCost } from "../../state/usage.ts";
+import { truncateToWidth, visibleWidth } from "../../utils/visual.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";
 
 // ── No-color mode (UI-10) ─────────────────────────────────────────────
@@ -75,6 +76,7 @@ const TOKENS_METRIC_WIDTH = 10; // "1.2k tok", "12.3M tok"
 const TPS_METRIC_WIDTH = 9; // "411 tok/s"
 const CTX_METRIC_WIDTH = 7; // "100% ctx"
 const DURATION_METRIC_WIDTH = 6; // "120.0s"
+const COST_METRIC_WIDTH = 9; // "$0.001234"
 
 function alignMetric(value: string, width: number): string {
 	const pad = Math.max(0, width - visibleWidth(value));
@@ -176,6 +178,85 @@ export function agentActivity(agent: CrewAgentRecord, liveHandle?: LiveAgentHand
 	return "done";
 }
 
+// ── Per-agent cost ────────────────────────────────────────────────────
+
+/**
+ * Formatted per-agent spend, or "" when there is nothing to show. The value
+ * already lives on the durable task record and the dashboard agents pane has
+ * shown it since Round 17; the widget omitted it only by oversight.
+ */
+export function agentCost(agent: CrewAgentRecord): string {
+	const cost = agent.usage?.cost;
+	if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
+	return formatCost(cost);
+}
+
+// ── Adaptive single-line row ───────────────────────────────────────────
+
+export interface BudgetedRowParts {
+	/** Marker + glyph prefix; never trimmed. */
+	lead: string;
+	/** Agent label; grows into whatever the activity leaves over. */
+	name: string;
+	/** Current activity; shrinks first but keeps a readable floor. */
+	activity: string;
+	/** Metrics tail; never trimmed, so numbers stay comparable across ticks. */
+	suffix: string;
+	separator?: string;
+}
+
+/** Smallest activity/name slice still worth showing before we drop the field. */
+const MIN_FIELD_WIDTH = 12;
+
+/**
+ * Assemble one row that fills `width` without wrapping.
+ *
+ * `lead` and `suffix` are fixed costs; the remaining budget is split between
+ * `name` and `activity`. The activity absorbs the trimming first (it changes
+ * every tick anyway) but keeps a MIN_FIELD_WIDTH floor, and the name expands
+ * into the rest up to its natural length — so a 200-column terminal shows the
+ * full description instead of the same clip an 80-column one gets.
+ *
+ * The closing truncate is a hard guard, not an optimisation: pi's renderer
+ * throws on a line wider than the terminal.
+ */
+export function budgetedRow(parts: BudgetedRowParts, width: number): string {
+	const sep = parts.separator ?? " · ";
+	const { lead, suffix } = parts;
+	const name = parts.name.replace(/\s+/g, " ").trim();
+	const activity = parts.activity.replace(/\s+/g, " ").trim();
+	if (!name && !activity) return truncateToWidth(lead + suffix, width);
+	if (!activity) return fitNameOnly(lead, name, suffix, width);
+	if (!name) return fitNameOnly(lead, activity, suffix, width);
+
+	const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep);
+	// Too narrow to hold name + activity above their floors: keep the name
+	// only, and never let the metrics tail eat the clipping.
+	if (budget < MIN_FIELD_WIDTH * 2) return fitNameOnly(lead, name, suffix, width);
+
+	const nameNatural = visibleWidth(name);
+	const activityNatural = visibleWidth(activity);
+	const activityRoom = Math.min(activityNatural, Math.max(MIN_FIELD_WIDTH, budget - nameNatural));
+	const nameRoom = Math.max(MIN_FIELD_WIDTH, budget - activityRoom);
+	const assembled = lead + truncateToWidth(name, nameRoom) + sep + truncateToWidth(activity, activityRoom) + suffix;
+	// The room arithmetic keeps this ≤ width by construction (nameRoom +
+	// activityRoom ≤ budget in every branch); this guard is the last line of
+	// defense because pi's renderer throws on over-width lines.
+	if (visibleWidth(assembled) <= width) return assembled;
+	return fitNameOnly(lead, name, suffix, width);
+}
+
+/**
+ * Narrow-terminal fallback: fixed lead + suffix, the name absorbs every
+ * remaining column. The metrics tail is sacred — it must stay comparable
+ * across ticks — so clipping always happens in the middle fields.
+ */
+function fitNameOnly(lead: string, name: string, suffix: string, width: number): string {
+	const fixed = visibleWidth(lead) + visibleWidth(suffix);
+	if (fixed >= width) return truncateToWidth(lead + suffix, width);
+	return lead + truncateToWidth(name, width - fixed) + suffix;
+}
+
 // ── Agent stats line ──────────────────────────────────────────────────
 
 export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): string {
@@ -186,6 +267,10 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 		const usage = getTaskUsage(liveHandle.taskId);
 		const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
 		if (total > 0) parts.push(alignMetric(formatTokensCompact(total), TOKENS_METRIC_WIDTH));
+		// The live usage tracker carries tokens only (LifetimeUsage has no cost
+		// field), so cost always comes off the durable task record.
+		const liveCost = agentCost(agent);
+		if (liveCost) parts.push(alignMetric(liveCost, COST_METRIC_WIDTH));
 		try {
 			const stats = liveHandle.session.getSessionStats?.();
 			const ctxPct = stats?.contextUsage?.percent;
@@ -202,6 +287,8 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 	} else {
 		if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
 		if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+		const cost = agentCost(agent);
+		if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
 		const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
 		if (agent.progress?.tokens && ageMs > 1000) {
 			const tps = Math.round(agent.progress.tokens / (ageMs / 1000));

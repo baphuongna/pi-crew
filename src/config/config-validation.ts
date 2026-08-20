@@ -458,9 +458,12 @@ function parseUiConfig(value: unknown): CrewUiConfig | undefined {
 	if (!obj) return undefined;
 	const rawWidgetPlacement = parseWithSchema(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")]), obj.widgetPlacement);
 	const rawDashboardPlacement = parseWithSchema(Type.Union([Type.Literal("center"), Type.Literal("right")]), obj.dashboardPlacement);
+	const rawRowStyle = parseWithSchema(Type.Union([Type.Literal("compact"), Type.Literal("detailed")]), obj.widgetRowStyle);
 	const ui: CrewUiConfig = {
 		widgetPlacement: rawWidgetPlacement,
 		widgetMaxLines: parsePositiveInteger(obj.widgetMaxLines, 50),
+		widgetRowStyle: rawRowStyle,
+		inlinePanel: parseWithSchema(Type.Boolean(), obj.inlinePanel),
 		powerbar: parseWithSchema(Type.Boolean(), obj.powerbar),
 		dashboardPlacement: rawDashboardPlacement,
 		dashboardWidth: parseIntegerInRange(obj.dashboardWidth, 32, 120),

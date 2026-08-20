@@ -1,0 +1,209 @@
+/**
+ * Unit tests for the per-agent event JSONL → transcript item parser.
+ *
+ * Feeds records in the exact envelope `appendCrewAgentEventBuffered` writes
+ * (`{seq, time, event}` with the compacted child-pi event inside — the shape
+ * produced by `compactChildPiEvent` in child-pi-streams.ts) and asserts the
+ * pane-facing items that come out.
+ */
+
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { test } from "node:test";
+
+import type { TeamRunManifest } from "../../../src/state/types.ts";
+import {
+	__hasAgentTranscriptState,
+	type CrewTranscriptItem,
+	readAgentTranscript,
+	resetAgentTranscriptCursor,
+	resetAllAgentTranscriptCursors,
+} from "../../../src/ui/inline-panel/agent-transcript.ts";
+
+const TASK = "task_1";
+
+interface Fixture {
+	manifest: TeamRunManifest;
+	dir: string;
+	file: string;
+}
+
+function makeFixture(): Fixture {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crew-agent-transcript-test-"));
+	const agentsDir = path.join(dir, "agents", TASK);
+	fs.mkdirSync(agentsDir, { recursive: true });
+	const file = path.join(agentsDir, "events.jsonl");
+	const manifest = { stateRoot: dir } as unknown as TeamRunManifest;
+	return { manifest, dir, file };
+}
+
+function writeEvents(fixture: Fixture, events: Array<Record<string, unknown>>, startSeq = 1): void {
+	const lines = events.map((event, i) => JSON.stringify({ seq: startSeq + i, time: new Date().toISOString(), event }));
+	fs.appendFileSync(fixture.file, `${lines.join("\n")}\n`, "utf-8");
+}
+
+function cleanup(fixture: Fixture): void {
+	resetAllAgentTranscriptCursors();
+	try {
+		fs.rmSync(fixture.dir, { recursive: true, force: true });
+	} catch {
+		/* ignore */
+	}
+}
+
+test("tool start → end → message_end folds one tool card with its result", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{ type: "tool_execution_start", toolName: "read", args: { file_path: "/tmp/a.ts" } },
+			{ type: "tool_execution_end", toolName: "read" },
+			{
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Saw it." },
+						{ type: "toolResult", name: "read", content: "<file body>", isError: false },
+					],
+					stopReason: "end_turn",
+				},
+			},
+		]);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 2, "one tool card + one assistant text");
+		const [tool, assistant] = items as CrewTranscriptItem[];
+
+		assert.equal(tool.type, "tool");
+		if (tool.type === "tool") {
+			assert.equal(tool.name, "read");
+			assert.equal(tool.args.file_path, "/tmp/a.ts");
+			assert.equal(tool.result, "<file body>", "toolResult folds into the pending start");
+			assert.equal(tool.isError, false);
+		}
+		assert.equal(assistant.type, "assistant");
+		if (assistant.type === "assistant") assert.equal(assistant.text, "Saw it.");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("user messages become user items", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{
+				type: "message_end",
+				message: { role: "user", content: [{ type: "text", text: "Inspect the auth flow" }] },
+			},
+		]);
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 1);
+		assert.equal(items[0]?.type, "user");
+		assert.equal(items[0]?.type === "user" ? items[0].text : "", "Inspect the auth flow");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("unknown events degrade to dim system lines only when they carry text", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{ type: "worker_status", text: "heartbeat" },
+			{ type: "task.claimed" },
+			{ type: "message_update", text: "should be dropped" },
+		]);
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 1, "only the text-bearing system event survives");
+		assert.equal(items[0]?.type, "system");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("cross-read pairing: a tool start on one read folds with its result on the next", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [{ type: "tool_execution_start", toolName: "bash", args: { command: "ls" } }]);
+		const first = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(first.length, 1);
+		assert.equal(first[0]?.type, "tool");
+		if (first[0]?.type === "tool") assert.equal(first[0].result, undefined, "still running after the first read");
+
+		// The result arrives in the next read (new events only, seq continues).
+		writeEvents(
+			fixture,
+			[
+				{
+					type: "message_end",
+					message: {
+						role: "assistant",
+						content: [{ type: "toolResult", name: "bash", content: "ok", isError: false }],
+					},
+				},
+			],
+			2,
+		);
+		const second = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(second.length, 1, "same tool card, not a duplicate");
+		if (second[0]?.type === "tool") {
+			assert.equal(second[0].result, "ok", "result folds across the read boundary");
+		}
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("cursor accumulator returns full history, capped at MAX", () => {
+	const fixture = makeFixture();
+	try {
+		// 510 assistant messages → ring buffer keeps the most recent 500.
+		const events = Array.from({ length: 510 }, (_, i) => ({
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: `msg ${i}` }] },
+		}));
+		writeEvents(fixture, events);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 500, "ring-capped at 500");
+		assert.equal(items[0]?.type === "assistant" ? items[0].text : "", "msg 10", "oldest retained is the 501st event");
+		const last = items.at(-1);
+		assert.equal(last?.type === "assistant" ? last.text : "", "msg 509");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("switch + teardown reset per-task state", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [{ type: "tool_execution_start", toolName: "read", args: {} }]);
+		readAgentTranscript(fixture.manifest, TASK);
+		assert.ok(__hasAgentTranscriptState(TASK), "state retained while the task is active");
+
+		resetAgentTranscriptCursor(TASK);
+		assert.ok(!__hasAgentTranscriptState(TASK), "switch clears the old task's state");
+
+		// Re-reading replays from scratch (new cursor starts at 0).
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 1);
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("malformed JSON lines are skipped, not fatal", () => {
+	const fixture = makeFixture();
+	try {
+		fs.appendFileSync(fixture.file, "not json\n", "utf-8");
+		writeEvents(fixture, [{ type: "tool_execution_start", toolName: "read", args: {} }]);
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 1);
+		assert.equal(items[0]?.type, "tool");
+	} finally {
+		cleanup(fixture);
+	}
+});

@@ -39,6 +39,7 @@ import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers } from "../../run
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
+import { installInlinePanel } from "../../ui/inline-panel/index.ts";
 import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";
 import {
 	registerPiCrewPowerbarSegments,
@@ -273,6 +274,10 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		});
 		const cache = ctx.getManifestCache(extensionCtx.cwd);
 		updateCrewWidget(extensionCtx, ctx.widgetState, loadedConfig.config.ui, cache, ctx.getRunSnapshotCache(extensionCtx.cwd));
+		// Inline agent panel: keyboard-navigable rows under the prompt + per-agent
+		// transcript pane. Installed after the widget so the row projection sees
+		// the same caches the widget paint uses.
+		installInlinePanel(pi, extensionCtx, loadedConfig.config.ui);
 		updatePiCrewPowerbar(
 			pi.events,
 			extensionCtx.cwd,

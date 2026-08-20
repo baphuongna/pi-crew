@@ -145,6 +145,17 @@ export interface GoalWrapWorkflowConfig {
 export interface CrewUiConfig {
 	widgetPlacement?: "aboveEditor" | "belowEditor";
 	widgetMaxLines?: number;
+	/**
+	 * Per-agent row layout in the widget. `compact` is one width-budgeted line
+	 * per agent; `detailed` keeps the two-line tree (name row + activity row).
+	 */
+	widgetRowStyle?: "compact" | "detailed";
+	/**
+	 * Keyboard-navigable agent rows under the prompt (`↓` from an empty prompt).
+	 * Requires owning pi's editor component, so it yields to any other extension
+	 * that already installed a custom editor.
+	 */
+	inlinePanel?: boolean;
 	powerbar?: boolean;
 	dashboardPlacement?: "center" | "right";
 	dashboardWidth?: number;

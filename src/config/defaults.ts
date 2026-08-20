@@ -131,6 +131,8 @@ export const DEFAULT_UI = {
 	widgetDefaultFrameMs: 1000,
 	widgetPlacement: "aboveEditor" as const,
 	widgetMaxLines: 8,
+	widgetRowStyle: "compact" as const,
+	inlinePanel: true,
 	powerbar: true,
 	dashboardPlacement: "center" as const,
 	dashboardWidth: 72,

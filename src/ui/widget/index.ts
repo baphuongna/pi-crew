@@ -11,6 +11,8 @@ import { DEFAULT_UI } from "../../config/defaults.ts";
 import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { truncate } from "../../utils/visual.ts";
+import { panelRowsFromRuns } from "../inline-panel/panel-rows.ts";
+import { panelDisplayState, setPanelRowsProvider, subscribePanelChange } from "../inline-panel/panel-store.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
 import type { OverlaySchedulerHandle } from "../shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "../shared-overlay-scheduler.ts";
@@ -169,6 +171,7 @@ class CrewWidgetComponent implements WidgetComponent {
 	private cachedTheme: CrewTheme;
 	private readonly tui: unknown;
 	private readonly unsubscribeTheme: () => void;
+	private readonly unsubscribePanel: () => void;
 	private readonly schedulerHandle: OverlaySchedulerHandle;
 
 	constructor(model: CrewWidgetModel, themeLike: unknown, tui?: unknown) {
@@ -183,6 +186,13 @@ class CrewWidgetComponent implements WidgetComponent {
 		activeResizeTarget = this;
 		installResizeListener();
 		this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
+		// Cursor movement is a keypress, not a run event, so it never reaches the
+		// shared scheduler. Repaint directly instead of waiting for the next host
+		// tick — a lagging cursor reads as a dropped keystroke.
+		this.unsubscribePanel = subscribePanelChange(() => {
+			this.invalidate();
+			this.requestRepaint();
+		});
 		// 1.10 (UI-P1-1): route run:state / worker:lifecycle / ui:invalidate
 		// through a RenderScheduler (debounce + fallback) instead of three
 		// direct runEventBus.onChannel subscriptions. With 3 overlays
@@ -265,6 +275,7 @@ class CrewWidgetComponent implements WidgetComponent {
 
 	dispose(): void {
 		this.unsubscribeTheme();
+		this.unsubscribePanel();
 		this.schedulerHandle.dispose();
 		if (activeResizeTarget === this) activeResizeTarget = undefined;
 	}
@@ -295,7 +306,12 @@ class CrewWidgetComponent implements WidgetComponent {
 		const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
 		const runningGlyph = spinnerFrame("widget-header");
 
-		if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
+		// Panel cursor/pane state is part of the rendered output, so it belongs in
+		// the cache key — otherwise moving the cursor would not repaint.
+		const panel = panelDisplayState();
+		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+
+		if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
 			this.cachedBaseLines = buildWidgetLines(
 				this.model.cwd,
 				0,
@@ -303,6 +319,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
+				{ rowStyle: this.model.rowStyle, ...panel },
 			).map((line, index) => {
 				if (index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
@@ -310,7 +327,7 @@ class CrewWidgetComponent implements WidgetComponent {
 			this.cachedLines = this.colorize(this.cachedBaseLines, width);
 			this.cachedWidth = width;
 			this.cachedTheme = this.theme;
-			this.cacheSignature = signature;
+			this.cacheSignature = signatureWithPanel;
 		}
 
 		if (runs.length === 0) {
@@ -355,7 +372,15 @@ export function updateCrewWidget(
 	}
 
 	const runs = activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache, preloadedManifests, workspaceId);
-	const lines = buildWidgetLines(ctx.cwd, state.frame, maxLines, runs, state.notificationCount ?? 0, getRenderWidth());
+	const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
+	// The inline panel navigates the same run list the widget paints, and this is
+	// the only place already holding the manifest/snapshot caches — so the row
+	// projection is registered here instead of re-reading state on every keypress.
+	setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache, preloadedManifests, workspaceId)));
+	const lines = buildWidgetLines(ctx.cwd, state.frame, maxLines, runs, state.notificationCount ?? 0, getRenderWidth(), {
+		rowStyle,
+		...panelDisplayState(),
+	});
 	const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
 
 	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);
@@ -398,6 +423,7 @@ export function updateCrewWidget(
 			snapshotCache,
 			preloadManifests: preloadedManifests,
 			workspaceId,
+			rowStyle,
 		};
 	else {
 		state.model.cwd = ctx.cwd;
@@ -408,6 +434,7 @@ export function updateCrewWidget(
 		state.model.snapshotCache = snapshotCache;
 		state.model.preloadManifests = preloadedManifests;
 		state.model.workspaceId = workspaceId;
+		state.model.rowStyle = rowStyle;
 	}
 
 	if (needsWidgetInstall) {

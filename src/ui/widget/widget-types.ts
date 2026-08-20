@@ -24,6 +24,8 @@ export interface CrewWidgetModel {
 	/** P3 (#9): workspace/session ID for filtering runs by ownerSessionId
 	 * on every render, not just the first frame. */
 	workspaceId?: string;
+	/** Per-agent row layout; defaults to the historical two-line tree. */
+	rowStyle?: import("./widget-renderer.ts").WidgetRowStyle;
 }
 
 export interface CrewWidgetState {

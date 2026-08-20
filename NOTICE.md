@@ -13,6 +13,26 @@
 
 When code is copied or substantially adapted from an MIT source, add the source path and license note here.
 
+### Inline agent panel (2026-08-20)
+
+The inline agent panel (`src/ui/inline-panel/`) adapts the display architecture
+of `pi-subtask` v0.7.4 by Victor Mustar (MIT,
+https://github.com/gary149/pi-subtask):
+
+- width-budgeted single-line agent rows (compact widget row style),
+- identity-tracked panel cursor (`panel-selection.ts` matches its
+  `panelSelId` state machine),
+- in-document `aboveEditor` transcript pane reusing pi's native transcript
+  components instead of a viewport overlay,
+- `CustomEditor` wrapper with `↓`/`↑`/`enter`/`x`/`escape` panel navigation
+  and the `@agent` editor-border label, and the
+  `!ctx.ui.getEditorComponent()` yield rule for editor ownership.
+
+No code was copied verbatim; the pi-crew implementation is a fresh port onto
+pi-crew's own widget/store/event architecture (steering rides pi-crew's
+existing `team steer` steering-file channel rather than pi-subtask's stdin
+pipe).
+
 Current scaffold status: no substantial source files have been copied verbatim; implementation is a fresh scaffold based on documented design lessons.
 
 ## crew-vibes font assets
