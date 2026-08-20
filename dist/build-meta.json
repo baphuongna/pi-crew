@@ -6683,7 +6683,7 @@
       "format": "esm"
     },
     "src/workflows/discover-workflows.ts": {
-      "bytes": 12306,
+      "bytes": 12796,
       "imports": [
         {
           "path": "node:fs",
@@ -7561,7 +7561,7 @@
       "format": "esm"
     },
     "src/state/contracts.ts": {
-      "bytes": 6124,
+      "bytes": 6285,
       "imports": [],
       "format": "esm"
     },
@@ -7767,7 +7767,7 @@
       "format": "esm"
     },
     "src/state/types.ts": {
-      "bytes": 22038,
+      "bytes": 25489,
       "imports": [],
       "format": "esm"
     },
@@ -12094,7 +12094,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/coalesce-tasks.ts": {
-      "bytes": 11043,
+      "bytes": 11355,
       "imports": [
         {
           "path": "src/runtime/role-permission.ts",
@@ -12162,6 +12162,42 @@
       ],
       "format": "esm"
     },
+    "src/state/stores/spec-store.ts": {
+      "bytes": 7371,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/paths.ts"
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../atomic-write.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/task-id.ts": {
       "bytes": 5793,
       "imports": [
@@ -12174,12 +12210,17 @@
       "format": "esm"
     },
     "src/runtime/task-packet.ts": {
-      "bytes": 11923,
+      "bytes": 13364,
       "imports": [
         {
           "path": "node:path",
           "kind": "import-statement",
           "external": true
+        },
+        {
+          "path": "src/state/stores/spec-store.ts",
+          "kind": "import-statement",
+          "original": "../state/stores/spec-store.ts"
         },
         {
           "path": "src/runtime/task-id.ts",
@@ -12376,7 +12417,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/prompt-builder.ts": {
-      "bytes": 12174,
+      "bytes": 14477,
       "imports": [
         {
           "path": "src/extension/knowledge-injection.ts",
@@ -12559,7 +12600,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 46559,
+      "bytes": 46575,
       "imports": [
         {
           "path": "node:fs",
@@ -13007,8 +13048,45 @@
       ],
       "format": "esm"
     },
+    "src/runtime/verification/spec-sandbox.ts": {
+      "bytes": 9461,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/env-filter.ts",
+          "kind": "import-statement",
+          "original": "../../utils/env-filter.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "../child-pi/child-pi-spawn.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/task-runner/spec-evidence.ts": {
+      "bytes": 15767,
+      "imports": [
+        {
+          "path": "src/runtime/verification/spec-sandbox.ts",
+          "kind": "import-statement",
+          "original": "../verification/spec-sandbox.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/task-runner/post-execution.ts": {
-      "bytes": 23174,
+      "bytes": 25326,
       "imports": [
         {
           "path": "node:fs",
@@ -13111,6 +13189,11 @@
           "original": "./prompt-pipeline.ts"
         },
         {
+          "path": "src/runtime/task-runner/spec-evidence.ts",
+          "kind": "import-statement",
+          "original": "./spec-evidence.ts"
+        },
+        {
           "path": "src/runtime/task-runner/state-helpers.ts",
           "kind": "import-statement",
           "original": "./state-helpers.ts"
@@ -13140,7 +13223,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/pre-execution.ts": {
-      "bytes": 16232,
+      "bytes": 17206,
       "imports": [
         {
           "path": "src/errors.ts",
@@ -13389,7 +13472,7 @@
       "format": "esm"
     },
     "src/runtime/dispatch-batch.ts": {
-      "bytes": 42440,
+      "bytes": 42736,
       "imports": [
         {
           "path": "src/errors.ts",
@@ -13647,7 +13730,7 @@
       "format": "esm"
     },
     "src/workflows/workflow-serializer.ts": {
-      "bytes": 1545,
+      "bytes": 1830,
       "imports": [],
       "format": "esm"
     },
@@ -16377,7 +16460,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run-intent.ts": {
-      "bytes": 13733,
+      "bytes": 16643,
       "imports": [
         {
           "path": "node:fs",
@@ -16398,6 +16481,11 @@
           "path": "src/runtime/task-packet.ts",
           "kind": "import-statement",
           "original": "../../runtime/task-packet.ts"
+        },
+        {
+          "path": "src/state/stores/spec-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/stores/spec-store.ts"
         },
         {
           "path": "src/teams/discover-teams.ts",
@@ -20021,7 +20109,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7262188
+      "bytes": 7329722
     },
     "dist/index.mjs": {
       "imports": [
@@ -20911,6 +20999,26 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:path",
           "kind": "import-statement",
           "external": true
@@ -21057,6 +21165,16 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
           "kind": "import-statement",
           "external": true
         },
@@ -22618,7 +22736,7 @@
           "bytesInOutput": 6355
         },
         "src/workflows/discover-workflows.ts": {
-          "bytesInOutput": 9293
+          "bytesInOutput": 9797
         },
         "src/extension/autonomous-policy.ts": {
           "bytesInOutput": 8917
@@ -23332,7 +23450,7 @@
           "bytesInOutput": 2435
         },
         "src/runtime/scheduling/coalesce-tasks.ts": {
-          "bytesInOutput": 4341
+          "bytesInOutput": 4426
         },
         "src/runtime/scheduling/semaphore.ts": {
           "bytesInOutput": 1512
@@ -23346,11 +23464,14 @@
         "src/runtime/run-worker.ts": {
           "bytesInOutput": 337
         },
+        "src/state/stores/spec-store.ts": {
+          "bytesInOutput": 2825
+        },
         "src/runtime/task-id.ts": {
           "bytesInOutput": 1368
         },
         "src/runtime/task-packet.ts": {
-          "bytesInOutput": 4255
+          "bytesInOutput": 4872
         },
         "src/runtime/task-runner/output-splitter.ts": {
           "bytesInOutput": 3230
@@ -23383,7 +23504,7 @@
           "bytesInOutput": 7941
         },
         "src/runtime/task-runner/prompt-builder.ts": {
-          "bytesInOutput": 8088
+          "bytesInOutput": 9961
         },
         "src/runtime/event-stream-bridge.ts": {
           "bytesInOutput": 2321
@@ -23416,7 +23537,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 25978
+          "bytesInOutput": 25996
         },
         "src/worktree/worktree-manager.ts": {
           "bytesInOutput": 26666
@@ -23469,14 +23590,20 @@
         "src/runtime/task-runner/prompt-pipeline.ts": {
           "bytesInOutput": 1966
         },
+        "src/runtime/verification/spec-sandbox.ts": {
+          "bytesInOutput": 5378
+        },
+        "src/runtime/task-runner/spec-evidence.ts": {
+          "bytesInOutput": 9087
+        },
         "src/runtime/task-runner/post-execution.ts": {
-          "bytesInOutput": 16133
+          "bytesInOutput": 17482
         },
         "src/runtime/agent-control.ts": {
           "bytesInOutput": 3060
         },
         "src/runtime/task-runner/pre-execution.ts": {
-          "bytesInOutput": 9558
+          "bytesInOutput": 10346
         },
         "src/runtime/task-runner/scaffold-executor.ts": {
           "bytesInOutput": 576
@@ -23491,7 +23618,7 @@
           "bytesInOutput": 2471
         },
         "src/runtime/dispatch-batch.ts": {
-          "bytesInOutput": 27325
+          "bytesInOutput": 27471
         },
         "src/extension/team-tool/respond.ts": {
           "bytesInOutput": 8740
@@ -23509,7 +23636,7 @@
           "bytesInOutput": 988
         },
         "src/workflows/workflow-serializer.ts": {
-          "bytesInOutput": 1541
+          "bytesInOutput": 1822
         },
         "src/extension/management.ts": {
           "bytesInOutput": 20925
@@ -23542,7 +23669,7 @@
           "bytesInOutput": 1037
         },
         "src/runtime/workspace-lock.ts": {
-          "bytesInOutput": 2697
+          "bytesInOutput": 2700
         },
         "src/extension/team-tool/goal.ts": {
           "bytesInOutput": 17490
@@ -23725,7 +23852,7 @@
           "bytesInOutput": 7085
         },
         "src/state/gitignore-manager.ts": {
-          "bytesInOutput": 1704
+          "bytesInOutput": 1709
         },
         "src/state/crew-init.ts": {
           "bytesInOutput": 5207
@@ -23734,7 +23861,7 @@
           "bytesInOutput": 2707
         },
         "src/extension/team-tool/run-intent.ts": {
-          "bytesInOutput": 9157
+          "bytesInOutput": 11059
         },
         "src/runtime/chain-parser.ts": {
           "bytesInOutput": 4930
@@ -24064,7 +24191,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3129367
+      "bytes": 3154353
     }
   }
 }
