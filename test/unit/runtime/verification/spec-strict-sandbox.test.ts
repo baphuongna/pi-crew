@@ -205,8 +205,8 @@ test("sandbox: survivor processes are group-killed on a PASSING check (round-1)"
 	}
 });
 
-test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedDigest never fake-compares (round-1)", async () => {
-	if (!IS_LINUX) return;
+test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedDigest never fake-compares (round-1)", async (t) => {
+	skipIfNoUserns(t);
 	const out = await runSpecCheck(
 		{ command: `head -c 3000000 /dev/zero | tr '\\0' 'x'`, expectedDigest: "f".repeat(64) },
 		{ cwd: os.tmpdir(), limits: { maxOutputBytes: 1024 * 1024 } },
