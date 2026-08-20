@@ -273,14 +273,43 @@ export function splitThinkingSuffix(model: string): {
 	};
 }
 
+// WP-8 (R8): loud passthrough warnings — deduped per model so a chain of
+// tasks resolving the same unvalidated model warns once per process. The
+// delegate surface (spawn-policy admission) validates models against the
+// catalog itself (WP-5) and never routes through resolveModelCandidate.
+const passthroughWarned = new Set<string>();
+function warnUnvalidatedPassthrough(model: string, reason: string): void {
+	const key = `${model}|${reason}`;
+	if (passthroughWarned.has(key)) return;
+	passthroughWarned.add(key);
+	console.warn(
+		`[model-routing] unvalidated passthrough: '${model}' (${reason}) — not confirmed against the configured model catalog; spawn may fail at the provider.`,
+	);
+}
+
+/** Test seam: the dedup set is module-global (one warn per model+reason per
+ *  process); tests reset it for deterministic counting. */
+export function resetPassthroughWarnings(): void {
+	passthroughWarned.clear();
+}
+
 export function resolveModelCandidate(
 	model: string | undefined,
 	availableModels: AvailableModelInfo[] | undefined,
 	preferredProvider?: string,
 ): string | undefined {
 	if (!model) return undefined;
-	if (model.includes("/")) return model;
-	if (!availableModels || availableModels.length === 0) return model;
+	// Provider-qualified refs ("provider/model") pass through UNVALIDATED —
+	// the caller asserted a full id; there is nothing to resolve. Loud (R8):
+	// this is the documented trust path, not a silent one.
+	if (model.includes("/")) {
+		warnUnvalidatedPassthrough(model, "provider-qualified ref, no catalog check");
+		return model;
+	}
+	if (!availableModels || availableModels.length === 0) {
+		warnUnvalidatedPassthrough(model, "no model catalog available");
+		return model;
+	}
 
 	const { baseModel, thinkingSuffix } = splitThinkingSuffix(model);
 	const matches = availableModels.filter((entry) => entry.id === baseModel);
@@ -294,6 +323,7 @@ export function resolveModelCandidate(
 		// Fuzzy fallback: try to resolve via partial name matching
 		const fuzzy = fuzzyResolveModelId(baseModel, availableModels);
 		if (fuzzy) return `${fuzzy}${thinkingSuffix}`;
+		warnUnvalidatedPassthrough(model, "no exact or fuzzy catalog match");
 		return model;
 	}
 	return `${matches[0]!.fullId}${thinkingSuffix}`;

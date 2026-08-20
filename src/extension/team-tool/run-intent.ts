@@ -325,6 +325,18 @@ export async function validateRunIntent(
 		);
 	}
 
+	// WP-8 (R8): model-routing transparency — one pre-run line: resolved
+	// chain + worst-case spawns/task (attemptModels × (maxAttempts+1)).
+	if (!directAgent) {
+		try {
+			// LAZY: defer the routing-pipeline import to run start.
+			const { summarizeModelBudget } = await import("../../runtime/model/model-budget-summary.ts");
+			console.warn(summarizeModelBudget(resolvedCtx.cwd).line);
+		} catch {
+			/* advisory only — never block a run on the summary */
+		}
+	}
+
 	// PREFLIGHT (advisory only, since v0.9.15) — informational notes per the
 	// rule in .crew/knowledge.md "pi-crew USAGE THRESHOLD RULE". Never blocks.
 	if (!directAgent) {

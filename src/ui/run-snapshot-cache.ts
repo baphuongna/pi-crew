@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { agentOutputPath, agentsPath, readCrewAgents, readCrewAgentsAsync } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { isActiveRunStatus } from "../runtime/process-status.ts";
 import type { MailboxMessageStatus } from "../state/coordination/mailbox.ts";
 import type { TeamEvent } from "../state/event-log/event-log.ts";
 import { sequencePath } from "../state/event-log/event-log.ts";
+import { loadPlanRecords, planFilePath } from "../state/stores/plan-store.ts";
 import { loadRunManifestById, loadRunManifestByIdAsync } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { extractDwfPhaseState } from "./dwf-phase-display.ts";
@@ -23,6 +25,12 @@ import type {
 export interface RunSnapshotCache extends RunSnapshotCacheBase {
 	preloadStale(runId: string): Promise<RunUiSnapshot | undefined>;
 	preloadAllStale(runIds: string[]): Promise<void>;
+}
+
+/** WP-7 (R7): the plans slice + Plan pane load only when this flag is set —
+ *  flag-off keeps the snapshot build byte-identical (zero extra I/O). */
+export function isPlanUiEnabled(): boolean {
+	return getCrewEnv("PI_CREW_PLAN_UI") === "1";
 }
 
 const DEFAULT_TTL_MS = 1500;
@@ -44,6 +52,8 @@ interface SnapshotStamps {
 	agents: FileStamp;
 	events: FileStamp;
 	mailbox: FileStamp;
+	/** WP-7 (R7): present only when PI_CREW_PLAN_UI=1. */
+	plans?: FileStamp;
 }
 
 interface CacheEntry {
@@ -163,7 +173,10 @@ function safeAgentOutputPath(manifest: TeamRunManifest, agent: CrewAgentRecord):
 	}
 }
 
-function sameStamp(a: FileStamp, b: FileStamp): boolean {
+function sameStamp(a: FileStamp | undefined, b: FileStamp | undefined): boolean {
+	// Optional stamps (WP-7 plans): absent on both sides = unchanged; absent
+	// on one side = the flag flipped — force a rebuild.
+	if (a === undefined || b === undefined) return a === b;
 	return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
 
@@ -173,7 +186,8 @@ function sameStamps(a: SnapshotStamps, b: SnapshotStamps): boolean {
 		sameStamp(a.tasks, b.tasks) &&
 		sameStamp(a.agents, b.agents) &&
 		sameStamp(a.events, b.events) &&
-		sameStamp(a.mailbox, b.mailbox)
+		sameStamp(a.mailbox, b.mailbox) &&
+		sameStamp(a.plans, b.plans)
 	);
 }
 
@@ -694,6 +708,21 @@ function computeSliceSignatures(input: Omit<RunUiSnapshot, "signature" | "fetche
 				event.data?.reason,
 			]),
 		),
+		...(input.plans
+			? {
+					// WP-7 (R7): plan writes (revision append / approval flip / item
+					// linkage) must invalidate the Plan pane. Plans live outside the
+					// stamped files' content — the slice hashes the records directly.
+					plans: hash(
+						input.plans.map((record) => [
+							record.version,
+							record.approval?.status,
+							record.items.map((item) => [item.id, item.status, item.taskIds]),
+							record.phases.map((p) => [p.id, p.status]),
+						]),
+					),
+				}
+			: {}),
 	};
 }
 
@@ -728,6 +757,7 @@ function signatureFor(
 				mailbox: input.mailbox,
 				groupJoins: input.groupJoins,
 				events: sliceSignatures.events,
+				...(sliceSignatures.plans ? { plans: sliceSignatures.plans } : {}),
 				cancellationReason: input.cancellationReason,
 				dwfPhaseState: input.dwfPhaseState,
 				output: input.recentOutputLines,
@@ -742,6 +772,7 @@ function signatureFor(
 }
 
 function stampsFor(manifest: TeamRunManifest, _agents: CrewAgentRecord[]): SnapshotStamps {
+	// WP-7: optional plans stamp — one extra statSync, flag-gated.
 	// 1.4: use events sequence file instead of stat-ing the events log directly.
 	// 1.5: drop per-agent output.log stamping; rely on event-bus invalidation
 	// (`crew.subagent.*` and stream events) and on agents.json mtime which
@@ -753,6 +784,7 @@ function stampsFor(manifest: TeamRunManifest, _agents: CrewAgentRecord[]): Snaps
 		agents: stampFile(agentsPath(manifest)),
 		events: eventsStamp(manifest.eventsPath),
 		mailbox: mailboxStamp(manifest),
+		...(isPlanUiEnabled() ? { plans: stampFile(planFilePath(manifest)) } : {}),
 	};
 }
 
@@ -850,6 +882,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			dwfPhaseState: extractDwfPhaseState(recentEvents),
 			recentEvents,
 			recentOutputLines: recentOutputLines(loaded.manifest, agents, recentOutputLimit),
+			...(isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}),
 		};
 		const stamps = stampsFor(loaded.manifest, agents);
 		const sliceSignatures = computeSliceSignatures(base);
@@ -908,6 +941,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			dwfPhaseState: extractDwfPhaseState(recentEvents),
 			recentEvents,
 			recentOutputLines: recentOutput,
+			...(isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}),
 		};
 		const stamps = await stampsForAsync(loaded.manifest, agents);
 		const sliceSignatures = computeSliceSignatures(base);

@@ -1,7 +1,7 @@
 {
   "inputs": {
     "src/config/env-vars.ts": {
-      "bytes": 24498,
+      "bytes": 24632,
       "imports": [],
       "format": "esm"
     },
@@ -7073,7 +7073,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi-spawn.ts": {
-      "bytes": 20153,
+      "bytes": 20542,
       "imports": [
         {
           "path": "node:fs",
@@ -8377,7 +8377,7 @@
       "format": "esm"
     },
     "src/ui/keybinding-map.ts": {
-      "bytes": 17418,
+      "bytes": 18244,
       "imports": [
         {
           "path": "node:fs",
@@ -8527,7 +8527,7 @@
       "format": "esm"
     },
     "src/runtime/model/model-fallback.ts": {
-      "bytes": 33983,
+      "bytes": 35345,
       "imports": [
         {
           "path": "node:fs",
@@ -14360,7 +14360,7 @@
       "format": "esm"
     },
     "src/ui/powerbar-publisher.ts": {
-      "bytes": 18528,
+      "bytes": 19939,
       "imports": [
         {
           "path": "node:fs",
@@ -16459,8 +16459,34 @@
       ],
       "format": "esm"
     },
+    "src/runtime/model/model-budget-summary.ts": {
+      "bytes": 2340,
+      "imports": [
+        {
+          "path": "src/config/config.ts",
+          "kind": "import-statement",
+          "original": "../../config/config.ts"
+        },
+        {
+          "path": "src/runtime/recovery/retry-executor.ts",
+          "kind": "import-statement",
+          "original": "../recovery/retry-executor.ts"
+        },
+        {
+          "path": "src/runtime/task-runner/child-executor.ts",
+          "kind": "import-statement",
+          "original": "../task-runner/child-executor.ts"
+        },
+        {
+          "path": "src/runtime/model/model-fallback.ts",
+          "kind": "import-statement",
+          "original": "./model-fallback.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/team-tool/run-intent.ts": {
-      "bytes": 16643,
+      "bytes": 17114,
       "imports": [
         {
           "path": "node:fs",
@@ -16541,6 +16567,11 @@
           "path": "src/runtime/scheduling/parallel-research.ts",
           "kind": "dynamic-import",
           "original": "../../runtime/scheduling/parallel-research.ts"
+        },
+        {
+          "path": "src/runtime/model/model-budget-summary.ts",
+          "kind": "dynamic-import",
+          "original": "../../runtime/model/model-budget-summary.ts"
         },
         {
           "path": "src/workflows/preflight-validator.ts",
@@ -17318,6 +17349,22 @@
       "imports": [],
       "format": "esm"
     },
+    "src/ui/dashboard-panes/plan-pane.ts": {
+      "bytes": 5795,
+      "imports": [
+        {
+          "path": "src/runtime/plan-approval.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/plan-approval.ts"
+        },
+        {
+          "path": "src/state/stores/plan-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/stores/plan-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/dwf-phase-display.ts": {
       "bytes": 5430,
       "imports": [],
@@ -17345,7 +17392,7 @@
       "format": "esm"
     },
     "src/ui/dashboard-panes/transcript-pane.ts": {
-      "bytes": 488,
+      "bytes": 1663,
       "imports": [],
       "format": "esm"
     },
@@ -17381,7 +17428,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 40315,
+      "bytes": 40783,
       "imports": [
         {
           "path": "node:fs",
@@ -17457,6 +17504,11 @@
           "path": "src/ui/dashboard-panes/metrics-pane.ts",
           "kind": "import-statement",
           "original": "./dashboard-panes/metrics-pane.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/plan-pane.ts",
+          "kind": "import-statement",
+          "original": "./dashboard-panes/plan-pane.ts"
         },
         {
           "path": "src/ui/dashboard-panes/progress-pane.ts",
@@ -18339,7 +18391,7 @@
       "format": "esm"
     },
     "src/ui/run-snapshot-cache.ts": {
-      "bytes": 37626,
+      "bytes": 39207,
       "imports": [
         {
           "path": "node:crypto",
@@ -18357,6 +18409,11 @@
           "external": true
         },
         {
+          "path": "src/config/env-vars.ts",
+          "kind": "import-statement",
+          "original": "../config/env-vars.ts"
+        },
+        {
           "path": "src/runtime/crew-agent-records.ts",
           "kind": "import-statement",
           "original": "../runtime/crew-agent-records.ts"
@@ -18370,6 +18427,11 @@
           "path": "src/state/event-log/event-log.ts",
           "kind": "import-statement",
           "original": "../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/state/stores/plan-store.ts",
+          "kind": "import-statement",
+          "original": "../state/stores/plan-store.ts"
         },
         {
           "path": "src/state/stores/state-store.ts",
@@ -20109,7 +20171,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7329722
+      "bytes": 7354619
     },
     "dist/index.mjs": {
       "imports": [
@@ -21917,7 +21979,7 @@
       "entryPoint": "index.bundle.ts",
       "inputs": {
         "src/config/env-vars.ts": {
-          "bytesInOutput": 22212
+          "bytesInOutput": 22367
         },
         "src/utils/internal-error.ts": {
           "bytesInOutput": 525
@@ -22793,7 +22855,7 @@
           "bytesInOutput": 1568
         },
         "src/runtime/child-pi/child-pi-spawn.ts": {
-          "bytesInOutput": 7927
+          "bytesInOutput": 8017
         },
         "src/runtime/child-pi/child-pi-steering.ts": {
           "bytesInOutput": 2926
@@ -22961,7 +23023,7 @@
           "bytesInOutput": 508
         },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 8047
+          "bytesInOutput": 8610
         },
         "src/extension/tool-result.ts": {
           "bytesInOutput": 401
@@ -22988,7 +23050,7 @@
           "bytesInOutput": 3977
         },
         "src/runtime/model/model-fallback.ts": {
-          "bytesInOutput": 20780
+          "bytesInOutput": 21441
         },
         "src/runtime/model/session-model.ts": {
           "bytesInOutput": 2915
@@ -23687,7 +23749,7 @@
           "bytesInOutput": 6295
         },
         "src/ui/powerbar-publisher.ts": {
-          "bytesInOutput": 13361
+          "bytesInOutput": 14566
         },
         "src/ui/format-helpers.ts": {
           "bytesInOutput": 709
@@ -23860,8 +23922,11 @@
         "src/runtime/scheduling/parallel-research.ts": {
           "bytesInOutput": 2707
         },
+        "src/runtime/model/model-budget-summary.ts": {
+          "bytesInOutput": 1200
+        },
         "src/extension/team-tool/run-intent.ts": {
-          "bytesInOutput": 11059
+          "bytesInOutput": 11339
         },
         "src/runtime/chain-parser.ts": {
           "bytesInOutput": 4930
@@ -23920,6 +23985,9 @@
         "src/ui/dashboard-panes/metrics-pane.ts": {
           "bytesInOutput": 1149
         },
+        "src/ui/dashboard-panes/plan-pane.ts": {
+          "bytesInOutput": 4297
+        },
         "src/ui/dwf-phase-display.ts": {
           "bytesInOutput": 2364
         },
@@ -23927,7 +23995,7 @@
           "bytesInOutput": 2061
         },
         "src/ui/dashboard-panes/transcript-pane.ts": {
-          "bytesInOutput": 510
+          "bytesInOutput": 1320
         },
         "src/ui/dynamic-border.ts": {
           "bytesInOutput": 850
@@ -23936,7 +24004,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 30511
+          "bytesInOutput": 30927
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -24107,7 +24175,7 @@
           "bytesInOutput": 3062
         },
         "src/ui/run-snapshot-cache.ts": {
-          "bytesInOutput": 29534
+          "bytesInOutput": 30562
         },
         "src/extension/registration/crash-recovery-cache.ts": {
           "bytesInOutput": 750
@@ -24191,7 +24259,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3154353
+      "bytes": 3165144
     }
   }
 }

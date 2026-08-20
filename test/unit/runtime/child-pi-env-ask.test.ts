@@ -90,8 +90,11 @@ test("WP-2 step 2: read-only role spawn carries BOTH ask env vars (NOT scratchpa
 		assert.equal(mergedEnv.PI_CREW_STATE_ROOT, path.dirname(eventsPath), `${role}: stateRoot must reach the child`);
 		// …while the scratchpad-gated vars stay ABSENT for the same role —
 		// proving the ask plumbing is a SEPARATE, unconditional path.
+		// WP-9 (R9): PI_CREW_TASK_ID now threads with the unconditional worker
+		// events channel (eventsPath present) — it is no longer scratchpad-only;
+		// the assertion flips accordingly (events channel ≠ scratchpad exec).
 		assert.equal(builtEnv.PI_CREW_SCRATCHPAD, undefined, `${role}: scratchpad stays gated`);
-		assert.equal(builtEnv.PI_CREW_TASK_ID, undefined, `${role}: task id stays scratchpad-gated`);
+		assert.equal(builtEnv.PI_CREW_TASK_ID, "task-1", `${role}: task id rides the unconditional events channel (WP-9)`);
 		assert.equal(builtEnv.PI_CREW_ARTIFACTS_ROOT, undefined, `${role}: artifacts root stays scratchpad-gated`);
 	}
 });

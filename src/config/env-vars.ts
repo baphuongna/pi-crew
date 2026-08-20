@@ -319,6 +319,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS",
 		doc: "'1' trusts project/.pi agent extensions (discover-agents.ts:445/544)",
 	},
+	PI_CREW_PLAN_UI: {
+		name: "PI_CREW_PLAN_UI",
+		doc: "'1' enables the Plan dashboard pane (7) + plans snapshot slice (WP-7/R7)",
+	},
 	PI_CREW_TRUST_PROJECT_DWF: {
 		name: "PI_CREW_TRUST_PROJECT_DWF",
 		doc: "'1' allows project-sourced .dwf.ts workflows (dynamic-workflow-runner.ts:154)",

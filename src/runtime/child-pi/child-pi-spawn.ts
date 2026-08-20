@@ -315,6 +315,17 @@ export function prepareSpawnContext(
 		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
 		// runId/taskId are threaded unconditionally above (I5); nothing to add here.
 	}
+	// WP-9 (R9): the worker self-reporting channel env is UNCONDITIONAL —
+	// previously scratchpad-gated, which excluded read-only roles by design
+	// (S-6) and left them no reporting path. The bounded channel module
+	// (worker-events-channel.ts) rate-limits + schema-tags worker.* appends.
+	// Control-namespace keys → assertOnlyControlEnvKeys. PI_CREW_TASK_ID is
+	// set here when absent so the channel's events carry their task (the
+	// scratchpad block below sets it first when it runs — same value).
+	if (input.eventsPath) {
+		built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
+		if (input.agentId && !built.env.PI_CREW_TASK_ID) built.env.PI_CREW_TASK_ID = input.agentId;
+	}
 	// Phase 1 scratchpad: opt in the persistent Bun-free JS evaluator (execute
 	// tool) for this worker. Gated by role/agent (S-6 read-only roles never;
 	// F6 agent.scratchpad===false kills). All keys are PI_CREW_* control vars →
@@ -330,12 +341,7 @@ export function prepareSpawnContext(
 			// artifactsRoot after F4/S-1).
 			built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
 		}
-		// I5: thread the run's events path so the worker's scratchpad execute
-		// handler can append fire-and-forget metric events (scratchpad.cell /
-		// scratchpad.restored). Optional — absent in non-team contexts.
-		if (input.eventsPath) {
-			built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
-		} // F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
+		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
 		// point it at a temp dir; the worker reads it then writeArtifact()
 		// (redact+atomic) is the ONLY writer into artifactsRoot.
 		// R3-1: built.tempDir is only created by buildPiWorkerArgs when the agent

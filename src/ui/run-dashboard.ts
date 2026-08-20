@@ -17,6 +17,7 @@ import { summarizeTerminalReason } from "./dashboard-panes/cancellation-pane.ts"
 import { renderHealthPane } from "./dashboard-panes/health-pane.ts";
 import { renderMailboxPane } from "./dashboard-panes/mailbox-pane.ts";
 import { renderMetricsPane } from "./dashboard-panes/metrics-pane.ts";
+import { renderPlanPane } from "./dashboard-panes/plan-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
@@ -76,7 +77,7 @@ export interface RunDashboardOptions {
  * looking at. Resetting to "agents" on every `new RunDashboard(...)` was a
  * UX regression.
  */
-let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" = "agents";
+let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" = "agents";
 
 export type RunDashboardAction =
 	| "status"
@@ -407,7 +408,9 @@ export class RunDashboard implements DashboardComponent {
 	private runScrollOffset = 0;
 	private showFullProgress = false;
 	private showHelp = false;
-	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" = lastActivePane;
+	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" = lastActivePane;
+	/** WP-7 (R7): pane-scoped revision-diff toggle (X). */
+	private planDiff = false;
 	private runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
 	private readonly theme: CrewTheme;
@@ -641,7 +644,7 @@ export class RunDashboard implements DashboardComponent {
 				lines.push(
 					border("╭", "╮"),
 					row(
-						`${fg("accent", "▐")} ${this.theme.bold("pi-crew")} · ${this.runs.length} runs  ${fg("dim", "1-6 pane · ↑↓ · Enter · ? help · Esc")}`,
+						`${fg("accent", "▐")} ${this.theme.bold("pi-crew")} · ${this.runs.length} runs  ${fg("dim", "1-7 pane · ↑↓ · Enter · ? help · Esc")}`,
 					),
 					sep(),
 				);
@@ -735,7 +738,9 @@ export class RunDashboard implements DashboardComponent {
 															registry: this.options.registry,
 														}),
 													)
-												: safeRenderPane("transcript", () => renderTranscriptPane(snap))
+												: this.activePane === "plan"
+													? safeRenderPane("plan", () => renderPlanPane(snap, { diff: this.planDiff }))
+													: safeRenderPane("transcript", () => renderTranscriptPane(snap))
 							: [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
 						const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
 						if (filteredPane.length > 0) {
@@ -891,7 +896,12 @@ export class RunDashboard implements DashboardComponent {
 		else if (action === "pane-output") this.activePane = "output";
 		else if (action === "pane-health") this.activePane = "health";
 		else if (action === "pane-metrics") this.activePane = "metrics";
-		else if (action === "up") this.selected = Math.max(0, this.selected - 1);
+		else if (action === "pane-plan") this.activePane = "plan";
+		else if (action === "plan-diff") {
+			this.planDiff = !this.planDiff;
+			this.invalidate();
+			return;
+		} else if (action === "up") this.selected = Math.max(0, this.selected - 1);
 		else if (action === "down") {
 			const selectableCount = groupedRuns(this.runs, this.options.snapshotCache).filter((row) => row.run).length;
 			this.selected = Math.min(Math.max(0, selectableCount - 1), this.selected + 1);
