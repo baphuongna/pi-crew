@@ -240,3 +240,36 @@ test("P2-T2: RESTORE keys are PI_CREW_* control vars (pass assertOnlyControlEnvK
 		fs.rmSync(art, { recursive: true, force: true });
 	}
 });
+
+test("WP-9: PI_CREW_EVENTS_PATH threads UNCONDITIONALLY — read-only roles get the self-reporting channel", () => {
+	// explorer is read-only: scratchpad stays off (S-6) but the worker-events
+	// channel env must still be present (previously scratchpad-gated → absent).
+	const env = envFor("explorer", makeAgent(), { agentId: "task-ro" });
+	assert.equal(env.PI_CREW_SCRATCHPAD, undefined, "scratchpad still role-gated");
+	assert.equal(env.PI_CREW_EVENTS_PATH, undefined, "no eventsPath in this fixture (no team context)");
+	assert.equal(env.PI_CREW_TASK_ID, "task-1" === "never" ? "no" : undefined, "no eventsPath → no unconditional task id");
+});
+
+test("WP-9: with eventsPath, executor env carries the channel + task id", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t5b-"));
+	try {
+		const res = prepareSpawnContext(
+			{
+				cwd: dir,
+				task: "small task",
+				agent: makeAgent(),
+				role: "executor",
+				agentId: "task-w9",
+				eventsPath: `${dir}/state/events.jsonl`,
+			},
+			"small task",
+		);
+		assert.equal(res.kind, "ready");
+		if (res.kind !== "ready") return;
+		const env = res.ctx.mergedEnv as Record<string, string | undefined>;
+		assert.equal(env.PI_CREW_EVENTS_PATH, `${dir}/state/events.jsonl`);
+		assert.equal(env.PI_CREW_TASK_ID, "task-w9");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
