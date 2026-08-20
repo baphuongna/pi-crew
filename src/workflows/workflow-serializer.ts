@@ -14,6 +14,8 @@ function serializeStep(step: WorkflowStep): string[] {
 	if (step.progress !== undefined) lines.push(`progress: ${step.progress ? "true" : "false"}`);
 	if (step.worktree !== undefined) lines.push(`worktree: ${step.worktree ? "true" : "false"}`);
 	if (step.verify !== undefined) lines.push(`verify: ${step.verify ? "true" : "false"}`);
+	if (step.specRefs?.length) lines.push(`specRefs: ${step.specRefs.join(", ")}`);
+	if (step.specStrict !== undefined && step.specStrict !== false) lines.push("specStrict: true");
 	lines.push("", step.task.trim(), "");
 	return lines;
 }
@@ -24,6 +26,7 @@ export function serializeWorkflow(workflow: WorkflowConfig): string {
 		`name: ${workflow.name}`,
 		`description: ${workflow.description}`,
 		...(workflow.maxConcurrency !== undefined ? [`maxConcurrency: ${workflow.maxConcurrency}`] : []),
+		...(workflow.specStrict !== undefined ? [`specStrict: ${workflow.specStrict ? "true" : "false"}`] : []),
 		"---",
 		"",
 		...workflow.steps.flatMap(serializeStep),

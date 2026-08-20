@@ -57,6 +57,12 @@ export const TEAM_EVENT_TYPES = [
 	"task.created",
 	"task.started",
 	"task.progress",
+	// T4/R6 (ADR-6 + erratum): spec-system events
+	"spec.frozen",
+	"spec.freeze_failed",
+	"spec.strict_platform_warning",
+	"spec.check_failed",
+	"task.spec_gate",
 	"hook.pre_step_started",
 	"hook.pre_step_completed",
 	"hook.pre_step_failed",

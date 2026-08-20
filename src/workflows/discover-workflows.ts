@@ -25,6 +25,8 @@ const STEP_CONFIG_KEYS = new Set([
 	"verify",
 	"task",
 	"seedPaths",
+	"specRefs",
+	"specStrict",
 	"preStepScript",
 	"preStepArgs",
 	"preStepTimeout",
@@ -69,6 +71,11 @@ function parseStepSection(id: string, body: string): WorkflowStep | undefined {
 		worktree: config.worktree === "true" ? true : config.worktree === "false" ? false : undefined,
 		verify: config.verify === "true" ? true : config.verify === "false" ? false : undefined,
 		seedPaths: parseCsv(config.seedPaths) || undefined,
+		specRefs: parseCsv(config.specRefs) || undefined,
+		// Tri-state (round-1 P1-2): ABSENT = undefined so the workflow-level flag
+		// survives the `step.specStrict ?? workflow.specStrict` dispatch merge; an
+		// explicit `false` stays false (per-step opt-out of a strict workflow).
+		specStrict: config.specStrict === undefined ? undefined : config.specStrict === "true" || config.specStrict === "1",
 		preStepScript: config.preStepScript || undefined,
 		preStepArgs: parseCsv(config.preStepArgs) || undefined,
 		preStepTimeout: parseOptionalInteger(config.preStepTimeout) ?? undefined,
@@ -183,6 +190,7 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 			maxConcurrency: parseOptionalInteger(frontmatter.maxConcurrency),
 			topology: parseTopology(frontmatter.topology),
 			coalesceMicroTasks: parseOptionalBoolean(frontmatter.coalesceMicroTasks),
+			specStrict: parseOptionalBoolean(frontmatter.specStrict),
 			steps,
 		};
 	} catch {

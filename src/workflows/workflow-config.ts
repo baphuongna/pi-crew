@@ -22,6 +22,12 @@ export interface WorkflowStep {
 	/** Per-step files to overlay into the worktree (in addition to global worktree.seedPaths).
 	 * Useful when only certain steps need access to local drafts or scripts. */
 	seedPaths?: string[];
+	/** T4/R6 (ADR-6): workspace SpecRecord ids this step is held to; frozen
+	 *  into the task packet at dispatch (specStrict per workflow frontmatter). */
+	specRefs?: string[];
+	/** T4/R6 (ADR-6 §7): per-step strict-mode opt-in. Normally inherited from
+	 *  the workflow-level frontmatter flag (merged at dispatch). */
+	specStrict?: boolean;
 	/** Path to a deterministic script to run before dispatching the LLM worker.
 	 * Script stdout is injected into the worker's prompt as context.
 	 * Pattern origin: Understand-Anything deterministic pre-step pattern. */
@@ -65,6 +71,10 @@ export interface WorkflowConfig {
 	 *  in v0.9.17 unless the workflow author opts in. See
 	 *  src/runtime/scheduling/coalesce-tasks.ts. */
 	coalesceMicroTasks?: boolean;
+	/** T4/R6 (ADR-6 §7): strict spec mode opt-in (frontmatter `specStrict: true`).
+	 *  Requires a verifier-role step (reject-start, §5) and fails the write-gate
+	 *  on coverage gaps or machine-check failures (§4). */
+	specStrict?: boolean;
 }
 
 /** A dynamic workflow (runtime === "dynamic"). steps is empty — the script is the source of truth. */

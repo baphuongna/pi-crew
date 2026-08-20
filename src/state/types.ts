@@ -56,6 +56,73 @@ export interface TaskOutputSchema {
 	example?: string;
 }
 
+export type SpecPriority = "must" | "should" | "could";
+
+/** T4/R6 (ADR-6 §1): workspace-level spec record — state/specs/<id>.json.
+ *  Revision machinery mirrors ADR-4 §1 PlanRecord (append-only revision list,
+ *  copy-forward linkage, stable requirement/acceptance ids). */
+export interface SpecRecord {
+	id: string;
+	version: number;
+	revisionOf?: number;
+	title: string;
+	requirements: Array<{ id: string; text: string; priority: SpecPriority }>;
+	acceptance: Array<{
+		id: string;
+		requirementId: string;
+		/** Free-text description of what counts as evidence (non-strict). */
+		check: string;
+		/** Strict mode (ADR-6 §4): machine-checkable form. */
+		command?: string;
+		expectedDigest?: string;
+		expectedExitCode?: number;
+		idempotent?: boolean;
+	}>;
+	source: { kind: "manual" | "generated"; by?: string; from?: string };
+	/** INFORMATIONAL copy of the store-mint provenance sidecar — the strict
+	 *  gate NEVER trusts this field alone (ADR-6 §4 provenance enforcement). */
+	trusted?: boolean;
+}
+
+/** Immutable per-task freeze (ADR-6 §1): embedded into the TaskPacket at
+ *  dispatch; the strict gate executes ONLY snapshot-frozen commands. */
+export interface SpecSnapshotItem {
+	requirement: SpecRecord["requirements"][number];
+	acceptance: SpecRecord["acceptance"][number];
+}
+
+export interface SpecSnapshot {
+	specId: string;
+	version: number;
+	frozenAt: string;
+	/** Provenance v2 (ADR-6 §4 + erratum): trust decided ONCE at freeze from
+	 *  the user-store digest sidecar; the strict gate reads only this frozen
+	 *  bit — post-freeze mint/delete cannot affect a running task. */
+	trustedAtFreeze: boolean;
+	items: SpecSnapshotItem[];
+}
+
+/** T4/R6 (ADR-6 §3): non-strict coverage-gate report persisted on the task.
+ *  Non-strict NEVER blocks — gaps surface as the `unverified` badge only. */
+export interface SpecGateResult {
+	/** "coverage" = non-strict (§3); "strict" arrives with the §4 sandbox. */
+	mode: "coverage" | "strict";
+	/** false for spec-less tasks — gate not applicable (regression guard). */
+	applicable: boolean;
+	footerPresent: boolean;
+	/** Cited ids in citation order (duplicates preserved). */
+	citedIds: string[];
+	/** Must-acceptance ids NOT cited — mechanically-detectable gap. */
+	missingMustIds: string[];
+	/** Cited ids that exist in no snapshot — fabrication signal (§2). */
+	unknownIds: string[];
+	/** Set ONLY on mechanically-detectable gaps (missing footer / missing
+	 *  must-ids / unknown ids). Full-coverage fabrication passes with NO badge. */
+	badge?: "unverified";
+	/** acceptanceId → one-line evidence text (verifier advisory input, §5). */
+	evidence: Record<string, string>;
+}
+
 export interface TaskPacket {
 	objective: string;
 	scope: TaskScope;
@@ -71,6 +138,17 @@ export interface TaskPacket {
 	expectedArtifacts: string[];
 	verification: VerificationContract;
 	outputSchema?: TaskOutputSchema;
+	/** T4/R6 (ADR-6): workspace spec ids this task is held to (frozen below). */
+	specRefs?: string[];
+	/** T4/R6 (ADR-6 §7): strict mode — coverage AND machine-check (§4). */
+	specStrict?: boolean;
+	/** Declared specRefs that resolved to NO record at freeze (typo / not
+	 *  imported / corrupted). Non-strict: unverified badge. Strict: the gate
+	 *  fails — a strict workflow must never silently degrade to ungated. */
+	unresolvedSpecRefs?: string[];
+	/** Frozen snapshots embedded at dispatch — later spec edits never rewrite
+	 *  what a running task was held to. */
+	specSnapshots?: SpecSnapshot[];
 }
 
 export type PolicyDecisionAction = "retry" | "reassign" | "escalate" | "block" | "notify" | "cleanup" | "closeout" | "fail";
@@ -507,6 +585,9 @@ export interface TeamTaskState {
 	terminalEvidence?: OperationTerminalEvidence[];
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
+	/** T4/R6 (ADR-6 §3): SPEC-EVIDENCE coverage report. Present only when the
+	  task carried specSnapshots; non-strict gaps show as badge:"unverified". */
+	specGate?: SpecGateResult;
 	graph?: TaskGraphNode;
 	adaptive?: {
 		phase: string;

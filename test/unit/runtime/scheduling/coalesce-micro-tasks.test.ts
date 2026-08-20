@@ -33,6 +33,23 @@ function makeWorkflow(steps: WorkflowStep[]): WorkflowConfig {
 	};
 }
 
+test("coalesce: spec-carrying steps never coalesce (round-1 P2 — the coalesced path bypasses the spec gate)", () => {
+	const tasks = [makeTask("a", "explorer", "/cwd", "step-a"), makeTask("b", "explorer", "/cwd", "step-b")];
+	const wfSpecRefs = makeWorkflow([
+		makeStep("step-a", "explorer", "explore A"),
+		{ ...makeStep("step-b", "explorer", "explore B"), specRefs: ["spec-x"] },
+	]);
+	const wfStrict = makeWorkflow([
+		makeStep("step-a", "explorer", "explore A"),
+		{ ...makeStep("step-b", "explorer", "explore B"), specStrict: true },
+	]);
+	const groupsRefs = planCoalescedGroups(["a", "b"], tasks, wfSpecRefs, true);
+	const groupsStrict = planCoalescedGroups(["a", "b"], tasks, wfStrict, true);
+	for (const g of [...groupsRefs, ...groupsStrict]) {
+		assert.ok(!g.tasks.some((x) => x.id === "b"), `spec step excluded from group ${g.id}`);
+	}
+});
+
 test("coalesce: flag off returns empty (caller decides)", () => {
 	const tasks = [makeTask("a", "explorer", "/cwd", "step-a")];
 	const workflow = makeWorkflow([makeStep("step-a", "explorer", "explore A")]);

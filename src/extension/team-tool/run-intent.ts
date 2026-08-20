@@ -16,6 +16,7 @@ import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { sanitizeTaskText } from "../../runtime/task-packet.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { loadSpecRecord } from "../../state/stores/spec-store.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import { errorMessage } from "../../utils/guards.ts";
@@ -23,6 +24,38 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workflows.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+
+/** T4/R6 (ADR-6 §5 + round-1): reject-start reason for strict usage —
+ *  exported for tests. undefined = start allowed. Covers: workflow-level OR
+ *  step-level specStrict without a verifier-role step (per-step flags bypass
+ *  the same no-silent-self-certification rule), DWF (structurally verifier-
+ *  less in v0.10.x), and — when cwd is provided — declared specRefs that
+ *  resolve to nothing at start (fail-closed freeze, round-1 P2). */
+export function specStrictRejectReason(workflow: WorkflowConfig, cwd?: string): string | undefined {
+	const strict = workflow.specStrict === true || workflow.steps.some((s) => s.specStrict === true);
+	if (!strict) return undefined;
+	if (workflow.runtime === "dynamic") {
+		return `Workflow '${workflow.name}' uses specStrict, but dynamic workflows do not support strict spec mode in v0.10.x (ctx.agent() tasks have no verifier-role gate). Drop specStrict for DWF runs (ADR-6 erratum §11).`;
+	}
+	if (!workflow.steps.some((s) => s.role === "verifier")) {
+		return `Workflow '${workflow.name}' enables specStrict (workflow or step level) but has no verifier-role step — strict mode requires independent verification (ADR-6 §5). Add a verifier step or drop specStrict.`;
+	}
+	if (cwd) {
+		// Round-1 P2: fail-closed at START — a strict step whose specRefs resolve
+		// to nothing would otherwise silently degrade to ungated at dispatch.
+		const declared = [...(workflow.specStrict === true ? workflow.steps : workflow.steps.filter((s) => s.specStrict === true))]
+			.flatMap((s) => s.specRefs ?? [])
+			.map((id) => ({ id, resolved: loadSpecRecord(cwd, id) !== undefined }))
+			.filter((x) => !x.resolved);
+		if (declared.length > 0) {
+			return `Workflow '${workflow.name}' is strict but these specRefs resolve to nothing in state/specs (typo, not imported, or corrupted): ${declared
+				.map((x) => x.id)
+				.join(", ")}. Import them first (scripts/spec-import.mjs) or fix the refs (ADR-6 erratum §11).`;
+		}
+	}
+	return undefined;
+}
+
 import { assertCleanLeaderAsync, findGitRootAsync } from "../../worktree/worktree-manager.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import type { TeamContext } from "./context.ts";
@@ -271,6 +304,24 @@ export async function validateRunIntent(
 			new Error(`Ignoring runKind='${params.runKind}' because workflow '${workflow.name}' is not dynamic.`),
 			undefined,
 			"warn",
+		);
+	}
+
+	// T4/R6 (ADR-6 §5): REJECT-START — a strict-mode workflow without a
+	// verifier-role step fails at start (no silent self-certification).
+	// Non-strict workflows are unaffected.
+	const rejectReason = !directAgent ? specStrictRejectReason(workflow, resolvedCtx.cwd) : undefined;
+	if (rejectReason) {
+		return {
+			kind: "error",
+			result: result(rejectReason, { action: "run", status: "error" }, true),
+		};
+	}
+	// Platform honesty (ADR §4): loud warning — NOT best-effort. Where the
+	// re-run sandbox is unavailable every strict check fails closed.
+	if (!directAgent && workflow.specStrict === true && process.platform !== "linux") {
+		console.warn(
+			`⚠️  [team-tool.run] specStrict is enabled but this platform (${process.platform}) has no unshare -rn equivalent: every strict machine-check will FAIL CLOSED (ADR-6 §4).`,
 		);
 	}
 

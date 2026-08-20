@@ -107,6 +107,8 @@ Format:
 ---
 name: default
 description: Explore, plan, execute, verify
+maxConcurrency: 3
+specStrict: false
 ---
 
 ## explore
@@ -122,6 +124,15 @@ output: plan.md
 Create a plan for: {goal}
 ```
 
+Frontmatter fields:
+
+| Field | Meaning |
+| --- | --- |
+| `maxConcurrency` | Max parallel tasks for the run |
+| `topology` | Explicit topology classification |
+| `coalesceMicroTasks` | Coalesce micro-tasks sharing role+cwd into one worker prompt |
+| `specStrict` | T4/R6 (ADR-6): strict spec mode — coverage AND machine-check; requires a `verifier` role step (reject-start) |
+
 Step fields:
 
 | Field | Meaning |
@@ -136,5 +147,7 @@ Step fields:
 | `progress` | `true`/`false` |
 | `worktree` | `true`/`false` metadata |
 | `verify` | `true`/`false` verification marker |
+| `specRefs` | T4/R6 (ADR-6): workspace SpecRecord ids this step is held to (frozen into the packet at dispatch) |
+| `specStrict` | Per-step strict override (`true`/`1`) |
 
 Each step starts with `## step-id` followed by recognized step metadata such as `role:` before the blank line. Level-2 headings inside task bodies are preserved unless they look like a step section with recognized metadata; use `###` or lower for maximum compatibility.

@@ -62,6 +62,32 @@ Use observable checks:
 - compatibility requirements such as Windows paths or Pi CLI flags;
 - rollback notes.
 
+## Spec Pairs (pi-crew v0.10.1+, ADR-6)
+
+When the target runs pi-crew, author the **SpecRecord + TaskPacket pair** instead of prose-only acceptance:
+
+1. **SpecRecord** (workspace `state/specs/<id>.json`): `requirements[]` with
+   `must|should|could` priority + stable ids; `acceptance[]` entries each tied to
+   a `requirementId`. Machine-checkable acceptances carry `command`,
+   `expectedDigest` (sha-256 hex of stdout) or `expectedExitCode`, and
+   `idempotent: true` — only idempotent commands are ever re-run.
+2. **PROVENANCE — critical**: specs you (an agent/skill path) write are persisted
+   `generated` and NEVER re-executed by the orchestrator. `manual`+`trusted`
+   (the only specs strict mode re-runs) are minted exclusively by USER-facing
+   import actions — a worker cannot author a command the root re-executes.
+3. **Wire the workflow**: add `specRefs: [<spec ids>]` to steps held to the spec;
+   `specStrict: true` in frontmatter opts the whole workflow into strict mode
+   (requires a `verifier` role step — the run rejects at start otherwise).
+4. **Executor footer contract**: workers must END results with
+
+   ```text
+   SPEC-EVIDENCE:
+   <acceptanceId>: <one-line evidence>
+   ```
+
+   Non-strict = mechanical coverage only (`unverified` badge on gaps, never
+   blocks). Strict = coverage AND machine-check; failures fail the run.
+
 ## Enforcement — Requirements to Task Packet Gate
 
 **Before dispatching workers, verify task packet has:**

@@ -44,6 +44,7 @@ import { extractYieldResult, hasYieldInOutput, isYieldEvent, type YieldResult } 
 import { buildWorkerCapabilityInventory } from "./capabilities.ts";
 import type { TaskExecutionContext } from "./pre-execution.ts";
 import { buildWorkerPromptPipeline } from "./prompt-pipeline.ts";
+import { computeSpecGate } from "./spec-evidence.ts";
 import { persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 
 /**
@@ -63,6 +64,9 @@ export interface TaskExecutionResult {
 	modelAttempts: ModelAttemptSummary[] | undefined;
 	parsedOutput: ParsedPiJsonOutput | undefined;
 	finalStdout: string;
+	/** Round-1: un-trimmed final assistant text (pre-compaction) — the spec
+	 *  footer union prefers it, mirroring the result-artifact fallback chain. */
+	rawFinalText?: string;
 	transcriptPath: string | undefined;
 	terminalEvidence: OperationTerminalEvidence[];
 	startupEvidence: import("../heartbeat/worker-startup.ts").WorkerStartupEvidence;
@@ -114,6 +118,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 	let modelAttempts = execResult.modelAttempts;
 	const parsedOutput = execResult.parsedOutput;
 	const finalStdout = execResult.finalStdout;
+	const rawFinalText = execResult.rawFinalText;
 	const transcriptPath = execResult.transcriptPath;
 	const terminalEvidence = execResult.terminalEvidence;
 	const startupEvidence = execResult.startupEvidence;
@@ -386,6 +391,53 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		}
 	}
 
+	// --- T4/R6 (ADR-6 §3/§4): SPEC-EVIDENCE gate (coverage default, strict opt-in) ---
+	// Extends the classifier seam above. All mechanics live in computeSpecGate
+	// (unit-testable, round-1 P3): footer = union of every authoritative result
+	// source (rawFinalText/finalText/finalStdout — compaction can empty finalText
+	// while the footer survives elsewhere); sandbox cwd = the TASK workspace
+	// (worktree-aware); scaffold mode + already-failed tasks skip machine-checks;
+	// a strict failure PREFIXES any pre-existing error (round-1 P3).
+	const specGateResult = await computeSpecGate({
+		packet: taskPacket,
+		rawFinalText,
+		finalText: parsedOutput?.finalText,
+		finalStdout,
+		sandboxCwd: task.cwd,
+		runtimeKind,
+		alreadyFailed: Boolean(error),
+	});
+	for (const event of specGateResult.events) {
+		await appendEventAsync(manifest.eventsPath, {
+			type: event.type,
+			runId: manifest.runId,
+			taskId: task.id,
+			data: event.data,
+		});
+	}
+	if (specGateResult.specGate?.badge) {
+		await appendEventAsync(manifest.eventsPath, {
+			type: "task.spec_gate",
+			runId: manifest.runId,
+			taskId: task.id,
+			data: {
+				mode: specGateResult.specGate.mode,
+				badge: specGateResult.specGate.badge,
+				footerPresent: specGateResult.specGate.footerPresent,
+				missingMustIds: specGateResult.specGate.missingMustIds,
+				unknownIds: specGateResult.specGate.unknownIds,
+				...(specGateResult.specGate.strict ? { strictPassed: specGateResult.specGate.strict.passed } : {}),
+			},
+		});
+	}
+	const specGate = specGateResult.specGate;
+	if (specGateResult.gateError) {
+		// Strict gate failure fails the write-gate (ADR §4) — prefix, never
+		// replace, the upstream failure cause (round-1 P3).
+		error = error ? `${error}; ${specGateResult.gateError}` : specGateResult.gateError;
+		exitCode = exitCode === 0 ? 1 : exitCode;
+	}
+
 	task = {
 		...task,
 		status: error ? "failed" : noYield ? "needs_attention" : "completed",
@@ -403,6 +455,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 				: task.agentProgress,
 		error,
 		verification: verificationEvidence,
+		...(specGate ? { specGate } : {}),
 		resultArtifact,
 		claim: undefined,
 		heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
