@@ -52,6 +52,7 @@ const reqIds = new Set(record.requirements.map((r) => r.id));
 for (const a of record.acceptance) {
 	if (typeof a.id !== "string" || typeof a.check !== "string") fail("acceptance[].id/check required");
 	if (!reqIds.has(a.requirementId)) fail(`acceptance[${a.id}].requirementId '${a.requirementId}' matches no requirement`);
+	if (a.expectedDigest !== undefined && !/^[0-9a-f]{64}$/.test(a.expectedDigest)) fail(`acceptance[${a.id}].expectedDigest must be lowercase 64-hex sha-256`);
 }
 
 const store = await import(new URL("../src/state/stores/spec-store.ts", import.meta.url).href);

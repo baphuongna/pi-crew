@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { specStrictRejectReason } from "../../../../src/extension/team-tool/run-intent.ts";
+import { BASE_ALLOWLIST } from "../../../../src/runtime/child-pi/child-pi-spawn.ts";
 import { evaluateSpecStrict, parseSpecEvidenceFooter } from "../../../../src/runtime/task-runner/spec-evidence.ts";
 import { buildSpecSandboxEnv, runSpecCheck, SPEC_SANDBOX_LIMITS } from "../../../../src/runtime/verification/spec-sandbox.ts";
 import { freezeSpecSnapshot, isSpecTrusted, loadSpecRecord, saveSpecRecord } from "../../../../src/state/stores/spec-store.ts";
@@ -90,6 +91,17 @@ test("sandbox env: BASE_ALLOWLIST pattern MINUS credential keys — no provider 
 	assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "broker token stripped");
 	assert.equal(env.MY_APP_CREDENTIAL, undefined, "credential-shaped key stripped");
 	assert.equal(env.FORCE_COLOR, "0");
+});
+
+test("sandbox env: result key-set is EXACTLY the non-credential selection + FORCE_COLOR (no resurrection, round-2)", () => {
+	const env = buildSpecSandboxEnv({ ...process.env, ANTHROPIC_API_KEY: "x", X_AUTHORIZATION: "y" } as unknown as NodeJS.ProcessEnv);
+	const expected = new Set<string>();
+	for (const key of BASE_ALLOWLIST) {
+		if (/(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_BEARER|^PI_CREW_BROKER)/i.test(key)) continue;
+		if (process.env[key] !== undefined) expected.add(key);
+	}
+	expected.add("FORCE_COLOR");
+	assert.deepEqual(new Set(Object.keys(env)), expected, "no key outside the scrubbed selection can ever appear");
 });
 
 test("sandbox env: scrubber RESULT is authoritative (round-1: merge-back resurrected scrubbed keys)", () => {

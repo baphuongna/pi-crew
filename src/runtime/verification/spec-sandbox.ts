@@ -53,24 +53,25 @@ export const SPEC_SANDBOX_LIMITS: SpecSandboxLimits = {
  *  belt-and-suspenders against future BASE_ALLOWLIST additions. */
 const CREDENTIAL_KEY_PATTERN = /(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_BEARER|^PI_CREW_BROKER)/i;
 
-/** Sandbox env: BASE_ALLOWLIST pattern minus credential-carrying keys. */
+/** Sandbox env: BASE_ALLOWLIST pattern minus credential-carrying keys, then
+ *  the generic secret scrubber (deny-list). The scrubbed map IS the result —
+ *  never merged back into the selection (a merge-back resurrects keys the
+ *  scrubber dropped). */
 export function buildSpecSandboxEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-	const base: Record<string, string> = {};
+	const selected: Record<string, string> = {};
 	for (const key of BASE_ALLOWLIST) {
 		if (CREDENTIAL_KEY_PATTERN.test(key)) continue;
 		const value = env[key];
-		if (value !== undefined) base[key] = value;
+		if (value !== undefined) selected[key] = value;
 	}
-	// Second pass: the generic secret scrubber (env-filter, deny-list mode)
-	// over the selected set — defense in depth against secret-shaped keys
-	// smuggled into future BASE_ALLOWLIST additions.
-	const scrubbed = sanitizeEnvSecrets(base);
-	for (const key of Object.keys(scrubbed)) {
+	const scrubbed = sanitizeEnvSecrets(selected);
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(scrubbed)) {
 		if (CREDENTIAL_KEY_PATTERN.test(key)) continue;
-		base[key] = scrubbed[key] ?? base[key];
+		result[key] = value;
 	}
-	base.FORCE_COLOR = "0";
-	return base;
+	result.FORCE_COLOR = "0";
+	return result;
 }
 
 export type SpecCheckOutcomeKind =

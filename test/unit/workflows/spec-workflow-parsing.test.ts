@@ -51,6 +51,7 @@ Verify: {goal}
 		assert.deepEqual(build.specRefs, ["spec-api", "spec-ui"], "CSV specRefs parsed");
 		assert.equal(build.specStrict, false, "per-step strict override parsed");
 		assert.deepEqual(audit.specRefs, ["spec-audit"]);
+		assert.equal(audit.specStrict, undefined, "un-flagged step keeps undefined so the ?? merge inherits the workflow flag (round-2)");
 		assert.equal(audit.task.startsWith("Verify:"), true, "task body not swallowed by config lines");
 		// Round-1 P1-2 regression: workflow-level strict + step WITHOUT the flag
 		// must resolve STRICT at dispatch (the ?? fallback). A hard `false` parse
