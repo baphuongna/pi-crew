@@ -100,7 +100,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 8482,
+      "bytes": 8539,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 30943,
+      "bytes": 31162,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -14339,12 +14339,17 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 10697,
+      "bytes": 14969,
       "imports": [
         {
           "path": "src/runtime/usage-tracker.ts",
           "kind": "import-statement",
           "original": "../../runtime/usage-tracker.ts"
+        },
+        {
+          "path": "src/state/usage.ts",
+          "kind": "import-statement",
+          "original": "../../state/usage.ts"
         },
         {
           "path": "src/utils/visual.ts",
@@ -14499,34 +14504,13 @@
       ],
       "format": "esm"
     },
-    "src/ui/render-scheduler.ts": {
-      "bytes": 10291,
+    "src/ui/layout-primitives.ts": {
+      "bytes": 2771,
       "imports": [
         {
-          "path": "src/utils/internal-error.ts",
+          "path": "src/utils/visual.ts",
           "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/ui/shared-overlay-scheduler.ts": {
-      "bytes": 3382,
-      "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
-        {
-          "path": "src/ui/render-scheduler.ts",
-          "kind": "import-statement",
-          "original": "./render-scheduler.ts"
-        },
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "./run-event-bus.ts"
+          "original": "../utils/visual.ts"
         }
       ],
       "format": "esm"
@@ -14704,19 +14688,8 @@
       ],
       "format": "esm"
     },
-    "src/ui/layout-primitives.ts": {
-      "bytes": 2771,
-      "imports": [
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../utils/visual.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 10380,
+      "bytes": 13417,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -14766,8 +14739,72 @@
       ],
       "format": "esm"
     },
+    "src/ui/inline-panel/panel-rows.ts": {
+      "bytes": 1600,
+      "imports": [
+        {
+          "path": "src/runtime/process-status.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/process-status.ts"
+        },
+        {
+          "path": "src/ui/widget/widget-renderer.ts",
+          "kind": "import-statement",
+          "original": "../widget/widget-renderer.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/panel-selection.ts": {
+      "bytes": 5749,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/panel-store.ts": {
+      "bytes": 3610,
+      "imports": [
+        {
+          "path": "src/ui/inline-panel/panel-selection.ts",
+          "kind": "import-statement",
+          "original": "./panel-selection.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/render-scheduler.ts": {
+      "bytes": 10291,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/shared-overlay-scheduler.ts": {
+      "bytes": 3382,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/ui/render-scheduler.ts",
+          "kind": "import-statement",
+          "original": "./render-scheduler.ts"
+        },
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "./run-event-bus.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/widget/index.ts": {
-      "bytes": 17717,
+      "bytes": 19223,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -14778,6 +14815,16 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-rows.ts",
+          "kind": "import-statement",
+          "original": "../inline-panel/panel-rows.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-store.ts",
+          "kind": "import-statement",
+          "original": "../inline-panel/panel-store.ts"
         },
         {
           "path": "src/ui/pi-ui-compat.ts",
@@ -19435,6 +19482,120 @@
       "imports": [],
       "format": "esm"
     },
+    "src/ui/inline-panel/agent-transcript.ts": {
+      "bytes": 7480,
+      "imports": [
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/crew-agent-records.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/agent-pane.ts": {
+      "bytes": 7227,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-coding-agent",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "../theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/agent-transcript.ts",
+          "kind": "import-statement",
+          "original": "./agent-transcript.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-store.ts",
+          "kind": "import-statement",
+          "original": "./panel-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/crew-editor.ts": {
+      "bytes": 6330,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-coding-agent",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/ui/inline-panel/panel-selection.ts",
+          "kind": "import-statement",
+          "original": "./panel-selection.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-store.ts",
+          "kind": "import-statement",
+          "original": "./panel-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/index.ts": {
+      "bytes": 6254,
+      "imports": [
+        {
+          "path": "src/extension/tool-result.ts",
+          "kind": "import-statement",
+          "original": "../../extension/tool-result.ts"
+        },
+        {
+          "path": "src/ui/pi-ui-compat.ts",
+          "kind": "import-statement",
+          "original": "../pi-ui-compat.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/agent-pane.ts",
+          "kind": "import-statement",
+          "original": "./agent-pane.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/agent-transcript.ts",
+          "kind": "import-statement",
+          "original": "./agent-transcript.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/crew-editor.ts",
+          "kind": "import-statement",
+          "original": "./crew-editor.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-store.ts",
+          "kind": "import-statement",
+          "original": "./panel-store.ts"
+        },
+        {
+          "path": "src/extension/team-tool.ts",
+          "kind": "dynamic-import",
+          "original": "../../extension/team-tool.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/utils/run-watcher-registry.ts": {
       "bytes": 5509,
       "imports": [
@@ -19520,7 +19681,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 47069,
+      "bytes": 47400,
       "imports": [
         {
           "path": "node:fs",
@@ -19631,6 +19792,11 @@
           "path": "src/ui/heartbeat-aggregator.ts",
           "kind": "import-statement",
           "original": "../../ui/heartbeat-aggregator.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/index.ts",
+          "kind": "import-statement",
+          "original": "../../ui/inline-panel/index.ts"
         },
         {
           "path": "src/ui/pi-ui-compat.ts",
@@ -20171,7 +20337,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7354619
+      "bytes": 7423759
     },
     "dist/index.mjs": {
       "imports": [
@@ -21946,6 +22112,26 @@
           "external": true
         },
         {
+          "path": "@earendil-works/pi-coding-agent",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-coding-agent",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -21994,7 +22180,7 @@
           "bytesInOutput": 20539
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 5347
+          "bytesInOutput": 5405
         },
         "src/state/coordination/locks.ts": {
           "bytesInOutput": 10382
@@ -22747,7 +22933,7 @@
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 26001
+          "bytesInOutput": 26225
         },
         "src/config/config-merge.ts": {
           "bytesInOutput": 4554
@@ -23746,7 +23932,7 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 6295
+          "bytesInOutput": 8122
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 14566
@@ -23763,11 +23949,8 @@
         "src/ui/tool-renderers/index.ts": {
           "bytesInOutput": 21472
         },
-        "src/ui/render-scheduler.ts": {
-          "bytesInOutput": 7918
-        },
-        "src/ui/shared-overlay-scheduler.ts": {
-          "bytesInOutput": 1690
+        "src/ui/layout-primitives.ts": {
+          "bytesInOutput": 2240
         },
         "src/runtime/stale-reconciler.ts": {
           "bytesInOutput": 17034
@@ -23778,14 +23961,26 @@
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2438
         },
-        "src/ui/layout-primitives.ts": {
-          "bytesInOutput": 2240
-        },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 6412
+          "bytesInOutput": 7843
+        },
+        "src/ui/inline-panel/panel-rows.ts": {
+          "bytesInOutput": 627
+        },
+        "src/ui/inline-panel/panel-selection.ts": {
+          "bytesInOutput": 2096
+        },
+        "src/ui/inline-panel/panel-store.ts": {
+          "bytesInOutput": 1585
+        },
+        "src/ui/render-scheduler.ts": {
+          "bytesInOutput": 7918
+        },
+        "src/ui/shared-overlay-scheduler.ts": {
+          "bytesInOutput": 1690
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 11035
+          "bytesInOutput": 11846
         },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
@@ -23971,7 +24166,7 @@
           "bytesInOutput": 4137
         },
         "src/ui/dashboard-panes/agents-pane.ts": {
-          "bytesInOutput": 4528
+          "bytesInOutput": 4531
         },
         "src/ui/dashboard-panes/cancellation-pane.ts": {
           "bytesInOutput": 465
@@ -24028,7 +24223,7 @@
           "bytesInOutput": 30115
         },
         "src/extension/registration/commands/shared.ts": {
-          "bytesInOutput": 16574
+          "bytesInOutput": 16624
         },
         "src/extension/registration/commands/dashboard.ts": {
           "bytesInOutput": 4862
@@ -24196,7 +24391,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 28443
+          "bytesInOutput": 28509
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 62642
@@ -24221,6 +24416,18 @@
         },
         "src/runtime/session-snapshot.ts": {
           "bytesInOutput": 409
+        },
+        "src/ui/inline-panel/index.ts": {
+          "bytesInOutput": 3331
+        },
+        "src/ui/inline-panel/agent-pane.ts": {
+          "bytesInOutput": 4531
+        },
+        "src/ui/inline-panel/agent-transcript.ts": {
+          "bytesInOutput": 3649
+        },
+        "src/ui/inline-panel/crew-editor.ts": {
+          "bytesInOutput": 4048
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3309
@@ -24259,7 +24466,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3165144
+      "bytes": 3189879
     }
   }
 }

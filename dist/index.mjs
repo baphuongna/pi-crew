@@ -1489,6 +1489,8 @@ var init_defaults = __esm({
       widgetDefaultFrameMs: 1e3,
       widgetPlacement: "aboveEditor",
       widgetMaxLines: 8,
+      widgetRowStyle: "compact",
+      inlinePanel: true,
       powerbar: true,
       dashboardPlacement: "center",
       dashboardWidth: 72,
@@ -10924,9 +10926,12 @@ function parseUiConfig(value) {
   if (!obj) return void 0;
   const rawWidgetPlacement = parseWithSchema(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")]), obj.widgetPlacement);
   const rawDashboardPlacement = parseWithSchema(Type.Union([Type.Literal("center"), Type.Literal("right")]), obj.dashboardPlacement);
+  const rawRowStyle = parseWithSchema(Type.Union([Type.Literal("compact"), Type.Literal("detailed")]), obj.widgetRowStyle);
   const ui2 = {
     widgetPlacement: rawWidgetPlacement,
     widgetMaxLines: parsePositiveInteger(obj.widgetMaxLines, 50),
+    widgetRowStyle: rawRowStyle,
+    inlinePanel: parseWithSchema(Type.Boolean(), obj.inlinePanel),
     powerbar: parseWithSchema(Type.Boolean(), obj.powerbar),
     dashboardPlacement: rawDashboardPlacement,
     dashboardWidth: parseIntegerInRange(obj.dashboardWidth, 32, 120),
@@ -18849,12 +18854,12 @@ var init_run_event_bus = __esm({
       #flushScheduled = false;
       #disposed = false;
       on(runId, callback) {
-        const listeners2 = this.#listeners.get(runId) ?? /* @__PURE__ */ new Set();
-        listeners2.add(callback);
-        this.#listeners.set(runId, listeners2);
+        const listeners3 = this.#listeners.get(runId) ?? /* @__PURE__ */ new Set();
+        listeners3.add(callback);
+        this.#listeners.set(runId, listeners3);
         return () => {
-          listeners2.delete(callback);
-          if (listeners2.size === 0) this.#listeners.delete(runId);
+          listeners3.delete(callback);
+          if (listeners3.size === 0) this.#listeners.delete(runId);
         };
       }
       onAny(callback) {
@@ -18864,33 +18869,33 @@ var init_run_event_bus = __esm({
         };
       }
       off(runId, callback) {
-        const listeners2 = this.#listeners.get(runId);
-        if (listeners2) {
-          listeners2.delete(callback);
-          if (listeners2.size === 0) this.#listeners.delete(runId);
+        const listeners3 = this.#listeners.get(runId);
+        if (listeners3) {
+          listeners3.delete(callback);
+          if (listeners3.size === 0) this.#listeners.delete(runId);
         }
       }
       /** Subscribe to all events on a specific channel. */
       onChannel(channel, callback) {
-        const listeners2 = this.#channelListeners.get(channel) ?? /* @__PURE__ */ new Set();
-        listeners2.add(callback);
-        this.#channelListeners.set(channel, listeners2);
+        const listeners3 = this.#channelListeners.get(channel) ?? /* @__PURE__ */ new Set();
+        listeners3.add(callback);
+        this.#channelListeners.set(channel, listeners3);
         return () => {
-          listeners2.delete(callback);
-          if (listeners2.size === 0) this.#channelListeners.delete(channel);
+          listeners3.delete(callback);
+          if (listeners3.size === 0) this.#channelListeners.delete(channel);
         };
       }
       /** Subscribe to events on a specific channel for a given runId. */
       onChannelForRun(channel, runId, callback) {
         const runKey = `${channel}::${runId}`;
         const runMap = this.#channelRunListeners.get(runKey) ?? /* @__PURE__ */ new Map();
-        const listeners2 = runMap.get(channel) ?? /* @__PURE__ */ new Set();
-        listeners2.add(callback);
-        runMap.set(channel, listeners2);
+        const listeners3 = runMap.get(channel) ?? /* @__PURE__ */ new Set();
+        listeners3.add(callback);
+        runMap.set(channel, listeners3);
         this.#channelRunListeners.set(runKey, runMap);
         return () => {
-          listeners2.delete(callback);
-          if (listeners2.size === 0) runMap.delete(channel);
+          listeners3.delete(callback);
+          if (listeners3.size === 0) runMap.delete(channel);
           if (runMap.size === 0) this.#channelRunListeners.delete(runKey);
         };
       }
@@ -18979,9 +18984,9 @@ var init_run_event_bus = __esm({
        */
       #dispatchSync(event) {
         const channel = event.channel;
-        const listeners2 = this.#listeners.get(event.runId);
-        if (listeners2) {
-          for (const cb of listeners2) {
+        const listeners3 = this.#listeners.get(event.runId);
+        if (listeners3) {
+          for (const cb of listeners3) {
             try {
               cb(event);
             } catch {
@@ -55406,6 +55411,34 @@ function agentActivity(agent, liveHandle) {
   if (agent.status === "failed") return paint(agent.error ?? "failed", COLOR_RED);
   return "done";
 }
+function agentCost(agent) {
+  const cost = agent.usage?.cost;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
+  return formatCost(cost);
+}
+function budgetedRow(parts, width) {
+  const sep11 = parts.separator ?? " \xB7 ";
+  const { lead, suffix } = parts;
+  const name = parts.name.replace(/\s+/g, " ").trim();
+  const activity = parts.activity.replace(/\s+/g, " ").trim();
+  if (!name && !activity) return truncateToWidth(lead + suffix, width);
+  if (!activity) return fitNameOnly(lead, name, suffix, width);
+  if (!name) return fitNameOnly(lead, activity, suffix, width);
+  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep11);
+  if (budget < MIN_FIELD_WIDTH * 2) return fitNameOnly(lead, name, suffix, width);
+  const nameNatural = visibleWidth(name);
+  const activityNatural = visibleWidth(activity);
+  const activityRoom = Math.min(activityNatural, Math.max(MIN_FIELD_WIDTH, budget - nameNatural));
+  const nameRoom = Math.max(MIN_FIELD_WIDTH, budget - activityRoom);
+  const assembled = lead + truncateToWidth(name, nameRoom) + sep11 + truncateToWidth(activity, activityRoom) + suffix;
+  if (visibleWidth(assembled) <= width) return assembled;
+  return fitNameOnly(lead, name, suffix, width);
+}
+function fitNameOnly(lead, name, suffix, width) {
+  const fixed = visibleWidth(lead) + visibleWidth(suffix);
+  if (fixed >= width) return truncateToWidth(lead + suffix, width);
+  return lead + truncateToWidth(name, width - fixed) + suffix;
+}
 function agentStats(agent, liveHandle) {
   const parts = [];
   if (liveHandle) {
@@ -55414,6 +55447,8 @@ function agentStats(agent, liveHandle) {
     const usage = getTaskUsage(liveHandle.taskId);
     const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
     if (total > 0) parts.push(alignMetric(formatTokensCompact(total), TOKENS_METRIC_WIDTH));
+    const liveCost = agentCost(agent);
+    if (liveCost) parts.push(alignMetric(liveCost, COST_METRIC_WIDTH));
     try {
       const stats = liveHandle.session.getSessionStats?.();
       const ctxPct = stats?.contextUsage?.percent;
@@ -55429,6 +55464,8 @@ function agentStats(agent, liveHandle) {
   } else {
     if (agent.toolUses) parts.push(alignMetric(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
     if (agent.progress?.tokens) parts.push(alignMetric(formatTokensCompact(agent.progress.tokens), TOKENS_METRIC_WIDTH));
+    const cost = agentCost(agent);
+    if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
     const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
     if (agent.progress?.tokens && ageMs > 1e3) {
       const tps = Math.round(agent.progress.tokens / (ageMs / 1e3));
@@ -55447,11 +55484,12 @@ function notificationBadge(count2, env = process.env) {
   const label = count2 > NOTIFICATION_BADGE_CAP ? `${NOTIFICATION_BADGE_CAP}+ alerts` : `${count2} alerts`;
   return supportsEmoji ? ` \xB7 ${label}` : ` [${label}]`;
 }
-var RESET, COLOR_RED, COLOR_YELLOW, colorEnabled, TOOLS_METRIC_WIDTH, TOKENS_METRIC_WIDTH, TPS_METRIC_WIDTH, CTX_METRIC_WIDTH, DURATION_METRIC_WIDTH, TOOL_LABELS2, TOOL_ICONS, NOTIFICATION_BADGE_CAP;
+var RESET, COLOR_RED, COLOR_YELLOW, colorEnabled, TOOLS_METRIC_WIDTH, TOKENS_METRIC_WIDTH, TPS_METRIC_WIDTH, CTX_METRIC_WIDTH, DURATION_METRIC_WIDTH, COST_METRIC_WIDTH, TOOL_LABELS2, TOOL_ICONS, MIN_FIELD_WIDTH, NOTIFICATION_BADGE_CAP;
 var init_widget_formatters = __esm({
   "src/ui/widget/widget-formatters.ts"() {
     "use strict";
     init_usage_tracker();
+    init_usage();
     init_visual();
     init_live_duration();
     RESET = "\x1B[0m";
@@ -55463,6 +55501,7 @@ var init_widget_formatters = __esm({
     TPS_METRIC_WIDTH = 9;
     CTX_METRIC_WIDTH = 7;
     DURATION_METRIC_WIDTH = 6;
+    COST_METRIC_WIDTH = 9;
     TOOL_LABELS2 = {
       read: "reading",
       bash: "running command",
@@ -55482,6 +55521,7 @@ var init_widget_formatters = __esm({
       ls: "\u{1F4CB}",
       agent: "\u{1F916}"
     };
+    MIN_FIELD_WIDTH = 12;
     NOTIFICATION_BADGE_CAP = 99;
   }
 });
@@ -56574,276 +56614,84 @@ var init_tool_renderers = __esm({
   }
 });
 
-// src/ui/render-scheduler.ts
-var DEFAULT_EVENTS, CAP_BACKOFF_MAX_EXP, RenderScheduler;
-var init_render_scheduler = __esm({
-  "src/ui/render-scheduler.ts"() {
+// src/ui/layout-primitives.ts
+var Container, Box, Text2;
+var init_layout_primitives = __esm({
+  "src/ui/layout-primitives.ts"() {
     "use strict";
-    init_internal_error();
-    DEFAULT_EVENTS = [
-      "crew.run.created",
-      "crew.run.completed",
-      "crew.run.failed",
-      "crew.run.cancelled",
-      "crew.subagent.completed",
-      "crew.subagent.failed",
-      "crew.mailbox.updated",
-      "crew.mailbox.message"
-    ];
-    CAP_BACKOFF_MAX_EXP = 5;
-    RenderScheduler = class {
-      render;
-      onInvalidate;
-      debounceMs;
-      fallbackProvider;
-      fallbackMs;
-      invalidateCoalesceMs;
-      maxIdleFallbackRenders;
-      debounceTimer;
-      fallbackTimer;
-      invalidateTimer;
-      /** runId → most recent payload to forward when the coalesce window flushes. */
-      invalidateBuffer = /* @__PURE__ */ new Map();
-      disposed = false;
-      lastEventAt = 0;
-      rendering = false;
-      pendingRender = false;
-      /** R1: consecutive idle fallback renders since the last real event. */
-      idleFallbackRenders = 0;
-      /** R4: consecutive re-entrancy cap-hits — drives exponential backoff. */
-      consecutiveCapHits = 0;
-      unsubs = [];
-      constructor(events, render, options = {}) {
-        this.render = render;
-        this.onInvalidate = options.onInvalidate;
-        this.debounceMs = options.debounceMs ?? 75;
-        const fallback2 = options.fallbackMs ?? 750;
-        this.fallbackProvider = typeof fallback2 === "function" ? fallback2 : () => fallback2;
-        this.fallbackMs = typeof fallback2 === "number" ? fallback2 : 750;
-        this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
-        this.maxIdleFallbackRenders = options.maxIdleFallbackRenders ?? 8;
-        for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
-        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
-        this.fallbackTimer.unref();
+    init_visual();
+    Container = class {
+      children = [];
+      addChild(child) {
+        this.children.push(child);
       }
-      currentFallbackMs() {
-        try {
-          const value = this.fallbackProvider();
-          return Number.isFinite(value) && value > 0 ? value : 750;
-        } catch (error) {
-          logInternalError("render-scheduler.fallbackProvider", error);
-          return 750;
+      clear() {
+        this.children = [];
+      }
+      invalidate() {
+        for (const child of this.children) {
+          child.invalidate();
         }
       }
-      subscribe(events, event) {
-        if (!events?.on) return;
-        const handler = (payload) => this.schedule(payload);
-        try {
-          const unsub = events.on(event, handler);
-          if (typeof unsub === "function") this.unsubs.push(unsub);
-        } catch (error) {
-          logInternalError("render-scheduler.subscribe", error, event);
+      render(width) {
+        const lines = [];
+        for (const child of this.children) {
+          lines.push(...child.render(width));
         }
-      }
-      /** Recursive setTimeout — avoids setInterval timer storms. */
-      fallbackLoop() {
-        if (this.disposed) return;
-        const fallbackMs = this.currentFallbackMs();
-        if (Date.now() - this.lastEventAt < fallbackMs) {
-          this.idleFallbackRenders = 0;
-          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
-          this.fallbackTimer.unref();
-          return;
-        }
-        if (this.idleFallbackRenders >= this.maxIdleFallbackRenders) {
-          this.fallbackTimer = void 0;
-          return;
-        }
-        this.armDebouncedRender();
-        this.idleFallbackRenders += 1;
-        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
-        this.fallbackTimer.unref();
-      }
-      schedule(payload) {
-        if (this.disposed) return;
-        this.lastEventAt = Date.now();
-        this.idleFallbackRenders = 0;
-        this.consecutiveCapHits = 0;
-        this.invalidate(payload);
-        this.armDebouncedRender();
-        if (!this.fallbackTimer) {
-          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
-          this.fallbackTimer.unref();
-        }
-      }
-      /**
-       * Arm (or re-arm) the debounce timer that triggers a single flush. Shared by
-       * real-event schedules, the fallback path, and the re-entrancy cap drain.
-       * `delay` lets the cap apply exponential backoff (R4) without touching
-       * `lastEventAt` or `onInvalidate` (those belong to real external events).
-       */
-      armDebouncedRender(delay = this.debounceMs) {
-        if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => {
-          this.debounceTimer = void 0;
-          this.flush();
-        }, delay);
-        this.debounceTimer.unref();
-      }
-      /**
-       * 1.9: forward `onInvalidate` immediately when the payload has no `runId`
-       * (we cannot dedup it). When it carries a runId, buffer the latest payload
-       * per runId and flush on a coalesce timer so high-frequency event bursts
-       * (`crew.subagent.completed` for parallel tasks) collapse into one
-       * invalidate per affected run.
-       */
-      invalidate(payload) {
-        try {
-          const runId = typeof payload === "object" && payload !== null && "runId" in payload && typeof payload.runId === "string" ? payload.runId : void 0;
-          if (runId === void 0 || this.invalidateCoalesceMs <= 0) {
-            this.onInvalidate?.(payload);
-            return;
-          }
-          this.invalidateBuffer.set(runId, payload);
-          if (!this.invalidateTimer) {
-            this.invalidateTimer = setTimeout(() => this.flushInvalidate(), this.invalidateCoalesceMs);
-            this.invalidateTimer.unref();
-          }
-        } catch (error) {
-          logInternalError("render-scheduler.invalidate", error);
-        }
-      }
-      flushInvalidate() {
-        this.invalidateTimer = void 0;
-        if (this.disposed) {
-          this.invalidateBuffer.clear();
-          return;
-        }
-        const buffered = this.invalidateBuffer;
-        this.invalidateBuffer = /* @__PURE__ */ new Map();
-        for (const payload of buffered.values()) {
-          try {
-            this.onInvalidate?.(payload);
-          } catch (error) {
-            logInternalError("render-scheduler.invalidate.flush", error);
-          }
-        }
-      }
-      /**
-       * Flush a render.  If a render is already in progress the request is
-       * collapsed: `pendingRender` is set and the caller that holds
-       * `rendering==true` will loop one more time after finishing.
-       */
-      flush() {
-        if (this.disposed) return;
-        if (this.rendering) {
-          this.pendingRender = true;
-          return;
-        }
-        this.rendering = true;
-        this.pendingRender = false;
-        let iterations = 0;
-        try {
-          do {
-            this.pendingRender = false;
-            this.render();
-            iterations += 1;
-          } while (this.pendingRender && !this.disposed && iterations < 5);
-        } catch (error) {
-          logInternalError("render-scheduler.render", error);
-        } finally {
-          this.rendering = false;
-          if (iterations >= 5 && this.pendingRender && !this.disposed) {
-            this.consecutiveCapHits += 1;
-            const exp = Math.min(this.consecutiveCapHits - 1, CAP_BACKOFF_MAX_EXP);
-            this.armDebouncedRender(this.debounceMs * 2 ** exp);
-          } else {
-            this.consecutiveCapHits = 0;
-          }
-        }
-      }
-      dispose() {
-        if (this.disposed) return;
-        this.disposed = true;
-        if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
-        if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
-        this.debounceTimer = void 0;
-        this.fallbackTimer = void 0;
-        this.invalidateTimer = void 0;
-        this.invalidateBuffer.clear();
-        for (const unsub of this.unsubs.splice(0)) {
-          try {
-            unsub();
-          } catch (error) {
-            logInternalError("render-scheduler.unsubscribe", error);
-          }
-        }
+        return lines;
       }
     };
-  }
-});
-
-// src/ui/shared-overlay-scheduler.ts
-function ensureShared() {
-  if (shared) return shared;
-  const renderers = /* @__PURE__ */ new Set();
-  const invalidators = /* @__PURE__ */ new Set();
-  const scheduler = new RenderScheduler(
-    runEventBusAsRenderScheduler([...CHANNELS]),
-    () => {
-      for (const render of renderers) {
-        try {
-          render();
-        } catch (error) {
-          logInternalError("shared-overlay-scheduler.render", error);
+    Box = class extends Container {
+      paddingX;
+      paddingY;
+      constructor(paddingX = 0, paddingY = 0) {
+        super();
+        this.paddingX = paddingX;
+        this.paddingY = paddingY;
+      }
+      render(width) {
+        const innerWidth = Math.max(1, width - this.paddingX * 2);
+        const rows = super.render(innerWidth);
+        const paddedRows = [];
+        const left = " ".repeat(this.paddingX);
+        const right = " ".repeat(this.paddingX);
+        for (const row of rows) {
+          paddedRows.push(pad(`${left}${row}${right}`, width));
         }
-      }
-    },
-    {
-      debounceMs: 75,
-      fallbackMs: 750,
-      events: [...CHANNELS],
-      onInvalidate: (payload) => {
-        for (const invalidate of invalidators) {
-          try {
-            invalidate(payload);
-          } catch (error) {
-            logInternalError("shared-overlay-scheduler.invalidate", error);
-          }
+        const emptyRow = pad("", width);
+        if (this.paddingY <= 0) return paddedRows;
+        if (this.paddingY > 0) {
+          const topAndBottom = Array.from({ length: this.paddingY }, () => emptyRow);
+          return [...topAndBottom, ...paddedRows, ...topAndBottom];
         }
+        return paddedRows;
       }
-    }
-  );
-  shared = { scheduler, renderers, invalidators };
-  return shared;
-}
-function registerOverlayScheduler(render, onInvalidate) {
-  const state2 = ensureShared();
-  state2.renderers.add(render);
-  if (onInvalidate) state2.invalidators.add(onInvalidate);
-  return {
-    schedule: () => {
-      state2.scheduler.schedule();
-    },
-    dispose: () => {
-      state2.renderers.delete(render);
-      if (onInvalidate) state2.invalidators.delete(onInvalidate);
-      if (state2.renderers.size === 0) {
-        state2.scheduler.dispose();
-        if (shared === state2) shared = void 0;
+    };
+    Text2 = class {
+      text;
+      cachedWidth = 0;
+      cachedResult = [];
+      constructor(text = "") {
+        this.text = text;
       }
-    }
-  };
-}
-var CHANNELS, shared;
-var init_shared_overlay_scheduler = __esm({
-  "src/ui/shared-overlay-scheduler.ts"() {
-    "use strict";
-    init_internal_error();
-    init_render_scheduler();
-    init_run_event_bus();
-    CHANNELS = ["run:state", "worker:lifecycle", "ui:invalidate"];
+      setText(text) {
+        if (text === this.text) return;
+        this.text = text;
+        this.invalidate();
+      }
+      invalidate() {
+        this.cachedWidth = 0;
+        this.cachedResult = [];
+      }
+      render(width) {
+        if (this.cachedWidth === width) return this.cachedResult;
+        const wrapped = wrapHard(this.text, Math.max(1, width));
+        const lines = wrapped.length ? wrapped : [""];
+        this.cachedWidth = width;
+        this.cachedResult = lines.map((line4) => pad(line4, width));
+        return this.cachedResult;
+      }
+    };
   }
 });
 
@@ -57821,87 +57669,6 @@ var init_widget_model = __esm({
   }
 });
 
-// src/ui/layout-primitives.ts
-var Container, Box, Text2;
-var init_layout_primitives = __esm({
-  "src/ui/layout-primitives.ts"() {
-    "use strict";
-    init_visual();
-    Container = class {
-      children = [];
-      addChild(child) {
-        this.children.push(child);
-      }
-      clear() {
-        this.children = [];
-      }
-      invalidate() {
-        for (const child of this.children) {
-          child.invalidate();
-        }
-      }
-      render(width) {
-        const lines = [];
-        for (const child of this.children) {
-          lines.push(...child.render(width));
-        }
-        return lines;
-      }
-    };
-    Box = class extends Container {
-      paddingX;
-      paddingY;
-      constructor(paddingX = 0, paddingY = 0) {
-        super();
-        this.paddingX = paddingX;
-        this.paddingY = paddingY;
-      }
-      render(width) {
-        const innerWidth = Math.max(1, width - this.paddingX * 2);
-        const rows = super.render(innerWidth);
-        const paddedRows = [];
-        const left = " ".repeat(this.paddingX);
-        const right = " ".repeat(this.paddingX);
-        for (const row of rows) {
-          paddedRows.push(pad(`${left}${row}${right}`, width));
-        }
-        const emptyRow = pad("", width);
-        if (this.paddingY <= 0) return paddedRows;
-        if (this.paddingY > 0) {
-          const topAndBottom = Array.from({ length: this.paddingY }, () => emptyRow);
-          return [...topAndBottom, ...paddedRows, ...topAndBottom];
-        }
-        return paddedRows;
-      }
-    };
-    Text2 = class {
-      text;
-      cachedWidth = 0;
-      cachedResult = [];
-      constructor(text = "") {
-        this.text = text;
-      }
-      setText(text) {
-        if (text === this.text) return;
-        this.text = text;
-        this.invalidate();
-      }
-      invalidate() {
-        this.cachedWidth = 0;
-        this.cachedResult = [];
-      }
-      render(width) {
-        if (this.cachedWidth === width) return this.cachedResult;
-        const wrapped = wrapHard(this.text, Math.max(1, width));
-        const lines = wrapped.length ? wrapped : [""];
-        this.cachedWidth = width;
-        this.cachedResult = lines.map((line4) => pad(line4, width));
-        return this.cachedResult;
-      }
-    };
-  }
-});
-
 // src/ui/widget/widget-renderer.ts
 function widgetHeader(runs, runningGlyph, maxLines = 20, notificationCount = 0) {
   const agents = runs.flatMap((item) => item.agents);
@@ -57915,21 +57682,34 @@ function widgetHeader(runs, runningGlyph, maxLines = 20, notificationCount = 0) 
   if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
   return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} \xB7 ${parts.join(" \xB7 ")} \xB7 /team-dashboard`;
 }
-function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH) {
+function isActiveStatus(status) {
+  return status === "running" || status === "queued" || status === "waiting";
+}
+function orderWidgetAgents(entry, now = Date.now()) {
+  const active = entry.agents.filter((agent) => isActiveStatus(agent.status));
+  const finished = entry.agents.filter((agent) => {
+    if (isActiveStatus(agent.status)) return false;
+    if (!agent.completedAt) return false;
+    const maxAgeMs = (ERROR_STATUSES.has(agent.status) ? ERROR_LINGER_MAX_AGE : FINISHED_LINGER_MAX_AGE) * 6e4;
+    const age = now - new Date(agent.completedAt).getTime();
+    return Number.isFinite(age) && age < maxAgeMs;
+  });
+  return {
+    active: [...active].sort((a, b) => (ACTIVE_PRIORITY[a.status] ?? 9) - (ACTIVE_PRIORITY[b.status] ?? 9)),
+    finished
+  };
+}
+function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
+  const rowStyle = options.rowStyle ?? "detailed";
+  const focused = options.focused === true;
   const runs = providedRuns ?? activeWidgetRuns(cwd);
   if (!runs.length) return [];
   const runningGlyph = spinnerFrame("widget-header");
   const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
-  for (const { run, agents, snapshot } of runs) {
-    const activeAgents = agents.filter((a) => a.status === "running" || a.status === "queued" || a.status === "waiting");
+  for (const entry of runs) {
+    const { run, agents, snapshot } = entry;
     const now = Date.now();
-    const finishedAgents = agents.filter((item) => {
-      if (item.status === "running" || item.status === "queued" || item.status === "waiting") return false;
-      if (!item.completedAt) return false;
-      const maxAgeMs = (ERROR_STATUSES.has(item.status) ? ERROR_LINGER_MAX_AGE : FINISHED_LINGER_MAX_AGE) * 6e4;
-      const age = now - new Date(item.completedAt).getTime();
-      return Number.isFinite(age) && age < maxAgeMs;
-    });
+    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
     const completed = agents.filter((a) => a.status === "completed").length;
     const planPending = isPlanApprovalStatePending(run.planApproval);
     const runGlyph = planPending ? `\u26A0 plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
@@ -57942,35 +57722,62 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     const progressPart = `${agentCountText} \xB7 ${runElapsedText}${statusLabel}`;
     lines.push(truncate(`\u251C\u2500 ${runGlyph} ${shortRunLabel(run)} \xB7 ${progressPart} \xB7 ${run.runId.slice(-8)}`, width));
     const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
-    const ACTIVE_PRIORITY = {
-      running: 0,
-      queued: 1,
-      waiting: 2
-    };
-    const prioritizedActive = [...activeAgents].sort((a, b) => (ACTIVE_PRIORITY[a.status] ?? 9) - (ACTIVE_PRIORITY[b.status] ?? 9));
-    const finishedSlots = Math.max(0, Math.min(2, MAX_AGENTS_DISPLAY - activeAgents.length));
-    const visibleAgents = prioritizedActive.slice(0, MAX_AGENTS_DISPLAY);
+    const activeCap = focused ? activeAgents.length : MAX_AGENTS_DISPLAY;
+    const finishedSlots = focused ? finishedAgents.length : Math.max(0, Math.min(2, MAX_AGENTS_DISPLAY - activeAgents.length));
+    const markerFor2 = (taskId) => options.selectedTaskId === taskId ? "\u276F" : " ";
+    const visibleAgents = activeAgents.slice(0, activeCap);
     for (const [index, agent] of visibleAgents.entries()) {
-      const last = index === visibleAgents.length - 1 && activeAgents.length <= MAX_AGENTS_DISPLAY && finishedSlots === 0;
+      const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
       const branch = last ? "\u2514\u2500" : "\u251C\u2500";
-      const agentGlyph = iconForStatus(agent.status, { runningGlyph });
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
+      const agentGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : iconForStatus(agent.status, { runningGlyph });
       const stats = agentStats(agent, liveHandle);
       const name = liveHandle?.agent ?? agent.agent;
+      const activity = agentActivity(agent, liveHandle);
+      if (rowStyle === "compact") {
+        const label = liveHandle?.description ?? agent.role ?? "";
+        lines.push(
+          budgetedRow(
+            {
+              lead: `\u2502 ${markerFor2(agent.taskId)}${agentGlyph} `,
+              name: label ? `${name} \xB7 ${label}` : name,
+              activity,
+              suffix: stats ? ` \xB7 ${stats}` : ""
+            },
+            width
+          )
+        );
+        continue;
+      }
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
       const _activeMain = truncate(`\u2502  ${branch} ${agentGlyph} ${name}${desc ? ` \xB7 ${desc}` : ` \xB7 ${agent.role}`}`, width);
       lines.push(_activeMain);
-      const _activity = truncate(`\u2502     \u22B6 ${agentActivity(agent, liveHandle)}${stats ? ` \xB7 ${stats}` : ""}`, width);
+      const _activity = truncate(`\u2502     \u22B6 ${activity}${stats ? ` \xB7 ${stats}` : ""}`, width);
       lines.push(_activity);
     }
-    if (activeAgents.length > MAX_AGENTS_DISPLAY) {
-      lines.push(truncate(`\u2502  \u2514\u2500 \u2026 +${activeAgents.length - MAX_AGENTS_DISPLAY} more agents`, width));
+    if (activeAgents.length > activeCap) {
+      lines.push(truncate(`\u2502  \u2514\u2500 \u2026 +${activeAgents.length - activeCap} more agents`, width));
     }
     for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const name = liveHandle?.agent ?? agent.agent;
       const icon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
       const stats = agentStats(agent, liveHandle);
+      if (rowStyle === "compact") {
+        const label = liveHandle?.description ?? agent.role ?? "";
+        lines.push(
+          budgetedRow(
+            {
+              lead: `\u2502 ${markerFor2(agent.taskId)}${icon} `,
+              name: label ? `${name} \xB7 ${label}` : name,
+              activity: agent.status,
+              suffix: stats ? ` \xB7 ${stats}` : ""
+            },
+            width
+          )
+        );
+        continue;
+      }
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
       const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
       const branch = isLastFinished ? "\u2514\u2500" : "\u251C\u2500";
@@ -57999,7 +57806,7 @@ function renderLines(lines, width) {
   }
   return box.render(width);
 }
-var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES;
+var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
@@ -58018,6 +57825,429 @@ var init_widget_renderer = __esm({
     TASK_DESC_MAX = 60;
     ERROR_LINGER_MAX_AGE = 2;
     ERROR_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled", "stopped", "needs_attention"]);
+    ACTIVE_PRIORITY = { running: 0, queued: 1, waiting: 2 };
+  }
+});
+
+// src/ui/inline-panel/panel-rows.ts
+function panelRowsFromRuns(runs, now = Date.now()) {
+  const rows = [];
+  for (const entry of runs) {
+    const { active, finished } = orderWidgetAgents(entry, now);
+    for (const agent of active) {
+      rows.push({ runId: entry.run.runId, taskId: agent.taskId, finished: false, name: agent.agent });
+    }
+    for (const agent of finished) {
+      rows.push({ runId: entry.run.runId, taskId: agent.taskId, finished: true, name: agent.agent });
+    }
+  }
+  return rows;
+}
+var init_panel_rows = __esm({
+  "src/ui/inline-panel/panel-rows.ts"() {
+    "use strict";
+    init_process_status();
+    init_widget_renderer();
+  }
+});
+
+// src/ui/inline-panel/panel-selection.ts
+function sameTarget(a, b) {
+  return a.runId === b.runId && a.taskId === b.taskId;
+}
+function isAgentSelection(selection2) {
+  return selection2 !== null && selection2 !== "main";
+}
+function resolveIndex(rows, selection2) {
+  if (selection2 === null) return null;
+  if (selection2 === "main") return 0;
+  const found = rows.findIndex((row) => sameTarget(row, selection2));
+  return found >= 0 ? found + 1 : 0;
+}
+function selectionAtIndex(rows, index) {
+  const clamped = Math.max(0, Math.min(rows.length, index));
+  if (clamped === 0) return "main";
+  const row = rows[clamped - 1];
+  return row ? { runId: row.runId, taskId: row.taskId } : "main";
+}
+function dispatchPanelKey(keys, rows, selection2, options = {}) {
+  if (selection2 === null) {
+    if (keys.down) return { action: { kind: "consumed" }, selection: "main" };
+    return { action: { kind: "none" }, selection: null };
+  }
+  const index = resolveIndex(rows, selection2) ?? 0;
+  if (keys.up) {
+    if (index === 0 && options.holdAtMain !== true) return { action: { kind: "consumed" }, selection: null };
+    return { action: { kind: "consumed" }, selection: selectionAtIndex(rows, index - 1) };
+  }
+  if (keys.down) {
+    return { action: { kind: "consumed" }, selection: selectionAtIndex(rows, index + 1) };
+  }
+  if (keys.escape) {
+    return { action: { kind: "consumed" }, selection: null };
+  }
+  if (keys.enter) {
+    const target = index > 0 ? rows[index - 1] : void 0;
+    return {
+      action: { kind: "open", target: target ? { runId: target.runId, taskId: target.taskId } : void 0 },
+      selection: null
+    };
+  }
+  if (keys.act && index > 0) {
+    const target = rows[index - 1];
+    if (!target) return { action: { kind: "consumed" }, selection: selectionAtIndex(rows, 0) };
+    return {
+      action: { kind: "act", target: { runId: target.runId, taskId: target.taskId } },
+      selection: { runId: target.runId, taskId: target.taskId }
+    };
+  }
+  return { action: { kind: "none" }, selection: null };
+}
+var init_panel_selection = __esm({
+  "src/ui/inline-panel/panel-selection.ts"() {
+    "use strict";
+  }
+});
+
+// src/ui/inline-panel/panel-store.ts
+function setPanelRowsProvider(provider) {
+  rowsProvider = provider;
+}
+function panelRows() {
+  if (!rowsProvider) return [];
+  try {
+    return rowsProvider();
+  } catch {
+    return [];
+  }
+}
+function getPanelSelection() {
+  return selection;
+}
+function setPanelSelection(next) {
+  if (next === selection) return;
+  if (isAgentSelection(selection) && isAgentSelection(next) && selection.runId === next.runId && selection.taskId === next.taskId) {
+    return;
+  }
+  selection = next;
+  notifyPanelChange();
+}
+function getViewedAgent() {
+  return viewed;
+}
+function setViewedAgent(next) {
+  if (viewed === next) return;
+  if (viewed && next && viewed.runId === next.runId && viewed.taskId === next.taskId) return;
+  viewed = next;
+  notifyPanelChange();
+}
+function panelDisplayState() {
+  return {
+    selectedTaskId: isAgentSelection(selection) ? selection.taskId : void 0,
+    viewedTaskId: viewed?.taskId,
+    focused: selection !== null || viewed !== void 0
+  };
+}
+function subscribePanelChange(listener) {
+  listeners2.add(listener);
+  return () => {
+    listeners2.delete(listener);
+  };
+}
+function notifyPanelChange() {
+  for (const listener of [...listeners2]) {
+    try {
+      listener();
+    } catch {
+    }
+  }
+}
+function resetPanelStore() {
+  selection = null;
+  viewed = void 0;
+  rowsProvider = void 0;
+  listeners2.clear();
+}
+var selection, viewed, rowsProvider, listeners2;
+var init_panel_store = __esm({
+  "src/ui/inline-panel/panel-store.ts"() {
+    "use strict";
+    init_panel_selection();
+    selection = null;
+    listeners2 = /* @__PURE__ */ new Set();
+  }
+});
+
+// src/ui/render-scheduler.ts
+var DEFAULT_EVENTS, CAP_BACKOFF_MAX_EXP, RenderScheduler;
+var init_render_scheduler = __esm({
+  "src/ui/render-scheduler.ts"() {
+    "use strict";
+    init_internal_error();
+    DEFAULT_EVENTS = [
+      "crew.run.created",
+      "crew.run.completed",
+      "crew.run.failed",
+      "crew.run.cancelled",
+      "crew.subagent.completed",
+      "crew.subagent.failed",
+      "crew.mailbox.updated",
+      "crew.mailbox.message"
+    ];
+    CAP_BACKOFF_MAX_EXP = 5;
+    RenderScheduler = class {
+      render;
+      onInvalidate;
+      debounceMs;
+      fallbackProvider;
+      fallbackMs;
+      invalidateCoalesceMs;
+      maxIdleFallbackRenders;
+      debounceTimer;
+      fallbackTimer;
+      invalidateTimer;
+      /** runId → most recent payload to forward when the coalesce window flushes. */
+      invalidateBuffer = /* @__PURE__ */ new Map();
+      disposed = false;
+      lastEventAt = 0;
+      rendering = false;
+      pendingRender = false;
+      /** R1: consecutive idle fallback renders since the last real event. */
+      idleFallbackRenders = 0;
+      /** R4: consecutive re-entrancy cap-hits — drives exponential backoff. */
+      consecutiveCapHits = 0;
+      unsubs = [];
+      constructor(events, render, options = {}) {
+        this.render = render;
+        this.onInvalidate = options.onInvalidate;
+        this.debounceMs = options.debounceMs ?? 75;
+        const fallback2 = options.fallbackMs ?? 750;
+        this.fallbackProvider = typeof fallback2 === "function" ? fallback2 : () => fallback2;
+        this.fallbackMs = typeof fallback2 === "number" ? fallback2 : 750;
+        this.invalidateCoalesceMs = options.invalidateCoalesceMs ?? 50;
+        this.maxIdleFallbackRenders = options.maxIdleFallbackRenders ?? 8;
+        for (const event of options.events ?? DEFAULT_EVENTS) this.subscribe(events, event);
+        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+        this.fallbackTimer.unref();
+      }
+      currentFallbackMs() {
+        try {
+          const value = this.fallbackProvider();
+          return Number.isFinite(value) && value > 0 ? value : 750;
+        } catch (error) {
+          logInternalError("render-scheduler.fallbackProvider", error);
+          return 750;
+        }
+      }
+      subscribe(events, event) {
+        if (!events?.on) return;
+        const handler = (payload) => this.schedule(payload);
+        try {
+          const unsub = events.on(event, handler);
+          if (typeof unsub === "function") this.unsubs.push(unsub);
+        } catch (error) {
+          logInternalError("render-scheduler.subscribe", error, event);
+        }
+      }
+      /** Recursive setTimeout — avoids setInterval timer storms. */
+      fallbackLoop() {
+        if (this.disposed) return;
+        const fallbackMs = this.currentFallbackMs();
+        if (Date.now() - this.lastEventAt < fallbackMs) {
+          this.idleFallbackRenders = 0;
+          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), fallbackMs);
+          this.fallbackTimer.unref();
+          return;
+        }
+        if (this.idleFallbackRenders >= this.maxIdleFallbackRenders) {
+          this.fallbackTimer = void 0;
+          return;
+        }
+        this.armDebouncedRender();
+        this.idleFallbackRenders += 1;
+        this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+        this.fallbackTimer.unref();
+      }
+      schedule(payload) {
+        if (this.disposed) return;
+        this.lastEventAt = Date.now();
+        this.idleFallbackRenders = 0;
+        this.consecutiveCapHits = 0;
+        this.invalidate(payload);
+        this.armDebouncedRender();
+        if (!this.fallbackTimer) {
+          this.fallbackTimer = setTimeout(() => this.fallbackLoop(), this.currentFallbackMs());
+          this.fallbackTimer.unref();
+        }
+      }
+      /**
+       * Arm (or re-arm) the debounce timer that triggers a single flush. Shared by
+       * real-event schedules, the fallback path, and the re-entrancy cap drain.
+       * `delay` lets the cap apply exponential backoff (R4) without touching
+       * `lastEventAt` or `onInvalidate` (those belong to real external events).
+       */
+      armDebouncedRender(delay = this.debounceMs) {
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+          this.debounceTimer = void 0;
+          this.flush();
+        }, delay);
+        this.debounceTimer.unref();
+      }
+      /**
+       * 1.9: forward `onInvalidate` immediately when the payload has no `runId`
+       * (we cannot dedup it). When it carries a runId, buffer the latest payload
+       * per runId and flush on a coalesce timer so high-frequency event bursts
+       * (`crew.subagent.completed` for parallel tasks) collapse into one
+       * invalidate per affected run.
+       */
+      invalidate(payload) {
+        try {
+          const runId = typeof payload === "object" && payload !== null && "runId" in payload && typeof payload.runId === "string" ? payload.runId : void 0;
+          if (runId === void 0 || this.invalidateCoalesceMs <= 0) {
+            this.onInvalidate?.(payload);
+            return;
+          }
+          this.invalidateBuffer.set(runId, payload);
+          if (!this.invalidateTimer) {
+            this.invalidateTimer = setTimeout(() => this.flushInvalidate(), this.invalidateCoalesceMs);
+            this.invalidateTimer.unref();
+          }
+        } catch (error) {
+          logInternalError("render-scheduler.invalidate", error);
+        }
+      }
+      flushInvalidate() {
+        this.invalidateTimer = void 0;
+        if (this.disposed) {
+          this.invalidateBuffer.clear();
+          return;
+        }
+        const buffered = this.invalidateBuffer;
+        this.invalidateBuffer = /* @__PURE__ */ new Map();
+        for (const payload of buffered.values()) {
+          try {
+            this.onInvalidate?.(payload);
+          } catch (error) {
+            logInternalError("render-scheduler.invalidate.flush", error);
+          }
+        }
+      }
+      /**
+       * Flush a render.  If a render is already in progress the request is
+       * collapsed: `pendingRender` is set and the caller that holds
+       * `rendering==true` will loop one more time after finishing.
+       */
+      flush() {
+        if (this.disposed) return;
+        if (this.rendering) {
+          this.pendingRender = true;
+          return;
+        }
+        this.rendering = true;
+        this.pendingRender = false;
+        let iterations = 0;
+        try {
+          do {
+            this.pendingRender = false;
+            this.render();
+            iterations += 1;
+          } while (this.pendingRender && !this.disposed && iterations < 5);
+        } catch (error) {
+          logInternalError("render-scheduler.render", error);
+        } finally {
+          this.rendering = false;
+          if (iterations >= 5 && this.pendingRender && !this.disposed) {
+            this.consecutiveCapHits += 1;
+            const exp = Math.min(this.consecutiveCapHits - 1, CAP_BACKOFF_MAX_EXP);
+            this.armDebouncedRender(this.debounceMs * 2 ** exp);
+          } else {
+            this.consecutiveCapHits = 0;
+          }
+        }
+      }
+      dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+        if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
+        this.debounceTimer = void 0;
+        this.fallbackTimer = void 0;
+        this.invalidateTimer = void 0;
+        this.invalidateBuffer.clear();
+        for (const unsub of this.unsubs.splice(0)) {
+          try {
+            unsub();
+          } catch (error) {
+            logInternalError("render-scheduler.unsubscribe", error);
+          }
+        }
+      }
+    };
+  }
+});
+
+// src/ui/shared-overlay-scheduler.ts
+function ensureShared() {
+  if (shared) return shared;
+  const renderers = /* @__PURE__ */ new Set();
+  const invalidators = /* @__PURE__ */ new Set();
+  const scheduler = new RenderScheduler(
+    runEventBusAsRenderScheduler([...CHANNELS]),
+    () => {
+      for (const render of renderers) {
+        try {
+          render();
+        } catch (error) {
+          logInternalError("shared-overlay-scheduler.render", error);
+        }
+      }
+    },
+    {
+      debounceMs: 75,
+      fallbackMs: 750,
+      events: [...CHANNELS],
+      onInvalidate: (payload) => {
+        for (const invalidate of invalidators) {
+          try {
+            invalidate(payload);
+          } catch (error) {
+            logInternalError("shared-overlay-scheduler.invalidate", error);
+          }
+        }
+      }
+    }
+  );
+  shared = { scheduler, renderers, invalidators };
+  return shared;
+}
+function registerOverlayScheduler(render, onInvalidate) {
+  const state2 = ensureShared();
+  state2.renderers.add(render);
+  if (onInvalidate) state2.invalidators.add(onInvalidate);
+  return {
+    schedule: () => {
+      state2.scheduler.schedule();
+    },
+    dispose: () => {
+      state2.renderers.delete(render);
+      if (onInvalidate) state2.invalidators.delete(onInvalidate);
+      if (state2.renderers.size === 0) {
+        state2.scheduler.dispose();
+        if (shared === state2) shared = void 0;
+      }
+    }
+  };
+}
+var CHANNELS, shared;
+var init_shared_overlay_scheduler = __esm({
+  "src/ui/shared-overlay-scheduler.ts"() {
+    "use strict";
+    init_internal_error();
+    init_render_scheduler();
+    init_run_event_bus();
+    CHANNELS = ["run:state", "worker:lifecycle", "ui:invalidate"];
   }
 });
 
@@ -58078,7 +58308,12 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     if (active?.ownerSessionId) workspaceId = active.ownerSessionId;
   }
   const runs = activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId);
-  const lines = buildWidgetLines(ctx.cwd, state2.frame, maxLines, runs, state2.notificationCount ?? 0, getRenderWidth());
+  const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
+  setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
+  const lines = buildWidgetLines(ctx.cwd, state2.frame, maxLines, runs, state2.notificationCount ?? 0, getRenderWidth(), {
+    rowStyle,
+    ...panelDisplayState()
+  });
   const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
   ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : void 0);
   const shouldClearLegacy = state2.legacyCleared !== true || state2.lastPlacement !== placement;
@@ -58109,7 +58344,8 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       manifestCache: manifestCache2,
       snapshotCache,
       preloadManifests: preloadedManifests,
-      workspaceId
+      workspaceId,
+      rowStyle
     };
   else {
     state2.model.cwd = ctx.cwd;
@@ -58120,6 +58356,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.snapshotCache = snapshotCache;
     state2.model.preloadManifests = preloadedManifests;
     state2.model.workspaceId = workspaceId;
+    state2.model.rowStyle = rowStyle;
   }
   if (needsWidgetInstall) {
     const model = state2.model;
@@ -58156,6 +58393,8 @@ var init_widget = __esm({
     "use strict";
     init_defaults();
     init_visual();
+    init_panel_rows();
+    init_panel_store();
     init_pi_ui_compat();
     init_shared_overlay_scheduler();
     init_spinner();
@@ -58193,6 +58432,7 @@ var init_widget = __esm({
       cachedTheme;
       tui;
       unsubscribeTheme;
+      unsubscribePanel;
       schedulerHandle;
       constructor(model, themeLike, tui) {
         this.model = model;
@@ -58202,6 +58442,10 @@ var init_widget = __esm({
         activeResizeTarget = this;
         installResizeListener();
         this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
+        this.unsubscribePanel = subscribePanelChange(() => {
+          this.invalidate();
+          this.requestRepaint();
+        });
         this.schedulerHandle = registerOverlayScheduler(
           () => this.invalidate(),
           () => {
@@ -58251,6 +58495,7 @@ var init_widget = __esm({
       }
       dispose() {
         this.unsubscribeTheme();
+        this.unsubscribePanel();
         this.schedulerHandle.dispose();
         if (activeResizeTarget === this) activeResizeTarget = void 0;
       }
@@ -58273,14 +58518,17 @@ var init_widget = __esm({
         }
         const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
         const runningGlyph = spinnerFrame("widget-header");
-        if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
+        const panel = panelDisplayState();
+        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+        if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
             this.model.cwd,
             0,
             this.model.maxLines,
             runs,
             this.model.notificationCount ?? 0,
-            width
+            width,
+            { rowStyle: this.model.rowStyle, ...panel }
           ).map((line4, index) => {
             if (index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -58288,7 +58536,7 @@ var init_widget = __esm({
           this.cachedLines = this.colorize(this.cachedBaseLines, width);
           this.cachedWidth = width;
           this.cachedTheme = this.theme;
-          this.cacheSignature = signature;
+          this.cacheSignature = signatureWithPanel;
         }
         if (runs.length === 0) {
           this.invalidate();
@@ -68659,7 +68907,7 @@ function renderAgentsPane(snapshot, options = {}) {
       stats.push(alignMetric2(tok, TOKENS_METRIC_WIDTH2));
     }
     if (agent.usage?.cost && agent.usage.cost > 0) {
-      stats.push(alignMetric2(formatCost(agent.usage.cost), COST_METRIC_WIDTH));
+      stats.push(alignMetric2(formatCost(agent.usage.cost), COST_METRIC_WIDTH2));
     }
     if (liveHandle) {
       const ms = computeLiveDurationMs(liveHandle.activity);
@@ -68680,7 +68928,7 @@ function renderAgentsPane(snapshot, options = {}) {
   }
   return lines;
 }
-var TOKENS_METRIC_WIDTH2, COST_METRIC_WIDTH, DURATION_METRIC_WIDTH2, TOOL_LABELS3;
+var TOKENS_METRIC_WIDTH2, COST_METRIC_WIDTH2, DURATION_METRIC_WIDTH2, TOOL_LABELS3;
 var init_agents_pane = __esm({
   "src/ui/dashboard-panes/agents-pane.ts"() {
     "use strict";
@@ -68691,7 +68939,7 @@ var init_agents_pane = __esm({
     init_spinner();
     init_status_colors();
     TOKENS_METRIC_WIDTH2 = 5;
-    COST_METRIC_WIDTH = 7;
+    COST_METRIC_WIDTH2 = 7;
     DURATION_METRIC_WIDTH2 = 6;
     TOOL_LABELS3 = {
       read: "reading",
@@ -71988,13 +72236,13 @@ async function openTeamSettingsOverlay(ctx) {
     }
   );
 }
-async function handleHealthDashboardAction(ctx, selection) {
-  const loaded = loadRunManifestById(ctx.cwd, selection.runId);
+async function handleHealthDashboardAction(ctx, selection2) {
+  const loaded = loadRunManifestById(ctx.cwd, selection2.runId);
   if (!loaded) {
-    depsNotify(ctx, `Run '${selection.runId}' not found.`, "error");
+    depsNotify(ctx, `Run '${selection2.runId}' not found.`, "error");
     return;
   }
-  if (selection.action === "health-recovery") {
+  if (selection2.action === "health-recovery") {
     if (loaded.manifest.async) {
       depsNotify(ctx, "Recovery is only available for foreground runs.", "warning");
       return;
@@ -72006,11 +72254,11 @@ async function handleHealthDashboardAction(ctx, selection) {
       defaultAction: "cancel"
     });
     if (!confirmed) return;
-    const result4 = await dispatchHealthRecovery(ctx, selection.runId);
+    const result4 = await dispatchHealthRecovery(ctx, selection2.runId);
     depsNotify(ctx, result4.message, result4.ok ? "info" : "error");
     return;
   }
-  if (selection.action === "health-kill-stale") {
+  if (selection2.action === "health-kill-stale") {
     const confirmed = await openConfirm(ctx, {
       title: "Mark stale workers dead?",
       body: "This updates worker heartbeat state. Y=mark dead, N=cancel.",
@@ -72018,11 +72266,11 @@ async function handleHealthDashboardAction(ctx, selection) {
       defaultAction: "cancel"
     });
     if (!confirmed) return;
-    const result4 = await dispatchKillStaleWorkers(ctx, selection.runId);
+    const result4 = await dispatchKillStaleWorkers(ctx, selection2.runId);
     depsNotify(ctx, result4.message, result4.ok ? "info" : "error");
     return;
   }
-  if (selection.action === "health-diagnostic-export") {
+  if (selection2.action === "health-diagnostic-export") {
     const diagDir = path86.join(loaded.manifest.artifactsRoot, "diagnostic");
     const recent = listRecentDiagnostic(diagDir, 6e4);
     if (recent) {
@@ -72033,23 +72281,23 @@ async function handleHealthDashboardAction(ctx, selection) {
       });
       if (!confirmed) return;
     }
-    const result4 = await dispatchDiagnosticExport(ctx, selection.runId, {
+    const result4 = await dispatchDiagnosticExport(ctx, selection2.runId, {
       registry: depsRef?.getMetricRegistry?.()
     });
     depsNotify(ctx, result4.message, result4.ok ? "info" : "error");
   }
 }
-async function handlePlanDashboardAction(ctx, selection) {
-  const loaded = loadRunManifestById(ctx.cwd, selection.runId);
+async function handlePlanDashboardAction(ctx, selection2) {
+  const loaded = loadRunManifestById(ctx.cwd, selection2.runId);
   if (!loaded) {
-    depsNotify(ctx, `Run '${selection.runId}' not found.`, "error");
+    depsNotify(ctx, `Run '${selection2.runId}' not found.`, "error");
     return;
   }
   if (!isPlanApprovalPendingEffective(loaded.manifest)) {
     depsNotify(ctx, "no pending plan approval", "warning");
     return;
   }
-  if (selection.action === "plan-deny") {
+  if (selection2.action === "plan-deny") {
     const confirmed = await openConfirm(ctx, {
       title: "Cancel plan and kill tasks?",
       body: "Y=cancel plan and kill tasks, N=abort.",
@@ -72058,11 +72306,11 @@ async function handlePlanDashboardAction(ctx, selection) {
     });
     if (!confirmed) return;
   }
-  const operation = selection.action === "plan-approve" ? "approve-plan" : "cancel-plan";
+  const operation = selection2.action === "plan-approve" ? "approve-plan" : "cancel-plan";
   const result4 = await handleTeamTool4(
     {
       action: "api",
-      runId: selection.runId,
+      runId: selection2.runId,
       config: { operation }
     },
     teamCommandContext(ctx)
@@ -72090,7 +72338,7 @@ async function openTeamDashboard(ctx) {
     const rightPanel = (uiConfig?.dashboardPlacement ?? DEFAULT_UI.dashboardPlacement) === "right";
     const width = rightPanel ? Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? DEFAULT_UI.dashboardWidth)) : "90%";
     const { RunDashboard: RunDashboard2 } = await ui();
-    const selection = await cmdCtx.ui.custom(
+    const selection2 = await cmdCtx.ui.custom(
       (tui, theme, _keybindings, done) => new RunDashboard2(runs, done, theme, {
         placement: rightPanel ? "right" : "center",
         showModel: uiConfig?.showModel,
@@ -72115,31 +72363,31 @@ async function openTeamDashboard(ctx) {
         } : { width, maxHeight: "90%", anchor: "center", margin: 2 }
       }
     );
-    if (!selection) break;
-    if (selection.action === "reload") continue;
-    if (selection.action === "notifications-dismiss") {
+    if (!selection2) break;
+    if (selection2.action === "reload") continue;
+    if (selection2.action === "notifications-dismiss") {
       deps.dismissNotifications?.();
       cmdCtx.ui.notify("pi-crew notifications dismissed.", "info");
       continue;
     }
-    if (selection.action === "mailbox-detail") {
-      await handleMailboxDashboardAction(cmdCtx, selection.runId);
-      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+    if (selection2.action === "mailbox-detail") {
+      await handleMailboxDashboardAction(cmdCtx, selection2.runId);
+      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection2.runId);
       continue;
     }
-    if (selection.action === "health-recovery" || selection.action === "health-kill-stale" || selection.action === "health-diagnostic-export") {
-      await handleHealthDashboardAction(cmdCtx, selection);
-      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+    if (selection2.action === "health-recovery" || selection2.action === "health-kill-stale" || selection2.action === "health-diagnostic-export") {
+      await handleHealthDashboardAction(cmdCtx, selection2);
+      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection2.runId);
       continue;
     }
-    if (selection.action === "plan-approve" || selection.action === "plan-deny") {
-      await handlePlanDashboardAction(cmdCtx, selection);
-      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+    if (selection2.action === "plan-approve" || selection2.action === "plan-deny") {
+      await handlePlanDashboardAction(cmdCtx, selection2);
+      deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection2.runId);
       continue;
     }
-    if (selection.action === "agent-transcript" && await openTranscriptViewer(cmdCtx, selection.runId)) continue;
-    if (selection.action === "agent-live" && await openLiveConversation(cmdCtx, selection.runId)) continue;
-    if (selection.action === "agent-live") {
+    if (selection2.action === "agent-transcript" && await openTranscriptViewer(cmdCtx, selection2.runId)) continue;
+    if (selection2.action === "agent-live" && await openLiveConversation(cmdCtx, selection2.runId)) continue;
+    if (selection2.action === "agent-live") {
       await notifyCommandResult(
         cmdCtx,
         commandText({
@@ -72153,51 +72401,51 @@ async function openTeamDashboard(ctx) {
       );
       continue;
     }
-    const result4 = selection.action === "api" ? await handleTeamTool4(
+    const result4 = selection2.action === "api" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: { operation: "read-manifest" }
       },
       teamCommandContext(cmdCtx)
-    ) : selection.action === "agents" ? await handleTeamTool4(
+    ) : selection2.action === "agents" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: { operation: "agent-dashboard" }
       },
       teamCommandContext(cmdCtx)
-    ) : selection.action === "mailbox" ? await handleTeamTool4(
+    ) : selection2.action === "mailbox" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: { operation: "read-mailbox" }
       },
       teamCommandContext(cmdCtx)
-    ) : selection.action === "agent-events" ? await handleTeamTool4(
+    ) : selection2.action === "agent-events" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: {
           operation: "read-agent-events",
           limit: 50
         }
       },
       teamCommandContext(cmdCtx)
-    ) : selection.action === "agent-output" ? await handleTeamTool4(
+    ) : selection2.action === "agent-output" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: {
           operation: "read-agent-output",
           maxBytes: 32e3
         }
       },
       teamCommandContext(cmdCtx)
-    ) : selection.action === "agent-transcript" ? await handleTeamTool4(
+    ) : selection2.action === "agent-transcript" ? await handleTeamTool4(
       {
         action: "api",
-        runId: selection.runId,
+        runId: selection2.runId,
         config: {
           operation: "read-agent-transcript"
         }
@@ -72205,8 +72453,8 @@ async function openTeamDashboard(ctx) {
       teamCommandContext(cmdCtx)
     ) : await handleTeamTool4(
       {
-        action: selection.action,
-        runId: selection.runId
+        action: selection2.action,
+        runId: selection2.runId
       },
       teamCommandContext(cmdCtx)
     );
@@ -82619,6 +82867,467 @@ function createSessionSnapshot(activeRuns, pendingDeliveryCount, sessionGenerati
 init_settings_store();
 init_state_store();
 init_heartbeat_aggregator();
+
+// src/ui/inline-panel/index.ts
+init_tool_result();
+init_pi_ui_compat();
+
+// src/ui/inline-panel/agent-pane.ts
+init_state_store();
+init_theme_adapter();
+import { DynamicBorder, getMarkdownTheme, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
+
+// src/ui/inline-panel/agent-transcript.ts
+init_crew_agent_records();
+var MAX_TRANSCRIPT_ITEMS = 500;
+var buffers = /* @__PURE__ */ new Map();
+var pendingByTask = /* @__PURE__ */ new Map();
+var cursors = /* @__PURE__ */ new Map();
+function asRecord13(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function textFromContent5(content) {
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) => {
+    const item = asRecord13(part);
+    if (!item) return [];
+    if (item.type === "text" && typeof item.text === "string") return [item.text];
+    return [];
+  }).join("\n").trim();
+}
+function parseEventRecord(record, pending2) {
+  const seq = typeof record.seq === "number" ? record.seq : 0;
+  const event = asRecord13(record.event) ?? record;
+  const type = typeof event.type === "string" ? event.type : "";
+  const items = [];
+  if (type === "tool_execution_start") {
+    const name = typeof event.toolName === "string" ? event.toolName : "tool";
+    const args = event.args ?? {};
+    const id = `${name}#${seq}`;
+    const item = { type: "tool", name, toolCallId: id, args, seq };
+    pending2.set(id, item);
+    items.push(item);
+    return items;
+  }
+  if (type === "tool_execution_end") {
+    return items;
+  }
+  if (type === "message_end" || type === "message" || type === "tool_result_end") {
+    const message = asRecord13(event.message);
+    if (!message) return items;
+    if (message.role === "assistant") {
+      const content = Array.isArray(message.content) ? message.content : [];
+      const text = textFromContent5(content);
+      if (text) items.push({ type: "assistant", text, seq });
+      for (const part of content) {
+        const item = asRecord13(part);
+        if (!item || item.type !== "toolResult") continue;
+        const name = typeof item.name === "string" ? item.name : "tool";
+        matchPending(pending2, name, item.content, item.isError === true);
+      }
+      return items;
+    }
+    if (message.role === "user") {
+      const text = textFromContent5(message.content);
+      if (text) items.push({ type: "user", text, seq });
+      return items;
+    }
+  }
+  if (type && type !== "message_update") {
+    const text = typeof event.text === "string" ? event.text : "";
+    if (text) items.push({ type: "system", text, seq });
+  }
+  return items;
+}
+function matchPending(pending2, name, result4, isError) {
+  for (const [id, item] of [...pending2.entries()].reverse()) {
+    if (item.name !== name) continue;
+    pending2.delete(id);
+    if (result4 !== void 0) item.result = result4;
+    if (isError !== void 0) item.isError = isError;
+    return;
+  }
+}
+function readAgentTranscript(manifest, taskId) {
+  const sinceSeq = cursors.get(taskId) ?? 0;
+  const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
+  if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
+  if (events.length === 0) return buffers.get(taskId) ?? [];
+  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
+  pendingByTask.set(taskId, pending2);
+  let buffer = buffers.get(taskId) ?? [];
+  for (const record of events) {
+    const parsed = asRecord13(record);
+    if (!parsed) continue;
+    buffer.push(...parseEventRecord(parsed, pending2));
+  }
+  if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
+    buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
+  }
+  buffers.set(taskId, buffer);
+  return buffer;
+}
+function resetAgentTranscriptCursor(taskId) {
+  cursors.delete(taskId);
+  buffers.delete(taskId);
+  pendingByTask.delete(taskId);
+}
+function resetAllAgentTranscriptCursors() {
+  cursors.clear();
+  buffers.clear();
+  pendingByTask.clear();
+}
+
+// src/ui/inline-panel/agent-pane.ts
+init_panel_store();
+var MAX_BODY_FRACTION = 14;
+var TRANSCRIPT_READ_THROTTLE_MS = 500;
+var CrewAgentPane = class {
+  disposed = false;
+  /** Wrapped-line offset from the END of the transcript; 0 = tailing. */
+  scrollBack = 0;
+  tui;
+  theme;
+  cwd;
+  /** Current agent target, read fresh from the panel store each render. */
+  currentTaskId;
+  /** Cached manifest for the current run, to avoid re-reading on every tick. */
+  cachedRunId;
+  cachedManifest;
+  componentCache = /* @__PURE__ */ new WeakMap();
+  /** Last disk read, so the open pane does not re-parse the JSONL every tick. */
+  lastTranscriptReadAt = 0;
+  /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
+  lastItems = [];
+  unsubscribePanel;
+  constructor(tui, theme, cwd) {
+    this.tui = tui;
+    this.theme = asCrewTheme(theme);
+    this.cwd = cwd;
+    this.unsubscribePanel = subscribePanelChange(() => {
+      if (!this.disposed) this.tui.requestRender();
+    });
+  }
+  requestRender() {
+    if (!this.disposed) this.tui.requestRender();
+  }
+  scrollBy(delta) {
+    this.scrollBack = Math.max(0, this.scrollBack + delta);
+    this.tui.requestRender();
+  }
+  resolveManifest(runId) {
+    if (this.cachedRunId === runId && this.cachedManifest) return this.cachedManifest;
+    const loaded = loadRunManifestById(this.cwd, runId);
+    if (!loaded) return void 0;
+    this.cachedRunId = runId;
+    this.cachedManifest = loaded.manifest;
+    return loaded.manifest;
+  }
+  itemComponent(item) {
+    const cached2 = this.componentCache.get(item);
+    if (cached2) return cached2;
+    let comp;
+    if (item.type === "user") {
+      comp = new UserMessageComponent(item.text);
+    } else if (item.type === "assistant") {
+      comp = new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
+    } else if (item.type === "system") {
+      comp = {
+        render: () => [this.theme.fg("dim", truncateToWidth2(item.text, 200, "\u2026"))]
+      };
+    } else {
+      const tool = new ToolExecutionComponent(item.name, item.toolCallId, item.args, {}, void 0, this.tui, this.cwd);
+      tool.markExecutionStarted();
+      if (item.result !== void 0) {
+        tool.updateResult(item.result);
+      }
+      comp = tool;
+    }
+    this.componentCache.set(item, comp);
+    return comp;
+  }
+  render(width) {
+    if (this.disposed) return [];
+    const viewed2 = getViewedAgent();
+    if (!viewed2) return [];
+    if (this.currentTaskId !== viewed2.taskId) {
+      resetAgentTranscriptCursor(viewed2.taskId);
+      this.currentTaskId = viewed2.taskId;
+      this.scrollBack = 0;
+      this.lastItems = [];
+      this.lastTranscriptReadAt = 0;
+    }
+    const manifest = this.resolveManifest(viewed2.runId);
+    if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
+    if (Date.now() - this.lastTranscriptReadAt >= TRANSCRIPT_READ_THROTTLE_MS) {
+      this.lastItems = readAgentTranscript(manifest, viewed2.taskId);
+      this.lastTranscriptReadAt = Date.now();
+    }
+    const items = this.lastItems;
+    const body = [];
+    for (const item of items) {
+      for (const line4 of this.itemComponent(item).render(width)) body.push(line4);
+    }
+    const rows = this.tui.terminal.rows;
+    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION);
+    const visibleCount = Math.min(maxBody, Math.max(1, body.length));
+    this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
+    const end = body.length - this.scrollBack;
+    const visible = body.slice(Math.max(0, end - visibleCount), end);
+    const lines = [];
+    lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
+    if (end - visibleCount > 0) {
+      lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
+    } else {
+      lines.push("");
+    }
+    for (const line4 of visible) lines.push(line4);
+    if (this.scrollBack > 0) {
+      lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
+    }
+    return lines;
+  }
+  invalidate() {
+    this.componentCache = /* @__PURE__ */ new WeakMap();
+  }
+  dispose() {
+    this.disposed = true;
+    this.unsubscribePanel();
+    this.cachedManifest = void 0;
+    this.cachedRunId = void 0;
+  }
+};
+
+// src/ui/inline-panel/crew-editor.ts
+init_panel_selection();
+init_panel_store();
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
+import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+var AGENT_LABEL_MAX = 24;
+var CrewInlineEditor = class extends CustomEditor {
+  options;
+  constructor(tui, theme, keybindings, options) {
+    super(tui, theme, keybindings);
+    this.options = options;
+  }
+  panelKeys(data) {
+    return {
+      up: matchesKey3(data, "up"),
+      down: matchesKey3(data, "down"),
+      enter: matchesKey3(data, "return"),
+      escape: matchesKey3(data, "escape"),
+      act: matchesKey3(data, "x")
+    };
+  }
+  /**
+   * Apply a dispatch result. `closePaneOnMain` is true while the pane is open:
+   * `enter` on the main row then returns to the conversation instead of doing
+   * nothing.
+   */
+  applyDispatch(data, rows, keys, closePaneOnMain) {
+    const selection2 = getPanelSelection();
+    const result4 = dispatchPanelKey(keys, rows, selection2, { holdAtMain: closePaneOnMain });
+    switch (result4.action.kind) {
+      case "none": {
+        setPanelSelection(null);
+        super.handleInput(data);
+        return;
+      }
+      case "consumed": {
+        setPanelSelection(result4.selection);
+        return;
+      }
+      case "open": {
+        setPanelSelection(null);
+        const target = result4.action.target;
+        if (target) this.options.onOpenPane(target);
+        else if (closePaneOnMain) this.options.onClosePane();
+        return;
+      }
+      case "act": {
+        setPanelSelection(result4.selection);
+        const target = result4.action.target;
+        const row = rows.find((r) => r.runId === target.runId && r.taskId === target.taskId);
+        this.options.onAct(target, row?.finished ?? false);
+        return;
+      }
+    }
+  }
+  handleInput(data) {
+    const rows = panelRows();
+    const viewed2 = getViewedAgent();
+    if (viewed2) {
+      if (getPanelSelection() !== null) {
+        this.applyDispatch(data, rows, this.panelKeys(data), true);
+        return;
+      }
+      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
+        setPanelSelection("main");
+        return;
+      }
+      if (matchesKey3(data, "escape")) {
+        this.options.onClosePane();
+        return;
+      }
+      if (matchesKey3(data, "pageUp")) {
+        this.options.onScrollPane(10);
+        return;
+      }
+      if (matchesKey3(data, "pageDown")) {
+        this.options.onScrollPane(-10);
+        return;
+      }
+      if (matchesKey3(data, "return")) {
+        const text = (this.getExpandedText?.() ?? this.getText()).trim();
+        if (!text) return;
+        if (text.startsWith("/")) {
+          super.handleInput(data);
+          return;
+        }
+        this.setText("");
+        this.options.onSteer(viewed2, text);
+        return;
+      }
+      super.handleInput(data);
+      return;
+    }
+    if (getPanelSelection() === null) {
+      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
+        setPanelSelection("main");
+        return;
+      }
+      super.handleInput(data);
+      return;
+    }
+    this.applyDispatch(data, rows, this.panelKeys(data), false);
+  }
+  /**
+   * Relabel the editor's top border with the viewed agent, so it is
+   * unambiguous where typed text lands — pi-subtask's `@name` marker.
+   */
+  render(width) {
+    const lines = super.render(width);
+    const viewed2 = getViewedAgent();
+    if (viewed2 && lines.length > 0) {
+      const rows = panelRows();
+      const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
+      const name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
+      const label = ` @${truncateToWidth3(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+      const labelWidth = visibleWidth4(label);
+      if (visibleWidth4(lines[0]) >= labelWidth + 4) {
+        lines[0] = truncateToWidth3(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
+      }
+    }
+    return lines;
+  }
+};
+
+// src/ui/inline-panel/index.ts
+init_panel_store();
+var PANE_WIDGET_KEY = "pi-crew-agent-view";
+var PANE_PLACEMENT = "aboveEditor";
+var currentPane;
+var lastCtx;
+var editorInstalled = false;
+var hooksRegistered2 = false;
+async function runTeamTool(params, ctx) {
+  const { handleTeamTool: handleTeamTool8 } = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
+  return handleTeamTool8(params, ctx);
+}
+function notifyResult2(ctx, result4) {
+  const text = textFromToolResult(result4);
+  ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
+}
+function openPane(ctx, target) {
+  setViewedAgent(target);
+  try {
+    setExtensionWidget(
+      ctx,
+      PANE_WIDGET_KEY,
+      ((tui, theme) => {
+        currentPane = new CrewAgentPane(tui, theme, ctx.cwd);
+        return currentPane;
+      }),
+      { placement: PANE_PLACEMENT }
+    );
+  } catch {
+  }
+  requestRender(ctx);
+}
+function closePane(ctx) {
+  setViewedAgent(void 0);
+  currentPane = void 0;
+  try {
+    setExtensionWidget(ctx, PANE_WIDGET_KEY, void 0, { placement: PANE_PLACEMENT });
+  } catch {
+  }
+  requestRender(ctx);
+}
+function scrollPane(delta) {
+  currentPane?.scrollBy(delta);
+}
+async function steerAgent(ctx, target, message) {
+  try {
+    notifyResult2(ctx, await runTeamTool({ action: "steer", runId: target.runId, taskId: target.taskId, message }, ctx));
+    ctx.ui.notify("Will be delivered at the worker's next turn boundary.", "info");
+  } catch (error) {
+    ctx.ui.notify(`panel: steer failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+async function actOnAgent(ctx, target, finished) {
+  if (finished) {
+    ctx.ui.notify("Agent is finished \u2014 use /team-dashboard to inspect or resume.", "info");
+    return;
+  }
+  const confirmed = await ctx.ui.confirm(
+    "Cancel entire run?",
+    `This cancels run ${target.runId} and all its workers. Ongoing work stops; resume re-queues what was left.`
+  );
+  if (!confirmed) {
+    ctx.ui.notify("Cancel aborted.", "info");
+    return;
+  }
+  try {
+    notifyResult2(ctx, await runTeamTool({ action: "cancel", runId: target.runId }, ctx));
+  } catch (error) {
+    ctx.ui.notify(`panel: cancel failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+function installInlinePanel(pi, ctx, uiConfig) {
+  lastCtx = ctx;
+  if (!ctx.hasUI) return;
+  const enabled = uiConfig?.inlinePanel !== false;
+  try {
+    if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
+      ctx.ui.setEditorComponent((tui, theme, kb) => {
+        return new CrewInlineEditor(tui, theme, kb, {
+          onOpenPane: (target) => openPane(ctx, target),
+          onClosePane: () => closePane(ctx),
+          onScrollPane: (delta) => scrollPane(delta),
+          onSteer: (target, message) => void steerAgent(ctx, target, message),
+          onAct: (target, finished) => void actOnAgent(ctx, target, finished)
+        });
+      });
+      editorInstalled = true;
+    }
+  } catch {
+  }
+  if (!hooksRegistered2) {
+    hooksRegistered2 = true;
+    pi.on("session_shutdown", () => {
+      if (lastCtx) closePane(lastCtx);
+      resetPanelStore();
+      resetAllAgentTranscriptCursors();
+    });
+    pi.on("session_start", () => {
+      editorInstalled = false;
+    });
+  }
+}
+
+// src/extension/registration/lifecycle-handlers.ts
 init_pi_ui_compat();
 init_powerbar_publisher();
 init_render_scheduler();
@@ -82969,6 +83678,7 @@ function installSessionStartHandler(pi, ctx) {
     });
     const cache3 = ctx.getManifestCache(extensionCtx.cwd);
     updateCrewWidget(extensionCtx, ctx.widgetState, loadedConfig.config.ui, cache3, ctx.getRunSnapshotCache(extensionCtx.cwd));
+    installInlinePanel(pi, extensionCtx, loadedConfig.config.ui);
     updatePiCrewPowerbar(
       pi.events,
       extensionCtx.cwd,
