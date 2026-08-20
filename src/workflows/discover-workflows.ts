@@ -72,7 +72,10 @@ function parseStepSection(id: string, body: string): WorkflowStep | undefined {
 		verify: config.verify === "true" ? true : config.verify === "false" ? false : undefined,
 		seedPaths: parseCsv(config.seedPaths) || undefined,
 		specRefs: parseCsv(config.specRefs) || undefined,
-		specStrict: config.specStrict === "true" || config.specStrict === "1",
+		// Tri-state (round-1 P1-2): ABSENT = undefined so the workflow-level flag
+		// survives the `step.specStrict ?? workflow.specStrict` dispatch merge; an
+		// explicit `false` stays false (per-step opt-out of a strict workflow).
+		specStrict: config.specStrict === undefined ? undefined : config.specStrict === "true" || config.specStrict === "1",
 		preStepScript: config.preStepScript || undefined,
 		preStepArgs: parseCsv(config.preStepArgs) || undefined,
 		preStepTimeout: parseOptionalInteger(config.preStepTimeout) ?? undefined,

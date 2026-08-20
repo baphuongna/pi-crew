@@ -1,35 +1,35 @@
 /**
- * spec-evidence.ts — SPEC-EVIDENCE footer parser + coverage gate (ADR-6 §2/§3,
- * WP-6 step 3).
+ * spec-evidence.ts — SPEC-EVIDENCE footer parser + coverage/strict gates
+ * (ADR-6 §2/§3/§4, WP-6 steps 3-4; round-1 review fixes).
  *
- * The footer contract (executor prompt, SPEC contract section — step 5):
- * the result must END with
+ * Footer contract (executor prompt, §2): the result must END with
  *
  * ```
  * SPEC-EVIDENCE:
  * <acceptanceId>: <one-line evidence>
  * ```
  *
- * The parser is MECHANICAL: a map of acceptanceId → evidence. Footer lines
- * citing non-existent ids, or a missing footer where the task has
- * must-acceptances, are gate events — never crashes (§2).
+ * Parser semantics (round-1): the footer is the TRAILING region of the text —
+ * the contiguous run of marker lines, entry lines, and blank lines that
+ * reaches EOF. Earlier/quoted markers followed by prose are ignored (a quoted
+ * dependency footer cannot shadow or pollute the real one); repeated markers
+ * inside the trailing region are block separators, and citations UNION across
+ * blocks (a worker emitting one block per spec keeps ALL citations).
  *
- * Non-strict default (§3): coverage ONLY — every must-acceptance id cited
- * ≥ 1 time. The gate never claims to verify truth. Missing footer / missing
- * ids / unknown ids → task passes with an `unverified` badge; never blocks.
- * Full-coverage fabrication is mechanically undetectable in non-strict mode
- * and passes WITHOUT a badge (the honest signal: coverage-only trusts
- * nothing about content). `should/could` requirements NEVER block any gate.
+ * Non-strict default (§3): mechanical coverage only — must-acceptance ids
+ * cited >= 1 time; gaps surface as an `unverified` badge, never a block.
+ * Strict (§4): coverage AND machine-check; trust is read from the snapshot's
+ * frozen `trustedAtFreeze` bit (provenance v2 — the live sidecar is never
+ * consulted at finalize, closing the TOCTOU window).
  */
 
-import { isSpecTrusted } from "../../state/stores/spec-store.ts";
-import type { SpecGateResult, SpecSnapshot } from "../../state/types.ts";
+import type { SpecGateResult, SpecSnapshot, TaskPacket } from "../../state/types.ts";
 import { isSpecSandboxSupported, runSpecCheck, type SpecCheckOutcome } from "../verification/spec-sandbox.ts";
 
 const FOOTER_MARKER = "SPEC-EVIDENCE:";
-/** Acceptance ids are minted by the spec store (SPEC_ID_PATTERN-adjacent);
- *  the parser stays mechanical — any `<token>:` line is a citation, unknown
- *  tokens surface as unknownIds rather than being rejected here. */
+/** Acceptance ids are minted by the spec store; the parser stays mechanical —
+ *  any `<token>:` line in the footer region is a citation, unknown tokens
+ *  surface as unknownIds rather than being rejected here. */
 const ENTRY_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]{0,127}):\s?(.*)$/;
 
 export interface SpecEvidenceFooter {
@@ -40,31 +40,65 @@ export interface SpecEvidenceFooter {
 	citedIds: string[];
 }
 
-/** Parse the SPEC-EVIDENCE footer. The LAST `SPEC-EVIDENCE:` marker wins
- *  (a stray earlier mention — e.g. in quoted instructions — must not shadow
- *  the actual footer at the end). Entry lines stop at the first blank line
- *  or non-`id: text` line. */
+const isBlank = (line: string): boolean => line.trim() === "";
+const isMarker = (line: string): boolean => line.trim() === FOOTER_MARKER;
+
+/** Parse the trailing SPEC-EVIDENCE footer region (see module header). */
 export function parseSpecEvidenceFooter(text: string): SpecEvidenceFooter {
 	const lines = (text ?? "").split(/\r?\n/);
-	let markerIndex = -1;
-	for (let i = lines.length - 1; i >= 0; i--) {
-		if (lines[i].trim() === FOOTER_MARKER) {
-			markerIndex = i;
-			break;
+	// Walk back over trailing blanks to the last content line.
+	let end = lines.length;
+	while (end > 0 && isBlank(lines[end - 1] ?? "")) end--;
+	// Extend the region backward over footer material (markers/entries/blanks).
+	let start = end;
+	while (start > 0) {
+		const line = lines[start - 1] ?? "";
+		if (isBlank(line) || isMarker(line) || ENTRY_PATTERN.test(line.trim())) {
+			start--;
+			continue;
 		}
+		break;
 	}
-	if (markerIndex === -1) return { present: false, entries: {}, citedIds: [] };
+	// Parse forward; require at least one marker INSIDE the region.
 	const entries: Record<string, string> = {};
 	const citedIds: string[] = [];
-	for (let i = markerIndex + 1; i < lines.length; i++) {
-		const line = lines[i];
-		if (line.trim() === "") break; // footer block ends at a blank line
+	let sawMarker = false;
+	for (let i = start; i < end; i++) {
+		const line = lines[i] ?? "";
+		if (isMarker(line)) {
+			sawMarker = true;
+			continue; // block separator
+		}
+		if (isBlank(line)) continue;
 		const match = ENTRY_PATTERN.exec(line.trim());
-		if (!match) break; // any non-entry line ends the footer block
+		if (!match) continue; // unreachable given the backward scan; defensive
 		citedIds.push(match[1]);
 		entries[match[1]] = match[2].trim();
 	}
+	if (!sawMarker) return { present: false, entries: {}, citedIds: [] };
 	return { present: true, entries, citedIds };
+}
+
+/** Union footers parsed from several authoritative result sources (round-1:
+ *  a footer may live in rawFinalText OR finalText OR finalStdout — child
+ *  compaction can empty finalText while the footer survives elsewhere).
+ *  First-seen evidence wins; citedIds keep first-seen order. */
+export function mergeFooters(footers: SpecEvidenceFooter[]): SpecEvidenceFooter {
+	const entries: Record<string, string> = {};
+	const seen = new Set<string>();
+	const citedIds: string[] = [];
+	let present = false;
+	for (const f of footers) {
+		present = present || f.present;
+		for (const id of f.citedIds) {
+			if (!seen.has(id)) {
+				seen.add(id);
+				citedIds.push(id);
+				entries[id] = f.entries[id] ?? "";
+			}
+		}
+	}
+	return { present, entries, citedIds };
 }
 
 /** Collect every acceptance id a snapshot pair exposes, split by the
@@ -84,9 +118,7 @@ function snapshotAcceptances(snapshots: SpecSnapshot[]): {
 	return { mustIds, knownIds };
 }
 
-/** Coverage-only evaluation (§3). `strict` arrives with the sandbox in
- *  step 4 — it changes the OUTCOME mapping (fail instead of badge), never
- *  the mechanical inputs. */
+/** Coverage-only evaluation (§3). */
 export function evaluateSpecCoverage(snapshots: SpecSnapshot[] | undefined, footer: SpecEvidenceFooter): SpecGateResult {
 	if (!snapshots || snapshots.length === 0) {
 		// Spec-less tasks are untouched (regression guard, B4-j).
@@ -126,10 +158,19 @@ export function evaluateSpecCoverage(snapshots: SpecSnapshot[] | undefined, foot
 
 /** Per-acceptance strict outcome. Sandbox failures carry digest-only fields
  *  (leak discipline — raw output never persists). */
+export type StrictCheckKind =
+	| "passed"
+	| "degraded-untrusted-spec"
+	| "degraded-non-idempotent"
+	| "degraded-no-command"
+	| "degraded-scaffold-mode"
+	| "degraded-already-failed"
+	| "failed";
+
 export interface StrictCheckResult {
 	specId: string;
 	acceptanceId: string;
-	result: "passed" | "degraded-untrusted-spec" | "degraded-non-idempotent" | "degraded-no-command" | "failed";
+	result: StrictCheckKind;
 	/** Sandbox outcome kind when result === "failed" (ADR §4 payload schema). */
 	outcome?: SpecCheckOutcome["outcome"];
 	expectedDigest?: string;
@@ -142,23 +183,36 @@ export interface StrictCheckResult {
 
 export interface StrictGateReport {
 	checks: StrictCheckResult[];
-	/** Strict pass = coverage complete AND zero failed checks. Degrades badge
-	 *  the task but never fail it (the §4 compromise path). */
+	/** Strict pass = coverage complete AND zero failed checks. Degradations
+	 *  badge the task but never fail it (the §4 compromise path). */
 	passed: boolean;
 	/** True when the platform cannot host the re-run sandbox (macOS/Windows) —
 	 *  every check fails closed; callers emit a loud platform warning. */
 	platformUnsupported: boolean;
 }
 
+export interface StrictEvalOptions {
+	/** Command cwd — the TASK's workspace (worktree-aware), not the run root. */
+	cwd: string;
+	/** "scaffold" (dry-run / executeWorkers=false) skips ALL machine-checks —
+	 *  the documented disable switch must reach the sandbox (round-1 P2). */
+	mode?: "run" | "scaffold";
+	/** Task already failed upstream (empty-result classifier / mutation guard):
+	 *  machine-checks are skipped — they cannot un-fail the task and re-running
+	 *  adds up to 60s × N to finalizing a dead task (round-1 P3). */
+	alreadyFailed?: boolean;
+}
+
 /** Strict-mode gate (§4): coverage (§3) AND machine-check of every
  *  machine-checkable must-acceptance. Executes ONLY snapshot-frozen commands
- *  — never the live state/specs/<id>.json (B4-k). Provenance: the re-run
- *  sandbox unlocks ONLY for specs whose store-minted trust sidecar exists
- *  (worker-authored/hand-forged manual claims degrade to coverage-only). */
+ *  — never the live state/specs/<id>.json (B4-k). Provenance v2: trust is the
+ *  snapshot's `trustedAtFreeze` bit, minted from the user-store digest sidecar
+ *  AT FREEZE — worker-authored specs, hand-forged workspace records, and
+ *  post-freeze sidecar tampering all degrade to coverage-only. */
 export async function evaluateSpecStrict(
 	snapshots: SpecSnapshot[] | undefined,
 	footer: SpecEvidenceFooter,
-	options: { cwd: string },
+	options: StrictEvalOptions,
 ): Promise<SpecGateResult & { strict: StrictGateReport }> {
 	const coverage = evaluateSpecCoverage(snapshots, footer);
 	if (!coverage.applicable) {
@@ -172,15 +226,24 @@ export async function evaluateSpecStrict(
 	const checks: StrictCheckResult[] = [];
 	let failed = false;
 	let degraded = false;
+	const skipMachineChecks = options.mode === "scaffold" || options.alreadyFailed === true;
 	for (const snap of snapshots ?? []) {
-		const trusted = isSpecTrusted(options.cwd, snap.specId);
 		for (const item of snap.items) {
 			if (item.requirement.priority !== "must") continue; // should/could never block
-			if (!trusted) {
+			if (snap.trustedAtFreeze !== true) {
 				// NEW-2: re-running a generated/unattested spec's commands would be a
 				// privilege-escalation vector — degrade to coverage-only.
 				degraded = true;
 				checks.push({ specId: snap.specId, acceptanceId: item.acceptance.id, result: "degraded-untrusted-spec" });
+				continue;
+			}
+			if (skipMachineChecks) {
+				degraded = true;
+				checks.push({
+					specId: snap.specId,
+					acceptanceId: item.acceptance.id,
+					result: options.mode === "scaffold" ? "degraded-scaffold-mode" : "degraded-already-failed",
+				});
 				continue;
 			}
 			if (!item.acceptance.command) {
@@ -241,4 +304,100 @@ export async function evaluateSpecStrict(
 		strict: { checks, passed, platformUnsupported },
 	};
 	return result;
+}
+
+// ── finalize-time orchestration (extracted for testability, round-1 P3) ────
+
+export interface SpecGateEventData {
+	type: "task.spec_gate" | "spec.strict_platform_warning" | "spec.check_failed" | "spec.freeze_failed";
+	data: Record<string, unknown>;
+}
+
+export interface SpecGateOutcome {
+	specGate: (SpecGateResult & { strict?: StrictGateReport }) | undefined;
+	/** Events the caller must append (payloads digest-only / ids only). */
+	events: SpecGateEventData[];
+	/** Set when the write-gate must fail (strict). The caller PREFIXES this to
+	 *  any pre-existing error instead of replacing it (round-1 P3). */
+	gateError?: string;
+}
+
+/** Compute the finalize-time spec gate for one task. Pure-ish orchestration:
+ *  no manifest/event-log coupling so the wiring is unit-testable. Footer is
+ *  the union of every authoritative result source (artifact-chain order). */
+export async function computeSpecGate(args: {
+	packet: TaskPacket;
+	rawFinalText?: string;
+	finalText?: string;
+	finalStdout?: string;
+	/** Task workspace (worktree-aware) — sandbox cwd. */
+	sandboxCwd: string;
+	runtimeKind: string;
+	/** True when the task already failed upstream (classifier/mutation guard). */
+	alreadyFailed: boolean;
+}): Promise<SpecGateOutcome> {
+	const packet = args.packet;
+	const hasSpecRefs =
+		(packet.specRefs?.length ?? 0) > 0 || (packet.specSnapshots?.length ?? 0) > 0 || (packet.unresolvedSpecRefs?.length ?? 0) > 0;
+	if (!hasSpecRefs) return { specGate: undefined, events: [] }; // spec-less: untouched (B4-j)
+	const footer = mergeFooters([
+		parseSpecEvidenceFooter(args.rawFinalText ?? ""),
+		parseSpecEvidenceFooter(args.finalText ?? ""),
+		parseSpecEvidenceFooter(args.finalStdout ?? ""),
+	]);
+	const events: SpecGateEventData[] = [];
+	const unresolved = packet.unresolvedSpecRefs ?? [];
+	if (unresolved.length > 0) {
+		events.push({ type: "spec.freeze_failed", data: { unresolvedSpecRefs: unresolved } });
+	}
+	if (packet.specStrict === true) {
+		const strictResult = await evaluateSpecStrict(packet.specSnapshots, footer, {
+			cwd: args.sandboxCwd,
+			mode: args.runtimeKind === "scaffold" ? "scaffold" : "run",
+			alreadyFailed: args.alreadyFailed,
+		});
+		const specGate =
+			unresolved.length > 0
+				? { ...strictResult, badge: "unverified" as const, missingMustIds: strictResult.missingMustIds }
+				: strictResult;
+		if (strictResult.strict.platformUnsupported) {
+			events.push({
+				type: "spec.strict_platform_warning",
+				data: { platform: process.platform, effect: "strict checks fail closed (no unshare)" },
+			});
+		}
+		for (const check of strictResult.strict.checks) {
+			if (check.result !== "failed") continue;
+			events.push({
+				type: "spec.check_failed",
+				data: {
+					specId: check.specId,
+					acceptanceId: check.acceptanceId,
+					outcome: check.outcome,
+					expectedDigest: check.expectedDigest,
+					actualDigest: check.actualDigest,
+					exitCode: check.exitCode,
+					signal: check.signal,
+					durationMs: check.durationMs,
+				},
+			});
+		}
+		const strictPassed = strictResult.strict.passed && unresolved.length === 0;
+		if (!strictPassed) {
+			const reasons = [
+				...(unresolved.length ? [`unresolved specRefs at freeze: ${unresolved.join(", ")}`] : []),
+				...(strictResult.missingMustIds.length
+					? [`missing must-acceptance evidence: ${strictResult.missingMustIds.join(", ")}`]
+					: []),
+				...(strictResult.unknownIds.length ? [`unknown acceptance ids cited: ${strictResult.unknownIds.join(", ")}`] : []),
+				...strictResult.strict.checks.filter((c) => c.result === "failed").map((c) => `${c.acceptanceId}: ${c.outcome}`),
+			].join("; ");
+			return { specGate, events, gateError: `Spec strict gate failed (${reasons || "machine-check failure"})` };
+		}
+		return { specGate, events };
+	}
+	// Non-strict: coverage only; unresolved refs badge but never block.
+	const coverage = evaluateSpecCoverage(packet.specSnapshots, footer);
+	const specGate = unresolved.length > 0 ? { ...coverage, applicable: true, badge: "unverified" as const } : coverage;
+	return { specGate, events };
 }

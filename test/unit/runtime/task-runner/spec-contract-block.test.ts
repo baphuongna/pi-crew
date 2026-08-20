@@ -29,6 +29,7 @@ function packet(overrides?: Partial<TaskPacket>): TaskPacket {
 				specId: "spec-login",
 				version: 2,
 				frozenAt: "2026-08-20T00:00:00.000Z",
+				trustedAtFreeze: false,
 				items: [
 					{
 						requirement: { id: "req-1", text: "login", priority: "must" },

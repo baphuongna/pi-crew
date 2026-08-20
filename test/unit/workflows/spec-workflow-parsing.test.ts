@@ -52,6 +52,11 @@ Verify: {goal}
 		assert.equal(build.specStrict, false, "per-step strict override parsed");
 		assert.deepEqual(audit.specRefs, ["spec-audit"]);
 		assert.equal(audit.task.startsWith("Verify:"), true, "task body not swallowed by config lines");
+		// Round-1 P1-2 regression: workflow-level strict + step WITHOUT the flag
+		// must resolve STRICT at dispatch (the ?? fallback). A hard `false` parse
+		// here silently disabled the documented frontmatter opt-in.
+		const merged = found.specStrict === true && build.specStrict === false;
+		assert.equal(merged, true, "workflow strict flows to the un-flagged step; explicit step false still opts out");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -73,7 +78,11 @@ Do: {goal}
 		assert.ok(found);
 		assert.equal(found.specStrict, undefined);
 		assert.equal(found.steps[0]?.specRefs, undefined);
-		assert.equal(found.steps[0]?.specStrict, false, "absent step flag normalizes to false (additive)");
+		assert.equal(
+			found.steps[0]?.specStrict,
+			undefined,
+			"absent step flag stays undefined so the workflow-level flag survives the ?? merge (round-1 P1-2)",
+		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

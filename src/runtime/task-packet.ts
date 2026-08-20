@@ -106,10 +106,16 @@ export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
 	// T4/R6 (ADR-6 §1/§2): the ONLY packet-creation path is also the freeze
 	// point — specRefs load from the workspace store and freeze into immutable
 	// snapshots embedded in the packet (later spec edits never rewrite them).
-	const specSnapshots = (input.specRefs ?? [])
+	// Round-1 review (fail-closed freeze): declared-but-unresolvable ids are
+	// kept on the packet as unresolvedSpecRefs instead of being dropped — the
+	// gate surfaces them (badge non-strict / failure strict), never a silent
+	// no-op. Snapshots freeze trust via the store at THIS moment.
+	const declaredSpecRefs = input.specRefs ?? [];
+	const resolvedRecords = declaredSpecRefs
 		.map((id) => loadSpecRecord(input.manifest.cwd, id))
-		.filter((r): r is SpecRecord => r !== undefined)
-		.map(freezeSpecSnapshot);
+		.filter((r): r is SpecRecord => r !== undefined);
+	const specSnapshots = resolvedRecords.map((r) => freezeSpecSnapshot(r, input.manifest.cwd));
+	const unresolvedSpecRefs = declaredSpecRefs.filter((id) => !specSnapshots.some((s) => s.specId === id));
 
 	const scope = inferTaskScope(input.step);
 	const reads = input.step.reads === false ? [] : (input.step.reads ?? []);
@@ -125,7 +131,8 @@ export function buildTaskPacket(input: BuildTaskPacketInput): TaskPacket {
 
 	return {
 		objective: sanitizedTask.replaceAll("{goal}", sanitizedGoal),
-		...(specSnapshots.length > 0 ? { specRefs: specSnapshots.map((s) => s.specId), specSnapshots } : {}),
+		...(declaredSpecRefs.length > 0 ? { specRefs: declaredSpecRefs, specSnapshots } : {}),
+		...(unresolvedSpecRefs.length > 0 ? { unresolvedSpecRefs } : {}),
 		...(input.specStrict === true ? { specStrict: true } : {}),
 		scope,
 		scopePath,

@@ -120,6 +120,22 @@ export async function prepareTaskExecutionContext(
 		...(input.step.specRefs && input.step.specRefs.length > 0 ? { specRefs: input.step.specRefs } : {}),
 		...(input.step.specStrict === true ? { specStrict: true } : {}),
 	});
+	// T4/R6 (ADR-6 + erratum): spec.frozen at DISPATCH — records what was
+	// frozen (ids, versions, trust bits) so the run log shows the exact
+	// criteria a task was held to; unresolved refs get spec.freeze_failed.
+	if (taskPacket.specRefs?.length || taskPacket.unresolvedSpecRefs?.length) {
+		appendEventFireAndForget(manifest.eventsPath, {
+			type: "spec.frozen",
+			runId: manifest.runId,
+			taskId: input.task.id,
+			data: {
+				specIds: taskPacket.specSnapshots?.map((s) => s.specId) ?? [],
+				versions: taskPacket.specSnapshots?.map((s) => `${s.specId}@v${s.version}(trusted=${s.trustedAtFreeze})`) ?? [],
+				...(taskPacket.unresolvedSpecRefs?.length ? { unresolvedSpecRefs: taskPacket.unresolvedSpecRefs } : {}),
+				...(taskPacket.specStrict === true ? { strict: true } : {}),
+			},
+		});
+	}
 	// R10-1 residual: thread the per-run result-artifact read cache (if the
 	// caller provided one) into the dep-context collection — cache hits reuse
 	// the closeout's reads byte-identically; undefined keeps uncached behavior.

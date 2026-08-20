@@ -86,6 +86,21 @@ Non-strict default for v0.10.x (design §12.4 open decision stays open until pos
 - **Persisting command output for audit** — rejected: digest-only (leak discipline; output may contain secrets).
 - **Per-task (not per-spec) acceptance lists** — rejected: specs are workspace-level reusable artifacts; freezing happens per-task via the snapshot.
 
+## Erratum (round-1 review, 2026-08-20)
+
+Round-1 security + code review (2×P1, 6×P2) amended the following — the implementation is the amended contract:
+
+1. **Provenance v2 (supersedes the §4 trust-anchor paragraph).** The trust anchor moves OUT of the worker-writable workspace: trusted specs live ONLY in the USER store `~/.pi/agent/specs/<projectSlug>/` with a **digest-bound sidecar** (sha-256 of the canonical record JSON). `.crew/state/specs/` is generated-only and structurally NEVER trusted — a prompt-injected worker writing a workspace `*.json`+`*.trusted` pair mints nothing. The content-swap attack (edit a minted record, keep its real sidecar) dies on the digest binding. **Trust is decided at freeze**: `SpecSnapshot.trustedAtFreeze` is recorded at dispatch and the strict gate reads only the frozen bit — post-freeze mint/delete cannot affect a running task (TOCTOU closed). Residual, accepted: a fully malicious same-user process could forge the user store too, but such a process already has arbitrary exec as the user; the gate defends the documented worker paths. Mint surface: `scripts/spec-import.mjs` (user-run CLI).
+2. **Step-level `specStrict`** participates in §5 reject-start (workflow OR step flag both require a verifier-role step). Step parsing keeps the flag `undefined` when absent so the workflow-level flag survives the dispatch merge (round-1 P1: a hard `false` silently disabled the documented opt-in).
+3. **Fail-closed freeze**: declared specRefs that resolve to nothing are kept as `packet.unresolvedSpecRefs` → `spec.freeze_failed` event; strict FAILS, non-strict badges. Strict workflows additionally reject at START with unresolvable refs.
+4. **Sandbox cwd** = the TASK workspace (worktree-aware `task.cwd`), not the run root — executor changes live in the worktree.
+5. **Disable switches reach the sandbox**: scaffold mode / already-failed tasks skip machine-checks (`degraded-scaffold-mode` / `degraded-already-failed`); strict failure PREFIXES the upstream error instead of replacing it.
+6. **`output-capped`** outcome kind: an expectedDigest authored over full stdout is invalid against the 4 MiB-capped buffer — fails with the distinct honest reason (not a silent digest-mismatch). Survivor processes are group-killed on EVERY completion, not only on timeout.
+7. **Coalescing exclusion**: steps with `specRefs`/`specStrict` never coalesce (the coalesced path bypasses packet/finalize — the gate would silently vanish).
+8. **Footer semantics**: the footer is the TRAILING region (markers/entries/blanks to EOF); repeated markers are block separators with citations UNIONED across blocks (multi-spec footers keep all citations); quoted mid-text markers followed by prose are ignored. Finalize parses the union of rawFinalText/finalText/finalStdout.
+9. **Event names** (registered in TEAM_EVENT_TYPES): `spec.frozen` (dispatch), `spec.freeze_failed`, `spec.strict_platform_warning`, `spec.check_failed` (payload schema §4 + `output-capped`), `task.spec_gate` (badge event — the §Consequences name `spec.unverified` is emitted as this task-scoped badge event).
+10. **DWF**: strict mode rejects at start with a DWF-specific message (ctx.agent() tasks have no verifier-role gate in v0.10.x).
+
 ## Consequences
 
 - New: `src/state/stores/spec-store.ts`, `src/runtime/task-runner/spec-evidence.ts`; extended: `task-packet.ts` (`specRefs[]` producer — the only packet-creation path), `pre-execution.ts` (freeze hook), `post-execution.ts` (write-gate), `prompt-builder.ts` (SPEC contract section).

@@ -91,6 +91,11 @@ export function planCoalescedGroups(
 		// doesn't compose in a multi-task worker. These flags set up side
 		// effects per-task that can't be combined.
 		if (step.worktree) continue;
+		// T4/R6 (round-1 P2): spec-carrying steps never coalesce — the coalesced
+		// path bypasses buildTaskPacket/finalizeTaskResult, which would silently
+		// drop the snapshot freeze, the SPEC contract prompt block, and the gate.
+		if (step.specRefs?.length) continue;
+		if (step.specStrict === true) continue;
 		if (step.preStepScript) continue;
 		if (step.verify) continue;
 		if (step.output !== undefined && step.output !== false && step.output !== "") continue;

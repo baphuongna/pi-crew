@@ -73,7 +73,14 @@ export function buildSpecSandboxEnv(env: NodeJS.ProcessEnv = process.env): Recor
 	return base;
 }
 
-export type SpecCheckOutcomeKind = "passed" | "digest-mismatch" | "exit-mismatch" | "timeout" | "launch-failed" | "network-blocked";
+export type SpecCheckOutcomeKind =
+	| "passed"
+	| "digest-mismatch"
+	| "exit-mismatch"
+	| "output-capped"
+	| "timeout"
+	| "launch-failed"
+	| "network-blocked";
 
 /** Digest-only result — raw command output NEVER persists (leak discipline). */
 export interface SpecCheckOutcome {
@@ -83,6 +90,10 @@ export interface SpecCheckOutcome {
 	signal?: string;
 	durationMs: number;
 	stderrLength?: number;
+	/** stdout exceeded maxOutputBytes — digest comparison invalid (the authored
+	 *  expectedDigest is over FULL stdout); surfaced so the failure is
+	 *  distinguishable from real tampering (round-1 review). */
+	stdoutCapped?: boolean;
 }
 
 export interface SpecCheckCommand {
@@ -172,6 +183,17 @@ export async function runSpecCheck(
 					: { outcome: "launch-failed", durationMs: Date.now() - start, stderrLength: stderrLen };
 			finish(outcome);
 		});
+		child.on("exit", () => {
+			// Survivor kill (round-1): a passing command can background a process
+			// that outlives the check. Must run on EXIT, not CLOSE — a survivor
+			// holding the stdout pipe delays `close` until it dies, which would
+			// make this kill a no-op by construction.
+			try {
+				if (child.pid) process.kill(-child.pid, "SIGKILL");
+			} catch {
+				/* group already reaped — fine */
+			}
+		});
 		child.on("close", (code, signal) => {
 			const durationMs = Date.now() - start;
 			if (signal === "SIGTERM" || signal === "SIGKILL") {
@@ -180,6 +202,20 @@ export async function runSpecCheck(
 			}
 			const actualDigest = createHash("sha256").update(stdout, "utf8").digest("hex");
 			const expectedExit = check.expectedExitCode ?? 0;
+			if (stdoutCapped && check.expectedDigest !== undefined) {
+				// The authored expectedDigest is over FULL stdout — comparing the
+				// capped prefix is invalid. Fail with the distinct honest outcome.
+				finish({
+					outcome: "output-capped",
+					actualDigest,
+					exitCode: code,
+					signal: signal ?? undefined,
+					durationMs,
+					stderrLength: stderrLen,
+					stdoutCapped: true,
+				});
+				return;
+			}
 			const exitOk = code === expectedExit;
 			const digestOk = check.expectedDigest === undefined || actualDigest === check.expectedDigest;
 			if (!exitOk) {
@@ -211,6 +247,7 @@ export async function runSpecCheck(
 				signal: signal ?? undefined,
 				durationMs,
 				stderrLength: stderrLen,
+				...(stdoutCapped ? { stdoutCapped: true } : {}),
 			});
 		});
 	});

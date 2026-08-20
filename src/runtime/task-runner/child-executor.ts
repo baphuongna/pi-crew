@@ -1013,6 +1013,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		modelAttempts,
 		parsedOutput,
 		finalStdout,
+		rawFinalText,
 		transcriptPath,
 		terminalEvidence,
 		startupEvidence,

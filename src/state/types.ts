@@ -95,6 +95,10 @@ export interface SpecSnapshot {
 	specId: string;
 	version: number;
 	frozenAt: string;
+	/** Provenance v2 (ADR-6 §4 + erratum): trust decided ONCE at freeze from
+	 *  the user-store digest sidecar; the strict gate reads only this frozen
+	 *  bit — post-freeze mint/delete cannot affect a running task. */
+	trustedAtFreeze: boolean;
 	items: SpecSnapshotItem[];
 }
 
@@ -138,6 +142,10 @@ export interface TaskPacket {
 	specRefs?: string[];
 	/** T4/R6 (ADR-6 §7): strict mode — coverage AND machine-check (§4). */
 	specStrict?: boolean;
+	/** Declared specRefs that resolved to NO record at freeze (typo / not
+	 *  imported / corrupted). Non-strict: unverified badge. Strict: the gate
+	 *  fails — a strict workflow must never silently degrade to ungated. */
+	unresolvedSpecRefs?: string[];
 	/** Frozen snapshots embedded at dispatch — later spec edits never rewrite
 	 *  what a running task was held to. */
 	specSnapshots?: SpecSnapshot[];

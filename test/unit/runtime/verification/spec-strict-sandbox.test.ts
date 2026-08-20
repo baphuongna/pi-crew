@@ -1,16 +1,15 @@
 /**
- * spec-strict-sandbox tests (ADR-6 §4, WP-6 step 4).
+ * spec-strict-sandbox tests (ADR-6 §4 + erratum §11, WP-6 step 4 + round-1 fixes).
+ *
+ * Provenance v2: trust = USER store + digest-bound sidecar, frozen into the
+ * snapshot at dispatch (trustedAtFreeze). HOME is isolated per test.
  *
  * Covers: sandbox env has NO provider keys / broker tokens (captured env),
- * digest/exit semantics, timeout kill, wrapper-launch failure fails CLOSED,
- * network isolation via unshare -rn, strict evaluator outcomes incl. the
- * two provenance negative ACs (worker-authored + hand-forged degrade), and
- * the §5 reject-start reason.
- *
- * Platform note: unshare -rn is Linux-only. On other platforms the
- * executable-sandbox tests assert the fail-closed outcome instead; the
- * evaluator-level tests run everywhere (they need no unshare because
- * degraded paths never reach the sandbox).
+ * digest/exit semantics, timeout group-kill, wrapper-launch failure fails
+ * CLOSED, netns isolation, survivor group-kill on passing checks, output-capped
+ * distinct outcome, strict evaluator outcomes incl. BOTH provenance negative
+ * ACs + TOCTOU (post-freeze sidecar delete), scaffold/already-failed skips,
+ * and the §5 reject-start matrix (incl. step-level + DWF + unresolved refs).
  */
 
 import assert from "node:assert/strict";
@@ -21,27 +20,25 @@ import * as path from "node:path";
 import test from "node:test";
 import { specStrictRejectReason } from "../../../../src/extension/team-tool/run-intent.ts";
 import { evaluateSpecStrict, parseSpecEvidenceFooter } from "../../../../src/runtime/task-runner/spec-evidence.ts";
-import { buildSpecSandboxEnv, runSpecCheck } from "../../../../src/runtime/verification/spec-sandbox.ts";
-import { isSpecTrusted, saveSpecRecord } from "../../../../src/state/stores/spec-store.ts";
-import type { SpecRecord, SpecSnapshot } from "../../../../src/state/types.ts";
+import { buildSpecSandboxEnv, runSpecCheck, SPEC_SANDBOX_LIMITS } from "../../../../src/runtime/verification/spec-sandbox.ts";
+import { freezeSpecSnapshot, isSpecTrusted, loadSpecRecord, saveSpecRecord } from "../../../../src/state/stores/spec-store.ts";
+import type { SpecRecord } from "../../../../src/state/types.ts";
 
 const IS_LINUX = process.platform === "linux";
+const REAL_HOME = process.env.HOME;
 
 function makeCwd(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-specstrict-"));
 	fs.mkdirSync(path.join(dir, ".git")); // project-scoped root (bug-029 lesson)
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spec-home-"));
+	process.env.HOME = home; // isolate the USER store
 	return dir;
 }
 
-function snapshotFrom(record: SpecRecord): SpecSnapshot {
-	return {
-		specId: record.id,
-		version: record.version,
-		frozenAt: "2026-08-20T00:00:00.000Z",
-		items: record.requirements.flatMap((requirement) =>
-			record.acceptance.filter((a) => a.requirementId === requirement.id).map((acceptance) => ({ requirement, acceptance })),
-		),
-	};
+function cleanup(cwd: string): void {
+	if (REAL_HOME === undefined) delete process.env.HOME;
+	else process.env.HOME = REAL_HOME;
+	fs.rmSync(cwd, { recursive: true, force: true });
 }
 
 function strictSpec(overrides?: Partial<SpecRecord>): SpecRecord {
@@ -63,6 +60,12 @@ function strictSpec(overrides?: Partial<SpecRecord>): SpecRecord {
 		source: { kind: "manual" },
 		...overrides,
 	};
+}
+
+/** Mint via the USER path + freeze — the legit strict pipeline. */
+function mintAndFreeze(cwd: string, record: SpecRecord) {
+	saveSpecRecord(cwd, record, { userAction: true });
+	return freezeSpecSnapshot(loadSpecRecord(cwd, record.id) as SpecRecord, cwd);
 }
 
 // ── Sandbox env ──────────────────────────────────────────────────────────
@@ -89,10 +92,17 @@ test("sandbox env: BASE_ALLOWLIST pattern MINUS credential keys — no provider 
 	assert.equal(env.FORCE_COLOR, "0");
 });
 
+test("sandbox env: scrubber RESULT is authoritative (round-1: merge-back resurrected scrubbed keys)", () => {
+	// A secret-shaped key that CREDENTIAL_KEY_PATTERN does NOT match but the
+	// generic isSecretKey deny-list does — must still be absent from the result.
+	const env = buildSpecSandboxEnv({ PATH: "/bin", HOME: "/h", X_AUTHORIZATION: "bearer x" } as unknown as NodeJS.ProcessEnv);
+	assert.equal(env.X_AUTHORIZATION, undefined, "deny-list scrub is the result, not merged back");
+});
+
 // ── Executable sandbox (Linux; fail-closed elsewhere) ─────────────────────
 
 test("sandbox: deterministic command passes digest+exit check", async () => {
-	if (!IS_LINUX) return; // fail-closed path covered below
+	if (!IS_LINUX) return;
 	const cwd = makeCwd();
 	try {
 		const out = await runSpecCheck(
@@ -102,7 +112,7 @@ test("sandbox: deterministic command passes digest+exit check", async () => {
 		assert.equal(out.outcome, "passed");
 		assert.equal(out.exitCode, 0);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
@@ -113,7 +123,7 @@ test("sandbox: digest mismatch fails the check (digest-only payload)", async () 
 	assert.match(out.actualDigest ?? "", /^[0-9a-f]{64}$/, "actual digest present, raw output never persisted");
 });
 
-test("sandbox: exit-code mismatch fails the check", async () => {
+test("sandbox: exit-code mismatch fails the check (compound commands keep shell semantics)", async () => {
 	if (!IS_LINUX) return;
 	const out = await runSpecCheck(
 		{ command: "printf nope; exit 7", expectedDigest: undefined, expectedExitCode: 0 },
@@ -123,7 +133,7 @@ test("sandbox: exit-code mismatch fails the check", async () => {
 	assert.equal(out.exitCode, 7);
 });
 
-test("sandbox: wall-clock timeout kills (SIGTERM→SIGKILL escalation)", async () => {
+test("sandbox: wall-clock timeout kills the process GROUP (SIGTERM→SIGKILL escalation)", async () => {
 	if (!IS_LINUX) return;
 	const out = await runSpecCheck({ command: "sleep 300" }, { cwd: os.tmpdir(), limits: { wallClockMs: 800, sigkillGraceMs: 200 } });
 	assert.equal(out.outcome, "timeout");
@@ -144,26 +154,46 @@ test("sandbox: non-Linux platform fails closed (no unshare equivalent — platfo
 
 test("sandbox: network is isolated — outbound TCP connect fails inside unshare -rn", { timeout: 30_000 }, async () => {
 	if (!IS_LINUX) return;
-	// bash /dev/tcp keeps the probe lightweight (the 256 MiB address-space
-	// ulimit kills node/v8-based probes). Inside the isolated netns connect()
-	// must fail (exit 1); if isolation ever breaks, connect succeeds → exit 0
-	// → this test FAILS (fail-open detection). Requires only bash on the host.
 	const probe = `bash -c 'exec 3<>/dev/tcp/1.1.1.1/80'`;
 	const out = await runSpecCheck({ command: probe, expectedExitCode: 0 }, { cwd: os.tmpdir() });
 	assert.equal(out.outcome, "exit-mismatch", "TCP connect failed inside the isolated netns");
 	assert.equal(out.exitCode, 1);
 });
 
-// ── Strict evaluator (platform-independent paths) ─────────────────────────
-
-test("strict: trusted manual spec + idempotent digest check → machine-check passes", async () => {
+test("sandbox: survivor processes are group-killed on a PASSING check (round-1)", { timeout: 20_000 }, async () => {
+	if (!IS_LINUX) return;
 	const cwd = makeCwd();
 	try {
-		const record = strictSpec();
-		saveSpecRecord(cwd, record, { userAction: true }); // mints the sidecar
-		assert.equal(isSpecTrusted(cwd, "spec-strict"), true);
+		const marker = path.join(cwd, "survivor-marker");
+		const out = await runSpecCheck({ command: `sh -c 'sleep 2 && touch "$0"' '${marker}' & exit 0` }, { cwd });
+		assert.equal(out.outcome, "passed", "the check itself passed");
+		await new Promise((r) => setTimeout(r, 2500));
+		assert.equal(fs.existsSync(marker), false, "backgrounded survivor was group-killed with the check");
+	} finally {
+		cleanup(cwd);
+	}
+});
+
+test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedDigest never fake-compares (round-1)", async () => {
+	if (!IS_LINUX) return;
+	const out = await runSpecCheck(
+		{ command: `head -c 3000000 /dev/zero | tr '\\0' 'x'`, expectedDigest: "f".repeat(64) },
+		{ cwd: os.tmpdir(), limits: { maxOutputBytes: 1024 * 1024 } },
+	);
+	assert.equal(out.outcome, "output-capped", "capped buffer → honest distinct failure, not silent digest-mismatch");
+	assert.equal(out.stdoutCapped, true);
+});
+
+// ── Strict evaluator (platform-independent paths) ─────────────────────────
+
+test("strict: user-minted spec + idempotent digest check → machine-check passes", async (t) => {
+	if (!IS_LINUX) return t.skip("sandbox execution needs unshare");
+	const cwd = makeCwd();
+	try {
+		const snap = mintAndFreeze(cwd, strictSpec());
+		assert.equal(snap.trustedAtFreeze, true, "user mint freezes trusted");
 		const footer = parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: digest stable across runs\n");
-		const result = await evaluateSpecStrict([snapshotFrom(record)], footer, { cwd });
+		const result = await evaluateSpecStrict([snap], footer, { cwd });
 		assert.equal(result.strict.passed, true);
 		assert.equal(result.badge, undefined);
 		assert.deepEqual(
@@ -171,18 +201,19 @@ test("strict: trusted manual spec + idempotent digest check → machine-check pa
 			["passed"],
 		);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
-test("strict NEGATIVE AC 1: worker-authored (generated) spec degrades to coverage-only + badge, never re-runs", async () => {
+test("strict NEGATIVE AC 1: worker-authored (generated) spec degrades — trustedAtFreeze false, never re-runs", async () => {
 	const cwd = makeCwd();
 	try {
-		// Worker path — even though the payload declares manual+trusted+idempotent.
-		const record = strictSpec({ source: { kind: "manual" }, trusted: true });
-		saveSpecRecord(cwd, record); // userAction default false → forced generated, no sidecar
+		const record = strictSpec({ source: { kind: "manual" }, trusted: true }); // forged payload
+		saveSpecRecord(cwd, record); // worker path → workspace store, forced generated
+		const snap = freezeSpecSnapshot(loadSpecRecord(cwd, "spec-strict") as SpecRecord, cwd);
+		assert.equal(snap.trustedAtFreeze, false);
 		const footer = parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: covered\n");
-		const result = await evaluateSpecStrict([snapshotFrom(record)], footer, { cwd });
+		const result = await evaluateSpecStrict([snap], footer, { cwd });
 		assert.deepEqual(
 			result.strict.checks.map((c) => c.result),
 			["degraded-untrusted-spec"],
@@ -191,23 +222,67 @@ test("strict NEGATIVE AC 1: worker-authored (generated) spec degrades to coverag
 		assert.equal(result.badge, "unverified");
 		assert.equal(result.strict.passed, true, "degrade is the compromise path — badge, not fail");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
-test("strict NEGATIVE AC 2: hand-forged manual/trusted record (sidecar absent) ALSO degrades", async () => {
+test("strict NEGATIVE AC 2: hand-forged WORKSPACE json+sidecar pair ALSO degrades (user store only)", async () => {
 	const cwd = makeCwd();
 	try {
-		const record = strictSpec();
-		saveSpecRecord(cwd, record, { userAction: true }); // mint sidecar…
-		// …then hand-edit the file and DELETE the sidecar (the attack: a worker
-		// rewriting state/specs/spec-strict.json cannot re-mint it).
-		fs.rmSync(path.join(cwd, ".crew", "state", "specs", "spec-strict.trusted"));
-		const footer = parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: forged but covered\n");
-		const result = await evaluateSpecStrict([snapshotFrom(record)], footer, { cwd });
-		assert.equal(result.strict.checks[0].result, "degraded-untrusted-spec", "provenance is the sidecar, never the file fields");
+		// The attacker writes BOTH files into the worker-writable workspace store.
+		const dir = path.join(cwd, ".crew", "state", "specs");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, "spec-strict.json"), JSON.stringify(strictSpec()));
+		fs.writeFileSync(path.join(dir, "spec-strict.trusted"), `${"a".repeat(64)}\n`);
+		const snap = freezeSpecSnapshot(loadSpecRecord(cwd, "spec-strict") as SpecRecord, cwd);
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: forged but covered\n"), { cwd });
+		assert.equal(snap.trustedAtFreeze, false, "workspace sidecars mint NOTHING");
+		assert.equal(result.strict.checks[0].result, "degraded-untrusted-spec");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
+	}
+});
+
+test("strict TOCTOU (round-1): post-freeze sidecar deletion cannot change a running task's trust", async (t) => {
+	if (!IS_LINUX) return t.skip("sandbox execution needs unshare");
+	const cwd = makeCwd();
+	try {
+		const snap = mintAndFreeze(cwd, strictSpec());
+		assert.equal(snap.trustedAtFreeze, true);
+		// Attacker deletes the sidecar between dispatch and finalize.
+		const slug = fs.readdirSync(path.join(process.env.HOME ?? "", ".pi", "agent", "specs"))[0];
+		fs.rmSync(path.join(process.env.HOME ?? "", ".pi", "agent", "specs", slug, "spec-strict.trusted"));
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\n"), { cwd });
+		assert.equal(result.strict.checks[0].result, "passed", "the gate reads the FROZEN bit — machine-check ran despite live tampering");
+	} finally {
+		cleanup(cwd);
+	}
+});
+
+test("strict: scaffold mode skips machine-checks — degraded-scaffold-mode (round-1 P2)", async () => {
+	const cwd = makeCwd();
+	try {
+		const snap = mintAndFreeze(cwd, strictSpec());
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\n"), { cwd, mode: "scaffold" });
+		assert.equal(result.strict.checks[0].result, "degraded-scaffold-mode");
+		assert.equal(result.strict.passed, true, "degrade badges, never fails");
+		assert.equal(result.badge, "unverified");
+	} finally {
+		cleanup(cwd);
+	}
+});
+
+test("strict: already-failed task skips machine-checks — degraded-already-failed (round-1 P3)", async () => {
+	const cwd = makeCwd();
+	try {
+		const snap = mintAndFreeze(cwd, strictSpec());
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\n"), {
+			cwd,
+			alreadyFailed: true,
+		});
+		assert.equal(result.strict.checks[0].result, "degraded-already-failed");
+	} finally {
+		cleanup(cwd);
 	}
 });
 
@@ -219,32 +294,24 @@ test("strict: non-idempotent must → degraded-non-idempotent + badge (no re-run
 				{ id: "acc-1", requirementId: "req-1", check: "db migration", command: "psql -c 'insert ...'", idempotent: false },
 			],
 		});
-		saveSpecRecord(cwd, record, { userAction: true });
-		const result = await evaluateSpecStrict(
-			[snapshotFrom(record)],
-			parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: migration applied\n"),
-			{ cwd },
-		);
+		const snap = mintAndFreeze(cwd, record);
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: migration applied\n"), { cwd });
 		assert.equal(result.strict.checks[0].result, "degraded-non-idempotent");
 		assert.equal(result.badge, "unverified");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
 test("strict: must without command → degraded-no-command (cannot machine-check)", async () => {
 	const cwd = makeCwd();
 	try {
-		const record = strictSpec({
-			acceptance: [{ id: "acc-1", requirementId: "req-1", check: "manual review only" }],
-		});
-		saveSpecRecord(cwd, record, { userAction: true });
-		const result = await evaluateSpecStrict([snapshotFrom(record)], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: reviewed\n"), {
-			cwd,
-		});
+		const record = strictSpec({ acceptance: [{ id: "acc-1", requirementId: "req-1", check: "manual review only" }] });
+		const snap = mintAndFreeze(cwd, record);
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: reviewed\n"), { cwd });
 		assert.equal(result.strict.checks[0].result, "degraded-no-command");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
@@ -253,43 +320,39 @@ test("strict: digest mismatch in a trusted idempotent check FAILS the gate (B4 s
 	const cwd = makeCwd();
 	try {
 		const record = strictSpec({ acceptance: [{ ...strictSpec().acceptance[0], expectedDigest: "f".repeat(64) }] });
-		saveSpecRecord(cwd, record, { userAction: true });
-		const result = await evaluateSpecStrict([snapshotFrom(record)], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\n"), { cwd });
+		const snap = mintAndFreeze(cwd, record);
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\n"), { cwd });
 		assert.equal(result.strict.passed, false);
 		assert.equal(result.strict.checks[0].result, "failed");
 		assert.equal(result.strict.checks[0].outcome, "digest-mismatch");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
 test("strict: missing footer with musts FAILS (coverage gap fails strict — B4-c strict column)", async () => {
 	const cwd = makeCwd();
 	try {
-		const record = strictSpec();
-		saveSpecRecord(cwd, record, { userAction: true });
-		const result = await evaluateSpecStrict([snapshotFrom(record)], parseSpecEvidenceFooter("done, no footer"), { cwd });
+		const snap = mintAndFreeze(cwd, strictSpec());
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("done, no footer"), { cwd });
 		assert.equal(result.strict.passed, false);
 		assert.deepEqual(result.missingMustIds, ["acc-1"]);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
 test("strict: unknown id cited FAILS the gate", async () => {
 	const cwd = makeCwd();
 	try {
-		const record = strictSpec();
-		saveSpecRecord(cwd, record, { userAction: true });
-		const result = await evaluateSpecStrict(
-			[snapshotFrom(record)],
-			parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\nacc-ghost: invented\n"),
-			{ cwd },
-		);
+		const snap = mintAndFreeze(cwd, strictSpec());
+		const result = await evaluateSpecStrict([snap], parseSpecEvidenceFooter("SPEC-EVIDENCE:\nacc-1: ok\nacc-ghost: invented\n"), {
+			cwd,
+		});
 		assert.equal(result.strict.passed, false);
 		assert.deepEqual(result.unknownIds, ["acc-ghost"]);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		cleanup(cwd);
 	}
 });
 
@@ -299,14 +362,15 @@ test("strict: spec-less task → not applicable, never fails (regression guard)"
 	assert.equal(result.strict.passed, true);
 });
 
-// ── §5 reject-start ───────────────────────────────────────────────────────
+// ── §5 reject-start (workflow OR step level, DWF, unresolved refs) ─────────
 
-test("reject-start: strict workflow without verifier step is rejected; with verifier or non-strict passes", () => {
-	const base = { name: "wf", description: "", source: "user" as const, filePath: "/tmp/wf.workflow.md" };
-	assert.ok(specStrictRejectReason({ ...base, specStrict: true, steps: [{ id: "s1", role: "executor", task: "x" }] }));
+const wfBase = { name: "wf", description: "", source: "user" as const, filePath: "/tmp/wf.workflow.md" };
+
+test("reject-start matrix: strict without verifier rejected; with verifier or non-strict allowed", () => {
+	assert.ok(specStrictRejectReason({ ...wfBase, specStrict: true, steps: [{ id: "s1", role: "executor", task: "x" }] }));
 	assert.equal(
 		specStrictRejectReason({
-			...base,
+			...wfBase,
 			specStrict: true,
 			steps: [
 				{ id: "s1", role: "executor", task: "x" },
@@ -316,8 +380,80 @@ test("reject-start: strict workflow without verifier step is rejected; with veri
 		undefined,
 	);
 	assert.equal(
-		specStrictRejectReason({ ...base, steps: [{ id: "s1", role: "executor", task: "x" }] }),
+		specStrictRejectReason({ ...wfBase, steps: [{ id: "s1", role: "executor", task: "x" }] }),
 		undefined,
 		"non-strict unaffected",
 	);
+});
+
+test("reject-start: STEP-level specStrict without verifier ALSO rejected (round-1 P3)", () => {
+	const reason = specStrictRejectReason({
+		...wfBase,
+		steps: [{ id: "s1", role: "executor", task: "x", specStrict: true }],
+	});
+	assert.ok(reason, "per-step flag cannot bypass the verifier requirement");
+});
+
+test("reject-start: DWF + strict gets the DWF-specific message (structurally verifier-less)", () => {
+	const reason = specStrictRejectReason({
+		...wfBase,
+		runtime: "dynamic",
+		specStrict: true,
+		dynamicScript: "/tmp/x.dwf.ts",
+		steps: [],
+	});
+	assert.ok(reason?.includes("dynamic workflows"), reason);
+});
+
+test("reject-start: strict workflow with unresolvable specRefs rejects at START (round-1 P2)", () => {
+	const cwd = makeCwd();
+	try {
+		saveSpecRecord(cwd, strictSpec()); // generated only — resolvable
+		const reason = specStrictRejectReason(
+			{
+				...wfBase,
+				specStrict: true,
+				steps: [
+					{ id: "s1", role: "executor", task: "x", specRefs: ["spec-strict", "ghost-spec"] },
+					{ id: "s2", role: "verifier", task: "y" },
+				],
+			},
+			cwd,
+		);
+		assert.ok(reason?.includes("ghost-spec"), reason);
+		// Resolvable refs → allowed.
+		assert.equal(
+			specStrictRejectReason(
+				{
+					...wfBase,
+					specStrict: true,
+					steps: [
+						{ id: "s1", role: "executor", task: "x", specRefs: ["spec-strict"] },
+						{ id: "s2", role: "verifier", task: "y" },
+					],
+				},
+				cwd,
+			),
+			undefined,
+		);
+	} finally {
+		cleanup(cwd);
+	}
+});
+
+// ── Guard: store trust API sanity under isolated HOME ─────────────────────
+
+test("isSpecTrusted: invalid id never throws", () => {
+	const cwd = makeCwd();
+	try {
+		assert.equal(isSpecTrusted(cwd, "../escape"), false);
+	} finally {
+		cleanup(cwd);
+	}
+});
+
+test("SPEC_SANDBOX_LIMITS: ceilings match the ADR §4 values", () => {
+	assert.equal(SPEC_SANDBOX_LIMITS.addressSpaceKb, 262_144);
+	assert.equal(SPEC_SANDBOX_LIMITS.cpuSeconds, 30);
+	assert.equal(SPEC_SANDBOX_LIMITS.wallClockMs, 60_000);
 });
