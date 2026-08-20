@@ -1,6 +1,6 @@
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import type { TeamEvent } from "../state/event-log/event-log.ts";
-import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { DwfPhaseState } from "./dwf-phase-display.ts";
 
 export interface RunUiProgress {
@@ -64,6 +64,8 @@ export interface RunUiSnapshot {
 		mailbox: string;
 		progress: string;
 		events: string;
+		/** WP-7 (R7): present only when the plans slice is loaded (flag on). */
+		plans?: string;
 	};
 	manifest: TeamRunManifest;
 	tasks: TeamTaskState[];
@@ -76,6 +78,9 @@ export interface RunUiSnapshot {
 	cancellationReason?: string;
 	/** DWF phase state derived from `recentEvents`. Null/absent for non-DWF runs. */
 	dwfPhaseState?: DwfPhaseState | null;
+	/** WP-7 (R7): plan records for the Plan pane — populated ONLY when
+	 *  PI_CREW_PLAN_UI=1 (flag-off → field absent, zero extra I/O). */
+	plans?: PlanRecord[];
 	recentEvents: TeamEvent[];
 	recentOutputLines: string[];
 }

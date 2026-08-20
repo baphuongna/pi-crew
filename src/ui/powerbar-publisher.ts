@@ -141,11 +141,40 @@ interface ActiveItem {
  * Build the workflow steps segment showing: ✓explore › →plan › ○execute › ○verify
  * with the current/active step highlighted using → arrow.
  */
-function buildStepsPayload(active: ActiveItem[], allTasks: TeamTaskState[]): PowerbarPayloadShape {
+export function buildStepsPayload(active: ActiveItem[], allTasks: TeamTaskState[]): PowerbarPayloadShape {
 	if (!active.length) {
 		return { id: "pi-crew-steps" };
 	}
 	const run = active[0]!.run;
+	// WP-7 (R7): plan-carrying runs show PLAN PHASES instead of workflow steps —
+	// the plan is the actual execution shape (a re-plan revision switches the
+	// segment without waiting for workflow steps that no longer apply).
+	const plans = active[0]!.snapshot?.plans;
+	if (plans && plans.length > 0) {
+		const current = plans[plans.length - 1]!;
+		const itemById = new Map(current.items.map((i) => [i.id, i]));
+		const statusOf = (ids: string[]): "completed" | "running" | "pending" => {
+			const items = ids.map((id) => itemById.get(id)?.status).filter(Boolean) as string[];
+			if (items.length && items.every((s) => s === "done")) return "completed";
+			if (items.some((s) => s === "active")) return "running";
+			return "pending";
+		};
+		const parts = current.phases.map((phase) => {
+			const status = phase.status === "done" ? "completed" : statusOf(phase.itemIds);
+			const icon = status === "completed" ? "✓" : status === "running" ? "→" : "○";
+			const name = phase.title.length > 10 ? `${phase.title.slice(0, 9)}…` : phase.title;
+			return `${icon}${name}`;
+		});
+		if (parts.length) {
+			const hasRunning = parts.some((p) => p.startsWith("→"));
+			const allComplete = parts.every((p) => p.startsWith("✓"));
+			return {
+				id: "pi-crew-steps",
+				text: `P${current.version} ${parts.join(" › ")}`,
+				color: allComplete ? "success" : hasRunning ? "accent" : "dim",
+			};
+		}
+	}
 	const workflowName = run.workflow ?? "default";
 	// Load workflow steps
 	const workflows = allWorkflows(discoverWorkflows(run.cwd));

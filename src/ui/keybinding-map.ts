@@ -53,6 +53,7 @@ export const DASHBOARD_KEYS = {
 		output: ["4"],
 		health: ["5"],
 		metrics: ["6"],
+		plan: ["7"],
 	},
 	navigation: { up: ["k", "up"], down: ["j", "down"] },
 	mailbox: {
@@ -64,7 +65,7 @@ export const DASHBOARD_KEYS = {
 		openDetail: ["\r", "\n"],
 	},
 	health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
-	plan: { approve: ["A"], deny: ["n"] },
+	plan: { approve: ["A"], deny: ["n"], diff: ["X"] },
 	notification: { dismissAll: ["H"] },
 } as const;
 
@@ -72,7 +73,7 @@ export const DASHBOARD_KEYS = {
  * Pane identifiers that can scope a binding. `undefined` means the binding
  * fires in every pane.
  */
-export type ActivePane = "agents" | "progress" | "mailbox" | "output" | "health" | "metrics";
+export type ActivePane = "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan";
 
 /**
  * A single keybinding: the keys that trigger it, the action it produces, and
@@ -83,8 +84,8 @@ export type ActivePane = "agents" | "progress" | "mailbox" | "output" | "health"
 export interface KeyBinding {
 	readonly keys: readonly string[];
 	readonly action: DashboardKeyAction;
-	/** When set, the binding only fires when `activePane === pane`. */
-	readonly pane?: ActivePane;
+	/** When set, the binding fires only in these pane(s). */
+	readonly pane?: PaneScope;
 }
 
 export type DashboardKeyAction =
@@ -108,6 +109,8 @@ export type DashboardKeyAction =
 	| "pane-output"
 	| "pane-health"
 	| "pane-metrics"
+	| "pane-plan"
+	| "plan-diff"
 	| "up"
 	| "down"
 	| "mailbox-detail"
@@ -167,12 +170,18 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{
 		keys: DASHBOARD_KEYS.plan.approve,
 		action: "plan-approve",
-		pane: "progress",
+		// WP-7: shared by the progress banner and the Plan pane (pane 7).
+		pane: ["progress", "plan"],
 	},
 	{
 		keys: DASHBOARD_KEYS.plan.deny,
 		action: "plan-deny",
-		pane: "progress",
+		pane: ["progress", "plan"],
+	},
+	{
+		keys: DASHBOARD_KEYS.plan.diff,
+		action: "plan-diff",
+		pane: "plan",
 	},
 	{
 		keys: DASHBOARD_KEYS.notification.dismissAll,
@@ -196,6 +205,7 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.pane.output, action: "pane-output" },
 	{ keys: DASHBOARD_KEYS.pane.health, action: "pane-health" },
 	{ keys: DASHBOARD_KEYS.pane.metrics, action: "pane-metrics" },
+	{ keys: DASHBOARD_KEYS.pane.plan, action: "pane-plan" },
 	{ keys: DASHBOARD_KEYS.navigation.up, action: "up" },
 	{ keys: DASHBOARD_KEYS.navigation.down, action: "down" },
 ];
@@ -271,9 +281,22 @@ function parseKeybindingOverride(raw: unknown): KeybindingOverride {
  * bindings fire at once (so a shared key is genuinely ambiguous). Global
  * (`undefined`) matches anything; two different concrete panes never overlap.
  */
-function paneScopesCompatible(a: ActivePane | undefined, b: ActivePane | undefined): boolean {
+/** Pane scopes — a binding may fire in ONE pane, SEVERAL panes (WP-7: plan
+ *  approval keys are shared by progress + plan panes), or every pane
+ *  (undefined). */
+export type PaneScope = ActivePane | readonly ActivePane[];
+
+function paneScopeMatches(scope: PaneScope | undefined, pane: ActivePane | undefined): boolean {
+	if (scope === undefined) return true;
+	if (Array.isArray(scope)) return pane !== undefined && scope.includes(pane);
+	return scope === pane;
+}
+
+function paneScopesCompatible(a: PaneScope | undefined, b: PaneScope | undefined): boolean {
 	if (a === undefined || b === undefined) return true;
-	return a === b;
+	const as = Array.isArray(a) ? a : [a];
+	const bs = Array.isArray(b) ? b : [b];
+	return as.some((x) => bs.includes(x));
 }
 
 interface EffectiveBindingsResult {
@@ -420,7 +443,7 @@ export function dashboardActionForKey(data: string, activePane?: ActivePane): Da
 	// Pass 1 — exact string match (case-sensitive). Handles literal ASCII
 	// keystrokes ('d', 'D', 'q', 'S', …) and preserves their distinct meanings.
 	for (const binding of BINDINGS) {
-		if (binding.pane !== undefined && binding.pane !== activePane) continue;
+		if (!paneScopeMatches(binding.pane, activePane)) continue;
 		if (binding.keys.includes(data)) return binding.action;
 	}
 	// Pass 2 — terminal-aware match for escape sequences / canonical KeyIds.
@@ -429,7 +452,7 @@ export function dashboardActionForKey(data: string, activePane?: ActivePane): Da
 	// legacy CSI, app-cursor-mode, and Kitty-protocol variants uniformly.
 	const key = keyOf(data);
 	for (const binding of BINDINGS) {
-		if (binding.pane !== undefined && binding.pane !== activePane) continue;
+		if (!paneScopeMatches(binding.pane, activePane)) continue;
 		for (const candidate of binding.keys) {
 			if (key === candidate) return binding.action;
 			if (matchesKey(data, candidate as KeyId)) return binding.action;
