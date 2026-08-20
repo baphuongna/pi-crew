@@ -12,17 +12,17 @@ import type { TaskPacket } from "../../../../src/state/types.ts";
 function packet(overrides?: Partial<TaskPacket>): TaskPacket {
 	return {
 		objective: "obj",
-		scope: "repo",
+		scope: "workspace",
 		scopePath: "/repo",
-		repo: { root: "/repo" },
+		repo: "/repo",
 		branchPolicy: "read-only",
 		acceptanceTests: [],
-		commitPolicy: { mode: "forbidden" },
-		reportingContract: { format: "markdown" },
+		commitPolicy: "forbidden",
+		reportingContract: "markdown",
 		escalationPolicy: "ask",
 		constraints: [],
 		expectedArtifacts: [],
-		verification: { requiredGreenLevel: "none" },
+		verification: { requiredGreenLevel: "none", commands: [], allowManualEvidence: true },
 		specRefs: ["spec-login"],
 		specSnapshots: [
 			{
