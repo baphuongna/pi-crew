@@ -249,11 +249,7 @@ export class CrewAgentPane {
 			lines.push(
 				t.fg(
 					"dim",
-					truncateToWidth(
-						`· finished — /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`,
-						width,
-						"…",
-					),
+					truncateToWidth(`· finished — /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`, width, "…"),
 				),
 			);
 		}

@@ -118,7 +118,10 @@ test("assistant item keeps the full message (thinking + usage) normalized for th
 		assert.equal(assistant.text, "Saw it.");
 		assert.ok(assistant.message, "full compacted message is retained for AssistantMessageComponent");
 		const content = (assistant.message.content as Array<Record<string, unknown>>) ?? [];
-		assert.ok(content.some((part) => part.type === "thinking" && String(part.thinking).includes("reason")), "thinking part survives");
+		assert.ok(
+			content.some((part) => part.type === "thinking" && String(part.thinking).includes("reason")),
+			"thinking part survives",
+		);
 		// Record-level usage merges into the message and is normalized to pi shape.
 		assert.deepEqual(assistant.usage, {
 			input: 1200,

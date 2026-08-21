@@ -3,26 +3,32 @@
  * compacted event log, so "enter to view" can open a genuine pi conversation
  * for that agent (screen swap via pi's `switchSession`).
  *
- * Source of truth: `<stateRoot>/agents/<taskId>/events.jsonl`, the compacted
- * per-agent event stream written by `appendCrewAgentEventBuffered`
- * (child-executor.ts). Compaction keeps, per assistant message, the final
- * `message_end` content parts (text / toolCall / toolResult) plus usage/model,
- * and drops toolCall/toolResult `id`s — they are re-synthesized here by
+ * Source of truth, PRIMARY: the worker's OWN pi session file
+ * (`~/.pi/agent/sessions/<cwd-stem>/<worker-session>.jsonl`). The view is a
+ * byte-for-byte copy of the worker's real conversation (task prompt, tool
+ * calls, usage, ids, timestamps — everything a pi session is), with only the
+ * header extended by `parentSession` so `/crew-back` can return. It is
+ * re-copied on a cadence while the worker keeps writing, so the view lives.
+ *
+ * FALLBACK (worker session file not found / ambiguous): build from
+ * `<stateRoot>/agents/<taskId>/events.jsonl`, the compacted per-agent event
+ * stream written by `appendCrewAgentEventBuffered` (child-executor.ts).
+ * Compaction keeps, per assistant message, the final `message_end` content
+ * parts (text / toolCall / toolResult) plus usage/model, and drops
+ * toolCall/toolResult `id`s — they are re-synthesized here by
  * name+arrival-order matching, the same convention agent-transcript.ts uses.
  *
  * The produced file is a linear session (header + message entries) that
  * `SessionManager.open()` loads like any other pi session: the viewer gets pi's
  * real transcript rendering, tool cards, scrollback, and a working editor.
- *
- * The view is a SNAPSHOT: the worker keeps writing its own events.jsonl while
- * running; re-entering the view rebuilds the file from the latest events.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import * as os from "node:os";
 import path from "node:path";
 import { agentEventsPath, agentStateDir } from "../../runtime/crew-agent-records.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
-import type { TeamRunManifest } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { CREW_VIEW_SESSION_BASENAME } from "./view-session-store.ts";
 
 /** Safety cap: never materialize a view bigger than this many message entries. */
@@ -38,6 +44,179 @@ interface ViewBuildOptions {
 	/** Main session file — recorded as the view's parent session so `/tree`
 	 *  shows the way back. */
 	parentSessionFile?: string;
+	/** pi's sessions root (~/.pi/agent/sessions). When absent, derived from
+	 *  `parentSessionFile`'s dirname (falls back to the default home path). */
+	sessionRoot?: string;
+}
+
+/** Safety cap for the copied worker session file (bytes). */
+const MAX_WORKER_SESSION_COPY_BYTES = 16 * 1024 * 1024;
+/** How far back (ms) a candidate worker session may predate the task start. */
+const WORKER_SESSION_WINDOW_LEAD_MS = 5_000;
+/** How far past the task finish a candidate may still be flushed (ms). */
+const WORKER_SESSION_WINDOW_TRAIL_MS = 15_000;
+/** Fragment fallback when the task has no title: input for disambiguation. */
+const WORKER_SESSION_MATCH_READ_BYTES = 32 * 1024;
+
+/**
+ * Path of px's session directory for a given cwd — the same layout pi uses
+ * (`~/.pi/agent/sessions/--home-bom-source-my-pi--` for
+ * `/home/bom/source/my_pi`). The worker pi processes write their sessions
+ * here, keyed by THEIR cwd (the run workspace).
+ */
+function workerSessionDirFor(cwd: string, sessionRoot?: string): string {
+	const root = sessionRoot ?? path.join(os.homedir(), ".pi", "agent", "sessions");
+	const stem = `--${cwd.replace(/^\/+/, "").replace(/[\\/]/g, "-")}--`;
+	return path.join(root, stem);
+}
+
+/** A short distinctive fragment of the task's own text, for disambiguation. */
+function taskMatchFragment(manifest: TeamRunManifest, task: { title?: string } | undefined): string | undefined {
+	const raw = (task?.title ?? manifest.goal ?? "").replace(/\s+/g, " ").trim();
+	if (!raw) return undefined;
+	return raw.slice(0, 80);
+}
+
+function fileContainsFragment(file: string, fragment: string): boolean {
+	try {
+		const fd = openSync(file, "r");
+		try {
+			const buf = Buffer.alloc(WORKER_SESSION_MATCH_READ_BYTES);
+			const n = readSync(fd, buf, 0, buf.length, 0);
+			return buf.toString("utf8", 0, n).toLowerCase().includes(fragment.toLowerCase());
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Locate the worker's OWN pi session file for a task.
+ *
+ * The view must be the worker's real session (not a re-synthesis): the worker
+ * pi writes its session under `~/.pi/agent/sessions/<cwd-stem>/`, with a file
+ * created when the worker starts. Candidates are matched by creation window
+ * (task startedAt … now/finishedAt) and disambiguated by content: every
+ * worker session embeds the task prompt, so a distinctive fragment of the
+ * task title/goal pins the right file when several workers ran in parallel.
+ *
+ * @returns the absolute path of the worker's session file, or undefined.
+ */
+function resolveWorkerSessionFile(
+	options: ViewBuildOptions,
+	manifest: TeamRunManifest,
+	task: { startedAt?: string; finishedAt?: string; title?: string } | undefined,
+): string | undefined {
+	const dir = workerSessionDirFor(options.cwd, options.sessionRoot);
+	let files: string[] = [];
+	try {
+		if (!existsSync(dir)) return undefined;
+		files = readdirSync(dir);
+	} catch {
+		return undefined;
+	}
+	const now = Date.now();
+	const started = task?.startedAt ? Date.parse(task.startedAt) : undefined;
+	const finished = task?.finishedAt ? Date.parse(task.finishedAt) : undefined;
+	// No task timing yet (still starting): only accept files younger than the
+	// view-open attempt, so a stale session from a previous run never matches.
+	const windowStart = Number.isFinite(started) ? (started as number) - WORKER_SESSION_WINDOW_LEAD_MS : now - 10 * 60_000;
+	const windowEnd = (Number.isFinite(finished) ? (finished as number) : now) + WORKER_SESSION_WINDOW_TRAIL_MS;
+	const mainFile = options.parentSessionFile ? path.resolve(options.parentSessionFile) : undefined;
+
+	const candidates: string[] = [];
+	for (const name of files) {
+		if (!name.endsWith(".jsonl")) continue;
+		const full = path.join(dir, name);
+		if (mainFile && path.resolve(full) === mainFile) continue;
+		try {
+			const st = statSync(full);
+			if (st.mtimeMs < windowStart || st.mtimeMs > windowEnd) continue;
+			if (!st.isFile()) continue;
+			candidates.push(full);
+		} catch {
+			/* unreadable/stale — skip */
+		}
+	}
+	if (candidates.length === 0) return undefined;
+	candidates.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+	if (candidates.length === 1) return candidates[0];
+	// Parallel workers: pick the one whose content embeds THIS task's text.
+	// Sequential runs settle in order, so the newest file in the window is the
+	// current task's worker — the fragment check only needs to disprove the
+	// unusual sibling-overlap case.
+	const fragment = taskMatchFragment(manifest, task);
+	if (fragment) {
+		const matches = candidates.filter((file) => fileContainsFragment(file, fragment));
+		if (matches.length === 1) return matches[0];
+	}
+	return candidates[0];
+}
+
+/**
+ * Build the view session by COPYING the worker's own pi session file.
+ *
+ * The copy is byte-for-byte the worker's real conversation (task prompt, tool
+ * calls, usage, ids, timestamps) with only the header extended by
+ * `parentSession` so `/crew-back` can return. This is what makes the view "a
+ * complete pi session, not a custom render".
+ */
+function buildViewFromWorkerSession(
+	options: ViewBuildOptions,
+	loaded: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
+): string | undefined {
+	const task = loaded.tasks.find((candidate) => candidate.id === options.taskId);
+	const source = resolveWorkerSessionFile(options, loaded.manifest, task);
+	if (!source) return undefined;
+	try {
+		const st = statSync(source);
+		if (st.size <= 0 || st.size > MAX_WORKER_SESSION_COPY_BYTES) return undefined;
+		const text = readFileSync(source, "utf8");
+		const nl = text.indexOf("\n");
+		const firstLine = nl >= 0 ? text.slice(0, nl) : text;
+		const rest = nl >= 0 ? text.slice(nl) : "";
+		let header: Record<string, unknown>;
+		try {
+			header = JSON.parse(firstLine) as Record<string, unknown>;
+		} catch {
+			return undefined;
+		}
+		if (header.type !== "session") return undefined;
+		header = { ...header, parentSession: options.parentSessionFile ?? header.parentSession };
+		const outDir = agentStateDir(loaded.manifest, options.taskId);
+		mkdirSync(outDir, { recursive: true });
+		const outPath = path.join(outDir, CREW_VIEW_SESSION_BASENAME);
+		writeFileSync(outPath, `${JSON.stringify(header)}${rest}`, "utf8");
+		return outPath;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Source stamp for the live-refresh tick when the view is backed by the
+ * worker's own session file. The tick re-dispatches ONLY when the worker has
+ * appended new content (stamp changed) — a plain content comparison against
+ * the rebuilt view would loop on pi-appended entries (thinking_level changes)
+ * because the authoritative copy drops them.
+ */
+export function workerSessionSourceStamp(
+	options: Pick<ViewBuildOptions, "cwd" | "runId" | "taskId" | "parentSessionFile" | "sessionRoot">,
+): { mtimeMs: number; size: number } | undefined {
+	const loaded = loadRunManifestById(options.cwd, options.runId);
+	if (!loaded) return undefined;
+	const task = loaded.tasks.find((candidate) => candidate.id === options.taskId);
+	const source = resolveWorkerSessionFile(options, loaded.manifest, task);
+	if (!source) return undefined;
+	try {
+		const st = statSync(source);
+		if (st.size <= 0) return undefined;
+		return { mtimeMs: st.mtimeMs, size: st.size };
+	} catch {
+		return undefined;
+	}
 }
 
 /** Raw record line from events.jsonl: { seq, time, event } — the `event`
@@ -223,7 +402,13 @@ function recordsToSessionEntries(records: CrewEventRecord[], headerTimestamp: st
  * pi-shaped `{input, output, cacheRead, cacheWrite, cost: {total}}`, or
  * absent) into the shape pi's footer/dashboard reads unconditionally.
  */
-export function normalizeUsage(raw: unknown): { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } } {
+export function normalizeUsage(raw: unknown): {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: { total: number };
+} {
 	const usage = asRecord(raw);
 	const toNum = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 	const costRaw = usage ? usage.cost : undefined;
@@ -256,6 +441,12 @@ export function buildAgentViewSessionFile(options: ViewBuildOptions): string | u
 	const loaded = loadRunManifestById(options.cwd, options.runId);
 	if (!loaded) return undefined;
 	const { manifest, tasks } = loaded;
+
+	// PRIMARY: the worker's own pi session file — the complete, real session.
+	{
+		const workerPath = buildViewFromWorkerSession(options, loaded);
+		if (workerPath) return workerPath;
+	}
 
 	const eventsPath = agentEventsPath(manifest, options.taskId);
 	if (!existsSync(eventsPath)) return undefined;

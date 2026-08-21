@@ -13,6 +13,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -21,7 +22,7 @@ import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../e
 import { logInternalError } from "../../utils/internal-error.ts";
 import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
-import { buildAgentViewSessionFile } from "./agent-view-session.ts";
+import { buildAgentViewSessionFile, workerSessionSourceStamp } from "./agent-view-session.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
@@ -88,8 +89,16 @@ function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
  */
 function dispatchViewCommand(text: string): void {
 	const pi = lastPi;
-	const sendUserMessage = (pi as { sendUserMessage?: (content: string, options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean }) => Promise<void> } | undefined)
-		?.sendUserMessage;
+	const sendUserMessage = (
+		pi as
+			| {
+					sendUserMessage?: (
+						content: string,
+						options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
+					) => Promise<void>;
+			  }
+			| undefined
+	)?.sendUserMessage;
 	if (typeof sendUserMessage === "function") {
 		try {
 			// The extension API is FIRE-AND-FORGET: it returns void (rejections
@@ -131,11 +140,30 @@ function dispatchViewCommand(text: string): void {
 const VIEW_BUILD_RETRY_MS = 500;
 const VIEW_BUILD_MAX_RETRIES = 40;
 
+/** The main session file's directory = pi's sessions root (the view build +
+ *  refresh locate the worker's own session file under it). */
+function mainSessionRoot(): string | undefined {
+	const state = getCrewViewSessionState();
+	const file = state.mainSessionFile ?? lastCtx?.sessionManager.getSessionFile();
+	return file ? path.dirname(file) : undefined;
+}
+
 /** Build the view file, retrying while the agent's event file appears.
  *  Returns undefined when the state never materialises (caller notifies). */
 async function buildViewPath(ctx: ExtensionContext, target: PanelTarget): Promise<string | undefined> {
+	// At open time the current session IS the main session — its file is the
+	// return path AND must be excluded from the worker-session search (its
+	// mtime is "now", so a time-window match alone would make the search
+	// ambiguous and fall back to the events synthesis).
+	const mainFile = ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile;
 	for (let attempt = 0; ; attempt += 1) {
-		const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
+		const viewPath = buildAgentViewSessionFile({
+			cwd: ctx.cwd,
+			runId: target.runId,
+			taskId: target.taskId,
+			parentSessionFile: mainFile,
+			sessionRoot: mainSessionRoot(),
+		});
 		if (viewPath) return viewPath;
 		if (attempt >= VIEW_BUILD_MAX_RETRIES) return undefined;
 		await new Promise((resolve) => setTimeout(resolve, VIEW_BUILD_RETRY_MS));
@@ -146,6 +174,17 @@ function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 	void (async () => {
 		const viewPath = await buildViewPath(ctx, target);
 		if (viewPath) {
+			// Baseline the worker-session stamp right after the build so the
+			// first refresh tick only dispatches when the worker has actually
+			// produced NEW content since the copy was taken.
+			const stamp = workerSessionSourceStamp({
+				cwd: ctx.cwd,
+				runId: target.runId,
+				taskId: target.taskId,
+				parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
+				sessionRoot: mainSessionRoot(),
+			});
+			if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
 			// Switch AFTER the current input tick unwinds: `switchSession`
 			// tears the current session down, which would invalidate the
 			// editor while we are still inside its key handler otherwise.
@@ -243,6 +282,7 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 			runId,
 			taskId,
 			parentSessionFile: mainSessionFile ?? prev.mainSessionFile,
+			sessionRoot: path.dirname(mainSessionFile ?? currentFile ?? ""),
 		});
 		if (!viewPath) {
 			ctx.ui.notify(`No transcript for agent ${taskId} in run ${runId}.`, "error");
@@ -356,13 +396,40 @@ async function viewRefreshTick(): Promise<void> {
 		const loaded = loadRunManifestById(ctx.cwd, state.runId);
 		if (!loaded) return stopViewAutoRefresh();
 		const task = loaded.tasks.find((candidate) => candidate.id === state.taskId);
-		if (task && (task.status === "completed" || task.status === "failed" || task.status === "cancelled"))
-			return stopViewAutoRefresh();
+		if (task && (task.status === "completed" || task.status === "failed" || task.status === "cancelled")) return stopViewAutoRefresh();
+		// Worker-session-backed views: only act when the SOURCE file grew
+		// (copy is authoritative — a content comparison vs the rebuilt view
+		// would loop on pi-appended entries the copy drops). openPane already
+		// baselined the stamp at open, so the first tick after a change
+		// dispatches instead of silently swallowing it.
+		const stamp = workerSessionSourceStamp({
+			cwd: ctx.cwd,
+			runId: state.runId,
+			taskId: state.taskId,
+			parentSessionFile: state.mainSessionFile,
+			sessionRoot: mainSessionRoot(),
+		});
+		if (stamp) {
+			const stampKey = `${stamp.mtimeMs}:${stamp.size}`;
+			if (stampKey === viewRefreshBaseline) return;
+			viewRefreshBaseline = stampKey;
+			lastViewRefreshAt = now;
+			const refreshed = buildAgentViewSessionFile({
+				cwd: ctx.cwd,
+				runId: state.runId,
+				taskId: state.taskId,
+				parentSessionFile: state.mainSessionFile,
+				sessionRoot: mainSessionRoot(),
+			});
+			if (refreshed) dispatchViewCommand(`/crew-view ${state.runId} ${state.taskId}`);
+			return;
+		}
 		const viewPath = buildAgentViewSessionFile({
 			cwd: ctx.cwd,
 			runId: state.runId,
 			taskId: state.taskId,
 			parentSessionFile: state.mainSessionFile,
+			sessionRoot: mainSessionRoot(),
 		});
 		if (!viewPath) return;
 		const fresh = readFileSync(viewPath, "utf8");

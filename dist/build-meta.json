@@ -7239,7 +7239,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi-streams.ts": {
-      "bytes": 13374,
+      "bytes": 13380,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -19581,10 +19581,15 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-view-session.ts": {
-      "bytes": 14805,
+      "bytes": 22687,
       "imports": [
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
           "kind": "import-statement",
           "external": true
         },
@@ -19659,10 +19664,15 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 21653,
+      "bytes": 24203,
       "imports": [
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -20480,7 +20490,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7514619
+      "bytes": 7530095
     },
     "dist/index.mjs": {
       "imports": [
@@ -22270,7 +22280,17 @@
           "external": true
         },
         {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
           "kind": "import-statement",
           "external": true
         },
@@ -24561,7 +24581,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 28624
+          "bytesInOutput": 28627
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 62642
@@ -24588,13 +24608,13 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 10587
+          "bytesInOutput": 12238
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 265
         },
         "src/ui/inline-panel/agent-view-session.ts": {
-          "bytesInOutput": 8976
+          "bytesInOutput": 13436
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 6106
@@ -24636,7 +24656,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3218610
+      "bytes": 3224724
     }
   }
 }
