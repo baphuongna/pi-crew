@@ -1,5 +1,6 @@
 import type { PiTeamsConfig } from "../../config/config.ts";
 import { loadConfig } from "../../config/config.ts";
+import { isSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { safeAbort } from "../../utils/safe-abort.ts";
 import type { TeamContext } from "./context.ts";
 
@@ -74,7 +75,16 @@ export function resolveRunDeadline<T extends object>(
 			// children with it; aborting after a child exited throws AbortError
 			// from Node's child_process listener — never let that escape a
 			// pi event handler (safe-abort).
-			const onCallerAbort = () => safeAbort(controller, "run-deadline.caller-abort");
+			const onCallerAbort = () => {
+				// Regression: switching sessions (resume/new/fork — including
+				// /crew-view) tears the current turn down via session.abort(),
+				// firing the tool-call abort while the run is still forming. A
+				// foreground run must survive session switches (P0 — it shares
+				// the process), so a teardown abort must NOT cancel it. Only a
+				// genuine caller abort OUTSIDE a session switch propagates.
+				if (isSessionSwitchInFlight()) return;
+				safeAbort(controller, "run-deadline.caller-abort");
+			};
 			callerSignal.addEventListener("abort", onCallerAbort, { once: true });
 			controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
 		}

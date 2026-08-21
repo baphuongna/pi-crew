@@ -55274,6 +55274,15 @@ function clearViewSwitchInFlight() {
 function isViewSwitchInFlight() {
   return viewSwitchInFlight;
 }
+function markSessionSwitchInFlight() {
+  sessionSwitchInFlight = true;
+}
+function clearSessionSwitchInFlight() {
+  sessionSwitchInFlight = false;
+}
+function isSessionSwitchInFlight() {
+  return sessionSwitchInFlight;
+}
 function getCrewViewSessionState() {
   return state2;
 }
@@ -55314,13 +55323,14 @@ function resolveReturnSessionFile(currentSessionFile, prev) {
   }
   return prev.mainSessionFile;
 }
-var CREW_VIEW_SESSION_BASENAME, state2, viewSwitchInFlight;
+var CREW_VIEW_SESSION_BASENAME, state2, viewSwitchInFlight, sessionSwitchInFlight;
 var init_view_session_store = __esm({
   "src/ui/inline-panel/view-session-store.ts"() {
     "use strict";
     CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
     state2 = { active: false };
     viewSwitchInFlight = false;
+    sessionSwitchInFlight = false;
   }
 });
 
@@ -57469,6 +57479,13 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
     if (ownerPid !== void 0 && checkProcessLiveness(ownerPid).alive) {
       skipped.push(manifest.runId);
       continue;
+    }
+    if (!manifest.async) {
+      const updatedMs = manifest.updatedAt ? new Date(manifest.updatedAt).getTime() : Number.NaN;
+      if (Number.isFinite(updatedMs) && now - updatedMs <= staleThresholdMs) {
+        skipped.push(manifest.runId);
+        continue;
+      }
     }
     const loaded = loadRunManifestById(cwd, manifest.runId);
     if (!loaded) continue;
@@ -64467,7 +64484,10 @@ function resolveRunDeadline(ctx, params, config) {
     if (ctx.signal.aborted) safeAbort(controller, "run-deadline.caller-preaborted");
     else {
       const callerSignal = ctx.signal;
-      const onCallerAbort = () => safeAbort(controller, "run-deadline.caller-abort");
+      const onCallerAbort = () => {
+        if (isSessionSwitchInFlight()) return;
+        safeAbort(controller, "run-deadline.caller-abort");
+      };
       callerSignal.addEventListener("abort", onCallerAbort, { once: true });
       controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
     }
@@ -64484,6 +64504,7 @@ var init_run_deadline = __esm({
   "src/extension/team-tool/run-deadline.ts"() {
     "use strict";
     init_config();
+    init_view_session_store();
     init_safe_abort();
     DEFAULT_RUN_DEADLINE_MS = 36e5;
   }
@@ -84119,6 +84140,7 @@ function installInlinePanel(pi, ctx, uiConfig) {
 }
 
 // src/extension/registration/lifecycle-handlers.ts
+init_view_session_store();
 init_pi_ui_compat();
 init_powerbar_publisher();
 init_render_scheduler();
@@ -84389,6 +84411,7 @@ function installSessionShutdownHandler(pi, ctx) {
 }
 function installSessionBeforeSwitchHandler(pi, ctx) {
   pi.on("session_before_switch", () => {
+    markSessionSwitchInFlight();
     ctx.sessionGeneration++;
     const pendingCount = ctx.lifecycleState.deliveryCoordinator?.getPendingCount() ?? 0;
     try {
@@ -84411,6 +84434,7 @@ function installSessionBeforeSwitchHandler(pi, ctx) {
 }
 function installSessionStartHandler(pi, ctx) {
   pi.on("session_start", (_event, extensionCtx) => {
+    clearSessionSwitchInFlight();
     runArtifactCleanup(extensionCtx.cwd);
     try {
       const entries = extensionCtx.sessionManager?.getEntries?.();

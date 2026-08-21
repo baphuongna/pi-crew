@@ -283,6 +283,22 @@ export function cancelOrphanedRuns(
 			continue;
 		}
 
+		// Foreground (in-process) runs have NO async worker PID, so the liveness
+		// check above cannot apply. They execute inside THIS pi process — a
+		// recently-updated manifest conclusively proves the run is alive; only a
+		// run that has gone quiet for the stale threshold can be an orphan (a
+		// crashed process stops updating). Without this, a YOUNG foreground run
+		// (first worker heartbeat not yet written) was orphan-cancelled by the
+		// session that opened its agent view seconds after the run started —
+		// killing the very run the user was looking at.
+		if (!manifest.async) {
+			const updatedMs = manifest.updatedAt ? new Date(manifest.updatedAt).getTime() : Number.NaN;
+			if (Number.isFinite(updatedMs) && now - updatedMs <= staleThresholdMs) {
+				skipped.push(manifest.runId);
+				continue;
+			}
+		}
+
 		// Check for recent heartbeat activity
 		const loaded = loadRunManifestById(cwd, manifest.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 		if (!loaded) continue;

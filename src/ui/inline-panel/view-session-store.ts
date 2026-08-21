@@ -66,6 +66,35 @@ export function isViewSwitchInFlight(): boolean {
 	return viewSwitchInFlight;
 }
 
+/**
+ * True while a session switch (resume / new / fork — INCLUDING /crew-view)
+ * is tearing the current session down.
+ *
+ * teardownCurrent() calls session.abort(), which fires the abort signal of
+ * any tool call still in flight. A foreground team run created by that tool
+ * is linked to the turn's abort (caller-abort propagation in the run
+ * deadline) — so ANY switch seconds after a run starts killed the run's
+ * workers ("Child Pi exited with 143" → run cancelled). The run must keep
+ * running across switches (P0: foreground runs survive session switches);
+ * suppress the caller-abort propagation while this flag is set.
+ *
+ * Set by the session_before_switch handler (runs before teardown's abort),
+ * cleared on the next session_start (the switch landed) and on reconcile.
+ */
+let sessionSwitchInFlight = false;
+
+export function markSessionSwitchInFlight(): void {
+	sessionSwitchInFlight = true;
+}
+
+export function clearSessionSwitchInFlight(): void {
+	sessionSwitchInFlight = false;
+}
+
+export function isSessionSwitchInFlight(): boolean {
+	return sessionSwitchInFlight;
+}
+
 export function getCrewViewSessionState(): CrewViewSessionState {
 	return state;
 }
@@ -134,4 +163,5 @@ export function resolveReturnSessionFile(currentSessionFile: string | undefined,
 export function resetCrewViewSessionState(): void {
 	state = { active: false };
 	viewSwitchInFlight = false;
+	sessionSwitchInFlight = false;
 }

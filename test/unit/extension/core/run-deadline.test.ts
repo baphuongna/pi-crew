@@ -5,6 +5,11 @@ import * as path from "node:path";
 import test, { after } from "node:test";
 import type { PiTeamsConfig } from "../../../../src/config/config.ts";
 import { DEFAULT_RUN_DEADLINE_MS, resolveRunDeadline } from "../../../../src/extension/team-tool/run-deadline.ts";
+import {
+	clearSessionSwitchInFlight,
+	markSessionSwitchInFlight,
+	resetCrewViewSessionState,
+} from "../../../../src/ui/inline-panel/view-session-store.ts";
 
 const realTmp = fs.realpathSync(os.tmpdir());
 
@@ -71,6 +76,28 @@ test("resolveRunDeadline: ctx.signal abort propagates to deadline signal", () =>
 	assert.equal(signal.aborted, false);
 	callerController.abort();
 	assert.equal(signal.aborted, true);
+});
+
+test("resolveRunDeadline: caller abort during a SESSION SWITCH does NOT cancel the run", () => {
+	resetCrewViewSessionState();
+	const dir = fs.mkdtempSync(path.join(realTmp, "rd-switch-"));
+	createdTmpDirs.push(dir);
+	const callerController = new AbortController();
+	const ctx = makeCtx(dir, callerController.signal);
+	const { signal } = resolveRunDeadline(ctx, { timeoutMs: 3_600_000 }, {});
+	assert.equal(signal.aborted, false);
+	// session_before_switch → teardown → session.abort() fires the tool abort
+	markSessionSwitchInFlight();
+	callerController.abort();
+	assert.equal(signal.aborted, false, "a teardown abort must NOT kill the foreground run");
+	// The switch landed (session_start) — a LATER genuine abort propagates again.
+	clearSessionSwitchInFlight();
+	const callerController2 = new AbortController();
+	const ctx2 = makeCtx(dir, callerController2.signal);
+	const { signal: signal2 } = resolveRunDeadline(ctx2, { timeoutMs: 3_600_000 }, {});
+	callerController2.abort();
+	assert.equal(signal2.aborted, true);
+	resetCrewViewSessionState();
 });
 
 test("resolveRunDeadline: pre-aborted ctx.signal immediately aborts deadline signal", () => {

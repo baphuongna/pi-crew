@@ -10,10 +10,13 @@ import { test } from "node:test";
 
 import {
 	CREW_VIEW_SESSION_BASENAME,
+	clearSessionSwitchInFlight,
 	clearViewSwitchInFlight,
 	getCrewViewSessionState,
 	isCrewViewSessionFile,
+	isSessionSwitchInFlight,
 	isViewSwitchInFlight,
+	markSessionSwitchInFlight,
 	markViewSwitchInFlight,
 	readViewParentSessionFile,
 	resetCrewViewSessionState,
@@ -75,6 +78,18 @@ test("view-switch-in-flight flag lifecycle (navigational cleanup suppression)", 
 	markViewSwitchInFlight();
 	resetCrewViewSessionState();
 	assert.equal(isViewSwitchInFlight(), false, "test reset also clears the flag");
+});
+
+test("session-switch-in-flight flag lifecycle (turn-abort run suppression)", () => {
+	resetCrewViewSessionState();
+	assert.equal(isSessionSwitchInFlight(), false, "defaults off");
+	markSessionSwitchInFlight();
+	assert.equal(isSessionSwitchInFlight(), true, "set by session_before_switch before teardown");
+	clearSessionSwitchInFlight();
+	assert.equal(isSessionSwitchInFlight(), false, "cleared on the next session_start");
+	markSessionSwitchInFlight();
+	resetCrewViewSessionState();
+	assert.equal(isSessionSwitchInFlight(), false, "test reset also clears the flag");
 });
 
 test("resolveReturnSessionFile prefers the CURRENT view file's parentSession header", () => {

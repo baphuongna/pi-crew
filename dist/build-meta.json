@@ -14339,7 +14339,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/view-session-store.ts": {
-      "bytes": 5028,
+      "bytes": 6155,
       "imports": [
         {
           "path": "node:fs",
@@ -14599,7 +14599,7 @@
       "format": "esm"
     },
     "src/runtime/recovery/crash-recovery.ts": {
-      "bytes": 31569,
+      "bytes": 32395,
       "imports": [
         {
           "path": "node:fs",
@@ -16430,12 +16430,17 @@
       "format": "esm"
     },
     "src/extension/team-tool/run-deadline.ts": {
-      "bytes": 4689,
+      "bytes": 5239,
       "imports": [
         {
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../../config/config.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../../ui/inline-panel/view-session-store.ts"
         },
         {
           "path": "src/utils/safe-abort.ts",
@@ -19815,7 +19820,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 47442,
+      "bytes": 48052,
       "imports": [
         {
           "path": "node:fs",
@@ -19931,6 +19936,11 @@
           "path": "src/ui/inline-panel/index.ts",
           "kind": "import-statement",
           "original": "../../ui/inline-panel/index.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../../ui/inline-panel/view-session-store.ts"
         },
         {
           "path": "src/ui/pi-ui-compat.ts",
@@ -20486,7 +20496,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7508597
+      "bytes": 7512303
     },
     "dist/index.mjs": {
       "imports": [
@@ -24098,7 +24108,7 @@
           "bytesInOutput": 3672
         },
         "src/ui/inline-panel/view-session-store.ts": {
-          "bytesInOutput": 1785
+          "bytesInOutput": 2062
         },
         "src/ui/render-coalescer.ts": {
           "bytesInOutput": 2165
@@ -24131,7 +24141,7 @@
           "bytesInOutput": 17034
         },
         "src/runtime/recovery/crash-recovery.ts": {
-          "bytesInOutput": 19259
+          "bytesInOutput": 19533
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2438
@@ -24281,7 +24291,7 @@
           "bytesInOutput": 1529
         },
         "src/extension/team-tool/run-deadline.ts": {
-          "bytesInOutput": 1254
+          "bytesInOutput": 1351
         },
         "src/extension/team-tool/goal-wrap.ts": {
           "bytesInOutput": 7085
@@ -24572,7 +24582,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 28530
+          "bytesInOutput": 28624
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 62642
@@ -24650,7 +24660,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3220314
+      "bytes": 3221056
     }
   }
 }

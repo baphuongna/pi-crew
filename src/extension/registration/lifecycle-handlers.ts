@@ -40,6 +40,7 @@ import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
+import { clearSessionSwitchInFlight, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { requestRender, setExtensionWidget, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
 import {
 	registerPiCrewPowerbarSegments,
@@ -126,6 +127,12 @@ function installSessionShutdownHandler(pi: ExtensionAPI, ctx: RegistrationContex
  */
 function installSessionBeforeSwitchHandler(pi: ExtensionAPI, ctx: RegistrationContext): void {
 	pi.on("session_before_switch", () => {
+		// The switch tears the current turn down right after this handler
+		// (teardownCurrent → session.abort()). That turn-abort must NOT cancel
+		// a foreground team run that is still forming (see run-deadline.ts):
+		// foreground runs survive session switches (P0). Cleared on the next
+		// session_start.
+		markSessionSwitchInFlight();
 		ctx.sessionGeneration++;
 		const pendingCount = ctx.lifecycleState.deliveryCoordinator?.getPendingCount() ?? 0;
 		try {
@@ -168,6 +175,9 @@ function installSessionBeforeSwitchHandler(pi: ExtensionAPI, ctx: RegistrationCo
  */
 function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext): void {
 	pi.on("session_start", (_event, extensionCtx) => {
+		// Any session start means a pending switch landed — the turn-abort
+		// suppression window for that switch is over.
+		clearSessionSwitchInFlight();
 		runArtifactCleanup(extensionCtx.cwd);
 
 		// Restore brief mode state from session entries (best-effort).
