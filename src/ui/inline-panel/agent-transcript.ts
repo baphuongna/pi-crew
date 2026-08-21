@@ -117,7 +117,7 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 			// toolResult parts carry name + content; fold them into pending starts.
 			for (const part of content) {
 				const item = asRecord(part);
-				if (!item || item.type !== "toolResult") continue;
+				if (item?.type !== "toolResult") continue;
 				const name = typeof item.name === "string" ? item.name : "tool";
 				matchPending(pending, name, item.content, item.isError === true);
 			}

@@ -46,7 +46,10 @@ function makeRunWithAgent(cwd: string, ownerSessionId: string): ReturnType<typeo
 	return manifest;
 }
 
-function makeHarness(cwd: string, ctxSessionId: string | undefined): {
+function makeHarness(
+	cwd: string,
+	ctxSessionId: string | undefined,
+): {
 	ctx: Parameters<typeof updateCrewWidget>[0];
 	widgetCalls: { key: string; content: unknown }[];
 } {
@@ -87,7 +90,13 @@ test("view open: dock lists the run when mainSessionId matches the run owner", (
 		const harness = makeHarness(cwd, "view-session-id"); // the VIEW session's own id
 		setFooterDockSinkActive(true);
 		// View active; return path points at the MAIN session.
-		setCrewViewSessionState({ active: true, runId: manifest.runId, taskId: "task_executor_1", mainSessionFile: "/tmp/main.jsonl", mainSessionId: "main-session-id" });
+		setCrewViewSessionState({
+			active: true,
+			runId: manifest.runId,
+			taskId: "task_executor_1",
+			mainSessionFile: "/tmp/main.jsonl",
+			mainSessionId: "main-session-id",
+		});
 
 		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
 
@@ -111,7 +120,13 @@ test("view open: dock hides the run when mainSessionId is missing or mismatched"
 		const manifest = makeRunWithAgent(cwd, "other-session-id");
 		const harness = makeHarness(cwd, "view-session-id");
 		setFooterDockSinkActive(true);
-		setCrewViewSessionState({ active: true, runId: manifest.runId, taskId: "task_executor_1", mainSessionFile: "/tmp/main.jsonl", mainSessionId: "main-session-id" });
+		setCrewViewSessionState({
+			active: true,
+			runId: manifest.runId,
+			taskId: "task_executor_1",
+			mainSessionFile: "/tmp/main.jsonl",
+			mainSessionId: "main-session-id",
+		});
 
 		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
 

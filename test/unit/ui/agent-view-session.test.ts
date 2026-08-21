@@ -90,7 +90,9 @@ function firstText(entry: Record<string, unknown> | undefined): string | undefin
 }
 
 /** The message body of an assistant entry (test helper). */
-function entryMessage(entry: Record<string, unknown> | undefined): { usage?: { input?: number; cacheRead?: number; cost?: { total?: number } } } {
+function entryMessage(entry: Record<string, unknown> | undefined): {
+	usage?: { input?: number; cacheRead?: number; cost?: { total?: number } };
+} {
 	const message = entry?.message;
 	if (!message || typeof message !== "object") return {};
 	return message as { usage?: { input?: number; cacheRead?: number; cost?: { total?: number } } };

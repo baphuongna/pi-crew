@@ -50,7 +50,7 @@ export function loadPlanRecords(manifest: TeamRunManifest): PlanRecord[] {
 		const raw = fs.readFileSync(planFilePath(manifest), "utf-8");
 		const parsed = JSON.parse(raw) as Partial<PlanFile>;
 		if (!parsed || !Array.isArray(parsed.revisions)) return [];
-		return parsed.revisions.filter((r): r is PlanRecord => Boolean(r && r.id && typeof r.version === "number"));
+		return parsed.revisions.filter((r): r is PlanRecord => Boolean(r?.id && typeof r.version === "number"));
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
 		logInternalError("plan-store.read-failed", err instanceof Error ? err : new Error(String(err)), `run=${manifest.runId}`);

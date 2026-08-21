@@ -325,7 +325,10 @@ test("happy path: immediate ref, fenced mailbox delivery, budget reserve→roll-
 
 test("fail-fast: exhausted nested budget rejects immediately (never queues)", async () => {
 	const s = await scaffoldRunningTask("slots");
-	const slowSpawner = () => new Promise<GrandchildSpawnResult>(() => {}); // never resolves — holds the slot
+	const slowSpawner = () =>
+		new Promise<GrandchildSpawnResult>(() => {
+			/* never resolves — holds the slot */
+		});
 	const { broker, socketPath } = await startBroker({ cwd: s.cwd, nestingEnabled: true, nestingMaxSlots: 1, spawner: slowSpawner });
 	try {
 		const token = broker.issueRunToken(s.runId, s.taskId);
