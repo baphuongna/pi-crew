@@ -15119,6 +15119,77 @@ var init_pi_args = __esm({
   }
 });
 
+// src/ui/inline-panel/view-session-store.ts
+import { closeSync as closeSync5, openSync as openSync5, readSync } from "node:fs";
+function markViewSwitchInFlight() {
+  viewSwitchInFlight = true;
+}
+function clearViewSwitchInFlight() {
+  viewSwitchInFlight = false;
+}
+function isViewSwitchInFlight() {
+  return viewSwitchInFlight;
+}
+function markSessionSwitchInFlight() {
+  sessionSwitchInFlight = true;
+}
+function clearSessionSwitchInFlight() {
+  sessionSwitchInFlight = false;
+}
+function isSessionSwitchInFlight() {
+  return sessionSwitchInFlight;
+}
+function getCrewViewSessionState() {
+  return state;
+}
+function setCrewViewSessionState(next) {
+  state = next;
+}
+function isCrewViewSessionFile(file) {
+  if (!file) return false;
+  const base = file.split(/[\\/]/).pop() ?? "";
+  return base === CREW_VIEW_SESSION_BASENAME;
+}
+function readViewParentSessionFile(viewSessionFile) {
+  let fd;
+  try {
+    fd = openSync5(viewSessionFile, "r");
+    const buf = Buffer.alloc(4096);
+    const bytesRead = readSync(fd, buf, 0, buf.length, 0);
+    if (bytesRead <= 0) return void 0;
+    const firstLine = buf.toString("utf8", 0, bytesRead).split("\n", 1)[0];
+    if (!firstLine) return void 0;
+    const header = JSON.parse(firstLine);
+    return typeof header.parentSession === "string" && header.parentSession ? header.parentSession : void 0;
+  } catch {
+    return void 0;
+  } finally {
+    if (fd !== void 0) {
+      try {
+        closeSync5(fd);
+      } catch {
+      }
+    }
+  }
+}
+function resolveReturnSessionFile(currentSessionFile, prev) {
+  if (isCrewViewSessionFile(currentSessionFile)) {
+    const fromHeader = readViewParentSessionFile(currentSessionFile);
+    if (fromHeader) return fromHeader;
+  }
+  return prev.mainSessionFile;
+}
+var CREW_VIEW_SESSION_BASENAME, state, viewSwitchInFlight, sessionSwitchInFlight;
+var init_view_session_store = __esm({
+  "src/ui/inline-panel/view-session-store.ts"() {
+    "use strict";
+    CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
+    state = { active: false };
+    viewSwitchInFlight = false;
+    sessionSwitchInFlight = false;
+  }
+});
+
 // src/utils/redaction.ts
 function isSecretKey(keyName) {
   if (TOKEN_COUNT_KEYS.has(keyName.toLowerCase())) return false;
@@ -17763,6 +17834,7 @@ function registerCleanupHandler(pi, opts) {
   pi.on("session_shutdown", async () => {
     console.log("[pi-crew] Session shutdown - cleaning up resources");
     try {
+      if (isViewSwitchInFlight() || isSessionSwitchInFlight()) return;
       await cleanupChildProcesses();
       await cleanupTempDirectories();
       console.log("[pi-crew] Cleanup complete");
@@ -17830,6 +17902,7 @@ var init_crew_cleanup = __esm({
   "src/extension/crew-cleanup.ts"() {
     "use strict";
     init_pi_args();
+    init_view_session_store();
     init_internal_error();
     signalHandlersRegistered = false;
     ChildProcessRegistry = class {
@@ -17915,6 +17988,39 @@ var init_crew_agent_runtime = __esm({
 });
 
 // src/runtime/crew-agent-records.ts
+var crew_agent_records_exports = {};
+__export(crew_agent_records_exports, {
+  __test__agentRecordBufferCount: () => __test__agentRecordBufferCount,
+  __test_agentPathCacheStats: () => __test_agentPathCacheStats,
+  __test_clearAgentPathCache: () => __test_clearAgentPathCache,
+  agentEventsPath: () => agentEventsPath,
+  agentOutputPath: () => agentOutputPath,
+  agentStateDir: () => agentStateDir,
+  agentStateFile: () => agentStateFile,
+  agentStatusPath: () => agentStatusPath,
+  agentsPath: () => agentsPath,
+  agentsRoot: () => agentsRoot,
+  appendCrewAgentEvent: () => appendCrewAgentEvent,
+  appendCrewAgentEventBuffered: () => appendCrewAgentEventBuffered,
+  appendCrewAgentOutput: () => appendCrewAgentOutput,
+  appendCrewAgentOutputBuffered: () => appendCrewAgentOutputBuffered,
+  emptyCrewAgentProgress: () => emptyCrewAgentProgress,
+  ensureAgentStateDir: () => ensureAgentStateDir,
+  flushAllCrewAgentRecordBuffers: () => flushAllCrewAgentRecordBuffers,
+  flushCrewAgentRecordBuffer: () => flushCrewAgentRecordBuffer,
+  readCrewAgentEventsCursor: () => readCrewAgentEventsCursor,
+  readCrewAgentStatus: () => readCrewAgentStatus,
+  readCrewAgents: () => readCrewAgents,
+  readCrewAgentsAsync: () => readCrewAgentsAsync,
+  recordFromTask: () => recordFromTask,
+  removeCrewAgent: () => removeCrewAgent,
+  saveCrewAgents: () => saveCrewAgents,
+  saveCrewAgentsCoalesced: () => saveCrewAgentsCoalesced,
+  shouldDeleteCrewAgentOnTerminalStatus: () => shouldDeleteCrewAgentOnTerminalStatus,
+  upsertCrewAgent: () => upsertCrewAgent,
+  writeCrewAgentStatus: () => writeCrewAgentStatus,
+  writeCrewAgentStatusCoalesced: () => writeCrewAgentStatusCoalesced
+});
 import { randomUUID as randomUUID4 } from "node:crypto";
 import * as fs24 from "node:fs";
 import * as path20 from "node:path";
@@ -17970,6 +18076,13 @@ function agentStateFile(manifest, taskId, fileName) {
   resolvedAgentFiles.set(cacheKey2, resolved);
   bumpAgentPathCache();
   return resolved;
+}
+function __test_clearAgentPathCache() {
+  ensuredAgentDirs.clear();
+  resolvedAgentFiles.clear();
+}
+function __test_agentPathCacheStats() {
+  return { dirs: ensuredAgentDirs.size, files: resolvedAgentFiles.size };
 }
 function agentStatusPath(manifest, taskId) {
   return path20.join(agentStateDir(manifest, taskId), "status.json");
@@ -18473,6 +18586,9 @@ function scheduleAgentRecordBufferFlush(buffer) {
     }, AGENT_RECORD_BUFFER_WINDOW_MS);
     buffer.timer.unref();
   }
+}
+function __test__agentRecordBufferCount() {
+  return agentRecordBuffers.size;
 }
 function emptyCrewAgentProgress() {
   return { recentTools: [], recentOutput: [], toolCount: 0 };
@@ -26329,24 +26445,24 @@ function resolveProviderForResponse() {
 function noteSessionModel(model, source = "model_select") {
   const normalized = modelRefToString(model);
   if (!normalized) return;
-  if (source === "session_start" && state.source === "model_select") return;
-  state.model = normalized;
-  state.source = source;
-  state.updatedAt = Date.now();
+  if (source === "session_start" && state2.source === "model_select") return;
+  state2.model = normalized;
+  state2.source = source;
+  state2.updatedAt = Date.now();
 }
 function noteSessionThinking(level) {
   if (typeof level !== "string") return;
   const value = level.trim();
-  state.thinking = value && value !== "off" ? value : void 0;
+  state2.thinking = value && value !== "off" ? value : void 0;
 }
 function currentSessionModel() {
-  return state.model;
+  return state2.model;
 }
 function currentSessionThinking() {
-  return state.thinking;
+  return state2.thinking;
 }
 function resolveParentModel(ctxModel) {
-  return state.model ?? modelRefToString(ctxModel);
+  return state2.model ?? modelRefToString(ctxModel);
 }
 function captureRunModelContext(ctx, override) {
   const parentModel = resolveParentModel(ctx.model);
@@ -26363,15 +26479,15 @@ function captureRunModelContext(ctx, override) {
   };
 }
 function sessionModelSnapshot() {
-  return { ...state };
+  return { ...state2 };
 }
-var state, liveAgentContext, liveAgentModels, MAX_LIVE_AGENT_MODELS;
+var state2, liveAgentContext, liveAgentModels, MAX_LIVE_AGENT_MODELS;
 var init_session_model = __esm({
   "src/runtime/model/session-model.ts"() {
     "use strict";
     init_internal_error();
     init_model_fallback();
-    state = { source: "none" };
+    state2 = { source: "none" };
     liveAgentContext = new AsyncLocalStorage2();
     liveAgentModels = /* @__PURE__ */ new Map();
     MAX_LIVE_AGENT_MODELS = 5e3;
@@ -54288,7 +54404,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync12, existsSync as existsSync57, mkdirSync as mkdirSync35, openSync as openSync12, readdirSync as readdirSync24, readFileSync as readFileSync62, statSync as statSync41, unlinkSync as unlinkSync8 } from "node:fs";
+import { closeSync as closeSync13, existsSync as existsSync57, mkdirSync as mkdirSync35, openSync as openSync13, readdirSync as readdirSync24, readFileSync as readFileSync62, statSync as statSync41, unlinkSync as unlinkSync8 } from "node:fs";
 import { dirname as dirname37 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -54412,8 +54528,8 @@ var init_goal_state_store = __esm({
       /** Acquire an O_EXCL lockfile for CAS, with stale-lock recovery (5s age guard). */
       acquireCasLock(lockPath2) {
         try {
-          const fd = openSync12(lockPath2, "wx");
-          closeSync12(fd);
+          const fd = openSync13(lockPath2, "wx");
+          closeSync13(fd);
           return true;
         } catch (error) {
           const code = error.code;
@@ -54422,8 +54538,8 @@ var init_goal_state_store = __esm({
             const stat2 = statSync41(lockPath2);
             if (Date.now() - stat2.mtimeMs > 5e3) {
               unlinkSync8(lockPath2);
-              const fd = openSync12(lockPath2, "wx");
-              closeSync12(fd);
+              const fd = openSync13(lockPath2, "wx");
+              closeSync13(fd);
               return true;
             }
           } catch {
@@ -54512,7 +54628,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash10 } from "node:crypto";
-import { closeSync as closeSync13, existsSync as existsSync58, mkdirSync as mkdirSync36, openSync as openSync13, readdirSync as readdirSync25, readFileSync as readFileSync64, statSync as statSync43, unlinkSync as unlinkSync9, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync14, existsSync as existsSync58, mkdirSync as mkdirSync36, openSync as openSync14, readdirSync as readdirSync25, readFileSync as readFileSync64, statSync as statSync43, unlinkSync as unlinkSync9, writeFileSync as writeFileSync10 } from "node:fs";
 import * as path68 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path68.resolve(cwd);
@@ -55271,77 +55387,6 @@ function formatCostReport(tasks) {
 var init_usage = __esm({
   "src/state/usage.ts"() {
     "use strict";
-  }
-});
-
-// src/ui/inline-panel/view-session-store.ts
-import { closeSync as closeSync14, openSync as openSync14, readSync as readSync6 } from "node:fs";
-function markViewSwitchInFlight() {
-  viewSwitchInFlight = true;
-}
-function clearViewSwitchInFlight() {
-  viewSwitchInFlight = false;
-}
-function isViewSwitchInFlight() {
-  return viewSwitchInFlight;
-}
-function markSessionSwitchInFlight() {
-  sessionSwitchInFlight = true;
-}
-function clearSessionSwitchInFlight() {
-  sessionSwitchInFlight = false;
-}
-function isSessionSwitchInFlight() {
-  return sessionSwitchInFlight;
-}
-function getCrewViewSessionState() {
-  return state2;
-}
-function setCrewViewSessionState(next) {
-  state2 = next;
-}
-function isCrewViewSessionFile(file) {
-  if (!file) return false;
-  const base = file.split(/[\\/]/).pop() ?? "";
-  return base === CREW_VIEW_SESSION_BASENAME;
-}
-function readViewParentSessionFile(viewSessionFile) {
-  let fd;
-  try {
-    fd = openSync14(viewSessionFile, "r");
-    const buf = Buffer.alloc(4096);
-    const bytesRead = readSync6(fd, buf, 0, buf.length, 0);
-    if (bytesRead <= 0) return void 0;
-    const firstLine = buf.toString("utf8", 0, bytesRead).split("\n", 1)[0];
-    if (!firstLine) return void 0;
-    const header = JSON.parse(firstLine);
-    return typeof header.parentSession === "string" && header.parentSession ? header.parentSession : void 0;
-  } catch {
-    return void 0;
-  } finally {
-    if (fd !== void 0) {
-      try {
-        closeSync14(fd);
-      } catch {
-      }
-    }
-  }
-}
-function resolveReturnSessionFile(currentSessionFile, prev) {
-  if (isCrewViewSessionFile(currentSessionFile)) {
-    const fromHeader = readViewParentSessionFile(currentSessionFile);
-    if (fromHeader) return fromHeader;
-  }
-  return prev.mainSessionFile;
-}
-var CREW_VIEW_SESSION_BASENAME, state2, viewSwitchInFlight, sessionSwitchInFlight;
-var init_view_session_store = __esm({
-  "src/ui/inline-panel/view-session-store.ts"() {
-    "use strict";
-    CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
-    state2 = { active: false };
-    viewSwitchInFlight = false;
-    sessionSwitchInFlight = false;
   }
 });
 
@@ -83282,6 +83327,7 @@ init_heartbeat_aggregator();
 init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
+import { readFileSync as readFileSync93 } from "node:fs";
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
@@ -83488,14 +83534,36 @@ function buildAgentViewSessionFile(options) {
     );
   }
   const outDir = agentStateDir(manifest, options.taskId);
+  const outPath = path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
   try {
     mkdirSync50(outDir, { recursive: true });
-    writeFileSync12(path97.join(outDir, CREW_VIEW_SESSION_BASENAME), `${lines.join("\n")}
+    const previousLines = existsSync84(outPath) ? readFileSync92(outPath, "utf8").split("\n").filter(Boolean) : [];
+    const knownIds = /* @__PURE__ */ new Set();
+    for (const line4 of lines) {
+      try {
+        const entry = JSON.parse(line4);
+        if (entry && typeof entry.id === "string") knownIds.add(entry.id);
+      } catch {
+      }
+    }
+    const extras = [];
+    for (const line4 of previousLines) {
+      try {
+        const entry = JSON.parse(line4);
+        const id = entry && typeof entry.id === "string" ? entry.id : "";
+        if (id && !id.startsWith("crew-") && !knownIds.has(id)) {
+          extras.push(line4);
+          knownIds.add(id);
+        }
+      } catch {
+      }
+    }
+    writeFileSync12(outPath, `${[...lines, ...extras].join("\n")}
 `, "utf8");
   } catch {
     return void 0;
   }
-  return path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
+  return outPath;
 }
 
 // src/ui/inline-panel/agent-transcript.ts
@@ -83693,9 +83761,13 @@ init_panel_store();
 init_view_session_store();
 var PANE_WIDGET_KEY = "pi-crew-agent-view";
 var PANE_PLACEMENT = "aboveEditor";
+var VIEW_REFRESH_MS = 3e3;
 var currentEditor;
 var lastCtx;
 var lastPi;
+var viewRefreshTimer;
+var viewRefreshBaseline;
+var lastViewRefreshAt = 0;
 var editorInstalled = false;
 var hooksRegistered2 = false;
 async function runTeamTool(params, ctx) {
@@ -83853,6 +83925,56 @@ async function handleCrewBackCommand(_args, ctx) {
     ctx.ui.notify(`crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
+function stopViewAutoRefresh() {
+  if (viewRefreshTimer) {
+    clearInterval(viewRefreshTimer);
+    viewRefreshTimer = void 0;
+  }
+  viewRefreshBaseline = void 0;
+  lastViewRefreshAt = 0;
+}
+async function viewRefreshTick() {
+  const ctx = lastCtx;
+  const state3 = getCrewViewSessionState();
+  if (!ctx || !state3.active || !state3.runId || !state3.taskId) return stopViewAutoRefresh();
+  const now = Date.now();
+  if (now - lastViewRefreshAt < VIEW_REFRESH_MS - 500) return;
+  if (typeof currentEditor?.getText === "function" && currentEditor.getText() !== "") return;
+  try {
+    const [{ loadRunManifestById: loadRunManifestById2 }, { agentEventsPath: agentEventsPath2 }] = await Promise.all([
+      Promise.resolve().then(() => (init_state_store(), state_store_exports)),
+      Promise.resolve().then(() => (init_crew_agent_records(), crew_agent_records_exports))
+    ]);
+    const loaded = loadRunManifestById2(ctx.cwd, state3.runId);
+    if (!loaded) return stopViewAutoRefresh();
+    const task = loaded.tasks.find((candidate) => candidate.id === state3.taskId);
+    if (task && (task.status === "completed" || task.status === "failed" || task.status === "cancelled"))
+      return stopViewAutoRefresh();
+    const viewPath = buildAgentViewSessionFile({
+      cwd: ctx.cwd,
+      runId: state3.runId,
+      taskId: state3.taskId,
+      parentSessionFile: state3.mainSessionFile
+    });
+    if (!viewPath) return;
+    const fresh = readFileSync93(viewPath, "utf8");
+    if (viewRefreshBaseline === void 0) {
+      viewRefreshBaseline = fresh;
+      lastViewRefreshAt = now;
+      return;
+    }
+    if (fresh === viewRefreshBaseline) return;
+    viewRefreshBaseline = fresh;
+    lastViewRefreshAt = now;
+    dispatchViewCommand(`/crew-view ${state3.runId} ${state3.taskId}`);
+  } catch {
+  }
+}
+function startViewAutoRefresh() {
+  if (viewRefreshTimer) return;
+  viewRefreshTimer = setInterval(() => void viewRefreshTick(), VIEW_REFRESH_MS);
+  viewRefreshTimer.unref?.();
+}
 function reconcileViewSessionState(ctx) {
   const file = ctx.sessionManager.getSessionFile();
   clearViewSwitchInFlight();
@@ -83875,6 +83997,11 @@ function installInlinePanel(pi, ctx, uiConfig) {
   lastPi = pi;
   if (!ctx.hasUI) return;
   reconcileViewSessionState(ctx);
+  if (getCrewViewSessionState().active && isCrewViewSessionFile(ctx.sessionManager.getSessionFile())) {
+    startViewAutoRefresh();
+  } else {
+    stopViewAutoRefresh();
+  }
   const enabled = uiConfig?.inlinePanel !== false;
   try {
     if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
@@ -83905,6 +84032,7 @@ function installInlinePanel(pi, ctx, uiConfig) {
   if (!hooksRegistered2) {
     hooksRegistered2 = true;
     pi.on("session_shutdown", () => {
+      stopViewAutoRefresh();
       if (lastCtx) closePane(lastCtx);
       resetPanelStore();
       resetAllAgentTranscriptCursors();
@@ -84873,7 +85001,6 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
 // src/extension/registration/runtime-cleanup.ts
 init_config();
 init_registry2();
-init_child_pi();
 init_foreground_watchdog();
 init_view_session_store();
 init_powerbar_publisher();
@@ -85013,7 +85140,6 @@ function buildStopSessionBoundSubagents(ctx) {
     } catch (error) {
       logInternalError("stop-session-bound.abortAll", error);
     }
-    terminateActiveChildPiProcesses();
     ctx.disposeRenderSchedulerSubscriptions();
     ctx.renderScheduler?.dispose();
     ctx.renderScheduler = void 0;

@@ -12,6 +12,8 @@
  * module never pulls the runtime chain at startup (AGENTS.md lazy boundary).
  */
 
+import { readFileSync } from "node:fs";
+
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { CrewUiConfig } from "../../config/types.ts";
@@ -36,11 +38,26 @@ import {
 export const PANE_WIDGET_KEY = "pi-crew-agent-view";
 const PANE_PLACEMENT = "aboveEditor" as const;
 
+/**
+ * Live-refresh cadence for the agent view session. The view file is a
+ * snapshot, but the agent's events.jsonl keeps growing while it works —
+ * periodically rebuild the view file and re-resume it (pi's own session
+ * switch) so the view shows the subagent's progress in near real time.
+ */
+const VIEW_REFRESH_MS = 3000;
+
 /** The active CrewInlineEditor instance, so panelless flows (session view
  *  opening) can route a slash command through pi's normal submit path. */
 let currentEditor: CrewInlineEditor | undefined;
 let lastCtx: ExtensionContext | undefined;
 let lastPi: ExtensionAPI | undefined;
+/** Live-refresh timer while a view session is active. */
+let viewRefreshTimer: ReturnType<typeof setInterval> | undefined;
+/** Content baseline of the view file the last refresh dispatched (avoids
+ *  re-switching when the agent hasn't produced anything new). */
+let viewRefreshBaseline: string | undefined;
+/** Last dispatch timestamp — throttle against switch overlap. */
+let lastViewRefreshAt = 0;
 let editorInstalled = false;
 /** Guards the one-time per-process event hooks. */
 let hooksRegistered = false;
@@ -302,6 +319,76 @@ async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext
 	}
 }
 
+/** Stop the live-refresh timer (session left the view / view done). */
+function stopViewAutoRefresh(): void {
+	if (viewRefreshTimer) {
+		clearInterval(viewRefreshTimer);
+		viewRefreshTimer = undefined;
+	}
+	viewRefreshBaseline = undefined;
+	lastViewRefreshAt = 0;
+}
+
+/**
+ * Live-refresh tick: rebuild the view file from the agent's latest events and
+ * re-resume the view session (pi's own session switch) whenever the content
+ * actually changed. The view is a real pi session — pi only reads the file
+ * when the session opens, so a snapshot alone would freeze the subagent's
+ * transcript mid-work; this keeps it following the agent.
+ *
+ * Guards: only while a view session is active, the agent is still non-
+ * terminal, the user isn't mid-draft in the editor, and no refresh was just
+ * dispatched (avoid overlapping switches).
+ */
+async function viewRefreshTick(): Promise<void> {
+	const ctx = lastCtx;
+	const state = getCrewViewSessionState();
+	if (!ctx || !state.active || !state.runId || !state.taskId) return stopViewAutoRefresh();
+	const now = Date.now();
+	if (now - lastViewRefreshAt < VIEW_REFRESH_MS - 500) return;
+	// Never yank the screen away while the user is composing in the view.
+	if (typeof currentEditor?.getText === "function" && currentEditor.getText() !== "") return;
+	try {
+		const [{ loadRunManifestById }, { agentEventsPath }] = await Promise.all([
+			import("../../state/stores/state-store.ts"),
+			import("../../runtime/crew-agent-records.ts"),
+		]);
+		const loaded = loadRunManifestById(ctx.cwd, state.runId);
+		if (!loaded) return stopViewAutoRefresh();
+		const task = loaded.tasks.find((candidate) => candidate.id === state.taskId);
+		if (task && (task.status === "completed" || task.status === "failed" || task.status === "cancelled"))
+			return stopViewAutoRefresh();
+		const viewPath = buildAgentViewSessionFile({
+			cwd: ctx.cwd,
+			runId: state.runId,
+			taskId: state.taskId,
+			parentSessionFile: state.mainSessionFile,
+		});
+		if (!viewPath) return;
+		const fresh = readFileSync(viewPath, "utf8");
+		// First tick after opening: baseline only, don't re-switch a session
+		// that was just opened with this exact content.
+		if (viewRefreshBaseline === undefined) {
+			viewRefreshBaseline = fresh;
+			lastViewRefreshAt = now;
+			return;
+		}
+		if (fresh === viewRefreshBaseline) return;
+		viewRefreshBaseline = fresh;
+		lastViewRefreshAt = now;
+		dispatchViewCommand(`/crew-view ${state.runId} ${state.taskId}`);
+	} catch {
+		// Transient disk/timing — the next tick retries.
+	}
+}
+
+/** Start the live-refresh timer (view session just opened). */
+function startViewAutoRefresh(): void {
+	if (viewRefreshTimer) return;
+	viewRefreshTimer = setInterval(() => void viewRefreshTick(), VIEW_REFRESH_MS);
+	viewRefreshTimer.unref?.();
+}
+
 /**
  * Reconcile the view-session store against the CURRENT session file.
  *
@@ -349,6 +436,13 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 	// The active session may be an agent view (or we may have returned from
 	// one) — reconcile before wiring the editor so escape/enter behave right.
 	reconcileViewSessionState(ctx);
+	// Live-refresh the view while it is the active session; stop the moment
+	// the store snaps back (escape/back/resume …).
+	if (getCrewViewSessionState().active && isCrewViewSessionFile(ctx.sessionManager.getSessionFile())) {
+		startViewAutoRefresh();
+	} else {
+		stopViewAutoRefresh();
+	}
 
 	const enabled = uiConfig?.inlinePanel !== false;
 	try {
@@ -389,6 +483,7 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 	if (!hooksRegistered) {
 		hooksRegistered = true;
 		pi.on("session_shutdown", () => {
+			stopViewAutoRefresh();
 			if (lastCtx) closePane(lastCtx);
 			resetPanelStore();
 			resetAllAgentTranscriptCursors();

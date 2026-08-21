@@ -6983,6 +6983,17 @@
       ],
       "format": "esm"
     },
+    "src/ui/inline-panel/view-session-store.ts": {
+      "bytes": 6155,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
     "src/utils/redaction.ts": {
       "bytes": 18213,
       "imports": [],
@@ -7448,12 +7459,17 @@
       "format": "esm"
     },
     "src/extension/crew-cleanup.ts": {
-      "bytes": 6298,
+      "bytes": 7302,
       "imports": [
         {
           "path": "src/runtime/model/pi-args.ts",
           "kind": "import-statement",
           "original": "../runtime/model/pi-args.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../ui/inline-panel/view-session-store.ts"
         },
         {
           "path": "src/utils/internal-error.ts",
@@ -14338,17 +14354,6 @@
       "imports": [],
       "format": "esm"
     },
-    "src/ui/inline-panel/view-session-store.ts": {
-      "bytes": 6155,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/render-coalescer.ts": {
       "bytes": 2718,
       "imports": [
@@ -19576,7 +19581,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-view-session.ts": {
-      "bytes": 13652,
+      "bytes": 14805,
       "imports": [
         {
           "path": "node:fs",
@@ -19654,8 +19659,13 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 17788,
+      "bytes": 21653,
       "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/extension/tool-result.ts",
           "kind": "import-statement",
@@ -19700,6 +19710,16 @@
           "path": "src/extension/team-tool.ts",
           "kind": "dynamic-import",
           "original": "../../extension/team-tool.ts"
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "dynamic-import",
+          "original": "../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "dynamic-import",
+          "original": "../../runtime/crew-agent-records.ts"
         }
       ],
       "format": "esm"
@@ -20005,7 +20025,7 @@
       "format": "esm"
     },
     "src/extension/registration/runtime-cleanup.ts": {
-      "bytes": 11911,
+      "bytes": 12621,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20016,11 +20036,6 @@
           "path": "src/hooks/registry.ts",
           "kind": "import-statement",
           "original": "../../hooks/registry.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/child-pi/child-pi.ts"
         },
         {
           "path": "src/runtime/foreground-watchdog.ts",
@@ -20465,7 +20480,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7505014
+      "bytes": 7514619
     },
     "dist/index.mjs": {
       "imports": [
@@ -20721,6 +20736,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -21695,11 +21715,6 @@
           "external": true
         },
         {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
@@ -22241,6 +22256,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -23151,6 +23171,9 @@
         "src/runtime/model/pi-args.ts": {
           "bytesInOutput": 15494
         },
+        "src/ui/inline-panel/view-session-store.ts": {
+          "bytesInOutput": 2040
+        },
         "src/utils/redaction.ts": {
           "bytesInOutput": 9094
         },
@@ -23218,7 +23241,7 @@
           "bytesInOutput": 19753
         },
         "src/extension/crew-cleanup.ts": {
-          "bytesInOutput": 3027
+          "bytesInOutput": 3129
         },
         "src/utils/file-coalescer.ts": {
           "bytesInOutput": 1211
@@ -23227,7 +23250,7 @@
           "bytesInOutput": 492
         },
         "src/runtime/crew-agent-records.ts": {
-          "bytesInOutput": 22476
+          "bytesInOutput": 24437
         },
         "src/errors.ts": {
           "bytesInOutput": 8109
@@ -23377,7 +23400,7 @@
           "bytesInOutput": 21259
         },
         "src/runtime/model/session-model.ts": {
-          "bytesInOutput": 2915
+          "bytesInOutput": 2926
         },
         "src/extension/team-tool/config-patch.ts": {
           "bytesInOutput": 1876
@@ -24066,9 +24089,6 @@
         "src/state/usage.ts": {
           "bytesInOutput": 3672
         },
-        "src/ui/inline-panel/view-session-store.ts": {
-          "bytesInOutput": 2062
-        },
         "src/ui/render-coalescer.ts": {
           "bytesInOutput": 2165
         },
@@ -24568,13 +24588,13 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 8247
+          "bytesInOutput": 10587
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 265
         },
         "src/ui/inline-panel/agent-view-session.ts": {
-          "bytesInOutput": 8263
+          "bytesInOutput": 8976
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 6106
@@ -24592,7 +24612,7 @@
           "bytesInOutput": 1617
         },
         "src/extension/registration/runtime-cleanup.ts": {
-          "bytesInOutput": 5654
+          "bytesInOutput": 5598
         },
         "src/extension/registration/subagent-manager-setup.ts": {
           "bytesInOutput": 7761
@@ -24616,7 +24636,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3213561
+      "bytes": 3218610
     }
   }
 }

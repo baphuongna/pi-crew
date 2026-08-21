@@ -325,11 +325,41 @@ export function buildAgentViewSessionFile(options: ViewBuildOptions): string | u
 	}
 
 	const outDir = agentStateDir(manifest, options.taskId);
+	const outPath = path.join(outDir, CREW_VIEW_SESSION_BASENAME);
 	try {
 		mkdirSync(outDir, { recursive: true });
-		writeFileSync(path.join(outDir, CREW_VIEW_SESSION_BASENAME), `${lines.join("\n")}\n`, "utf8");
+		// The view session is a REAL pi session: pi keeps appending to the file
+		// while it is open (entries the user types in the view, thinking_level
+		// changes, …). A rebuild must not wipe that conversation, so
+		// pi-appended entries from the previous view file are preserved — every
+		// synthesized entry id starts with "crew-", everything else is foreign
+		// and carried over (deduped by id).
+		const previousLines = existsSync(outPath) ? readFileSync(outPath, "utf8").split("\n").filter(Boolean) : [];
+		const knownIds = new Set<string>();
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+				if (entry && typeof entry.id === "string") knownIds.add(entry.id);
+			} catch {
+				/* synthesized lines are always valid */
+			}
+		}
+		const extras: string[] = [];
+		for (const line of previousLines) {
+			try {
+				const entry = JSON.parse(line);
+				const id = entry && typeof entry.id === "string" ? entry.id : "";
+				if (id && !id.startsWith("crew-") && !knownIds.has(id)) {
+					extras.push(line);
+					knownIds.add(id);
+				}
+			} catch {
+				/* an unparsable previous line is dropped, never fatal */
+			}
+		}
+		writeFileSync(outPath, `${[...lines, ...extras].join("\n")}\n`, "utf8");
 	} catch {
 		return undefined;
 	}
-	return path.join(outDir, CREW_VIEW_SESSION_BASENAME);
+	return outPath;
 }

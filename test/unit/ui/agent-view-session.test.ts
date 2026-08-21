@@ -366,3 +366,56 @@ test("malformed JSON lines are skipped, not fatal", () => {
 		removeTrackedTempDir(fixture.cwd);
 	}
 });
+
+test("rebuild preserves pi-appended entries (typed messages, thinking_level changes)", () => {
+	const fixture = makeFixture("Live goal");
+	try {
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "first pass" }] } }]);
+		const firstPath = buildAgentViewSessionFile({ cwd: fixture.cwd, runId: fixture.runId, taskId: fixture.taskId });
+		assert.ok(firstPath);
+
+		// pi appends REAL session entries to the open view file (a message the
+		// user typed in the view + a thinking_level_change record).
+		fs.appendFileSync(
+			fixture.viewFile,
+			[
+				JSON.stringify({
+					type: "message",
+					id: "user-typed-1",
+					parentId: "crew-ev-1",
+					timestamp: "2026-08-21T10:00:00.000Z",
+					message: { role: "user", content: [{ type: "text", text: "go deeper" }] },
+				}),
+				JSON.stringify({
+					type: "thinking_level_change",
+					id: "tl-abc123",
+					parentId: "user-typed-1",
+					timestamp: "2026-08-21T10:00:01.000Z",
+					thinkingLevel: "high",
+				}),
+			].join("\n") + "\n",
+			"utf-8",
+		);
+
+		// The agent produced more content; rebuild the view.
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "second pass" }] } }]);
+		const secondPath = buildAgentViewSessionFile({ cwd: fixture.cwd, runId: fixture.runId, taskId: fixture.taskId });
+		assert.ok(secondPath);
+
+		const records = readView(fixture);
+		const ids = new Set(records.map((r) => String(r.id)).filter(Boolean));
+		// New content present, synthesized ids deduped/rebuilt.
+		assert.ok(ids.has("crew-ev-2"), "fresh events-derived entry present");
+		assert.equal(records.filter((r) => r.id === "crew-ev-1").length, 1, "synthesized entries not duplicated");
+		// pi-appended entries preserved exactly once.
+		assert.ok(ids.has("user-typed-1"), "user-typed message survives the rebuild");
+		assert.ok(ids.has("tl-abc123"), "thinking_level entry survives the rebuild");
+		const texts = records
+			.map((r) => firstText(r))
+			.filter((text): text is string => Boolean(text));
+		assert.ok(texts.includes("second pass"), "fresh content in rebuilt view");
+		assert.ok(texts.includes("first pass"), "earlier content retained");
+	} finally {
+		removeTrackedTempDir(fixture.cwd);
+	}
+});
