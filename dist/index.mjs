@@ -43737,12 +43737,15 @@ function mergeTaskUpdatesPreservingTerminal(base, results) {
       const current = indexById.get(updated.id);
       if (!current) continue;
       if (!shouldMergeTaskUpdate(current, updated)) {
-        console.debug("[merge-gate] Skipping stale merge for task", updated.id, {
-          currentStatus: current.status,
-          updatedStatus: updated.status,
-          currentFinishedAt: current.finishedAt,
-          updatedFinishedAt: updated.finishedAt
-        });
+        const meaningfulDiff = updated.status !== current.status || updated.finishedAt !== current.finishedAt || updated.startedAt !== current.startedAt || Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) || Boolean(updated.error) || Boolean(updated.modelAttempts?.length) || Boolean(updated.usage);
+        if (meaningfulDiff) {
+          console.warn("[merge-gate] Rejected update for task", updated.id, {
+            currentStatus: current.status,
+            updatedStatus: updated.status,
+            currentFinishedAt: current.finishedAt,
+            updatedFinishedAt: updated.finishedAt
+          });
+        }
         skipped += 1;
         continue;
       }
@@ -73740,7 +73743,13 @@ function registerRunCommands(pi, deps) {
         abortForegroundRun: deps.abortForegroundRun,
         onRunStarted: void 0
       });
-      await notifyCommandResult(ctx, commandText(result4));
+      try {
+        const capturedFile = ctx.sessionManager?.getSessionFile?.();
+        const currentFile = deps.getCurrentSessionFile?.();
+        if (capturedFile && currentFile && capturedFile !== currentFile) return;
+        await notifyCommandResult(ctx, commandText(result4));
+      } catch {
+      }
     }
   });
   for (const [name, action, description] of [
@@ -79414,6 +79423,7 @@ function registerPiCommands(pi, ctx) {
     getManifestCache: ctx.getManifestCache,
     getRunSnapshotCache: ctx.getRunSnapshotCache,
     getMetricRegistry: () => ctx.observabilityState.metricRegistry,
+    getCurrentSessionFile: () => ctx.currentCtx?.sessionManager?.getSessionFile?.(),
     uiState: ctx.uiState,
     dismissNotifications: () => {
       ctx.widgetState.notificationCount = 0;
@@ -83273,18 +83283,6 @@ init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
 
-// src/ui/inline-panel/agent-pane.ts
-init_state_store();
-init_theme_adapter();
-import {
-  AssistantMessageComponent,
-  DynamicBorder,
-  getMarkdownTheme,
-  ToolExecutionComponent,
-  UserMessageComponent
-} from "@earendil-works/pi-coding-agent";
-import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
-
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
 
@@ -83501,369 +83499,21 @@ function buildAgentViewSessionFile(options) {
 }
 
 // src/ui/inline-panel/agent-transcript.ts
-var MAX_TRANSCRIPT_ITEMS = 500;
 var buffers = /* @__PURE__ */ new Map();
 var pendingByTask = /* @__PURE__ */ new Map();
 var cursors = /* @__PURE__ */ new Map();
-function asRecord14(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  return value;
-}
-function textFromContent5(content) {
-  if (!Array.isArray(content)) return "";
-  return content.flatMap((part) => {
-    const item = asRecord14(part);
-    if (!item) return [];
-    if (item.type === "text" && typeof item.text === "string") return [item.text];
-    return [];
-  }).join("\n").trim();
-}
-function parseEventRecord(record, pending2) {
-  const seq = typeof record.seq === "number" ? record.seq : 0;
-  const event = asRecord14(record.event) ?? record;
-  const type = typeof event.type === "string" ? event.type : "";
-  const items = [];
-  if (type === "tool_execution_start") {
-    const name = typeof event.toolName === "string" ? event.toolName : "tool";
-    const args = event.args ?? {};
-    const id = `${name}#${seq}`;
-    const item = { type: "tool", name, toolCallId: id, args, seq };
-    pending2.set(id, item);
-    items.push(item);
-    return items;
-  }
-  if (type === "tool_execution_end") {
-    return items;
-  }
-  if (type === "message_end" || type === "message" || type === "tool_result_end") {
-    const message = asRecord14(event.message);
-    if (!message) return items;
-    if (message.role === "assistant") {
-      const content = Array.isArray(message.content) ? message.content : [];
-      const text = textFromContent5(content);
-      if (text) {
-        const recordUsage = asRecord14(event.usage);
-        const messageUsage = asRecord14(message.usage);
-        let merged = message;
-        if (recordUsage) {
-          merged = { ...message, usage: messageUsage ? { ...messageUsage, ...recordUsage } : recordUsage };
-        }
-        items.push({ type: "assistant", text, seq, message: merged, usage: normalizeUsage(merged.usage) });
-      }
-      for (const part of content) {
-        const item = asRecord14(part);
-        if (item?.type !== "toolResult") continue;
-        const name = typeof item.name === "string" ? item.name : "tool";
-        matchPending(pending2, name, item.content, item.isError === true);
-      }
-      return items;
-    }
-    if (message.role === "user") {
-      const text = textFromContent5(message.content);
-      if (text) items.push({ type: "user", text, seq });
-      return items;
-    }
-  }
-  if (type && type !== "message_update") {
-    const text = typeof event.text === "string" ? event.text : "";
-    if (text) items.push({ type: "system", text, seq });
-  }
-  return items;
-}
-function matchPending(pending2, name, result4, isError) {
-  for (const [id, item] of [...pending2.entries()].reverse()) {
-    if (item.name !== name) continue;
-    pending2.delete(id);
-    if (result4 !== void 0) item.result = result4;
-    if (isError !== void 0) item.isError = isError;
-    return;
-  }
-}
-function readAgentTranscript(manifest, taskId) {
-  const sinceSeq = cursors.get(taskId) ?? 0;
-  const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
-  if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
-  if (events.length === 0) return buffers.get(taskId) ?? [];
-  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
-  pendingByTask.set(taskId, pending2);
-  let buffer = buffers.get(taskId) ?? [];
-  for (const record of events) {
-    const parsed = asRecord14(record);
-    if (!parsed) continue;
-    buffer.push(...parseEventRecord(parsed, pending2));
-  }
-  if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
-    buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
-  }
-  buffers.set(taskId, buffer);
-  return buffer;
-}
-function resetAgentTranscriptCursor(taskId) {
-  cursors.delete(taskId);
-  buffers.delete(taskId);
-  pendingByTask.delete(taskId);
-}
 function resetAllAgentTranscriptCursors() {
   cursors.clear();
   buffers.clear();
   pendingByTask.clear();
 }
 
-// src/ui/inline-panel/agent-pane.ts
-init_panel_store();
-var MAX_BODY_FRACTION = 14;
-var TRANSCRIPT_READ_THROTTLE_MS = 500;
-var MANIFEST_REFRESH_MS = 1500;
-var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
-function formatTokenCount(count2) {
-  if (count2 < 1e3) return String(count2);
-  if (count2 < 1e6) return `${Math.round(count2 / 1e3)}k`;
-  return `${(count2 / 1e6).toFixed(1)}M`;
-}
-function usageFooterLine(usage) {
-  const parts = [];
-  if (usage.input) parts.push(`\u2191${formatTokenCount(usage.input)}`);
-  if (usage.output) parts.push(`\u2193${formatTokenCount(usage.output)}`);
-  if (usage.cacheRead) parts.push(`R${formatTokenCount(usage.cacheRead)}`);
-  const promptTokens = usage.input + usage.cacheRead;
-  if (usage.cacheRead && promptTokens > 0) {
-    parts.push(`CH${(usage.cacheRead / promptTokens * 100).toFixed(1)}%`);
-  }
-  if (usage.cost.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
-  return parts.join(" ");
-}
-var CrewAgentPane = class {
-  disposed = false;
-  /** Wrapped-line offset from the END of the transcript; 0 = tailing. */
-  scrollBack = 0;
-  tui;
-  theme;
-  cwd;
-  /** Current agent target, read fresh from the panel store each render. */
-  currentTaskId;
-  /** Cached manifest for the current run, to avoid re-reading on every tick. */
-  cachedRunId;
-  cachedManifest;
-  /** Tasks for the cached run (header shows the agent's real name/status). */
-  cachedTasks = [];
-  /** Last time the manifest was re-read for header freshness. */
-  lastManifestRefreshAt = 0;
-  componentCache = /* @__PURE__ */ new WeakMap();
-  /** Last disk read, so the open pane does not re-parse the JSONL every tick. */
-  lastTranscriptReadAt = 0;
-  /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
-  lastItems = [];
-  /**
-   * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
-   * which on a 500-item transcript is the bulk of each ~160ms host tick.
-   * The fingerprint covers identity-relevant bits (seq, type, text length,
-   * result presence) so tool-result folds still refresh the pane.
-   */
-  bodyKey = 0;
-  cachedBody = [];
-  unsubscribePanel;
-  constructor(tui, theme, cwd) {
-    this.tui = tui;
-    this.theme = asCrewTheme(theme);
-    this.cwd = cwd;
-    this.unsubscribePanel = subscribePanelChange(() => {
-      if (!this.disposed) this.tui.requestRender();
-    });
-  }
-  requestRender() {
-    if (!this.disposed) this.tui.requestRender();
-  }
-  scrollBy(delta) {
-    this.scrollBack = Math.max(0, this.scrollBack + delta);
-    this.tui.requestRender();
-  }
-  resolveManifest(runId) {
-    const stale = Date.now() - this.lastManifestRefreshAt >= MANIFEST_REFRESH_MS;
-    if (this.cachedRunId === runId && this.cachedManifest) {
-      if (stale) {
-        this.lastManifestRefreshAt = Date.now();
-        const refreshed = loadRunManifestById(this.cwd, runId);
-        if (refreshed) {
-          this.cachedManifest = refreshed.manifest;
-          this.cachedTasks = refreshed.tasks ?? [];
-        }
-      }
-      return this.cachedManifest;
-    }
-    const loaded = loadRunManifestById(this.cwd, runId);
-    if (!loaded) return void 0;
-    this.cachedRunId = runId;
-    this.cachedManifest = loaded.manifest;
-    this.cachedTasks = loaded.tasks ?? [];
-    this.lastManifestRefreshAt = Date.now();
-    return loaded.manifest;
-  }
-  itemComponent(item) {
-    const cached2 = this.componentCache.get(item);
-    if (cached2) return cached2;
-    let comp;
-    if (item.type === "user") {
-      comp = new UserMessageComponent(item.text);
-    } else if (item.type === "assistant") {
-      comp = item.message ? new AssistantMessageComponent(item.message) : new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
-    } else if (item.type === "system") {
-      comp = {
-        render: () => [this.theme.fg("dim", truncateToWidth2(item.text, 200, "\u2026"))]
-      };
-    } else {
-      const tool = new ToolExecutionComponent(item.name, item.toolCallId, item.args, {}, void 0, this.tui, this.cwd);
-      tool.markExecutionStarted();
-      if (item.result !== void 0) {
-        tool.updateResult(item.result);
-      }
-      comp = tool;
-    }
-    this.componentCache.set(item, comp);
-    return comp;
-  }
-  /**
-   * Render one transcript item to lines, degrading to a dim text line when
-   * the item's shape confuses a pi component (the JSONL is worker-written
-   * and unvalidated — a once-bad record must never kill the pane render).
-   */
-  renderItem(item, width) {
-    try {
-      return this.itemComponent(item).render(width);
-    } catch {
-      const label = item.type === "tool" ? item.name : "text";
-      return [this.theme.fg("dim", truncateToWidth2(`(unrenderable ${label} item)`, width, "\u2026"))];
-    }
-  }
-  /** FNV-1a over the parts that change pane output; 32-bit is plenty for a
-   * 500-item cache key (a collision only delays a repaint by one tick). */
-  bodyFingerprint(items, width) {
-    let h = (2166136261 ^ width) >>> 0;
-    for (const item of items) {
-      h ^= item.seq;
-      h = Math.imul(h, 16777619) >>> 0;
-      h ^= item.type.length;
-      h = Math.imul(h, 16777619) >>> 0;
-      if (item.type === "tool") {
-        h ^= item.result !== void 0 ? 7 : 3;
-      } else {
-        h ^= item.text.length;
-      }
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    return h;
-  }
-  buildBody(items, width) {
-    const body = [];
-    for (const item of items) {
-      for (const line4 of this.renderItem(item, width)) body.push(line4);
-      if (item.type === "assistant" && item.usage) {
-        const footer = usageFooterLine(item.usage);
-        if (footer) body.push(this.theme.fg("dim", footer));
-      }
-    }
-    return body;
-  }
-  /** Session-style header: agent name · task · run · model · state. */
-  headerLines(manifest, width) {
-    const t2 = this.theme;
-    const task = this.cachedTasks.find((candidate) => candidate.id === this.currentTaskId);
-    const name = task?.displayName ?? task?.title ?? this.currentTaskId ?? "agent";
-    const model = manifest.modelContext?.parentModel ?? manifest.modelContext?.override;
-    const parts = [
-      t2.fg("accent", t2.bold(name)),
-      t2.fg("dim", `\xB7 ${this.currentTaskId ?? ""}`),
-      t2.fg("dim", `\xB7 \u2026${manifest.runId.slice(-12)}`)
-    ];
-    if (model) parts.push(t2.fg("dim", `\xB7 ${model}`));
-    const status = task?.status ?? manifest.status;
-    let stateText = "";
-    if (status === "completed") stateText = t2.fg("success", "\u2713 completed");
-    else if (status === "failed") stateText = t2.fg("error", "\u2717 failed");
-    else if (status === "cancelled") stateText = t2.fg("warning", "\u25A0 cancelled");
-    else if (status === "running") stateText = t2.fg("success", "\u25CF running");
-    else if (status) stateText = t2.fg("dim", status);
-    const line4 = truncateToWidth2(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "\u2026");
-    const lines = [line4];
-    if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
-      lines.push(
-        t2.fg(
-          "dim",
-          truncateToWidth2(
-            `\xB7 finished \u2014 /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`,
-            width,
-            "\u2026"
-          )
-        )
-      );
-    }
-    return lines;
-  }
-  render(width) {
-    if (this.disposed) return [];
-    const viewed2 = getViewedAgent();
-    if (!viewed2) return [];
-    if (this.currentTaskId !== viewed2.taskId) {
-      resetAgentTranscriptCursor(viewed2.taskId);
-      this.currentTaskId = viewed2.taskId;
-      this.scrollBack = 0;
-      this.lastItems = [];
-      this.lastTranscriptReadAt = 0;
-      this.bodyKey = 0;
-      this.cachedBody = [];
-    }
-    const manifest = this.resolveManifest(viewed2.runId);
-    if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
-    if (Date.now() - this.lastTranscriptReadAt >= TRANSCRIPT_READ_THROTTLE_MS) {
-      this.lastItems = readAgentTranscript(manifest, viewed2.taskId);
-      this.lastTranscriptReadAt = Date.now();
-    }
-    const items = this.lastItems;
-    const fingerprint = this.bodyFingerprint(items, width);
-    if (fingerprint !== this.bodyKey) {
-      this.cachedBody = this.buildBody(items, width);
-      this.bodyKey = fingerprint;
-    }
-    const body = this.cachedBody;
-    const header = this.headerLines(manifest, width);
-    const rows = this.tui.terminal.rows;
-    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
-    const visibleCount = Math.min(maxBody, Math.max(1, body.length));
-    this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
-    const end = body.length - this.scrollBack;
-    const visible = body.slice(Math.max(0, end - visibleCount), end);
-    const lines = [];
-    for (const line4 of header) lines.push(line4);
-    lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
-    if (end - visibleCount > 0) {
-      lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
-    } else {
-      lines.push("");
-    }
-    for (const line4 of visible) lines.push(line4);
-    if (this.scrollBack > 0) {
-      lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
-    }
-    return lines;
-  }
-  invalidate() {
-    this.componentCache = /* @__PURE__ */ new WeakMap();
-    this.bodyKey = 0;
-    this.cachedBody = [];
-  }
-  dispose() {
-    this.disposed = true;
-    this.unsubscribePanel();
-    this.cachedManifest = void 0;
-    this.cachedRunId = void 0;
-  }
-};
-
 // src/ui/inline-panel/crew-editor.ts
 init_panel_selection();
 init_panel_store();
 init_view_session_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth2, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -84028,10 +83678,10 @@ var CrewInlineEditor = class extends CustomEditor {
       name = `${viewState.taskId ?? "agent"} \xB7 view`;
     }
     if (name && lines.length > 0) {
-      const label = ` @${truncateToWidth3(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+      const label = ` @${truncateToWidth2(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
       const labelWidth = visibleWidth4(label);
       if (visibleWidth4(lines[0]) >= labelWidth + 4) {
-        lines[0] = truncateToWidth3(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
+        lines[0] = truncateToWidth2(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
       }
     }
     return lines;
@@ -84043,7 +83693,6 @@ init_panel_store();
 init_view_session_store();
 var PANE_WIDGET_KEY = "pi-crew-agent-view";
 var PANE_PLACEMENT = "aboveEditor";
-var currentPane;
 var currentEditor;
 var lastCtx;
 var lastPi;
@@ -84070,35 +83719,35 @@ function dispatchViewCommand(text) {
   }
   currentEditor?.dispatchCommandFallback(text);
 }
-function openPane(ctx, target) {
-  setViewedAgent(target);
-  if (!currentPane) {
-    try {
-      setExtensionWidget(
-        ctx,
-        PANE_WIDGET_KEY,
-        ((tui, theme) => {
-          currentPane = new CrewAgentPane(tui, theme, ctx.cwd);
-          return currentPane;
-        }),
-        { placement: PANE_PLACEMENT }
-      );
-    } catch {
-    }
+var VIEW_BUILD_RETRY_MS = 500;
+var VIEW_BUILD_MAX_RETRIES = 40;
+async function buildViewPath(ctx, target) {
+  for (let attempt = 0; ; attempt += 1) {
+    const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
+    if (viewPath) return viewPath;
+    if (attempt >= VIEW_BUILD_MAX_RETRIES) return void 0;
+    await new Promise((resolve26) => setTimeout(resolve26, VIEW_BUILD_RETRY_MS));
   }
-  requestRender(ctx);
+}
+function openPane(ctx, target) {
+  void (async () => {
+    const viewPath = await buildViewPath(ctx, target);
+    if (viewPath) {
+      setTimeout(() => {
+        dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
+      }, 0);
+      return;
+    }
+    ctx.ui.notify(`Could not open a view for ${target.taskId} \u2014 no transcript yet. Try again in a moment.`, "error");
+  })();
 }
 function closePane(ctx) {
   setViewedAgent(void 0);
-  currentPane = void 0;
   try {
     setExtensionWidget(ctx, PANE_WIDGET_KEY, void 0, { placement: PANE_PLACEMENT });
   } catch {
   }
   requestRender(ctx);
-}
-function scrollPane(delta) {
-  currentPane?.scrollBy(delta);
 }
 async function steerAgent(ctx, target, message) {
   try {
@@ -84233,7 +83882,7 @@ function installInlinePanel(pi, ctx, uiConfig) {
         const editor = new CrewInlineEditor(tui, theme, kb, {
           onOpenPane: (target) => openPane(ctx, target),
           onClosePane: () => closePane(ctx),
-          onScrollPane: (delta) => scrollPane(delta),
+          onScrollPane: () => void 0,
           onSteer: (target, message) => void steerAgent(ctx, target, message),
           onAct: (target, finished) => void actOnAgent(ctx, target, finished),
           onDispatchCommand: (text) => void dispatchViewCommand(text)

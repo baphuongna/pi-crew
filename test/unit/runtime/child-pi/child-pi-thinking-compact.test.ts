@@ -9,9 +9,9 @@
 import assert from "node:assert";
 import { test } from "node:test";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
-import { MAX_THINKING_CHARS } from "../../../../src/runtime/child-pi/child-pi-constants.ts";
 import type { ChildPiRunInput } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { ChildPiLineObserver } from "../../../../src/runtime/child-pi/child-pi.ts";
+import { MAX_THINKING_CHARS } from "../../../../src/runtime/child-pi/child-pi-constants.ts";
 
 const SAMPLE_AGENT: AgentConfig = {
 	name: "explorer",

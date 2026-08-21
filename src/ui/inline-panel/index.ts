@@ -18,7 +18,6 @@ import type { CrewUiConfig } from "../../config/types.ts";
 import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../extension/tool-result.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
-import { CrewAgentPane } from "./agent-pane.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
 import { buildAgentViewSessionFile } from "./agent-view-session.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
@@ -37,7 +36,6 @@ import {
 export const PANE_WIDGET_KEY = "pi-crew-agent-view";
 const PANE_PLACEMENT = "aboveEditor" as const;
 
-let currentPane: CrewAgentPane | undefined;
 /** The active CrewInlineEditor instance, so panelless flows (session view
  *  opening) can route a slash command through pi's normal submit path. */
 let currentEditor: CrewInlineEditor | undefined;
@@ -91,60 +89,68 @@ function dispatchViewCommand(text: string): void {
 }
 
 /**
- * Open an agent "view" — pi-subtask's model, NOT a session switch.
+ * Open an agent "view" — a REAL pi session, whole-screen. No custom UI.
  *
- * The view is the in-document `CrewAgentPane` widget (`aboveEditor`): a live,
- * full-width transcript of the agent rendered with pi's own components, with
- * the real editor underneath (relabeled `@agent`). Typed text steers the agent,
- * `esc` returns to the main conversation, `↓` + enter jumps between agents.
- * The pane tails the agent's on-disk `events.jsonl` (500ms throttle), so it
- * streams live for both foreground and async runs.
+ * Enter on an agent builds a genuine pi session file from the agent's event
+ * log (`buildAgentViewSessionFile`) and switches the whole screen to it via
+ * `/crew-view` → `switchSession`. Pi renders it exactly like any other
+ * session: its transcript (user/assistant/tool cards, thinking blocks, usage),
+ * its scrollback, its editor.
  *
- * Why not the whole-screen session swap any more: a session switch
- * (`/crew-view` → `switchSession`) depends on pi's command dispatch reaching
- * `session.prompt` while the main turn is busy. A FOREGROUND team run keeps
- * that turn busy for its whole lifetime, so in real setups the command got
- * queued instead of executed and the view never opened (only the input/UI
- * changed). The pane needs no dispatch, no switch, no teardown — the run and
- * the session are untouched. `/crew-view`/`/crew-back` remain available as
- * typed commands for anyone who still wants the real whole-screen session.
+ * The command is dispatched through `pi.sendUserMessage(text,
+ * { expandPromptTemplates: true })`, which executes "/" commands
+ * synchronously in ALL session states (streaming, tool-executing, idle). The
+ * legacy editor-submit path would have been queued, because a FOREGROUND team
+ * run keeps the main turn busy for its whole lifetime — that is the
+ * regression where "the view only changed the input".
+ *
+ * The view file can only be built once the agent's event file exists (the
+ * worker child pi creates it at spawn; a slow provider queue can delay that),
+ * so openPane polls for up to ~20s. If it never materialises — phantom row
+ * or deleted state — the user is told instead of being handed a substitute
+ * (the in-document transcript pane was removed from this path: entering a
+ * view must always be a full pi session).
  */
-function openPane(ctx: ExtensionContext, target: PanelTarget): void {
-	setViewedAgent(target);
-	// The pane is already mounted when the user switches agents mid-view
-	// (↓ + enter); its render detects the new target and resets the
-	// transcript cursor itself.
-	if (!currentPane) {
-		try {
-			setExtensionWidget(
-				ctx,
-				PANE_WIDGET_KEY,
-				((tui: unknown, theme: unknown) => {
-					currentPane = new CrewAgentPane(tui as never, theme as never, ctx.cwd);
-					return currentPane;
-				}) as never,
-				{ placement: PANE_PLACEMENT },
-			);
-		} catch {
-			/* stale ctx across session replacement */
-		}
+const VIEW_BUILD_RETRY_MS = 500;
+const VIEW_BUILD_MAX_RETRIES = 40;
+
+/** Build the view file, retrying while the agent's event file appears.
+ *  Returns undefined when the state never materialises (caller notifies). */
+async function buildViewPath(ctx: ExtensionContext, target: PanelTarget): Promise<string | undefined> {
+	for (let attempt = 0; ; attempt += 1) {
+		const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
+		if (viewPath) return viewPath;
+		if (attempt >= VIEW_BUILD_MAX_RETRIES) return undefined;
+		await new Promise((resolve) => setTimeout(resolve, VIEW_BUILD_RETRY_MS));
 	}
-	requestRender(ctx);
+}
+
+function openPane(ctx: ExtensionContext, target: PanelTarget): void {
+	void (async () => {
+		const viewPath = await buildViewPath(ctx, target);
+		if (viewPath) {
+			// Switch AFTER the current input tick unwinds: `switchSession`
+			// tears the current session down, which would invalidate the
+			// editor while we are still inside its key handler otherwise.
+			setTimeout(() => {
+				dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
+			}, 0);
+			return;
+		}
+		ctx.ui.notify(`Could not open a view for ${target.taskId} — no transcript yet. Try again in a moment.`, "error");
+	})();
 }
 
 function closePane(ctx: ExtensionContext): void {
 	setViewedAgent(undefined);
-	currentPane = undefined;
+	// Any legacy in-document transcript pane (pre-session-view builds) is
+	// cleaned up so a stale session never leaves it mounted.
 	try {
 		setExtensionWidget(ctx, PANE_WIDGET_KEY, undefined, { placement: PANE_PLACEMENT });
 	} catch {
 		/* stale ctx */
 	}
 	requestRender(ctx);
-}
-
-function scrollPane(delta: number): void {
-	currentPane?.scrollBy(delta);
 }
 
 async function steerAgent(ctx: ExtensionContext, target: PanelTarget, message: string): Promise<void> {
@@ -185,15 +191,16 @@ async function actOnAgent(ctx: ExtensionContext, target: PanelTarget, finished: 
 
 // ── Agent session view commands ───────────────────────────────────────
 //
-// `/crew-view <runId> <taskId>` — OPTIONAL whole-screen switch to a real pi
-// session built from that agent's event log (pi's own transcript rendering,
-// tool cards, working editor). `/crew-back` — return to the main session.
-// The dock's enter key no longer takes this path (it mounts the in-document
-// pane instead, see openPane), but typing the command still works when the
-// main turn is idle.
+// `/crew-view <runId> <taskId>` — switch the WHOLE screen to a real pi session
+// built from that agent's event log (pi's own transcript rendering, tool cards,
+// working editor). `/crew-back` — return to the main session. The dock's enter
+// key takes this path (openPane builds the file and dispatches the command),
+// and typing the command works too.
 //
 // `switchSession` is only exposed on the extension COMMAND context (not the
-// plain ExtensionContext).
+// plain ExtensionContext), so the panel opens views by dispatching these
+// commands through pi's immediate command-execution path instead of calling
+// pi directly.
 
 async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -351,7 +358,7 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 				const editor = new CrewInlineEditor(tui, theme, kb, {
 					onOpenPane: (target) => openPane(ctx, target),
 					onClosePane: () => closePane(ctx),
-					onScrollPane: (delta) => scrollPane(delta),
+					onScrollPane: () => undefined,
 					onSteer: (target, message) => void steerAgent(ctx, target, message),
 					onAct: (target, finished) => void actOnAgent(ctx, target, finished),
 					onDispatchCommand: (text) => void dispatchViewCommand(text),

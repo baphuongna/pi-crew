@@ -181,15 +181,31 @@ export function mergeTaskUpdatesPreservingTerminal(base: TeamTaskState[], result
 			const current = indexById.get(updated.id);
 			if (!current) continue;
 			if (!shouldMergeTaskUpdate(current, updated)) {
-				// Log skipped merges for visibility into rejected parallel updates.
-				// In distributed systems with parallel workers, rejected merges may
-				// indicate bugs (wrong status, timestamp corruption) if they accumulate.
-				console.debug("[merge-gate] Skipping stale merge for task", updated.id, {
-					currentStatus: current.status,
-					updatedStatus: updated.status,
-					currentFinishedAt: current.finishedAt,
-					updatedFinishedAt: updated.finishedAt,
-				});
+				// Routine no-op skips (an unchanged queued/running snapshot
+				// arriving from a parallel worker) are NORMAL parallel-merge
+				// behaviour and must stay silent — pi renders extension
+				// console output inline in the session transcript, so logging
+				// every skip floods whatever session is open (main or an
+				// agent view). Only a REAL rejected change (status transition,
+				// completion time, or result) is surfaced, as a warning: in
+				// distributed systems, rejected transitions may indicate bugs
+				// (wrong status, timestamp corruption) if they accumulate.
+				const meaningfulDiff =
+					updated.status !== current.status ||
+					updated.finishedAt !== current.finishedAt ||
+					updated.startedAt !== current.startedAt ||
+					Boolean(updated.resultArtifact) !== Boolean(current.resultArtifact) ||
+					Boolean(updated.error) ||
+					Boolean(updated.modelAttempts?.length) ||
+					Boolean(updated.usage);
+				if (meaningfulDiff) {
+					console.warn("[merge-gate] Rejected update for task", updated.id, {
+						currentStatus: current.status,
+						updatedStatus: updated.status,
+						currentFinishedAt: current.finishedAt,
+						updatedFinishedAt: updated.finishedAt,
+					});
+				}
 				skipped += 1;
 				continue;
 			}

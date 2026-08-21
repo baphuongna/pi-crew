@@ -80,6 +80,14 @@ export interface RegisterTeamCommandsDeps {
 	getMetricRegistry?: () => MetricRegistry | undefined;
 	uiState?: UiState;
 	dismissNotifications?: () => void;
+	/**
+	 * The session file of the CURRENT session (RegistrationContext.currentCtx).
+	 * Commands whose handler can span a session switch — team-run awaits the
+	 * whole foreground run — use this after the await to detect that the
+	 * captured ctx is stale and skip notifications that pi would drop with a
+	 * "ctx is stale" error.
+	 */
+	getCurrentSessionFile?: () => string | undefined;
 }
 
 // Lazy-loaded UI module cache — avoids importing 900ms+ of UI at Pi startup.

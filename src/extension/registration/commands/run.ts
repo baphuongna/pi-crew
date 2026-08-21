@@ -17,7 +17,21 @@ export function registerRunCommands(pi: ExtensionAPI, deps: RegisterTeamCommands
 				abortForegroundRun: deps.abortForegroundRun,
 				onRunStarted: undefined,
 			});
-			await notifyCommandResult(ctx, commandText(result));
+			// A foreground run can span a session switch (e.g. the user opens
+			// an agent view mid-run and the run finishes there). The captured
+			// ctx is stale after the switch: ANY access to it (even reading a
+			// field) throws pi's "This extension ctx is stale ..." error, which
+			// pi then prints into whichever session is active. Probe
+			// defensively and skip the notification when the session moved on
+			// (the result is still visible via /team-status).
+			try {
+				const capturedFile = ctx.sessionManager?.getSessionFile?.();
+				const currentFile = deps.getCurrentSessionFile?.();
+				if (capturedFile && currentFile && capturedFile !== currentFile) return;
+				await notifyCommandResult(ctx, commandText(result));
+			} catch {
+				// Stale ctx during the probe or notify — nothing to do here.
+			}
 		},
 	});
 

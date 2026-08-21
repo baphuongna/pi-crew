@@ -12006,7 +12006,7 @@
       "format": "esm"
     },
     "src/runtime/merge-gate.ts": {
-      "bytes": 10626,
+      "bytes": 11371,
       "imports": [
         {
           "path": "src/state/contracts.ts",
@@ -17856,7 +17856,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/shared.ts": {
-      "bytes": 24653,
+      "bytes": 25043,
       "imports": [
         {
           "path": "node:path",
@@ -18125,7 +18125,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/run.ts": {
-      "bytes": 9157,
+      "bytes": 9918,
       "imports": [
         {
           "path": "src/extension/command-completions.ts",
@@ -18443,7 +18443,7 @@
       "format": "esm"
     },
     "src/extension/registration/command-registration.ts": {
-      "bytes": 2142,
+      "bytes": 2225,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -19622,42 +19622,6 @@
       ],
       "format": "esm"
     },
-    "src/ui/inline-panel/agent-pane.ts": {
-      "bytes": 13547,
-      "imports": [
-        {
-          "path": "@earendil-works/pi-coding-agent",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "@earendil-works/pi-tui",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/state/stores/state-store.ts",
-          "kind": "import-statement",
-          "original": "../../state/stores/state-store.ts"
-        },
-        {
-          "path": "src/ui/theme-adapter.ts",
-          "kind": "import-statement",
-          "original": "../theme-adapter.ts"
-        },
-        {
-          "path": "src/ui/inline-panel/agent-transcript.ts",
-          "kind": "import-statement",
-          "original": "./agent-transcript.ts"
-        },
-        {
-          "path": "src/ui/inline-panel/panel-store.ts",
-          "kind": "import-statement",
-          "original": "./panel-store.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/inline-panel/crew-editor.ts": {
       "bytes": 9753,
       "imports": [
@@ -19690,7 +19654,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 17025,
+      "bytes": 17788,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -19706,11 +19670,6 @@
           "path": "src/ui/pi-ui-compat.ts",
           "kind": "import-statement",
           "original": "../pi-ui-compat.ts"
-        },
-        {
-          "path": "src/ui/inline-panel/agent-pane.ts",
-          "kind": "import-statement",
-          "original": "./agent-pane.ts"
         },
         {
           "path": "src/ui/inline-panel/agent-transcript.ts",
@@ -20506,7 +20465,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7525563
+      "bytes": 7505014
     },
     "dist/index.mjs": {
       "imports": [
@@ -22291,16 +22250,6 @@
           "external": true
         },
         {
-          "path": "@earendil-works/pi-coding-agent",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "@earendil-works/pi-tui",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -23872,7 +23821,7 @@
           "bytesInOutput": 2691
         },
         "src/runtime/merge-gate.ts": {
-          "bytesInOutput": 4320
+          "bytesInOutput": 4685
         },
         "src/runtime/model/runtime-policy.ts": {
           "bytesInOutput": 581
@@ -24436,7 +24385,7 @@
           "bytesInOutput": 11144
         },
         "src/extension/registration/commands/run.ts": {
-          "bytesInOutput": 8892
+          "bytesInOutput": 9140
         },
         "src/extension/registration/commands/status.ts": {
           "bytesInOutput": 2153
@@ -24556,7 +24505,7 @@
           "bytesInOutput": 2457
         },
         "src/extension/registration/command-registration.ts": {
-          "bytesInOutput": 1138
+          "bytesInOutput": 1223
         },
         "src/extension/registration/context-builder.ts": {
           "bytesInOutput": 3957
@@ -24619,13 +24568,10 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 7912
-        },
-        "src/ui/inline-panel/agent-pane.ts": {
-          "bytesInOutput": 9845
+          "bytesInOutput": 8247
         },
         "src/ui/inline-panel/agent-transcript.ts": {
-          "bytesInOutput": 3997
+          "bytesInOutput": 265
         },
         "src/ui/inline-panel/agent-view-session.ts": {
           "bytesInOutput": 8263
@@ -24670,7 +24616,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3226181
+      "bytes": 3213561
     }
   }
 }
