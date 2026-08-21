@@ -15449,7 +15449,7 @@ ${buf.subarray(start).toString("utf-8")}`;
 });
 
 // src/runtime/child-pi/child-pi-constants.ts
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_THINKING_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
 var init_child_pi_constants = __esm({
   "src/runtime/child-pi/child-pi-constants.ts"() {
     "use strict";
@@ -15460,6 +15460,7 @@ var init_child_pi_constants = __esm({
     RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
     MAX_LINE_BUFFER_BYTES = 1024 * 1024;
     MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
+    MAX_THINKING_CHARS = 8 * 1024;
     MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
     MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
     MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
@@ -16499,6 +16500,13 @@ function compactContentPart(part) {
       type: "toolCall",
       name: record.name,
       input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input)
+    };
+  if (record.type === "thinking")
+    return {
+      type: "thinking",
+      thinking: typeof record.thinking === "string" ? compactString(record.thinking, MAX_THINKING_CHARS, {
+        preserveImportant: false
+      }) : ""
     };
   if (record.type === "toolResult")
     return {
@@ -83268,282 +83276,17 @@ init_pi_ui_compat();
 // src/ui/inline-panel/agent-pane.ts
 init_state_store();
 init_theme_adapter();
-import { DynamicBorder, getMarkdownTheme, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import {
+  AssistantMessageComponent,
+  DynamicBorder,
+  getMarkdownTheme,
+  ToolExecutionComponent,
+  UserMessageComponent
+} from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
-var MAX_TRANSCRIPT_ITEMS = 500;
-var buffers = /* @__PURE__ */ new Map();
-var pendingByTask = /* @__PURE__ */ new Map();
-var cursors = /* @__PURE__ */ new Map();
-function asRecord13(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  return value;
-}
-function textFromContent5(content) {
-  if (!Array.isArray(content)) return "";
-  return content.flatMap((part) => {
-    const item = asRecord13(part);
-    if (!item) return [];
-    if (item.type === "text" && typeof item.text === "string") return [item.text];
-    return [];
-  }).join("\n").trim();
-}
-function parseEventRecord(record, pending2) {
-  const seq = typeof record.seq === "number" ? record.seq : 0;
-  const event = asRecord13(record.event) ?? record;
-  const type = typeof event.type === "string" ? event.type : "";
-  const items = [];
-  if (type === "tool_execution_start") {
-    const name = typeof event.toolName === "string" ? event.toolName : "tool";
-    const args = event.args ?? {};
-    const id = `${name}#${seq}`;
-    const item = { type: "tool", name, toolCallId: id, args, seq };
-    pending2.set(id, item);
-    items.push(item);
-    return items;
-  }
-  if (type === "tool_execution_end") {
-    return items;
-  }
-  if (type === "message_end" || type === "message" || type === "tool_result_end") {
-    const message = asRecord13(event.message);
-    if (!message) return items;
-    if (message.role === "assistant") {
-      const content = Array.isArray(message.content) ? message.content : [];
-      const text = textFromContent5(content);
-      if (text) items.push({ type: "assistant", text, seq });
-      for (const part of content) {
-        const item = asRecord13(part);
-        if (item?.type !== "toolResult") continue;
-        const name = typeof item.name === "string" ? item.name : "tool";
-        matchPending(pending2, name, item.content, item.isError === true);
-      }
-      return items;
-    }
-    if (message.role === "user") {
-      const text = textFromContent5(message.content);
-      if (text) items.push({ type: "user", text, seq });
-      return items;
-    }
-  }
-  if (type && type !== "message_update") {
-    const text = typeof event.text === "string" ? event.text : "";
-    if (text) items.push({ type: "system", text, seq });
-  }
-  return items;
-}
-function matchPending(pending2, name, result4, isError) {
-  for (const [id, item] of [...pending2.entries()].reverse()) {
-    if (item.name !== name) continue;
-    pending2.delete(id);
-    if (result4 !== void 0) item.result = result4;
-    if (isError !== void 0) item.isError = isError;
-    return;
-  }
-}
-function readAgentTranscript(manifest, taskId) {
-  const sinceSeq = cursors.get(taskId) ?? 0;
-  const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
-  if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
-  if (events.length === 0) return buffers.get(taskId) ?? [];
-  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
-  pendingByTask.set(taskId, pending2);
-  let buffer = buffers.get(taskId) ?? [];
-  for (const record of events) {
-    const parsed = asRecord13(record);
-    if (!parsed) continue;
-    buffer.push(...parseEventRecord(parsed, pending2));
-  }
-  if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
-    buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
-  }
-  buffers.set(taskId, buffer);
-  return buffer;
-}
-function resetAgentTranscriptCursor(taskId) {
-  cursors.delete(taskId);
-  buffers.delete(taskId);
-  pendingByTask.delete(taskId);
-}
-function resetAllAgentTranscriptCursors() {
-  cursors.clear();
-  buffers.clear();
-  pendingByTask.clear();
-}
-
-// src/ui/inline-panel/agent-pane.ts
-init_panel_store();
-var MAX_BODY_FRACTION = 14;
-var TRANSCRIPT_READ_THROTTLE_MS = 500;
-var CrewAgentPane = class {
-  disposed = false;
-  /** Wrapped-line offset from the END of the transcript; 0 = tailing. */
-  scrollBack = 0;
-  tui;
-  theme;
-  cwd;
-  /** Current agent target, read fresh from the panel store each render. */
-  currentTaskId;
-  /** Cached manifest for the current run, to avoid re-reading on every tick. */
-  cachedRunId;
-  cachedManifest;
-  componentCache = /* @__PURE__ */ new WeakMap();
-  /** Last disk read, so the open pane does not re-parse the JSONL every tick. */
-  lastTranscriptReadAt = 0;
-  /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
-  lastItems = [];
-  /**
-   * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
-   * which on a 500-item transcript is the bulk of each ~160ms host tick.
-   * The fingerprint covers identity-relevant bits (seq, type, text length,
-   * result presence) so tool-result folds still refresh the pane.
-   */
-  bodyKey = 0;
-  cachedBody = [];
-  unsubscribePanel;
-  constructor(tui, theme, cwd) {
-    this.tui = tui;
-    this.theme = asCrewTheme(theme);
-    this.cwd = cwd;
-    this.unsubscribePanel = subscribePanelChange(() => {
-      if (!this.disposed) this.tui.requestRender();
-    });
-  }
-  requestRender() {
-    if (!this.disposed) this.tui.requestRender();
-  }
-  scrollBy(delta) {
-    this.scrollBack = Math.max(0, this.scrollBack + delta);
-    this.tui.requestRender();
-  }
-  resolveManifest(runId) {
-    if (this.cachedRunId === runId && this.cachedManifest) return this.cachedManifest;
-    const loaded = loadRunManifestById(this.cwd, runId);
-    if (!loaded) return void 0;
-    this.cachedRunId = runId;
-    this.cachedManifest = loaded.manifest;
-    return loaded.manifest;
-  }
-  itemComponent(item) {
-    const cached2 = this.componentCache.get(item);
-    if (cached2) return cached2;
-    let comp;
-    if (item.type === "user") {
-      comp = new UserMessageComponent(item.text);
-    } else if (item.type === "assistant") {
-      comp = new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
-    } else if (item.type === "system") {
-      comp = {
-        render: () => [this.theme.fg("dim", truncateToWidth2(item.text, 200, "\u2026"))]
-      };
-    } else {
-      const tool = new ToolExecutionComponent(item.name, item.toolCallId, item.args, {}, void 0, this.tui, this.cwd);
-      tool.markExecutionStarted();
-      if (item.result !== void 0) {
-        tool.updateResult(item.result);
-      }
-      comp = tool;
-    }
-    this.componentCache.set(item, comp);
-    return comp;
-  }
-  /**
-   * Render one transcript item to lines, degrading to a dim text line when
-   * the item's shape confuses a pi component (the JSONL is worker-written
-   * and unvalidated — a once-bad record must never kill the pane render).
-   */
-  renderItem(item, width) {
-    try {
-      return this.itemComponent(item).render(width);
-    } catch {
-      const label = item.type === "tool" ? item.name : "text";
-      return [this.theme.fg("dim", truncateToWidth2(`(unrenderable ${label} item)`, width, "\u2026"))];
-    }
-  }
-  /** FNV-1a over the parts that change pane output; 32-bit is plenty for a
-   * 500-item cache key (a collision only delays a repaint by one tick). */
-  bodyFingerprint(items, width) {
-    let h = (2166136261 ^ width) >>> 0;
-    for (const item of items) {
-      h ^= item.seq;
-      h = Math.imul(h, 16777619) >>> 0;
-      h ^= item.type.length;
-      h = Math.imul(h, 16777619) >>> 0;
-      if (item.type === "tool") {
-        h ^= item.result !== void 0 ? 7 : 3;
-      } else {
-        h ^= item.text.length;
-      }
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    return h;
-  }
-  buildBody(items, width) {
-    const body = [];
-    for (const item of items) {
-      for (const line4 of this.renderItem(item, width)) body.push(line4);
-    }
-    return body;
-  }
-  render(width) {
-    if (this.disposed) return [];
-    const viewed2 = getViewedAgent();
-    if (!viewed2) return [];
-    if (this.currentTaskId !== viewed2.taskId) {
-      resetAgentTranscriptCursor(viewed2.taskId);
-      this.currentTaskId = viewed2.taskId;
-      this.scrollBack = 0;
-      this.lastItems = [];
-      this.lastTranscriptReadAt = 0;
-      this.bodyKey = 0;
-      this.cachedBody = [];
-    }
-    const manifest = this.resolveManifest(viewed2.runId);
-    if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
-    if (Date.now() - this.lastTranscriptReadAt >= TRANSCRIPT_READ_THROTTLE_MS) {
-      this.lastItems = readAgentTranscript(manifest, viewed2.taskId);
-      this.lastTranscriptReadAt = Date.now();
-    }
-    const items = this.lastItems;
-    const fingerprint = this.bodyFingerprint(items, width);
-    if (fingerprint !== this.bodyKey) {
-      this.cachedBody = this.buildBody(items, width);
-      this.bodyKey = fingerprint;
-    }
-    const body = this.cachedBody;
-    const rows = this.tui.terminal.rows;
-    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION);
-    const visibleCount = Math.min(maxBody, Math.max(1, body.length));
-    this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
-    const end = body.length - this.scrollBack;
-    const visible = body.slice(Math.max(0, end - visibleCount), end);
-    const lines = [];
-    lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
-    if (end - visibleCount > 0) {
-      lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
-    } else {
-      lines.push("");
-    }
-    for (const line4 of visible) lines.push(line4);
-    if (this.scrollBack > 0) {
-      lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
-    }
-    return lines;
-  }
-  invalidate() {
-    this.componentCache = /* @__PURE__ */ new WeakMap();
-    this.bodyKey = 0;
-    this.cachedBody = [];
-  }
-  dispose() {
-    this.disposed = true;
-    this.unsubscribePanel();
-    this.cachedManifest = void 0;
-    this.cachedRunId = void 0;
-  }
-};
 
 // src/ui/inline-panel/agent-view-session.ts
 init_crew_agent_records();
@@ -83553,7 +83296,7 @@ import { existsSync as existsSync84, mkdirSync as mkdirSync50, readFileSync as r
 import path97 from "node:path";
 var MAX_VIEW_MESSAGE_ENTRIES = 1e3;
 var MAX_LEADIN_CHARS = 240;
-function asRecord14(value) {
+function asRecord13(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
   return value;
 }
@@ -83561,7 +83304,7 @@ function asContentParts(message) {
   if (!message) return [];
   const content = message.content;
   if (!Array.isArray(content)) return [];
-  return content.map(asRecord14).filter((part) => part !== void 0);
+  return content.map(asRecord13).filter((part) => part !== void 0);
 }
 function foldToolResultPart(part, pendingCalls, callNamesById, callSeq) {
   const name = typeof part.name === "string" ? part.name : "tool";
@@ -83603,6 +83346,9 @@ function recordsToSessionEntries(records, headerTimestamp) {
         const text = typeof part.text === "string" ? part.text : "";
         hasText = hasText || text.length > 0;
         content.push({ type: "text", text });
+      } else if (part.type === "thinking") {
+        const thinking = typeof part.thinking === "string" ? part.thinking : "";
+        if (thinking) content.push({ type: "thinking", thinking });
       } else if (part.type === "toolCall") {
         const id2 = `crew-call-${++callSeq.n}`;
         pendingCalls.push(id2);
@@ -83638,18 +83384,18 @@ function recordsToSessionEntries(records, headerTimestamp) {
     prevId = id;
   };
   for (const record of records) {
-    const event = asRecord14(record.event) ?? {};
+    const event = asRecord13(record.event) ?? {};
     const type = typeof event.type === "string" ? event.type : "";
     const timestamp = typeof record.time === "string" && record.time ? record.time : headerTimestamp;
     if (type === "message") {
-      const message = asRecord14(event.message);
+      const message = asRecord13(event.message);
       if (message && message.role === "assistant") pendingMessage = { record, timestamp };
       continue;
     }
     if (type === "message_end") {
-      const eventUsageRecord = asRecord14(event.usage ?? asRecord14(event.message)?.usage);
-      const message = asRecord14(event.message);
-      const pendingAggregate = pendingMessage ? asRecord14(asRecord14(pendingMessage.record.event)?.message) : void 0;
+      const eventUsageRecord = asRecord13(event.usage ?? asRecord13(event.message)?.usage);
+      const message = asRecord13(event.message);
+      const pendingAggregate = pendingMessage ? asRecord13(asRecord13(pendingMessage.record.event)?.message) : void 0;
       pendingMessage = void 0;
       if (message && message.role === "assistant" && asContentParts(message).length > 0) {
         emitAssistant({ ...message, usage: eventUsageRecord ?? message.usage }, timestamp);
@@ -83659,17 +83405,17 @@ function recordsToSessionEntries(records, headerTimestamp) {
     }
   }
   if (pendingMessage) {
-    const event = asRecord14(pendingMessage.record.event);
-    const message = asRecord14(event?.message);
+    const event = asRecord13(pendingMessage.record.event);
+    const message = asRecord13(event?.message);
     if (message && message.role === "assistant") emitAssistant(message, pendingMessage.timestamp);
   }
   return entries;
 }
 function normalizeUsage(raw) {
-  const usage = asRecord14(raw);
+  const usage = asRecord13(raw);
   const toNum = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
   const costRaw = usage ? usage.cost : void 0;
-  const costRecord = asRecord14(costRaw);
+  const costRecord = asRecord13(costRaw);
   return {
     input: toNum(usage?.input),
     output: toNum(usage?.output),
@@ -83753,6 +83499,364 @@ function buildAgentViewSessionFile(options) {
   }
   return path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
 }
+
+// src/ui/inline-panel/agent-transcript.ts
+var MAX_TRANSCRIPT_ITEMS = 500;
+var buffers = /* @__PURE__ */ new Map();
+var pendingByTask = /* @__PURE__ */ new Map();
+var cursors = /* @__PURE__ */ new Map();
+function asRecord14(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function textFromContent5(content) {
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) => {
+    const item = asRecord14(part);
+    if (!item) return [];
+    if (item.type === "text" && typeof item.text === "string") return [item.text];
+    return [];
+  }).join("\n").trim();
+}
+function parseEventRecord(record, pending2) {
+  const seq = typeof record.seq === "number" ? record.seq : 0;
+  const event = asRecord14(record.event) ?? record;
+  const type = typeof event.type === "string" ? event.type : "";
+  const items = [];
+  if (type === "tool_execution_start") {
+    const name = typeof event.toolName === "string" ? event.toolName : "tool";
+    const args = event.args ?? {};
+    const id = `${name}#${seq}`;
+    const item = { type: "tool", name, toolCallId: id, args, seq };
+    pending2.set(id, item);
+    items.push(item);
+    return items;
+  }
+  if (type === "tool_execution_end") {
+    return items;
+  }
+  if (type === "message_end" || type === "message" || type === "tool_result_end") {
+    const message = asRecord14(event.message);
+    if (!message) return items;
+    if (message.role === "assistant") {
+      const content = Array.isArray(message.content) ? message.content : [];
+      const text = textFromContent5(content);
+      if (text) {
+        const recordUsage = asRecord14(event.usage);
+        const messageUsage = asRecord14(message.usage);
+        let merged = message;
+        if (recordUsage) {
+          merged = { ...message, usage: messageUsage ? { ...messageUsage, ...recordUsage } : recordUsage };
+        }
+        items.push({ type: "assistant", text, seq, message: merged, usage: normalizeUsage(merged.usage) });
+      }
+      for (const part of content) {
+        const item = asRecord14(part);
+        if (item?.type !== "toolResult") continue;
+        const name = typeof item.name === "string" ? item.name : "tool";
+        matchPending(pending2, name, item.content, item.isError === true);
+      }
+      return items;
+    }
+    if (message.role === "user") {
+      const text = textFromContent5(message.content);
+      if (text) items.push({ type: "user", text, seq });
+      return items;
+    }
+  }
+  if (type && type !== "message_update") {
+    const text = typeof event.text === "string" ? event.text : "";
+    if (text) items.push({ type: "system", text, seq });
+  }
+  return items;
+}
+function matchPending(pending2, name, result4, isError) {
+  for (const [id, item] of [...pending2.entries()].reverse()) {
+    if (item.name !== name) continue;
+    pending2.delete(id);
+    if (result4 !== void 0) item.result = result4;
+    if (isError !== void 0) item.isError = isError;
+    return;
+  }
+}
+function readAgentTranscript(manifest, taskId) {
+  const sinceSeq = cursors.get(taskId) ?? 0;
+  const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
+  if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
+  if (events.length === 0) return buffers.get(taskId) ?? [];
+  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
+  pendingByTask.set(taskId, pending2);
+  let buffer = buffers.get(taskId) ?? [];
+  for (const record of events) {
+    const parsed = asRecord14(record);
+    if (!parsed) continue;
+    buffer.push(...parseEventRecord(parsed, pending2));
+  }
+  if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
+    buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
+  }
+  buffers.set(taskId, buffer);
+  return buffer;
+}
+function resetAgentTranscriptCursor(taskId) {
+  cursors.delete(taskId);
+  buffers.delete(taskId);
+  pendingByTask.delete(taskId);
+}
+function resetAllAgentTranscriptCursors() {
+  cursors.clear();
+  buffers.clear();
+  pendingByTask.clear();
+}
+
+// src/ui/inline-panel/agent-pane.ts
+init_panel_store();
+var MAX_BODY_FRACTION = 14;
+var TRANSCRIPT_READ_THROTTLE_MS = 500;
+var MANIFEST_REFRESH_MS = 1500;
+var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
+function formatTokenCount(count2) {
+  if (count2 < 1e3) return String(count2);
+  if (count2 < 1e6) return `${Math.round(count2 / 1e3)}k`;
+  return `${(count2 / 1e6).toFixed(1)}M`;
+}
+function usageFooterLine(usage) {
+  const parts = [];
+  if (usage.input) parts.push(`\u2191${formatTokenCount(usage.input)}`);
+  if (usage.output) parts.push(`\u2193${formatTokenCount(usage.output)}`);
+  if (usage.cacheRead) parts.push(`R${formatTokenCount(usage.cacheRead)}`);
+  const promptTokens = usage.input + usage.cacheRead;
+  if (usage.cacheRead && promptTokens > 0) {
+    parts.push(`CH${(usage.cacheRead / promptTokens * 100).toFixed(1)}%`);
+  }
+  if (usage.cost.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  return parts.join(" ");
+}
+var CrewAgentPane = class {
+  disposed = false;
+  /** Wrapped-line offset from the END of the transcript; 0 = tailing. */
+  scrollBack = 0;
+  tui;
+  theme;
+  cwd;
+  /** Current agent target, read fresh from the panel store each render. */
+  currentTaskId;
+  /** Cached manifest for the current run, to avoid re-reading on every tick. */
+  cachedRunId;
+  cachedManifest;
+  /** Tasks for the cached run (header shows the agent's real name/status). */
+  cachedTasks = [];
+  /** Last time the manifest was re-read for header freshness. */
+  lastManifestRefreshAt = 0;
+  componentCache = /* @__PURE__ */ new WeakMap();
+  /** Last disk read, so the open pane does not re-parse the JSONL every tick. */
+  lastTranscriptReadAt = 0;
+  /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
+  lastItems = [];
+  /**
+   * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
+   * which on a 500-item transcript is the bulk of each ~160ms host tick.
+   * The fingerprint covers identity-relevant bits (seq, type, text length,
+   * result presence) so tool-result folds still refresh the pane.
+   */
+  bodyKey = 0;
+  cachedBody = [];
+  unsubscribePanel;
+  constructor(tui, theme, cwd) {
+    this.tui = tui;
+    this.theme = asCrewTheme(theme);
+    this.cwd = cwd;
+    this.unsubscribePanel = subscribePanelChange(() => {
+      if (!this.disposed) this.tui.requestRender();
+    });
+  }
+  requestRender() {
+    if (!this.disposed) this.tui.requestRender();
+  }
+  scrollBy(delta) {
+    this.scrollBack = Math.max(0, this.scrollBack + delta);
+    this.tui.requestRender();
+  }
+  resolveManifest(runId) {
+    const stale = Date.now() - this.lastManifestRefreshAt >= MANIFEST_REFRESH_MS;
+    if (this.cachedRunId === runId && this.cachedManifest) {
+      if (stale) {
+        this.lastManifestRefreshAt = Date.now();
+        const refreshed = loadRunManifestById(this.cwd, runId);
+        if (refreshed) {
+          this.cachedManifest = refreshed.manifest;
+          this.cachedTasks = refreshed.tasks ?? [];
+        }
+      }
+      return this.cachedManifest;
+    }
+    const loaded = loadRunManifestById(this.cwd, runId);
+    if (!loaded) return void 0;
+    this.cachedRunId = runId;
+    this.cachedManifest = loaded.manifest;
+    this.cachedTasks = loaded.tasks ?? [];
+    this.lastManifestRefreshAt = Date.now();
+    return loaded.manifest;
+  }
+  itemComponent(item) {
+    const cached2 = this.componentCache.get(item);
+    if (cached2) return cached2;
+    let comp;
+    if (item.type === "user") {
+      comp = new UserMessageComponent(item.text);
+    } else if (item.type === "assistant") {
+      comp = item.message ? new AssistantMessageComponent(item.message) : new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
+    } else if (item.type === "system") {
+      comp = {
+        render: () => [this.theme.fg("dim", truncateToWidth2(item.text, 200, "\u2026"))]
+      };
+    } else {
+      const tool = new ToolExecutionComponent(item.name, item.toolCallId, item.args, {}, void 0, this.tui, this.cwd);
+      tool.markExecutionStarted();
+      if (item.result !== void 0) {
+        tool.updateResult(item.result);
+      }
+      comp = tool;
+    }
+    this.componentCache.set(item, comp);
+    return comp;
+  }
+  /**
+   * Render one transcript item to lines, degrading to a dim text line when
+   * the item's shape confuses a pi component (the JSONL is worker-written
+   * and unvalidated — a once-bad record must never kill the pane render).
+   */
+  renderItem(item, width) {
+    try {
+      return this.itemComponent(item).render(width);
+    } catch {
+      const label = item.type === "tool" ? item.name : "text";
+      return [this.theme.fg("dim", truncateToWidth2(`(unrenderable ${label} item)`, width, "\u2026"))];
+    }
+  }
+  /** FNV-1a over the parts that change pane output; 32-bit is plenty for a
+   * 500-item cache key (a collision only delays a repaint by one tick). */
+  bodyFingerprint(items, width) {
+    let h = (2166136261 ^ width) >>> 0;
+    for (const item of items) {
+      h ^= item.seq;
+      h = Math.imul(h, 16777619) >>> 0;
+      h ^= item.type.length;
+      h = Math.imul(h, 16777619) >>> 0;
+      if (item.type === "tool") {
+        h ^= item.result !== void 0 ? 7 : 3;
+      } else {
+        h ^= item.text.length;
+      }
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h;
+  }
+  buildBody(items, width) {
+    const body = [];
+    for (const item of items) {
+      for (const line4 of this.renderItem(item, width)) body.push(line4);
+      if (item.type === "assistant" && item.usage) {
+        const footer = usageFooterLine(item.usage);
+        if (footer) body.push(this.theme.fg("dim", footer));
+      }
+    }
+    return body;
+  }
+  /** Session-style header: agent name · task · run · model · state. */
+  headerLines(manifest, width) {
+    const t2 = this.theme;
+    const task = this.cachedTasks.find((candidate) => candidate.id === this.currentTaskId);
+    const name = task?.displayName ?? task?.title ?? this.currentTaskId ?? "agent";
+    const model = manifest.modelContext?.parentModel ?? manifest.modelContext?.override;
+    const parts = [
+      t2.fg("accent", t2.bold(name)),
+      t2.fg("dim", `\xB7 ${this.currentTaskId ?? ""}`),
+      t2.fg("dim", `\xB7 \u2026${manifest.runId.slice(-12)}`)
+    ];
+    if (model) parts.push(t2.fg("dim", `\xB7 ${model}`));
+    const status = task?.status ?? manifest.status;
+    let stateText = "";
+    if (status === "completed") stateText = t2.fg("success", "\u2713 completed");
+    else if (status === "failed") stateText = t2.fg("error", "\u2717 failed");
+    else if (status === "cancelled") stateText = t2.fg("warning", "\u25A0 cancelled");
+    else if (status === "running") stateText = t2.fg("success", "\u25CF running");
+    else if (status) stateText = t2.fg("dim", status);
+    const line4 = truncateToWidth2(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "\u2026");
+    const lines = [line4];
+    if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
+      lines.push(
+        t2.fg(
+          "dim",
+          truncateToWidth2(
+            `\xB7 finished \u2014 /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`,
+            width,
+            "\u2026"
+          )
+        )
+      );
+    }
+    return lines;
+  }
+  render(width) {
+    if (this.disposed) return [];
+    const viewed2 = getViewedAgent();
+    if (!viewed2) return [];
+    if (this.currentTaskId !== viewed2.taskId) {
+      resetAgentTranscriptCursor(viewed2.taskId);
+      this.currentTaskId = viewed2.taskId;
+      this.scrollBack = 0;
+      this.lastItems = [];
+      this.lastTranscriptReadAt = 0;
+      this.bodyKey = 0;
+      this.cachedBody = [];
+    }
+    const manifest = this.resolveManifest(viewed2.runId);
+    if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
+    if (Date.now() - this.lastTranscriptReadAt >= TRANSCRIPT_READ_THROTTLE_MS) {
+      this.lastItems = readAgentTranscript(manifest, viewed2.taskId);
+      this.lastTranscriptReadAt = Date.now();
+    }
+    const items = this.lastItems;
+    const fingerprint = this.bodyFingerprint(items, width);
+    if (fingerprint !== this.bodyKey) {
+      this.cachedBody = this.buildBody(items, width);
+      this.bodyKey = fingerprint;
+    }
+    const body = this.cachedBody;
+    const header = this.headerLines(manifest, width);
+    const rows = this.tui.terminal.rows;
+    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
+    const visibleCount = Math.min(maxBody, Math.max(1, body.length));
+    this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
+    const end = body.length - this.scrollBack;
+    const visible = body.slice(Math.max(0, end - visibleCount), end);
+    const lines = [];
+    for (const line4 of header) lines.push(line4);
+    lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
+    if (end - visibleCount > 0) {
+      lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
+    } else {
+      lines.push("");
+    }
+    for (const line4 of visible) lines.push(line4);
+    if (this.scrollBack > 0) {
+      lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
+    }
+    return lines;
+  }
+  invalidate() {
+    this.componentCache = /* @__PURE__ */ new WeakMap();
+    this.bodyKey = 0;
+    this.cachedBody = [];
+  }
+  dispose() {
+    this.disposed = true;
+    this.unsubscribePanel();
+    this.cachedManifest = void 0;
+    this.cachedRunId = void 0;
+  }
+};
 
 // src/ui/inline-panel/crew-editor.ts
 init_panel_selection();

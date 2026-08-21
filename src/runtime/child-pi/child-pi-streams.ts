@@ -11,7 +11,7 @@
 import { logInternalError } from "../../utils/internal-error.ts";
 import { extractText } from "../output/pi-json-output.ts";
 import type { ChildPiRunInput } from "./child-pi.ts";
-import { MAX_ASSISTANT_TEXT_CHARS, MAX_LINE_BUFFER_BYTES, MAX_TOOL_INPUT_CHARS, MAX_TOOL_RESULT_CHARS } from "./child-pi-constants.ts";
+import { MAX_ASSISTANT_TEXT_CHARS, MAX_LINE_BUFFER_BYTES, MAX_THINKING_CHARS, MAX_TOOL_INPUT_CHARS, MAX_TOOL_RESULT_CHARS } from "./child-pi-constants.ts";
 import { appendTranscript, compactString, compactValue, flushPendingTranscriptWrites } from "./child-pi-transcript.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -37,6 +37,20 @@ function compactContentPart(part: unknown): unknown | undefined {
 			type: "toolCall",
 			name: record.name,
 			input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input),
+		};
+	// Reasoning is display-only, but the agent view pane renders the FULL
+	// assistant message (AssistantMessageComponent) — without the thinking
+	// parts the pane would look sparse next to a real pi session. Keep them
+	// capped so a long-thinking model cannot balloon the event log.
+	if (record.type === "thinking")
+		return {
+			type: "thinking",
+			thinking:
+				typeof record.thinking === "string"
+					? compactString(record.thinking, MAX_THINKING_CHARS, {
+							preserveImportant: false,
+						})
+					: "",
 		};
 	if (record.type === "toolResult")
 		return {

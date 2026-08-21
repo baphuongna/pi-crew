@@ -90,6 +90,51 @@ test("tool start → end → message_end folds one tool card with its result", (
 	}
 });
 
+test("assistant item keeps the full message (thinking + usage) normalized for the pane", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{
+				type: "message_end",
+				usage: { input: 1200, output: 340, cost: 0.0042 },
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "let me reason about this" },
+						{ type: "text", text: "Saw it." },
+					],
+					stopReason: "end_turn",
+					model: "commandcode/poolside/laguna-s-2.1-free",
+				},
+			},
+		]);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.length, 1);
+		const assistant = items[0];
+		assert.equal(assistant?.type, "assistant");
+		if (assistant?.type !== "assistant") return;
+
+		assert.equal(assistant.text, "Saw it.");
+		assert.ok(assistant.message, "full compacted message is retained for AssistantMessageComponent");
+		const content = (assistant.message.content as Array<Record<string, unknown>>) ?? [];
+		assert.ok(content.some((part) => part.type === "thinking" && String(part.thinking).includes("reason")), "thinking part survives");
+		// Record-level usage merges into the message and is normalized to pi shape.
+		assert.deepEqual(assistant.usage, {
+			input: 1200,
+			output: 340,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: { total: 0.0042 },
+		});
+		if (assistant.message.usage) {
+			assert.equal((assistant.message.usage as Record<string, unknown>).input, 1200, "usage merged into the retained message");
+		}
+	} finally {
+		cleanup(fixture);
+	}
+});
+
 test("user messages become user items", () => {
 	const fixture = makeFixture();
 	try {

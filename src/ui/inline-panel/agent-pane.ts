@@ -13,12 +13,19 @@
  * change or when a tool item gains its result.
  */
 
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { DynamicBorder, getMarkdownTheme, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import {
+	AssistantMessageComponent,
+	DynamicBorder,
+	getMarkdownTheme,
+	ToolExecutionComponent,
+	UserMessageComponent,
+} from "@earendil-works/pi-coding-agent";
 import { Markdown, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
-import type { TeamRunManifest } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { type CrewTranscriptItem, readAgentTranscript, resetAgentTranscriptCursor } from "./agent-transcript.ts";
 import { getViewedAgent, subscribePanelChange } from "./panel-store.ts";
@@ -26,6 +33,31 @@ import { getViewedAgent, subscribePanelChange } from "./panel-store.ts";
 const MAX_BODY_FRACTION = 14;
 /** Minimum gap between disk re-reads while the pane is open (transcript-viewer parity). */
 const TRANSCRIPT_READ_THROTTLE_MS = 500;
+/** Re-check the manifest/tasks every this often so the header's status/model
+ *  stay current without a disk read on every host tick. */
+const MANIFEST_REFRESH_MS = 1500;
+/** Terminal task statuses — after these the header shows the full-session hint. */
+const TERMINAL_TASK_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+function formatTokenCount(count: number): string {
+	if (count < 1000) return String(count);
+	if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+	return `${(count / 1_000_000).toFixed(1)}M`;
+}
+
+/** pi-style per-turn usage footer: ↑in ↓out Rcache $cost (pi-subtask parity). */
+function usageFooterLine(usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } }): string {
+	const parts: string[] = [];
+	if (usage.input) parts.push(`↑${formatTokenCount(usage.input)}`);
+	if (usage.output) parts.push(`↓${formatTokenCount(usage.output)}`);
+	if (usage.cacheRead) parts.push(`R${formatTokenCount(usage.cacheRead)}`);
+	const promptTokens = usage.input + usage.cacheRead;
+	if (usage.cacheRead && promptTokens > 0) {
+		parts.push(`CH${((usage.cacheRead / promptTokens) * 100).toFixed(1)}%`);
+	}
+	if (usage.cost.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+	return parts.join(" ");
+}
 
 interface Renderable {
 	render(width: number): string[];
@@ -47,6 +79,10 @@ export class CrewAgentPane {
 	/** Cached manifest for the current run, to avoid re-reading on every tick. */
 	private cachedRunId: string | undefined;
 	private cachedManifest: TeamRunManifest | undefined;
+	/** Tasks for the cached run (header shows the agent's real name/status). */
+	private cachedTasks: TeamTaskState[] = [];
+	/** Last time the manifest was re-read for header freshness. */
+	private lastManifestRefreshAt = 0;
 
 	private componentCache = new WeakMap<CrewTranscriptItem, Renderable>();
 	/** Last disk read, so the open pane does not re-parse the JSONL every tick. */
@@ -85,11 +121,24 @@ export class CrewAgentPane {
 	}
 
 	private resolveManifest(runId: string): TeamRunManifest | undefined {
-		if (this.cachedRunId === runId && this.cachedManifest) return this.cachedManifest;
+		const stale = Date.now() - this.lastManifestRefreshAt >= MANIFEST_REFRESH_MS;
+		if (this.cachedRunId === runId && this.cachedManifest) {
+			if (stale) {
+				this.lastManifestRefreshAt = Date.now();
+				const refreshed = loadRunManifestById(this.cwd, runId);
+				if (refreshed) {
+					this.cachedManifest = refreshed.manifest;
+					this.cachedTasks = refreshed.tasks ?? [];
+				}
+			}
+			return this.cachedManifest;
+		}
 		const loaded = loadRunManifestById(this.cwd, runId);
 		if (!loaded) return undefined;
 		this.cachedRunId = runId;
 		this.cachedManifest = loaded.manifest;
+		this.cachedTasks = loaded.tasks ?? [];
+		this.lastManifestRefreshAt = Date.now();
 		return loaded.manifest;
 	}
 
@@ -101,7 +150,13 @@ export class CrewAgentPane {
 		if (item.type === "user") {
 			comp = new UserMessageComponent(item.text);
 		} else if (item.type === "assistant") {
-			comp = new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
+			// Full-message parity with a real pi session: pi's own assistant
+			// component renders text, thinking blocks, and tool calls from the
+			// compacted message. Falls back to markdown for old event logs
+			// that predate message retention.
+			comp = item.message
+				? new AssistantMessageComponent(item.message as unknown as AssistantMessage)
+				: new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
 		} else if (item.type === "system") {
 			// System lines are plain text — no component needed.
 			comp = {
@@ -158,8 +213,51 @@ export class CrewAgentPane {
 		const body: string[] = [];
 		for (const item of items) {
 			for (const line of this.renderItem(item, width)) body.push(line);
+			if (item.type === "assistant" && item.usage) {
+				// pi's session transcript prints a usage footer under each
+				// assistant message; mirror it so the pane reads like one.
+				const footer = usageFooterLine(item.usage);
+				if (footer) body.push(this.theme.fg("dim", footer));
+			}
 		}
 		return body;
+	}
+
+	/** Session-style header: agent name · task · run · model · state. */
+	private headerLines(manifest: TeamRunManifest, width: number): string[] {
+		const t = this.theme;
+		const task = this.cachedTasks.find((candidate) => candidate.id === this.currentTaskId);
+		const name = task?.displayName ?? task?.title ?? this.currentTaskId ?? "agent";
+		const model = manifest.modelContext?.parentModel ?? manifest.modelContext?.override;
+		const parts: string[] = [
+			t.fg("accent", t.bold(name)),
+			t.fg("dim", `· ${this.currentTaskId ?? ""}`),
+			t.fg("dim", `· …${manifest.runId.slice(-12)}`),
+		];
+		if (model) parts.push(t.fg("dim", `· ${model}`));
+
+		const status = task?.status ?? manifest.status;
+		let stateText = "";
+		if (status === "completed") stateText = t.fg("success", "✓ completed");
+		else if (status === "failed") stateText = t.fg("error", "✗ failed");
+		else if (status === "cancelled") stateText = t.fg("warning", "■ cancelled");
+		else if (status === "running") stateText = t.fg("success", "● running");
+		else if (status) stateText = t.fg("dim", status);
+		const line = truncateToWidth(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "…");
+		const lines = [line];
+		if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
+			lines.push(
+				t.fg(
+					"dim",
+					truncateToWidth(
+						`· finished — /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`,
+						width,
+						"…",
+					),
+				),
+			);
+		}
+		return lines;
 	}
 
 	render(width: number): string[] {
@@ -205,15 +303,17 @@ export class CrewAgentPane {
 
 		// Height: size to content, capped so the transcript above and the
 		// editor/footer below stay reachable on small terminals.
+		const header = this.headerLines(manifest, width);
 		const rows = this.tui.terminal.rows;
-		const maxBody = Math.max(6, rows - MAX_BODY_FRACTION);
+		const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
 		const visibleCount = Math.min(maxBody, Math.max(1, body.length));
 		this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
 		const end = body.length - this.scrollBack;
 		const visible = body.slice(Math.max(0, end - visibleCount), end);
 
 		const lines: string[] = [];
-		// Top border, themed like every other border in pi-crew.
+		// Session-style header first, then the border, then the transcript.
+		for (const line of header) lines.push(line);
 		lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
 		if (end - visibleCount > 0) {
 			lines.push(this.theme.fg("dim", ` ↑ ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));

@@ -24,12 +24,26 @@
 
 import { readCrewAgentEventsCursor } from "../../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { normalizeUsage } from "./agent-view-session.ts";
 
 const MAX_TRANSCRIPT_ITEMS = 500;
 
 export type CrewTranscriptItem =
 	| { type: "user"; text: string; seq: number }
-	| { type: "assistant"; text: string; seq: number }
+	| {
+			type: "assistant";
+			text: string;
+			seq: number;
+			/** The compacted assistant message (content/usage/model/stopReason),
+			 *  retained so the pane can render with pi's own
+			 *  AssistantMessageComponent instead of plain markdown. Usage is
+			 *  normalized to pi's shape (footer/dashboard consumers read
+			 *  usage.input / usage.cost.total unconditionally). */
+			message?: Record<string, unknown>;
+			/** Usage normalized for the pane's own footer line (parallels the
+			 *  view-session builder; absent when the event carried none). */
+			usage?: ReturnType<typeof normalizeUsage>;
+	  }
 	| {
 			type: "tool";
 			name: string;
@@ -113,7 +127,18 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 		if (message.role === "assistant") {
 			const content = Array.isArray(message.content) ? message.content : [];
 			const text = textFromContent(content);
-			if (text) items.push({ type: "assistant", text, seq });
+			if (text) {
+				// Compaction can carry usage at the RECORD level (usage-only
+				// tail) instead of inside the message — merge it in so the
+				// pane's full-message render and usage footer see it.
+				const recordUsage = asRecord(event.usage);
+				const messageUsage = asRecord(message.usage);
+				let merged = message;
+				if (recordUsage) {
+					merged = { ...message, usage: messageUsage ? { ...messageUsage, ...recordUsage } : recordUsage };
+				}
+				items.push({ type: "assistant", text, seq, message: merged, usage: normalizeUsage(merged.usage) });
+			}
 			// toolResult parts carry name + content; fold them into pending starts.
 			for (const part of content) {
 				const item = asRecord(part);

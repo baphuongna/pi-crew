@@ -32,6 +32,14 @@ export const MAX_LINE_BUFFER_BYTES = 1024 * 1024; // 1 MB
 /** Maximum characters for assistant text fragments in compacted events. */
 export const MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
 
+/**
+ * Maximum characters for reasoning (`thinking`) fragments in compacted events,
+ * and the size cap for the thinking parts in the agent view pane / view
+ * session. Reasoning is display-only (never folded into results or artifacts),
+ * so it gets a tighter cap than full assistant text.
+ */
+export const MAX_THINKING_CHARS = 8 * 1024;
+
 /** Maximum characters for tool-result fragments in compacted events. */
 export const MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
 

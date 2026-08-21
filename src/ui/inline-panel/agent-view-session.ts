@@ -134,6 +134,11 @@ function recordsToSessionEntries(records: CrewEventRecord[], headerTimestamp: st
 				const text = typeof part.text === "string" ? part.text : "";
 				hasText = hasText || text.length > 0;
 				content.push({ type: "text", text });
+			} else if (part.type === "thinking") {
+				// Keep reasoning so the view reads like the worker's real
+				// session (pi renders thinking blocks inline).
+				const thinking = typeof part.thinking === "string" ? part.thinking : "";
+				if (thinking) content.push({ type: "thinking", thinking });
 			} else if (part.type === "toolCall") {
 				const id = `crew-call-${++callSeq.n}`;
 				pendingCalls.push(id);
@@ -218,7 +223,7 @@ function recordsToSessionEntries(records: CrewEventRecord[], headerTimestamp: st
  * pi-shaped `{input, output, cacheRead, cacheWrite, cost: {total}}`, or
  * absent) into the shape pi's footer/dashboard reads unconditionally.
  */
-function normalizeUsage(raw: unknown): { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } } {
+export function normalizeUsage(raw: unknown): { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } } {
 	const usage = asRecord(raw);
 	const toNum = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 	const costRaw = usage ? usage.cost : undefined;
